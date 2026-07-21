@@ -8,14 +8,15 @@ This implementation note is subordinate to [System Architecture](./system-archit
 
 - The runtime installs one process-local instance and the supervisor owns one exact `activationOwners` map.
 - One plain `CardActivationOwner` holds each activation's phase, result/cancel winner, independent containment owner, ready processor, relationship, publication task, and retained failure. It is not a `BaseActor`.
-- `CardProcessActor` and `ConversationLLMActor` remain actors. The conversation actor alone constructs the complete LLM invocation context and concrete child lease; supervisor transitions coordinate that lease with owner structure.
+- `CardProcessActor` remains a `BaseActor` micro-actor. `ConversationLLMActor` is now the direct provider/tool phase owner.
+  The direct owner has no compiled topology, event queue, `start()`, or actor lifecycle settlement. It alone constructs the complete LLM invocation context and concrete child lease; supervisor transitions coordinate that lease with owner structure.
 - Project/goal restart begins planner; terminal-card restart begins executor; reviewer is nested live work only.
 - Pause is one request flag and one parked frontier. Stop interrupts open work for restartable containment; only when domain cancellation already owns the claim does Stop join that exact actor's cancellation settlement.
 - Stable planner/executor/reviewer session owners locally settle only the latest interrupted conversation round.
-- The micro-actor lifecycle exposes only initial-state `start()`; no recover or rehydrate entrypoint exists.
+- Remaining `BaseActor` micro-actors expose only initial-state `start()`; no recover or rehydrate entrypoint exists.
 - Configured planning and terminal workflows compile once per family into shared entry/node/terminal actor definitions. `CardProcessActor` has no wrapper graph loop or cursor; accepted result events route through the definition, including explicit same-state reentry.
 - Live process position and zero-based node ordinal are process-local projections only. STOPPED recovery constructs a fresh actor and does not rehydrate prior process state.
-- Every actor constructor supplies an immutable compiled topology and per-instance generic lifecycle callbacks directly to `BaseActor`. Fixed topologies compile once and are shared; behavior is neither embedded in topology nor discovered through static properties, reflection, or state-named methods.
+- Every remaining `BaseActor` constructor supplies an immutable compiled topology and per-instance generic lifecycle callbacks directly to `BaseActor`. Fixed topologies compile once and are shared; behavior is neither embedded in topology nor discovered through static properties, reflection, or state-named methods. Conversation LLM completion and cancellation instead use exact direct phase replacement, operation-local settlement, and provider lifecycle containment.
 - Start assigns the initial state and invokes only `enter`. External transitions run `leave`, source-task abort/clear, target assignment, `transition`, then `enter`; unknown events and ordinary same-state transitions run no callback.
 - Runtime state, actor snapshots, active reconstruction, recovery diagnostics, and replay coordinators do not exist.
 
@@ -37,7 +38,7 @@ Actors call `CardService` and named direct file functions. They do not own repos
 
 ## Validation Focus
 
-Current validation protects exact live-owner cancellation, Stop→Run same-session behavior, notification terminal races, local interruption settlement, two-stage progressive compaction, opaque hierarchical card identity, direct file I/O, and lifecycle-lock-only CLI delegation.
+Current validation protects exact live-owner cancellation, direct Conversation LLM completion/cancellation ownership, Stop→Run same-session behavior, notification terminal races, local interruption settlement, two-stage progressive compaction, opaque hierarchical card identity, direct file I/O, and lifecycle-lock-only CLI delegation.
 
 ## Completed Remediation R1-R4
 

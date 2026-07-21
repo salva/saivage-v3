@@ -32,7 +32,7 @@ describe('prepared conversation LLM admission', () => {
       providerCalls += 1;
       return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-call', type: 'function' as const, function: { name: 'activate_card', arguments: '{"card_id":"card-a"}' } }] }, provider_exchanges: [] };
     });
-    const outcome = await actor.turn(preparedInput());
+    const outcome = await directTurn(actor, preparedInput());
     if (outcome.type !== 'tool_call') throw new Error('Expected a tool call.');
 
     const context = actor.toolInvocationContext(outcome);
@@ -46,7 +46,7 @@ describe('prepared conversation LLM admission', () => {
 
     lease.markAdmitted();
     expect(actor.executingActivity()).toEqual({ mode: 'waiting', barrier: { kind: 'child', relationship: expect.objectContaining({ childCardId: 'card-a', toolCallId: 'activate-call' }) } });
-    expect(() => actor.settleToolResultWithoutContinuation('activate-call', { success: true })).toThrow(/child lease is 'admitted'/);
+    await expect(actor.settleToolResultWithoutContinuation('activate-call', { success: true })).rejects.toThrow(/child lease is 'admitted'/);
     expect(() => actor.assertInvocationCanHandoff()).toThrow(/cannot hand off/);
     expect(() => actor.abandonParkedTurn()).toThrow(/child invocation lease/);
 
@@ -58,7 +58,7 @@ describe('prepared conversation LLM admission', () => {
     lease.deliverOutcome({ status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } });
     await lease.activation;
     expect(order).toEqual(['ownership-invalidated', 'lease-resolved']);
-    actor.settleToolResultWithoutContinuation('activate-call', { success: true });
+    await actor.settleToolResultWithoutContinuation('activate-call', { success: true });
     expect(providerCalls).toBe(1);
   });
 
@@ -67,7 +67,7 @@ describe('prepared conversation LLM admission', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const actor = toolCallingActor(projectRoot, async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-call', type: 'function' as const, function: { name: 'activate_card', arguments: '{}' } }] }, provider_exchanges: [] }));
-    const outcome = await actor.turn(preparedInput());
+    const outcome = await directTurn(actor, preparedInput());
     if (outcome.type !== 'tool_call') throw new Error('Expected a tool call.');
     expect(() => actor.toolInvocationContext({ ...outcome, agentId: 'planner:card-a' })).toThrow(/belongs to/);
     expect(() => actor.toolInvocationContext({ ...outcome, inputId: 'stale-input' })).toThrow(/does not match/);
@@ -78,7 +78,7 @@ describe('prepared conversation LLM admission', () => {
     lease.markPublicationUnknown();
     let settled = false;
     void lease.activation.then(() => { settled = true; }, () => { settled = true; });
-    actor.disposeInvocations(new Error('owner disposal'));
+    actor.dispose(new Error('owner disposal'));
     await Promise.resolve();
     expect(settled).toBe(false);
     expect(actor.executingActivity()).toMatchObject({ mode: 'waiting', barrier: { kind: 'child' } });
@@ -114,9 +114,7 @@ describe('prepared conversation LLM admission', () => {
       compactor: { shouldCompact: () => false, compact: jest.fn<CompactorPort['compact']>() },
       summarizerProvider: { completeTurn: jest.fn<LLMProviderPort['completeTurn']>(), projectProviderExchanges: jest.fn() },
     });
-    actor.start();
-
-    const turn = actor.turn(preparedInput());
+    const turn = directTurn(actor, preparedInput());
     turn.then(() => { trace.push('consumer delivery'); });
     await expect(turn).resolves.toMatchObject({ type: 'result', result: { kind: 'message', content: 'done' } });
 
@@ -172,10 +170,9 @@ describe('prepared conversation LLM admission', () => {
       compactor: { shouldCompact: () => false, compact: jest.fn<CompactorPort['compact']>() },
       summarizerProvider: { completeTurn: jest.fn<LLMProviderPort['completeTurn']>(), projectProviderExchanges: jest.fn() },
     });
-    actor.start();
     const controller = new AbortController();
     const reason = new Error('owner stopped');
-    const turn = actor.turn(preparedInput(), controller.signal);
+    const turn = directTurn(actor, preparedInput(), controller.signal);
     await started;
     controller.abort(reason);
     await expect(turn).rejects.toBe(reason);
@@ -274,17 +271,13 @@ describe('prepared conversation LLM admission', () => {
       summarizerProvider: { completeTurn: summarize, projectProviderExchanges: jest.fn() },
       runtimeProjectionChanged: projectionChanged,
     });
-    actor.start();
-    projectionChanged.mockClear();
     const input: LlmInvocationInput = {
       inputId: '00000000-0000-4000-8000-000000000001', agentId: actor.agentId, role: 'planner', sessionId: 'planner:project',
       systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [],
       modelParams: { maxTokens: 100 }, capabilityRequest: {}, episodeContext: {},
     };
 
-    await expect(actor.turn(input as never)).rejects.toThrow(/requires prepared compaction/);
-    expect(actor.state()).toBe('idle');
-    await expect(actor.awaitPendingTurn()).rejects.toThrow(/no pending provider turn/);
+    await expect(actor.turn(input as never, undefined, terminalHandoff)).rejects.toThrow(/requires prepared compaction/);
     expect(readConversation(projectRoot, 'planner:project').physicalRows).toEqual([]);
     expect(projectionChanged).not.toHaveBeenCalled();
     expect(shouldCompact).not.toHaveBeenCalled();
@@ -303,9 +296,11 @@ function toolCallingActor(projectRoot: string, completeTurn: LLMProviderPort['co
     compactor: { shouldCompact: () => false, compact: jest.fn<CompactorPort['compact']>() },
     summarizerProvider: { completeTurn: jest.fn<LLMProviderPort['completeTurn']>(), projectProviderExchanges: jest.fn() },
   });
-  actor.start();
   return actor;
 }
+
+const terminalHandoff = (): void => undefined;
+function directTurn(actor: ConversationLLMActor, input: PreparedLlmInvocationInput, signal?: AbortSignal) { return actor.turn(input, signal, terminalHandoff); }
 
 function preparedInput(): PreparedLlmInvocationInput {
   const systemPrompt = 'system';

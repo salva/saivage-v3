@@ -63,7 +63,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#summarizerProvider = args.summarizerProvider;
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
     this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, parentControl: args.parentControl, notifyCard: args.notifyCard, processRunner: args.processRunner, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
-      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(),
+      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), assertCurrentActivation: (input) => this.#assertCurrentActivation(input),
     });
   }
 
@@ -84,13 +84,13 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
 
   disposeActivation(reason: unknown): void {
     this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
-    if (!this.#llmInvocationsDisposed) { for (const llm of this.#joiningLlmActors) llm.disposeInvocations(reason); this.#llmInvocationsDisposed = true; }
+    if (!this.#llmInvocationsDisposed) { for (const llm of this.#joiningLlmActors) llm.dispose(reason); this.#llmInvocationsDisposed = true; }
     this.#operationTracker?.revoke(reason);
   }
 
   suppressContinuationAndPrepareJoin(reason: unknown): void {
     this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
-    for (const llm of this.#joiningLlmActors) llm.closeInvocationAdmission(reason);
+    for (const llm of this.#joiningLlmActors) llm.suppressContinuation(reason);
     this.#operationTracker?.closeAdmission(reason);
   }
 
@@ -102,8 +102,13 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   }
 
   async #performActivationJoin(actors: readonly ConversationLLMActor[]): Promise<readonly InvocationJoinOutcome[]> {
-    const outcomes = await Promise.all(actors.map((llm) => llm.joinInvocationSettlement()));
-    const processorOutcomes = await this.#joinProcessorActivation();
+    const actorJoins = actors.map((llm) => llm.join());
+    const processorJoin = this.#joinProcessorActivation();
+    const settled = await Promise.allSettled([...actorJoins, processorJoin]);
+    const failure = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected');
+    if (failure) throw failure.reason;
+    const outcomes = settled.slice(0, actorJoins.length).map((entry) => (entry as PromiseFulfilledResult<InvocationJoinOutcome>).value);
+    const processorOutcomes = (settled[settled.length - 1] as PromiseFulfilledResult<readonly InvocationJoinOutcome[]>).value;
     const hadActors = this.#activeLlmActors.size > 0;
     this.#activeLlmActors.clear();
     if (hadActors) this.#runtimeProjectionChanged();
@@ -217,9 +222,10 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #createMainLlm(agentId: string): ConversationLLMActor {
     const existing = this.#activeLlmActors.get(agentId); if (existing) return existing;
     const llm = new ConversationLLMActor({ projectRoot: this.projectRoot, agentId, provider: this.#provider, conversations: this.#conversations, gate: this.#gate, compactor: this.#compactor, summarizerProvider: this.#summarizerProvider, runtimeProjectionChanged: this.#runtimeProjectionChanged });
-    llm.start(); this.#activeLlmActors.set(agentId, llm); this.#runtimeProjectionChanged(); return llm;
+    this.#activeLlmActors.set(agentId, llm); this.#runtimeProjectionChanged(); return llm;
   }
   #selectExecutingLlm(llm: ConversationLLMActor): void { const current = this.#currentExecutingLlm; if (!current) { this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); return; } if (current === llm) return; current.assertInvocationCanHandoff(); if (current.executingActivity().mode !== 'active') throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`); this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); }
   #freshSourceInputId(): string { return randomUUID(); }
+  #assertCurrentActivation(input: CardActivationInput): void { if (this.#activationInput !== input || this.#activationSettled) throw new Error(`Card process '${this.cardId}' activation is no longer current.`); }
   async #joinProcessorActivation(): Promise<readonly InvocationJoinOutcome[]> { const tracker = this.#operationTracker; if (!tracker) { await this.awaitLifecycleSettlement(); return []; } const outcome = await tracker.join(); await this.awaitLifecycleSettlement(); return [outcome]; }
 }

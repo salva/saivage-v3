@@ -22,11 +22,186 @@ import { validateConversationRows } from '../../src/contracts/conversation-compa
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
+import type { ConversationEntryObservation } from '../../src/persistence/conversation-file.js';
+import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-adapter.js';
+import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('Analyst continuation compaction safety', () => {
+  it('cancels before deferred startup with one accepted-operation ingress/notice batch and no provider admission', async () => {
+    const provider = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'late' }, provider_exchanges: [] }));
+    const { runtime, projectRoot } = harness(provider, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false);
+    const turn = runtime.submit({ userContent: 'cancel before startup' });
+    expect(runtime.cancel('operator')).toBe(true);
+    await expect(turn).resolves.toMatchObject({ cancelled: true });
+    expect(provider).not.toHaveBeenCalled();
+    const rows = readConversation(projectRoot, 'analyst:global').physicalRows;
+    expect(rows.map((row) => [row.role, row.kind])).toEqual([['system', 'activity'], ['system', 'text'], ['user', 'text'], ['assistant', 'text']]);
+    const acceptedOperationId = JSON.parse(rows[0]!.content).input_id as string;
+    expect(rows[3]).toMatchObject({ id: `${acceptedOperationId}:message`, content: 'Cancelled: operator' });
+  });
+
+  it('services cancellation re-entering the ingress writer after all ingress observations and before provider admission', async () => {
+    const provider = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
+    let runtime!: AnalystRuntime;
+    const observed: string[] = [];
+    let requested = false;
+    const result = harness(provider, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false, false, createTestPromptTemplateRegistry(), compact, (entry) => {
+      observed.push(entry.id);
+      if (!requested && entry.kind === 'activity') { requested = true; expect(runtime.cancel('observer cancellation')).toBe(true); }
+    });
+    runtime = result.runtime;
+
+    await expect(runtime.submit({ userContent: 'cancel from ingress observer' })).resolves.toMatchObject({ cancelled: true });
+    expect(provider).not.toHaveBeenCalled();
+    const rows = readConversation(result.projectRoot, 'analyst:global').physicalRows;
+    const acceptedOperationId = JSON.parse(rows[0]!.content).input_id as string;
+    expect(rows.slice(0, 3).map((row) => row.id)).toEqual(observed.slice(0, 3));
+    expect(rows[3]).toMatchObject({ id: `${acceptedOperationId}:message`, content: 'Cancelled: observer cancellation' });
+  });
+
+  it('poisons admission when the nested cancellation notice observer fails after publication', async () => {
+    let providerEntered!: () => void;
+    const entered = new Promise<void>((resolve) => { providerEntered = resolve; });
+    const provider = jest.fn(async (_input: LlmInvocationInput, signal: AbortSignal) => { providerEntered(); return new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })); });
+    const observerFailure = new Error('cancellation observer failed');
+    const result = harness(provider, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false, false, createTestPromptTemplateRegistry(), compact, (entry) => {
+      if (entry.role === 'assistant' && entry.kind === 'text') throw observerFailure;
+    });
+    const turn = result.runtime.submit({ userContent: 'cancel provider' });
+    await entered;
+    expect(result.runtime.cancel('operator')).toBe(true);
+
+    await expect(turn).rejects.toMatchObject({ cause: observerFailure });
+    await expect(result.runtime.submit({ userContent: 'must be rejected before effects' })).rejects.toMatchObject({ cause: observerFailure });
+    expect(provider).toHaveBeenCalledTimes(1);
+    const rows = readConversation(result.projectRoot, 'analyst:global').physicalRows;
+    expect(rows.filter((row) => row.role === 'assistant' && row.content === 'Cancelled: operator')).toHaveLength(1);
+  });
+
+  it('uses pairwise-distinct accepted, initial, and continuation sources for a continued provider failure and exact outer notice', async () => {
+    const inputs: LlmInvocationInput[] = [];
+    const evidence = jest.fn();
+    const provider = jest.fn(async (input: LlmInvocationInput) => {
+      inputs.push(input);
+      if (inputs.length === 1) return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'unsupported', type: 'function' as const, function: { name: 'not_a_tool', arguments: '{}' } }] }, provider_exchanges: [] };
+      throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange(input.inputId, 'error', 500)], originalFailure: new Error('continued provider failed') });
+    });
+    const result = harness(provider, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), evidence, false);
+
+    await expect(result.runtime.submit({ userContent: 'continue then fail' })).resolves.toMatchObject({ sessionId: 'analyst:global' });
+    expect(inputs).toHaveLength(2);
+    const rows = readConversation(result.projectRoot, 'analyst:global').physicalRows;
+    const accepted = JSON.parse(rows.find((row) => row.kind === 'activity')!.content).input_id as string;
+    const [initial, continuation] = inputs.map((input) => input.inputId);
+    expect(new Set([accepted, initial, continuation]).size).toBe(3);
+    expect(rows.filter((row) => row.id === `${continuation}:error` || row.id === `${continuation}:message`)).toEqual([
+      expect.objectContaining({ id: `${continuation}:error`, content: 'continued provider failed' }),
+      expect.objectContaining({ id: `${continuation}:message`, content: 'Analyst LLM unavailable: continued provider failed' }),
+    ]);
+    expect(rows.some((row) => row.id === `${accepted}:message` || row.id === `${initial}:error` || row.id === `${initial}:message`)).toBe(false);
+    expect(evidence).toHaveBeenCalledWith('analyst:global', continuation, expect.any(Array), [`${continuation}:error`]);
+  });
+
+  it('preserves entered provider completion, exact handoff, and current caller delivery when disposal re-enters its writer', async () => {
+    let runtime!: AnalystRuntime;
+    let inputId = '';
+    let disposed = false;
+    const result = harness(jest.fn(async (input: LlmInvocationInput) => {
+      inputId = input.inputId;
+      return { result: { kind: 'message' as const, content: 'completion wins' }, provider_exchanges: [] };
+    }), jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false, false, createTestPromptTemplateRegistry(), compact, (entry) => {
+      if (!disposed && entry.id === `${inputId}:message`) { disposed = true; runtime.closeAdmission(); }
+    });
+    runtime = result.runtime;
+
+    await expect(runtime.submit({ userContent: 'dispose during completion' })).resolves.toEqual({ sessionId: 'analyst:global', restart: null, toolInvocations: undefined });
+    await expect(runtime.submit({ userContent: 'closed' })).rejects.toThrow('Analyst admission is closed.');
+    expect(readConversation(result.projectRoot, 'analyst:global').physicalRows.filter((row) => row.id === `${inputId}:message`)).toHaveLength(1);
+  });
+
+  it('still appends the exact provider-failure notice after disposal re-enters the error writer', async () => {
+    let runtime!: AnalystRuntime;
+    let inputId = '';
+    let disposed = false;
+    const evidence = jest.fn();
+    const result = harness(jest.fn(async (input: LlmInvocationInput) => {
+      inputId = input.inputId;
+      throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange(input.inputId, 'error', 500)], originalFailure: new Error('provider unavailable') });
+    }), jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), evidence, false, false, createTestPromptTemplateRegistry(), compact, (entry) => {
+      if (!disposed && entry.id === `${inputId}:error`) { disposed = true; runtime.closeAdmission(); }
+    });
+    runtime = result.runtime;
+
+    await expect(runtime.submit({ userContent: 'dispose during provider error' })).resolves.toEqual({ sessionId: 'analyst:global', restart: null, toolInvocations: undefined });
+    expect(evidence).toHaveBeenCalledWith('analyst:global', inputId, expect.any(Array), [`${inputId}:error`]);
+    expect(readConversation(result.projectRoot, 'analyst:global').physicalRows.filter((row) => row.id === `${inputId}:error` || row.id === `${inputId}:message`)).toEqual([
+      expect.objectContaining({ id: `${inputId}:error`, content: 'provider unavailable' }),
+      expect.objectContaining({ id: `${inputId}:message`, content: 'Analyst LLM unavailable: provider unavailable' }),
+    ]);
+  });
+
+  it('hands off a modeled invalid-output issue under its exact terminal source before the Analyst notice', async () => {
+    let inputId = '';
+    const result = harness(jest.fn(async (input: LlmInvocationInput) => {
+      inputId = input.inputId;
+      return { result: { kind: 'tool_calls' as const, tool_calls: [
+        { id: 'one', type: 'function' as const, function: { name: 'read', arguments: '{}' } },
+        { id: 'two', type: 'function' as const, function: { name: 'glob', arguments: '{}' } },
+      ] }, provider_exchanges: [] };
+    }), jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false);
+
+    await expect(result.runtime.submit({ userContent: 'invalid model output' })).resolves.toMatchObject({ sessionId: 'analyst:global' });
+    const issue = 'Provider returned 2 tool calls; exactly one supported tool call is required.';
+    expect(readConversation(result.projectRoot, 'analyst:global').physicalRows.filter((row) => row.id === `${inputId}:error` || row.id === `${inputId}:message`)).toEqual([
+      expect.objectContaining({ id: `${inputId}:error`, kind: 'model_issue', content: issue }),
+      expect.objectContaining({ id: `${inputId}:message`, content: `Analyst LLM unavailable: ${issue}` }),
+    ]);
+  });
+
+  it('strictly replays a real post-continuation parked cancellation through Chat and Responses on the next turn', async () => {
+    const inputs: LlmInvocationInput[] = [];
+    let fetchEntered!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => { fetchEntered = resolve; });
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation((_request, init) => {
+      fetchEntered();
+      return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason), { once: true }));
+    });
+    try {
+      const provider = jest.fn(async (input: LlmInvocationInput) => {
+        inputs.push(input);
+        if (inputs.length === 1) return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'first', type: 'function' as const, function: { name: 'not_a_tool', arguments: '{}' } }] }, provider_exchanges: [] };
+        if (inputs.length === 2) return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'fetch', type: 'function' as const, function: { name: 'webfetch', arguments: '{"url":"https://93.184.216.34","metadata_only":true}' } }] }, provider_exchanges: [] };
+        return { result: { kind: 'message' as const, content: 'next turn succeeded' }, provider_exchanges: [] };
+      });
+      const result = harness(provider, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false);
+      const cancelled = result.runtime.submit({ userContent: 'continue to a parked tool' });
+      await fetchStarted;
+      expect(result.runtime.cancel('operator')).toBe(true);
+      await expect(cancelled).resolves.toMatchObject({ cancelled: true });
+      await expect(result.runtime.submit({ userContent: 'next turn' })).resolves.toMatchObject({ sessionId: 'analyst:global' });
+
+      const [initial, parked, next] = inputs;
+      expect(new Set([initial!.inputId, parked!.inputId, next!.inputId]).size).toBe(3);
+      const failed = '{"success":false,"error":"The Analyst turn was cancelled before this tool result could continue the conversation."}';
+      const replay = next!.providerConversation;
+      expect(replay.messages).toContainEqual(expect.objectContaining({ id: `${parked!.inputId}:tool-result:fetch`, content: failed }));
+      expect(replay.messages).toContainEqual(expect.objectContaining({ id: `${parked!.inputId}:message`, content: 'Cancelled: operator' }));
+
+      const chat = buildOpenAIChatRequest({ provider: 'test', account: null, model: 'model' }, next!.systemPrompt, replay, { inputId: next!.inputId, contract_id: 'analyst.test', contractName: 'analyst', terminalToolOffered: [], tools: [], tool_choice: 'auto', stream: false });
+      expect(chat.messages).toContainEqual(expect.objectContaining({ role: 'assistant', tool_calls: [expect.objectContaining({ id: 'fetch' })] }));
+      expect(chat.messages).toContainEqual({ role: 'tool', tool_call_id: 'fetch', content: failed });
+      expect(chat.messages).toContainEqual({ role: 'assistant', content: 'Cancelled: operator' });
+
+      const responses = responsesInputFromProviderConversation(replay);
+      expect(responses).toContainEqual({ type: 'function_call', call_id: 'fetch', name: 'webfetch', arguments: '{"url":"https://93.184.216.34","metadata_only":true}' });
+      expect(responses).toContainEqual({ type: 'function_call_output', call_id: 'fetch', output: failed });
+      expect(responses).toContainEqual({ role: 'assistant', content: [{ type: 'output_text', text: 'Cancelled: operator' }] });
+    } finally { fetchSpy.mockRestore(); }
+  });
+
   it('uses one identical terminal-free tool array for the prompt, provider, and prepared compaction', async () => {
     let captured!: LlmInvocationInput;
     const promptTemplates = { render: (_cardType: string, _role: string, values: Record<string, string>) => values.toolList } as never;
@@ -59,7 +234,7 @@ describe('Analyst continuation compaction safety', () => {
     expect(runtime.executingLlmSnapshot()).toBeNull();
 
     const failedHarness = harness(jest.fn(async () => { throw new Error('provider failed'); }), unusedSummary);
-    await failedHarness.runtime.submit({ userContent: 'failure' });
+    await expect(failedHarness.runtime.submit({ userContent: 'failure' })).rejects.toThrow('provider failed');
     expect(failedHarness.runtime.executingLlmSnapshot()).toBeNull();
 
     const cancelledHarness = harness(jest.fn(async (_input: LlmInvocationInput, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))), unusedSummary);
@@ -194,6 +369,53 @@ describe('Analyst continuation compaction safety', () => {
     ]);
   });
 
+  it('retains one restart confirmation through a busy pre-admission rejection and pre-raw cancellation, then consumes it only after scheduling', async () => {
+    const primary = jest.fn(async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'restart-call', type: 'function' as const, function: { name: 'restart_server', arguments: '{}' } }] }, provider_exchanges: [] }));
+    const { runtime, projectRoot, scheduleRestart } = harness(primary, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false, true);
+    await expect(runtime.submit({ userContent: 'request restart' })).resolves.toMatchObject({ restart: { status: 'confirmation_required' } });
+
+    const cancelled = runtime.submit({ userContent: 'RESTART SERVER' });
+    const busy = runtime.submit({ userContent: 'busy rejection must not move confirmation' });
+    expect(runtime.cancel('not yet')).toBe(true);
+    await expect(busy).rejects.toThrow(/active turn/);
+    await expect(cancelled).resolves.toMatchObject({ cancelled: true, restart: { status: 'confirmation_required' } });
+    expect(scheduleRestart).not.toHaveBeenCalled();
+
+    await expect(runtime.submit({ userContent: 'RESTART SERVER' })).resolves.toMatchObject({ restart: { status: 'scheduled' } });
+    expect(scheduleRestart).toHaveBeenCalledTimes(1);
+    expect(primary).toHaveBeenCalledTimes(1);
+    const rows = readConversation(projectRoot, 'analyst:global').physicalRows;
+    const restartMarkers = rows.filter((row) => row.kind === 'activity' && JSON.parse(row.content).event === 'activation_open').slice(1);
+    const cancelledId = JSON.parse(restartMarkers[0]!.content).input_id as string;
+    expect(rows).toContainEqual(expect.objectContaining({ id: `${cancelledId}:message`, content: 'Cancelled: not yet' }));
+  });
+
+  it('finishes both confirmed-restart row observations before servicing re-entrant cancellation and restores confirmation', async () => {
+    const primary = jest.fn(async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'restart-call', type: 'function' as const, function: { name: 'restart_server', arguments: '{}' } }] }, provider_exchanges: [] }));
+    let runtime!: AnalystRuntime;
+    let cancelOnRestart = false;
+    const observed: string[] = [];
+    const result = harness(primary, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false, true, createTestPromptTemplateRegistry(), compact, (entry) => {
+      if (!cancelOnRestart) return;
+      observed.push(entry.id);
+      if (observed.length === 1) expect(runtime.cancel('restart observer')).toBe(true);
+    });
+    runtime = result.runtime;
+    await runtime.submit({ userContent: 'request restart' });
+    cancelOnRestart = true;
+
+    await expect(runtime.submit({ userContent: 'RESTART SERVER' })).resolves.toMatchObject({ cancelled: true, restart: { status: 'confirmation_required' } });
+    expect(result.scheduleRestart).not.toHaveBeenCalled();
+    expect(observed).toHaveLength(3);
+    const rows = readConversation(result.projectRoot, 'analyst:global').physicalRows;
+    const restartMarker = rows.filter((row) => row.kind === 'activity' && JSON.parse(row.content).event === 'activation_open')[1]!;
+    const accepted = JSON.parse(restartMarker.content).input_id as string;
+    expect(observed.slice(0, 2)).toEqual([restartMarker.id, expect.stringContaining('analyst:global:context:')]);
+    expect(rows).toContainEqual(expect.objectContaining({ id: `${accepted}:message`, content: 'Cancelled: restart observer' }));
+    cancelOnRestart = false;
+    await expect(runtime.submit({ userContent: 'RESTART SERVER' })).resolves.toMatchObject({ restart: { status: 'scheduled' } });
+  });
+
   it('fails dynamic preparation overflow before marker, provider, summary, or tool work', async () => {
     const primary = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
     const summary = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
@@ -221,6 +443,24 @@ describe('Analyst continuation compaction safety', () => {
     expect(primary).not.toHaveBeenCalled();
     expect(compactor).toHaveBeenCalledTimes(1);
   });
+
+  it('cancels with the exact current source after compaction replaces the canonical input object', async () => {
+    let providerEntered!: () => void;
+    const entered = new Promise<void>((resolve) => { providerEntered = resolve; });
+    let providerInput!: LlmInvocationInput;
+    const primary = jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
+      providerInput = input;
+      providerEntered();
+      return new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const compactImplementation = jest.fn(async ({ input }: { input: PreparedLlmInvocationInput }) => ({ kind: 'compacted' as const, providerConversation: input.providerConversation }));
+    const { runtime, projectRoot } = harness(primary, jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), true, false, createTestPromptTemplateRegistry(), compactImplementation as never);
+    const pending = runtime.submit({ userContent: 'cancel after compacting' });
+    await entered;
+    expect(runtime.cancel('after compacting')).toBe(true);
+    await expect(pending).resolves.toMatchObject({ cancelled: true });
+    expect(readConversation(projectRoot, 'analyst:global').physicalRows).toContainEqual(expect.objectContaining({ id: `${providerInput.inputId}:message`, content: 'Cancelled: after compacting' }));
+  });
 });
 
 async function waitUntil(predicate: () => boolean): Promise<void> {
@@ -231,7 +471,7 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
   throw new Error('Timed out waiting for Analyst state.');
 }
 
-function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, summary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, projectProviderExchanges = jest.fn(), preventive = true, restartServerAvailable = false, promptTemplates = createTestPromptTemplateRegistry(), compactImplementation = compact) {
+function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, summary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, projectProviderExchanges = jest.fn(), preventive = true, restartServerAvailable = false, promptTemplates = createTestPromptTemplateRegistry(), compactImplementation = compact, observeEntry?: (entry: ConversationEntryObservation) => void) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-compaction-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
@@ -245,7 +485,7 @@ function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Pr
     configAuthority: {}, cardStore: new CardService(projectRoot), runtime: { startProject: jest.fn(), pause: jest.fn(), resume: jest.fn(), stopProject: jest.fn(), cancelCard: jest.fn(), notifyCard: jest.fn(), getStatus: jest.fn() },
     eventBus, provider: { completeTurn: primary, projectProviderExchanges }, processRunner: runner, analystProcessRootScope: runner.analystRootScope, mcpToolInvocation: unusedMcpToolInvocation,
     compactionPolicy, compactor: { shouldCompact: preventive ? (compactImplementation === compact ? shouldCompact : () => true) : () => false, compact: compactImplementation }, summarizerProvider,
-    conversations: { projectRoot }, appLogs: testAppLogs(projectRoot), interventionReadiness: new RuntimeInterventionBinding(),
+    conversations: { projectRoot, observeEntry }, appLogs: testAppLogs(projectRoot), interventionReadiness: new RuntimeInterventionBinding(),
     runtimeProjectionChanged: jest.fn(), captureExecutingLlmSnapshots: () => [],
   } as never, promptTemplates, restartServerAvailable, restartPort: restartServerAvailable ? { schedule: scheduleRestart, acknowledge: jest.fn(async () => undefined) } : undefined });
   return { runtime, projectRoot, summarizerProvider, scheduleRestart };

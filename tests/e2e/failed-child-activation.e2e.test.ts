@@ -283,7 +283,7 @@ describe('failed child activation lifecycle E2E', () => {
     supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: expect.stringContaining('failed without ProviderTurnFailure metadata') }, error: expect.stringContaining('failed without ProviderTurnFailure metadata') } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'malformed provider envelope' }, error: 'malformed provider envelope' } });
     expect(cards.read('project')!.version_seq).toBeGreaterThan(runningVersion);
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect((supervisor as unknown as RuntimeOwnership).activationOwners.size).toBe(0);

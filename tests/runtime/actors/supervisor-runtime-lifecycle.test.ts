@@ -129,6 +129,22 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
     await expect(loser).rejects.toThrow('result already claimed'); expect(h.cards.read('project')?.lifecycle.status).toBe('done');
   });
 
+  it('preserves a result winner when Stop re-enters terminal record publication and waits for its direct LLM settlement', async () => {
+    const h = harness(completingProvider());
+    const original = h.cards.commitTerminalLifecycle.bind(h.cards);
+    let stop: Promise<unknown> | undefined;
+    jest.spyOn(h.cards, 'commitTerminalLifecycle').mockImplementation((...args) => {
+      stop ??= h.supervisor.stopProject();
+      return original(...args);
+    });
+
+    await h.service.startProject();
+    await waitUntil(() => stop !== undefined);
+    await expect(stop).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(h.cards.read('project')?.lifecycle.status).toBe('done');
+    expect(h.supervisor.getStatus().status).toBe('stopped');
+  });
+
   it('keeps cancellation as sole abort/publication winner and discards a late provider result', async () => {
     let resolve!: (value: ReturnType<typeof terminalProviderResult>) => void; let signal!: AbortSignal;
     const provider = { completeTurn: async (_input: unknown, current: AbortSignal) => { signal = current; return new Promise<ReturnType<typeof terminalProviderResult>>((done) => { resolve = done; }); }, projectProviderExchanges: jest.fn() };

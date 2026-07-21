@@ -47,6 +47,7 @@ export interface AgentNodeExecutionHost {
   createLlm(agentId: string): ConversationLLMActor;
   selectLlm(llm: ConversationLLMActor): void;
   freshInputId(): string;
+  assertCurrentActivation(input: CardActivationInput): void;
 }
 
 export interface AgentNodeExecutionDeps {
@@ -84,12 +85,19 @@ export class AgentNodeExecution {
       this.prepareNodeEntry(process, node, args.transition, input, sessionId, inputId, contract, surface, reviewerPair);
       const baseline = new Map(node.requiredRecords.map((record) => [record.filename, this.captureRecord(record.filename)]));
       const prepared = this.buildLlmInput(node, input, sessionId, inputId, contract, surface);
-      const initialOutcome = await llm.turn(prepared, signal);
-      return await runContractRepairLoop<AcceptedNodeResult>({
+      const terminalHandoff = () => this.host.assertCurrentActivation(input);
+      const initialOutcome = await llm.turn(prepared, signal, terminalHandoff);
+      this.host.assertCurrentActivation(input);
+      const accepted = await runContractRepairLoop<AcceptedNodeResult>({
         initialOutcome,
         isTerminalToolName: (name) => contract.isTerminalToolName(name),
         fail: (message) => { throw new Error(message); },
-        onPlainText: async (_outcome, control) => control.repair(() => llm.continueAfterPlainText(this.correction(node, ['emit_result is required.']), signal)),
+        onPlainText: async (_outcome, control) => control.repair(async () => {
+          this.host.assertCurrentActivation(input);
+          const repaired = await llm.continueAfterPlainText(this.correction(node, ['emit_result is required.']), signal, terminalHandoff);
+          this.host.assertCurrentActivation(input);
+          return repaired;
+        }),
         onTerminalTool: async (terminalOutcome, control) => {
           let parsed: NodeResult;
           try { parsed = verifyTerminalToolOutcome(contract, terminalOutcome).result.result; }
@@ -120,9 +128,11 @@ export class AgentNodeExecution {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
             if (blocker) return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }, signal));
           }
-           if (target.kind === 'terminal') input.claimResult();
-          const recordUrls = this.closeAcceptedRecords(node, records.candidates);
-          llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
+           if (target.kind === 'terminal') llm.claimResultAndCloseContinuation(terminalOutcome, new Error('Terminal result accepted.'), () => input.claimResult());
+           this.host.assertCurrentActivation(input);
+           const recordUrls = this.closeAcceptedRecords(node, records.candidates);
+           await llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
+           this.host.assertCurrentActivation(input);
            cleanupStatus = target.kind === 'terminal' ? terminalCleanupStatus(target.terminal) : 'done';
            return control.done(Object.freeze({ outcome: parsed.outcome, summary: parsed.summary, recordUrls: Object.freeze(recordUrls) }));
         },
@@ -131,9 +141,12 @@ export class AgentNodeExecution {
             ? await invokeToolForLlm(surface, toolOutcome.toolName, toolOutcome.args, llm.toolInvocationContext(toolOutcome), signal)
             : { success: false as const, error: `Unsupported ${node.role} tool call '${toolOutcome.toolName}'.` };
           signal.throwIfAborted();
+          this.host.assertCurrentActivation(input);
           return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId));
         },
       });
+      this.host.assertCurrentActivation(input);
+      return accepted;
     } finally {
       await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
     }

@@ -20,7 +20,7 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('Analyst handler cancellation after a committed mutation', () => {
-  it('keeps one ok audit while suppressing tool-result persistence, continuation, and replay', async () => {
+  it('keeps one ok audit and durably pairs the cancelled parked tool call without continuation', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-late-cancel-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -70,6 +70,8 @@ describe('Analyst handler cancellation after a committed mutation', () => {
     expect(listControlActions(projectRoot)[0]).toMatchObject({ action: 'card.cancel', outcome: 'ok' });
     const rows = readConversation(projectRoot, 'analyst:global').physicalRows;
     expect(rows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'cancel-call')).toHaveLength(1);
-    expect(rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'cancel-call')).toHaveLength(0);
+    expect(rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'cancel-call')).toEqual([
+      expect.objectContaining({ content: '{"success":false,"error":"The Analyst turn was cancelled before this tool result could continue the conversation."}' }),
+    ]);
   });
 });

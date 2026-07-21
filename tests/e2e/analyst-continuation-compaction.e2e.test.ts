@@ -140,10 +140,14 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
 
     const currentRows = currentRound.rows.map((row) => row.message);
     const currentMarker = JSON.parse(currentRows[0]!.content) as Record<string, unknown>;
+    const acceptedOperationId = currentMarker['input_id'];
+    expect(typeof acceptedOperationId).toBe('string');
+    expect(acceptedOperationId).not.toBe(primaryRequests[1]!.inputId);
+    expect(new Set(primaryRequests.map((request) => request.inputId)).size).toBe(3);
     expect(currentMarker).toEqual({
       event: 'activation_open',
       role: 'analyst',
-      input_id: primaryRequests[1]!.inputId,
+      input_id: acceptedOperationId,
       timestamp: currentRows[0]!.timestamp,
     });
     expect(currentRows.slice(0, 3).map((row) => [row.role, row.kind, row.content])).toEqual([
@@ -151,7 +155,7 @@ describe('ordinary-runtime Analyst continuation compaction E2E', () => {
       ['system', 'text', '[workspace-context]\nview: cards\nentity: project\nrefinement: tab=tree'],
       ['user', 'text', currentUserContent],
     ]);
-    expect(conversation.sourceRows.filter((row) => row.kind === 'activity' && JSON.parse(row.content).input_id === primaryRequests[1]!.inputId)).toHaveLength(1);
+    expect(conversation.sourceRows.filter((row) => row.kind === 'activity' && JSON.parse(row.content).input_id === acceptedOperationId)).toHaveLength(1);
     expect(conversation.sourceRows.filter((row) => row.content === currentUserContent)).toHaveLength(1);
     expect(conversation.sourceRows.filter((row) => row.content === '[workspace-context]\nview: cards\nentity: project\nrefinement: tab=tree')).toHaveLength(1);
     expect(conversation.sourceRows.filter((row) => row.kind === 'tool_call' && row.tool_call_id === 'list-cards-once')).toHaveLength(1);

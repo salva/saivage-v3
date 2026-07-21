@@ -19,17 +19,16 @@ import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
-import { appendAnalystIngressBatch, appendAnalystRestartBatch, providerConversationProjection } from '../runtime/actors/conversation-session.js';
-import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort } from '../runtime/actors/llm-actor.js';
-import { appendLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
-import { readConversation, type ConversationFileContext } from '../persistence/conversation-file.js';
+import { buildAnalystIngressRows, buildAnalystRestartRows, providerConversationProjection } from '../runtime/actors/conversation-session.js';
+import { ConversationLLMActor, type AnalystCancellationPublication, type LLMActorOutcome, type LLMProviderPort, type LlmTerminalHandoff } from '../runtime/actors/llm-actor.js';
+import { buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
+import { appendConversationBatch, readConversation, type ConversationFileContext } from '../persistence/conversation-file.js';
 import type { AppLogContext } from '../persistence/app-log.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
 import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { ManagedProcessScope } from '../runtime/process-runner.js';
-import { BaseActor, compileActorDefinition } from '../runtime/micro-actor/index.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
@@ -40,6 +39,8 @@ import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
+import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
+import { randomUUID } from 'node:crypto';
 
 
 export interface WorkspaceContext {
@@ -115,13 +116,6 @@ export type AnalystTurnResult = AnalystResponse;
 
 type AnalystToolInvocations = NonNullable<AnalystResponse['toolInvocations']>;
 
-export interface AnalystSessionReadModel {
-  sessionId: AnalystConversationSessionId;
-  phase: 'idle' | 'conversing';
-  toolInFlight: string | null;
-  lastOutcome: 'completed' | 'failed' | 'cancelled' | null;
-}
-
 function summarizeForBroadcast(tool: string, result: ToolResult): { summary: string; classified_as?: string; related_card_id?: string; related_note_id?: string; related_process_id?: string } {
   const data = result.success && result.data && typeof result.data === 'object' ? result.data as Record<string, unknown> : null;
   const source = data ?? {};
@@ -167,307 +161,244 @@ function analystToolContext(args: { projectRoot: string; runtimeDeps: AnalystRun
   return { projectRoot: args.projectRoot, configAuthority: args.runtimeDeps.configAuthority, interventionReadiness: args.runtimeDeps.interventionReadiness, processRunner: args.runtimeDeps.processRunner, processScope: args.processScope, store: args.store, sessionId: args.sessionId, runtime: args.runtimeDeps.runtime, runtimeControl: args.runtimeDeps.runtimeControl, mcpToolInvocation: args.runtimeDeps.mcpToolInvocation, restartServerAvailable: args.restartServerAvailable, actor: args.actor, surface: args.surface, eventBus: args.runtimeDeps.eventBus, appLogs: args.runtimeDeps.appLogs, captureExecutingLlmSnapshots: args.runtimeDeps.captureExecutingLlmSnapshots, analystMutations };
 }
 
-type PendingAnalystTurn = {
-  input: AnalystTurnInput;
-  onActivity?: ActivityCallback;
+type RestartConfirmation = Readonly<{ kind: 'restart_confirmation' }>;
+type TerminalCompletion = Readonly<{ input: CanonicalLlmInvocationInput; outcome: Extract<LLMActorOutcome, { type: 'result' | 'error' }> }>;
+type AnalystTurnStep =
+  | { kind: 'preparing' }
+  | { kind: 'starting'; ingress: 'publishing' | 'published'; cancellationRequested: string | null }
+  | { kind: 'nested'; input: CanonicalLlmInvocationInput }
+  | { kind: 'waiting_tool'; input: CanonicalLlmInvocationInput; outcome: Extract<LLMActorOutcome, { type: 'tool_call' }> }
+  | { kind: 'confirmed_restart_preparing' }
+  | { kind: 'confirmed_restart_publishing'; request: { kind: 'cancel'; reason: string } | { kind: 'dispose'; reason: unknown } | null }
+  | { kind: 'confirmed_restart_published' }
+  | { kind: 'confirmed_restart_scheduling' }
+  | { kind: 'settling_llm'; completion: TerminalCompletion; noticeEntered: boolean };
+type AnalystTurnOutcome =
+  | { kind: 'pending' }
+  | { kind: 'claiming_cancel'; reason: string; publication: 'pending' | 'published' }
+  | { kind: 'completed'; response: AnalystResponse }
+  | { kind: 'failed'; error: unknown };
+type AnalystTurnOperation = {
+  readonly input: AnalystTurnInput;
+  readonly onActivity?: ActivityCallback;
+  readonly acceptedOperationId: string;
+  restartConfirmation: RestartConfirmation | null;
+  readonly caller: Deferred<AnalystTurnResult>;
+  readonly abort: AbortController;
+  readonly tracker: ActivationOperationTracker;
+  outcome: AnalystTurnOutcome;
+  step: AnalystTurnStep;
+  readonly toolInvocations: AnalystToolInvocations;
+  toolInFlight: string | null;
+  newlyRequestedRestart: boolean;
 };
+type AnalystSessionPhase =
+  | { kind: 'idle'; restartConfirmation: RestartConfirmation | null }
+  | { kind: 'conversing'; operation: AnalystTurnOperation }
+  | { kind: 'failed'; cause: unknown }
+  | { kind: 'disposed'; reason: unknown; settling: AnalystTurnOperation | null };
 
-const ANALYST_SESSION_ACTOR_DEFINITION = compileActorDefinition({
-  initial: 'idle',
-  states: {
-    idle: { parked: true, on: { submit: 'conversing' } },
-    conversing: { on: { done: 'idle', failed: 'idle', cancel: 'idle' } },
-  },
-});
+class RecoverablePreparationError extends Error {
+  constructor(readonly causeValue: unknown) { super('Analyst pure preparation failed.', { cause: causeValue }); }
+}
 
-export class AnalystSessionActor extends BaseActor {
+export class AnalystSession {
   private readonly llm: ConversationLLMActor;
-  private pendingTurn: PendingAnalystTurn | null = null;
-  private result: Deferred<AnalystTurnResult> | null = null;
-  private turnAbort: AbortController | null = null;
-  private cancellationReason: string | null = null;
-  private toolInFlight: string | null = null;
-  private started = false;
-  private lastOutcome: AnalystSessionReadModel['lastOutcome'] = null;
-  private pendingRestartConfirmation = false;
   private readonly processScope: ManagedProcessScope;
-  private operationTracker: ActivationOperationTracker | null = null;
-  private readonly retiredOperationTrackers: ActivationOperationTracker[] = [];
+  private phase: AnalystSessionPhase = { kind: 'idle', restartConfirmation: null };
+  private readonly retiredOperationTrackers = new Set<ActivationOperationTracker>();
 
   constructor(private readonly args: { projectRoot: string; sessionId: AnalystConversationSessionId; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; actor?: ActorRole; surface?: ControlActionSurface; restartServerAvailable: boolean; restartPort?: RestartPort }) {
-    super(ANALYST_SESSION_ACTOR_DEFINITION, {
-      enter: ({ target }) => {
-        if (target === 'conversing') this.enterConversing();
-      },
-    });
     this.processScope = args.runtimeDeps.processRunner.createDirectScope(args.runtimeDeps.analystProcessRootScope, `analyst-session:${args.sessionId}`, 'operator_session');
     this.llm = new ConversationLLMActor({ projectRoot: args.projectRoot, agentId: args.sessionId, provider: args.runtimeDeps.provider, conversations: args.runtimeDeps.conversations, compactor: args.runtimeDeps.compactor, summarizerProvider: args.runtimeDeps.summarizerProvider, runtimeProjectionChanged: args.runtimeDeps.runtimeProjectionChanged });
   }
 
-  override start(): void {
-    this.llm.start();
-    super.start();
-    this.started = true;
-  }
-
-  get sessionId(): AnalystConversationSessionId {
-    return this.args.sessionId;
-  }
+  get sessionId(): AnalystConversationSessionId { return this.args.sessionId; }
 
   submit(input: AnalystTurnInput, onActivity?: ActivityCallback): Promise<AnalystTurnResult> {
-    if (!this.started) return Promise.reject(new Error(`Analyst session '${this.sessionId}' has not started.`));
-    if (this.state() !== 'idle' || this.result) return Promise.reject(new Error(`Analyst session '${this.sessionId}' already has an active turn.`));
-    this.pendingTurn = { input, onActivity };
-    this.result = deferred<AnalystTurnResult>();
-    this.operationTracker = new ActivationOperationTracker();
-    this.parkedSendEvent('submit');
+    if (this.phase.kind === 'failed') return Promise.reject(this.phase.cause);
+    if (this.phase.kind === 'disposed') return Promise.reject(this.phase.reason);
+    if (this.phase.kind !== 'idle') return Promise.reject(new Error(`Analyst session '${this.sessionId}' already has an active turn.`));
+    if (!input.userContent.trim()) return Promise.reject(new Error('Analyst turn content must not be empty.'));
+    const caller = deferred<AnalystTurnResult>(); void caller.promise.catch(() => undefined);
+    const operation: AnalystTurnOperation = {
+      input, onActivity, acceptedOperationId: randomUUID(), restartConfirmation: this.phase.restartConfirmation,
+      caller, abort: new AbortController(), tracker: new ActivationOperationTracker(), outcome: { kind: 'pending' },
+      step: this.phase.restartConfirmation && input.userContent === 'RESTART SERVER' ? { kind: 'confirmed_restart_preparing' } : { kind: 'preparing' },
+      toolInvocations: [], toolInFlight: null, newlyRequestedRestart: false,
+    };
+    this.phase = { kind: 'conversing', operation };
+    const wrapper = operation.tracker.run(operation.abort.signal, (signal) => this.runAnalystTurn(operation, signal));
+    void operation.tracker.trackConsumer(() => this.consumeTurn(operation, wrapper));
     this.args.runtimeDeps.runtimeProjectionChanged();
-    return this.result.promise;
+    return caller.promise;
   }
 
   cancel(reason: string): boolean {
-    const result = this.result;
-    if (this.state() !== 'conversing' || !result) return false;
-    this.cancellationReason = reason;
-    this.operationTracker?.revoke(new Error(reason));
-    this.turnAbort?.abort(new Error(reason));
-    this.pendingTurn = null;
-          this.result = null;
-    this.lastOutcome = 'cancelled';
-    this.persistAssistantNotice(`Cancelled: ${reason}`);
-    result.resolve({ sessionId: this.sessionId, restart: null, cancelled: true });
-    this.sendEvent('cancel');
-    this.args.runtimeDeps.runtimeProjectionChanged();
+    const operation = this.activePendingOperation(); if (!operation) return false;
+    if (operation.step.kind === 'preparing') return this.claimStartupCancellation(operation, reason, false);
+    if (operation.step.kind === 'starting') {
+      if (operation.step.ingress === 'publishing') { operation.step.cancellationRequested ??= reason; return true; }
+      return this.claimStartupCancellation(operation, reason, true);
+    }
+    if (operation.step.kind === 'confirmed_restart_preparing') return this.claimRestartCancellation(operation, reason, false);
+    if (operation.step.kind === 'confirmed_restart_publishing') { operation.step.request ??= { kind: 'cancel', reason }; return true; }
+    if (operation.step.kind === 'confirmed_restart_published') return this.claimRestartCancellation(operation, reason, true);
+    if (operation.step.kind === 'confirmed_restart_scheduling' || operation.step.kind === 'settling_llm') return false;
+    const claimed = this.llm.requestCancellation(reason);
+    if (claimed.kind !== 'claimed') return false;
+    if (!claimed.publicationOwnedByLlm) {
+      try {
+        appendConversationBatch(this.args.runtimeDeps.conversations, [buildLlmTurnMessage(claimed.input, `Cancelled: ${reason}`)]);
+        this.markCancellationPublished(operation, reason);
+        this.finishCancellationRevocation(operation, reason);
+      } catch (error) {
+        operation.outcome = { kind: 'failed', error };
+        operation.tracker.revoke(error);
+        if (!operation.abort.signal.aborted) operation.abort.abort(error);
+      }
+    }
     return true;
   }
 
-  readModel(): AnalystSessionReadModel {
-    return { sessionId: this.sessionId, phase: this.state() === 'conversing' ? 'conversing' : 'idle', toolInFlight: this.toolInFlight, lastOutcome: this.lastOutcome };
-  }
-
   executingLlmSnapshot(): ExecutingLlmSnapshot | null {
-    if (this.state() !== 'conversing' || !this.result) return null;
+    if (this.phase.kind !== 'conversing') return null;
     return Object.freeze({ sessionId: this.sessionId, agentId: this.llm.agentId, role: 'analyst', cardId: null, activity: this.llm.executingActivity() });
   }
 
-  private enterConversing(): void {
-    const turn = this.pendingTurn;
-    const result = this.result;
-    if (!turn || !result) throw new Error(`Analyst session '${this.sessionId}' entered conversing without a pending turn.`);
-    const turnAbort = new AbortController();
-    this.turnAbort = turnAbort;
-    this.cancellationReason = null;
-    this.toolInFlight = null;
-    const tracker = this.operationTracker;
-    if (!tracker) throw new Error(`Analyst session '${this.sessionId}' entered conversing without an operation tracker.`);
-    this.runTask((taskSignal) => tracker.run(AbortSignal.any([turnAbort.signal, taskSignal]), (operationSignal) => this.runAnalystLoop(turn.input, operationSignal)), {
-      on_done: (response) => {
-        void tracker.trackConsumer(() => {
-          this.retireOperationTracker(tracker);
-          this.cleanupTurnState();
-          if (this.cancellationReason !== null) {
-            this.resetCancellationState();
-            return;
-          }
-          if (this.result !== result) return;
-          this.pendingTurn = null;
-          this.result = null;
-          this.lastOutcome = 'completed';
-          result.resolve(response);
-          this.sendEvent('done');
-          this.args.runtimeDeps.runtimeProjectionChanged();
-        });
-      },
-      on_failed: (error) => {
-        void tracker.trackConsumer(() => {
-          this.retireOperationTracker(tracker);
-          this.cleanupTurnState();
-          if (this.cancellationReason !== null) {
-            this.resetCancellationState();
-            return;
-          }
-          if (this.result !== result) return;
-          this.pendingTurn = null;
-          this.result = null;
-          this.lastOutcome = 'failed';
-          result.reject(error);
-          this.sendEvent('failed');
-          this.args.runtimeDeps.runtimeProjectionChanged();
-        });
-      },
-    });
-  }
-
-  private async runAnalystLoop(input: AnalystTurnInput, signal: AbortSignal): Promise<AnalystResponse> {
-    const sessionId = this.sessionId;
-    const toolInvocations: AnalystToolInvocations = [];
-    if (this.pendingRestartConfirmation) {
-      this.pendingRestartConfirmation = false;
-      if (input.userContent === 'RESTART SERVER') return this.scheduleConfirmedRestart(input);
-    }
-    const store = this.args.runtimeDeps.cardStore;
-    const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store, processScope: this.processScope, sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
-    const surface = buildRoleSurface({ role: 'analyst', toolContext: ctx });
-    const previousToolCallFingerprints = new Set<string>();
-    let noProgressDirectiveSent = false;
-    const invocationInput = this.buildInvocationInput(input, surface);
-    let outcome: LLMActorOutcome;
-
+  private async runAnalystTurn(operation: AnalystTurnOperation, signal: AbortSignal): Promise<AnalystResponse> {
+    this.assertCurrent(operation, signal);
+    if (operation.step.kind === 'confirmed_restart_preparing') return this.runConfirmedRestart(operation);
+    let surface: InvocationSurface;
     try {
-      this.throwIfCancelled();
-      outcome = await this.llm.turn(invocationInput, signal);
-    } catch (err) {
-      if (this.isCancelled()) return this.cancelledLoopResponse();
-      return this.errorResponse(err, toolInvocations, invocationInput);
+      const ctx = analystToolContext({ projectRoot: this.args.projectRoot, runtimeDeps: this.args.runtimeDeps, store: this.args.runtimeDeps.cardStore, processScope: this.processScope, sessionId: this.sessionId, actor: this.args.actor ?? 'analyst', surface: this.args.surface ?? 'web-chat', restartServerAvailable: this.args.restartServerAvailable });
+      surface = buildRoleSurface({ role: 'analyst', toolContext: ctx });
+    } catch (error) { throw new RecoverablePreparationError(error); }
+    const invocationInput = this.buildInvocationInput(operation.input, surface);
+    this.assertCurrent(operation, signal);
+    operation.step = { kind: 'starting', ingress: 'publishing', cancellationRequested: null };
+    appendConversationBatch(this.args.runtimeDeps.conversations, buildAnalystIngressRows(operation.acceptedOperationId, buildWorkspaceContextNote(operation.input.workspaceContext), operation.input.userContent));
+    if (operation.step.kind !== 'starting') throw new Error('Analyst ingress ownership changed during publication.');
+    operation.step = { ...operation.step, ingress: 'published' };
+    if (operation.step.cancellationRequested !== null) {
+      this.claimStartupCancellation(operation, operation.step.cancellationRequested, true);
+      throw operation.abort.signal.reason;
     }
-
+    this.assertCurrent(operation, signal);
+    operation.step = { kind: 'nested', input: invocationInput };
+    const terminal = this.terminalHandoff(operation);
+    let outcome = await this.llm.turn(invocationInput, signal, terminal, (input, reason) => this.claimNestedCancellation(operation, input, reason));
     for (;;) {
-      this.throwIfCancelled();
-      if (outcome.type === 'error') {
-        this.persistAssistantNotice(this.errorMessage(outcome.error));
-        return this.response(toolInvocations);
-      }
-
-      if (outcome.type === 'result') {
-        return this.response(toolInvocations);
-      }
-
-      const toolCall = outcome;
-      const rawArguments = typeof this.llm.waitingToolCall?.toolCallArguments === 'string' ? this.llm.waitingToolCall.toolCallArguments : JSON.stringify(toolCall.args);
-      const fingerprint = `${toolCall.toolName}:${rawArguments}`;
-      if (previousToolCallFingerprints.has(fingerprint)) {
-        if (this.llm.deliveredToolCallIds.has(toolCall.toolCallId)) {
-          this.persistAssistantNotice('I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.');
-          return this.response(toolInvocations);
-        }
-        if (noProgressDirectiveSent) {
-          this.persistAssistantNotice('I repeated the same tool calls without making progress. Please refine the request or inspect the latest tool results.');
-          return this.response(toolInvocations);
-        }
-        noProgressDirectiveSent = true;
-        outcome = await this.rejectToolCall(
-          toolCall,
-          'The same tool call was repeated without progress. Stop calling tools and answer the operator from the latest tool results.',
-          'no_progress',
-          toolCall.args && typeof toolCall.args === 'object' ? toolCall.args as Record<string, unknown> : {},
-          toolInvocations,
-          signal,
-        );
-        continue;
-      }
-      previousToolCallFingerprints.add(fingerprint);
-
-      if (!surface.tools.has(toolCall.toolName)) {
-        outcome = await this.rejectToolCall(
-          toolCall,
-          ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())),
-          'unsupported_action',
-          {},
-          toolInvocations,
-          signal,
-        );
-        continue;
-      }
-
+      this.assertCurrentOrSettling(operation, signal);
+      if (outcome.type === 'error' || outcome.type === 'result') return this.settleTerminalCompletion(operation, outcome);
+      operation.step = { kind: 'waiting_tool', input: this.llm.waitingToolInput(outcome), outcome };
+      const rawArguments = this.llm.waitingToolArguments(outcome);
       const parsed = parseProtocolToolArgs(rawArguments);
-      if (parsed.kind === 'violation') {
-        const violation = buildAgentProtocolViolation({ session_id: sessionId, role: 'analyst', tool_call_id: toolCall.toolCallId, tool_name: toolCall.toolName, violation: parsed.violation, raw: rawArguments });
-        this.logBoundaryDiagnostic('analyst_tool_arguments_protocol_violation', new Error(`${parsed.violation}: ${parsed.detail}`));
-        outcome = await this.rejectToolCall(
-          toolCall,
-          JSON.stringify(violation),
-          'agent_protocol_violation',
-          {},
-          toolInvocations,
-          signal,
-        );
-        continue;
-      }
-
-      const params = parsed.args;
-      this.emitActivity({ type: 'tool_call', content: { tool: toolCall.toolName, params } });
-      this.throwIfCancelled();
-      this.toolInFlight = toolCall.toolName;
+      let params: Record<string, unknown>;
       let result: ToolResult;
-      try {
-        result = await invokeToolCall(surface, toolCall.toolName, rawArguments, this.llm.toolInvocationContext(toolCall), signal);
-      } catch (err) {
-        if (this.isCancelled()) return this.cancelledLoopResponse();
-        throw err;
+      if (!surface.tools.has(outcome.toolName)) {
+        params = {}; result = { success: false, error: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())) };
+      } else if (parsed.kind === 'violation') {
+        params = {};
+        const violation = buildAgentProtocolViolation({ session_id: this.sessionId, role: 'analyst', tool_call_id: outcome.toolCallId, tool_name: outcome.toolName, violation: parsed.violation, raw: rawArguments });
+        result = { success: false, error: JSON.stringify(violation) };
+      } else {
+        params = parsed.args; this.emitActivity(operation, { type: 'tool_call', content: { tool: outcome.toolName, params } });
+        operation.toolInFlight = outcome.toolName;
+        result = await invokeToolCall(surface, outcome.toolName, rawArguments, this.llm.toolInvocationContext(outcome), signal);
+        operation.toolInFlight = null; this.assertCurrent(operation, signal);
       }
-      this.toolInFlight = null;
-      this.throwIfCancelled();
-
-      this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: result.success } });
-      toolInvocations.push({ tool: toolCall.toolName, params, result });
-      broadcastToolInvocation(this.args.runtimeDeps, sessionId, toolCall.toolName, result);
-      if (toolCall.toolName === 'restart_server' && result.success) {
-        this.llm.settleToolResultWithoutContinuation(toolCall.toolCallId, result);
-        this.pendingRestartConfirmation = true;
-        return this.response(toolInvocations, { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
+      this.emitActivity(operation, { type: 'tool_result', content: { tool: outcome.toolName, success: result.success } });
+      operation.toolInvocations.push({ tool: outcome.toolName, params, result }); broadcastToolInvocation(this.args.runtimeDeps, this.sessionId, outcome.toolName, result);
+      if (outcome.toolName === 'restart_server' && result.success) {
+        await this.llm.settleToolResultWithoutContinuation(outcome.toolCallId, result);
+        operation.newlyRequestedRestart = true;
+        return this.response(operation, { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
       }
-      outcome = await this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
+      outcome = await this.llm.appendToolResult(outcome.toolCallId, result, signal);
     }
   }
 
-  private scheduleConfirmedRestart(input: AnalystTurnInput): AnalystResponse {
-    if (!this.args.restartServerAvailable || !this.args.restartPort) throw new Error('Restart confirmation is unavailable without authenticated operator restart capability.');
-    appendAnalystRestartBatch(this.args.runtimeDeps.conversations, randomUUID(), input.userContent);
-    this.args.restartPort.schedule();
-    return this.response(undefined, { status: 'scheduled' });
+  private runConfirmedRestart(operation: AnalystTurnOperation): AnalystResponse {
+    if (!operation.restartConfirmation || !this.args.restartServerAvailable || !this.args.restartPort) throw new RecoverablePreparationError(new Error('Restart confirmation is unavailable without authenticated operator restart capability.'));
+    operation.step = { kind: 'confirmed_restart_publishing', request: null };
+    appendConversationBatch(this.args.runtimeDeps.conversations, buildAnalystRestartRows(operation.acceptedOperationId, operation.input.userContent));
+    if (operation.step.kind !== 'confirmed_restart_publishing') throw new Error('Restart publication ownership changed.');
+    const request = operation.step.request; operation.step = { kind: 'confirmed_restart_published' };
+    if (request?.kind === 'cancel') { this.claimRestartCancellation(operation, request.reason, true); throw operation.abort.signal.reason; }
+    if (request?.kind === 'dispose') throw request.reason;
+    operation.step = { kind: 'confirmed_restart_scheduling' };
+    this.args.restartPort.schedule(); operation.restartConfirmation = null;
+    return this.response(operation, { status: 'scheduled' });
   }
 
-  private async rejectToolCall(toolCall: Extract<LLMActorOutcome, { type: 'tool_call' }>, error: string, errorKind: string, params: Record<string, unknown>, toolInvocations: AnalystToolInvocations, signal: AbortSignal): Promise<LLMActorOutcome> {
-    const result: ToolResult = { success: false, error };
-    this.emitActivity({ type: 'tool_result', content: { tool: toolCall.toolName, success: false, errorKind } });
-    toolInvocations.push({ tool: toolCall.toolName, params, result });
-    return this.appendToolResult(toolCall.toolCallId, result, toolInvocations, signal);
-  }
-
-  private async appendToolResult(toolCallId: string, result: ToolResult, toolInvocations: AnalystToolInvocations, signal: AbortSignal): Promise<LLMActorOutcome> {
-    try {
-      this.throwIfCancelled();
-      return await this.llm.appendToolResult(toolCallId, result, signal);
-    } catch (err) {
-      if (this.isCancelled()) return this.cancelledLoopOutcome();
-      const message = this.errorMessage(err);
-      this.persistAssistantNotice(message);
-      return { type: 'result', agentId: this.llm.agentId, result: { kind: 'message', content: message } };
-    }
-  }
-
-  private buildInvocationInput(turn: AnalystTurnInput, surface: InvocationSurface): PreparedLlmInvocationInput {
-    const tools = surfaceToolDefinitions(surface);
-    const modelParams = getModelParamsForRole(this.args.config, 'analyst');
-    const inputId = randomUUID();
-    const systemPrompt = this.args.promptTemplates.render('analyst', 'analyst', {
-      toolList: formatPromptToolList(tools),
-      vocabularySnippet: formatVocabularySnippet(),
-      projectContext: this.buildProjectContext(),
-    });
-    const preparedCompaction = prepareCompaction(this.args.runtimeDeps.compactionPolicy, systemPrompt, tools, modelParams.maxTokens);
-    appendAnalystIngressBatch(this.args.runtimeDeps.conversations, inputId, buildWorkspaceContextNote(turn.workspaceContext), turn.userContent);
-    return {
-      inputId,
-      agentId: this.llm.agentId,
-      role: 'analyst',
-      sessionId: this.sessionId,
-      systemPrompt,
-      providerConversation: providerConversationProjection(readConversation(this.args.projectRoot, this.sessionId)),
-      tools,
-      terminalToolNames: [],
-      modelParams: { temperature: modelParams.temperature },
-      preparedCompaction,
-      capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
-      episodeContext: { surface: this.args.surface ?? 'web-chat' },
+  private terminalHandoff(operation: AnalystTurnOperation): LlmTerminalHandoff {
+    return (completion) => {
+      const ownsOperation = (this.phase.kind === 'conversing' && this.phase.operation === operation)
+        || (this.phase.kind === 'disposed' && this.phase.settling === operation);
+      if (!ownsOperation || operation.outcome.kind !== 'pending') throw new Error('Analyst terminal handoff lost outer ownership.');
+      if (operation.step.kind !== 'nested' && operation.step.kind !== 'waiting_tool') throw new Error(`Analyst terminal handoff arrived from '${operation.step.kind}'.`);
+      operation.step = { kind: 'settling_llm', completion, noticeEntered: false };
     };
   }
 
-  private emitActivity(activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void {
-    const onActivity = this.pendingTurn?.onActivity;
-    if (!onActivity) return;
-    try { onActivity(activity); } catch (err) { this.logBoundaryDiagnostic('analyst_activity_callback_failed', err); }
+  private settleTerminalCompletion(operation: AnalystTurnOperation, outcome: Extract<LLMActorOutcome, { type: 'result' | 'error' }>): AnalystResponse {
+    if (operation.step.kind !== 'settling_llm' || operation.step.completion.outcome !== outcome) throw new Error('Analyst terminal promise disagrees with synchronous handoff.');
+    if (outcome.type === 'error') {
+      operation.step.noticeEntered = true;
+      appendConversationBatch(this.args.runtimeDeps.conversations, [buildLlmTurnMessage(operation.step.completion.input, this.errorMessage(outcome.error))]);
+    }
+    return this.response(operation);
   }
+
+  private claimNestedCancellation(operation: AnalystTurnOperation, input: CanonicalLlmInvocationInput, reason: string): AnalystCancellationPublication {
+    if (this.phase.kind !== 'conversing' || this.phase.operation !== operation || operation.outcome.kind !== 'pending') throw new Error('Analyst nested cancellation lost outer ownership.');
+    if (operation.step.kind === 'nested' && (operation.step.input.inputId !== input.inputId || operation.step.input.agentId !== input.agentId || operation.step.input.sessionId !== input.sessionId)) throw new Error('Analyst nested cancellation input changed.');
+    if (operation.step.kind === 'waiting_tool' && operation.step.input !== input && operation.step.input.inputId === input.inputId) throw new Error('Analyst nested cancellation input identity changed.');
+    operation.outcome = { kind: 'claiming_cancel', reason, publication: 'pending' };
+    return Object.freeze({ markPublished: () => {
+      if (operation.outcome.kind !== 'claiming_cancel') throw new Error('Analyst cancellation publication lost ownership.');
+      operation.outcome = { ...operation.outcome, publication: 'published' };
+      this.finishCancellationRevocation(operation, reason);
+    } });
+  }
+
+  private claimStartupCancellation(operation: AnalystTurnOperation, reason: string, ingressPublished: boolean): boolean {
+    if (!this.claimOuterCancellation(operation, reason)) return false;
+    const rows = ingressPublished
+      ? [buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)]
+      : [...buildAnalystIngressRows(operation.acceptedOperationId, buildWorkspaceContextNote(operation.input.workspaceContext), operation.input.userContent), buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)];
+    try { appendConversationBatch(this.args.runtimeDeps.conversations, rows); this.markCancellationPublished(operation, reason); this.finishCancellationRevocation(operation, reason); }
+    catch (error) { operation.outcome = { kind: 'failed', error }; operation.tracker.revoke(error); operation.abort.abort(error); }
+    return true;
+  }
+
+  private claimRestartCancellation(operation: AnalystTurnOperation, reason: string, restartPublished: boolean): boolean {
+    if (!this.claimOuterCancellation(operation, reason)) return false;
+    const rows = restartPublished ? [buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)] : [...buildAnalystRestartRows(operation.acceptedOperationId, operation.input.userContent), buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)];
+    try { appendConversationBatch(this.args.runtimeDeps.conversations, rows); this.markCancellationPublished(operation, reason); this.finishCancellationRevocation(operation, reason); }
+    catch (error) { operation.outcome = { kind: 'failed', error }; operation.tracker.revoke(error); operation.abort.abort(error); }
+    return true;
+  }
+
+  private claimOuterCancellation(operation: AnalystTurnOperation, reason: string): boolean {
+    if (this.phase.kind !== 'conversing' || this.phase.operation !== operation || operation.outcome.kind !== 'pending') return false;
+    operation.outcome = { kind: 'claiming_cancel', reason, publication: 'pending' }; return true;
+  }
+  private markCancellationPublished(operation: AnalystTurnOperation, reason: string): void { if (operation.outcome.kind !== 'claiming_cancel' || operation.outcome.reason !== reason) throw new Error('Analyst cancellation publication identity changed.'); operation.outcome = { ...operation.outcome, publication: 'published' }; }
+  private finishCancellationRevocation(operation: AnalystTurnOperation, reason: string): void { const interruption = new Error(reason); if (!operation.abort.signal.aborted) operation.abort.abort(interruption); operation.tracker.revoke(interruption); }
+
+  private acceptedInput(operation: AnalystTurnOperation): CanonicalLlmInvocationInput {
+    return { inputId: operation.acceptedOperationId, agentId: this.llm.agentId, role: 'analyst', sessionId: this.sessionId, systemPrompt: '', providerConversation: { sourceSessionId: this.sessionId, messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(this.args.runtimeDeps.compactionPolicy, '', []), capabilityRequest: { requiresTools: false }, episodeContext: {} };
+  }
+
+  private buildInvocationInput(turn: AnalystTurnInput, surface: InvocationSurface): PreparedLlmInvocationInput {
+    const tools = surfaceToolDefinitions(surface); const modelParams = getModelParamsForRole(this.args.config, 'analyst');
+    const systemPrompt = this.args.promptTemplates.render('analyst', 'analyst', { toolList: formatPromptToolList(tools), vocabularySnippet: formatVocabularySnippet(), projectContext: this.buildProjectContext() });
+    return { inputId: randomUUID(), agentId: this.llm.agentId, role: 'analyst', sessionId: this.sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.args.projectRoot, this.sessionId)), tools, terminalToolNames: [], modelParams: { temperature: modelParams.temperature }, preparedCompaction: prepareCompaction(this.args.runtimeDeps.compactionPolicy, systemPrompt, tools, modelParams.maxTokens), capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }), episodeContext: { surface: this.args.surface ?? 'web-chat' } };
+  }
+
+  private emitActivity(operation: AnalystTurnOperation, activity: { type: 'tool_call' | 'tool_result' | 'thinking'; content: Record<string, unknown> }): void { try { operation.onActivity?.(activity); } catch (err) { this.logBoundaryDiagnostic('analyst_activity_callback_failed', err); } }
 
   private logBoundaryDiagnostic(phase: string, err: unknown): void {
     try {
@@ -487,21 +418,9 @@ export class AnalystSessionActor extends BaseActor {
         : `Analyst LLM unavailable: ${error}`;
   }
 
-  private errorResponse(err: unknown, toolInvocations: AnalystToolInvocations, input?: PreparedLlmInvocationInput): AnalystResponse {
-    if (input) {
-      appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, this.errorMessage(err));
-    }
-    return this.response(toolInvocations);
-  }
-
-  private response(toolInvocations?: AnalystToolInvocations, restart: RestartChatAcknowledgement | null = null): AnalystResponse {
-    return { sessionId: this.sessionId, restart, toolInvocations: toolInvocations && toolInvocations.length > 0 ? toolInvocations : undefined };
-  }
-
-  private persistAssistantNotice(content: string): void {
-    const input = this.llm.input;
-    if (!input) return;
-    appendLlmTurnMessage(this.args.runtimeDeps.conversations, input, content);
+  private response(operation: AnalystTurnOperation, restart: RestartChatAcknowledgement | null = null): AnalystResponse {
+    const acknowledgement = restart ?? (operation.restartConfirmation || operation.newlyRequestedRestart ? { status: 'confirmation_required' as const, confirmationMessage: 'RESTART SERVER' } : null);
+    return { sessionId: this.sessionId, restart: acknowledgement, toolInvocations: operation.toolInvocations.length > 0 ? operation.toolInvocations : undefined };
   }
 
   private buildProjectContext(): string {
@@ -514,32 +433,46 @@ export class AnalystSessionActor extends BaseActor {
     }
   }
 
-  private cleanupTurnState(): void {
-    this.toolInFlight = null;
-    this.turnAbort = null;
-    if (this.llm.state() === 'waiting_tool') this.llm.abandonParkedTurn();
+  private activePendingOperation(): AnalystTurnOperation | null { return this.phase.kind === 'conversing' && this.phase.operation.outcome.kind === 'pending' ? this.phase.operation : null; }
+  private assertCurrent(operation: AnalystTurnOperation, signal: AbortSignal): void { if (this.phase.kind !== 'conversing' || this.phase.operation !== operation || operation.outcome.kind !== 'pending') throw signal.aborted ? signal.reason : new Error('Analyst turn lost exact operation authority.'); signal.throwIfAborted(); }
+  private assertCurrentOrSettling(operation: AnalystTurnOperation, signal: AbortSignal): void {
+    const ownsOperation = (this.phase.kind === 'conversing' && this.phase.operation === operation)
+      || (this.phase.kind === 'disposed' && this.phase.settling === operation && operation.step.kind === 'settling_llm');
+    if (!ownsOperation || (operation.outcome.kind !== 'pending' && operation.outcome.kind !== 'claiming_cancel')) throw signal.aborted ? signal.reason : new Error('Analyst turn lost exact operation authority.');
+    if (operation.outcome.kind === 'claiming_cancel') signal.throwIfAborted();
   }
 
-  private resetCancellationState(): void {
-    this.cancellationReason = null;
+  private async consumeTurn(operation: AnalystTurnOperation, wrapper: Promise<AnalystResponse>): Promise<void> {
+    let response: AnalystResponse | null = null; let failure: unknown; let rejected = false;
+    try { response = await wrapper; } catch (error) { rejected = true; failure = error; }
+    operation.tracker.closeAdmission(new Error('Analyst turn settled.'));
+    this.retiredOperationTrackers.add(operation.tracker);
+    let cleanupFailure: unknown;
+    try {
+      if (operation.step.kind === 'waiting_tool') this.llm.abandonParkedTurn();
+    } catch (error) { cleanupFailure = error; }
+    const finalFailure = cleanupFailure ?? failure;
+    const disposedPhase = this.phase.kind === 'disposed' ? this.phase : null;
+    const disposed = disposedPhase !== null;
+    if (operation.outcome.kind === 'claiming_cancel' && operation.outcome.publication === 'published' && !cleanupFailure) {
+      const confirmation = operation.restartConfirmation ?? (operation.newlyRequestedRestart ? Object.freeze({ kind: 'restart_confirmation' as const }) : null);
+      if (disposedPhase) disposedPhase.settling = null; else this.phase = { kind: 'idle', restartConfirmation: confirmation };
+      operation.caller.resolve({ ...this.response(operation), cancelled: true });
+    } else if (!rejected && response && !cleanupFailure) {
+      const confirmation = operation.restartConfirmation ?? (operation.newlyRequestedRestart ? Object.freeze({ kind: 'restart_confirmation' as const }) : null);
+      if (disposedPhase) disposedPhase.settling = null; else this.phase = { kind: 'idle', restartConfirmation: confirmation };
+      operation.caller.resolve(response);
+    } else if (finalFailure instanceof RecoverablePreparationError && !cleanupFailure && !disposed) {
+      this.phase = { kind: 'idle', restartConfirmation: operation.restartConfirmation };
+      operation.caller.reject(asError(finalFailure.causeValue));
+    } else {
+      if (disposedPhase) disposedPhase.settling = null; else this.phase = { kind: 'failed', cause: finalFailure };
+      operation.caller.reject(asError(finalFailure));
+    }
+    this.pruneRetiredTrackers(); this.args.runtimeDeps.runtimeProjectionChanged();
   }
 
-  private isCancelled(): boolean {
-    return this.cancellationReason !== null || this.turnAbort?.signal.aborted === true;
-  }
-
-  private throwIfCancelled(): void {
-    if (this.isCancelled()) throw new Error('Analyst turn cancelled.');
-  }
-
-  private cancelledLoopResponse(): AnalystResponse {
-    this.persistAssistantNotice(`Cancelled: ${this.cancellationReason ?? 'cancelled'}`);
-    return { sessionId: this.sessionId, restart: null, cancelled: true };
-  }
-
-  private cancelledLoopOutcome(): LLMActorOutcome {
-    return { type: 'result', agentId: this.llm.agentId, result: { kind: 'message', content: `Cancelled: ${this.cancellationReason ?? 'cancelled'}` } };
-  }
+  private pruneRetiredTrackers(): void { for (const tracker of this.retiredOperationTrackers) void tracker.join().then((outcome) => { if (outcome.status === 'joined') this.retiredOperationTrackers.delete(tracker); }, () => undefined); }
 
   async shutdownProcesses(): Promise<void> {
     this.args.runtimeDeps.processRunner.closeScope(this.processScope);
@@ -548,28 +481,29 @@ export class AnalystSessionActor extends BaseActor {
   }
 
   disposeSession(reason: unknown): void {
-    this.operationTracker?.revoke(reason);
-    this.llm.disposeInvocations(reason);
+    if (this.phase.kind === 'disposed') return;
+    if (this.phase.kind === 'failed' || this.phase.kind === 'idle') { this.phase = { kind: 'disposed', reason, settling: null }; this.llm.dispose(reason); return; }
+    const operation = this.phase.operation;
+    this.phase = { kind: 'disposed', reason, settling: operation };
+    if (operation.step.kind === 'confirmed_restart_publishing') { operation.step.request ??= { kind: 'dispose', reason }; this.llm.dispose(reason); return; }
+    if (operation.step.kind === 'confirmed_restart_scheduling' || operation.step.kind === 'settling_llm') { this.llm.dispose(reason); return; }
+    const disposition = this.llm.dispose(reason);
+    if (disposition === 'revoked_before_owned_completion') { operation.tracker.revoke(reason); if (!operation.abort.signal.aborted) operation.abort.abort(reason); }
   }
 
   async joinSession(): Promise<readonly InvocationJoinOutcome[]> {
     const trackers = new Set(this.retiredOperationTrackers);
-    if (this.operationTracker) trackers.add(this.operationTracker);
-    const outcomes = await Promise.all([...trackers].map((tracker) => tracker.join()));
-    outcomes.push(await this.llm.joinInvocationSettlement());
-    await this.awaitLifecycleSettlement();
-    return outcomes;
-  }
-
-  private retireOperationTracker(tracker: ActivationOperationTracker): void {
-    tracker.revoke(new Error('Analyst turn settled.'));
-    if (!this.retiredOperationTrackers.includes(tracker)) this.retiredOperationTrackers.push(tracker);
-    if (this.operationTracker === tracker) this.operationTracker = null;
+    if (this.phase.kind === 'conversing') trackers.add(this.phase.operation.tracker);
+    if (this.phase.kind === 'disposed' && this.phase.settling) trackers.add(this.phase.settling.tracker);
+    const joins = [...trackers].map((tracker) => tracker.join()); const llmJoin = this.llm.join();
+    const settled = await Promise.allSettled([...joins, llmJoin]);
+    const failure = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected'); if (failure) throw failure.reason;
+    return settled.map((entry) => (entry as PromiseFulfilledResult<InvocationJoinOutcome>).value);
   }
 }
 
 export class AnalystRuntime {
-  private session: AnalystSessionActor | null = null;
+  private session: AnalystSession | null = null;
   private admissionOpen = true;
 
   constructor(private readonly args: { projectRoot: string; config: SaivageConfig; runtimeDeps: AnalystRuntimeDeps; promptTemplates: PromptTemplateRegistry; restartServerAvailable?: boolean; restartPort?: RestartPort }) {}
@@ -581,10 +515,6 @@ export class AnalystRuntime {
 
   cancel(reason: string): boolean {
     return this.session?.cancel(reason) ?? false;
-  }
-
-  listSessions(): AnalystSessionReadModel[] {
-    return this.session ? [this.session.readModel()] : [];
   }
 
   executingLlmSnapshot(): ExecutingLlmSnapshot | null {
@@ -619,12 +549,12 @@ export class AnalystRuntime {
     if (settlements.some((settlement) => settlement.status === 'rejected') || terminationSettlement.value.failed.length !== 0) throw new Error('Analyst application cleanup failed.');
   }
 
-  private getOrCreateSession(input?: AnalystTurnInput): AnalystSessionActor {
+  private getOrCreateSession(input?: AnalystTurnInput): AnalystSession {
     if (!this.session) {
-      this.session = new AnalystSessionActor({ ...this.args, restartServerAvailable: this.args.restartServerAvailable ?? false, sessionId: GLOBAL_ANALYST_SESSION_ID, actor: input?.actor, surface: input?.surface });
-      this.session.start();
+      this.session = new AnalystSession({ ...this.args, restartServerAvailable: this.args.restartServerAvailable ?? false, sessionId: GLOBAL_ANALYST_SESSION_ID, actor: input?.actor, surface: input?.surface });
     }
     return this.session;
   }
 }
-import { randomUUID } from 'node:crypto';
+
+function asError(error: unknown): Error { return error instanceof Error ? error : new Error(String(error)); }

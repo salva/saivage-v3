@@ -64,12 +64,12 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
 }
 
 export function appendLlmTurnMessage(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string): AgentMessage {
-  const message = assistantMessage(input, content, new Date().toISOString());
+  const message = buildLlmTurnMessage(input, content);
   appendOne(conversations, message);
   return message;
 }
 
-function assistantMessage(input: CanonicalLlmInvocationInput, content: string, timestamp: string): AgentMessage {
+export function buildLlmTurnMessage(input: CanonicalLlmInvocationInput, content: string, timestamp = new Date().toISOString()): AgentMessage {
   return agentMessageSchema.parse({
       id: `${input.inputId}:message`,
       session_id: input.sessionId,
@@ -101,7 +101,7 @@ function providerPrivateResponsesMessage(input: CanonicalLlmInvocationInput, pro
 
 export function appendLlmTurnMessageBatch(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string, privateContext?: ProviderPrivateContext): AgentMessage {
   if (!privateContext) return appendLlmTurnMessage(conversations, input, content);
-  const visible = assistantMessage(input, content, new Date().toISOString());
+  const visible = buildLlmTurnMessage(input, content);
   const privateRow = providerPrivateResponsesMessage(input, visible.id, privateContext);
   visible.provider_projection = { kind: 'openai_responses', source_input_id: input.inputId, private_message_id: privateRow.id, projection_kind: 'assistant_message' };
   validateResponsesPairs(input.sessionId, [privateRow, visible]);
@@ -127,7 +127,7 @@ export function appendLlmTurnError(conversations: ConversationFileContext, input
 
 export function appendToolResult(conversations: ConversationFileContext, record: Omit<ToolSettlementRecord, 'created_at'>): ToolSettlementRecord & { message: AgentMessage } {
   const parsed: ToolSettlementRecord = { ...record, created_at: new Date().toISOString() };
-  const message = toolResultAgentMessage(parsed);
+  const message = buildToolResultMessage(parsed);
   appendOne(conversations, message);
   return Object.assign(parsed, { message });
 }
@@ -174,19 +174,20 @@ export function appendLlmTurnToolCallBatch(conversations: ConversationFileContex
   return visible;
 }
 
-function toolResultAgentMessage(record: ToolSettlementRecord): AgentMessage {
+export function buildToolResultMessage(record: Omit<ToolSettlementRecord, 'created_at'> & { created_at?: string }): AgentMessage {
+  const complete = { ...record, created_at: record.created_at ?? new Date().toISOString() };
   return agentMessageSchema.parse({
-    id: `${record.source_input_id}:tool-result:${record.tool_call_id}`,
-    session_id: record.session_id,
+    id: `${complete.source_input_id}:tool-result:${complete.tool_call_id}`,
+    session_id: complete.session_id,
     role: 'tool',
     kind: 'tool_result',
-    content: JSON.stringify(record.result),
-    tool: record.tool_name,
-    tool_call_id: record.tool_call_id,
-    round_id: roundId('user', record.source_input_id),
+    content: JSON.stringify(complete.result),
+    tool: complete.tool_name,
+    tool_call_id: complete.tool_call_id,
+    round_id: roundId('user', complete.source_input_id),
     message_index: 2,
     block_index: 0,
-    timestamp: record.created_at,
+    timestamp: complete.created_at,
   });
 }
 

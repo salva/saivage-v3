@@ -49,7 +49,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     else appendConversationBatch({ projectRoot: root }, [source, trigger]);
     const initial = input(role, agentId, firstProjection);
 
-    await expect(actor.turn(initial)).resolves.toMatchObject({ type: 'result', result: { content: 'done' } });
+    await expect(directTurn(actor, initial)).resolves.toMatchObject({ type: 'result', result: { content: 'done' } });
 
     expect(compact).toHaveBeenCalledTimes(1);
     expect(compact.mock.calls[0]![0]).toMatchObject({ strategy: 'authoritative_context_recovery', input: { inputId: initial.inputId } });
@@ -84,8 +84,8 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     const compact = jest.fn<CompactorPort['compact']>(async ({ input: value }) => compacted({ sourceSessionId: agentId, messages: value.providerConversation.messages }, 10));
     const { actor } = actorHarness('planner', agentId, provider, compact);
 
-    await actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }));
-    await actor.continueAfterPlainText('repair');
+    await directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }));
+    await actor.continueAfterPlainText('repair', undefined, terminalHandoff);
 
     expect(new Set(seenInputIds).size).toBe(2);
     for (const count of callsByInput.values()) expect(count).toBe(2);
@@ -107,7 +107,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     const compact = jest.fn<CompactorPort['compact']>(async ({ input: value }) => compacted(value.providerConversation, 10));
     const { actor, root } = actorHarness('planner', agentId, provider, compact);
 
-    const tool = await actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }));
+    const tool = await directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }));
     if (tool.type !== 'tool_call') throw new Error('Expected tool call.');
     await actor.appendToolResult(tool.toolCallId, { success: true, data: { content: 'result' } });
 
@@ -128,7 +128,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     };
     const { actor, root } = actorHarness('planner', agentId, provider, jest.fn(async () => compacted({ sourceSessionId: agentId, messages: [] }, 23)));
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).resolves.toEqual({
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).resolves.toEqual({
       type: 'error',
       agentId,
       error: 'Provider input context remained exhausted after one forced compacted retry (first_pass_attempts=1, second_pass_attempts=1, compacted_estimated_message_tokens=23).',
@@ -153,7 +153,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     };
     const { actor } = actorHarness('planner', agentId, provider, jest.fn(async () => compacted({ sourceSessionId: agentId, messages: [] }, 12)));
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).resolves.toMatchObject({ type: 'error', error: 'permanent auth' });
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).resolves.toMatchObject({ type: 'error', error: 'permanent auth' });
     expect(calls).toBe(2);
     expect(project).toHaveBeenCalledTimes(1);
     expect(project.mock.calls[0]![2].map((attempt) => [attempt.response_status, attempt.attempt_index])).toEqual([[400, 0], [401, 1]]);
@@ -174,7 +174,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
       const agentId = 'planner:project';
       const provider = contextOnlyProvider();
       const { actor, root } = actorHarness('planner', agentId, provider, testCase.compact);
-      await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).resolves.toEqual({ type: 'error', agentId, error: testCase.expected });
+      await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).resolves.toEqual({ type: 'error', agentId, error: testCase.expected });
       expect(provider.completeTurn).toHaveBeenCalledTimes(1);
       expect(provider.projectProviderExchanges).toHaveBeenCalledTimes(1);
       expect(readConversation(root, agentId).physicalRows.filter((row) => row.kind === 'model_issue')).toHaveLength(1);
@@ -195,11 +195,11 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { actor, root } = actorHarness('planner', agentId, provider, compact);
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).rejects.toBe(kind === 'append' ? cause : thrown);
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).rejects.toBe(kind === 'append' ? cause : thrown);
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
     expect(provider.projectProviderExchanges).not.toHaveBeenCalled();
     expect(readConversation(root, agentId).physicalRows.filter((row) => row.kind === 'model_issue')).toHaveLength(0);
-    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(consoleError).not.toHaveBeenCalled();
   });
 
   it('propagates exact cancellation during forced compaction without model issue or exchange projection', async () => {
@@ -210,7 +210,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     const compact = jest.fn<CompactorPort['compact']>(async () => { controller.abort(reason); throw reason; });
     const { actor, root } = actorHarness('planner', agentId, provider, compact);
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }), controller.signal)).rejects.toBe(reason);
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }), controller.signal)).rejects.toBe(reason);
     expect(provider.projectProviderExchanges).not.toHaveBeenCalled();
     expect(readConversation(root, agentId).physicalRows.filter((row) => row.kind === 'model_issue')).toHaveLength(0);
   });
@@ -226,7 +226,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     });
     const { actor, root } = actorHarness('planner', agentId, provider, compact);
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }), controller.signal)).rejects.toBe(reason);
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }), controller.signal)).rejects.toBe(reason);
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
     expect(provider.projectProviderExchanges).not.toHaveBeenCalled();
     expect(readConversation(root, agentId).physicalRows.filter((row) => row.kind === 'model_issue')).toHaveLength(0);
@@ -239,7 +239,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { actor, root } = actorHarness('planner', agentId, provider, compact);
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).rejects.toThrow(/Compaction changed provider conversation source session/);
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).rejects.toThrow(/Compaction changed provider conversation source session/);
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
     expect(provider.projectProviderExchanges).not.toHaveBeenCalled();
     expect(readConversation(root, agentId).physicalRows.filter((row) => row.kind === 'model_issue')).toHaveLength(0);
@@ -256,7 +256,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { actor, root } = actorHarness('planner', agentId, provider, compact);
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).rejects.toBeInstanceOf(Error);
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).rejects.toBeInstanceOf(Error);
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
     expect(compact).not.toHaveBeenCalled();
     expect(provider.projectProviderExchanges).not.toHaveBeenCalled();
@@ -272,7 +272,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     const compact = jest.fn<CompactorPort['compact']>();
     const { actor } = actorHarness('planner', agentId, provider, compact);
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).resolves.toMatchObject({ type: result.kind === 'message' ? 'result' : 'tool_call' });
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).resolves.toMatchObject({ type: result.kind === 'message' ? 'result' : 'tool_call' });
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
     expect(compact).not.toHaveBeenCalled();
   });
@@ -288,7 +288,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { actor, root } = actorHarness('planner', agentId, provider, compact);
 
-    await expect(actor.turn(input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).rejects.toBe(projectionFailure);
+    await expect(directTurn(actor, input('planner', agentId, { sourceSessionId: agentId, messages: [] }))).rejects.toBe(projectionFailure);
     expect(provider.completeTurn).toHaveBeenCalledTimes(1);
     expect(compact).not.toHaveBeenCalled();
     expect(readConversation(root, agentId).physicalRows.filter((row) => row.role === 'assistant' && row.kind === 'text')).toHaveLength(1);
@@ -323,10 +323,12 @@ function actorHarness(role: OperationalAgentRole, agentId: ConversationSessionId
     compactor: { shouldCompact: () => false, compact },
     summarizerProvider: { completeTurn: jest.fn() as never, projectProviderExchanges: jest.fn() },
   });
-  actor.start();
   expect(role).toBe(agentId.split(':')[0]);
   return { actor, root };
 }
+
+const terminalHandoff = (): void => undefined;
+function directTurn(actor: ConversationLLMActor, value: PreparedLlmInvocationInput, signal?: AbortSignal) { return actor.turn(value, signal, terminalHandoff); }
 
 function input(role: OperationalAgentRole, agentId: ConversationSessionId, providerConversation: LlmInvocationInput['providerConversation']): PreparedLlmInvocationInput {
   return {

@@ -19,10 +19,22 @@ export function appendUserContextMessage(
   ordinal: number,
   userContextMessage: ProviderVisibleUserContextMessage,
 ): AgentMessage {
+  const message = buildUserContextMessage(sessionId, inputId, category, ordinal, userContextMessage);
+  appendConversationBatch(conversations, [message]);
+  return message;
+}
+
+export function buildUserContextMessage(
+  sessionId: ConversationSessionId,
+  inputId: string,
+  category: UserContextMessageCategory,
+  ordinal: number,
+  userContextMessage: ProviderVisibleUserContextMessage,
+): AgentMessage {
   const content = userContextMessage.content;
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:user:${inputId}:${category}:${ordinal}:${timestamp}:${content}`;
-  const message = agentMessageSchema.parse({
+  return agentMessageSchema.parse({
     id: `${sessionId}:ctxmsg:${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`,
     session_id: sessionId,
     role: 'user',
@@ -33,8 +45,6 @@ export function appendUserContextMessage(
     block_index: 0,
     timestamp,
   });
-  appendConversationBatch(conversations, [message]);
-  return message;
 }
 
 export function appendActivationMarker(conversations: ConversationFileContext, sessionId: ConversationSessionId, payload: { event: 'activation_open'; role: 'planner' | 'reviewer' | 'executor'; card_id: string; input_id: string }): AgentMessage {
@@ -61,12 +71,21 @@ export function appendAnalystIngressBatch(
   workspaceContent: string,
   userContent: string,
 ): readonly [AgentMessage, AgentMessage, AgentMessage] {
-  const marker = buildAnalystActivationMarker(inputId);
-  const workspace = buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'system', workspaceContent);
-  const user = buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent);
-  const rows = [marker, workspace, user] as const;
+  const rows = buildAnalystIngressRows(inputId, workspaceContent, userContent);
   appendConversationBatch(conversations, rows);
   return rows;
+}
+
+export function buildAnalystIngressRows(
+  inputId: string,
+  workspaceContent: string,
+  userContent: string,
+): readonly [AgentMessage, AgentMessage, AgentMessage] {
+  return [
+    buildAnalystActivationMarker(inputId),
+    buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'system', workspaceContent),
+    buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent),
+  ];
 }
 
 export function appendAnalystRestartBatch(
@@ -74,12 +93,16 @@ export function appendAnalystRestartBatch(
   inputId: string,
   userContent: string,
 ): readonly [AgentMessage, AgentMessage] {
-  const rows = [buildAnalystActivationMarker(inputId), buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent)] as const;
+  const rows = buildAnalystRestartRows(inputId, userContent);
   appendConversationBatch(conversations, rows);
   return rows;
 }
 
-function buildAnalystActivationMarker(inputId: string): AgentMessage {
+export function buildAnalystRestartRows(inputId: string, userContent: string): readonly [AgentMessage, AgentMessage] {
+  return [buildAnalystActivationMarker(inputId), buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent)];
+}
+
+export function buildAnalystActivationMarker(inputId: string): AgentMessage {
   const sessionId = GLOBAL_ANALYST_SESSION_ID;
   const timestamp = new Date().toISOString();
   return agentMessageSchema.parse({
