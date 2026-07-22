@@ -44,58 +44,6 @@ vi.mock('../api/client', () => {
     getAgentConversation: vi.fn(async () => apiMockState.conversation),
     ApiError,
   };
-
-  it('shows tool names and argument keys in collapsed rows and expands/collapses all rows', async () => {
-    apiMockState.conversation = {
-      session: plannerSession,
-      entries: [
-        {
-          id: 'tc1',
-          session_id: 'planner:project',
-          role: 'assistant',
-          kind: 'tool_call',
-          tool_call_id: 'tc1',
-          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '22222222-2222-4222-8222-222222222222', reason: 'ready' }) } }] }),
-          timestamp: '2025-06-01T08:06:00Z',
-        },
-        {
-          id: 'tr1',
-          session_id: 'planner:project',
-          role: 'tool',
-          kind: 'tool_result',
-          tool: 'activate_card',
-          tool_call_id: 'tc1',
-          content: JSON.stringify({ ok: true, summary: 'activated G3' }),
-          timestamp: '2025-06-01T08:06:01Z',
-        },
-      ],
-    };
-    const router = makeRouter();
-    await router.push('/agents/planner:project');
-    await router.isReady();
-    const pinia = createPinia();
-    setActivePinia(pinia);
-    const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner:project' },
-      global: { plugins: [router, pinia] },
-    });
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('🔧 activate_card(card_id, reason)');
-    expect(wrapper.text()).toContain('📤 activate_card → ok (activated G3)');
-    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
-
-    await wrapper.findAll('.conv-tb-btn')[0].trigger('click');
-    await flushPromises();
-    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(true);
-    expect(wrapper.find('.tool-result .tool-chip-body').exists()).toBe(true);
-
-    await wrapper.findAll('.conv-tb-btn')[1].trigger('click');
-    await flushPromises();
-    expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
-    expect(wrapper.find('.tool-result .tool-chip-body').exists()).toBe(false);
-  });
-
 });
 
 function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
@@ -266,7 +214,7 @@ describe('AgentsView', () => {
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: '22222222-2222-4222-8222-222222222222', reason: 'ready' }) } }] }),
+          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-a' }) } }] }),
           round_id: 'r-assistant-00000000000000000000000000000001',
           message_index: 0,
           block_index: 0,
@@ -279,7 +227,7 @@ describe('AgentsView', () => {
           kind: 'tool_result',
           tool: 'activate_card',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ ok: true, summary: 'activated G3' }),
+          content: JSON.stringify({ success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'activated G3', result: { kind: 'done', summary: 'activated G3' } } }),
           round_id: 'r-assistant-00000000000000000000000000000001',
           message_index: 1,
           block_index: 0,
@@ -299,8 +247,9 @@ describe('AgentsView', () => {
     await flushPromises();
 
     expect(wrapper.text()).toContain('Activate');
-    expect(wrapper.text()).toContain('card 22222222-2222-4222-8222-222222222222');
-    expect(wrapper.text()).toContain('activated G3');
+    expect(wrapper.text()).toContain('card card-a');
+    expect(wrapper.text()).toContain('done');
+    expect(wrapper.text()).not.toContain('activated G3');
     expect(wrapper.find('.tool-call .tool-chip-body').exists()).toBe(false);
 
     await wrapper.findAll('.conv-tb-btn')[0].trigger('click');

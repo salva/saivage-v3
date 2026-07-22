@@ -36,7 +36,7 @@ describe('AnalystChatPanel', () => {
       entries: [
         { id: '1', session_id: 'analyst:global', role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2025-01-01T00:00:00Z' },
         { id: '2', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 0, timestamp: '2025-01-01T00:00:01Z' },
-        { id: '3', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ ok: true, content: 'docs' }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
+        { id: '3', session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ success: true, data: { content: 'docs', total_lines: 1 } }), round_id: 'r-assistant-00000000000000000000000000000001', message_index: 1, block_index: 1, timestamp: '2025-01-01T00:00:02Z' },
       ],
       activity_status: { status: 'inactive', pending_calls: [] },
     });
@@ -173,17 +173,22 @@ describe('AnalystChatPanel', () => {
     expect(resultChip).toBeDefined();
     expect(chips).toHaveLength(1);
     expect(resultChip!.text()).toContain('Read');
+    expect(resultChip!.text()).toContain('1 lines');
+    expect(resultChip!.text()).not.toContain('docs');
     await resultChip!.find('button.tool-chip-toggle').trigger('click');
 
     // Raw JSON is NOT shown by default after expanding.
     const expandedBodyText = wrapper.findAll('.tool-chip-body').map((node) => node.text()).join('\n');
-    expect(expandedBodyText).not.toContain('"ok":true');
+    expect(expandedBodyText).not.toContain('docs');
+    expect(expandedBodyText).not.toContain('"content"');
 
     // Raw response is reachable only through the explicit raw toggle.
     const rawResponseToggle = resultChip!.findAll('button.raw-toggle').find((b) => b.text().includes('Show raw response'));
     expect(rawResponseToggle).toBeDefined();
     await rawResponseToggle!.trigger('click');
-    expect(wrapper.findAll('.tool-chip-raw').map((node) => node.text()).join('\n')).toContain('"ok":true');
+    const rawText = wrapper.findAll('.tool-chip-raw').map((node) => node.text()).join('\n');
+    expect(rawText).toContain('"success":true');
+    expect(rawText).toContain('"content":"docs"');
     wrapper.unmount();
   });
 

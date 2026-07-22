@@ -89,10 +89,47 @@ describe('static tool presenter authority', () => {
 
   it('parses only wrapped success data and supports optional data', () => {
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { content: 'a\nb', total_lines: 2 } }), { tool: 'read' }).headline)).toBe('2 lines');
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true }), { tool: 'read' }).headline)).toBe('success');
+    expect(inlineText(presentToolResult(JSON.stringify({ success: true }), { tool: 'read' }).headline)).toBe('read completed');
     const unwrapped = presentToolResult(JSON.stringify({ stash_url: 'work:///tmp/stash/old.txt' }), { tool: 'webfetch' });
-    expect(unwrapped.headline).toEqual([{ kind: 'text', text: '{"stash_url":"work:///tmp/stash/old.txt"}' }]);
+    expect(unwrapped.headline).toEqual([{ kind: 'text', text: 'result unavailable' }]);
     expect(unwrapped.headline[0]).not.toMatchObject({ kind: 'file' });
+  });
+
+  it('recognizes only the current result envelope and keeps all non-envelope bodies semantic-free', () => {
+    const longError = `permission denied ${'x'.repeat(140)}`;
+    const failureBody = { success: false, error: longError, data: { marker: 'failure-data-secret' } };
+    const failure = presentToolResult(JSON.stringify(failureBody), { tool: 'read' });
+    expect(failure).toMatchObject({ name: 'read', status: 'error', body: failureBody });
+    expect(inlineText(failure.headline)).toHaveLength(120);
+    expect(inlineText(failure.headline)).toContain('permission denied');
+    expect(inlineText([...(failure.headline), ...(failure.detail ?? [])])).not.toContain('failure-data-secret');
+
+    const malformed = [
+      { content: JSON.stringify({ success: true, error: 'success-error-secret', data: { marker: 'success-data-secret' } }), tool: 'read' },
+      { content: JSON.stringify({ success: false }), tool: 'read' },
+      { content: JSON.stringify({ success: false, error: { message: 'non-string-error-secret' } }), tool: 'read' },
+      { content: JSON.stringify({ tool: 'body-tool-secret', toolName: 'body-name-secret', marker: 'object-secret' }), tool: undefined },
+      { content: JSON.stringify(['array-secret']), tool: 'read' },
+      { content: JSON.stringify('json-string-secret'), tool: 'read' },
+      { content: JSON.stringify(42), tool: 'read' },
+      { content: JSON.stringify(true), tool: 'read' },
+      { content: 'null', tool: 'read' },
+      { content: 'plain-text-secret', tool: 'read' },
+      { content: '{invalid-json-secret', tool: 'read' },
+    ];
+    for (const item of malformed) {
+      const view = presentToolResult(item.content, { tool: item.tool });
+      expect(view.status).toBe('ok');
+      expect(view.name).toBe(item.tool ?? 'tool');
+      expect(inlineText([...(view.headline), ...(view.detail ?? [])])).toBe('result unavailable');
+    }
+  });
+
+  it('projects primitive data only through an intentional successful descriptor', () => {
+    const wrapped = presentToolResult(JSON.stringify({ success: true, data: 42 }), { tool: 'mcp_tool_call' });
+    const bare = presentToolResult(JSON.stringify(42), { tool: 'mcp_tool_call' });
+    expect(inlineText(wrapped.headline)).toBe('42');
+    expect(inlineText(bare.headline)).toBe('result unavailable');
   });
 
   it('uses exact current process, card, and terminal result payloads', () => {

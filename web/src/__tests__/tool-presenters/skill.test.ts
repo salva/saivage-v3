@@ -25,12 +25,11 @@ describe('skill result presenter', () => {
     expect(inlineText(view.headline)).toBe('skill loaded');
   });
 
-  it('uses the raw success fallback for an unexpected projection', () => {
-    const envelope = { success: true, data: { unexpected: true } };
-    const view = present(envelope);
+  it('uses a semantic success fallback for an unexpected projection', () => {
+    const view = present({ success: true, data: { unexpected: true } });
 
     expect(view).toMatchObject({ name: 'skill', status: 'ok' });
-    expect(inlineText(view.headline)).toBe(JSON.stringify(envelope));
+    expect(inlineText(view.headline)).toBe('skills loaded');
   });
 
   it('keeps failed envelopes on the generic error path', () => {

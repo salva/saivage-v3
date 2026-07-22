@@ -1,9 +1,11 @@
-import { argKeys, asRecord, oneLine, readToolCallMessage, resultName, safeJsonParse, textPart } from './helpers';
+import { argKeys, asRecord, oneLine, readToolCallMessage, safeJsonParse, textPart } from './helpers';
 import { getToolPresenter } from './presenters';
 import type { ToolCallPresentation, ToolResultPresentation } from './types';
 
 const RESULT_ICON_OK = '↩';
 const RESULT_ICON_ERR = '⚠';
+const GENERIC_RESULT_LABEL = 'result unavailable';
+const SUCCESS_RESULT_LABEL = 'completed';
 
 export function presentToolCall(rawContent: string): ToolCallPresentation {
   const message = readToolCallMessage(rawContent);
@@ -17,20 +19,18 @@ export function presentToolCall(rawContent: string): ToolCallPresentation {
 }
 
 export function presentToolResult(rawContent: string, opts: { tool?: string } = {}): ToolResultPresentation {
-  const name = resultName(rawContent, opts.tool);
+  const name = opts.tool ?? 'tool';
   const parsed = safeJsonParse(rawContent);
   const record = asRecord(parsed);
-  if (record?.success === false || typeof record?.error === 'string') {
-    return { icon: RESULT_ICON_ERR, status: 'error', name, headline: textPart(record.error ?? rawContent, 120), body: parsed ?? rawContent, bodyKind: parsed === null ? 'text' : 'json' };
+  if (record?.success === false && typeof record.error === 'string') {
+    return { icon: RESULT_ICON_ERR, status: 'error', name, headline: textPart(record.error, 120), body: parsed, bodyKind: 'json' };
   }
-  const descriptor = getToolPresenter(name);
-  if (record?.success === true) {
+  if (record?.success === true && !Object.hasOwn(record, 'error')) {
     const envelope = record as { success: true; data?: unknown };
-    const hasData = Object.hasOwn(record, 'data');
     const data = envelope.data;
-    const rendered = descriptor?.result?.({ name, envelope, data, dataRecord: asRecord(data), rawContent });
-    const headline = hasData ? (rendered?.headline ?? textPart(data, 120)) : textPart('success');
+    const rendered = getToolPresenter(name)?.result?.({ name, envelope, data, dataRecord: asRecord(data) });
+    const headline = rendered?.headline ?? textPart(SUCCESS_RESULT_LABEL);
     return { icon: RESULT_ICON_OK, status: 'ok', name, headline, detail: rendered?.detail, body: parsed, bodyKind: 'json' };
   }
-  return { icon: RESULT_ICON_OK, status: 'ok', name, headline: textPart(parsed ?? rawContent, 120), body: parsed ?? rawContent, bodyKind: parsed === null ? 'text' : 'json' };
+  return { icon: RESULT_ICON_OK, status: 'ok', name, headline: textPart(GENERIC_RESULT_LABEL), body: parsed ?? rawContent, bodyKind: parsed === null ? 'text' : 'json' };
 }

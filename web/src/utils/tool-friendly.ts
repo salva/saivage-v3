@@ -35,34 +35,6 @@ function inlineText(parts: InlinePart[]): string {
     .trim();
 }
 
-function firstLine(value: string, max = 120): string {
-  const line = value.split(/\r?\n/)[0] ?? '';
-  return line.length <= max ? line : `${line.slice(0, max - 1)}…`;
-}
-
-function errorFirstLine(resultContent: string | null): string {
-  if (!resultContent) return 'error';
-  try {
-    const parsed = JSON.parse(resultContent) as unknown;
-    if (parsed && typeof parsed === 'object') {
-      const obj = parsed as Record<string, unknown>;
-      const err = obj.error;
-      if (typeof err === 'string') return firstLine(err) || 'error';
-      if (err && typeof err === 'object') {
-        const nested = err as Record<string, unknown>;
-        const msg = String(nested.message ?? nested.code ?? '');
-        if (msg) return firstLine(msg);
-      }
-      const code = typeof obj.code === 'string' ? obj.code : '';
-      if (code) return firstLine(code);
-    }
-  } catch {
-    // fall through to raw first line
-  }
-  const line = firstLine(resultContent);
-  return line || 'error';
-}
-
 export interface ToolDisplayModel {
   action: string;
   toolName: string;
@@ -83,7 +55,6 @@ export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
   const callPres = presentToolCall(pair.call.content);
   const result = pair.result;
   const resultPres = result ? presentToolResult(result.content, { tool: result.tool }) : null;
-  const resultContent = result?.content ?? null;
   const status = pair.status;
 
   const action = friendlyAction(callPres.name);
@@ -98,15 +69,12 @@ export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
   if (status === 'pending') {
     statusParts = [{ kind: 'text', text: 'running…' }];
     statusTone = 'pending';
-  } else if (status === 'error') {
-    statusParts = [{ kind: 'text', text: errorFirstLine(resultContent) }];
-    statusTone = 'error';
   } else {
     const resultParts = [...(resultPres?.headline ?? []), ...(resultPres?.detail ?? [])];
     const text = inlineText(resultParts);
     if (text) {
       statusParts = resultParts.filter((part) => !isInteractive(part));
-      statusTone = 'ok';
+      statusTone = resultPres?.status === 'error' ? 'error' : 'ok';
     }
     const linkExtras = resultParts.filter(isInteractive);
     if (linkExtras.length) links.push(...linkExtras);

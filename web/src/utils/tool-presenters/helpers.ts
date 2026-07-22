@@ -83,13 +83,5 @@ export function readToolCallMessage(rawContent: string): ToolCallMessage {
 
 export function describeJsonlTail(ctx: ResultPresenterContext, key: string, label: string): { headline: InlinePart[] } {
   const entries = Array.isArray(ctx.dataRecord?.[key]) ? ctx.dataRecord[key] as unknown[] : null;
-  return { headline: entries ? textPart(`${entries.length} ${label}`) : textPart(ctx.rawContent, 96) };
-}
-
-export function resultName(rawContent: string, fallbackName?: string): string {
-  const record = asRecord(safeJsonParse(rawContent));
-  return fallbackName
-    ?? (typeof record?.tool === 'string' ? record.tool : undefined)
-    ?? (typeof record?.toolName === 'string' ? record.toolName : undefined)
-    ?? 'tool';
+  return { headline: entries ? textPart(`${entries.length} ${label}`) : textPart(`${label} loaded`) };
 }

@@ -29,6 +29,14 @@ function pair(id: string, tool: string, status: ToolPair['status'], args: Record
   return { call, result, status };
 }
 
+function pairWithRawResult(id: string, tool: string, status: ToolPair['status'], resultContent: string): ToolPair {
+  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: entry(`${id}-r`, 'tool_result', resultContent, tool), status };
+}
+
+function displayText(display: ReturnType<typeof buildToolDisplay>): string {
+  return [...display.status, ...display.links].map((part) => 'text' in part ? part.text : 'label' in part ? part.label ?? '' : '').join('');
+}
+
 describe('friendlyAction', () => {
   it('maps builtin tools to friendly verbs', () => {
     expect(friendlyAction('read')).toBe('Read');
@@ -72,10 +80,31 @@ describe('buildToolDisplay', () => {
     expect(display.known).toBe(false);
   });
 
-  it('derives a meaningful error status from the raw response', () => {
-    const display = buildToolDisplay(pair('c1', 'run_command', 'error', { command: 'boom' }, { success: false, error: 'permission denied' }));
+  it('uses only presenter-owned semantics for failures and malformed results', () => {
+    const longError = `permission denied ${'x'.repeat(140)}`;
+    const display = buildToolDisplay(pair('c1', 'run_command', 'error', { command: 'boom' }, { success: false, error: longError, data: { marker: 'failure-data-secret' } }));
     expect(display.statusTone).toBe('error');
-    expect(display.status.map((p) => (p as { text?: string }).text)).toContain('permission denied');
+    expect(displayText(display)).toHaveLength(120);
+    expect(displayText(display)).toContain('permission denied');
+    expect(displayText(display)).not.toContain('failure-data-secret');
+
+    const malformed = [
+      JSON.stringify({ success: true, error: 'success-error-secret', data: { marker: 'success-data-secret' } }),
+      JSON.stringify({ success: false }),
+      JSON.stringify({ success: false, error: { message: 'non-string-error-secret' } }),
+      JSON.stringify({ marker: 'object-secret' }),
+      JSON.stringify(['array-secret']),
+      JSON.stringify('json-string-secret'),
+      JSON.stringify(42),
+      'null',
+      'plain-text-secret',
+      '{invalid-json-secret',
+    ];
+    for (const [index, content] of malformed.entries()) {
+      const malformedDisplay = buildToolDisplay(pairWithRawResult(`m${index}`, 'read', 'ok', content));
+      expect(malformedDisplay.statusTone).toBe('ok');
+      expect(displayText(malformedDisplay)).toBe('result unavailable');
+    }
   });
 });
 

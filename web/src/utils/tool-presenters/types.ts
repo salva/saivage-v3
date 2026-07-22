@@ -42,7 +42,6 @@ export interface ResultPresenterContext {
   envelope: { success: true; data?: unknown };
   data: unknown;
   dataRecord: Record<string, unknown> | null;
-  rawContent: string;
 }
 
 export interface ResultPresenterResult {
