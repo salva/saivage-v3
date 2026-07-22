@@ -7,7 +7,6 @@ import * as YAML from 'yaml';
 import { publishInitialProjectCard as publishCanonicalProjectCard } from '../../src/persistence/card-files.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock } from '../../src/runtime/lock.js';
-import type { CardRecord } from '../../src/schemas/index.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 const readProjectCardOrAssertInitialPublicationAllowed = jest.fn<(...args: any[]) => any>();
@@ -49,16 +48,8 @@ function argv(root: string): string[] {
 }
 
 function publishExistingRootCard(root: string): void {
-  const stamp = '2026-07-17T00:00:00.000Z';
-  const card: CardRecord = {
-    id: 'project', type: 'project', children: [], title: 'existing', subtype: null,
-    tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: stamp, updated_at: stamp,
-    assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-    metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,
-    status_text_author_session_id: null, latest_self_report: null, pending_notifications: [], version_seq: 1,
-  };
   mkdirSync(join(root, '.saivage', 'cards'));
-  publishCanonicalProjectCard(root, card, '# Existing root\n', 'analyst');
+  publishCanonicalProjectCard(root, { title: 'existing', brief: '# Existing root\n' });
 }
 
 describe('startup configuration validation before runtime publication', () => {

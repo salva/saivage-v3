@@ -26,7 +26,7 @@ describe('runtime card-runs read model', () => {
     expect(response).toEqual({
       current_card_id: 'project',
       active_breadcrumb: [{ card_id: 'project', card_type: project.type, title: project.title }],
-      dormant_planners: [{ goal_card_id: 'project', planner_session_id: 'planner:project', latest_self_report: null }],
+      dormant_planners: [{ goal_card_id: 'project', planner_session_id: 'planner:project' }],
     });
     expect(response).not.toHaveProperty('cards_with_pending_corrections');
   });

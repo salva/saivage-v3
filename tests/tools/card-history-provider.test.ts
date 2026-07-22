@@ -16,7 +16,7 @@ describe('card history provider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-tool-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const card = cards.create({ type: 'code', parent: 'project', title: 'Card', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    cards.mutateCard(card.id, { title: 'Card v2' }, { actor: 'analyst', surface: 'web-chat' });
+    cards.editCard(card.id, { title: 'Card v2' });
     const list = jest.spyOn(cards, 'listCardHistory');
     const get = jest.spyOn(cards, 'getCardHistoryEntry');
     const diff = jest.spyOn(cards, 'diffCardHistory');

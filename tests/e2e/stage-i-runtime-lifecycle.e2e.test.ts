@@ -97,7 +97,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     const active = cards.create({ type: 'code', parent: 'project', title: 'Active', brief: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const done = cards.create({ type: 'test', parent: 'project', title: 'Done', brief: 'Done', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(done.id, 'running');
-    cards.commitTerminalLifecycle(done.id, { lifecycle: { status: 'done', result: { kind: 'done', summary: 'kept' }, error: null, completed_at: '2026-07-16T00:00:00.000Z' } });
+    cards.commitActivationOutcome(done.id, { status: 'done', summary: 'kept', result: { kind: 'done', summary: 'kept' } }, '2026-07-16T00:00:00.000Z');
     cards.setStatus('project', 'running');
     cards.setStatus(active.id, 'running');
     let releaseTerminal!: () => void;

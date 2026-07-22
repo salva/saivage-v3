@@ -13,7 +13,7 @@ const FIRST = 'card-a';
 const SECOND = 'card-a-b';
 
 function card(status: CardStatus, id = FIRST, type: CardType = 'code'): CardRecord {
-  const common = { id, type, children: [], title: id, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], related: [], pending_notifications: [] };
+  const common = { id, type, children: [], title: id, subtype: null, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
   switch (status) {
     case 'done': return { ...common, lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-20T00:00:00.000Z' } };
     case 'failed': return { ...common, lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } };
@@ -28,9 +28,8 @@ function services(store: CardService, notifyCard = jest.fn(() => ({ ok: true as 
 
 describe('analyst card mutation service deletion', () => {
   it('delegates the complete requested root set to one atomic service preflight and returns deterministic deletion data', () => {
-    const deleteSubtrees = jest.fn((ids: readonly string[], context: unknown, allowed: (card: CardRecord) => boolean) => {
+    const deleteSubtrees = jest.fn((ids: readonly string[], allowed: (card: CardRecord) => boolean) => {
       expect(ids).toEqual([FIRST, SECOND, FIRST]);
-      expect(context).toEqual({ actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' });
       expect(allowed(card('backlog'))).toBe(true);
       expect(allowed(card('running'))).toBe(false);
       return { requested: [FIRST, SECOND], deleted: [SECOND, FIRST] };
@@ -128,7 +127,7 @@ describe('analyst child reorder propagation', () => {
     expect(test.getAncestors).not.toHaveBeenCalled();
     expect(test.setStatus).not.toHaveBeenCalled();
     expect(test.notifyCard).not.toHaveBeenCalled();
-    expect(test.reorderChildren).toHaveBeenCalledWith('project', [], { actor: 'analyst', surface: 'web-chat', reason: 'analyst reorder_child' });
+    expect(test.reorderChildren).toHaveBeenCalledWith('project', []);
   });
 
   it('propagates exactly once for a real reorder', () => {

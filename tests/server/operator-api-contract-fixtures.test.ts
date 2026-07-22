@@ -86,6 +86,16 @@ describe('operator API response contracts', () => {
     expect(detail.statusCode).toBe(200);
     expect(detail.json()).toMatchObject({ card: { id: 'project', lifecycle: { status: 'backlog' }, operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false } } });
     expect(detail.json().card.operator_summary).not.toHaveProperty('terminal');
+    const requiredCardKeys = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'];
+    expect(Object.keys(detail.json().card)).toEqual(expect.arrayContaining([...requiredCardKeys, 'allowedActions', 'operator_summary']));
+    for (const key of requiredCardKeys) expect(detail.json().card).toHaveProperty(key);
+    expect(detail.json().card).toMatchObject({
+      subtype: null, assigned_to: null, metrics: null, estimate: null, started_at: null, duration_ms: null,
+      status_text: null, status_text_updated_at: null, status_text_author_session_id: null,
+      latest_self_report: null, metadata: null, created_by: 'analyst',
+      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+    });
+    expect(hierarchy.json().card).toEqual(detail.json().card);
     expect(detail.json()).not.toHaveProperty('children');
     expect((await app.server.fastify.inject({ method: 'GET', url: '/api/cards' })).statusCode).toBe(404);
   });

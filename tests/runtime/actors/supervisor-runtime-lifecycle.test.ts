@@ -58,7 +58,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
     let h!: ReturnType<typeof harness>;
     const provider = { completeTurn: async () => ({ ...terminalProviderResult(), provider_exchanges: [attempt] }), projectProviderExchanges: () => { h.changes.runtimeChanged.mockClear(); throw error; } };
     h = harness(provider);
-    const commit = jest.spyOn(h.cards, 'commitTerminalLifecycle');
+    const commit = jest.spyOn(h.cards, 'commitActivationOutcome');
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     await h.service.startProject();
     await waitUntil(() => h.supervisor.getStatus().status === 'error');
@@ -111,7 +111,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
       },
     };
     h = { ...seed, supervisor: new SupervisorRuntimeApi({ ...seed.supervisorOptions, provider }) };
-    const commit = jest.spyOn(h.cards, 'commitTerminalLifecycle');
+    const commit = jest.spyOn(h.cards, 'commitActivationOutcome');
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const prepared = await h.supervisor.beginStartProject();
     if (!prepared.accepted) throw new Error('rejected');
@@ -188,7 +188,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
       return original(...args);
     });
     const start = h.supervisor.beginStartProject(); await expect(start).rejects.toBeInstanceOf(Error); set.mockClear();
-    const read = jest.spyOn(h.cards, 'read'); const terminal = jest.spyOn(h.cards, 'commitTerminalLifecycle');
+    const read = jest.spyOn(h.cards, 'read'); const terminal = jest.spyOn(h.cards, 'commitActivationOutcome');
     if (claim === 'stop') await expect(containment).resolves.toEqual({ status: 'stopped', contained: true }); else await expect(containment).resolves.toBeUndefined();
     expect(read).not.toHaveBeenCalled(); expect(set).not.toHaveBeenCalled(); expect(terminal).not.toHaveBeenCalled();
     expect(snapshots[0]).toBe('starting/not_ready'); expect(snapshots).toContain('closing/not_ready');
@@ -210,7 +210,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
     if (failure === 'interrupt') jest.spyOn(owner.processor, 'disposeActivation').mockImplementationOnce(() => { throw new Error('new interrupt failure'); });
     if (failure === 'join') jest.spyOn(owner.processor, 'joinActivation').mockRejectedValueOnce(new Error('new join failure'));
     if (failure === 'process') jest.spyOn(h.runner, 'terminateScopeTree').mockRejectedValueOnce(new Error('new process failure'));
-    const read = jest.spyOn(h.cards, 'read'); const set = jest.spyOn(h.cards, 'setStatus'); set.mockClear(); const commit = jest.spyOn(h.cards, 'commitTerminalLifecycle');
+    const read = jest.spyOn(h.cards, 'read'); const set = jest.spyOn(h.cards, 'setStatus'); set.mockClear(); const commit = jest.spyOn(h.cards, 'commitActivationOutcome');
     const first = h.supervisor.stopProject(); const repeated = h.supervisor.stopProject(); expect(repeated).toBe(first); await expect(first).rejects.toMatchObject({ code: 'runtime_containment_error' });
     expect(read).not.toHaveBeenCalled(); expect(set).not.toHaveBeenCalled(); expect(commit).not.toHaveBeenCalled(); expect(h.supervisor.getStatus().status).toBe('error'); expect(h.binding.interventionReadiness()).toBe('not_ready');
   });
@@ -233,7 +233,7 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
   });
 
   it('classifies terminal-result publication uncertainty separately from successful Stop containment', async () => {
-    const h = harness(completingProvider()); const commit = jest.spyOn(h.cards, 'commitTerminalLifecycle').mockImplementation(() => { throw new Error('terminal append unknown'); });
+    const h = harness(completingProvider()); const commit = jest.spyOn(h.cards, 'commitActivationOutcome').mockImplementation(() => { throw new Error('terminal append unknown'); });
     await h.service.startProject(); await waitUntil(() => h.supervisor.getStatus().status === 'error'); commit.mockClear(); await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true }); expect(commit).not.toHaveBeenCalled();
   });
 
@@ -243,17 +243,17 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
   });
 
   it('joins a result winner before rejecting the losing cancellation without a cancellation write', async () => {
-    const h = harness(completingProvider()); const original = h.cards.commitTerminalLifecycle.bind(h.cards); let loser: Promise<unknown> | undefined;
-    jest.spyOn(h.cards, 'commitTerminalLifecycle').mockImplementation((...args) => { loser = h.supervisor.cancelCard('project', 'late cancel'); void loser.catch(() => undefined); return original(...args); });
+    const h = harness(completingProvider()); const original = h.cards.commitActivationOutcome.bind(h.cards); let loser: Promise<unknown> | undefined;
+    jest.spyOn(h.cards, 'commitActivationOutcome').mockImplementation((...args) => { loser = h.supervisor.cancelCard('project', 'late cancel'); void loser.catch(() => undefined); return original(...args); });
     await h.service.startProject(); await waitUntil(() => h.supervisor.getStatus().status === 'stopped');
     await expect(loser).rejects.toThrow('result already claimed'); expect(h.cards.read('project')?.lifecycle.status).toBe('done');
   });
 
   it('preserves a result winner when Stop re-enters terminal record publication and waits for its direct LLM settlement', async () => {
     const h = harness(completingProvider());
-    const original = h.cards.commitTerminalLifecycle.bind(h.cards);
+    const original = h.cards.commitActivationOutcome.bind(h.cards);
     let stop: Promise<unknown> | undefined;
-    jest.spyOn(h.cards, 'commitTerminalLifecycle').mockImplementation((...args) => {
+    jest.spyOn(h.cards, 'commitActivationOutcome').mockImplementation((...args) => {
       stop ??= h.supervisor.stopProject();
       return original(...args);
     });
@@ -315,8 +315,8 @@ describe('SupervisorRuntimeApi singular ownership lifecycle', () => {
   it.each(['pausing', 'paused'] as const)('naturally completes from %s and retires the exact run Pause callback before stopped invalidation', async (mode) => {
     const h = harness(completingProvider()); const snapshots: Array<{ status: string; readiness: string; gatePause: boolean }> = [];
     h.changes.runtimeChanged.mockImplementation(() => { snapshots.push({ status: h.supervisor.getStatus().status, readiness: h.binding.interventionReadiness(), gatePause: h.gate.pauseRequested }); });
-    const original = h.cards.commitTerminalLifecycle.bind(h.cards); let injected = false;
-    jest.spyOn(h.cards, 'commitTerminalLifecycle').mockImplementation((...args) => {
+    const original = h.cards.commitActivationOutcome.bind(h.cards); let injected = false;
+    jest.spyOn(h.cards, 'commitActivationOutcome').mockImplementation((...args) => {
       if (!injected) { injected = true; h.service.pause(); if (mode === 'paused') { const controller = new AbortController(); void h.gate.waitUntilOpen(controller.signal).catch(() => undefined); controller.abort(new Error('retire frontier')); } }
       return original(...args);
     });

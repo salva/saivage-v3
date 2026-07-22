@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import type { CardService } from '../../cards/card-api.js';
-import { positiveSafeIntegerSchema, type CardHistoryEntry, type CardRecord } from '../../schemas/index.js';
+import { cardHistoryHeaderSchema, positiveSafeIntegerSchema, type CardHistoryEntry, type CardHistoryHeader, type CardRecord } from '../../schemas/index.js';
 import { allowedOperatorCardActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
@@ -42,8 +42,8 @@ function invalidNumberBody(path: 'seq' | 'from' | 'to'): OperatorApiResponse<'ca
   };
 }
 
-function historyHeader(entry: CardHistoryEntry) {
-  return {
+function historyHeader(entry: CardHistoryEntry): CardHistoryHeader {
+  return cardHistoryHeaderSchema.parse({
     entry_id: entry.entry_id,
     kind: entry.kind,
     card_id: entry.card_id,
@@ -54,7 +54,7 @@ function historyHeader(entry: CardHistoryEntry) {
     change_reason: entry.change_reason,
     changed_fields: entry.changed_fields,
     change_summary: entry.change_summary,
-  };
+  });
 }
 
 export class CardsReadModelService {

@@ -29,7 +29,7 @@ describe('bounded card resource reads', () => {
     const retained = cards.create(input('project', 'Retained', 'goal'));
     const retainedDescendant = cards.create(input(retained.id, 'Retained descendant'));
     const grandchild = cards.create(input(parent.id, 'Grandchild'));
-    cards.deleteSubtrees([retained.id], { actor: 'analyst', surface: 'runtime' }, () => true);
+    cards.deleteSubtrees([retained.id], () => true);
     writeFileSync(cardStreamFile(root, retainedDescendant.id), '{tombstoned-descendant-must-not-be-read}\n');
     writeFileSync(cardRecordStreamFile(root, sibling.id, 'brief'), '{complete-malformed}\n');
 
@@ -73,8 +73,8 @@ describe('bounded card resource reads', () => {
     cards.openRecord(target.id, 'review.md');
     cards.editRecord(target.id, 'review.md', 1, 'Review');
     cards.closeRecord(target.id, 'review.md', 1, 'reviewer', 1);
-    cards.mutateCard(target.id, { title: 'Target v2' }, { actor: 'analyst', surface: 'web-chat' });
-    cards.mutateCard(target.id, { priority: 2 }, { actor: 'analyst', surface: 'web-chat' });
+    cards.editCard(target.id, { title: 'Target v2' });
+    cards.editCard(target.id, { priority: 2 });
     const path = [cardStreamFile(root, 'project'), cardStreamFile(root, parent.id), cardStreamFile(root, target.id)];
 
     const detailRead = recorder();

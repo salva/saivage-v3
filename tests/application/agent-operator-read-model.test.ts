@@ -89,7 +89,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     publishConversationFirstBatch({ projectRoot: root }, [text(sessionId)]);
     const service = new AgentOperatorReadModelService(root, () => []);
     expect(service.listSessions().sessions.map(({ id }) => id)).toContain(sessionId);
-    cards.deleteSubtrees([child.id], { actor: 'analyst', surface: 'web-chat', reason: 'test' }, () => true);
+    cards.deleteSubtrees([child.id], () => true);
     expect(service.listSessions().sessions.map(({ id }) => id)).not.toContain(sessionId);
     expect(conversationBody(service.getConversation(sessionId))).toMatchObject({ session: { id: sessionId, status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } });
   });

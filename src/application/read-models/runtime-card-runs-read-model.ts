@@ -19,8 +19,7 @@ export function buildCardRunsResponse(projectRoot: string, store: CardService, r
     .flatMap(({ sessionId }) => {
       const goalId = plannerGoalFromSessionId(sessionId);
       if (!goalId) return [];
-      const card = store.read(goalId);
-      return [{ goal_card_id: goalId, planner_session_id: sessionId, latest_self_report: card?.latest_self_report ?? null }];
+      return [{ goal_card_id: goalId, planner_session_id: sessionId }];
     });
   return { current_card_id: currentCardId, active_breadcrumb, dormant_planners };
 }

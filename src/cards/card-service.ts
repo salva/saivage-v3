@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 
 import {
   cardHistoryEntrySchema,
-  cardLifecycleStateSchema,
   cardRecordSchema,
   positiveSafeIntegerSchema,
   type AgentRole,
@@ -22,7 +21,7 @@ import {
   listCards,
   publishCardTombstone,
   publishCardVersion,
-  publishInitialCard,
+  publishInitialChildCard,
   proveCreatedCardPublication,
   readCard,
   readCardArtifacts,
@@ -49,32 +48,28 @@ import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../application/fres
 import type { LiveSyncCardRecordSlot } from '../contracts/index.js';
 import { CardIndex } from './card-index.js';
 import {
-  briefContentForNewCard,
+  assertSetStatusAdmission,
   buildSetStatusLifecycle,
   buildActivatedStoppedLifecycle,
   buildStoppedLifecycle,
-  buildUpdatedCard,
-  canTransition,
-  collectChangedFields,
+  buildEditedCard,
+  collectEditChangedFields,
   enqueueCardNotification,
   isTerminalType,
-  prunePartialPatch,
+  pruneCardEditPatch,
   removeCardNotifications,
   summarizeChangedFields,
-  validateTransition,
-  type CardPatch,
-  type CardMutationContext,
-  type NewCardInput,
-  type TerminalLifecycleCommit,
-  type SetStatusLifecycle,
+  type CardEditPatch,
+  type NewChildCardInput,
   type SetStatusTarget,
 } from './lifecycle.js';
-import { acceptsCardNotifications, canCreateChildInStatus } from './card-status.js';
+import { canCreateChildInStatus } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 import type { CardNotification } from '../schemas/types.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { CardServiceInvariantError } from './errors.js';
 import { cardDepth, cardParentId } from '../schemas/card-id.js';
+import type { CardActivationOutcome } from '../contracts/tool-api.js';
 
 export type CardActivationAdmissionProjection = {
   child: CardRecord;
@@ -95,17 +90,13 @@ export type CardHistoryDiffResult =
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
   | { readonly kind: 'diff-source-not-found'; readonly from: number; readonly to: number; readonly missingVersionSeq: number };
 
-export type { CardMutationContext, CardPatch, NewCardInput, RecordProjection, SetStatusTarget, TerminalLifecycleCommit };
-
-type InternalLifecycleWrite =
-  | { kind: 'set-status'; lifecycle: SetStatusLifecycle }
-  | { kind: 'recovery-stop'; lifecycle: Extract<CardRecord['lifecycle'], { status: 'stopped' }> }
-  | { kind: 'stopped-activate'; lifecycle: Extract<CardRecord['lifecycle'], { status: 'running' }> }
-  | { kind: 'terminal'; lifecycle: Extract<CardRecord['lifecycle'], { status: 'done' | 'failed' | 'blocked' }>; status_text?: string | null; status_text_updated_at?: string | null };
-
-type InternalCardWrite =
-  | { kind: 'ordinary'; historyKind: 'update' | 'mutate' | 'depends'; patch: CardPatch }
-  | InternalLifecycleWrite;
+export type { CardEditPatch, NewChildCardInput, RecordProjection, SetStatusTarget };
+type TerminalActivationOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
+type TerminalPublication = {
+  lifecycle: Extract<CardRecord['lifecycle'], { status: 'done' | 'failed' | 'blocked' }>;
+  status_text: string | null;
+  status_text_updated_at: string | null;
+};
 
 function clone<T>(value: T): T { return structuredClone(value); }
 
@@ -119,16 +110,15 @@ function diffSnapshots(from: CardRecord, to: CardRecord): CardDiffEntry[] {
     .map((field) => ({ field, before: from[field], after: to[field] }));
 }
 
-function historyEntry(prior: CardRecord, kind: CardHistoryEntry['kind'], ctx: CardMutationContext, fields: string[], summary: string): CardHistoryEntry {
-  return cardHistoryEntrySchema.parse({ entry_id: randomUUID(), kind, card_id: prior.id, version_seq: prior.version_seq, snapshot: prior, changed_at: new Date().toISOString(), changed_by_actor: ctx.actor, changed_by_surface: ctx.surface, change_reason: ctx.reason ?? null, changed_fields: fields, change_summary: summary });
+function historyEntry(prior: CardRecord, kind: CardHistoryEntry['kind'], fields: string[], summary: string, reason: string): CardHistoryEntry {
+  const provenance = kind === 'update' ? { changed_by_actor: 'planner', changed_by_surface: 'runtime' }
+    : kind === 'delete' ? { changed_by_actor: 'analyst', changed_by_surface: 'runtime' }
+      : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };
+  return cardHistoryEntrySchema.parse({ entry_id: randomUUID(), kind, card_id: prior.id, version_seq: prior.version_seq, snapshot: prior, changed_at: new Date().toISOString(), ...provenance, change_reason: reason, changed_fields: fields, change_summary: summary });
 }
 
 function assertChildParentAdmission(parent: CardRecord, message: string): void {
   if (isTerminalType(parent.type) || !canCreateChildInStatus(parent.lifecycle.status)) throw new Error(`${message} '${parent.id}'.`);
-}
-
-function unreachableWrite(write: never): never {
-  throw new Error(`Unsupported card write: ${String(write)}`);
 }
 
 export class CardService {
@@ -175,10 +165,7 @@ export class CardService {
   getAncestors(id: string): string[] { const state = this.state(); if (!state.get(id)) return []; const out: string[] = []; let parent = cardParentId(id); while (parent) { if (!state.get(parent)) throw new CardServiceInvariantError(`Card '${id}' has missing linked ancestor '${parent}'.`); out.unshift(parent); parent = cardParentId(parent); } return out; }
   isDescendantOf(id: string, ancestorId: string): boolean { return this.getAncestors(id).includes(ancestorId); }
   getDescendantIds(id: string): string[] { const state = this.state(); const out: string[] = []; const visit = (parent: string): void => { for (const child of state.childrenOf(parent)) { out.push(child); visit(child); } }; visit(id); return out; }
-  detectCycles(id: string, dependsOn: string[]): string[] { return this.state().detectDependsOnCycle(id, dependsOn); }
   blocksFor(id: string): string[] { return this.list().filter((card) => card.depends_on.includes(id)).map((card) => card.id); }
-  validateTransition(from: CardStatus, to: CardStatus): void { validateTransition(from, to); }
-  canTransition(from: CardStatus, to: CardStatus): boolean { return canTransition(from, to); }
 
   readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readAuthoredRecord(this.projectRoot, cardId, filename, version, instrumentation); }
   openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, filename, undefined, this.cardAppendIo); }
@@ -234,8 +221,7 @@ export class CardService {
     return { kind: 'found', from, to, diff: clone(diffSnapshots(fromCard, toCard)) };
   }
 
-  create(input: NewCardInput): CardRecord {
-    if (input.type === 'project') throw new Error('The fixed project card is created only by bootstrap.');
+  create(input: NewChildCardInput): CardRecord {
     const parent = this.read(input.parent);
     if (!parent) throw new Error(`Parent card '${input.parent}' does not exist.`);
     assertChildParentAdmission(parent, 'Cannot create a child under');
@@ -245,95 +231,86 @@ export class CardService {
     const parentBeforeClaim = this.read(parent.id);
     if (!parentBeforeClaim) throw new Error(`Parent '${parent.id}' changed before child namespace claim.`);
     assertChildParentAdmission(parentBeforeClaim, 'Cannot claim a child namespace under');
-    const timestamp = new Date().toISOString();
-    const cardInput: Omit<CardRecord, 'id'> = {
-      type: input.type, children: [], title: input.title,
-      subtype: input.subtype ?? null, tags: input.tags, priority: input.priority, urgency: input.urgency,
-      created_by: input.created_by, created_at: timestamp, updated_at: timestamp, version_seq: 1,
-      assigned_to: input.assigned_to ?? null, depends_on: input.depends_on, related: input.related,
-      lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-      metrics: input.metrics ?? null, estimate: input.estimate ?? null, started_at: input.started_at ?? null,
-      duration_ms: input.duration_ms ?? null, status_text: input.status_text ?? null,
-      status_text_updated_at: input.status_text_updated_at ?? null,
-      status_text_author_session_id: input.status_text_author_session_id ?? null,
-      latest_self_report: input.latest_self_report ?? null, metadata: input.metadata ?? null,
-      pending_notifications: [],
-    };
-    const card = publishInitialCard(this.projectRoot, parentBeforeClaim.id, cardInput, briefContentForNewCard(input), input.created_by === 'planner' ? 'planner' : 'analyst');
+    const card = publishInitialChildCard(this.projectRoot, input);
     if (cardParentId(card.id) !== parentBeforeClaim.id || cardDepth(card.id) !== depth) throw new Error(`Claimed card '${card.id}' does not belong to requested parent '${parentBeforeClaim.id}'.`);
     const freshParent = this.read(parent.id);
     if (!freshParent || freshParent.children.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
     assertChildParentAdmission(freshParent, 'Cannot link a child under');
     proveCreatedCardPublication(this.projectRoot, card);
     const linked = cardRecordSchema.parse({ ...freshParent, children: [...freshParent.children, card.id], version_seq: freshParent.version_seq + 1, updated_at: new Date().toISOString() });
-    const linkHistory = historyEntry(freshParent, 'child_link', { actor: input.created_by, surface: 'runtime', reason: 'child linked' }, ['children'], `linked child ${card.id}`);
+    const linkHistory = historyEntry(freshParent, 'child_link', ['children'], `linked child ${card.id}`, 'child linked');
     publishCardVersion(this.projectRoot, linked, linkHistory, this.cardAppendIo);
     this.publishCardVersionEffects(linkHistory, cardParentId(freshParent.id), true);
     return clone(card);
   }
 
-  update(id: string, patch: CardPatch): CardRecord { return this.writeCard(id, { kind: 'ordinary', historyKind: 'update', patch }, { actor: 'runtime', surface: 'runtime', reason: 'update' }); }
-  mutateCard(id: string, patch: CardPatch, ctx: CardMutationContext): CardRecord { return this.writeCard(id, { kind: 'ordinary', historyKind: 'mutate', patch }, ctx); }
-  commitTerminalLifecycle(id: string, terminalCommit: TerminalLifecycleCommit): CardRecord { return this.writeCard(id, { kind: 'terminal', ...terminalCommit }, { actor: 'runtime', surface: 'runtime', reason: 'terminal lifecycle commit' }); }
-  setStatus(id: string, status: SetStatusTarget): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); validateTransition(card.lifecycle.status, status); if (card.lifecycle.status === status) return card; return this.writeCard(id, { kind: 'set-status', lifecycle: buildSetStatusLifecycle(card, status) }, { actor: 'runtime', surface: 'runtime', reason: `status -> ${status}` }); }
+  private publishVersion(existing: CardRecord, candidate: CardRecord, kind: CardHistoryEntry['kind'], fields: string[], reason: string, summary = summarizeChangedFields(fields)): CardRecord {
+    const history = historyEntry(existing, kind, fields, summary, reason);
+    publishCardVersion(this.projectRoot, cardRecordSchema.parse(candidate), history, this.cardAppendIo);
+    this.publishCardVersionEffects(history, cardParentId(existing.id), fields.includes('lifecycle'));
+    return clone(candidate);
+  }
+
+  editCard(id: string, changes: CardEditPatch): CardRecord {
+    const existing = this.read(id); if (!existing) throw new Error(`Card '${id}' not found.`);
+    if (!['backlog', 'changed', 'stopped'].includes(existing.lifecycle.status)) throw new Error(`Card '${id}' cannot be edited in status '${existing.lifecycle.status}'.`);
+    const patch = pruneCardEditPatch(existing, changes);
+    if (Object.keys(patch).length === 0) return existing;
+    const candidate = buildEditedCard(existing, patch, new Date().toISOString());
+    const fields = collectEditChangedFields(existing, candidate, patch);
+    return this.publishVersion(existing, candidate, 'update', fields, 'planner edit_card');
+  }
+
+  setStatus(id: string, status: SetStatusTarget): CardRecord {
+    const existing = this.read(id); if (!existing) throw new Error(`Card '${id}' not found.`);
+    assertSetStatusAdmission(existing, status);
+    const notifications = status === 'cancelled' ? [] : existing.pending_notifications;
+    const fields = ['lifecycle', ...(status === 'cancelled' && existing.pending_notifications.length > 0 ? ['pending_notifications'] : [])];
+    const candidate = { ...existing, lifecycle: buildSetStatusLifecycle(status), pending_notifications: notifications, updated_at: new Date().toISOString(), version_seq: existing.version_seq + 1 };
+    return this.publishVersion(existing, candidate, 'status', fields, `status -> ${status}`);
+  }
   stopRunningForRecovery(id: string): CardRecord {
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
     if (card.lifecycle.status !== 'running') throw new Error(`Card '${id}' must be running before recovery can stop it.`);
-    return this.writeCard(id, { kind: 'recovery-stop', lifecycle: buildStoppedLifecycle() }, { actor: 'runtime', surface: 'runtime', reason: 'recovery stopped lifecycle' });
+    const candidate = { ...card, lifecycle: buildStoppedLifecycle(), updated_at: new Date().toISOString(), version_seq: card.version_seq + 1 };
+    return this.publishVersion(card, candidate, 'status', ['lifecycle'], 'recovery stopped lifecycle');
   }
   activateStopped(id: string): CardRecord {
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
     if (card.lifecycle.status !== 'stopped') throw new Error(`Card '${id}' must be stopped before it can be activated through STOPPED.`);
-    return this.writeCard(id, { kind: 'stopped-activate', lifecycle: buildActivatedStoppedLifecycle() }, { actor: 'runtime', surface: 'runtime', reason: 'STOPPED activation' });
+    const candidate = { ...card, lifecycle: buildActivatedStoppedLifecycle(), updated_at: new Date().toISOString(), version_seq: card.version_seq + 1 };
+    return this.publishVersion(card, candidate, 'status', ['lifecycle'], 'STOPPED activation');
   }
-  enqueueNotification(id: string, notification: CardNotification): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = enqueueCardNotification(card, notification); return this.writeCard(id, { kind: 'ordinary', historyKind: 'mutate', patch: { pending_notifications: next.pending_notifications } }, { actor: 'runtime', surface: 'runtime', reason: 'notification enqueued' }); }
-  removeNotifications(id: string, notificationIds: readonly string[]): CardRecord { const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`); const next = removeCardNotifications(card, notificationIds); return this.writeCard(id, { kind: 'ordinary', historyKind: 'mutate', patch: { pending_notifications: next.pending_notifications } }, { actor: 'runtime', surface: 'runtime', reason: 'notifications delivered' }); }
+  enqueueNotification(id: string, notification: CardNotification): CardRecord {
+    const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`);
+    const next = enqueueCardNotification(card, notification);
+    return this.publishVersion(card, { ...next, updated_at: new Date().toISOString(), version_seq: card.version_seq + 1 }, 'notification_enqueue', ['pending_notifications'], 'notification enqueued', 'notification enqueued');
+  }
+  removeNotifications(id: string, notificationIds: readonly string[]): CardRecord {
+    const card = this.read(id); if (!card) throw new Error(`Card '${id}' not found.`);
+    const next = removeCardNotifications(card, notificationIds);
+    return this.publishVersion(card, { ...next, updated_at: new Date().toISOString(), version_seq: card.version_seq + 1 }, 'notification_remove', ['pending_notifications'], 'notifications delivered', 'notifications delivered');
+  }
 
-  private writeCard(id: string, write: InternalCardWrite, ctx: CardMutationContext): CardRecord {
+  commitActivationOutcome(id: string, outcome: TerminalActivationOutcome, settledAt: string): CardRecord {
     const existing = this.read(id); if (!existing) throw new Error(`Card '${id}' not found.`);
-    const stamp = new Date().toISOString();
-    let candidate: CardRecord;
-    let fields: string[];
-    let historyKind: CardHistoryEntry['kind'];
-    switch (write.kind) {
-      case 'ordinary': {
-        const patch = prunePartialPatch(existing, write.patch);
-        if (Object.keys(patch).length === 0) return existing;
-        candidate = cardRecordSchema.parse(buildUpdatedCard(existing, patch, stamp));
-        if (patch.depends_on && this.detectCycles(id, candidate.depends_on).length > 0) throw new Error(`Dependency cycle detected for '${id}'.`);
-        fields = collectChangedFields(existing, candidate, patch);
-        historyKind = write.historyKind;
-        break;
+    if (existing.lifecycle.status !== 'running') throw new Error(`Card '${id}' must be running before terminal lifecycle commit.`);
+    if (outcome.result.summary !== outcome.summary) throw new Error('Activation outcome summary must equal result summary.');
+    const terminal: TerminalPublication = (() => {
+      switch (outcome.status) {
+        case 'done': return { lifecycle: { status: 'done', result: outcome.result, error: null, completed_at: settledAt }, status_text: outcome.summary, status_text_updated_at: settledAt };
+        case 'failed': return { lifecycle: { status: 'failed', result: outcome.result, error: outcome.summary, completed_at: settledAt }, status_text: outcome.summary, status_text_updated_at: settledAt };
+        case 'blocked': return { lifecycle: { status: 'blocked', result: outcome.result, error: outcome.summary, completed_at: null }, status_text: outcome.summary, status_text_updated_at: settledAt };
       }
-      case 'set-status':
-        validateTransition(existing.lifecycle.status, write.lifecycle.status);
-        candidate = cardRecordSchema.parse({ ...existing, lifecycle: write.lifecycle, pending_notifications: acceptsCardNotifications(write.lifecycle.status) ? existing.pending_notifications : [], updated_at: stamp, version_seq: existing.version_seq + 1 });
-        fields = ['lifecycle']; historyKind = 'status'; break;
-      case 'recovery-stop':
-        if (existing.lifecycle.status !== 'running') throw new Error(`Card '${id}' must be running before recovery can stop it.`);
-        candidate = cardRecordSchema.parse({ ...existing, lifecycle: write.lifecycle, updated_at: stamp, version_seq: existing.version_seq + 1 });
-        fields = ['lifecycle']; historyKind = 'status'; break;
-      case 'stopped-activate':
-        if (existing.lifecycle.status !== 'stopped') throw new Error(`Card '${id}' must be stopped before it can be activated through STOPPED.`);
-        candidate = cardRecordSchema.parse({ ...existing, lifecycle: write.lifecycle, updated_at: stamp, version_seq: existing.version_seq + 1 });
-        fields = ['lifecycle']; historyKind = 'status'; break;
-      case 'terminal':
-        if (existing.lifecycle.status !== 'running') throw new Error(`Card '${id}' must be running before terminal lifecycle commit.`);
-        cardLifecycleStateSchema.parse(write.lifecycle);
-        candidate = cardRecordSchema.parse({ ...existing, lifecycle: write.lifecycle, ...(write.status_text === undefined ? {} : { status_text: write.status_text }), ...(write.status_text_updated_at === undefined ? {} : { status_text_updated_at: write.status_text_updated_at }), pending_notifications: [], updated_at: stamp, version_seq: existing.version_seq + 1 });
-        fields = ['lifecycle', ...(write.status_text !== undefined && !valuesEqual(existing.status_text, write.status_text) ? ['status_text'] : []), ...(write.status_text_updated_at !== undefined && !valuesEqual(existing.status_text_updated_at, write.status_text_updated_at) ? ['status_text_updated_at'] : [])]; historyKind = 'mutate'; break;
-      default: return unreachableWrite(write);
-    }
-    const history = historyEntry(existing, historyKind, ctx, fields, summarizeChangedFields(fields));
-    publishCardVersion(this.projectRoot, candidate, history, this.cardAppendIo);
-    this.publishCardVersionEffects(history, cardParentId(existing.id), fields.includes('lifecycle'));
-    return clone(candidate);
+    })();
+    const fields = ['lifecycle', ...(!valuesEqual(existing.status_text, terminal.status_text) ? ['status_text'] : []), ...(!valuesEqual(existing.status_text_updated_at, terminal.status_text_updated_at) ? ['status_text_updated_at'] : []), ...(existing.pending_notifications.length > 0 ? ['pending_notifications'] : [])];
+    const candidate = { ...existing, ...terminal, pending_notifications: [], updated_at: new Date().toISOString(), version_seq: existing.version_seq + 1 };
+    return this.publishVersion(existing, candidate, 'terminal', fields, 'terminal lifecycle commit');
   }
 
-  updateDependsOn(id: string, dependsOn: string[], ctx: CardMutationContext = { actor: 'runtime', surface: 'runtime', reason: 'dependency update' }): CardRecord { return this.writeCard(id, { kind: 'ordinary', historyKind: 'depends', patch: { depends_on: dependsOn } }, ctx); }
-  reorderChildren(parentId: string, orderedChildIds: string[], ctx: CardMutationContext): { ok: true; changed: number } | { ok: false; reason: string; missing: string[]; extra: string[] } {
+  reorderChildren(parentId: string, orderedChildIds: string[]): { ok: true; changed: number } | { ok: false; reason: string; missing: string[]; extra: string[] } {
     const { parent, activeChildren } = readLinkedChildrenProjection(this.projectRoot, parentId);
     const actual = activeChildren.map((card) => card.id);
     const actualSet = new Set(actual);
@@ -341,21 +318,20 @@ export class CardService {
     if (actual.length !== orderedChildIds.length || requestedSet.size !== orderedChildIds.length || actual.some((id) => !requestedSet.has(id))) {
       return { ok: false, reason: 'ordered child ids do not match current children', missing: actual.filter((id) => !requestedSet.has(id)), extra: orderedChildIds.filter((id) => !actualSet.has(id)) };
     }
-    const changed = orderedChildIds.reduce((count, id, index) => count + (actual[index] === id ? 0 : 1), 0);
-    if (changed === 0) return { ok: true, changed: 0 };
     const retained = parent.children.filter((id) => !actualSet.has(id));
-    const candidate = cardRecordSchema.parse({
-      ...parent,
-      children: [...orderedChildIds, ...retained],
-      version_seq: parent.version_seq + 1,
-      updated_at: new Date().toISOString(),
-    });
-    const history = historyEntry(parent, 'mutate', { ...ctx, reason: ctx.reason ?? 'children reordered' }, ['children'], 'children reordered');
-    publishCardVersion(this.projectRoot, candidate, history, this.cardAppendIo);
-    this.publishCardVersionEffects(history, cardParentId(parent.id), false);
+    const fullOrder = [...orderedChildIds, ...retained];
+    const changed = fullOrder.reduce((count, id, index) => count + (parent.children[index] === id ? 0 : 1), 0);
+    if (changed === 0) return { ok: true, changed: 0 };
+    this.publishExactChildReorder(parent, fullOrder);
     return { ok: true, changed };
   }
-  deleteSubtrees(requestedIds: readonly string[], ctx: CardMutationContext, allowed: (card: CardRecord) => boolean): { deleted: string[]; requested: string[] } {
+
+  private publishExactChildReorder(parent: CardRecord, fullOrder: string[]): CardRecord {
+    if (new Set(fullOrder).size !== fullOrder.length || fullOrder.length !== parent.children.length || parent.children.some((id) => !fullOrder.includes(id)) || valuesEqual(fullOrder, parent.children)) throw new Error('Exact child reorder requires a nonidentity complete same-membership permutation.');
+    return this.publishVersion(parent, { ...parent, children: fullOrder, version_seq: parent.version_seq + 1, updated_at: new Date().toISOString() }, 'reorder', ['children'], 'children reordered', 'children reordered');
+  }
+
+  deleteSubtrees(requestedIds: readonly string[], allowed: (card: CardRecord) => boolean): { deleted: string[]; requested: string[] } {
     if (requestedIds.length === 0) throw new Error('Deletion requires at least one card id.');
     const state = this.state(); const roots = [...new Set(requestedIds)]; const intended = new Set<string>();
     for (const id of roots) { const card = state.get(id); if (!card || id === 'project') throw new Error(`Card '${id}' cannot be deleted.`); intended.add(id); for (const child of state.descendantsOf(id)) intended.add(child); }
@@ -367,7 +343,7 @@ export class CardService {
     const ready = [...intended].filter((id) => indegree.get(id) === 0).sort(); const order: string[] = [];
     while (ready.length) { const id = ready.shift()!; order.push(id); for (const next of outgoing.get(id)!) { indegree.set(next, indegree.get(next)! - 1); if (indegree.get(next) === 0) { ready.push(next); ready.sort(); } } }
     if (order.length !== intended.size) throw new Error('Deletion dependency and hierarchy constraints conflict.');
-    for (const id of order) { const card = state.get(id)!; const entry = historyEntry(card, 'delete', ctx, ['__deleted__'], 'card deleted'); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishCardVersionEffects(entry, cardParentId(card.id), true, ['brief', 'status', 'review']); }
+    for (const id of order) { const card = state.get(id)!; const entry = historyEntry(card, 'delete', ['__deleted__'], 'card deleted', 'analyst subtree deletion'); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishCardVersionEffects(entry, cardParentId(card.id), true, ['brief', 'status', 'review']); }
     return { deleted: order, requested: roots };
   }
 }

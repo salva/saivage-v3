@@ -77,9 +77,10 @@ function createFixture(projectRoot: string, fixtureScenario: string | undefined)
   fs.mkdirSync(cardConversations, { recursive: true });
   fs.mkdirSync(join(saivage, 'agents', 'conversations'), { recursive: true });
   const card = {
-    id: 'project', type: 'project', children: [], title: 'Read ledger project', lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+    id: 'project', type: 'project', children: [], title: 'Read ledger project', subtype: null, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
     tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: stamp, updated_at: stamp, version_seq: 1,
-    depends_on: [], related: [], pending_notifications: [],
+    assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
+    status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
   };
   writeEnvelope(join(cardRoot, 'card.jsonl'), [{ kind: 'card-version', format_version: 2, card_id: 'project', version: 1, committed_at: stamp, card, history: null }]);
 

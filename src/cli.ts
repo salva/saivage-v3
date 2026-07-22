@@ -46,7 +46,7 @@ async function handleInit(): Promise<void> {
     if (readProjectCardOrAssertInitialPublicationAllowed(canonicalProjectRoot) !== null) { console.log(`Project already initialized at ${canonicalProjectRoot}`); return; }
     mkdirSync(join(canonicalProjectRoot, '.saivage', 'cards'), { recursive: true });
     const root = newProjectRootInput(canonicalProjectRoot);
-    publishInitialProjectCard(canonicalProjectRoot, root.card, root.brief, 'analyst');
+    publishInitialProjectCard(canonicalProjectRoot, root);
     console.log(`Project initialized at ${canonicalProjectRoot}`);
   });
 }
@@ -96,7 +96,7 @@ async function handleReset(): Promise<void> {
     for (const target of generatedRoots) rmSync(target, { recursive: true, force: true });
     mkdirSync(saivageCardsRoot(canonicalProjectRoot), { recursive: true });
     const root = newProjectRootInput(canonicalProjectRoot);
-    publishInitialProjectCard(canonicalProjectRoot, root.card, root.brief, 'analyst');
+    publishInitialProjectCard(canonicalProjectRoot, root);
     console.log('Project reset with a new root project card. Every path outside the four reset-owned generated roots was preserved.');
   });
 }

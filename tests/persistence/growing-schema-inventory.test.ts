@@ -38,4 +38,12 @@ describe('durable growing-schema and writer inventory', () => {
       expect(text).not.toMatch(/safeParse\(entry\.data\)|entry\.data\s+as\s+/);
     }
   });
+
+  it('keeps exactly the eight current card history kinds', () => {
+    const validators = source('src/schemas/validators.ts');
+    const match = validators.match(/cardHistoryKindSchema = z\.enum\(\[([^\]]+)\]\)/);
+    expect(match).not.toBeNull();
+    expect(Array.from(match![1]!.matchAll(/'([^']+)'/g), (entry) => entry[1])).toEqual(['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete']);
+    expect(match![1]).not.toMatch(/mutate|depends|archive/);
+  });
 });

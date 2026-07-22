@@ -87,7 +87,7 @@ describe('CLI reset generated-root boundary', () => {
     expect(Object.keys(rootEnvelope.rows[0].card)).toEqual([
       'id', 'type', 'children', 'title', 'lifecycle', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at',
       'version_seq', 'assigned_to', 'depends_on', 'related', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text',
-      'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'pending_notifications',
+      'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications',
     ]);
     expect(rootEnvelope.rows[0].card.lifecycle).toEqual({ status: 'backlog', result: null, error: null, completed_at: null });
     expect(rootStream).toBe(`${JSON.stringify(rootEnvelope)}\n`);

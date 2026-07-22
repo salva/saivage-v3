@@ -3,7 +3,7 @@ import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.j
 import type { CardRecord } from '../../src/schemas/index.js';
 
 function card(id: string, type: CardRecord['type'], status: 'running' | 'stopped', children: string[] = []): CardRecord {
-  return { id, type, children, title: id, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], related: [], lifecycle: { status, result: null, error: null, completed_at: null }, pending_notifications: [] };
+  return { id, type, children, title: id, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], lifecycle: { status, result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
 }
 
 describe('running card restart selection', () => {

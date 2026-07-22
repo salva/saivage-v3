@@ -94,13 +94,14 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     const parentCard = this.store.read(parent);
     if (!parentCard) return denied(`parent '${parent}' does not exist`);
     if (!canCreateChildInStatus(parentCard.lifecycle.status) || parentCard.lifecycle.status === 'running') return denied('wrong_state');
+    if (input.type === 'project') return denied('Root project card already exists');
     const card = this.store.create({ type: input.type, parent, title: input.title, brief: input.brief, tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: 'analyst', depends_on: input.depends_on ?? [], related: input.related ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch { /* notification is best effort */ }
     return success(toCardView(this.store, card));
   }
 
   delete(ids: readonly string[]): AnalystMutationOutcome {
-    const result = this.store.deleteSubtrees(ids, { actor: 'analyst', surface: 'runtime', reason: 'analyst subtree deletion' }, (card) => card.lifecycle.status !== 'running');
+    const result = this.store.deleteSubtrees(ids, (card) => card.lifecycle.status !== 'running');
     return success({ deleted: result.deleted, top_level_deleted: result.requested });
   }
 
@@ -129,7 +130,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       const blocked = subtree(this.store, child.id).find((candidate) => candidate.lifecycle.status === 'running');
       if (blocked) return denied(`child subtree '${child.id}' contains '${blocked.id}' in status ${blocked.lifecycle.status}`);
     }
-    const result = this.store.reorderChildren(parentId, [...orderedChildIds], { actor: 'analyst', surface: 'web-chat', reason: 'analyst reorder_child' });
+    const result = this.store.reorderChildren(parentId, [...orderedChildIds]);
     if (!result.ok) return failure('reorder_set_mismatch', { reason: 'reorder_set_mismatch', missing: result.missing, extra: result.extra, parent_id: parentId });
     if (result.changed > 0) {
       try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch { /* notification is best effort */ }

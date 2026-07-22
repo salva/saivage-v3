@@ -247,9 +247,13 @@ describe('CardProcessActor configured graph execution', () => {
       if (input.role === 'planner') { const open = h.store.openRecord('project', 'status.md'); h.store.editRecord('project', 'status.md', open.version, 'ready'); return tool('to-review', 'admit_review'); }
       reviewerCalls += 1;
       const open = h.store.openRecord('project', 'review.md'); h.store.editRecord('project', 'review.md', open.version, `review ${reviewerCalls}`);
-      if (reviewerCalls <= 2) h.store.mutateCard('project', { title: `Changed during review ${reviewerCalls}` }, { actor: 'planner', surface: 'runtime', reason: 'test semantic change' });
+      if (reviewerCalls === 1) expect(h.store.reorderChildren('project', [second.id, first.id])).toEqual({ ok: true, changed: 2 });
+      if (reviewerCalls === 2) expect(h.store.reorderChildren('project', [first.id, second.id])).toEqual({ ok: true, changed: 2 });
       return tool(`review-${reviewerCalls}`, 'approved');
     });
+    const first = h.store.create({ type: 'code', parent: 'project', title: 'first', brief: 'first', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const second = h.store.create({ type: 'code', parent: 'project', title: 'second', brief: 'second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    for (const child of [first, second]) { h.store.setStatus(child.id, 'running'); h.store.commitActivationOutcome(child.id, { status: 'done', summary: 'child done', result: { kind: 'done', summary: 'child done' } }, '2026-07-22T00:00:00.000Z'); }
     const outcome = await h.actor.activate(h.input(), new AbortController().signal);
     expect(outcome).toMatchObject({ status: 'done' });
     expect(reviewerCalls).toBe(3);
@@ -257,6 +261,8 @@ describe('CardProcessActor configured graph execution', () => {
     expect(rows.some((row) => row.kind === 'tool_result' && row.content.includes('Review context is stale'))).toBe(true);
     expect(rows.filter((row) => row.kind === 'tool_result' && row.content.includes('Review context is stale'))).toHaveLength(2);
     expect(rows.filter((row) => row.role === 'user' && row.content.startsWith('Descendant work:'))).toHaveLength(3);
+    expect(h.store.read('project')!.children).toEqual([first.id, second.id]);
+    expect([h.store.read(first.id)!.lifecycle.status, h.store.read(second.id)!.lifecycle.status]).toEqual(['done', 'done']);
   });
 
   it.each([

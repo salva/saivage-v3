@@ -13,7 +13,7 @@ const runtimeRunning = {
   updated_at: now,
 };
 
-const card = {
+export const smokeOperatorCard = {
   id: smokeCardId,
   type: 'code',
   children: [],
@@ -23,15 +23,44 @@ const card = {
   tags: ['smoke'],
   priority: 90,
   urgency: 'normal',
-  created_by: 'user',
+  subtype: null,
+  created_by: 'analyst',
   created_at: now,
   updated_at: now,
+  assigned_to: null,
   depends_on: [],
   related: [],
+  metrics: null,
+  estimate: null,
+  started_at: null,
+  duration_ms: null,
+  status_text: 'synthetic result',
+  status_text_updated_at: now,
+  status_text_author_session_id: null,
+  latest_self_report: null,
+  metadata: null,
   pending_notifications: [],
   allowedActions: [],
   version_seq: 3,
 };
+const card = smokeOperatorCard;
+const { operator_summary: _operatorSummary, allowedActions: _allowedActions, ...rawCard } = card;
+const priorCard = {
+  ...rawCard,
+  lifecycle: { status: 'running' as const, result: null, error: null, completed_at: null },
+  status_text: null,
+  status_text_updated_at: null,
+  version_seq: 2,
+};
+const terminalHistory = {
+  entry_id: '11111111-1111-4111-8111-111111111111', kind: 'terminal' as const, card_id: smokeCardId, version_seq: 2,
+  changed_at: now, changed_by_actor: 'runtime' as const, changed_by_surface: 'runtime' as const,
+  change_reason: 'terminal lifecycle commit', changed_fields: ['lifecycle', 'status_text', 'status_text_updated_at'],
+  change_summary: 'lifecycle, status_text, status_text_updated_at updated',
+};
+const historyList = parseOperatorResponse('cards.history.list', { history: [terminalHistory], total: 1 });
+const historyEntry = parseOperatorResponse('cards.history.get', { entry: { ...terminalHistory, snapshot: priorCard } });
+const historyDiff = parseOperatorResponse('cards.diff', { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: card.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
 
 const projectCard = {
   ...card,
@@ -41,6 +70,8 @@ const projectCard = {
   title: 'Synthetic Project',
   priority: 50,
   lifecycle: { status: 'running', result: null, error: null, completed_at: null },
+  status_text: null,
+  status_text_updated_at: null,
   operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false },
   version_seq: 1,
 };
@@ -163,9 +194,9 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', { card, children: [] }));
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}`) return json(route, cardDetail);
-    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, { history: [], total: 0 });
-    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/3`) return json(route, { entry: { ...card, snapshot: card } });
-    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, { diff: [], from: 1, to: 3, card_id: smokeCardId });
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, historyList);
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/2`) return json(route, historyEntry);
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, historyDiff);
     if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, parseOperatorResponse('agents.list', { sessions }));
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/conversation')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'analyst:global');

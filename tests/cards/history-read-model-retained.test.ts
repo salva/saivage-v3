@@ -35,7 +35,7 @@ describe('direct card history and operator read models', () => {
     const cards = new CardService(root);
     const first = cards.create({ type: 'goal', parent: 'project', title: 'First by position', brief: 'One', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     const second = cards.create({ type: 'code', parent: 'project', title: 'Second by position', brief: 'Two', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    cards.mutateCard(first.id, { title: 'Updated title' }, { actor: 'analyst', surface: 'web-chat', reason: 'rename' });
+    cards.editCard(first.id, { title: 'Updated title' });
     const history = cards.listCardHistory(first.id);
     expect(history.kind).toBe('found');
     if (history.kind !== 'found') throw new Error('expected card history');
@@ -67,8 +67,8 @@ describe('direct card history and operator read models', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const card = cards.create({ type: 'code', parent: 'project', title: 'Before', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    cards.mutateCard(card.id, { title: 'After' }, { actor: 'analyst', surface: 'web-chat', reason: 'rename' });
-    cards.deleteSubtrees([card.id], { actor: 'analyst', surface: 'runtime', reason: 'delete' }, () => true);
+    cards.editCard(card.id, { title: 'After' });
+    cards.deleteSubtrees([card.id], () => true);
     const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => { throw new Error('unused'); } });
 
     expect(readModel.getCard(card.id)).toMatchObject({ statusCode: 404 });

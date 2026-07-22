@@ -46,4 +46,28 @@ describe('runtime ledger contract deletions', () => {
       'mcp_tool_invocation',
     ]);
   });
+
+  it('removes rework results and admits only the exact blocked result in every shared runtime schema', async () => {
+    const schemas = await import('../../src/schemas/index.js');
+    const schemaIndexSource = readFileSync(join(process.cwd(), 'src/schemas/index.ts'), 'utf8');
+    expect(schemaIndexSource).not.toContain('ReworkResult');
+    expect(schemaIndexSource).not.toContain('reworkResultSchema');
+    expect('ReworkResult' in schemas).toBe(false);
+    expect('reworkResultSchema' in schemas).toBe(false);
+
+    const blockedResult = { kind: 'blocked', summary: 'waiting', resume_reason: 'dependency' };
+    const reworkResult = { kind: 'rework', summary: 'revise', feedback: 'incorrect' };
+    expect(schemas.cardResultSchema.parse(blockedResult)).toEqual(blockedResult);
+    expect(schemas.cardLifecycleStateSchema.parse({ status: 'blocked', result: blockedResult, error: 'waiting', completed_at: null }))
+      .toEqual({ status: 'blocked', result: blockedResult, error: 'waiting', completed_at: null });
+    expect(schemas.activationOutcomeSchema.parse({ outcome: 'blocked', result: blockedResult, error: 'waiting' }))
+      .toEqual({ outcome: 'blocked', result: blockedResult, error: 'waiting' });
+    expect(schemas.runtimeRunOutcomeSchema.parse({ outcome: 'blocked', result: blockedResult, error: 'waiting' }))
+      .toEqual({ outcome: 'blocked', result: blockedResult, error: 'waiting' });
+
+    expect(schemas.cardResultSchema.safeParse(reworkResult).success).toBe(false);
+    expect(schemas.cardLifecycleStateSchema.safeParse({ status: 'blocked', result: reworkResult, error: 'revise', completed_at: null }).success).toBe(false);
+    expect(schemas.activationOutcomeSchema.safeParse({ outcome: 'blocked', result: reworkResult, error: 'revise' }).success).toBe(false);
+    expect(schemas.runtimeRunOutcomeSchema.safeParse({ outcome: 'blocked', result: reworkResult, error: 'revise' }).success).toBe(false);
+  });
 });

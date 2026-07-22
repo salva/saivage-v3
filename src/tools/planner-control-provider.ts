@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 
-import type { CardPatch, CardService, NewCardInput } from '../cards/card-api.js';
+import type { CardEditPatch, CardService, NewChildCardInput } from '../cards/card-api.js';
 import {
   activateCardArgumentsSchema,
   formatActivateCardResult,
@@ -20,10 +20,10 @@ import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
 
 interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
-  create?(input: NewCardInput): CardRecord;
-  mutateCard?(cardId: string, changes: CardPatch, ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): CardRecord;
+  create?(input: NewChildCardInput): CardRecord;
+  editCard?(cardId: string, changes: CardEditPatch): CardRecord;
   setStatus(cardId: string, status: 'changed'): CardRecord;
-  reorderChildren?(parentId: string, orderedChildIds: string[], ctx: { actor: 'planner'; surface: 'runtime'; reason: string }): ReorderChildrenResult;
+  reorderChildren?(parentId: string, orderedChildIds: string[]): ReorderChildrenResult;
 }
 
 export interface PlannerControlProviderContext {
@@ -82,7 +82,7 @@ function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof c
   const parent = ctx.store.read(ctx.parentCardId);
   if (!parent) return failure(`Planner parent card '${ctx.parentCardId}' not found.`);
   if (!ctx.store.create) throw new Error('Planner create_card requires a mutable card store.');
-  const input: NewCardInput = {
+  const input: NewChildCardInput = {
     type: type.type,
     parent: ctx.parentCardId,
     title: requireNonEmptyString(record.title, 'title'),
@@ -104,16 +104,16 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof edi
   if (['running', 'done', 'cancelled'].includes(child.card.lifecycle.status)) return failure(`edit_card cannot edit ${child.card.lifecycle.status} child '${record.card_id}'.`);
   const patch = plannerEditablePatch(record);
   if (Object.keys(patch).length === 0) return failure('edit_card requires at least one editable field.');
-  if (!ctx.store.mutateCard) throw new Error('Planner edit_card requires a mutable card store.');
+  if (!ctx.store.editCard) throw new Error('Planner edit_card requires a mutable card store.');
   const shouldMarkChanged = child.card.lifecycle.status === 'failed' || child.card.lifecycle.status === 'blocked';
   if (shouldMarkChanged) ctx.store.setStatus(record.card_id, 'changed');
-  const updated = ctx.store.mutateCard(record.card_id, patch, { actor: 'planner', surface: 'runtime', reason: 'planner edit_card' });
+  const updated = ctx.store.editCard(record.card_id, patch);
   return { success: true, data: { card: compactPlannerToolCard(updated) } };
 }
 
 function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof reorderChildSchema>): ToolResult {
   if (!ctx.store.reorderChildren) throw new Error('Planner reorder_child requires a mutable card store.');
-  const result = ctx.store.reorderChildren(ctx.parentCardId, record.orderedChildIds, { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
+  const result = ctx.store.reorderChildren(ctx.parentCardId, record.orderedChildIds);
   if (!result.ok) return { success: false, error: `reorder_child set mismatch: missing=${result.missing.join(',') || '(none)'} extra=${result.extra.join(',') || '(none)'}` };
   return { success: true, data: { parent_id: ctx.parentCardId, changed: result.changed } };
 }
@@ -169,8 +169,8 @@ function plannerCreatedType(value: string): { success: true; type: Exclude<CardT
   return { success: true, type: value as Exclude<CardType, 'project'> };
 }
 
-function plannerEditablePatch(record: z.infer<typeof editCardSchema>): CardPatch {
-  const patch: CardPatch = {};
+function plannerEditablePatch(record: z.infer<typeof editCardSchema>): CardEditPatch {
+  const patch: CardEditPatch = {};
   if (record.title !== undefined) patch.title = requireNonEmptyString(record.title, 'title');
   if (record.tags !== undefined) patch.tags = record.tags;
   if (record.priority !== undefined) patch.priority = record.priority;

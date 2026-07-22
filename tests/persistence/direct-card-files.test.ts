@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, s
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
-import { publishCardTombstone, publishCardVersion, readCanonicalCardHierarchy, readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
+import { listCards, publishCardTombstone, publishCardVersion, readCanonicalCardHierarchy, readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
@@ -12,20 +12,16 @@ import type { CardHistoryEntry, CardRecord } from '../../src/schemas/index.js';
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-function historyFor(card: CardRecord, kind: CardHistoryEntry['kind'] = 'update'): CardHistoryEntry {
-  return {
+function historyFor(card: CardRecord, kind: 'update' | 'delete' = 'update'): CardHistoryEntry {
+  const common = {
     entry_id: '11111111-1111-4111-8111-111111111111',
-    kind,
     card_id: card.id,
     version_seq: card.version_seq,
     snapshot: structuredClone(card),
     changed_at: '2026-07-21T00:00:01.000Z',
-    changed_by_actor: 'analyst',
-    changed_by_surface: 'runtime',
-    change_reason: 'boundary regression',
-    changed_fields: kind === 'delete' ? [] : ['title'],
-    change_summary: kind === 'delete' ? 'card deleted' : 'title changed',
   };
+  if (kind === 'delete') return { ...common, kind, changed_by_actor: 'analyst', changed_by_surface: 'runtime', change_reason: 'analyst subtree deletion', changed_fields: ['__deleted__'], change_summary: 'card deleted' };
+  return { ...common, kind, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card', changed_fields: ['title'], change_summary: 'title updated' };
 }
 
 describe('exact hierarchical card files', () => {
@@ -46,8 +42,8 @@ describe('exact hierarchical card files', () => {
     const first = cards.create({ type: 'code', parent: 'project', title: 'First', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const retained = cards.create({ type: 'code', parent: 'project', title: 'Retained', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const second = cards.create({ type: 'code', parent: 'project', title: 'Second', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    cards.deleteSubtrees([retained.id], { actor: 'analyst', surface: 'runtime' }, () => true);
-    cards.reorderChildren('project', [second.id, first.id], { actor: 'analyst', surface: 'runtime' });
+    cards.deleteSubtrees([retained.id], () => true);
+    cards.reorderChildren('project', [second.id, first.id]);
 
     expect(readCard(root, 'project')?.children).toEqual([second.id, first.id, retained.id]);
     expect(readLinkedChildren(root, 'project').map(({ id }) => id)).toEqual([second.id, first.id]);
@@ -70,6 +66,22 @@ describe('exact hierarchical card files', () => {
     writeFileSync(path, `${JSON.stringify(envelope)}\n`);
 
     expect(() => readCard(root, 'project')).toThrow(/malformed/);
+  });
+
+  it('rejects a canonical loaded graph whose individually valid card streams form a dependency cycle', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const first = cards.create({ type: 'code', parent: 'project', title: 'First', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const second = cards.create({ type: 'code', parent: 'project', title: 'Second', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+
+    for (const [card, dependency] of [[first, second], [second, first]] as const) {
+      const path = cardStreamFile(root, card.id);
+      const envelope = JSON.parse(readFileSync(path, 'utf8')) as { rows: Array<{ card: CardRecord }> };
+      envelope.rows[0]!.card.depends_on = [dependency.id];
+      writeFileSync(path, `${JSON.stringify(envelope)}\n`);
+    }
+
+    expect(() => listCards(root)).toThrow(`Card dependency graph contains a cycle at '${first.id}'.`);
   });
 
   it('rejects structurally valid stream identity and history failures after read parsing', () => {
@@ -257,7 +269,7 @@ describe('exact hierarchical card files', () => {
     const cards = new CardService(root);
     const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    cards.deleteSubtrees([parent.id], { actor: 'analyst', surface: 'runtime', reason: 'test deletion' }, () => true);
+    cards.deleteSubtrees([parent.id], () => true);
 
     expect(readCard(root, parent.id)).toBeNull();
     expect(cards.listCardHistory(parent.id)).toEqual({ kind: 'card-not-found' });

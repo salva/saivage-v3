@@ -15,6 +15,7 @@ vi.mock('../api/client', () => ({
 import { ApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getFileContent, listCardHistory } from '../api/client';
 import { useCardStore } from '../stores/cards';
 import { cardView } from './card-view-fixtures';
+import { historyEntry, historyHeader, rawCard } from './card-view-fixtures';
 
 const A = 'card-a';
 const AB = 'card-a-b';
@@ -25,6 +26,8 @@ const card = (id: string, overrides: Partial<CardRecord> = {}) => cardView(id, o
 const childrenResponse = (parent: CardRecord, children: CardRecord[]): CardChildrenResponse => ({ card: parent, children });
 const deferred = <T>() => { let resolve!: (value: T) => void; let reject!: (error: unknown) => void; const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; }); return { promise, resolve, reject }; };
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
+const updateHeader = (id = A) => historyHeader({ kind: 'update', card_id: id, version_seq: 2, change_reason: 'planner edit_card', changed_fields: ['title'], change_summary: 'title updated' });
+const updateEntry = (id = A) => historyEntry({ ...updateHeader(id), snapshot: rawCard(id, { title: 'old', version_seq: 2 }) });
 
 describe('lazy CardStore', () => {
   beforeEach(() => { setActivePinia(createPinia()); vi.clearAllMocks(); });
@@ -143,18 +146,18 @@ describe('lazy CardStore', () => {
   });
 
   it('tears down the complete selected-card scope on refresh 404 while preserving independent hierarchy', async () => {
-    vi.mocked(getCard).mockResolvedValueOnce({ card: card(A, { title: 'accepted detail' }) });
+    vi.mocked(getCard).mockResolvedValueOnce({ card: card(A, { title: 'accepted detail', version_seq: 3 }) });
     vi.mocked(getCardChildren).mockResolvedValue(childrenResponse(card('project', { children: [A] }), [card(A)]));
     vi.mocked(getFileContent).mockResolvedValue({ path: '', size: 1, contentType: 'text/markdown', content: 'accepted record', redacted: false, sensitivity: 'normal', version: 1, modifiedAt: now });
-    vi.mocked(listCardHistory).mockResolvedValue({ history: [{ card_id: A, version_seq: 1 } as any], total: 1 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: A, version_seq: 1 } as any });
-    vi.mocked(getCardDiff).mockResolvedValue({ card_id: A, from: 1, to: 2, diff: [{ field: 'title', before: 'old', after: 'new' }] });
+    vi.mocked(listCardHistory).mockResolvedValue({ history: [updateHeader()], total: 1 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: updateEntry() });
+    vi.mocked(getCardDiff).mockResolvedValue({ card_id: A, from: 2, to: 3, diff: [{ field: 'title', before: 'old', after: 'new' }] });
     const store = useCardStore();
-    await store.ensureRoot(); await store.fetchCardDetail(A); await store.loadCardRecords(A); await store.openCardHistory(A); await store.selectCardHistoryVersion(A, 1);
+    await store.ensureRoot(); await store.fetchCardDetail(A); await store.loadCardRecords(A); await store.openCardHistory(A); await store.selectCardHistoryVersion(A, 2);
     const hierarchySlice = store.hierarchySlicesByParentId.project;
     const hierarchyState = store.childrenLoadStateById.project;
 
-    const pendingBrief = deferred<any>(); const pendingHistory = deferred<any>(); const pendingEntry = deferred<any>(); const pendingDiff = deferred<any>(); const detail404 = deferred<CardDetailResponse>();
+    const pendingBrief = deferred<Awaited<ReturnType<typeof getFileContent>>>(); const pendingHistory = deferred<Awaited<ReturnType<typeof listCardHistory>>>(); const pendingEntry = deferred<Awaited<ReturnType<typeof getCardHistoryEntry>>>(); const pendingDiff = deferred<Awaited<ReturnType<typeof getCardDiff>>>(); const detail404 = deferred<CardDetailResponse>();
     vi.mocked(getFileContent).mockReturnValueOnce(pendingBrief.promise);
     vi.mocked(listCardHistory).mockReturnValueOnce(pendingHistory.promise);
     vi.mocked(getCardHistoryEntry).mockReturnValueOnce(pendingEntry.promise);
@@ -162,7 +165,7 @@ describe('lazy CardStore', () => {
     vi.mocked(getCard).mockReturnValueOnce(detail404.promise);
     const briefRefresh = store.refreshRecord('brief', 'invalidated');
     const historyRefresh = store.refreshHistory('invalidated');
-    const versionRefresh = store.selectCardHistoryVersion(A, 1);
+    const versionRefresh = store.selectCardHistoryVersion(A, 2);
     const detailRefresh = store.refreshCardDetail('invalidated');
     store.cardRecords.status = { ...store.cardRecords.status, stale: true, staleReason: 'refresh-failed', refreshError: 'accepted status error' };
     store.cardRecords.review = { ...store.cardRecords.review, error: 'accepted review error' };
@@ -186,7 +189,7 @@ describe('lazy CardStore', () => {
     expect(store.hierarchySlicesByParentId.project).toBe(hierarchySlice); expect(store.childrenLoadStateById.project).toBe(hierarchyState);
 
     pendingBrief.resolve({ path: '', size: 1, contentType: 'text/markdown', content: 'late', redacted: false, sensitivity: 'normal' });
-    pendingHistory.resolve({ history: [{ card_id: A, version_seq: 9 }], total: 1 }); pendingEntry.resolve({ entry: { card_id: A, version_seq: 9 } }); pendingDiff.reject(new Error('late diff'));
+    pendingHistory.resolve({ history: [updateHeader(B)], total: 1 }); pendingEntry.resolve({ entry: updateEntry(B) }); pendingDiff.reject(new Error('late diff'));
     await Promise.all([briefRefresh, historyRefresh, versionRefresh]);
     expect(store.selectedDetailError?.kind).toBe('not-found'); expect(store.cardRecords.brief.accepted).toBeNull(); expect(store.cardHistory).toEqual([]); expect(store.cardHistoryEntry).toBeNull(); expect(store.cardHistoryDiff).toEqual([]);
 
@@ -293,7 +296,7 @@ describe('lazy CardStore', () => {
   });
 
   it('excludes an old selected-card record completion even when it resolves after abort', async () => {
-    const oldBrief = deferred<any>();
+    const oldBrief = deferred<Awaited<ReturnType<typeof getFileContent>>>();
     vi.mocked(getFileContent).mockImplementation((path) => path.includes('brief') && path.includes(A) ? oldBrief.promise : Promise.reject(new ApiError(404, 'absent', {})));
     const store = useCardStore();
     const oldLoad = store.loadCardRecords(A);
@@ -308,7 +311,7 @@ describe('lazy CardStore', () => {
   it('keeps a literal current-relative diff key independent of selected detail version', async () => {
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: A, from: 2, to: 9, diff: [{ field: 'title', before: 'old', after: 'new' }] });
     const { getCardHistoryEntry } = await import('../api/client');
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: { card_id: A, version_seq: 2 } as any });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: updateEntry() });
     const store = useCardStore();
     store.selectedCardId = A;
     store.cardHistoryVisible = true;

@@ -1,30 +1,9 @@
 import { expect, test } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
-import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeCardId, smokeOperatorCard } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const syntheticToken = 'synthetic-playwright-token';
-const now = '2026-05-19T12:00:00.000Z';
-
-const card = {
-  id: smokeCardId,
-  type: 'code',
-  children: [],
-  title: 'Synthetic dashboard smoke card',
-  lifecycle: { status: 'done', result: { kind: 'done', summary: 'synthetic result' }, error: null, completed_at: now },
-  operator_summary: { blocked: false, hasError: false, error: null, completedAt: now, stale: false },
-  tags: ['smoke'],
-  priority: 90,
-  urgency: 'normal',
-  created_by: 'user',
-  created_at: now,
-  updated_at: now,
-  depends_on: [],
-  related: [],
-  pending_notifications: [],
-  allowedActions: [],
-  version_seq: 3,
-} as const;
 
 test('desktop card detail keeps all content reachable inside the bounded detail scroller', async ({ page }) => {
   const pageErrors: string[] = [];
@@ -40,7 +19,7 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(parseOperatorResponse('cards.get', {
-        card,
+         card: smokeOperatorCard,
       })),
     });
   });
@@ -58,7 +37,6 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
     const overflowY = getComputedStyle(el).overflowY;
     return el.scrollHeight > el.clientHeight && (overflowY === 'auto' || overflowY === 'scroll');
   })).toBe(true);
-
   await container.evaluate((el) => {
     el.scrollTop = el.scrollHeight;
   });
@@ -71,6 +49,12 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
     const tolerance = 1;
     return markerBox.bottom <= box.bottom + tolerance && markerBox.top >= box.top - tolerance;
   })).toBe(true);
+  await page.getByText('Version history', { exact: true }).click();
+  await expect(page.getByText('lifecycle, status_text, status_text_updated_at updated', { exact: true })).toBeVisible();
+  await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
+  expect(rest.counts.get(`GET /api/cards/${smokeCardId}/history`)).toBe(1);
+  expect(rest.counts.get(`GET /api/cards/${smokeCardId}/history/2`)).toBe(1);
+  expect(rest.counts.get(`GET /api/cards/${smokeCardId}/diff`)).toBe(1);
 
   expect(rest.unknown).toEqual([]);
   expect(failedRequests).toEqual([]);

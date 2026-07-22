@@ -1,7 +1,6 @@
 import type { CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardService } from '../../cards/card-service.js';
-import type { TerminalLifecycleCommit } from '../../cards/card-api.js';
 import type { ProcessPosition, CardProcessEntry } from '../card-process/card-process-config.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
@@ -98,12 +97,4 @@ export class CardActivationOwner {
   }
 
   processPosition(): ProcessPosition { return this.processor.processPosition(); }
-}
-
-export function cardActivationOutcomePatch(outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>, completedAt: string): TerminalLifecycleCommit {
-  switch (outcome.status) {
-    case 'done': return { lifecycle: { status: 'done', result: outcome.result, error: null, completed_at: completedAt }, status_text: outcome.summary, status_text_updated_at: completedAt };
-    case 'failed': return { lifecycle: { status: 'failed', result: outcome.result, error: outcome.summary, completed_at: completedAt }, status_text: outcome.summary, status_text_updated_at: completedAt };
-    case 'blocked': return { lifecycle: { status: 'blocked', result: outcome.result, error: outcome.summary, completed_at: null }, status_text: outcome.summary, status_text_updated_at: completedAt };
-  }
 }

@@ -32,12 +32,11 @@ export const cardStatusSchema = z.enum(cardStatusValues);
 export const cardActionSchema = z.enum(cardActionValues);
 export const positiveSafeIntegerSchema = z.number().int().safe().positive();
 export const urgencySchema = z.enum(urgencyValues);
-export const createdBySchema = z.enum(['user', 'analyst', 'planner']);
+export const createdBySchema = z.enum(['analyst', 'planner']);
 export const noteAuthorSchema = z.enum(['user', 'analyst', 'planner', 'executor', 'reviewer', 'runtime']);
 export const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui']);
-export const cardMetadataSchema: z.ZodType<import('./types.js').CardMetadata> = z.object({}).catchall(z.unknown());
 export const cardNotificationSchema: z.ZodType<import('./types.js').CardNotification> = z.object({ id: z.string().min(1), content: z.string().min(1), created_at: z.string().datetime(), source: z.string().min(1).optional() }).strict();
-const cardRecordShape = { id: cardIdSchema, type: cardTypeSchema, children: z.array(cardIdSchema), title: z.string().min(1), lifecycle: cardLifecycleStateSchema, subtype: z.string().nullable().optional(), tags: z.array(z.string()), priority: z.number().int(), urgency: urgencySchema, created_by: createdBySchema, created_at: z.string().datetime(), updated_at: z.string().datetime(), version_seq: positiveSafeIntegerSchema, assigned_to: z.string().nullable().optional(), depends_on: z.array(cardIdSchema), related: z.array(cardIdSchema), metrics: z.record(z.string(), z.union([z.number(), z.string(), z.boolean(), z.null()])).nullable().optional(), estimate: z.string().nullable().optional(), started_at: z.string().datetime().nullable().optional(), duration_ms: z.number().int().nonnegative().nullable().optional(), status_text: z.string().nullable().optional(), status_text_updated_at: z.string().datetime().nullable().optional(), status_text_author_session_id: z.string().nullable().optional(), latest_self_report: z.record(z.string(), z.unknown()).nullable().optional(), metadata: cardMetadataSchema.nullable().optional(), pending_notifications: z.array(cardNotificationSchema) };
+const cardRecordShape = { id: cardIdSchema, type: cardTypeSchema, children: z.array(cardIdSchema), title: z.string().min(1), lifecycle: cardLifecycleStateSchema, subtype: z.null(), tags: z.array(z.string()), priority: z.number().int(), urgency: urgencySchema, created_by: createdBySchema, created_at: z.string().datetime(), updated_at: z.string().datetime(), version_seq: positiveSafeIntegerSchema, assigned_to: z.null(), depends_on: z.array(cardIdSchema), related: z.array(cardIdSchema), metrics: z.null(), estimate: z.null(), started_at: z.null(), duration_ms: z.null(), status_text: z.string().nullable(), status_text_updated_at: z.string().datetime().nullable(), status_text_author_session_id: z.null(), latest_self_report: z.null(), metadata: z.null(), pending_notifications: z.array(cardNotificationSchema) };
 function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.RefinementCtx): void {
   if (card.id === 'project' && card.type !== 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'The project card is the fixed root.', path: ['id'] });
   if (card.id !== 'project' && card.type === 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Only the fixed project card may have type project.', path: ['type'] });
@@ -50,10 +49,26 @@ export const cardOperatorSummarySchema: z.ZodType<import('./types.js').CardOpera
 export const operatorCardSchema = z.object({ ...cardRecordShape, allowedActions: z.array(cardActionSchema), operator_summary: cardOperatorSummarySchema }).strict().superRefine(refineCardLifecycle);
 export const cardViewSchema: z.ZodType<import('./types.js').CardView> = z.object({ card: cardRecordSchema, logical_path: z.string().nullable(), status: cardStatusSchema, parent: cardIdSchema.nullable(), operator_summary: cardOperatorSummarySchema }).strict();
 export const cardRefViewSchema: z.ZodType<import('./types.js').CardRefView> = z.object({ id: z.string().min(1), logical_path: z.string().nullable(), title: z.string().nullable(), missing: z.boolean().optional() });
-export const cardHistoryKindSchema = z.enum(['update', 'status', 'mutate', 'depends', 'delete', 'archive', 'child_link']);
-const cardHistoryEntryBaseSchema = z.object({ entry_id: z.string().uuid(), kind: cardHistoryKindSchema, card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, snapshot: cardRecordSchema, changed_at: z.string().datetime(), changed_by_actor: noteAuthorSchema, changed_by_surface: controlActionSurfaceSchema, change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() });
-export const cardHistoryHeaderSchema: z.ZodType<import('./types.js').CardHistoryHeader> = cardHistoryEntryBaseSchema.omit({ snapshot: true });
-export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryEntry> = cardHistoryEntryBaseSchema;
+export const cardHistoryKindSchema = z.enum(['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete']);
+const historyCommonShape = { entry_id: z.string().uuid(), card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, changed_at: z.string().datetime(), change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() };
+const historyProvenance = {
+  update: { changed_by_actor: z.literal('planner'), changed_by_surface: z.literal('runtime') },
+  delete: { changed_by_actor: z.literal('analyst'), changed_by_surface: z.literal('runtime') },
+  runtime: { changed_by_actor: z.literal('runtime'), changed_by_surface: z.literal('runtime') },
+} as const;
+const runtimeHistoryKinds = ['notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder'] as const;
+const historyEntryVariants = [
+  z.object({ ...historyCommonShape, kind: z.literal('update'), snapshot: cardRecordSchema, ...historyProvenance.update }).strict(),
+  ...runtimeHistoryKinds.map((kind) => z.object({ ...historyCommonShape, kind: z.literal(kind), snapshot: cardRecordSchema, ...historyProvenance.runtime }).strict()),
+  z.object({ ...historyCommonShape, kind: z.literal('delete'), snapshot: cardRecordSchema, ...historyProvenance.delete }).strict(),
+] as const;
+const historyHeaderVariants = [
+  z.object({ ...historyCommonShape, kind: z.literal('update'), ...historyProvenance.update }).strict(),
+  ...runtimeHistoryKinds.map((kind) => z.object({ ...historyCommonShape, kind: z.literal(kind), ...historyProvenance.runtime }).strict()),
+  z.object({ ...historyCommonShape, kind: z.literal('delete'), ...historyProvenance.delete }).strict(),
+] as const;
+export const cardHistoryHeaderSchema: z.ZodType<import('./types.js').CardHistoryHeader> = z.discriminatedUnion('kind', historyHeaderVariants);
+export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryEntry> = z.discriminatedUnion('kind', historyEntryVariants);
 export const controlActionAuditEntrySchema: z.ZodType<import('./types.js').ControlActionAuditEntry> = z.object({ id: z.string().min(1), actor: noteAuthorSchema, surface: controlActionSurfaceSchema, action: z.string().min(1), target_kind: z.enum(['card', 'note', 'process', 'runtime', 'config', 'session']).nullable(), target_id: z.string().nullable(), params_summary: z.string(), safety_class: z.enum(['read_only', 'low', 'high', 'destructive', 'deployment']).optional(), outcome: z.enum(['ok', 'error', 'denied']), outcome_summary: z.string(), error: z.string().optional(), created_at: z.string().datetime() }).strict();
 export const analystIssueSchema: z.ZodType<import('./types.js').AnalystIssue> = z.object({ summary: z.string().min(1), severity: z.enum(analystIssueSeverityValues).optional(), evidence_path: z.string().optional() }).strict();
 export const analystIssuesSchema = z.array(analystIssueSchema);

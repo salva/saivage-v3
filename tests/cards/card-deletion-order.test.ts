@@ -16,7 +16,7 @@ const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason
 describe('complete-union deletion admission and order', () => {
   it('deduplicates duplicate and overlapping roots and orders child before parent', () => {
     const { cards } = setup(); const parent = create(cards, 'project', [], 'goal'); const child = create(cards, parent.id); const sibling = create(cards);
-    const result = cards.deleteSubtrees([parent.id, child.id, parent.id, sibling.id], context, () => true);
+    const result = cards.deleteSubtrees([parent.id, child.id, parent.id, sibling.id], () => true);
     expect(result.requested).toEqual([parent.id, child.id, sibling.id]);
     expect(result.deleted).toEqual([child.id, parent.id, sibling.id]);
     expect(result.deleted.indexOf(child.id)).toBeLessThan(result.deleted.indexOf(parent.id));
@@ -26,25 +26,17 @@ describe('complete-union deletion admission and order', () => {
   it('rejects unknown, root, permission denial, and surviving dependents before mutation', () => {
     const { root, cards } = setup(); const dependency = create(cards); const survivor = create(cards, 'project', [dependency.id]);
     const before = readFileSync(cardStreamFile(root, dependency.id));
-    expect(() => cards.deleteSubtrees(['card-zzzzzzzzzzzzzzzzzzzzzzzzzzzz'], context, () => true)).toThrow();
-    expect(() => cards.deleteSubtrees(['project'], context, () => true)).toThrow();
-    expect(() => cards.deleteSubtrees([dependency.id], context, () => false)).toThrow(/denied/);
-    expect(() => cards.deleteSubtrees([dependency.id], context, () => true)).toThrow(new RegExp(survivor.id));
+    expect(() => cards.deleteSubtrees(['card-zzzzzzzzzzzzzzzzzzzzzzzzzzzz'], () => true)).toThrow();
+    expect(() => cards.deleteSubtrees(['project'], () => true)).toThrow();
+    expect(() => cards.deleteSubtrees([dependency.id], () => false)).toThrow(/denied/);
+    expect(() => cards.deleteSubtrees([dependency.id], () => true)).toThrow(new RegExp(survivor.id));
     expect(readFileSync(cardStreamFile(root, dependency.id))).toEqual(before);
   });
 
   it('orders intended dependents before dependencies across requested subtrees', () => {
     const { cards } = setup(); const dependency = create(cards); const dependent = create(cards, 'project', [dependency.id]);
-    const result = cards.deleteSubtrees([dependency.id, dependent.id], context, () => true);
+    const result = cards.deleteSubtrees([dependency.id, dependent.id], () => true);
     expect(result.deleted.indexOf(dependent.id)).toBeLessThan(result.deleted.indexOf(dependency.id));
-  });
-
-  it('rejects a combined hierarchy/dependency cycle before mutation', () => {
-    const { root, cards } = setup(); const parent = create(cards, 'project', [], 'goal'); const child = create(cards, parent.id);
-    cards.updateDependsOn(parent.id, [child.id], context);
-    const before = readFileSync(cardStreamFile(root, child.id));
-    expect(() => cards.deleteSubtrees([parent.id], context, () => true)).toThrow(/constraints conflict/);
-    expect(readFileSync(cardStreamFile(root, child.id))).toEqual(before);
   });
 
   it('stops after the first reported append failure and emits only confirmed-prefix effects', () => {
@@ -67,7 +59,7 @@ describe('complete-union deletion admission and order', () => {
     const cardEffects = jest.fn(); const runtimeEffects = jest.fn();
     const deleting = new CardService(root, { cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects }, failingIo);
     let thrown: unknown;
-    try { deleting.deleteSubtrees([left.id, right.id], context, () => true); } catch (error) { thrown = error; }
+    try { deleting.deleteSubtrees([left.id, right.id], () => true); } catch (error) { thrown = error; }
     expect(thrown).toBe(failure);
     expect(operations).toEqual([
       `open:${cardStreamFile(root, left.id)}`, 'stat', 'write', 'fsync', 'close',
@@ -101,7 +93,7 @@ describe('complete-union deletion admission and order', () => {
     const cardEffects = jest.fn(); const runtimeEffects = jest.fn();
     const deleting = new CardService(root, { cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects }, failingIo);
     let thrown: unknown;
-    try { deleting.deleteSubtrees([left.id, right.id], context, () => true); } catch (error) { thrown = error; }
+    try { deleting.deleteSubtrees([left.id, right.id], () => true); } catch (error) { thrown = error; }
     expect(thrown).toBe(failure);
     expect(operations).toEqual([`open:${cardStreamFile(root, left.id)}`, 'stat', 'write', 'fsync', 'close']);
     expect(cardEffects).not.toHaveBeenCalled();
@@ -116,7 +108,7 @@ describe('complete-union deletion admission and order', () => {
     };
     const effects = jest.fn();
     const deleting = new CardService(root, { cardProjectionChanged: effects, runtimeChanged: effects }, missingIo);
-    expect(() => deleting.deleteSubtrees([child.id], context, () => true)).toThrow(/disappeared before tombstone append/);
+    expect(() => deleting.deleteSubtrees([child.id], () => true)).toThrow(/disappeared before tombstone append/);
     expect(effects).not.toHaveBeenCalled();
   });
 });

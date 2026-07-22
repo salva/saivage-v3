@@ -8,6 +8,8 @@ import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstE
 import { cardNamespace, cardRecordStreamFile, cardStreamFile, saivageCardsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { validateParsedCards } from '../cards/validator.js';
+import type { NewChildCardInput } from '../cards/lifecycle.js';
+import type { NewProjectRootInput } from '../boot/app.js';
 
 export interface CardArtifactIndex { readonly artifacts: CardVersionArtifact[]; readonly current: CardVersionArtifact; readonly tombstone: CardTombstone | null; readonly snapshot: CanonicalGrowingFileSnapshot<CardVersionArtifact | CardTombstone> }
 
@@ -322,24 +324,42 @@ function claimChildNamespace(projectRoot: string, parentId: string): string {
   }
 }
 
-export function publishInitialCard(projectRoot: string, parentId: string, cardInput: Omit<CardRecord, 'id'>, briefContent: string, writer: 'analyst' | 'planner', temporary?: PublicationTemporaryIdFactory): CardRecord {
-  const id = claimChildNamespace(projectRoot, parentId);
-  if (cardParentId(id) !== parentId) throw new Error(`Claimed card '${id}' does not belong to requested parent '${parentId}'.`);
-  const card = cardRecordSchema.parse({ ...cardInput, id, children: [] });
+export function publishInitialChildCard(projectRoot: string, input: NewChildCardInput, temporary?: PublicationTemporaryIdFactory): CardRecord {
+  const id = claimChildNamespace(projectRoot, input.parent);
+  if (cardParentId(id) !== input.parent) throw new Error(`Claimed card '${id}' does not belong to requested parent '${input.parent}'.`);
+  const stamp = new Date().toISOString();
+  const card = cardRecordSchema.parse({
+    id, type: input.type, children: [], title: input.title, subtype: null, tags: input.tags,
+    priority: input.priority, urgency: input.urgency, created_by: input.created_by,
+    created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null,
+    depends_on: input.depends_on, related: input.related,
+    lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+    metrics: null, estimate: null, started_at: null, duration_ms: null,
+    status_text: null, status_text_updated_at: null, status_text_author_session_id: null,
+    latest_self_report: null, metadata: null, pending_notifications: [],
+  });
   mkdirSync(join(cardNamespace(projectRoot, id), 'conversations'));
-  publishInitialStreams(projectRoot, card, briefContent, writer, temporary);
+  publishInitialStreams(projectRoot, card, input.brief, input.created_by, temporary);
   proveCreatedCardPublication(projectRoot, card);
   return card;
 }
 
-export function publishInitialProjectCard(projectRoot: string, card: CardRecord, briefContent: string, writer: 'analyst' | 'planner', temporary?: PublicationTemporaryIdFactory): void {
-  cardRecordSchema.parse(card);
-  if (card.id !== 'project' || card.children.length !== 0) throw new Error('Initial project card is invalid.');
+export function publishInitialProjectCard(projectRoot: string, input: NewProjectRootInput, temporary?: PublicationTemporaryIdFactory): void {
+  const stamp = new Date().toISOString();
+  const card = cardRecordSchema.parse({
+    id: 'project', type: 'project', children: [], title: input.title, subtype: null,
+    tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: stamp,
+    updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: [], related: [],
+    lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+    metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null,
+    status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null,
+    metadata: null, pending_notifications: [],
+  });
   mkdirSync(cardNamespace(projectRoot, 'project'));
   mkdirSync(join(cardNamespace(projectRoot, 'project'), 'conversations'));
   mkdirSync(join(projectRoot, '.saivage', 'agents'));
   mkdirSync(join(projectRoot, '.saivage', 'agents', 'conversations'));
-  publishInitialStreams(projectRoot, card, briefContent, writer, temporary);
+  publishInitialStreams(projectRoot, card, input.brief, 'analyst', temporary);
 }
 
 export function publishCardVersion(projectRoot: string, card: CardRecord, history: CardHistoryEntry | null, io?: GrowingFileIo): CardVersionArtifact {

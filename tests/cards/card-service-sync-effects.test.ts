@@ -67,7 +67,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const second = cards.create(input(parent.id));
     flush(); clear();
 
-    cards.reorderChildren(parent.id, [second.id, first.id], context);
+    cards.reorderChildren(parent.id, [second.id, first.id]);
 
     expect(flush()).toEqual(versionFrames(parent.id, 'project'));
   });
@@ -76,7 +76,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const child = cards.create(input());
     flush(); clear();
 
-    cards.update(child.id, { title: 'changed' });
+    cards.editCard(child.id, { title: 'changed' });
 
     expect(flush()).toEqual(versionFrames(child.id, 'project'));
   });
@@ -101,7 +101,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const child = cards.create(input(parent.id));
     flush(); clear();
 
-    cards.deleteSubtrees([parent.id], context, () => true);
+    cards.deleteSubtrees([parent.id], () => true);
 
     expect(flush()).toEqual([
       ...versionFrames(child.id, parent.id),
@@ -119,7 +119,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
   it('emits no hint for no-op and reported write failure', () => {
     const child = cards.create(input());
     flush(); clear();
-    cards.update(child.id, {});
+    cards.editCard(child.id, {});
     expect(flush()).toEqual([]);
 
     const failure = new Error('injected append failure');
@@ -131,7 +131,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
       close: closeSync,
     };
     const failingCards = new CardService(root, hub, failingIo);
-    expect(() => failingCards.update(child.id, { title: 'outcome unknown' })).toThrow(failure);
+    expect(() => failingCards.editCard(child.id, { title: 'outcome unknown' })).toThrow(failure);
     expect(flush()).toEqual([]);
   });
 
@@ -164,7 +164,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
       stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
     };
     const missingCards = new CardService(root, hub, missingIo);
-    expect(() => missingCards.update(child.id, { title: 'not published' })).toThrow(/disappeared before version append/);
+    expect(() => missingCards.editCard(child.id, { title: 'not published' })).toThrow(/disappeared before version append/);
     expect(flush()).toEqual([]);
     expect(() => missingCards.editRecord(child.id, 'review.md', draft.version, 'not published')).toThrow(/disappeared before append/);
     expect(flush()).toEqual([]);

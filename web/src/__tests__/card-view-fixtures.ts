@@ -1,49 +1,38 @@
-import { operatorCardSchema } from '@saivage/schemas';
+import { cardHistoryEntrySchema, cardHistoryHeaderSchema, cardRecordSchema, operatorCardSchema, type CardHistoryEntry, type CardHistoryHeader, type CardRecord as RawCardRecord } from '@saivage/schemas';
 import type { CardRecord } from '../api/types';
 
-type CardOverrides = Partial<Omit<CardRecord, 'id'>>;
-
-function lifecycleFor(status: CardRecord['lifecycle']['status']): CardRecord['lifecycle'] {
+function lifecycleFor(status: RawCardRecord['lifecycle']['status']): RawCardRecord['lifecycle'] {
   switch (status) {
-    case 'done':
-      return { status, result: { kind: 'done', summary: 'Done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' };
-    case 'failed':
-      return { status, result: { kind: 'failed', summary: 'Failed' }, error: 'Failed', completed_at: '2026-01-01T00:00:00.000Z' };
-    case 'blocked':
-      return { status, result: { kind: 'blocked', summary: 'Blocked' }, error: 'Blocked', completed_at: null };
-    case 'cancelled':
-      return { status, result: null, error: null, completed_at: '2026-01-01T00:00:00.000Z' };
-    default:
-      return { status, result: null, error: null, completed_at: null };
+    case 'done': return { status, result: { kind: 'done', summary: 'Done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' };
+    case 'failed': return { status, result: { kind: 'failed', summary: 'Failed' }, error: 'Failed', completed_at: '2026-01-01T00:00:00.000Z' };
+    case 'blocked': return { status, result: { kind: 'blocked', summary: 'Blocked' }, error: 'Blocked', completed_at: null };
+    default: return { status, result: null, error: null, completed_at: null };
   }
 }
 
-export function cardView(id: string, overrides: CardOverrides = {}): CardRecord {
-  const lifecycle = overrides.lifecycle ?? lifecycleFor('backlog');
-  return operatorCardSchema.parse({
-    id,
-    type: id === 'project' ? 'project' : 'code',
-    children: [],
-    title: id === 'project' ? 'Project' : 'Card',
-    lifecycle,
-    tags: [],
-    priority: 0,
-    urgency: 'normal',
-    created_by: 'analyst',
-    created_at: '2026-01-01T00:00:00.000Z',
-    updated_at: '2026-01-01T00:00:00.000Z',
-    version_seq: 1,
-    depends_on: [],
-    related: [],
-    pending_notifications: [],
-    allowedActions: [],
-    operator_summary: {
-      blocked: lifecycle.status === 'blocked',
-      hasError: lifecycle.error !== null,
-      error: lifecycle.error,
-      completedAt: lifecycle.completed_at,
-      stale: lifecycle.status === 'changed',
-    },
-    ...overrides,
+export function rawCard(id: string, overrides: Partial<RawCardRecord> = {}): RawCardRecord {
+  return cardRecordSchema.parse({
+    id, type: id === 'project' ? 'project' : 'code', children: [], title: id === 'project' ? 'Project' : 'Card',
+    lifecycle: lifecycleFor('backlog'), subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst',
+    created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1,
+    assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
+    status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null,
+    metadata: null, pending_notifications: [], ...overrides,
   });
+}
+
+export function cardView(id: string, overrides: Partial<CardRecord> = {}): CardRecord {
+  const lifecycle = overrides.lifecycle ?? lifecycleFor('backlog');
+  const { allowedActions, operator_summary, notes: _notes, ...rawOverrides } = overrides;
+  return operatorCardSchema.parse({ ...rawCard(id, { ...rawOverrides, lifecycle }), allowedActions: allowedActions ?? [], operator_summary: operator_summary ?? { blocked: lifecycle.status === 'blocked', hasError: lifecycle.error !== null, error: lifecycle.error, completedAt: lifecycle.completed_at, stale: lifecycle.status === 'changed' } });
+}
+
+export function historyHeader(overrides: Partial<CardHistoryHeader> & Pick<CardHistoryHeader, 'kind' | 'card_id' | 'version_seq'>): CardHistoryHeader {
+  const provenance = overrides.kind === 'update' ? { changed_by_actor: 'planner', changed_by_surface: 'runtime' } : overrides.kind === 'delete' ? { changed_by_actor: 'analyst', changed_by_surface: 'runtime' } : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };
+  return cardHistoryHeaderSchema.parse({ entry_id: '11111111-1111-4111-8111-111111111111', changed_at: '2026-01-01T00:00:01.000Z', change_reason: overrides.kind === 'update' ? 'planner edit_card' : null, changed_fields: ['title'], change_summary: 'title updated', ...provenance, ...overrides });
+}
+
+export function historyEntry(overrides: Partial<CardHistoryEntry> & Pick<CardHistoryEntry, 'kind' | 'card_id' | 'version_seq' | 'snapshot'>): CardHistoryEntry {
+  const { snapshot, ...headerOverrides } = overrides;
+  return cardHistoryEntrySchema.parse({ ...historyHeader(headerOverrides), ...headerOverrides, snapshot });
 }

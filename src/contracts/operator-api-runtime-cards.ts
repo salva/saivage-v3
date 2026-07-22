@@ -102,7 +102,6 @@ export const RuntimeCardRunsResponseSchema = z.object({
   dormant_planners: z.array(z.object({
     goal_card_id: cardIdSchema,
     planner_session_id: z.string(),
-    latest_self_report: z.record(z.string(), z.unknown()).nullable(),
   }).strict()),
 }).strict();
 

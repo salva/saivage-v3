@@ -92,8 +92,8 @@ describe('canonical card Files browsing through real routes and CardService stat
     const second = cards.create(input('project', 'Second'));
     const leaf = cards.create(input(first.id, 'Leaf'));
     const tombstoned = cards.create(input('project', 'Deleted'));
-    expect(cards.reorderChildren('project', [second.id, first.id, tombstoned.id], mutationContext)).toEqual({ ok: true, changed: 2 });
-    cards.deleteSubtrees([tombstoned.id], mutationContext, () => true);
+    expect(cards.reorderChildren('project', [second.id, first.id, tombstoned.id])).toEqual({ ok: true, changed: 2 });
+    cards.deleteSubtrees([tombstoned.id], () => true);
 
     const unlinkedRoot = join(cardNamespace(root, 'project'), 'children');
     cpSync(cardNamespace(root, first.id), join(unlinkedRoot, 'z'), { recursive: true });

@@ -55,7 +55,7 @@
     "test:web:store:mcp": "npm run web:test:store:mcp",
     "web:test:wave-l": "cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts src/__tests__/analyst-chat-store.test.ts src/__tests__/app-shell-analyst-drawer.test.ts",
     "test:web:wave-l": "npm run web:test:wave-l",
-    "web:test:analyst-ui": "cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts src/__tests__/analyst-chat-store.test.ts src/__tests__/app-shell-analyst-drawer.test.ts src/__tests__/analyst-toaster.test.ts src/__tests__/card-detail-view.test.ts src/__tests__/card-history-panel-analyst-filter.test.ts src/__tests__/sync-client.test.ts",
+    "web:test:analyst-ui": "cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts src/__tests__/analyst-chat-store.test.ts src/__tests__/app-shell-analyst-drawer.test.ts src/__tests__/analyst-toaster.test.ts src/__tests__/card-detail-view.test.ts src/__tests__/sync-client.test.ts",
     "test:web:analyst-ui": "npm run web:test:analyst-ui",
     "preflight": "npm run web:test && npm run docs:verify",
     "preflight:full": "npm run preflight",

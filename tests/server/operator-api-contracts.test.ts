@@ -14,6 +14,16 @@ const runtimeState = {
   pid: 123,
 };
 
+const canonicalCard = {
+  id: 'project', type: 'project', children: [], title: 'Project', subtype: null, tags: [], priority: 0,
+  urgency: 'normal', created_by: 'analyst', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1,
+  assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
+  metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,
+  status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
+} as const;
+const canonicalOperatorCard = { ...canonicalCard, allowedActions: [], operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false } } as const;
+const canonicalCardKeys = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const;
+
 describe('operator API runtime contract without runtime ledgers', () => {
   it('reserves public contracts for the exact health probes and authenticates every operator API route', () => {
     const contracts = Object.values(operatorApiContracts);
@@ -197,6 +207,39 @@ describe('operator API runtime contract without runtime ledgers', () => {
       expect.objectContaining({ operationId: 'cards.diff', method: 'GET', path: '/api/cards/:id/diff' }),
     ]);
     expect(cardRoutes.every(({ method }) => method === 'GET')).toBe(true);
+  });
+
+  it('derives detail, children, and history snapshots from one complete required card shape', () => {
+    expect(parseOperatorResponse('cards.get', { card: canonicalOperatorCard }).card).toEqual(canonicalOperatorCard);
+    expect(parseOperatorResponse('cards.children', { card: canonicalOperatorCard, children: [canonicalOperatorCard] }).children[0]).toEqual(canonicalOperatorCard);
+    const entry = { entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card', changed_fields: ['title'], change_summary: 'title updated', snapshot: canonicalCard } as const;
+    expect(parseOperatorResponse('cards.history.get', { entry }).entry.snapshot).toEqual(canonicalCard);
+
+    for (const key of canonicalCardKeys) {
+      const incompleteOperator = { ...canonicalOperatorCard } as Record<string, unknown>;
+      const incompleteSnapshot = { ...canonicalCard } as Record<string, unknown>;
+      delete incompleteOperator[key]; delete incompleteSnapshot[key];
+      expect(() => parseOperatorResponse('cards.get', { card: incompleteOperator })).toThrow();
+      expect(() => parseOperatorResponse('cards.children', { card: canonicalOperatorCard, children: [incompleteOperator] })).toThrow();
+      expect(() => parseOperatorResponse('cards.history.get', { entry: { ...entry, snapshot: incompleteSnapshot } })).toThrow();
+    }
+  });
+
+  it('correlates every history kind with its one fixed provenance and rejects Analyst web-chat rows', () => {
+    const kinds = ['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete'] as const;
+    for (const kind of kinds) {
+      const provenance = kind === 'update'
+        ? { changed_by_actor: 'planner', changed_by_surface: 'runtime' }
+        : kind === 'delete'
+          ? { changed_by_actor: 'analyst', changed_by_surface: 'runtime' }
+          : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };
+      const header = { entry_id: '11111111-1111-4111-8111-111111111111', kind, card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', ...provenance, change_reason: 'reason', changed_fields: ['field'], change_summary: 'summary' };
+      expect(parseOperatorResponse('cards.history.list', { history: [header], total: 1 }).history[0]).toEqual(header);
+      expect(parseOperatorResponse('cards.history.get', { entry: { ...header, snapshot: canonicalCard } }).entry.kind).toBe(kind);
+      const analystWebChat = { ...header, changed_by_actor: 'analyst', changed_by_surface: 'web-chat' };
+      expect(() => parseOperatorResponse('cards.history.list', { history: [analystWebChat], total: 1 })).toThrow();
+      expect(() => parseOperatorResponse('cards.history.get', { entry: { ...analystWebChat, snapshot: canonicalCard } })).toThrow();
+    }
   });
 
   it('uses one canonical positive safe integer wire grammar', () => {

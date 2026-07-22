@@ -203,7 +203,7 @@ describe('contract-backed config/providers/control-actions routes', () => {
       });
       await expect(invokeTool(buildInvocationSurface('planner', [planner]), 'reorder_child', { orderedChildIds: [] }))
         .resolves.toEqual({ success: true, data: { parent_id: 'project', changed: 0 } });
-      expect(reorderChildren).toHaveBeenCalledWith('project', [], { actor: 'planner', surface: 'runtime', reason: 'planner reorder_child' });
+      expect(reorderChildren).toHaveBeenCalledWith('project', []);
 
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), ...routeCompositionDependencies(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
       const response = await fastify.inject({ method: 'GET', url: '/api/control-actions' });

@@ -5,7 +5,6 @@ import {
   type BlockedResult,
   type DoneResult,
   type FailedResult,
-  type ReworkResult,
 } from '../schemas/index.js';
 
 export const activateCardArgumentsSchema = z.object({ card_id: cardIdSchema }).strict();
@@ -19,13 +18,13 @@ export function parseActivateCardArguments(value: unknown): ActivateCardArgument
 export type CardActivationOutcome =
   | { status: 'done'; summary: string; result: DoneResult }
   | { status: 'failed'; summary: string; result: FailedResult }
-  | { status: 'blocked'; summary: string; result: BlockedResult | ReworkResult }
+  | { status: 'blocked'; summary: string; result: BlockedResult }
   | { status: 'cancelled'; summary: string };
 
 export type ActivateCardToolResult =
   | { success: true; data: { card_id: string; outcome: 'done'; summary: string; result: DoneResult } }
   | { success: true; data: { card_id: string; outcome: 'failed'; summary: string; result: FailedResult } }
-  | { success: true; data: { card_id: string; outcome: 'blocked'; summary: string; result: BlockedResult | ReworkResult } }
+  | { success: true; data: { card_id: string; outcome: 'blocked'; summary: string; result: BlockedResult } }
   | { success: false; error: `Child card '${string}' activation was cancelled.` };
 
 export function formatActivateCardResult(cardId: string, outcome: CardActivationOutcome): ActivateCardToolResult {

@@ -52,7 +52,7 @@ describe('Analyst agent-session tools', () => {
     publishConversationFirstBatch({ projectRoot }, [{ ...rows()[0]!, id: 'child-text', session_id: sessionId }]);
     const context = { projectRoot, captureExecutingLlmSnapshots: () => [] } as unknown as ToolContext;
     await expect(list_agent_sessions(context, {})).resolves.toMatchObject({ success: true, data: [expect.objectContaining({ id: sessionId })] });
-    cards.deleteSubtrees([child.id], { actor: 'analyst', surface: 'web-chat', reason: 'test' }, () => true);
+    cards.deleteSubtrees([child.id], () => true);
     await expect(list_agent_sessions(context, {})).resolves.toEqual({ success: true, data: [] });
     await expect(read_agent_session(context, { sessionId })).resolves.toMatchObject({ success: true, data: { session: { id: sessionId, status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } } });
   });

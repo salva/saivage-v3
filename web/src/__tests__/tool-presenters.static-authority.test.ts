@@ -45,9 +45,9 @@ const PLANNER_COMPACT_CARD = {
 
 const ANALYST_CARD_VIEW = {
   card: {
-    id: 'card-a', type: 'code', title: 'Analyst', children: [], tags: [], priority: 0, urgency: 'normal', created_by: 'analyst',
+    id: 'card-a', type: 'code', title: 'Analyst', children: [], subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst',
     created_at: '2026-07-21T00:00:00.000Z', updated_at: '2026-07-21T00:00:00.000Z', version_seq: 1,
-    depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, pending_notifications: [],
+    assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
   },
   logical_path: '1', status: 'backlog', parent: 'project',
   operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false },

@@ -18,7 +18,7 @@ describe('project-file Analyst brief writes', () => {
     const cards = new CardService(root);
     const card = cards.create({ type: 'code', parent: 'project', title: 'Blocked', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.setStatus(card.id, 'running');
-    cards.commitTerminalLifecycle(card.id, { lifecycle: { status: 'blocked', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' }, error: 'wait', completed_at: null } });
+    cards.commitActivationOutcome(card.id, { status: 'blocked', summary: 'wait', result: { kind: 'blocked', summary: 'wait', resume_reason: 'test' } }, '2026-07-17T00:00:00.000Z');
 
     await expect(writeProject({ projectRoot: root, cardId: card.id, agentRole: 'analyst', store: cards, notifyCard: () => ({ ok: true, notificationId: 'n' }) }, {
       path: `record:///brief.md?card=${card.id}&v=next`,
@@ -34,6 +34,7 @@ describe('project-file Analyst brief writes', () => {
     const cards = new CardService(root);
     const card = cards.create({ type: 'code', parent: 'project', title: 'Changed', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.setStatus(card.id, 'running');
+    cards.commitActivationOutcome(card.id, { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } }, '2026-07-22T00:00:00.000Z');
     cards.setStatus(card.id, 'changed');
 
     await expect(writeProject({ projectRoot: root, cardId: card.id, agentRole: 'analyst', store: cards, notifyCard: () => ({ ok: true, notificationId: 'n' }) }, {

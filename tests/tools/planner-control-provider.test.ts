@@ -12,7 +12,7 @@ const CHILD = `${PARENT}-b`;
 describe('planner control provider ownership delegation', () => {
   function harness() {
     const store = {
-      read: jest.fn(), create: jest.fn(), mutateCard: jest.fn(), setStatus: jest.fn(), reorderChildren: jest.fn(),
+      read: jest.fn(), create: jest.fn(), editCard: jest.fn(), setStatus: jest.fn(), reorderChildren: jest.fn(),
     } as unknown as CardService;
     const activateChild = jest.fn(async ({ childCardId }: { childCardId: string; invocation: ChildInvocationLease }) => ({ status: 'done' as const, summary: childCardId, result: { kind: 'done' as const, summary: childCardId } }));
     const cancelChild = jest.fn(async ({ childCardId }: { childCardId: string; reason: string }) => ({ card_id: childCardId, status: 'cancelled' as const, cancelled_card_ids: [childCardId] }));

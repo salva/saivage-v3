@@ -17,7 +17,7 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
   if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card.jsonl'))) {
     mkdirSync(join(projectRoot, '.saivage', 'cards'), { recursive: true });
     const root = newProjectRootInput(projectRoot);
-    publishInitialProjectCard(projectRoot, root.card, root.brief, 'analyst');
+    publishInitialProjectCard(projectRoot, root);
   }
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
   const skills = join(projectRoot, '.saivage', 'skills', 'index.json');

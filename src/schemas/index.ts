@@ -70,7 +70,6 @@ export type {
   CardResult,
   DoneResult,
   FailedResult,
-  ReworkResult,
   RuntimeRunOutcome,
   SelfReport,
 } from './lifecycle.js';
@@ -81,7 +80,6 @@ export {
   cardResultSchema,
   doneResultSchema,
   failedResultSchema,
-  reworkResultSchema,
   runtimeRunOutcomeSchema,
   selfReportSchema,
 } from './lifecycle.js';
@@ -97,7 +95,6 @@ export type {
   CreatedBy,
   NoteAuthor,
   ControlActionSurface,
-  CardMetadata,
   CardNotification,
   CardRecord,
   CardOperatorSummary,
@@ -152,7 +149,6 @@ export {
   createdBySchema,
   noteAuthorSchema,
   controlActionSurfaceSchema,
-  cardMetadataSchema,
   cardRecordSchema,
   cardOperatorSummarySchema,
   operatorCardSchema,
