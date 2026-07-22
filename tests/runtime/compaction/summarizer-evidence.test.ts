@@ -116,6 +116,25 @@ function sourceRow() {
 }
 
 function attempt(input: LlmInvocationInput, status: 'ok' | 'error'): ProviderExchangeAttempt {
-  const base = { contract_id: 'summary.v1', contract_name: 'summary', transport: 'generic' as const, provider: 'test', model: 'summary', source_input_id: input.inputId, attempt_index: 0, request_params: {}, started_at: '2026-07-17T00:00:00.000Z', completed_at: '2026-07-17T00:00:00.001Z', terminal_tool_fired: null };
+  const base = {
+    contract_id: 'summary.v1',
+    contract_name: 'summary',
+    transport: 'generic' as const,
+    provider: 'test',
+    model: 'summary',
+    source_input_id: input.inputId,
+    attempt_index: 0,
+    request_params: {
+      endpoint: 'https://provider.example.test/v1/chat/completions',
+      method: 'POST',
+      stream: false,
+      offered_tools_count: 0,
+      temperature: 0,
+      max_tokens: 256,
+    },
+    started_at: '2026-07-17T00:00:00.000Z',
+    completed_at: '2026-07-17T00:00:00.001Z',
+    terminal_tool_fired: null,
+  };
   return status === 'ok' ? { ...base, status: 'ok', response_status: 200 } : { ...base, status: 'error', response_status: 500, error: { name: 'Error', message: 'provider failed', status: 500 } };
 }

@@ -2,11 +2,24 @@ import { describe, expect, it, jest } from '@jest/globals';
 import Fastify from 'fastify';
 
 import { operatorApiContracts, type OperatorApiOperationId, type OperatorRouteContract } from '../../src/contracts/operator-api.js';
+import { saivageConfigSchema } from '../../src/agents/config-api.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime, type ContractHandler } from '../../src/server/contract-runtime.js';
 import { createEventLog } from '../../src/observability/index.js';
 
 const unauthorized = { error: 'Unauthorized', statusCode: 401 };
+
+const config = saivageConfigSchema.parse({
+  models: { default: ['test-model'], max_tokens: { analyst: 200 } },
+  providers: { test: { models: ['test-model'] } },
+  compaction: {
+    enabled: true,
+    input_budget_tokens: 1000,
+    summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
+  },
+  card_processes: DEFAULT_CARD_PROCESSES,
+});
 
 const process = {
   id: 'process-1',
@@ -28,7 +41,7 @@ const affectedCases = [
   { operationId: 'events.list', url: '/api/events', body: { events: [], total: 0 } },
   { operationId: 'processes.list', url: '/api/processes', body: { processes: [] } },
   { operationId: 'processes.get', url: '/api/processes/process-1', body: { process } },
-  { operationId: 'config.get', url: '/api/config', body: { config: {}, warnings: [] } },
+  { operationId: 'config.get', url: '/api/config', body: { config, warnings: [] } },
   { operationId: 'providers.list', url: '/api/providers', body: { availabilityScope: 'process_local_reset_on_restart', providers: {} } },
   { operationId: 'controlActions.list', url: '/api/control-actions', body: { control_actions: [], total: 0 } },
 ] as const satisfies ReadonlyArray<{ operationId: OperatorApiOperationId; url: string; body: unknown }>;
