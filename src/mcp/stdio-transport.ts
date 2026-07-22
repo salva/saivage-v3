@@ -1,7 +1,7 @@
 import * as readline from 'node:readline';
 import { InvalidArgumentsError, McpInvokeError, TimeoutError, TransportError } from './errors.js';
 import { CLIENT_NAME, CLIENT_VERSION, MCP_DISCOVERY_TIMEOUT_MS, MCP_PROTOCOL_VERSION, type McpJsonRpcRequest, type McpToolDefinition } from './protocol.js';
-import type { McpServerConfig, McpServerHandle } from './server-registry.js';
+import type { McpServerHandle } from './server-registry.js';
 
 export interface MessageIdSource { next(): number | string }
 
@@ -90,7 +90,7 @@ export async function discoverStdioTools(input: { serverName: string; handle?: M
   }
 }
 
-export async function invokeStdioTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; config: McpServerConfig; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource; signal: AbortSignal }): Promise<unknown> {
+export async function invokeStdioTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource; signal: AbortSignal }): Promise<unknown> {
   const { serverName, toolName, args, handle, timeoutMs, ids, signal } = input;
   const proc = handle?.process;
   if (!proc?.stdin || !proc.stdout) throw new TransportError(serverName, 'Process has no stdin/stdout pipes');

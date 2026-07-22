@@ -471,6 +471,13 @@ function extractConfigSchema(projectRoot) {
         operands.elements.forEach((operand, index) => traverse(operand, `${path}.variant${index + 1}`));
         return;
       }
+      if (method === 'discriminatedUnion') {
+        const discriminator = node.arguments[0] && unwrapExpression(node.arguments[0]);
+        const operands = node.arguments[1] && unwrapExpression(node.arguments[1]);
+        if (!discriminator || !ts.isStringLiteral(discriminator) || !operands || !ts.isArrayLiteralExpression(operands)) throw new Error(`Unsupported z.discriminatedUnion at ${path}`);
+        operands.elements.forEach((operand, index) => traverse(operand, `${path}.variant${index + 1}`));
+        return;
+      }
       if (SCALAR_FACTORIES.has(method)) return;
       throw new Error(`Unsupported reachable z.${method} at ${path}`);
     }

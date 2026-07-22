@@ -7,11 +7,46 @@ import * as YAML from 'yaml';
 import { createResolvedConfigAuthority } from '../../src/config/resolved-config-authority.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { saivageConfigSchema } from '../../src/agents/config-api.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('selected config authority', () => {
+  const configWithMcp = (entry: unknown) => ({
+    models: { default: ['m1'], max_tokens: { analyst: 200 } },
+    providers: { p: { models: ['m1'] } },
+    compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'p', account: null, model: 'm1' } },
+    card_processes: DEFAULT_CARD_PROCESSES,
+    mcpServers: { server: entry },
+  });
+
+  it('parses only strict transport-specific MCP variants and materializes lifecycle defaults', () => {
+    expect(saivageConfigSchema.parse(configWithMcp({ transport: 'stdio', command: 'node', args: ['server.js'], env: { TOKEN: 'value' } })).mcpServers?.server).toEqual({
+      transport: 'stdio', command: 'node', args: ['server.js'], env: { TOKEN: 'value' }, disabled: false, autostart: true,
+    });
+    for (const url of ['http://localhost/mcp', 'https://example.com/mcp']) {
+      expect(saivageConfigSchema.parse(configWithMcp({ transport: 'streamable-http', url })).mcpServers?.server).toEqual({
+        transport: 'streamable-http', url, disabled: false, autostart: true,
+      });
+    }
+
+    const invalidEntries = [
+      { transport: 'stdio' },
+      { transport: 'stdio', command: '' },
+      { transport: 'stdio', command: 'node', url: 'https://example.com/mcp' },
+      { transport: 'streamable-http' },
+      { transport: 'streamable-http', url: 'relative/path' },
+      { transport: 'streamable-http', url: 'not a url' },
+      { transport: 'streamable-http', url: 'file:///tmp/mcp' },
+      { transport: 'streamable-http', url: 'https://example.com/mcp', command: 'node' },
+      { transport: 'streamable-http', url: 'https://example.com/mcp', args: [] },
+      { transport: 'streamable-http', url: 'https://example.com/mcp', env: {} },
+      { transport: 'streamable-http', url: 'https://example.com/mcp', extra: true },
+    ];
+    for (const entry of invalidEntries) expect(saivageConfigSchema.safeParse(configWithMcp(entry)).success).toBe(false);
+  });
+
   it('reads and replaces only the selected path while preserving raw interpolation placeholders', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-config-authority-'));
     roots.push(root);

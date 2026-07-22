@@ -237,12 +237,15 @@ describe('source-derived Config schema inventory', () => {
       'card_processes.terminal', 'card_processes.terminal.entries',
       'card_processes.terminal.entries.BACKLOG', 'card_processes.terminal.entries.CHANGED', 'card_processes.terminal.entries.BLOCKED', 'card_processes.terminal.entries.STOPPED',
       'card_processes.terminal.nodes.entry', 'card_processes.terminal.nodes.entry.records.item', 'card_processes.terminal.nodes.entry.edges.entry',
-      'card_processes.terminal.nodes.entry.edges.entry.target.variant1', 'card_processes.terminal.nodes.entry.edges.entry.target.variant2', 'mcpServers.entry',
+      'card_processes.terminal.nodes.entry.edges.entry.target.variant1', 'card_processes.terminal.nodes.entry.edges.entry.target.variant2',
+      'mcpServers.entry.variant1', 'mcpServers.entry.variant2',
     ]);
     for (const path of ['providers.entry.capabilities', 'providers.entry.modelCapabilities.entry', 'providers.entry.accounts.entry.capabilities']) {
       expect(result.expected.get(path)).toEqual(['contextWindowTokens', 'exclusiveToolChoiceSupport', 'maxOutputTokens', 'quirks', 'responsesReasoning', 'streaming', 'toolsMode', 'transportProtocol']);
       expect(result.expected.get(`${path}.responsesReasoning`)).toEqual(['effort']);
     }
+    expect(result.expected.get('mcpServers.entry.variant1')).toEqual(['args', 'autostart', 'command', 'disabled', 'env', 'transport']);
+    expect(result.expected.get('mcpServers.entry.variant2')).toEqual(['autostart', 'disabled', 'transport', 'url']);
   });
 
   it('turns newly reachable named and inline objects into missing-row failures', () => {

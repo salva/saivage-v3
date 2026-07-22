@@ -134,16 +134,33 @@ const compactionSectionSchema = z.object({
   if (Math.floor(value.input_budget_tokens * value.completion_reserve_fraction) < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'compaction reservedCompletionTokens must be positive' });
 });
 
+function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
 // MCP Server entry
-const mcpServerEntrySchema = z.object({
-  command: z.string().optional(),
+const stdioMcpServerSchema = z.object({
+  transport: z.literal('stdio'),
+  command: z.string().min(1),
   args: z.array(z.string()).optional(),
   env: z.record(z.string(), z.string()).optional(),
-  url: z.string().optional(),
-  transport: z.enum(['stdio', 'streamable-http']),
   disabled: z.boolean().default(false),
   autostart: z.boolean().default(true),
-});
+}).strict();
+
+const streamableHttpMcpServerSchema = z.object({
+  transport: z.literal('streamable-http'),
+  url: z.string().refine(isHttpUrl, 'url must be an absolute HTTP(S) URL'),
+  disabled: z.boolean().default(false),
+  autostart: z.boolean().default(true),
+}).strict();
+
+const mcpServerEntrySchema = z.discriminatedUnion('transport', [stdioMcpServerSchema, streamableHttpMcpServerSchema]);
 
 const processTerminalPortSchema = z.enum(['DONE', 'BLOCKED', 'FAILED']);
 const processEntrySchema = z.object({
@@ -219,6 +236,9 @@ export const saivageConfigSchema = z.object({
 // ── Derived Types ─────────────────────────────────────────────
 
 export type SaivageConfig = z.infer<typeof saivageConfigSchema>;
+export type McpServerConfig = z.infer<typeof mcpServerEntrySchema>;
+export type StdioMcpServerConfig = z.infer<typeof stdioMcpServerSchema>;
+export type StreamableHttpMcpServerConfig = z.infer<typeof streamableHttpMcpServerSchema>;
 export type ProviderEntry = z.infer<typeof providerEntrySchema>;
 export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;

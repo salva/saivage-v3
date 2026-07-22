@@ -52,6 +52,87 @@ describe('WebProvider', () => {
     if (!result.success) expect(result.error).toContain('Expected string');
   });
 
+  it('rejects multimodal webfetch before fetch while accepting auto and text modes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    try {
+      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' })]);
+      const rejected = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34', read_mode: 'multimodal' });
+      expect(rejected.success).toBe(false);
+      expect(fetchSpy).not.toHaveBeenCalled();
+
+      fetchSpy
+        .mockResolvedValueOnce(new Response('automatic', { status: 200, headers: { 'content-type': 'text/plain' } }))
+        .mockResolvedValueOnce(new Response('forced', { status: 200, headers: { 'content-type': 'application/octet-stream' } }));
+      await expect(invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/auto', read_mode: 'auto' })).resolves.toMatchObject({ success: true, data: { text: 'automatic' } });
+      await expect(invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/text', read_mode: 'text' })).resolves.toMatchObject({ success: true, data: { text: 'forced' } });
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns final metadata without acquiring or reading a body reader and cancels a body larger than one byte', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
+    const response = new Response('body larger than one byte', { status: 404, headers: { 'content-type': 'text/plain', etag: 'final' } });
+    const body = response.body!;
+    const getReaderSpy = jest.spyOn(body, 'getReader');
+    const cancelSpy = jest.spyOn(body, 'cancel');
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(response);
+    try {
+      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' })]);
+      const result = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/final', metadata_only: true });
+
+      expect(result).toMatchObject({ success: true, data: { url: 'https://93.184.216.34/final', status: 404, headers: { 'content-type': 'text/plain', etag: 'final' }, metadata_only: true } });
+      expect(getReaderSpy).not.toHaveBeenCalled();
+      expect(cancelSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('awaits metadata redirect and final body cancellation without acquiring readers', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
+    const redirect = new Response('redirect body', { status: 302, headers: { location: '/final' } });
+    const final = new Response('final body larger than one byte', { status: 207, headers: { 'content-type': 'text/plain', etag: 'redirect-final' } });
+    const redirectReader = jest.spyOn(redirect.body!, 'getReader');
+    const finalReader = jest.spyOn(final.body!, 'getReader');
+    let releaseRedirect!: () => void;
+    let releaseFinal!: () => void;
+    const redirectCancellation = new Promise<void>((resolve) => { releaseRedirect = resolve; });
+    const finalCancellation = new Promise<void>((resolve) => { releaseFinal = resolve; });
+    const redirectCancel = jest.spyOn(redirect.body!, 'cancel').mockImplementation(() => redirectCancellation);
+    const finalCancel = jest.spyOn(final.body!, 'cancel').mockImplementation(() => finalCancellation);
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(redirect).mockResolvedValueOnce(final);
+    try {
+      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' })]);
+      let settled = false;
+      const pending = invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/start', metadata_only: true }).finally(() => { settled = true; });
+      for (let attempt = 0; attempt < 200 && redirectCancel.mock.calls.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(redirectCancel).toHaveBeenCalledTimes(1);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      expect(settled).toBe(false);
+
+      releaseRedirect();
+      for (let attempt = 0; attempt < 200 && finalCancel.mock.calls.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      expect(finalCancel).toHaveBeenCalledTimes(1);
+      expect(settled).toBe(false);
+
+      releaseFinal();
+      await expect(pending).resolves.toMatchObject({
+        success: true,
+        data: { url: 'https://93.184.216.34/final', status: 207, headers: { 'content-type': 'text/plain', etag: 'redirect-final' }, metadata_only: true },
+      });
+      expect(redirectReader).not.toHaveBeenCalled();
+      expect(finalReader).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('returns model-visible provider errors for blocked private targets', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     try {

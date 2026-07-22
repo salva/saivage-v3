@@ -1,4 +1,5 @@
 import { InvalidArgumentsError, McpInvokeError, TimeoutError, TransportError } from './errors.js';
+import type { StreamableHttpMcpServerConfig } from '../agents/config-api.js';
 import {
   CLIENT_NAME,
   CLIENT_VERSION,
@@ -9,7 +10,7 @@ import {
   type McpJsonRpcRequest,
   type McpToolDefinition,
 } from './protocol.js';
-import type { McpServerConfig, McpServerHandle } from './server-registry.js';
+import type { McpServerHandle } from './server-registry.js';
 
 interface StreamableHttpReadContext { serverName: string; operation: string; expectedId: number | string; signal?: AbortSignal }
 export interface MessageIdSource { next(): number | string }
@@ -111,9 +112,8 @@ function sessionHeaders(handle?: McpServerHandle): Record<string, string> {
   return handle?.streamableHttpSessionId ? { 'Mcp-Session-Id': handle.streamableHttpSessionId } : {};
 }
 
-export async function discoverStreamableHttpTools(input: { serverName: string; config: McpServerConfig; handle?: McpServerHandle; ids: MessageIdSource; signal: AbortSignal }): Promise<McpToolDefinition[]> {
+export async function discoverStreamableHttpTools(input: { serverName: string; config: StreamableHttpMcpServerConfig; handle?: McpServerHandle; ids: MessageIdSource; signal: AbortSignal }): Promise<McpToolDefinition[]> {
   const { serverName: name, config: cfg, handle, ids, signal } = input;
-  if (!cfg.url) throw new Error('Streamable HTTP server has no URL configured');
   const discoveryAbort = new AbortController();
   const timeoutId = setTimeout(() => discoveryAbort.abort(), MCP_DISCOVERY_TIMEOUT_MS);
   const serverSignal = handle?.abortController?.signal;
@@ -156,9 +156,8 @@ export async function discoverStreamableHttpTools(input: { serverName: string; c
   } finally { clearTimeout(timeoutId); }
 }
 
-export async function invokeStreamableHttpTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; config: McpServerConfig; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource; signal: AbortSignal }): Promise<unknown> {
+export async function invokeStreamableHttpTool(input: { serverName: string; toolName: string; args: Record<string, unknown>; config: StreamableHttpMcpServerConfig; handle?: McpServerHandle; timeoutMs: number; ids: MessageIdSource; signal: AbortSignal }): Promise<unknown> {
   const { serverName, toolName, args, config: cfg, handle, timeoutMs, ids, signal: operationSignal } = input;
-  if (!cfg.url) throw new TransportError(serverName, 'No URL configured for Streamable HTTP server');
   const signal = handle?.abortController?.signal;
   const invokeAbort = new AbortController();
   const timeoutId = setTimeout(() => invokeAbort.abort(), timeoutMs);
@@ -183,9 +182,9 @@ export async function invokeStreamableHttpTool(input: { serverName: string; tool
   } finally { clearTimeout(timeoutId); }
 }
 
-export async function healthStreamableHttpServer(input: { serverName: string; config: McpServerConfig; handle?: McpServerHandle; signal: AbortSignal }): Promise<boolean> {
+export async function healthStreamableHttpServer(input: { serverName: string; config: StreamableHttpMcpServerConfig; handle?: McpServerHandle; signal: AbortSignal }): Promise<boolean> {
   const { config: cfg, handle, signal } = input;
-  if (!handle || handle.abortController?.signal.aborted || !cfg.url) return false;
+  if (!handle || handle.abortController?.signal.aborted) return false;
   try {
     let resp = await fetch(cfg.url, { method: 'HEAD', signal });
     if (resp.status === 405 || resp.status === 501) resp = await fetch(cfg.url, { method: 'GET', signal });
@@ -205,9 +204,8 @@ function processToolsCallResponse(response: Record<string, unknown>, serverName:
   return result.content !== undefined ? result.content : result;
 }
 
-export async function probeStreamableHttpStartup(input: { serverName: string; config: McpServerConfig; signal: AbortSignal }): Promise<{ ok: true } | { ok: false; error: string; aborted: boolean }> {
+export async function probeStreamableHttpStartup(input: { serverName: string; config: StreamableHttpMcpServerConfig; signal: AbortSignal }): Promise<{ ok: true } | { ok: false; error: string; aborted: boolean }> {
   const { serverName, config: cfg, signal } = input;
-  if (!cfg.url) return { ok: false, error: `streamable-http MCP server '${serverName}' has no 'url' configured.`, aborted: false };
   try {
     const resp = await fetch(cfg.url, { method: 'HEAD', signal });
     if (!resp.ok) return { ok: false, error: `Streamable HTTP health check returned status ${resp.status}`, aborted: false };

@@ -320,14 +320,21 @@ describe('persisted MCP reconciliation', () => {
   it('invalid persisted config performs no lifecycle mutation', async () => {
     const root = projectRoot();
     writeConfig(root, { one: stdio('one') });
-    const { manager, signal } = createManager(root);
+    const { manager, signal, spawn } = createManager(root);
     const before = await manager.reconcilePersistedConfig();
-    writeFileSync(join(root, '.saivage', 'saivage.yaml'), YAML.stringify({ ...baseConfig({}), mcpServers: 'invalid' }));
+    const invalidConfigs = [
+      { ...baseConfig({}), mcpServers: 'invalid' },
+      baseConfig({ one: { transport: 'stdio', url: 'https://example.com/mcp' } }),
+    ];
 
-    await expect(manager.reconcilePersistedConfig()).rejects.toThrow();
-    expect(signal).not.toHaveBeenCalled();
-    expect(manager.getStatus()[0]?.status).toBe('running');
-    expect(before.active[0]?.revision).toBeDefined();
+    for (const invalid of invalidConfigs) {
+      writeFileSync(join(root, '.saivage', 'saivage.yaml'), YAML.stringify(invalid));
+      await expect(manager.reconcilePersistedConfig()).rejects.toThrow();
+      expect(signal).not.toHaveBeenCalled();
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(manager.getStatus()[0]?.status).toBe('running');
+      expect(before.active[0]?.revision).toBeDefined();
+    }
   });
 
   it('closes invocation and runtime admission synchronously, then reuses direct containment before root cleanup', async () => {

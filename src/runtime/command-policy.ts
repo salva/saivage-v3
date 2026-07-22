@@ -5,7 +5,6 @@ const SAFE_ENV_PREFIXES = ['LC_'];
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 export const MAX_COMMAND_TIMEOUT_MS = 600_000;
-export const DEFAULT_MAX_OUTPUT_BYTES = 65_536;
 
 export function sanitizedCommandEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -21,9 +20,4 @@ export function sanitizedCommandEnv(): NodeJS.ProcessEnv {
 
 export function redactCommandForPolicy(command: string): string {
   return redactTextForOutbound(command);
-}
-
-export function truncateCommandOutput(value: string, maxBytes: number = DEFAULT_MAX_OUTPUT_BYTES): string {
-  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
-  return `${Buffer.from(value, 'utf8').subarray(0, maxBytes).toString('utf8')}\n[truncated]`;
 }

@@ -21,7 +21,7 @@ const DEFAULT_MAX_INLINE_BYTES = 100_000;
 const MAX_RESULTS = 20;
 const MAX_REDIRECTS = 5;
 
-type ReadMode = 'auto' | 'text' | 'multimodal';
+type ReadMode = 'auto' | 'text';
 
 export interface WebProviderContext extends WorkspaceContext {
   readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
@@ -29,7 +29,7 @@ export interface WebProviderContext extends WorkspaceContext {
 }
 
 const websearchSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
-const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
+const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
 
 function redactUrl(raw: string): string {
   try {
@@ -83,26 +83,38 @@ function isAbortError(err: unknown, signal: AbortSignal): boolean {
   return signal.aborted || err === signal.reason || (err instanceof DOMException && err.name === 'AbortError');
 }
 
-async function fetchPublic(url: URL, maxBytes: number, signal: AbortSignal, redirects = 0): Promise<{ url: URL; response: Response; body: Uint8Array }> {
+interface MetadataFetchResult { kind: 'metadata'; url: URL; response: Response }
+interface ContentFetchResult { kind: 'content'; url: URL; response: Response; body: Uint8Array }
+type FetchBodyPolicy = { kind: 'metadata' } | { kind: 'bounded'; maxBytes: number };
+
+async function fetchPublic(url: URL, policy: { kind: 'metadata' }, signal: AbortSignal, redirects?: number): Promise<MetadataFetchResult>;
+async function fetchPublic(url: URL, policy: { kind: 'bounded'; maxBytes: number }, signal: AbortSignal, redirects?: number): Promise<ContentFetchResult>;
+async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSignal, redirects = 0): Promise<MetadataFetchResult | ContentFetchResult> {
   if (redirects > MAX_REDIRECTS) throw new Error('Too many redirects.');
   await assertPublicHttpTarget(url);
   if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error('Tool invocation was interrupted.');
   const response = await fetch(url, { redirect: 'manual', signal: combinedSignal(signal), headers: { 'User-Agent': 'Saivage/0.1 agent-web-tool' } });
   if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel();
     const location = response.headers.get('location');
     if (!location) throw new Error('Redirect response did not include Location.');
     const next = parseHttpUrl(new URL(location, url).toString());
-    return fetchPublic(next, maxBytes, signal, redirects + 1);
+    if (policy.kind === 'metadata') return fetchPublic(next, policy, signal, redirects + 1);
+    return fetchPublic(next, policy, signal, redirects + 1);
+  }
+  if (policy.kind === 'metadata') {
+    await response.body?.cancel();
+    return { kind: 'metadata', url, response };
   }
   const reader = response.body?.getReader();
-  if (!reader) return { url, response, body: new Uint8Array() };
+  if (!reader) return { kind: 'content', url, response, body: new Uint8Array() };
   const chunks: Uint8Array[] = [];
   let total = 0;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
     total += value.byteLength;
-    if (total > maxBytes) throw new Error(`Response exceeded max_bytes (${maxBytes}).`);
+    if (total > policy.maxBytes) throw new Error(`Response exceeded max_bytes (${policy.maxBytes}).`);
     chunks.push(value);
   }
   const body = new Uint8Array(total);
@@ -111,7 +123,7 @@ async function fetchPublic(url: URL, maxBytes: number, signal: AbortSignal, redi
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return { url, response, body };
+  return { kind: 'content', url, response, body };
 }
 
 function headersObject(headers: Headers): Record<string, string> {
@@ -151,7 +163,7 @@ async function websearchCore(params: { query: string; max_results?: number }, si
     if (!query) return { success: false, error: 'query is required.' };
     const max = Math.min(Math.max(params.max_results ?? 10, 1), MAX_RESULTS);
     const url = parseHttpUrl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
-    const fetchPromise = fetchPublic(url, DEFAULT_MAX_BYTES, signal);
+    const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes: DEFAULT_MAX_BYTES }, signal);
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     if (!fetched.response.ok) return { success: false, error: `Search provider returned HTTP ${fetched.response.status}.` };
     const html = Buffer.from(fetched.body).toString('utf8');
@@ -168,11 +180,17 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
     if (params.metadata_only && params.save_as) return { success: false, error: 'metadata_only cannot be combined with save_as.' };
     if (params.save_as) authorizeWriteProject(ctx, { path: params.save_as });
-    const fetchPromise = fetchPublic(url, params.metadata_only ? 1 : maxBytes, signal);
+    if (params.metadata_only) {
+      const fetchPromise = fetchPublic(url, { kind: 'metadata' }, signal);
+      const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
+      const headers = headersObject(fetched.response.headers);
+      const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
+      return { success: true, data: { ...metadata, metadata_only: true } };
+    }
+    const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes }, signal);
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     const headers = headersObject(fetched.response.headers);
     const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
-    if (params.metadata_only) return { success: true, data: { ...metadata, metadata_only: true } };
     if (!fetched.response.ok) return { success: false, error: `HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.` };
     const contentType = headers['content-type'] ?? '';
     const mode = params.read_mode ?? 'auto';
@@ -202,7 +220,7 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
 async function fetchAnalystBrief(input: { url: string; read_mode?: ReadMode; max_bytes?: number }, signal: AbortSignal): Promise<PreparedFetchedBrief> {
   const url = parseHttpUrl(input.url);
   const maxBytes = Math.min(Math.max(input.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
-  const fetched = await fetchPublic(url, maxBytes, signal);
+  const fetched = await fetchPublic(url, { kind: 'bounded', maxBytes }, signal);
   const headers = headersObject(fetched.response.headers);
   const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
   if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);

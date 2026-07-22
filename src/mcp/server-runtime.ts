@@ -1,4 +1,5 @@
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
+import type { StdioMcpServerConfig, StreamableHttpMcpServerConfig } from '../agents/config-api.js';
 import { sanitizedCommandEnv } from '../runtime/command-policy.js';
 import { compileMcpArgumentValidator, fingerprintMcpInputSchema, validateMcpArguments, type CachedMcpArgumentValidator } from './mcp-argument-validator.js';
 import { InvalidArgumentsError, ServerNotRunningError, ToolNotFoundError } from './errors.js';
@@ -134,7 +135,7 @@ export class McpServerRuntime {
       let result: unknown;
       try {
         result = cfg.transport === 'stdio'
-          ? await this.enqueueStdioInvocation(() => { this.assertCurrent(generation, signal); return invokeStdioTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.#ids, signal }); })
+          ? await this.enqueueStdioInvocation(() => { this.assertCurrent(generation, signal); return invokeStdioTool({ serverName: this.name, toolName, args, handle, timeoutMs, ids: this.#ids, signal }); })
           : await invokeStreamableHttpTool({ serverName: this.name, toolName, args, config: cfg, handle, timeoutMs, ids: this.#ids, signal });
         this.assertCurrent(generation, signal);
       } catch (err) {
@@ -184,8 +185,7 @@ export class McpServerRuntime {
     if (signal.aborted || generation !== this.generation || !this.admissionOpen) throw abortError();
   }
 
-  private startStdio(cfg: McpServerConfig, generation: number, signal: AbortSignal): void {
-    if (!cfg.command) throw new Error(`stdio MCP server '${this.name}' has no 'command' configured.`);
+  private startStdio(cfg: StdioMcpServerConfig, generation: number, signal: AbortSignal): void {
     this.assertCurrent(generation, signal);
     const launch = this.#processRunner.spawnInteractive({
       file: cfg.command, args: cfg.args ?? [], directScope: this.#processScope, category: 'service_infrastructure',
@@ -219,8 +219,7 @@ export class McpServerRuntime {
     this.operations.add(tracked);
   }
 
-  private async startStreamableHttp(cfg: McpServerConfig, generation: number, signal: AbortSignal): Promise<void> {
-    if (!cfg.url) throw new Error(`streamable-http MCP server '${this.name}' has no 'url' configured.`);
+  private async startStreamableHttp(cfg: StreamableHttpMcpServerConfig, generation: number, signal: AbortSignal): Promise<void> {
     const abortController = new AbortController();
     signal.addEventListener('abort', () => abortController.abort(), { once: true });
     this.handle = { abortController };

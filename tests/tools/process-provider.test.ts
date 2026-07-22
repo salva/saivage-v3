@@ -88,6 +88,17 @@ describe('process provider', () => {
     }
   }));
 
+  it('rejects the removed inactivity timeout before launching a process', async () => withRoot(async (root) => {
+    const processRunner = createTestProcessRunner(root);
+    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+
+    const result = await invokeTool(surface, 'run_command', { command: 'printf never', inactivity_timeout_ms: 1000 });
+
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error).toContain('Unrecognized key');
+    expect(processRunner.processRunner.list()).toEqual([]);
+  }));
+
   it('runs commands in canonical project and system cwd URLs', async () => withRoot(async (root) => {
     mkdirSync(join(root, 'packages', 'api'), { recursive: true });
     const processRunner = createTestProcessRunner(root);

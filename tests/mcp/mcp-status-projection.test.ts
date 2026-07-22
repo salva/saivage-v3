@@ -4,7 +4,7 @@ import { buildMcpServerStatus, buildMcpToolsReadModel } from '../../src/mcp/stat
 
 describe('MCP status/read-model projection', () => {
   it('projects disabled, stopped, running, and tool read-model details without a manager', () => {
-    expect(buildMcpServerStatus({ name: 'disabled', config: { transport: 'stdio', disabled: true, autostart: true } })).toEqual({ name: 'disabled', transport: 'stdio', status: 'stopped' });
+    expect(buildMcpServerStatus({ name: 'disabled', config: { transport: 'stdio', command: 'disabled-server', disabled: true, autostart: true } })).toEqual({ name: 'disabled', transport: 'stdio', status: 'stopped' });
     const running = buildMcpServerStatus({
       name: 'stream',
       config: { transport: 'streamable-http', disabled: false, autostart: true, url: 'http://example.invalid/mcp' },

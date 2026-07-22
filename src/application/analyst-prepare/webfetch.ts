@@ -2,7 +2,7 @@ import type { AnalystMutationReadContext } from '../../agents/analyst-tool-runne
 export interface PreparedFetchedBrief { readonly content: string; readonly metadata: Readonly<Record<string, unknown>>; }
 
 export interface AnalystWebReadClient {
-  fetchText(input: { url: string; read_mode?: 'auto' | 'text' | 'multimodal'; max_bytes?: number }, signal?: AbortSignal): Promise<PreparedFetchedBrief>;
+  fetchText(input: { url: string; read_mode?: 'auto' | 'text'; max_bytes?: number }, signal?: AbortSignal): Promise<PreparedFetchedBrief>;
 }
 
 export interface AnalystPreparationReadServices {
@@ -11,7 +11,7 @@ export interface AnalystPreparationReadServices {
 
 export interface AnalystWebfetchBriefInput {
   readonly url: string;
-  readonly read_mode?: 'auto' | 'text' | 'multimodal';
+  readonly read_mode?: 'auto' | 'text';
   readonly max_bytes?: number;
   readonly save_as: string;
 }

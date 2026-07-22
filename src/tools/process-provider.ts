@@ -133,7 +133,6 @@ const runCommandSchema = z.object({
   command: z.string().min(1),
   cwd: z.string().optional(),
   timeout_ms: z.number().int().optional(),
-  inactivity_timeout_ms: z.number().int().optional(),
   wait: z.boolean().optional(),
 }).strict();
 
