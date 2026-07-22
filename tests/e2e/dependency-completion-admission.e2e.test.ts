@@ -144,7 +144,7 @@ describe('dependency-completion activation admission E2E', () => {
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
     expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id]);
     expect(dependentCalls).toBe(0);
-    expect(readConversation(projectRoot, `executor:${dependent.id}`).physicalRows).toEqual([]);
+    expect(() => readConversation(projectRoot, `executor:${dependent.id}`)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
     expect(() => cards.readRecord(dependent.id, 'status.md')).toThrow();
     expect(processRunner.list({ cardId: dependent.id })).toEqual([]);
 

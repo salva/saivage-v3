@@ -8,6 +8,7 @@ import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-sess
 import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
 import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { inspectCanonicalCallSettlementPairs } from './conversation-call-pairs.js';
+import { validateConversationRows, type ValidatedConversation } from '../../contracts/conversation-compaction.js';
 
 export type ConversationImplicitState =
   | 'empty'
@@ -66,7 +67,12 @@ export function stabilizeRoleSession(args: {
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
 }): RoleSessionStabilization {
-  const conversation = readConversation(args.projectRoot, args.sessionId);
+  let conversation: ValidatedConversation;
+  try { conversation = readConversation(args.projectRoot, args.sessionId); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    conversation = validateConversationRows(args.sessionId, []);
+  }
   const messages = conversation.physicalRows;
   const sourceRows = conversation.sourceRows;
   const activationIndexes = sourceRows.flatMap((message, index) => activationMarker(message) ? [index] : []);

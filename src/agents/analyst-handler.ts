@@ -228,7 +228,7 @@ export class AnalystSession {
     try {
       surface = this.#createInvocationSurface();
     } catch (error) { throw new RecoverablePreparationError(error); }
-    const invocationInput = this.buildInvocationInput(operation.input, surface);
+    const preparedInput = this.prepareInvocationInput(surface);
     this.assertCurrent(operation, signal);
     operation.step = { kind: 'starting', ingress: 'publishing', cancellationRequested: null };
     appendConversationBatch(this.#conversations, buildAnalystIngressRows(operation.acceptedOperationId, buildWorkspaceContextNote(operation.input.workspaceContext), operation.input.userContent));
@@ -239,6 +239,10 @@ export class AnalystSession {
       throw operation.abort.signal.reason;
     }
     this.assertCurrent(operation, signal);
+    const invocationInput: PreparedLlmInvocationInput = {
+      ...preparedInput,
+      providerConversation: providerConversationProjection(readConversation(this.#projectRoot, this.#sessionId)),
+    };
     operation.step = { kind: 'nested', input: invocationInput };
     const terminal = this.terminalHandoff(operation);
     let outcome = await this.#llm.turn(invocationInput, signal, terminal, (input, reason) => this.claimNestedCancellation(operation, input, reason));
@@ -345,10 +349,10 @@ export class AnalystSession {
     return { inputId: operation.acceptedOperationId, agentId: this.#llm.agentId, role: 'analyst', sessionId: this.#sessionId, systemPrompt: '', providerConversation: { sourceSessionId: this.#sessionId, messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(this.#compactionPolicy, '', []), capabilityRequest: { requiresTools: false }, episodeContext: {} };
   }
 
-  private buildInvocationInput(turn: AnalystTurnInput, surface: InvocationSurface): PreparedLlmInvocationInput {
+  private prepareInvocationInput(surface: InvocationSurface): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const tools = surfaceToolDefinitions(surface); const modelParams = getModelParamsForRole(this.#config, 'analyst');
     const systemPrompt = this.#promptTemplates.render('analyst', 'analyst', { toolList: formatPromptToolList(tools), vocabularySnippet: formatVocabularySnippet(), projectContext: this.buildProjectContext() });
-    return { inputId: randomUUID(), agentId: this.#llm.agentId, role: 'analyst', sessionId: this.#sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.#projectRoot, this.#sessionId)), tools, terminalToolNames: [], modelParams: { temperature: modelParams.temperature }, preparedCompaction: prepareCompaction(this.#compactionPolicy, systemPrompt, tools, modelParams.maxTokens), capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }), episodeContext: { surface: 'web-chat' } };
+    return { inputId: randomUUID(), agentId: this.#llm.agentId, role: 'analyst', sessionId: this.#sessionId, systemPrompt, tools, terminalToolNames: [], modelParams: { temperature: modelParams.temperature }, preparedCompaction: prepareCompaction(this.#compactionPolicy, systemPrompt, tools, modelParams.maxTokens), capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }), episodeContext: { surface: 'web-chat' } };
   }
 
   private logBoundaryDiagnostic(phase: string, err: unknown): void {

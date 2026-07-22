@@ -145,6 +145,30 @@ describe('exact role-session stabilization', () => {
     return stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: terminalTools });
   }
 
+  it('treats ENOENT as an empty session only for the initial stabilization read', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-role-stabilization-empty-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    expect(stabilize(projectRoot)).toEqual({ disposition: 'clean', messages: [] });
+    expect(() => readConversation(projectRoot, 'planner:project')).toThrow(expect.objectContaining({ code: 'ENOENT' }));
+  });
+
+  it('keeps the required final recovery read strict when the canonical file disappears', () => {
+    const { projectRoot, sessionId, sourceInputId } = scenario();
+    appendConversationBatch({ projectRoot }, [message({ id: `${sourceInputId}:pending`, session_id: sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
+    const path = conversationFile(projectRoot, sessionId);
+    let failure: unknown;
+    try {
+      stabilizeRoleSession({
+        projectRoot,
+        sessionId,
+        conversations: { projectRoot, changes: { conversationChanged() { rmSync(path); }, agentsChanged() {} } },
+        terminalToolNames: terminalTools,
+      });
+    } catch (error) { failure = error; }
+    expect((failure as NodeJS.ErrnoException).code).toBe('ENOENT');
+  });
+
   it.each(['planner', 'reviewer', 'executor'] as const)('stabilizes an interrupted %s corrective continuation', (role) => {
     const cardId = 'project';
     const { projectRoot, sessionId, sourceInputId } = scenario(role, cardId);

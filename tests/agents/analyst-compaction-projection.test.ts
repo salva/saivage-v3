@@ -322,7 +322,7 @@ describe('Analyst continuation compaction safety', () => {
     await expect(runtime.submit({ userContent: 'must not be published' })).rejects.toThrow(/Prompt\/tool surface does not fit/);
     expect(primary).not.toHaveBeenCalled();
     expect(summary).not.toHaveBeenCalled();
-    expect(readConversation(projectRoot, 'analyst:global').physicalRows).toEqual([]);
+    expect(() => readConversation(projectRoot, 'analyst:global')).toThrow(expect.objectContaining({ code: 'ENOENT' }));
   });
 
   it('returns the existing cancelled outcome when preventive summary work is cancelled before a provider pass', async () => {

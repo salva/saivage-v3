@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs';
-
 import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { validateConversationRows, type ValidatedConversation } from '../contracts/conversation-compaction.js';
 import { agentMessageSchema, parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../schemas/index.js';
@@ -23,26 +21,16 @@ export interface ConversationInventoryEntry {
   readonly conversation: ValidatedConversation;
 }
 
-function readExact(path: string): string | null {
-  try { return readFileSync(path, 'utf8'); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
-}
-
-export function probeConversation(projectRoot: string, sessionId: ConversationSessionId): boolean {
-  return readExact(conversationFile(projectRoot, sessionId)) !== null;
-}
-
 export function readConversation(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation {
-  return readValidatedConversation(projectRoot, sessionId) ?? validateConversationRows(sessionId, []);
-}
-
-function readValidatedConversation(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation | null {
   const path = conversationFile(projectRoot, sessionId);
-  let rows: AgentMessage[];
-  try { rows = readCanonicalGrowingFile(path, agentMessageSchema); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  const rows = readCanonicalGrowingFile(path, agentMessageSchema);
   try { return validateConversationRows(sessionId, rows); }
   catch (error) { throw new Error(`Conversation '${sessionId}' is invalid: ${error instanceof Error ? error.message : String(error)}`); }
+}
+
+function readInventoryCandidate(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation | null {
+  try { return readConversation(projectRoot, sessionId); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
 }
 
 export function readConversationInventory(projectRoot: string): readonly ConversationInventoryEntry[] {
@@ -52,7 +40,7 @@ export function readConversationInventory(projectRoot: string): readonly Convers
     else candidates.push(parseConversationSessionId(`executor:${card.id}`));
   }
   const inventory = candidates.flatMap((sessionId) => {
-    const conversation = readValidatedConversation(projectRoot, sessionId);
+    const conversation = readInventoryCandidate(projectRoot, sessionId);
     return conversation ? [Object.freeze({ sessionId, conversation })] : [];
   });
   inventory.sort((a, b) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0);
@@ -79,7 +67,12 @@ export function publishConversationFirstBatch(conversations: ConversationFileCon
 export function appendConversationBatch(conversations: ConversationFileContext, messages: readonly AgentMessage[], options: ConversationAppendOptions = {}): void {
   const parsed = validateBatch(messages);
   const sessionId = parsed[0]!.session_id;
-  const current = readConversation(conversations.projectRoot, sessionId);
+  let current: ValidatedConversation;
+  try { current = readConversation(conversations.projectRoot, sessionId); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    current = validateConversationRows(sessionId, []);
+  }
   const existingIds = new Set(current.physicalRows.map((message) => message.id));
   const duplicate = parsed.find((message) => existingIds.has(message.id));
   if (duplicate) throw new Error(`Conversation message '${duplicate.id}' already exists.`);

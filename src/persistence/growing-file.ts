@@ -1,4 +1,4 @@
-import { constants, closeSync, fstatSync, fsyncSync, ftruncateSync, openSync, readFileSync, writeSync } from 'node:fs';
+import { constants, closeSync, fstatSync, fsyncSync, ftruncateSync, lstatSync, openSync, readFileSync, writeSync } from 'node:fs';
 import type { Stats } from 'node:fs';
 import { z } from 'zod';
 
@@ -102,7 +102,7 @@ export function publishFirstEnvelope(
   publicationTemporaryId?: PublicationTemporaryIdFactory,
   replacementIo?: ReplacementFileIo,
 ): void {
-  try { closeSync(openSync(target, constants.O_RDONLY)); }
+  try { lstatSync(target); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       replaceFile(target, bytes, publicationTemporaryId, replacementIo);

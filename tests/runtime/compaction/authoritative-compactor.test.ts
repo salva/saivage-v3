@@ -69,13 +69,12 @@ describe('authoritative context-recovery compaction', () => {
     expect(provider.completeTurn).toHaveBeenCalled();
   });
 
-  it('reports a null smallest candidate when no safe candidate can be constructed', async () => {
+  it('keeps compaction strict when the canonical conversation is missing', async () => {
     const root = tempRoot();
     const provider = summaryProvider();
-    const result = await compact(compactArgs(root, { sourceSessionId: 'planner:project', messages: [] }, provider));
+    const failure = await compact(compactArgs(root, { sourceSessionId: 'planner:project', messages: [] }, provider)).catch((error: unknown) => error);
 
-    expect(result).toEqual({ kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens: 0, smallestCandidateEstimatedProviderMessageTokens: null });
-    expect(readConversation(root, 'planner:project').physicalRows).toEqual([]);
+    expect((failure as NodeJS.ErrnoException).code).toBe('ENOENT');
     expect(provider.completeTurn).not.toHaveBeenCalled();
   });
 

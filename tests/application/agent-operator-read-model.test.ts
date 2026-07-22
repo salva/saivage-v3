@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentOperatorReadModelService, captureExecutingLlmSnapshotMap, projectAgentConversation } from '../../src/application/read-models/agent-operator-read-model.js';
@@ -8,6 +9,7 @@ import { publishConversationFirstBatch } from '../../src/persistence/conversatio
 import type { ExactWaitBarrier, ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 
 const timestamp = '2026-07-18T00:00:00.000Z';
 const inputId = '11111111-1111-4111-8111-111111111111';
@@ -23,6 +25,43 @@ function conversationBody(result: ReturnType<AgentOperatorReadModelService['getC
 function detailBody(result: ReturnType<AgentOperatorReadModelService['getSession']>) { if (result.statusCode === 400 || result.statusCode === 404) throw new Error(result.body.error); return result.body; }
 
 describe('AgentOperatorReadModelService snapshot-first exact projection', () => {
+  it.each(['detail', 'conversation'] as const)('maps only ENOENT to the existing direct %s 404', (operation) => {
+    const invoke = (root: string) => {
+      const service = new AgentOperatorReadModelService(root, () => []);
+      return operation === 'detail' ? service.getSession('planner:project') : service.getConversation('planner:project');
+    };
+
+    const missingRoot = project();
+    expect(invoke(missingRoot)).toEqual({ statusCode: 404, body: { error: 'Agent session not found' } });
+
+    const malformedRoot = project();
+    writeFileSync(conversationFile(malformedRoot, 'planner:project'), '{malformed}\n');
+    expect(() => invoke(malformedRoot)).toThrow(/malformed/);
+
+    const symlinkRoot = project();
+    const referent = join(symlinkRoot, 'conversation-referent.jsonl');
+    writeFileSync(referent, 'referent-original');
+    symlinkSync(referent, conversationFile(symlinkRoot, 'planner:project'));
+    expect(() => invoke(symlinkRoot)).toThrow();
+    expect(readFileSync(referent, 'utf8')).toBe('referent-original');
+
+    const directoryRoot = project();
+    mkdirSync(conversationFile(directoryRoot, 'planner:project'));
+    expect(() => invoke(directoryRoot)).toThrow();
+
+    const fifoRoot = project();
+    expect(spawnSync('mkfifo', [conversationFile(fifoRoot, 'planner:project')]).status).toBe(0);
+    expect(() => invoke(fifoRoot)).toThrow(/regular file/);
+  });
+
+  it.each(['detail', 'conversation'] as const)('performs one canonical acquisition for direct %s projection', (operation) => {
+    const fixture = join(process.cwd(), 'tests', 'fixtures', 'conversation-direct-read-count-child.ts');
+    const child = spawnSync(process.execPath, ['--import', 'tsx', fixture, operation], { cwd: process.cwd(), encoding: 'utf8' });
+    if (child.error) throw child.error;
+    if (child.status !== 0) throw new Error(`Direct conversation read-count child failed (${child.status}): ${child.stderr || child.stdout}`);
+    expect(JSON.parse(child.stdout.trim())).toEqual({ openAttempts: 1, descriptorReads: 1, pathReads: 0, closes: 1, statusCode: 200 });
+  });
+
   it('projects inactive, active, and exact waiting identically across list/detail/conversation', () => {
     const root = project();
     publishConversationFirstBatch({ projectRoot: root }, [call('planner:project')]);

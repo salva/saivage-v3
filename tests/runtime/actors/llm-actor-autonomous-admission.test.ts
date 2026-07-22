@@ -236,7 +236,7 @@ describe('prepared conversation LLM admission', () => {
     };
 
     await expect(actor.turn(input as never, undefined, terminalHandoff)).rejects.toThrow(/requires prepared compaction/);
-    expect(readConversation(projectRoot, 'planner:project').physicalRows).toEqual([]);
+    expect(() => readConversation(projectRoot, 'planner:project')).toThrow(expect.objectContaining({ code: 'ENOENT' }));
     expect(projectionChanged).not.toHaveBeenCalled();
     expect(shouldCompact).not.toHaveBeenCalled();
     expect(compact).not.toHaveBeenCalled();

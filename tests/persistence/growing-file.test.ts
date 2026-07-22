@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { constants, closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { constants, closeSync, fstatSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -202,6 +202,37 @@ describe('strict growing-file boundaries', () => {
     expect(appendEnvelope(path, bytes())).toEqual({ kind: 'appended' });
     expect(readFileSync(path, 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
     expect(() => parseGrowingFile(path, '{"version":2,"type":"rows","rows":[{}]}\n', row)).toThrow(/malformed/);
+  });
+
+  it('treats every existing exact path object as already published without mutating referents', () => {
+    const regular = target();
+    writeFileSync(regular, 'regular-original');
+    expect(() => publishFirstEnvelope(regular, bytes())).toThrow(`Growing file '${regular}' is already published.`);
+    expect(readFileSync(regular, 'utf8')).toBe('regular-original');
+
+    const directory = target();
+    mkdirSync(directory);
+    expect(() => publishFirstEnvelope(directory, bytes())).toThrow(`Growing file '${directory}' is already published.`);
+
+    for (const dangling of [false, true]) {
+      const link = target();
+      const destination = join(link, '..', dangling ? 'absent.jsonl' : 'referent.jsonl');
+      if (!dangling) writeFileSync(destination, 'referent-original');
+      symlinkSync(destination, link);
+      expect(() => publishFirstEnvelope(link, bytes())).toThrow(`Growing file '${link}' is already published.`);
+      if (!dangling) expect(readFileSync(destination, 'utf8')).toBe('referent-original');
+    }
+  });
+
+  it('treats a FIFO as already published promptly without opening it', () => {
+    const fifo = target();
+    expect(spawnSync('mkfifo', [fifo]).status).toBe(0);
+    const child = spawnSync(process.execPath, [
+      '--import', 'tsx', '--input-type=module', '--eval',
+      `import { publishFirstEnvelope } from './src/persistence/growing-file.ts'; try { publishFirstEnvelope(${JSON.stringify(fifo)}, Buffer.from('unused')); process.exitCode = 2; } catch (error) { if (!String(error).includes('already published')) process.exitCode = 3; }`,
+    ], { cwd: process.cwd(), encoding: 'utf8', timeout: 3_000 });
+    expect(child.error).toBeUndefined();
+    expect(child.status).toBe(0);
   });
 
   it('truncates only an unterminated final suffix on a later owning read', () => {

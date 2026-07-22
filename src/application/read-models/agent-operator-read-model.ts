@@ -1,5 +1,5 @@
 import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
-import { probeConversation, readConversation, readConversationInventory } from '../../persistence/conversation-file.js';
+import { readConversation, readConversationInventory } from '../../persistence/conversation-file.js';
 import {
   conversationSessionIdentity,
   parseConversationSessionId,
@@ -45,8 +45,12 @@ export class AgentOperatorReadModelService {
     const live = captureExecutingLlmSnapshotMap(this.snapshots());
     const parsed = this.parse(sessionId);
     if (!parsed) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    if (!probeConversation(this.projectRoot, parsed)) return { statusCode: 404, body: { error: 'Agent session not found' } };
-    const messages = readConversation(this.projectRoot, parsed).physicalRows;
+    let messages: AgentMessage[];
+    try { messages = readConversation(this.projectRoot, parsed).physicalRows; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { statusCode: 404, body: { error: 'Agent session not found' } };
+      throw error;
+    }
     const projected = this.project(parsed, messages, live.get(parsed));
     return { body: { session: { ...projected.session, message_count: messages.length, last_activity_at: this.lastTimestamp(messages) ?? projected.session.started_at } } };
   }
@@ -55,8 +59,13 @@ export class AgentOperatorReadModelService {
     const live = captureExecutingLlmSnapshotMap(this.snapshots());
     const parsed = this.parse(sessionId);
     if (!parsed) return { statusCode: 400, body: { error: 'Invalid agent session ID' } };
-    if (!probeConversation(this.projectRoot, parsed)) return { statusCode: 404, body: { error: 'Agent session not found' } };
-    return { body: this.project(parsed, readConversation(this.projectRoot, parsed).physicalRows, live.get(parsed)) };
+    let messages: AgentMessage[];
+    try { messages = readConversation(this.projectRoot, parsed).physicalRows; }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { statusCode: 404, body: { error: 'Agent session not found' } };
+      throw error;
+    }
+    return { body: this.project(parsed, messages, live.get(parsed)) };
   }
 
   private project(sessionId: ConversationSessionId, messages: AgentMessage[], snapshot: ExecutingLlmSnapshot | undefined): AgentOperatorConversationResponse {

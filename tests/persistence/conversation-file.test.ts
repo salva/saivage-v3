@@ -19,6 +19,16 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('conversation file persistence', () => {
+  it('keeps direct reads strict while append alone treats ENOENT as an operation-local empty start', () => {
+    const projectRoot = root();
+    let missing: unknown;
+    try { readConversation(projectRoot, 'planner:project'); } catch (error) { missing = error; }
+    expect((missing as NodeJS.ErrnoException).code).toBe('ENOENT');
+
+    appendConversationBatch({ projectRoot }, [text('first')]);
+    expect(readConversation(projectRoot, 'planner:project').physicalRows.map(({ id }) => id)).toEqual(['first']);
+  });
+
   it('publishes one physical envelope per batch and emits freshness only after publication', () => {
     const projectRoot = root();
     const effects: string[] = [];
