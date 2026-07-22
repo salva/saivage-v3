@@ -3,21 +3,13 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 
 import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
+import type { ProcessToolResult } from '../contracts/operator-api-processes.js';
+import { redactForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRunner } from '../runtime/process-runner.js';
-import type { AgentRole, ProcessRecord, ProcessStatus } from '../schemas/index.js';
+import type { AgentRole, ProcessRecord } from '../schemas/index.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
-
-interface ProcessToolResult {
-  process_id: string;
-  exit_code: number | null;
-  status: ProcessStatus;
-  stdout_url: string;
-  stderr_url: string;
-  stdout_bytes: number;
-  stderr_bytes: number;
-}
 
 export interface ProcessProviderContext {
   readonly projectRoot: string;
@@ -118,7 +110,7 @@ function processResult(ctx: ProcessProviderContext, processId: string): ProcessT
   const logSegments = record.card_id
     ? ['cards', record.card_id, 'processes', record.id]
     : ['processes', record.id];
-  return {
+  return redactForOutbound({ source: 'process-view', value: {
     process_id: record.id,
     exit_code: record.exit_code ?? null,
     status: record.status,
@@ -126,7 +118,7 @@ function processResult(ctx: ProcessProviderContext, processId: string): ProcessT
     stderr_url: buildScopedPathUrl('work', [...logSegments, 'stderr.log']),
     stdout_bytes: logBytes(record.stdout_path),
     stderr_bytes: logBytes(record.stderr_path),
-  };
+  } });
 }
 
 const runCommandSchema = z.object({

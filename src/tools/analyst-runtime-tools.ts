@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 import { listControlActions } from '../persistence/index.js';
 import { eventKindValues } from '../schemas/index.js';
-import type { ProcessRecord } from '../schemas/index.js';
-import { redactCommandForOperator, toContainedRelativePath, workUrlFromAbsolutePath } from '../workspace/index.js';
+import { buildProcessView } from '../application/read-models/process-view.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
@@ -11,26 +10,6 @@ import { defineTool, type ToolDefinition } from './invocation.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../application/event-query-service.js';
 
 const JSONL_TAIL_DEFAULT = 50;
-
-function processView(projectRoot: string, record: ProcessRecord): Record<string, unknown> {
-  const safePath = (path: string | null | undefined) => path ? toContainedRelativePath(projectRoot, path) : null;
-  const logUrl = (path: string | null | undefined) => path ? workUrlFromAbsolutePath(projectRoot, path) : null;
-  return {
-    id: record.id,
-    status: record.status,
-    started_at: record.started_at,
-    ended_at: record.completed_at ?? null,
-    exit_code: record.exit_code ?? null,
-    timed_out: record.exit_code === null && record.status === 'failed',
-    owner_id: record.owner_id,
-    owner_kind: record.owner_kind,
-    session_id: record.agent_session_id ?? null,
-    card_id: record.card_id,
-    command: redactCommandForOperator(record.command),
-    cwd: safePath(record.cwd),
-    logs: { stdout: logUrl(record.stdout_path), stderr: logUrl(record.stderr_path) },
-  };
-}
 
 export async function start_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
   if (!ctx.runtimeControl) return toolFailure('Active runtime is not available.');
@@ -81,7 +60,7 @@ export async function read_control_actions(ctx: ToolContext, params: { limit?: n
 }
 
 export async function list_processes_tool(ctx: ToolContext, params: { status?: string; cardId?: string }): Promise<ToolResult> {
-  try { const procs = ctx.processRunner.list(params.cardId ? { cardId: params.cardId } : undefined).map((record) => processView(ctx.projectRoot, record)); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered }; }
+  try { const procs = ctx.processRunner.list(params.cardId ? { cardId: params.cardId } : undefined).map((record) => buildProcessView(ctx.projectRoot, record)); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered }; }
   catch (err) { return toolFailureFromError(err); }
 }
 

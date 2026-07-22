@@ -176,10 +176,11 @@ export {
   ProcessListResponseSchema,
   ProcessLogRefsSchema,
   ProcessNotFoundErrorSchema,
+  ProcessToolResultSchema,
   ProcessViewSchema,
   processesOperatorApiContracts,
 } from './operator-api-processes.js';
-export type { ProcessDetailResponse, ProcessListResponse, ProcessView } from './operator-api-processes.js';
+export type { ProcessDetailResponse, ProcessListResponse, ProcessToolResult, ProcessView } from './operator-api-processes.js';
 
 export const operatorApiContracts = {
   ...authOperatorApiContracts,

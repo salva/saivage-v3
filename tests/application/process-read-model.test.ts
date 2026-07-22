@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { toProcessView } from '../../src/server/routes/operator-process-handlers.js';
+import { buildProcessView } from '../../src/application/read-models/process-view.js';
 import type { ProcessView } from '../../src/contracts/operator-api.js';
 import type { ProcessRecord } from '../../src/schemas/index.js';
 
@@ -36,7 +36,7 @@ function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
 }
 
 async function processView(input: ProcessRecord): Promise<ProcessView> {
-  return toProcessView('/workspace/project', input);
+  return buildProcessView('/workspace/project', input);
 }
 
 describe('process operator view projection', () => {

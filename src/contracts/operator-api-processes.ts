@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { cardIdSchema } from '../schemas/index.js';
+import { cardIdSchema, processStatusSchema } from '../schemas/index.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 import {
   ApiErrorSchema,
@@ -55,6 +55,16 @@ export const ProcessViewSchema = z.object({
   logs: ProcessLogRefsSchema,
 });
 
+export const ProcessToolResultSchema = z.object({
+  process_id: z.string().min(1),
+  exit_code: z.number().int().nullable(),
+  status: processStatusSchema,
+  stdout_url: z.string().refine(isCanonicalProcessLogUrl('stdout.log'), 'stdout_url must be a canonical process stdout work URL'),
+  stderr_url: z.string().refine(isCanonicalProcessLogUrl('stderr.log'), 'stderr_url must be a canonical process stderr work URL'),
+  stdout_bytes: z.number().int().nonnegative(),
+  stderr_bytes: z.number().int().nonnegative(),
+}).strict();
+
 export const ProcessListResponseSchema = z.object({ processes: z.array(ProcessViewSchema) });
 export const ProcessDetailResponseSchema = z.object({ process: ProcessViewSchema });
 export const ProcessNotFoundErrorSchema = ApiErrorSchema.extend({
@@ -63,6 +73,7 @@ export const ProcessNotFoundErrorSchema = ApiErrorSchema.extend({
 });
 
 export type ProcessView = z.infer<typeof ProcessViewSchema>;
+export type ProcessToolResult = z.infer<typeof ProcessToolResultSchema>;
 export type ProcessListResponse = z.infer<typeof ProcessListResponseSchema>;
 export type ProcessDetailResponse = z.infer<typeof ProcessDetailResponseSchema>;
 
