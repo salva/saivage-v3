@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import type { Environment } from '../config/index.js';
 import { McpManager } from '../mcp/manager-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';

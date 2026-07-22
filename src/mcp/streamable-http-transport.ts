@@ -1,5 +1,5 @@
 import { InvalidArgumentsError, McpInvokeError, TimeoutError, TransportError } from './errors.js';
-import type { StreamableHttpMcpServerConfig } from '../agents/config-api.js';
+import type { StreamableHttpMcpServerConfig } from '../schemas/saivage-config.js';
 import {
   CLIENT_NAME,
   CLIENT_VERSION,

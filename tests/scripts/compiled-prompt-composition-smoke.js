@@ -33,7 +33,7 @@ const [
   { ManagedProcessGroupRegistry },
   { ProcessRunner },
 ] = await Promise.all([
-  import(compiledModule('agents/config-schema.js')),
+  import(compiledModule('schemas/saivage-config.js')),
   import(compiledModule('agents/default-card-processes.js')),
   import(compiledModule('application/runtime-composition.js')),
   import(compiledModule('application/freshness-effects.js')),

@@ -8,7 +8,7 @@ import {
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
-import { effectiveSaivageConfigSchema } from '../agents/config-api.js';
+import { effectiveSaivageConfigSchema } from '../schemas/saivage-config.js';
 
 export const ConfigGetResponseSchema = z.object({
   config: effectiveSaivageConfigSchema,

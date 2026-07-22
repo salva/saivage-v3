@@ -35,7 +35,7 @@ export interface OperatorContractRouteRegistrationOptions extends
   eventLogger: EventLog;
   mcpManager?: McpManager;
   runtimeApplication: import('../../application/runtime-composition.js').RuntimeApplication;
-  saivageConfig: import('../../agents/config-api.js').SaivageConfig;
+  saivageConfig: import('../../schemas/saivage-config.js').SaivageConfig;
 }
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {

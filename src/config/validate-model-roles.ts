@@ -1,4 +1,4 @@
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { operationalAgentRoleValues } from '../schemas/index.js';
 import type { OperationalAgentRole } from '../schemas/index.js';
 import { resolveModelListForRole } from './model-role-resolution.js';

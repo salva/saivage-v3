@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import Fastify from 'fastify';
 
 import { operatorApiContracts, type OperatorApiOperationId, type OperatorRouteContract } from '../../src/contracts/operator-api.js';
-import { saivageConfigSchema } from '../../src/agents/config-api.js';
+import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime, type ContractHandler } from '../../src/server/contract-runtime.js';

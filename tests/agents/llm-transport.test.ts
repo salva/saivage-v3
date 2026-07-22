@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
-import type { SaivageConfig } from '../../src/agents/config-schema.js';
+import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { readAuthProfile, replaceAuthProfiles } from '../../src/auth/auth-profile-file.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 

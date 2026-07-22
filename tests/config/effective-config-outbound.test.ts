@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { DEFAULT_CARD_PROCESSES, saivageConfigSchema } from '../../src/agents/config-api.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { redactForOutbound, SECRET_REDACTION_PLACEHOLDER } from '../../src/redaction/index.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 

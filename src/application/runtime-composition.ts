@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { MemoryCandidateAvailability } from '../agents/candidate-availability.js';
 import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../agents/analyst-api.js';

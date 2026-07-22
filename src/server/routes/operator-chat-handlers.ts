@@ -5,7 +5,7 @@ import type {
 } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
-import type { SaivageConfig } from '../../agents/config-api.js';
+import type { SaivageConfig } from '../../schemas/saivage-config.js';
 import type { RestartPort } from '../../boot/restart-port.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import { ChatToolInvocationSchema } from '../../contracts/operator-api-chats.js';

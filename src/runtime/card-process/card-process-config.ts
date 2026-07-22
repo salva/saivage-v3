@@ -1,4 +1,4 @@
-import type { CardProcessSource, CardProcessesSource } from '../../agents/config-schema.js';
+import type { CardProcessSource, CardProcessesSource } from '../../schemas/saivage-config.js';
 import { planningCardTypeValues, terminalCardTypeValues, type CardStatus, type CardType } from '../../schemas/index.js';
 import { compileActorDefinition, type CompiledActorDefinition, type CompiledTransitionDefinition } from '../micro-actor/index.js';
 import { recordSlotDefinitionForFilename } from '../records/record-slots.js';

@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import type {
   SaivageConfig,
-} from '../../src/agents/config-api.js';
+} from '../../src/schemas/saivage-config.js';
 import type {
   OperatorApiBody,
   OperatorApiHandlerResult,

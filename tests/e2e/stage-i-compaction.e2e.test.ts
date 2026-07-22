@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { saivageConfigSchema } from '../../src/agents/config-schema.js';
+import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands } from '../../src/runtime/actors/compaction/bands.js';
 import { estimateMessageTokens, type ClassifiedRound } from '../../src/runtime/actors/compaction/round-classifier.js';

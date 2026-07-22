@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { saivageConfigSchema, getModelParamsForRole } from '../../src/agents/config-schema.js';
+import { saivageConfigSchema, getModelParamsForRole } from '../../src/schemas/saivage-config.js';
 import { Account, Provider, ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 import { buildProviderRoutingReadModel } from '../../src/agents/provider-routing-read-model.js';

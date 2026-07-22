@@ -1,4 +1,4 @@
-import type { SaivageConfig } from '../../src/agents/config-schema.js';
+import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';

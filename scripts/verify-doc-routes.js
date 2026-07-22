@@ -14,7 +14,7 @@ const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`\s*\
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
 const DEFAULT_OPERATOR_DOCS = new Set(['README.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md']);
-const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/agents/config-schema.ts'];
+const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/schemas/saivage-config.ts'];
 const OPERATION_DOC = 'docs/architecture/system-architecture.md';
 const AGENTS_DOC = 'docs/architecture/system-architecture.md';
 const CONFIG_DOC = 'docs/architecture/system-architecture.md';
@@ -412,7 +412,7 @@ const SCALAR_CHAINS = new Set(['min', 'max', 'int', 'positive', 'nonnegative', '
 const SCALAR_FACTORIES = new Set(['string', 'number', 'boolean', 'enum', 'unknown', 'literal', 'any']);
 
 function extractConfigSchema(projectRoot) {
-  const relPath = 'src/agents/config-schema.ts';
+  const relPath = 'src/schemas/saivage-config.ts';
   const { ast } = sourceAst(projectRoot, relPath);
   const initializers = constInitializers(ast);
   const rows = new Map();
@@ -655,7 +655,7 @@ export function verifyConfigDocs(options = {}) {
     for (const [section, fields] of expected) {
       const row = documented.get(section);
       verifyAnchor(projectRoot, row.anchor, failures, `config schema ${docPath} ${section}`);
-      if (!sameArray(row.fields, fields)) failures.push({ type: 'config-schema-parity', section, message: `${docPath} fields for ${section} do not match src/agents/config-schema.ts (doc=${row.fields.join(',')} source=${fields.join(',')})` });
+      if (!sameArray(row.fields, fields)) failures.push({ type: 'config-schema-parity', section, message: `${docPath} fields for ${section} do not match src/schemas/saivage-config.ts (doc=${row.fields.join(',')} source=${fields.join(',')})` });
     }
   }
 

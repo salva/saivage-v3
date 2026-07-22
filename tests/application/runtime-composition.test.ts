@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { saivageConfigSchema } from '../../src/agents/config-schema.js';
+import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { createRuntimeApplication, type RuntimeApiFactoryDeps } from '../../src/application/runtime-composition.js';
 import { createInvocationServiceProvider, invocationRequest } from '../../src/application/micro-actor-runtime-api-factory.js';

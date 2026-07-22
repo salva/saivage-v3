@@ -18,7 +18,7 @@ vi.mock('../api/client', () => ({
 vi.mock('../stores/sync', () => ({
   useSyncStore: () => ({ connect: vi.fn(), disconnect: vi.fn(), registerResource: vi.fn(() => vi.fn()), openConversation: vi.fn(() => vi.fn()), connectionState: 'connected' }),
 }));
-vi.mock('../stores/cards', () => ({ useCardStore: () => ({ refetch: vi.fn(async () => undefined) }) }));
+vi.mock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot: vi.fn(async () => undefined) }) }));
 
 function makeRouter() {
   return createRouter({

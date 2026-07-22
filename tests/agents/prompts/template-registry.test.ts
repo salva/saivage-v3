@@ -11,7 +11,7 @@ import {
 } from '../../../src/utils/prompt-api.js';
 import { activePromptPairs, type PromptCardTypeKey } from '../../../src/schemas/index.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
-import { cardProcessesSchema } from '../../../src/agents/config-schema.js';
+import { cardProcessesSchema } from '../../../src/schemas/saivage-config.js';
 import { compileCardProcesses, describeNodeResultContract } from '../../../src/runtime/card-process/card-process-config.js';
 
 const activePairs = activePromptPairs;

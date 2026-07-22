@@ -1,7 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
-import type { McpServerConfig, SaivageConfig } from '../agents/config-api.js';
+import type { McpServerConfig, SaivageConfig } from '../schemas/saivage-config.js';
 
-export type { McpServerConfig } from '../agents/config-api.js';
+export type { McpServerConfig } from '../schemas/saivage-config.js';
 
 export interface McpServerHandle {
   process?: ChildProcess;

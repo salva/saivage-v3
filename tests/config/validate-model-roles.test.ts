@@ -1,7 +1,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { validateModelRoles, REQUIRED_ROLES } from '../../src/config/validate-model-roles.js';
 import { getModelListForRole } from '../../src/config/model-role-resolution.js';
-import type { SaivageConfig } from '../../src/agents/config-api.js';
+import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 
 function makeConfig(models: Record<string, unknown>): SaivageConfig {
   return { models, providers: {}, runtime: {} } as unknown as SaivageConfig;

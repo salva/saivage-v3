@@ -7,7 +7,7 @@ import { createServer as createNetServer } from 'node:net';
 import * as YAML from 'yaml';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
-import { cardProcessesSchema } from '../../src/agents/config-schema.js';
+import { cardProcessesSchema } from '../../src/schemas/saivage-config.js';
 import { compileCardProcesses } from '../../src/runtime/card-process/card-process-config.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { startApp, type App } from '../../src/boot/app.js';

@@ -1,5 +1,5 @@
 import type { WebSocket } from 'ws';
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { sanitizeAnalystText } from '../agents/analyst-api.js';
 import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';

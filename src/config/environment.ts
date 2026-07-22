@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { z } from 'zod';
 import { parseArgs } from 'node:util';
 import type { EnvironmentSource } from './env-interpolation.js';
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { createResolvedConfigAuthority, type ConfigSelectionSource, type ResolvedConfigAuthority } from './resolved-config-authority.js';
 import { realpathSync } from 'node:fs';
 

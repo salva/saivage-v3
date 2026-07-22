@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import * as YAML from 'yaml';
 
-import { cardProcessesSchema, type CardProcessesSource } from '../../../src/agents/config-schema.js';
+import { cardProcessesSchema, type CardProcessesSource } from '../../../src/schemas/saivage-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
 import { cardProcessEntryForStatus, compileCardProcesses } from '../../../src/runtime/card-process/card-process-config.js';
 import type { CardStatus } from '../../../src/schemas/index.js';

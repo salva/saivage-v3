@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { DEFAULT_CARD_PROCESSES, saivageConfigSchema } from '../../src/agents/config-api.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { show_config } from '../../src/tools/analyst-misc-tools.js';
 

@@ -1,4 +1,4 @@
-import { saivageConfigSchema } from '../../src/agents/config-api.js';
+import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 
 export const TEST_SAIVAGE_CONFIG = saivageConfigSchema.parse({

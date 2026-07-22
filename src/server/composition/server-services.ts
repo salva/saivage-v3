@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import type { SaivageConfig } from '../../agents/config-api.js';
+import type { SaivageConfig } from '../../schemas/saivage-config.js';
 import type { AppTerminalRegistration } from '../../boot/app.js';
 import type { RestartPort } from '../../boot/restart-port.js';
 import { createRuntimeApplication, type RuntimeApplication } from '../../application/runtime-composition.js';

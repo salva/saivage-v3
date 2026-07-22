@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AgentRole } from '../schemas/index.js';
+import type { AgentRole } from './types.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);

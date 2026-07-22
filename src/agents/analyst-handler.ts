@@ -7,8 +7,8 @@ import {
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
 import type { EventLog } from '../observability/index.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
-import { getModelParamsForRole } from './config-schema.js';
-import type { SaivageConfig } from './config-schema.js';
+import { getModelParamsForRole } from '../schemas/saivage-config.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import type { CardService } from '../cards/card-api.js';
 import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';

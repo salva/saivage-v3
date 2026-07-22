@@ -1,4 +1,4 @@
-import type { CardProcessesSource } from './config-schema.js';
+import type { CardProcessesSource } from '../schemas/saivage-config.js';
 
 export const DEFAULT_CARD_PROCESSES = {
   planning: {

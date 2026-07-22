@@ -1,5 +1,5 @@
 import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../../src/agents/analyst-handler.js';
-import type { SaivageConfig } from '../../src/agents/config-schema.js';
+import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import type { ConversationFileContext } from '../../src/persistence/conversation-file.js';

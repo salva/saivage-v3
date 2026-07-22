@@ -10,7 +10,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
-import type { SaivageConfig } from '../../src/agents/config-api.js';
+import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 function cardFilesReader(cards: CardService) {

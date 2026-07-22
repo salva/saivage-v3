@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 
-import { saivageConfigSchema } from '../../src/agents/config-schema.js';
+import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';

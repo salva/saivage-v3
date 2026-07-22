@@ -7,7 +7,7 @@ import * as YAML from 'yaml';
 import { createResolvedConfigAuthority } from '../../src/config/resolved-config-authority.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
-import { effectiveSaivageConfigSchema, saivageConfigSchema } from '../../src/agents/config-api.js';
+import { effectiveSaivageConfigSchema, saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });

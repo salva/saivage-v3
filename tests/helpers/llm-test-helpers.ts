@@ -3,7 +3,7 @@ import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../../s
 import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
 import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { compileCardProcesses } from '../../src/runtime/card-process/card-process-config.js';
-import { cardProcessesSchema } from '../../src/agents/config-schema.js';
+import { cardProcessesSchema } from '../../src/schemas/saivage-config.js';
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 import { ChildInvocationLease } from '../../src/runtime/actors/child-invocation-wait.js';
 import type { LlmToolInvocationContext, ToolInvocationIdentity } from '../../src/runtime/actors/executing-llm-snapshot.js';

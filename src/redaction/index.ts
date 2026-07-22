@@ -7,7 +7,7 @@ import { projectLoggedEvent } from '../observability/logged-event-projection.js'
 import { projectControlAction } from '../persistence/control-action-outbound.js';
 import { projectDynamicForOutbound } from './dynamic.js';
 import { projectCardDiff, projectCardHistory, projectOperatorCard, projectRuntimeCardRuns } from '../application/read-models/card-outbound.js';
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
 import type { ProcessOutboundValue } from '../application/read-models/process-outbound.js';
 import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';

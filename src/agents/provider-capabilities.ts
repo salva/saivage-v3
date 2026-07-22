@@ -1,5 +1,5 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
-import type { ProviderCapabilities } from './config-schema.js';
+import type { ProviderCapabilities } from '../schemas/saivage-config.js';
 
 export type TransportProtocol = NonNullable<ProviderCapabilities['transportProtocol']>;
 export type ToolsModeCapability = NonNullable<ProviderCapabilities['toolsMode']>;

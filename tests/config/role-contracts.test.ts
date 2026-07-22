@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { saivageConfigSchema } from '../../src/agents/config-schema.js';
+import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { agentRoleSchema, agentRoleValues, skillTargetRoleSchema, skillTargetRoleValues } from '../../src/schemas/index.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 

@@ -249,42 +249,42 @@ describe('source-derived Config schema inventory', () => {
   });
 
   it('turns newly reachable named and inline objects into missing-row failures', () => {
-    withFixture(['src/agents/config-schema.ts', DOC], (root) => {
-      rewrite(root, 'src/agents/config-schema.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "const futureSchema = z.object({ value: z.string() });\nexport const saivageConfigSchema = z.object({\n  futureNamed: futureSchema,"));
+    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
+      rewrite(root, 'src/schemas/saivage-config.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "const futureSchema = z.object({ value: z.string() });\nexport const saivageConfigSchema = z.object({\n  futureNamed: futureSchema,"));
       expect(verifyConfigDocs({ projectRoot: root }).failures).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'missing-config-section', section: 'futureNamed' })]));
     });
-    withFixture(['src/agents/config-schema.ts', DOC], (root) => {
-      rewrite(root, 'src/agents/config-schema.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  futureInline: z.object({ value: z.string() }),"));
+    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
+      rewrite(root, 'src/schemas/saivage-config.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  futureInline: z.object({ value: z.string() }),"));
       expect(verifyConfigDocs({ projectRoot: root }).failures).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'missing-config-section', section: 'futureInline' })]));
     });
   });
 
   it('fails closed for unsupported and unresolved reachable schema syntax', () => {
-    withFixture(['src/agents/config-schema.ts', DOC], (root) => {
-      rewrite(root, 'src/agents/config-schema.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  future: z.lazy(() => z.object({ value: z.string() })),"));
+    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
+      rewrite(root, 'src/schemas/saivage-config.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  future: z.lazy(() => z.object({ value: z.string() })),"));
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unsupported reachable z.lazy');
     });
-    withFixture(['src/agents/config-schema.ts', DOC], (root) => {
-      rewrite(root, 'src/agents/config-schema.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  future: unresolvedSchema,"));
+    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
+      rewrite(root, 'src/schemas/saivage-config.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  future: unresolvedSchema,"));
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unable to resolve unresolvedSchema');
     });
   });
 
   it('rejects missing, unexpected, duplicate, and malformed rows through real Markdown parsing', () => {
-    withFixture(['src/agents/config-schema.ts', DOC], (root) => {
+    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
       rewrite(root, DOC, (source) => source.replace(/^\| `models` .*\n/m, ''));
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('missing-config-section');
     });
-    withFixture(['src/agents/config-schema.ts', DOC], (root) => {
-      rewrite(root, DOC, (source) => source.replace('<!-- saivage:config-schema:end -->', "| `supervisor` | `` | `src/agents/config-schema.ts:191` |\n<!-- saivage:config-schema:end -->"));
+    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
+      rewrite(root, DOC, (source) => source.replace('<!-- saivage:config-schema:end -->', "| `supervisor` | `` | `src/schemas/saivage-config.ts:191` |\n<!-- saivage:config-schema:end -->"));
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('unexpected-config-section');
     });
-    withFixture(['src/agents/config-schema.ts', DOC], (root) => {
+    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
       const row = readFileSync(join(root, DOC), 'utf8').match(/^\| `models` .*$/m)[0];
       rewrite(root, DOC, (source) => source.replace('<!-- saivage:config-schema:end -->', `${row}\n<!-- saivage:config-schema:end -->`));
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('duplicate-config-section');
     });
-    withFixture(['src/agents/config-schema.ts', DOC], (root) => {
+    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
       replaceChecked(root, DOC, '| `models` | `analyst', '| `models` | analyst');
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('malformed-config-row');
     });

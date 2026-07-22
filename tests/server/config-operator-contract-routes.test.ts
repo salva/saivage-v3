@@ -7,7 +7,7 @@ import { operatorRouteInventory } from '../../src/contracts/operator-api.js';
 import { recordControlAction } from '../../src/persistence/index.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
-import { saivageConfigSchema, type SaivageConfig } from '../../src/agents/config-api.js';
+import { saivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { writeSaivageConfig } from '../helpers/project-config.js';
 import { testAppLogs } from '../helpers/app-logs.js';

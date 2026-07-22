@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createFastifyApp } from '../../src/server/composition/fastify-app.js';
-import type { SaivageConfig } from '../../src/agents/config-api.js';
+import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { createAppTerminalCoordinator } from '../../src/boot/app.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { McpManager } from '../../src/mcp/manager-api.js';

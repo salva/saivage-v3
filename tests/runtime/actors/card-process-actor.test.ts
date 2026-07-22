@@ -12,7 +12,7 @@ import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
-import { cardProcessesSchema } from '../../../src/agents/config-schema.js';
+import { cardProcessesSchema } from '../../../src/schemas/saivage-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
 import { compileCardProcesses, type CompiledCardProcess } from '../../../src/runtime/card-process/card-process-config.js';
 import { estimateCanonicalStaticTokens } from '../../../src/runtime/actors/compaction/compactor.js';

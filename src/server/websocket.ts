@@ -10,7 +10,7 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { buildConnectedEnvelope, KnownWsEnvelopeWithClassifiedToolActivitySchema } from '../contracts/index.js';
 import type { WsEnvelope, WsEventType } from '../contracts/index.js';

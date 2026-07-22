@@ -21,7 +21,7 @@ vi.mock('../stores/sync', () => ({
     connectionState: 'connected',
   }),
 }));
-vi.mock('../stores/cards', () => ({ useCardStore: () => ({ refetch: vi.fn(async () => undefined) }) }));
+vi.mock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot: vi.fn(async () => undefined) }) }));
 
 function createTestRouter() {
   return createRouter({

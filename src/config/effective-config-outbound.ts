@@ -2,7 +2,7 @@ import {
   effectiveSaivageConfigSchema,
   type ProviderCapabilities,
   type SaivageConfig,
-} from '../agents/config-schema.js';
+} from '../schemas/saivage-config.js';
 import { SECRET_REDACTION_PLACEHOLDER } from '../redaction/text.js';
 
 type CardProcess = SaivageConfig['card_processes']['planning'];

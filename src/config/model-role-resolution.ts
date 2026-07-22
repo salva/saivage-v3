@@ -1,4 +1,4 @@
-import type { SaivageConfig } from '../agents/config-api.js';
+import type { SaivageConfig } from '../schemas/saivage-config.js';
 import type { AgentRole } from '../schemas/index.js';
 
 export function resolveModelListForRole(config: SaivageConfig, role: AgentRole): string[] | null {
