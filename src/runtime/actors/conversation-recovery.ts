@@ -18,26 +18,25 @@ export type ConversationImplicitState =
   | 'assistant_text_pending'
   | 'pending_provider';
 
-const messageKindsHandled: ReadonlySet<MessageKind> = new Set([
-  'text',
-  'activity',
-  'tool_call',
-  'tool_result',
-  'model_issue',
-  'model_repair',
-  'context_compaction',
-  'model_recovered',
-  'system_prompt',
-]);
+type RecoveryVisibility = 'visible' | 'ignored';
+
+const recoveryVisibilityByKind = {
+  text: 'visible',
+  activity: 'ignored',
+  tool_call: 'visible',
+  tool_result: 'visible',
+  model_issue: 'visible',
+  model_repair: 'visible',
+  context_compaction: 'visible',
+  model_recovered: 'visible',
+  system_prompt: 'visible',
+  provider_private: 'ignored',
+} as const satisfies Record<MessageKind, RecoveryVisibility>;
 
 export function classifyConversation(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>): ConversationImplicitState {
-  for (const message of messages) {
-    if (!messageKindsHandled.has(message.kind)) {
-      throw new Error(`Unhandled conversation message kind '${String(message.kind)}'.`);
-    }
-  }
+  const recoveryVisibilities = messages.map((message) => recoveryVisibility(message.kind));
 
-  const recoveryVisible = messages.filter((message) => message.kind !== 'activity');
+  const recoveryVisible = messages.filter((_message, index) => recoveryVisibilities[index] === 'visible');
   if (recoveryVisible.length === 0) return 'empty';
   if (recoveryVisible.length === 1 && recoveryVisible[0]?.kind === 'system_prompt') return 'system_prompt_only';
 
@@ -55,6 +54,11 @@ export function classifyConversation(messages: readonly AgentMessage[], terminal
   const last = recoveryVisible.at(-1)!;
   if (last.kind === 'text' && last.role === 'assistant') return 'assistant_text_pending';
   return 'pending_provider';
+}
+
+function recoveryVisibility(kind: MessageKind): RecoveryVisibility {
+  if (!Object.hasOwn(recoveryVisibilityByKind, kind)) throw new Error(`Unhandled conversation message kind '${String(kind)}'.`);
+  return recoveryVisibilityByKind[kind];
 }
 
 export type RoleSessionStabilization =

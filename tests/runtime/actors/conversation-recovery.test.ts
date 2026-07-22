@@ -3,8 +3,9 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type MessageKind, type MessageRole, type ConversationSessionId } from '../../../src/schemas/index.js';
+import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, messageKindSchema, type AgentMessage, type MessageKind, type MessageRole, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { classifyConversation, stabilizeRoleSession } from '../../../src/runtime/actors/conversation-recovery.js';
+import { isExactRecoveryNotice } from '../../../src/runtime/actors/conversation-session.js';
 
 import { hashConversationRows, validateConversationRows } from '../../../src/contracts/conversation-compaction.js';
 import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
@@ -26,6 +27,7 @@ function message(overrides: Partial<AgentMessage> & { kind: MessageKind; id?: st
     timestamp: overrides.timestamp ?? '2026-07-08T00:00:00.000Z',
     tool: overrides.tool,
     tool_call_id: overrides.tool_call_id,
+    provider_projection: overrides.provider_projection,
   };
 }
 
@@ -53,6 +55,23 @@ function toolResult(sourceInputId: string, toolCallId: string, sessionId: Conver
   });
 }
 
+function providerPrivate(sourceInputId: string, projectionMessageId: string, sessionId: ConversationSessionId = 'planner:project'): AgentMessage {
+  return agentMessageSchema.parse(message({
+    id: `${sourceInputId}:provider-private:openai-responses`,
+    session_id: sessionId,
+    role: 'system',
+    kind: 'provider_private',
+    content: JSON.stringify({
+      transport: 'openai-responses',
+      source_input_id: sourceInputId,
+      projection_message_id: projectionMessageId,
+      provider: 'openai',
+      model: 'gpt-5.6',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: 'private assistant output' }] }],
+    }),
+  }));
+}
+
 describe('classifyConversation', () => {
   it('returns the six implicit states', () => {
     expect(classifyConversation([], terminalTools)).toBe('empty');
@@ -63,16 +82,52 @@ describe('classifyConversation', () => {
     expect(classifyConversation([message({ kind: 'model_repair', role: 'user', content: 'repair' })], terminalTools)).toBe('pending_provider');
   });
 
-  it('defines dispositions for every message kind', () => {
-    expect(classifyConversation([message({ kind: 'activity' })], terminalTools)).toBe('empty');
-    expect(classifyConversation([message({ kind: 'model_issue' })], terminalTools)).toBe('pending_provider');
-    expect(classifyConversation([message({ kind: 'model_repair' })], terminalTools)).toBe('pending_provider');
-    expect(classifyConversation([message({ kind: 'context_compaction' })], terminalTools)).toBe('pending_provider');
-    expect(classifyConversation([message({ kind: 'model_recovered' })], terminalTools)).toBe('pending_provider');
-    expect(classifyConversation([message({ kind: 'text', role: 'user' })], terminalTools)).toBe('pending_provider');
-    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1')], terminalTools)).toBe('awaiting_tool_result');
-    expect(classifyConversation([toolCall('planner:G-1:1', 'call-1'), toolResult('planner:G-1:1', 'call-1')], terminalTools)).toBe('settled_terminal');
-    expect(classifyConversation([message({ kind: 'system_prompt' }), message({ kind: 'activity' })], terminalTools)).toBe('system_prompt_only');
+  it('defines a schema-matched recovery disposition for every message kind', () => {
+    const sourceInputId = '00000000-0000-4000-8000-000000000001';
+    const compactionSource = agentMessageSchema.parse(message({ id: 'activation', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: sourceInputId, timestamp: '2026-07-08T00:00:00.000Z' }) }));
+    const compactionPayload = contextCompactionContentSchema.parse({ boundary: 'round', retained_static_message_ids: [], summaries: [{ kind: 'individual', rounds: [{ complete: true, segments: [{ kind: 'initial', source_message_ids: [compactionSource.id] }] }], content_hash: hashConversationRows([compactionSource]), summary_text: 'summary', evidence: [] }], applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 10, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, snap: 'compact_straddler' } });
+    const compaction = agentMessageSchema.parse(message({ id: 'compaction', kind: 'context_compaction', content: canonicalJson(compactionPayload), round_id: 'r-compacted-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }));
+    const nonterminalCall = agentMessageSchema.parse(toolCall(sourceInputId, 'read-call', 'planner:project', 'read_file'));
+    const nonterminalResult = agentMessageSchema.parse(toolResult(sourceInputId, 'read-call', 'planner:project', 'read_file'));
+    type RecoveryKindCase = { messages: readonly AgentMessage[]; expected: ReturnType<typeof classifyConversation> };
+    const cases = {
+      text: { messages: [agentMessageSchema.parse(message({ kind: 'text', role: 'assistant', content: 'assistant text' }))], expected: 'assistant_text_pending' },
+      activity: { messages: [agentMessageSchema.parse(message({ kind: 'activity' }))], expected: 'empty' },
+      tool_call: { messages: [agentMessageSchema.parse(toolCall(sourceInputId, 'pending-call'))], expected: 'awaiting_tool_result' },
+      tool_result: { messages: [nonterminalCall, nonterminalResult], expected: 'pending_provider' },
+      model_issue: { messages: [agentMessageSchema.parse(message({ kind: 'model_issue' }))], expected: 'pending_provider' },
+      model_repair: { messages: [agentMessageSchema.parse(message({ kind: 'model_repair' }))], expected: 'pending_provider' },
+      context_compaction: { messages: validateConversationRows(compactionSource.session_id, [compactionSource, compaction]).physicalRows, expected: 'pending_provider' },
+      model_recovered: { messages: [agentMessageSchema.parse(message({ kind: 'model_recovered' }))], expected: 'pending_provider' },
+      system_prompt: { messages: [agentMessageSchema.parse(message({ kind: 'system_prompt' }))], expected: 'system_prompt_only' },
+      provider_private: { messages: [providerPrivate(sourceInputId, `${sourceInputId}:message`)], expected: 'empty' },
+    } as const satisfies Record<MessageKind, RecoveryKindCase>;
+
+    expect(Object.keys(cases).sort()).toEqual([...messageKindSchema.options].sort());
+    for (const kind of messageKindSchema.options) {
+      const recoveryCase = cases[kind];
+      expect(classifyConversation(recoveryCase.messages, terminalTools)).toBe(recoveryCase.expected);
+    }
+  });
+
+  it('ignores provider-private rows without changing visible recovery state', () => {
+    const sourceInputId = '00000000-0000-4000-8000-000000000002';
+    const privateRow = providerPrivate(sourceInputId, `${sourceInputId}:message`);
+    const systemOnly = [message({ kind: 'system_prompt' })];
+    const assistantText = [message({ kind: 'text', role: 'assistant', content: 'visible assistant text' })];
+    const unmatchedTool = [toolCall(sourceInputId, 'pending-call')];
+    const settledTerminal = [toolCall(sourceInputId, 'terminal-call'), toolResult(sourceInputId, 'terminal-call')];
+
+    expect(classifyConversation([privateRow], terminalTools)).toBe('empty');
+    for (const baseline of [systemOnly, assistantText, unmatchedTool, settledTerminal]) {
+      expect(classifyConversation([privateRow, ...baseline], terminalTools)).toBe(classifyConversation(baseline, terminalTools));
+    }
+  });
+
+  it('rejects an unsupported runtime kind after validating an earlier ignored row', () => {
+    const sourceInputId = '00000000-0000-4000-8000-000000000003';
+    const invalid = { ...message({ kind: 'text' }), kind: 'future_kind' } as unknown as AgentMessage;
+    expect(() => classifyConversation([providerPrivate(sourceInputId, `${sourceInputId}:message`), invalid], terminalTools)).toThrow("Unhandled conversation message kind 'future_kind'.");
   });
 
   it('classifies a strictly validated current-format compaction row as pending_provider', () => {
@@ -176,6 +231,34 @@ describe('exact role-session stabilization', () => {
     expect(stabilize(projectRoot, sessionId).disposition).toBe('ordinary_interruption');
     const rows = readConversation(projectRoot, sessionId).sourceRows;
     expect(rows.at(-1)).toMatchObject({ id: `${sourceInputId}:model-recovered`, session_id: sessionId, kind: 'model_recovered', round_id: `r-pre-${createHash('sha256').update(sourceInputId).digest('hex').slice(0, 32)}` });
+  });
+
+  it('stabilizes a persisted Responses private and marked visible assistant pair without changing either row', () => {
+    const { projectRoot, sessionId, sourceInputId } = scenario();
+    const visibleId = `${sourceInputId}:message`;
+    const privateRow = providerPrivate(sourceInputId, visibleId, sessionId);
+    const visible = agentMessageSchema.parse(message({
+      id: visibleId,
+      session_id: sessionId,
+      role: 'assistant',
+      kind: 'text',
+      content: 'visible assistant output',
+      provider_projection: { kind: 'openai_responses', source_input_id: sourceInputId, private_message_id: privateRow.id, projection_kind: 'assistant_message' },
+    }));
+    appendConversationBatch({ projectRoot }, [privateRow, visible]);
+    const beforeRows = readConversation(projectRoot, sessionId).physicalRows;
+    const beforeBytes = readFileSync(conversationFile(projectRoot, sessionId), 'utf8');
+
+    const result = stabilize(projectRoot, sessionId);
+
+    expect(result.disposition).toBe('ordinary_interruption');
+    const rows = readConversation(projectRoot, sessionId).physicalRows;
+    expect(rows.slice(0, beforeRows.length)).toEqual(beforeRows);
+    expect(readFileSync(conversationFile(projectRoot, sessionId), 'utf8').startsWith(beforeBytes)).toBe(true);
+    expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(0);
+    const notices = rows.filter((row) => row.kind === 'model_recovered');
+    expect(notices).toHaveLength(1);
+    expect(isExactRecoveryNotice(notices[0]!, sessionId, sourceInputId)).toBe(true);
   });
 
   it('settles an unmatched activate_card as ordinary outcome-unknown without child reconstruction', () => {
