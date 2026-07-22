@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AgentOperatorReadModelService, captureExecutingLlmSnapshotMap, projectAgentConversation } from '../../src/application/read-models/agent-operator-read-model.js';
+import { AgentOperatorReadModelService, captureExecutingLlmSnapshotMap } from '../../src/application/read-models/agent-operator-read-model.js';
+import { projectAgentConversationForOutbound } from '../../src/application/read-models/agent-conversation-outbound.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
@@ -11,6 +12,7 @@ import type { ExactWaitBarrier, ExecutingLlmSnapshot } from '../../src/runtime/a
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
+import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
 
 const timestamp = '2026-07-18T00:00:00.000Z';
 const inputId = '11111111-1111-4111-8111-111111111111';
@@ -21,7 +23,10 @@ afterEach(() => { for (const root of roots) rmSync(root, { recursive: true, forc
 function project() { const root = mkdtempSync(join(tmpdir(), 'saivage-agent-read-')); roots.push(root); initProjectTree(root); return root; }
 function text(session_id: ConversationSessionId): AgentMessage { return { id: `${session_id}:text`, session_id, role: 'user', kind: 'text', content: 'hello', round_id: `r-user-${inputId.replaceAll('-', '')}`, message_index: 0, block_index: 0, timestamp }; }
 function call(session_id: ConversationSessionId, tool = 'webfetch', toolCallId = 'call-1', args: Record<string, unknown> = { url: 'https://example.com' }): AgentMessage { return { id: `${inputId}:tool-call:${toolCallId}`, session_id, role: 'assistant', kind: 'tool_call', tool, tool_call_id: toolCallId, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: toolCallId, type: 'function', function: { name: tool, arguments: JSON.stringify(args) } }] }), round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 0, block_index: 0, timestamp }; }
+function result(session_id: ConversationSessionId, tool = 'webfetch', toolCallId = 'call-1'): AgentMessage { return { id: `${inputId}:tool-result:${toolCallId}`, session_id, role: 'tool', kind: 'tool_result', tool, tool_call_id: toolCallId, content: '{"success":false,"error":"failed token=synthetic-result-secret"}', round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 1, block_index: 0, timestamp }; }
 function snapshot(sessionId: ConversationSessionId, activity: ExecutingLlmSnapshot['activity']): ExecutingLlmSnapshot { const [role, card] = sessionId.split(':'); return { sessionId, agentId: sessionId, role: role as 'planner' | 'executor' | 'reviewer' | 'analyst', cardId: role === 'analyst' ? null : card!, activity }; }
+function initialRows(sessionId: ConversationSessionId): AgentMessage[] { return sessionId === 'analyst:global' ? [...buildAnalystIngressRows(inputId, 'workspace', 'question')] : [text(sessionId)]; }
+function sessionCall(sessionId: ConversationSessionId, args: Record<string, unknown>): AgentMessage { const row = call(sessionId, 'webfetch', 'call-1', args); return sessionId === 'analyst:global' ? { ...row, message_index: 3 } : row; }
 function conversationBody(result: ReturnType<AgentOperatorReadModelService['getConversation']>) { if (result.statusCode === 400 || result.statusCode === 404) throw new Error(result.body.error); return result.body; }
 function detailBody(result: ReturnType<AgentOperatorReadModelService['getSession']>) { if (result.statusCode === 400 || result.statusCode === 404) throw new Error(result.body.error); return result.body; }
 
@@ -79,7 +84,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     owner.value = snapshot('planner:project', { mode: 'active', barrier: null });
     expect(conversationBody(service.getConversation('planner:project'))).toMatchObject({ session: { status: 'active' }, activity_status: { status: 'active', pending_calls: [] } });
     owner.value = undefined as never;
-    expect(conversationBody(new AgentOperatorReadModelService(root, () => []).getConversation('planner:project'))).toMatchObject({ session: { status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } });
+    expect(() => new AgentOperatorReadModelService(root, () => []).getConversation('planner:project')).toThrow('undeclared result-absent');
   });
 
   it('projects selected models consistently across aggregate and direct reads', () => {
@@ -97,6 +102,29 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     ]);
     expect(detailBody(service.getSession('planner:project')).session.model).toBe('planner-current');
     expect(conversationBody(service.getConversation('reviewer:project')).session.model).toBe('reviewer-current');
+  });
+
+  it('filters provider-private rows, redacts ordinary prose, and preserves session/model/entity identities', () => {
+    const visible = {
+      ...text('planner:project'),
+      content: 'visible token=synthetic-message-secret',
+      model_spec: 'sk-model',
+      links: [{ entity_type: 'process' as const, entity_id: 'tok_primary', label: 'label token=synthetic-label-secret' }],
+    };
+    const privateRow: AgentMessage = {
+      ...text('planner:project'),
+      id: 'private-row',
+      role: 'system',
+      kind: 'provider_private',
+      content: 'provider token=synthetic-private-secret',
+      message_index: 1,
+    };
+    const projected = projectAgentConversationForOutbound({ sessionId: 'planner:project', messages: [visible, privateRow], model: 'tok_primary' });
+    expect(projected).toMatchObject({ session: { id: 'planner:project', card_id: 'project', model: 'tok_primary' }, entries: [{ model_spec: 'sk-model', links: [{ entity_id: 'tok_primary' }] }] });
+    expect(projected.entries).toHaveLength(1);
+    expect(JSON.stringify(projected)).not.toContain('synthetic-message-secret');
+    expect(JSON.stringify(projected)).not.toContain('synthetic-label-secret');
+    expect(JSON.stringify(projected)).not.toContain('synthetic-private-secret');
   });
 
   it('omits tombstoned inventory while exact direct history remains inactive', () => {
@@ -142,11 +170,51 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     expect(Object.isFrozen(frozen.get('planner:project'))).toBe(true);
     expect(Object.isFrozen(frozen.get('planner:project')!.activity)).toBe(true);
     owner.value = snapshot('planner:project', { mode: 'waiting', barrier: { kind: 'external', sessionId: 'planner:project', sourceInputId: inputId, toolCallId: 'wrong', toolName: 'webfetch' } });
-    expect(projectAgentConversation({ sessionId: 'planner:project', messages: [call('planner:project')], model: null, snapshot: frozen.get('planner:project') })).toMatchObject({ activity_status: { status: 'active' } });
+    expect(projectAgentConversationForOutbound({ sessionId: 'planner:project', messages: [call('planner:project')], model: null, snapshot: frozen.get('planner:project') })).toMatchObject({ activity_status: { status: 'active' } });
     const mismatch = snapshot('planner:project', { mode: 'waiting', barrier: { kind: 'external', sessionId: 'planner:project', sourceInputId: inputId, toolCallId: 'wrong', toolName: 'webfetch' } });
     expect(() => new AgentOperatorReadModelService(root, () => [mismatch]).getConversation('planner:project')).toThrow('does not match its exact barrier');
     expect((frozen as unknown as { set?: unknown }).set).toBeUndefined();
     expect(Object.isFrozen(frozen)).toBe(true);
+  });
+
+  it.each(['analyst:global', 'planner:project'] as const)('captures active %s once before acquisition and projects zero or one acquired call', (sessionId) => {
+    const beforeRoot = project();
+    appendConversationBatch({ projectRoot: beforeRoot }, initialRows(sessionId));
+    const active = snapshot(sessionId, { mode: 'active', barrier: null });
+    expect(conversationBody(new AgentOperatorReadModelService(beforeRoot, () => [active]).getConversation(sessionId)))
+      .toMatchObject({ session: { id: sessionId, status: 'active' }, activity_status: { status: 'active', pending_calls: [] } });
+
+    const duringRoot = project();
+    appendConversationBatch({ projectRoot: duringRoot }, initialRows(sessionId));
+    let captures = 0;
+    const service = new AgentOperatorReadModelService(duringRoot, () => {
+      captures += 1;
+      const captured = snapshot(sessionId, { mode: 'active', barrier: null });
+      appendConversationBatch({ projectRoot: duringRoot }, [sessionCall(sessionId, { url: 'https://tok_primary.example/path?token=synthetic-query-secret' })]);
+      return [captured];
+    });
+    const projected = conversationBody(service.getConversation(sessionId));
+    expect(captures).toBe(1);
+    expect(projected.activity_status).toEqual({ status: 'active', pending_calls: [] });
+    expect(projected.entries.at(-1)).toMatchObject({ session_id: sessionId, tool: 'webfetch', tool_call_id: 'call-1' });
+    expect(projected.entries.at(-1)!.content).toContain('https://tok_primary.example/path?[REDACTED]');
+    expect(projected.entries.at(-1)!.content).not.toContain('synthetic-query-secret');
+  });
+
+  it.each(['analyst:global', 'planner:project'] as const)('publishes only the exact frozen waiting %s call while later activity changes', (sessionId) => {
+    const root = project();
+    appendConversationBatch({ projectRoot: root }, [...initialRows(sessionId), sessionCall(sessionId, { url: 'https://tok_primary.example/path?token=synthetic-waiting-secret' })]);
+    const barrier = { kind: 'external' as const, sessionId, sourceInputId: inputId, toolCallId: 'call-1', toolName: 'webfetch' };
+    const owner = { value: snapshot(sessionId, { mode: 'waiting', barrier }) };
+    const service = new AgentOperatorReadModelService(root, () => {
+      const captured = owner.value;
+      owner.value = snapshot(sessionId, { mode: 'active', barrier: null });
+      return [captured];
+    });
+    const projected = conversationBody(service.getConversation(sessionId));
+    expect(projected.activity_status).toEqual({ status: 'waiting', pending_calls: [{ id: 'call-1', tool: 'webfetch', started_at: timestamp }] });
+    expect(projected.entries.at(-1)!.content).not.toContain('synthetic-waiting-secret');
+    expect(projected.entries.at(-1)!.content).toContain('https://tok_primary.example/path?[REDACTED]');
   });
 
   it.each(['aggregate', 'direct'] as const)('captures waiting before %s row acquisition and finds the already-published call', (kind) => {
@@ -197,6 +265,24 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
       const live = snapshot('planner:project', { mode: 'waiting', barrier: testCase.barrier });
       expect(() => new AgentOperatorReadModelService(root, () => [live]).getConversation('planner:project')).toThrow(testCase.message);
     }
+  });
+
+  it('rejects inactive or multiple active orphans and a settled waiting declaration', () => {
+    const inactiveRoot = project();
+    appendConversationBatch({ projectRoot: inactiveRoot }, [call('planner:project')]);
+    expect(() => new AgentOperatorReadModelService(inactiveRoot, () => []).getConversation('planner:project')).toThrow('undeclared result-absent');
+
+    const activeRoot = project();
+    appendConversationBatch({ projectRoot: activeRoot }, [
+      call('planner:project'),
+      { ...call('planner:project', 'webfetch', 'call-2'), id: '22222222-2222-4222-8222-222222222222:tool-call:call-2', round_id: 'r-assistant-22222222222242228222222222222222', message_index: 1 },
+    ]);
+    expect(() => new AgentOperatorReadModelService(activeRoot, () => [snapshot('planner:project', { mode: 'active', barrier: null })]).getConversation('planner:project')).toThrow('more than one result-absent');
+
+    const waitingRoot = project();
+    appendConversationBatch({ projectRoot: waitingRoot }, [call('planner:project'), result('planner:project')]);
+    const barrier = { kind: 'external' as const, sessionId: 'planner:project' as const, sourceInputId: inputId, toolCallId: 'call-1', toolName: 'webfetch' };
+    expect(() => new AgentOperatorReadModelService(waitingRoot, () => [snapshot('planner:project', { mode: 'waiting', barrier })]).getConversation('planner:project')).toThrow('no unmatched canonical tool call');
   });
 });
 

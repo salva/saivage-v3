@@ -9,6 +9,8 @@ import { reconfigureParamsSchema, type ConfigMutation, type ReconfigureParams } 
 import { redactForOutbound } from '../redaction/index.js';
 import type { McpReconcileResult } from '../contracts/mcp-invocation.js';
 import { queueNotificationInputSchema, readAgentSessionInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { projectBoundedAgentSessionWrapper } from '../application/read-models/canonical-conversation-outbound.js';
+import { projectToolInvocation } from './tool-invocation-outbound.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
@@ -94,7 +96,15 @@ export async function read_agent_session(ctx: ToolContext, params: { sessionId: 
     if (response.statusCode) return toolFailure('Invalid agent session request.', { sessionId: params.sessionId, statusCode: response.statusCode });
     if (!('entries' in response.body)) return toolFailure('Invalid agent session request.', { sessionId: params.sessionId });
     const entries = response.body.entries.slice(-limit);
-    return { success: true, data: { session: response.body.session, activity_status: response.body.activity_status, total_messages: response.body.entries.length, returned: entries.length, parse_errors: 0, messages: entries } };
+    const bounded = projectBoundedAgentSessionWrapper({
+      session: response.body.session,
+      activity_status: response.body.activity_status,
+      total_messages: response.body.entries.length,
+      returned: entries.length,
+      parse_errors: 0,
+      messages: entries,
+    }, projectToolInvocation);
+    return { success: true, data: bounded };
   }
   catch (err) { return toolFailureFromError(err); }
 }

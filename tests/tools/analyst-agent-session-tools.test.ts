@@ -11,6 +11,7 @@ import { list_agent_sessions, read_agent_session } from '../../src/tools/analyst
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { CardService } from '../../src/cards/card-service.js';
+import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-18T00:00:00.000Z';
@@ -21,21 +22,60 @@ function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-agen
 function rows(): AgentMessage[] {
   return [
     { id: 'first', session_id: 'planner:project', role: 'user', kind: 'text', content: 'first', round_id: `r-user-${sourceInputId.replaceAll('-', '')}`, message_index: 0, block_index: 0, timestamp },
-    { id: `${sourceInputId}:tool-call:call-1`, session_id: 'planner:project', role: 'assistant', kind: 'tool_call', tool: 'webfetch', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'webfetch', arguments: '{"url":"https://example.com"}' } }] }), round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`, message_index: 1, block_index: 0, timestamp },
+    { id: `${sourceInputId}:tool-call:call-1`, session_id: 'planner:project', role: 'assistant', kind: 'tool_call', tool: 'webfetch', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'webfetch', arguments: '{"url":"https://tok_primary.example/path?token=synthetic-query-secret"}' } }] }), round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`, message_index: 1, block_index: 0, timestamp },
   ];
 }
 function waiting(): ExecutingLlmSnapshot { return { sessionId: 'planner:project', agentId: 'planner:project', role: 'planner', cardId: 'project', activity: { mode: 'waiting', barrier: { kind: 'external', sessionId: 'planner:project', sourceInputId, toolCallId: 'call-1', toolName: 'webfetch' } } }; }
 
 describe('Analyst agent-session tools', () => {
-  it('returns the exact direct session/activity projection and tails only messages', async () => {
+  it.each(['active', 'waiting'] as const)('returns the exact direct and nested %s call-only tail', async (status) => {
     const projectRoot = setup();
     appendConversationBatch({ projectRoot }, rows());
-    const snapshots = () => [waiting()];
+    const snapshots = () => [status === 'waiting' ? waiting() : { ...waiting(), activity: { mode: 'active' as const, barrier: null } }];
     const expected = new AgentOperatorReadModelService(projectRoot, snapshots).getConversation('planner:project');
     if (expected.statusCode === 400 || expected.statusCode === 404) throw new Error(expected.body.error);
     if (!('session' in expected.body)) throw new Error('expected conversation');
     const result = await read_agent_session({ projectRoot, captureExecutingLlmSnapshots: snapshots } as unknown as ToolContext, { sessionId: 'planner:project', lastN: 1 });
     expect(result).toEqual({ success: true, data: { session: expected.body.session, activity_status: expected.body.activity_status, total_messages: 2, returned: 1, parse_errors: 0, messages: [expected.body.entries[1]] } });
+    expect(JSON.stringify(result)).not.toContain('synthetic-query-secret');
+    expect(JSON.stringify(result)).toContain('https://tok_primary.example/path?[REDACTED]');
+    if (!result.success) throw new Error(result.error);
+    const nested = projectToolInvocation({
+      shape: 'result-row',
+      identity: { sessionId: 'analyst:global', sourceInputId: '22222222-2222-4222-8222-222222222222', toolCallId: `nested-${status}`, toolName: 'read_agent_session' },
+      result: { success: true, data: result.data },
+    });
+    if (nested.shape !== 'result-row' || !nested.result.success) throw new Error('Expected nested successful read_agent_session result.');
+    expect(nested.result.data).toEqual(result.data);
+  });
+
+  it('preserves an exact result-only tail and reprojects it identically when nested historically', async () => {
+    const projectRoot = setup();
+    const complete = rows();
+    complete.push({ id: `${sourceInputId}:tool-result:call-1`, session_id: 'planner:project', role: 'tool', kind: 'tool_result', tool: 'webfetch', tool_call_id: 'call-1', content: '{"success":false,"error":"failed token=synthetic-result-secret"}', round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`, message_index: 2, block_index: 0, timestamp });
+    appendConversationBatch({ projectRoot }, complete);
+    const direct = await read_agent_session({ projectRoot, captureExecutingLlmSnapshots: () => [] } as unknown as ToolContext, { sessionId: 'planner:project', lastN: 1 });
+    expect(direct).toMatchObject({ success: true, data: { activity_status: { status: 'inactive', pending_calls: [] }, total_messages: 3, returned: 1, parse_errors: 0 } });
+    if (!direct.success) throw new Error(direct.error);
+    expect((direct.data as { messages: AgentMessage[] }).messages[0]!.kind).toBe('tool_result');
+    expect(JSON.stringify(direct)).not.toContain('synthetic-result-secret');
+
+    const nested = projectToolInvocation({
+      shape: 'result-row',
+      identity: { sessionId: 'analyst:global', sourceInputId: '22222222-2222-4222-8222-222222222222', toolCallId: 'nested-read', toolName: 'read_agent_session' },
+      result: { success: true, data: direct.data },
+    });
+    if (nested.shape !== 'result-row' || !nested.result.success) throw new Error('Expected nested successful read_agent_session result.');
+    expect(nested.result.data).toEqual(direct.data);
+  });
+
+  it('keeps complete-pair tail boundaries, totals, ordering, and parse counts exact', async () => {
+    const projectRoot = setup();
+    const complete = rows();
+    complete.push({ id: `${sourceInputId}:tool-result:call-1`, session_id: 'planner:project', role: 'tool', kind: 'tool_result', tool: 'webfetch', tool_call_id: 'call-1', content: '{"success":false,"error":"settled"}', round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`, message_index: 2, block_index: 0, timestamp });
+    appendConversationBatch({ projectRoot }, complete);
+    const projected = await read_agent_session({ projectRoot, captureExecutingLlmSnapshots: () => [] } as unknown as ToolContext, { sessionId: 'planner:project', lastN: 2 });
+    expect(projected).toMatchObject({ success: true, data: { total_messages: 3, returned: 2, parse_errors: 0, messages: [{ kind: 'tool_call' }, { kind: 'tool_result' }] } });
   });
 
   it('fails noncanonical and absent exact identities without synthesizing a session', async () => {

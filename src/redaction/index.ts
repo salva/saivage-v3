@@ -16,6 +16,8 @@ import type { WebfetchInvocation, WebfetchResult } from '../contracts/webfetch.j
 import { projectWebfetchInvocationForOutbound, projectWebfetchResultForOutbound } from '../tools/webfetch-outbound.js';
 import type { ToolInvocationProjectionInput } from '../contracts/tool-invocation-projection.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
+import type { AgentConversationResponse } from '../contracts/operator-api-agents.js';
+import { projectAgentConversationForOutbound, type AgentConversationProjectionInput } from '../application/read-models/agent-conversation-outbound.js';
 
 export {
   SECRET_REDACTION_PLACEHOLDER,
@@ -42,6 +44,7 @@ export type OutboundRedactionRequest =
   | { source: 'webfetch-invocation'; value: WebfetchInvocation }
   | { source: 'webfetch-result'; value: WebfetchResult }
   | { source: 'tool-invocation'; value: ToolInvocationProjectionInput }
+  | { source: 'agent-conversation'; value: AgentConversationProjectionInput }
   | { source: 'dynamic'; value: unknown; options?: StructuredRedactionOptions };
 
 export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
@@ -56,7 +59,8 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
                   : Request extends { source: 'process-view'; value: infer Value } ? Value
                     : Request extends { source: 'webfetch-invocation' } ? WebfetchInvocation
                        : Request extends { source: 'webfetch-result' } ? WebfetchResult
-                        : Request extends { source: 'tool-invocation' } ? ToolInvocationProjectionInput
+                         : Request extends { source: 'tool-invocation' } ? ToolInvocationProjectionInput
+                          : Request extends { source: 'agent-conversation' } ? AgentConversationResponse
                          : unknown;
 
 export const OUTBOUND_REDACTION_SOURCES = [
@@ -72,6 +76,7 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'webfetch-invocation',
   'webfetch-result',
   'tool-invocation',
+  'agent-conversation',
   'dynamic',
 ] as const satisfies readonly OutboundRedactionRequest['source'][];
 const outboundSourceCompileGuard = {
@@ -87,6 +92,7 @@ const outboundSourceCompileGuard = {
   'webfetch-invocation': true,
   'webfetch-result': true,
   'tool-invocation': true,
+  'agent-conversation': true,
   dynamic: true,
 } as const satisfies Record<OutboundRedactionRequest['source'], true>;
 void outboundSourceCompileGuard;
@@ -110,6 +116,7 @@ export function redactForOutbound(input: unknown, options: StructuredRedactionOp
     case 'webfetch-invocation': return projectWebfetchInvocationForOutbound(input.value);
     case 'webfetch-result': return projectWebfetchResultForOutbound(input.value);
     case 'tool-invocation': return projectToolInvocation(input.value);
+    case 'agent-conversation': return projectAgentConversationForOutbound(input.value);
     case 'dynamic': return projectDynamicForOutbound(input.value);
     default: return assertNever(input);
   }

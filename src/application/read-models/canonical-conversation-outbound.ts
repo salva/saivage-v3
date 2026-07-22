@@ -74,6 +74,10 @@ interface InspectedCall {
   readonly arguments: string;
 }
 
+export interface CanonicalResultAbsentCall extends CanonicalCallIdentity {
+  readonly arguments: string;
+}
+
 interface InspectedResult {
   readonly identity: CanonicalResultIdentity;
   readonly result: ReturnType<typeof ToolInvocationResultSchema.parse>;
@@ -126,6 +130,15 @@ export function projectCompleteCanonicalConversation(
   }
 
   return rows.map((row) => projectCanonicalConversationRow(row, projectInvocation));
+}
+
+export function inspectCompleteCanonicalConversation(values: readonly unknown[]): CanonicalResultAbsentCall | undefined {
+  const rows = values.map((value) => agentMessageSchema.parse(value));
+  const inspection = inspectSelectedRows(rows, false);
+  const unmatched = [...inspection.calls.entries()].filter(([key]) => !inspection.results.has(key));
+  if (unmatched.length > 1) throw new Error('Complete conversation contains more than one result-absent tool call.');
+  const call = unmatched[0]?.[1];
+  return call ? { ...call.identity, arguments: call.arguments } : undefined;
 }
 
 export function projectBoundedAgentSessionWrapper(
