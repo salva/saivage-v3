@@ -9,6 +9,7 @@ import { cardIdSchema } from '../schemas/index.js';
 import { defineTool, type ToolDefinition } from './invocation.js';
 import { reconfigureParamsSchema, type ConfigMutation, type ReconfigureParams } from '../config/index.js';
 import { redactForOutbound } from '../redaction/index.js';
+import type { McpReconcileResult } from '../contracts/mcp-invocation.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
@@ -65,8 +66,12 @@ function targetId(input: ReconfigureParams): string {
   }
 }
 
-export async function mcp_reconcile(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  return toolFailure('MCP reconciliation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
+export async function mcp_reconcile(ctx: ToolContext, _params: Record<string, never> = {}): Promise<McpReconcileResult> {
+  return {
+    success: false,
+    error: 'MCP reconciliation is unavailable until quiescent Pause is introduced.',
+    data: { persisted: false, reconciled: false },
+  };
 }
 
 export async function list_agent_sessions(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {

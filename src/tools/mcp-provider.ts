@@ -1,20 +1,13 @@
-import { z } from 'zod';
-
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
 import { defineTool, type ToolProvider } from './invocation.js';
 import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
 
 export interface McpProviderContext {
   readonly mcpToolInvocation: McpToolInvocationPort;
   readonly agentRole: 'executor' | 'reviewer' | 'analyst';
 }
-
-const mcpToolCallSchema = z.object({
-  serverName: z.string(),
-  toolName: z.string(),
-  args: z.record(z.unknown()).optional(),
-}).strict();
 
 function assertReviewerMayCall(ctx: McpProviderContext, serverName: string, toolName: string, manager: McpToolInvocationPort): void {
   if (ctx.agentRole !== 'reviewer') return;
@@ -31,7 +24,7 @@ export function createMcpProvider(ctx: McpProviderContext): ToolProvider {
       defineTool({
         name: 'mcp_tool_call',
         description: 'Call an MCP tool on a configured MCP server.',
-        inputSchema: mcpToolCallSchema,
+        inputSchema: McpToolCallArgumentsSchema,
         executor: async (args) => {
           try {
             assertReviewerMayCall(ctx, args.serverName, args.toolName, ctx.mcpToolInvocation);
