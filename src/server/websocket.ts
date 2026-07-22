@@ -12,7 +12,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { SaivageConfig } from '../agents/config-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
-import { buildConnectedEnvelope, validateKnownWsEnvelope } from '../contracts/index.js';
+import { buildConnectedEnvelope, KnownWsEnvelopeWithClassifiedToolActivitySchema } from '../contracts/index.js';
 import type { WsEnvelope, WsEventType } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
 import { redactForOutbound } from '../redaction/index.js';
@@ -23,9 +23,10 @@ import { AppLogPublicationError } from '../persistence/app-log.js';
 
 export type { WsEnvelope, WsEventType };
 
-function serializeOutboundEnvelope(event: WsEnvelope): string {
-  const envelope = redactForOutbound(validateKnownWsEnvelope(event) as WsEnvelope);
-  return JSON.stringify(envelope);
+export function serializeOutboundEnvelope(event: WsEnvelope): string {
+  const classified = KnownWsEnvelopeWithClassifiedToolActivitySchema.parse(event);
+  const envelope = redactForOutbound({ source: 'ws-envelope', value: classified });
+  return JSON.stringify(KnownWsEnvelopeWithClassifiedToolActivitySchema.parse(envelope));
 }
 
 export function sendToClient(ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void): void {

@@ -66,6 +66,8 @@ export interface AnalystResponse {
     tool: string;
     params: Record<string, unknown>;
     result: ToolResult;
+    sourceInputId: string;
+    toolCallId: string;
   }>;
 }
 
@@ -255,7 +257,8 @@ export class AnalystSession {
       let params: Record<string, unknown>;
       let result: ToolResult;
       if (!surface.tools.has(outcome.toolName)) {
-        params = {}; result = { success: false, error: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())) };
+        params = parsed.kind === 'ok' ? parsed.args : {};
+        result = { success: false, error: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())) };
       } else if (parsed.kind === 'violation') {
         params = {};
         const violation = buildAgentProtocolViolation({ session_id: this.#sessionId, role: 'analyst', tool_call_id: outcome.toolCallId, tool_name: outcome.toolName, violation: parsed.violation, raw: rawArguments });
@@ -266,7 +269,13 @@ export class AnalystSession {
         result = await invokeToolCall(surface, outcome.toolName, rawArguments, this.#llm.toolInvocationContext(outcome), signal);
         operation.toolInFlight = null; this.assertCurrent(operation, signal);
       }
-      operation.toolInvocations.push({ tool: outcome.toolName, params, result });
+      operation.toolInvocations.push({
+        tool: outcome.toolName,
+        params,
+        result,
+        sourceInputId: outcome.inputId,
+        toolCallId: outcome.toolCallId,
+      });
       if (outcome.toolName === 'restart_server' && result.success) {
         await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, result);
         operation.newlyRequestedRestart = true;

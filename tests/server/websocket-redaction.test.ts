@@ -3,28 +3,27 @@ import type { WebSocket } from 'ws';
 
 import { KnownWsEnvelopeSchema } from '../../src/contracts/index.js';
 import { sendToClient } from '../../src/server/websocket.js';
+import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
 
 describe('WebSocket outbound serialization', () => {
   it('validates, redacts, and serializes a known envelope without changing its safe shape', () => {
-    const secret = 'synthetic_websocket_nested_secret';
+    const secret = 'sk-synthetic-websocket-secret';
     const ws = {
       OPEN: 1,
       readyState: 1,
       send: jest.fn(),
     } as unknown as WebSocket;
 
+    const activity = projectAnalystToolInvocationActivity({
+      tool: 'unsupported_tok_primary',
+      params: { safe: 'visible', nested: { apiKey: secret, count: 3 } },
+      result: { success: false, error: `failed ${secret}`, data: { status: 'visible' } },
+      sourceInputId: '11111111-1111-4111-8111-111111111111',
+      toolCallId: 'call-tok_primary',
+    });
     sendToClient(ws, {
       type: 'activity',
-      content: {
-        event: 'tool_invocation',
-        sessionId: 'analyst:global',
-        tool: 'read_file',
-        params: {
-          safe: 'visible',
-          nested: { apiKey: secret, count: 3 },
-        },
-        result: { status: 'ok' },
-      },
+      content: activity,
     });
 
     expect(ws.send).toHaveBeenCalledTimes(1);
@@ -35,12 +34,12 @@ describe('WebSocket outbound serialization', () => {
       content: {
         event: 'tool_invocation',
         sessionId: 'analyst:global',
-        tool: 'read_file',
+        tool: 'unsupported_tok_primary',
         params: {
           safe: 'visible',
           nested: { apiKey: '[REDACTED]', count: 3 },
         },
-        result: { status: 'ok' },
+        result: { success: false, error: 'failed sk-[REDACTED]', data: { status: 'visible' } },
       },
     });
   });

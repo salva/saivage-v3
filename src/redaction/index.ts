@@ -18,6 +18,8 @@ import type { ToolInvocationProjectionInput } from '../contracts/tool-invocation
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
 import type { AgentConversationResponse } from '../contracts/operator-api-agents.js';
 import { projectAgentConversationForOutbound, type AgentConversationProjectionInput } from '../application/read-models/agent-conversation-outbound.js';
+import type { KnownWsEnvelopeWithClassifiedToolActivity } from '../contracts/operator-events.js';
+import { projectWsEnvelopeForOutbound } from './ws-envelope.js';
 
 export {
   SECRET_REDACTION_PLACEHOLDER,
@@ -45,6 +47,7 @@ export type OutboundRedactionRequest =
   | { source: 'webfetch-result'; value: WebfetchResult }
   | { source: 'tool-invocation'; value: ToolInvocationProjectionInput }
   | { source: 'agent-conversation'; value: AgentConversationProjectionInput }
+  | { source: 'ws-envelope'; value: KnownWsEnvelopeWithClassifiedToolActivity }
   | { source: 'dynamic'; value: unknown; options?: StructuredRedactionOptions };
 
 export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
@@ -59,9 +62,10 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
                   : Request extends { source: 'process-view'; value: infer Value } ? Value
                     : Request extends { source: 'webfetch-invocation' } ? WebfetchInvocation
                        : Request extends { source: 'webfetch-result' } ? WebfetchResult
-                         : Request extends { source: 'tool-invocation' } ? ToolInvocationProjectionInput
-                          : Request extends { source: 'agent-conversation' } ? AgentConversationResponse
-                         : unknown;
+                          : Request extends { source: 'tool-invocation' } ? ToolInvocationProjectionInput
+                            : Request extends { source: 'agent-conversation' } ? AgentConversationResponse
+                              : Request extends { source: 'ws-envelope' } ? KnownWsEnvelopeWithClassifiedToolActivity
+                                : unknown;
 
 export const OUTBOUND_REDACTION_SOURCES = [
   'provider-exchange',
@@ -77,6 +81,7 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'webfetch-result',
   'tool-invocation',
   'agent-conversation',
+  'ws-envelope',
   'dynamic',
 ] as const satisfies readonly OutboundRedactionRequest['source'][];
 const outboundSourceCompileGuard = {
@@ -93,6 +98,7 @@ const outboundSourceCompileGuard = {
   'webfetch-result': true,
   'tool-invocation': true,
   'agent-conversation': true,
+  'ws-envelope': true,
   dynamic: true,
 } as const satisfies Record<OutboundRedactionRequest['source'], true>;
 void outboundSourceCompileGuard;
@@ -117,6 +123,7 @@ export function redactForOutbound(input: unknown, options: StructuredRedactionOp
     case 'webfetch-result': return projectWebfetchResultForOutbound(input.value);
     case 'tool-invocation': return projectToolInvocation(input.value);
     case 'agent-conversation': return projectAgentConversationForOutbound(input.value);
+    case 'ws-envelope': return projectWsEnvelopeForOutbound(input.value);
     case 'dynamic': return projectDynamicForOutbound(input.value);
     default: return assertNever(input);
   }

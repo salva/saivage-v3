@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AnalystConversationSessionIdSchema, ConversationSessionIdSchema, GLOBAL_ANALYST_SESSION_ID, cardIdSchema } from '../schemas/index.js';
 import { RestartChatAcknowledgementSchema } from './operator-api-chats.js';
+import { ToolInvocationResultSchema } from './tool-invocation-projection.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
 export const WsEnvelopeSchema = z.object({
@@ -129,6 +130,14 @@ export const ToolInvocationContentSchema = z.object({
   result: z.unknown().optional(),
 }).passthrough();
 
+export const ClassifiedToolInvocationActivityContentSchema = z.object({
+  event: z.literal('tool_invocation'),
+  sessionId: AnalystConversationSessionIdSchema,
+  tool: z.string().min(1),
+  params: z.unknown(),
+  result: ToolInvocationResultSchema,
+}).strict();
+
 export const AnalystActivityContentSchema = z.discriminatedUnion('event', [
   CardHistoryAppendedContentSchema,
   NotificationAddedContentSchema,
@@ -171,6 +180,20 @@ export const KnownWsEnvelopeSchema = z.union([
   ErrorEnvelopeSchema,
 ]);
 
+const ClassifiedAnalystActivityContentSchema = z.discriminatedUnion('event', [
+  CardHistoryAppendedContentSchema,
+  NotificationAddedContentSchema,
+  ControlActionRecordedContentSchema,
+  AnalystToolInvokedContentSchema,
+  ClassifiedToolInvocationActivityContentSchema,
+]);
+export const KnownWsEnvelopeWithClassifiedToolActivitySchema = z.union([
+  KnownStatusWsEnvelopeSchema,
+  z.object({ type: z.literal('activity'), content: ClassifiedAnalystActivityContentSchema }),
+  InboundAnalystMessageEnvelopeSchema,
+  ErrorEnvelopeSchema,
+]);
+
 export const knownWsContentEventNames = [
   'connected',
   'analyst_turn_acknowledged',
@@ -184,6 +207,8 @@ export type WsEventType = z.infer<typeof WsEventTypeSchema>;
 export type WsEnvelopeContract = z.infer<typeof WsEnvelopeSchema>;
 export type WsEnvelope = WsEnvelopeContract;
 export type KnownWsEnvelope = z.infer<typeof KnownWsEnvelopeSchema>;
+export type KnownWsEnvelopeWithClassifiedToolActivity = z.infer<typeof KnownWsEnvelopeWithClassifiedToolActivitySchema>;
+export type ClassifiedToolInvocationActivityContent = z.infer<typeof ClassifiedToolInvocationActivityContentSchema>;
 export type KnownWsContent = z.infer<typeof KnownWsContentSchema>;
 export type KnownStatusWsEnvelope = z.infer<typeof KnownStatusWsEnvelopeSchema>;
 export type AnalystTurnAcknowledgedStatusEnvelope = z.infer<typeof AnalystTurnAcknowledgedStatusEnvelopeSchema>;

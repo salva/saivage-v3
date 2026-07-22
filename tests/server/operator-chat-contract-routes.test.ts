@@ -16,6 +16,7 @@ import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-s
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createEventLog } from '../../src/observability/index.js';
+import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
@@ -79,6 +80,63 @@ describe('operator chat route request contracts', () => {
       userContent: 'hello',
       workspaceContext: undefined,
     });
+  });
+
+  it.each([
+    {
+      label: 'settled valid',
+      invocation: {
+        tool: 'run_command',
+        params: { command: 'TOKEN=sk-chat-marker npm test' },
+        result: { success: true as const, data: { process_id: 'tok_primary', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/tok_primary/stdout.log', stderr_url: 'work:///processes/tok_primary/stderr.log', stdout_bytes: 1, stderr_bytes: 2 } },
+      },
+    },
+    {
+      label: 'unsupported',
+      invocation: {
+        tool: 'unsupported_tok_primary',
+        params: { apiKey: 'sk-chat-marker' },
+        result: { success: false as const, error: 'failed sk-chat-marker' },
+      },
+    },
+    {
+      label: 'schema-invalid known',
+      invocation: {
+        tool: 'webfetch',
+        params: { url: 7, apiKey: 'sk-chat-marker' },
+        result: { success: false as const, error: 'failed sk-chat-marker' },
+      },
+    },
+    {
+      label: 'settled malformed-JSON protocol',
+      invocation: {
+        tool: 'webfetch',
+        params: {},
+        result: { success: false as const, error: 'Tool arguments must be valid JSON: sk-chat-marker' },
+      },
+    },
+  ])('projects a $label completed invocation before chats.send publication', async ({ invocation }) => {
+    submit.mockResolvedValueOnce({
+      sessionId: 'analyst:global',
+      toolInvocations: [{ ...invocation, sourceInputId: '11111111-1111-4111-8111-111111111111', toolCallId: 'call-tok_primary' }],
+      restart: null,
+    });
+
+    const response = await fastify.inject({ method: 'POST', url: '/api/chats/analyst%3Aglobal', headers: authHeaders, payload: { content: 'invoke' } });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { toolInvocations: Array<{ tool: string; params: unknown; result: unknown }> };
+    expect(body.toolInvocations).toHaveLength(1);
+    const projected = projectToolInvocation({
+      shape: 'complete',
+      identity: { sessionId: 'analyst:global', sourceInputId: '11111111-1111-4111-8111-111111111111', toolCallId: 'call-tok_primary', toolName: invocation.tool },
+      arguments: invocation.params,
+      result: invocation.result,
+    });
+    if (projected.shape !== 'complete') throw new Error('Expected complete chat fixture projection.');
+    expect(body.toolInvocations[0]).toEqual({ tool: projected.identity.toolName, params: projected.arguments, result: projected.result });
+    expect(response.body).not.toContain('sk-chat-marker');
+    expect(response.body).not.toContain('sourceInputId');
+    expect(response.body).not.toContain('toolCallId');
   });
 
   it('preserves optional content semantics after request parsing', async () => {

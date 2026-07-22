@@ -9,6 +9,7 @@ import {
 } from './operator-api-core.js';
 import { AgentActivityStatusSchema, AgentConversationEntrySchema, AnalystSessionSummarySchema } from './operator-api-agents.js';
 import { AnalystConversationSessionIdSchema } from '../schemas/index.js';
+import { ToolInvocationResultSchema } from './tool-invocation-projection.js';
 
 export const ChatSessionParamsSchema = z.object({ sessionId: AnalystConversationSessionIdSchema });
 export const ChatWorkspaceContextSchema = z.object({
@@ -37,9 +38,14 @@ export const RestartChatAcknowledgementSchema = z.discriminatedUnion('status', [
   z.object({ status: z.literal('confirmation_required'), confirmationMessage: z.literal('RESTART SERVER') }).strict(),
   z.object({ status: z.literal('scheduled') }).strict(),
 ]);
+export const ChatToolInvocationSchema = z.object({
+  tool: z.string().min(1),
+  params: z.unknown(),
+  result: ToolInvocationResultSchema,
+}).strict();
 export const ChatSendResponseSchema = z.object({
   sessionId: AnalystConversationSessionIdSchema,
-  toolInvocations: z.array(z.unknown()),
+  toolInvocations: z.array(ChatToolInvocationSchema),
   restart: RestartChatAcknowledgementSchema.nullable(),
 }).strict();
 
@@ -47,6 +53,7 @@ export type ChatWorkspaceContext = z.infer<typeof ChatWorkspaceContextSchema>;
 export type ChatSendRequest = z.infer<typeof ChatSendRequestSchema>;
 export type ChatEntriesResponse = z.infer<typeof ChatEntriesResponseSchema>;
 export type RestartChatAcknowledgement = z.infer<typeof RestartChatAcknowledgementSchema>;
+export type ChatToolInvocation = z.infer<typeof ChatToolInvocationSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
 
 export const chatOperatorApiContracts = {
