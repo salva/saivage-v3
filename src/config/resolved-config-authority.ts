@@ -15,9 +15,6 @@ export type ConfigSelectionSource =
 export type ConfigMutation =
   | { readonly kind: 'set_role_routing'; readonly role: AgentRole; readonly modelCandidate: string }
   | { readonly kind: 'set_failover_chain'; readonly forModel: string; readonly orderedFailoverModels: readonly string[] }
-  | { readonly kind: 'mcp_add'; readonly name: string; readonly command: string; readonly args?: readonly string[]; readonly env?: Readonly<Record<string, string>> }
-  | { readonly kind: 'mcp_edit'; readonly name: string; readonly patch: { readonly command?: string; readonly args?: readonly string[]; readonly env?: Readonly<Record<string, string>> } }
-  | { readonly kind: 'mcp_remove'; readonly name: string }
   | { readonly kind: 'set_runtime_setting'; readonly key: string; readonly value: unknown }
   | { readonly kind: 'set_server_setting'; readonly key: string; readonly value: unknown };
 
@@ -35,7 +32,6 @@ export interface ResolvedConfigAuthority {
   validateDocument(document: ConfigDocument): { config: SaivageConfig; warnings: readonly string[] };
   loadEffective(): { config: SaivageConfig; warnings: readonly string[] };
   applyChange(mutation: ConfigMutation): ConfigMutationResult;
-  validateChange(mutation: ConfigMutation): ConfigMutationResult;
 }
 
 const RUNTIME_KEYS = new Set(['continuous_improvement', 'process_timeouts']);
@@ -113,8 +109,7 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   applyChange(mutation: ConfigMutation): ConfigMutationResult {
     try {
       const document = this.readDocument();
-      const raw = documentObject(document);
-      const precondition = this.applyMutation(document, raw, mutation);
+      const precondition = this.applyMutation(document, mutation);
       if (precondition) return precondition;
       const effective = this.validateDocument(document);
       replaceConfigYaml(this.path, document);
@@ -130,16 +125,7 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
     }
   }
 
-  validateChange(mutation: ConfigMutation): ConfigMutationResult {
-    const document = this.readDocument();
-    const raw = documentObject(document);
-    const precondition = this.applyMutation(document, raw, mutation);
-    if (precondition) return precondition;
-    const effective = this.validateDocument(document);
-    return { success: true, config: effective.config, warnings: effective.warnings, requires_restart: mutation.kind === 'set_server_setting' };
-  }
-
-  private applyMutation(document: ConfigDocument, raw: RawConfig, mutation: ConfigMutation): ConfigMutationResult | void {
+  private applyMutation(document: ConfigDocument, mutation: ConfigMutation): ConfigMutationResult | void {
     switch (mutation.kind) {
       case 'set_role_routing':
         document.setIn(['models', 'routing', mutation.role], mutation.modelCandidate);
@@ -147,29 +133,6 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
       case 'set_failover_chain':
         document.setIn(['models', 'failover', mutation.forModel], [...mutation.orderedFailoverModels]);
         return;
-      case 'mcp_add': {
-        const servers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
-        if (servers[mutation.name]) return { success: false, fieldPath: `mcpServers/${mutation.name}`, message: `MCP server '${mutation.name}' already exists.` };
-        document.setIn(['mcpServers', mutation.name], { command: mutation.command, args: [...(mutation.args ?? [])], env: { ...(mutation.env ?? {}) }, transport: 'stdio', disabled: false, autostart: true });
-        return;
-      }
-      case 'mcp_edit': {
-        const servers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
-        const existing = servers[mutation.name];
-        if (!isRecord(existing)) return { success: false, fieldPath: `mcpServers/${mutation.name}`, message: `MCP server '${mutation.name}' is not configured.` };
-        const next = { ...existing };
-        if (mutation.patch.command !== undefined) next.command = mutation.patch.command;
-        if (mutation.patch.args !== undefined) next.args = [...mutation.patch.args];
-        if (mutation.patch.env !== undefined) next.env = { ...mutation.patch.env };
-        document.setIn(['mcpServers', mutation.name], next);
-        return;
-      }
-      case 'mcp_remove': {
-        const servers = isRecord(raw.mcpServers) ? raw.mcpServers : {};
-        if (!servers[mutation.name]) return { success: false, fieldPath: `mcpServers/${mutation.name}`, message: `MCP server '${mutation.name}' is not configured.` };
-        document.deleteIn(['mcpServers', mutation.name]);
-        return;
-      }
       case 'set_runtime_setting':
         if (!RUNTIME_KEYS.has(mutation.key)) return { success: false, fieldPath: `runtime/${mutation.key}`, message: `Unknown runtime setting '${mutation.key}'.` };
         document.setIn(['runtime', mutation.key], mutation.value);
