@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import * as YAML from 'yaml';
 
-import { saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js';
+import { effectiveSaivageConfigSchema, saivageConfigSchema, type SaivageConfig } from '../agents/config-api.js';
 import { interpolateValue, type EnvironmentSource } from './env-interpolation.js';
 import { validateModelRoles } from './validate-model-roles.js';
 import { replaceConfigYaml } from './config-file.js';
@@ -15,8 +15,10 @@ export type ConfigSelectionSource =
 export type ConfigMutation =
   | { readonly kind: 'set_role_routing'; readonly role: AgentRole; readonly modelCandidate: string }
   | { readonly kind: 'set_failover_chain'; readonly forModel: string; readonly orderedFailoverModels: readonly string[] }
-  | { readonly kind: 'set_runtime_setting'; readonly key: string; readonly value: unknown }
-  | { readonly kind: 'set_server_setting'; readonly key: string; readonly value: unknown };
+  | { readonly kind: 'set_runtime_setting'; readonly key: 'continuous_improvement'; readonly value: boolean }
+  | { readonly kind: 'set_runtime_setting'; readonly key: 'process_timeouts'; readonly value: { readonly planner_ms: number; readonly executor_ms: number; readonly reviewer_ms: number } }
+  | { readonly kind: 'set_server_setting'; readonly key: 'port'; readonly value: number }
+  | { readonly kind: 'set_server_setting'; readonly key: 'host'; readonly value: string };
 
 export type ConfigMutationResult =
   | { readonly success: true; readonly config: SaivageConfig; readonly warnings: readonly string[]; readonly requires_restart?: boolean }
@@ -33,9 +35,6 @@ export interface ResolvedConfigAuthority {
   loadEffective(): { config: SaivageConfig; warnings: readonly string[] };
   applyChange(mutation: ConfigMutation): ConfigMutationResult;
 }
-
-const RUNTIME_KEYS = new Set(['continuous_improvement', 'process_timeouts']);
-const SERVER_KEYS = new Set(['port', 'host']);
 
 function isRecord(value: unknown): value is RawConfig {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -99,7 +98,7 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
       error.fieldPath = roleFailure.fieldPath;
       throw error;
     }
-    return { config: parsed.data, warnings: Object.freeze([...warnings]) };
+    return { config: effectiveSaivageConfigSchema.parse(parsed.data), warnings: Object.freeze([...warnings]) };
   }
 
   loadEffective(): { config: SaivageConfig; warnings: readonly string[] } {
@@ -134,11 +133,9 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
         document.setIn(['models', 'failover', mutation.forModel], [...mutation.orderedFailoverModels]);
         return;
       case 'set_runtime_setting':
-        if (!RUNTIME_KEYS.has(mutation.key)) return { success: false, fieldPath: `runtime/${mutation.key}`, message: `Unknown runtime setting '${mutation.key}'.` };
         document.setIn(['runtime', mutation.key], mutation.value);
         return;
       case 'set_server_setting':
-        if (!SERVER_KEYS.has(mutation.key)) return { success: false, fieldPath: `server/${mutation.key}`, message: `Unknown server setting '${mutation.key}'.` };
         document.setIn(['server', mutation.key], mutation.value);
         return;
     }

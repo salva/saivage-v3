@@ -69,17 +69,29 @@ describe('contract-backed config/providers/control-actions routes', () => {
         server: { host: '127.0.0.1', port: 8080 },
         compaction: testConfig().compaction,
         card_processes: DEFAULT_CARD_PROCESSES,
+        mcpServers: {
+          tok_stdio_server: { transport: 'stdio', command: 'tok_command', env: { ORDINARY: 'stdio-secret', TOKEN: 'named-secret' } },
+          sk_http_server: { transport: 'streamable-http', url: 'https://tok-host.example.test/mcp?api_key=structural-config-value' },
+        },
       });
       registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), ...routeCompositionDependencies(projectRoot), providerRoutingReadModelProvider: providerRoutingReadModelProvider(), authPolicy: new AuthPolicy() });
 
       const response = await fastify.inject({ method: 'GET', url: '/api/config' });
 
       expect(response.statusCode).toBe(200);
-      const body = response.json() as { config: { providers: Record<string, { apiKey?: string; accounts?: Record<string, { apiKey?: string }> }> }; warnings: string[] };
+      const body = response.json() as { config: { providers: Record<string, { apiKey?: string; accounts?: Record<string, { apiKey?: string }> }>; mcpServers: Record<string, any> }; warnings: string[] };
       expect(body.warnings).toEqual([]);
       expect(JSON.stringify(body.config)).not.toContain('secret-provider-key');
       expect(body.config.providers.test.apiKey).toBe('[REDACTED]');
       expect(body.config.providers.test.accounts?.primary.apiKey).toBe('[REDACTED]');
+      expect(body.config.mcpServers.tok_stdio_server).toEqual({
+        transport: 'stdio', command: 'tok_command', env: { ORDINARY: '[REDACTED]', TOKEN: '[REDACTED]' }, disabled: false, autostart: true,
+      });
+      expect(body.config.mcpServers.sk_http_server).toEqual({
+        transport: 'streamable-http', url: 'https://tok-host.example.test/mcp?api_key=structural-config-value', disabled: false, autostart: true,
+      });
+      expect(response.body).not.toContain('stdio-secret');
+      expect(response.body).not.toContain('named-secret');
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });

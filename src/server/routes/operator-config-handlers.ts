@@ -7,9 +7,7 @@ export function buildConfigOperatorContractHandlers(options: OperatorProjectCont
   return defineOperatorContractHandlers({
     'config.get': () => {
       const effective = options.configAuthority.loadEffective();
-      const config: OperatorApiSuccess<'config.get'>['config'] = redactForOutbound(
-        { ...effective.config },
-      );
+      const config: OperatorApiSuccess<'config.get'>['config'] = redactForOutbound({ source: 'config', value: effective.config });
       return { body: { config, warnings: [...effective.warnings] } };
     },
     'providers.list': () => {

@@ -7,11 +7,6 @@ import {
 import { redactTextForOutbound } from '../redaction/index.js';
 import { redactCommandForPolicy } from '../runtime/command-policy.js';
 
-export {
-  isSecretLikeKey,
-  redactAnalystSecretValue,
-} from './secret-redaction.js';
-
 const NON_SECRET_READ_BLOCKED_PATHS: ReadonlySet<string> = new Set([
   '.saivage/saivage.json',
 ]);

@@ -11,8 +11,6 @@ export {
   redactOperatorErrorMessage,
   resolveContainedProjectPath,
   toContainedRelativePath,
-  isSecretLikeKey,
-  redactAnalystSecretValue,
 } from './file-access-security.js';
 export {
   assertRecordWrite,

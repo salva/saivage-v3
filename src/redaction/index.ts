@@ -8,6 +8,8 @@ import { projectControlAction } from '../persistence/control-action-outbound.js'
 import { projectDynamicForOutbound } from './dynamic.js';
 import { redactTextForOutbound } from './text.js';
 import { projectCardDiff, projectCardHistory, projectOperatorCard, projectRuntimeCardRuns } from '../application/read-models/card-outbound.js';
+import type { SaivageConfig } from '../agents/config-api.js';
+import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
 
 export {
   SECRET_REDACTION_PLACEHOLDER,
@@ -29,6 +31,7 @@ export type OutboundRedactionRequest =
   | { source: 'runtime-card-runs'; value: RuntimeCardRunsResponse }
   | { source: 'card-history'; value: CardHistoryHeader | CardHistoryEntry }
   | { source: 'card-diff'; value: CardDiffEntry[] }
+  | { source: 'config'; value: SaivageConfig }
   | { source: 'dynamic'; value: unknown; options?: StructuredRedactionOptions };
 
 export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
@@ -39,7 +42,8 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
           : Request extends { source: 'runtime-card-runs' } ? RuntimeCardRunsResponse
             : Request extends { source: 'card-history'; value: infer Value } ? Value
               : Request extends { source: 'card-diff' } ? CardDiffEntry[]
-                : unknown;
+                : Request extends { source: 'config' } ? SaivageConfig
+                  : unknown;
 
 export const OUTBOUND_REDACTION_SOURCES = [
   'provider-exchange',
@@ -49,6 +53,7 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'runtime-card-runs',
   'card-history',
   'card-diff',
+  'config',
   'dynamic',
 ] as const satisfies readonly OutboundRedactionRequest['source'][];
 const outboundSourceCompileGuard = {
@@ -59,6 +64,7 @@ const outboundSourceCompileGuard = {
   'runtime-card-runs': true,
   'card-history': true,
   'card-diff': true,
+  config: true,
   dynamic: true,
 } as const satisfies Record<OutboundRedactionRequest['source'], true>;
 void outboundSourceCompileGuard;
@@ -77,6 +83,7 @@ export function redactForOutbound(input: unknown, options: StructuredRedactionOp
     case 'runtime-card-runs': return projectRuntimeCardRuns(input.value);
     case 'card-history': return projectCardHistory(input.value);
     case 'card-diff': return projectCardDiff(input.value);
+    case 'config': return projectEffectiveConfigForOutbound(input.value);
     case 'dynamic': return projectDynamicForOutbound(input.value);
     default: return assertNever(input);
   }

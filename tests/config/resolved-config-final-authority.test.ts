@@ -7,7 +7,7 @@ import * as YAML from 'yaml';
 import { createResolvedConfigAuthority } from '../../src/config/resolved-config-authority.js';
 import { loadEnvironment } from '../../src/config/environment.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
-import { saivageConfigSchema } from '../../src/agents/config-api.js';
+import { effectiveSaivageConfigSchema, saivageConfigSchema } from '../../src/agents/config-api.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -22,13 +22,17 @@ describe('selected config authority', () => {
   });
 
   it('parses only strict transport-specific MCP variants and materializes lifecycle defaults', () => {
-    expect(saivageConfigSchema.parse(configWithMcp({ transport: 'stdio', command: 'node', args: ['server.js'], env: { TOKEN: 'value' } })).mcpServers?.server).toEqual({
+    const stdioConfig = saivageConfigSchema.parse(configWithMcp({ transport: 'stdio', command: 'node', args: ['server.js'], env: { TOKEN: 'value' } }));
+    expect(stdioConfig.mcpServers?.server).toEqual({
       transport: 'stdio', command: 'node', args: ['server.js'], env: { TOKEN: 'value' }, disabled: false, autostart: true,
     });
+    expect(effectiveSaivageConfigSchema.parse(stdioConfig)).toEqual(stdioConfig);
     for (const url of ['http://localhost/mcp', 'https://example.com/mcp']) {
-      expect(saivageConfigSchema.parse(configWithMcp({ transport: 'streamable-http', url })).mcpServers?.server).toEqual({
+      const httpConfig = saivageConfigSchema.parse(configWithMcp({ transport: 'streamable-http', url }));
+      expect(httpConfig.mcpServers?.server).toEqual({
         transport: 'streamable-http', url, disabled: false, autostart: true,
       });
+      expect(effectiveSaivageConfigSchema.parse(httpConfig)).toEqual(httpConfig);
     }
 
     const invalidEntries = [
@@ -45,6 +49,15 @@ describe('selected config authority', () => {
       { transport: 'streamable-http', url: 'https://example.com/mcp', extra: true },
     ];
     for (const entry of invalidEntries) expect(saivageConfigSchema.safeParse(configWithMcp(entry)).success).toBe(false);
+    expect(effectiveSaivageConfigSchema.safeParse({ ...stdioConfig, mcpServers: { server: { transport: 'stdio', command: 'node' } } }).success).toBe(false);
+    expect(effectiveSaivageConfigSchema.safeParse({ ...stdioConfig, mcpServers: { server: { transport: 'streamable-http', url: 'https://example.test', command: 'node', disabled: false, autostart: true } } }).success).toBe(false);
+    expect(effectiveSaivageConfigSchema.safeParse({ ...stdioConfig, runtime: { continuous_improvement: false, process_timeouts: {} } }).success).toBe(false);
+    expect(effectiveSaivageConfigSchema.safeParse({ ...stdioConfig, server: { port: 8080 } }).success).toBe(false);
+    expect(effectiveSaivageConfigSchema.safeParse({ ...stdioConfig, models: { ...stdioConfig.models, default: 'm1' } }).success).toBe(false);
+    expect(effectiveSaivageConfigSchema.safeParse({ ...stdioConfig, models: { ...stdioConfig.models, profiles: { profile: { preferred: [] } } } }).success).toBe(false);
+    const missingCompactionDefault = structuredClone(stdioConfig);
+    delete (missingCompactionDefault.compaction as Partial<typeof missingCompactionDefault.compaction>).trigger_fraction;
+    expect(effectiveSaivageConfigSchema.safeParse(missingCompactionDefault).success).toBe(false);
   });
 
   it('reads and replaces only the selected path while preserving raw interpolation placeholders', () => {
@@ -62,7 +75,9 @@ describe('selected config authority', () => {
     writeFileSync(selected, source);
     writeFileSync(ignored, YAML.stringify({ models: { default: ['ignored'] }, server: { port: 9000 } }));
     const authority = createResolvedConfigAuthority({ path: selected, source: { kind: 'cli', argument: '--config' }, interpolationEnvironment: { MODEL: 'm1', KEY: 'secret' } });
-    expect(authority.loadEffective().config.models.default).toEqual(['m1']);
+    const loaded = authority.loadEffective().config;
+    expect(loaded.models.default).toEqual(['m1']);
+    expect(effectiveSaivageConfigSchema.parse(loaded)).toEqual(loaded);
     expect(authority.applyChange({ kind: 'set_server_setting', key: 'port', value: 8181 })).toMatchObject({ success: true, requires_restart: true });
     expect(readFileSync(selected, 'utf8')).toContain('${MODEL}');
     expect(readFileSync(selected, 'utf8')).toContain('${KEY}');

@@ -8,11 +8,12 @@ import {
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
+import { effectiveSaivageConfigSchema } from '../agents/config-api.js';
 
 export const ConfigGetResponseSchema = z.object({
-  config: z.record(z.string(), z.unknown()),
+  config: effectiveSaivageConfigSchema,
   warnings: z.array(z.string()),
-});
+}).strict();
 
 export const ConfigUnavailableErrorSchema = z.object({
   error: z.literal('Configuration unavailable'),
