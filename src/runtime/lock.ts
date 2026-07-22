@@ -296,12 +296,6 @@ export function releaseRuntimeLifecycleLock(handle: RuntimeLifecycleLockHandle):
   ownership.active = false;
 }
 
-export function assertRuntimeLifecycleLock(handle: RuntimeLifecycleLockHandle, projectRoot: string): void {
-  const ownership = requireOwnership(handle);
-  const canonical = realpathSync(projectRoot);
-  if (ownership.canonicalProjectRoot !== canonical) throw new Error(`Runtime lifecycle lock belongs to '${ownership.canonicalProjectRoot}', not '${canonical}'.`);
-}
-
 export function runtimeProcessIdentity(handle: RuntimeLifecycleLockHandle): RuntimeProcessIdentity {
   const record = requireOwnership(handle).record;
   return { pid: record.pid, startedAt: record.started_at };

@@ -1,4 +1,3 @@
-import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
@@ -111,21 +110,4 @@ export function isBinarySample(buf: Buffer): boolean {
     if (b < 7 || (b > 14 && b < 32)) suspicious += 1;
   }
   return suspicious / sample > 0.3;
-}
-
-export function readJsonlTail(path: string, limit: number): { entries: unknown[]; total: number; parseErrors: number } {
-  if (!existsSync(path)) return { entries: [], total: 0, parseErrors: 0 };
-  const raw = readFileSync(path, 'utf-8');
-  const lines = raw.split('\n').filter((line) => line.trim() !== '');
-  const tail = lines.slice(-limit);
-  const entries: unknown[] = [];
-  let parseErrors = 0;
-  for (const line of tail) {
-    try {
-      entries.push(JSON.parse(line));
-    } catch {
-      parseErrors += 1;
-    }
-  }
-  return { entries, total: lines.length, parseErrors };
 }

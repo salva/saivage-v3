@@ -91,12 +91,6 @@ export const loggedEventSchemaByKind = {
   mcp_tool_invocation: mcpToolInvocationEventSchema,
 } as const satisfies Record<EventKind, z.ZodTypeAny>;
 
-export const payloadSchemaByKind = {
-  runtime_diagnostic: runtimeDiagnosticEventSchema.omit({ id: true, kind: true, timestamp: true }),
-  runtime_actionable_error: runtimeActionableErrorEventSchema.omit({ id: true, kind: true, timestamp: true }),
-  mcp_tool_invocation: mcpToolInvocationEventSchema.omit({ id: true, kind: true, timestamp: true }),
-} as const satisfies Record<EventKind, z.ZodTypeAny>;
-
 export function buildLoggedEventSchema<K extends EventKind>(kind: K): (typeof loggedEventSchemaByKind)[K] {
   return loggedEventSchemaByKind[kind];
 }

@@ -32,10 +32,6 @@ export function verifyTerminalToolOutcome<Envelope, TypedResult>(
   };
 }
 
-export function expectedTerminalToolMessage(contract: Contract<unknown, unknown>): string {
-  return `Expected terminal tool ${terminalNames(contract)}.`;
-}
-
 function terminalNames(contract: Contract<unknown, unknown>): string {
   return contract.terminals.map((terminal) => `'${terminal.name}'`).join(', ');
 }

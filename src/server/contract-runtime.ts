@@ -100,10 +100,6 @@ function isPermissionAllowed(result: Awaited<ReturnType<ContractPermissionPredic
   return result.allowed ? { allowed: true } : { allowed: false, reason: result.reason };
 }
 
-export function defineContract<TContract extends OperatorRouteContract>(contract: TContract): TContract {
-  return contract;
-}
-
 export class ContractRuntime {
   private readonly eventLogger: EventLog;
   private readonly authPolicy: AuthPolicy;

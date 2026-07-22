@@ -21,7 +21,3 @@ export type AppLogEntryOfType<T extends AppLogEntryType> = Extract<AppLogEntry, 
 export function appLogEntryLogicalId(entry: AppLogEntry): string {
   return entry.type === 'provider_exchange' ? providerExchangeLogId(entry.data) : entry.data.id;
 }
-
-export function appLogEntryTimestamp(entry: AppLogEntry): string {
-  return entry.type === 'control_action' ? entry.data.created_at : entry.data.timestamp;
-}

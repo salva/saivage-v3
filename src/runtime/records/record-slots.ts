@@ -1,7 +1,4 @@
-import { basename } from 'node:path';
-
 import type { AgentRole } from '../../schemas/index.js';
-import { buildScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import type { RecordProjection } from '../../persistence/authored-record-files.js';
 type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection };
 import type { AuthoredRecordSlot, RecordVersionArtifact } from '../../persistence/canonical-record-artifacts.js';
@@ -28,8 +25,5 @@ export function recordSlotDefinitionForFilename(filename: string): RecordSlotDef
   const definition = byFilename.get(filename); if (!definition) throw new Error(`Unsupported record slot '${filename}'.`); return definition;
 }
 export function recordSlotDefinitions(): readonly RecordSlotDefinition[] { return RECORD_SLOT_DEFINITIONS; }
-export function normalizeRecordUrl(input: { filename: string; cardId: string; version: number }): string {
-  return `${buildScopedPathUrl('record', [basename(input.filename)])}?card=${encodeURIComponent(input.cardId)}&v=${encodeURIComponent(String(input.version))}`;
-}
 export function latestClosedRecordSlot(reader: AuthoredRecordReader, input: { cardId: string; filename: string }): RecordProjection { return reader.record(input.cardId, input.filename, 'latest'); }
 export function concreteRecordSlot(reader: AuthoredRecordReader, input: { cardId: string; filename: string; version: number }): RecordProjection { return reader.record(input.cardId, input.filename, input.version); }
