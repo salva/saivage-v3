@@ -3,6 +3,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
 import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 import { serializeOutboundEnvelope } from '../../src/server/websocket.js';
+import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER, OUTBOUND_TEXT_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 const IDENTITY = {
   sourceInputId: '11111111-1111-4111-8111-111111111111',
@@ -36,15 +37,15 @@ describe('tool activity projection', () => {
   it.each([
     {
       label: 'settled valid',
-      invocation: { tool: 'run_command', params: { command: 'TOKEN=synthetic-live-marker npm test' }, result: { success: true as const, data: { process_id: 'tok_primary', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/tok_primary/stdout.log', stderr_url: 'work:///processes/tok_primary/stderr.log', stdout_bytes: 1, stderr_bytes: 2 } }, ...IDENTITY },
+      invocation: { tool: 'run_command', params: { command: `TOKEN=${OUTBOUND_RAW_MARKER} npm test` }, result: { success: true as const, data: { process_id: OUTBOUND_IDENTITY, exit_code: 0, status: 'exited', stdout_url: `work:///processes/${OUTBOUND_IDENTITY}/stdout.log`, stderr_url: `work:///processes/${OUTBOUND_IDENTITY}/stderr.log`, stdout_bytes: 1, stderr_bytes: 2 } }, ...IDENTITY },
     },
     {
       label: 'unsupported tool',
-      invocation: { tool: 'unsupported_tok_primary', params: { apiKey: 'sk-synthetic-live-marker', identity: 'ordinary' }, result: { success: false as const, error: 'failed sk-synthetic-live-marker', data: { token: 'sk-synthetic-live-marker', identity: 'ordinary' } }, ...IDENTITY },
+      invocation: { tool: 'unsupported_tok_primary', params: { apiKey: OUTBOUND_RAW_MARKER, identity: 'ordinary' }, result: { success: false as const, error: OUTBOUND_TEXT_MARKER, data: { token: OUTBOUND_RAW_MARKER, identity: 'ordinary' } }, ...IDENTITY },
     },
     {
       label: 'schema-invalid known tool',
-      invocation: { tool: 'webfetch', params: { url: 7, apiKey: 'sk-synthetic-live-marker' }, result: { success: false as const, error: 'failed sk-synthetic-live-marker' }, ...IDENTITY },
+      invocation: { tool: 'webfetch', params: { url: 7, apiKey: OUTBOUND_RAW_MARKER }, result: { success: false as const, error: OUTBOUND_TEXT_MARKER }, ...IDENTITY },
     },
   ])('projects $label once and final WebSocket serialization copies identical classified activity', ({ invocation }) => {
     const projector = jest.fn(projectToolInvocation);
@@ -64,7 +65,7 @@ describe('tool activity projection', () => {
     const serialized = serializeOutboundEnvelope({ type: 'activity', content: activity });
     expect(JSON.parse(serialized)).toEqual({ type: 'activity', content: activity });
     expect(projector).toHaveBeenCalledTimes(1);
-    expect(serialized).not.toContain('sk-synthetic-live-marker');
+    expect(serialized).not.toContain(OUTBOUND_RAW_MARKER);
     expect(activity.tool).toBe(invocation.tool);
   });
 });

@@ -13,6 +13,7 @@ import type { AgentMessage, ConversationSessionId } from '../../src/schemas/inde
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
+import { OUTBOUND_RAW_MARKER, OUTBOUND_REDACTED_URL, OUTBOUND_URL } from '../helpers/outbound-identity-fixtures.js';
 
 const timestamp = '2026-07-18T00:00:00.000Z';
 const inputId = '11111111-1111-4111-8111-111111111111';
@@ -190,20 +191,20 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     const service = new AgentOperatorReadModelService(duringRoot, () => {
       captures += 1;
       const captured = snapshot(sessionId, { mode: 'active', barrier: null });
-      appendConversationBatch({ projectRoot: duringRoot }, [sessionCall(sessionId, { url: 'https://tok_primary.example/path?token=synthetic-query-secret' })]);
+      appendConversationBatch({ projectRoot: duringRoot }, [sessionCall(sessionId, { url: OUTBOUND_URL })]);
       return [captured];
     });
     const projected = conversationBody(service.getConversation(sessionId));
     expect(captures).toBe(1);
     expect(projected.activity_status).toEqual({ status: 'active', pending_calls: [] });
     expect(projected.entries.at(-1)).toMatchObject({ session_id: sessionId, tool: 'webfetch', tool_call_id: 'call-1' });
-    expect(projected.entries.at(-1)!.content).toContain('https://tok_primary.example/path?[REDACTED]');
-    expect(projected.entries.at(-1)!.content).not.toContain('synthetic-query-secret');
+    expect(projected.entries.at(-1)!.content).toContain(OUTBOUND_REDACTED_URL);
+    expect(projected.entries.at(-1)!.content).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it.each(['analyst:global', 'planner:project'] as const)('publishes only the exact frozen waiting %s call while later activity changes', (sessionId) => {
     const root = project();
-    appendConversationBatch({ projectRoot: root }, [...initialRows(sessionId), sessionCall(sessionId, { url: 'https://tok_primary.example/path?token=synthetic-waiting-secret' })]);
+    appendConversationBatch({ projectRoot: root }, [...initialRows(sessionId), sessionCall(sessionId, { url: OUTBOUND_URL })]);
     const barrier = { kind: 'external' as const, sessionId, sourceInputId: inputId, toolCallId: 'call-1', toolName: 'webfetch' };
     const owner = { value: snapshot(sessionId, { mode: 'waiting', barrier }) };
     const service = new AgentOperatorReadModelService(root, () => {
@@ -213,8 +214,8 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     });
     const projected = conversationBody(service.getConversation(sessionId));
     expect(projected.activity_status).toEqual({ status: 'waiting', pending_calls: [{ id: 'call-1', tool: 'webfetch', started_at: timestamp }] });
-    expect(projected.entries.at(-1)!.content).not.toContain('synthetic-waiting-secret');
-    expect(projected.entries.at(-1)!.content).toContain('https://tok_primary.example/path?[REDACTED]');
+    expect(projected.entries.at(-1)!.content).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(projected.entries.at(-1)!.content).toContain(OUTBOUND_REDACTED_URL);
   });
 
   it.each(['aggregate', 'direct'] as const)('captures waiting before %s row acquisition and finds the already-published call', (kind) => {

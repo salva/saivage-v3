@@ -12,6 +12,14 @@ import type {
   ToolInvocationProjector,
 } from '../../src/contracts/tool-invocation-projection.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
+import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
+import {
+  credentialShapedCard,
+  OUTBOUND_IDENTITY,
+  OUTBOUND_RAW_MARKER,
+  OUTBOUND_REDACTED_URL,
+  OUTBOUND_URL,
+} from '../helpers/outbound-identity-fixtures.js';
 
 const timestamp = '2026-07-22T10:00:00.000Z';
 const sourceA = '11111111-1111-4111-8111-111111111111';
@@ -268,4 +276,70 @@ describe('bounded read_agent_session wrapper projection', () => {
     expect(() => projectBoundedAgentSessionWrapper(wrapper('inactive', [result(), call()]), identityProjector)).toThrow('precedes its selected call');
     expect(() => projectBoundedAgentSessionWrapper(wrapper('inactive', [call(), result({ tool: 'websearch' })]), identityProjector)).toThrow('mismatched call/result tool');
   });
+
+  it('enforces every asymmetric suffix case identically in direct and nested bounded wrappers', () => {
+    const accepted = [
+      wrapper('inactive', [result()]),
+      wrapper('active', [result()]),
+      wrapper('active', [ordinary()]),
+      wrapper('active', [call({ arguments: JSON.stringify({ url: OUTBOUND_URL }) })]),
+      wrapper('waiting', [call({ arguments: JSON.stringify({ url: OUTBOUND_URL }) })]),
+      wrapper('waiting', [result({ source: sourceB, callId: 'call-before-boundary', messageIndex: 7 }), call({ messageIndex: 8 })]),
+      wrapper('inactive', [call(), result()]),
+    ];
+    for (const value of accepted) {
+      const direct = projectBoundedAgentSessionWrapper(value, projectToolInvocation);
+      expect(projectNestedWrapper(value)).toEqual(direct);
+      expect(JSON.stringify(direct)).not.toContain(OUTBOUND_RAW_MARKER);
+    }
+    const activeCall = projectBoundedAgentSessionWrapper(accepted[3]!, projectToolInvocation);
+    expect(activeCall.activity_status.pending_calls).toEqual([]);
+    expect(activeCall.messages[0]!.content).toContain(OUTBOUND_REDACTED_URL);
+    expect(activeCall.messages[0]).not.toHaveProperty('result');
+
+    const rejected = [
+      wrapper('inactive', [call()]),
+      wrapper('active', [call(), call({ source: sourceB, callId: 'call-b', messageIndex: 1 })]),
+      wrapper('waiting', [result()]),
+      wrapper('waiting', [call()], []),
+      wrapper('waiting', [call({ tool: 'websearch' })]),
+      wrapper('waiting', [call(), call({ source: sourceB, callId: 'call-b', messageIndex: 1 })]),
+    ];
+    for (const value of rejected) {
+      expect(() => projectBoundedAgentSessionWrapper(value, projectToolInvocation)).toThrow();
+      expect(() => projectNestedWrapper(value)).toThrow();
+    }
+  });
+
+  it('preserves the shared list_cards tag and matching card through conversation and bounded-session rows', () => {
+    const listCall = call({ tool: 'list_cards', arguments: JSON.stringify({ tag: OUTBOUND_IDENTITY }), messageIndex: 7 });
+    const listResult = result({
+      tool: 'list_cards', messageIndex: 8,
+      content: JSON.stringify({ success: true, data: [credentialShapedCard()] }),
+    });
+    const aggregate = projectCompleteCanonicalConversation([listCall, listResult], undefined, projectToolInvocation);
+    const direct = projectBoundedAgentSessionWrapper(wrapper('inactive', aggregate), projectToolInvocation);
+    const nested = projectNestedWrapper(wrapper('inactive', aggregate));
+    expect(nested).toEqual(direct);
+    const projectedArguments = JSON.parse(JSON.parse(direct.messages[0]!.content).tool_calls[0].function.arguments);
+    const projectedResult = JSON.parse(direct.messages[1]!.content);
+    expect(projectedArguments).toEqual({ tag: OUTBOUND_IDENTITY });
+    expect(projectedResult).toMatchObject({ success: true, data: [{ id: 'card-token', tags: [OUTBOUND_IDENTITY], title: 'title token=[REDACTED]' }] });
+    expect(JSON.stringify(direct)).not.toContain(OUTBOUND_RAW_MARKER);
+  });
 });
+
+function projectNestedWrapper(value: BoundedAgentSessionWrapper): BoundedAgentSessionWrapper {
+  const projected = projectToolInvocation({
+    shape: 'result-row',
+    identity: {
+      sessionId: 'analyst:global',
+      sourceInputId: sourceB,
+      toolCallId: 'nested-session',
+      toolName: 'read_agent_session',
+    },
+    result: { success: true, data: value },
+  });
+  if (projected.shape !== 'result-row' || !projected.result.success) throw new Error('Expected nested bounded-session projection.');
+  return projected.result.data as BoundedAgentSessionWrapper;
+}

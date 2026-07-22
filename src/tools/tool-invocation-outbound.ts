@@ -271,7 +271,7 @@ function projectWebsearchData(data: unknown): unknown {
   };
 }
 
-const CARD_RESULT_TEXT_KEYS = new Set(['title', 'brief', 'reason', 'body', 'content', 'message', 'summary', 'error', 'change_reason', 'change_summary', 'resume_reason']);
+const CARD_RESULT_TEXT_KEYS = new Set(['title', 'logical_path', 'brief', 'reason', 'body', 'content', 'message', 'summary', 'error', 'change_reason', 'change_summary', 'resume_reason']);
 const CONTROL_RESULT_TEXT_KEYS = new Set(['message', 'summary', 'error', 'refinement', 'confirmationMessage']);
 const WORKSPACE_RESULT_TEXT_KEYS = new Set(['content', 'preview', 'pattern', 'message', 'error']);
 

@@ -10,6 +10,7 @@ import { AppLogPublicationError, readAppLogEntries } from '../../src/persistence
 import { appLogFile } from '../../src/persistence/layout.js';
 import type { FreshnessEffects } from '../../src/application/freshness-effects.js';
 import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
+import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 const roots: string[] = [];
 const sessionId = 'planner:project';
@@ -158,11 +159,11 @@ describe('provider exchange publication security projection', () => {
 
   it('projects every transport request variant directly and rejects an unclassified adapter key', () => {
     const common = {
-      contract_id: 'tok_contract', contract_name: 'sk-contract', provider: 'ghu_provider', model: 'rt_model',
+      contract_id: 'tok_contract', contract_name: 'sk-contract', provider: OUTBOUND_IDENTITY, model: 'rt_model',
       account: 'tok_account', source_input_id: 'tok_input', attempt_index: 0, started_at: startedAt,
       completed_at: successCompletedAt, status: 'ok' as const, terminal_tool_fired: 'tok_tool', assistant_output_ids: ['sk-output'],
     };
-    const endpoint = 'https://user:pass@tok-provider.invalid/sk-model?token=query-secret#fragment-secret';
+    const endpoint = `https://user:pass@${OUTBOUND_IDENTITY}.invalid/sk-model?token=${OUTBOUND_RAW_MARKER}#fragment-secret`;
     const cases: ProviderExchangeAttempt[] = [
       { ...common, transport: 'generic', request_params: { endpoint, method: 'POST', stream: false, offered_tools_count: 1, temperature: 0.2, max_tokens: 8 } },
       { ...common, transport: 'codex', request_params: { endpoint, method: 'POST', stream: true, offered_tools_count: 2 } },
@@ -171,12 +172,13 @@ describe('provider exchange publication security projection', () => {
 
     for (const [attempt_index, attempt] of cases.entries()) {
       const projected = projectProviderExchangeForPublication({ ...attempt, attempt_index } as ProviderExchangeAttempt & { attempt_index: number }, ['sk-output']);
-      expect(projected.request_params.endpoint).toBe('https://%5BREDACTED%5D:%5BREDACTED%5D@tok-provider.invalid/sk-model?[REDACTED]');
+      expect(projected.request_params.endpoint).toBe(`https://%5BREDACTED%5D:%5BREDACTED%5D@${OUTBOUND_IDENTITY}.invalid/sk-model?[REDACTED]`);
       expect(projected.contract_id).toBe('tok_contract');
-      expect(projected.provider).toBe('ghu_provider');
+      expect(projected.provider).toBe(OUTBOUND_IDENTITY);
       expect(projected.model).toBe('rt_model');
     }
     expect(cases[2]!.request_params).toMatchObject({ include: ['tok_include'], reasoning_keys: ['sk-reasoning'] });
+    expect(JSON.stringify(cases.map((attempt, attempt_index) => projectProviderExchangeForPublication({ ...attempt, attempt_index }, [])))).not.toContain(OUTBOUND_RAW_MARKER);
 
     expect(() => projectProviderExchangeForPublication({
       ...cases[0]!, attempt_index: 4, request_params: { ...cases[0]!.request_params, new_adapter_member: 'unclassified' },

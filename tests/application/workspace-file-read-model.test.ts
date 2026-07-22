@@ -11,6 +11,7 @@ import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-reco
 import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import type { SaivageConfig } from '../../src/agents/config-api.js';
+import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 function cardFilesReader(cards: CardService) {
   return {
@@ -78,16 +79,16 @@ describe('WorkspaceFileReadModelService work URLs', () => {
     const relativePath = 'config/custom-selected.yaml';
     const selectedPath = join(root, relativePath);
     const config = {
-      models: { default: ['tok_primary'], max_tokens: { analyst: 200 } },
-      providers: { ghu_provider: { models: ['tok_primary'], apiKey: '${PROVIDER_KEY}' } },
-      compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'ghu_provider', account: null, model: 'tok_primary' } },
+      models: { default: [OUTBOUND_IDENTITY], max_tokens: { analyst: 200 } },
+      providers: { ghu_provider: { models: [OUTBOUND_IDENTITY], apiKey: '${PROVIDER_KEY}' } },
+      compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'ghu_provider', account: null, model: OUTBOUND_IDENTITY } },
       card_processes: DEFAULT_CARD_PROCESSES,
       mcpServers: { rt_server: { transport: 'stdio', command: 'node', env: { ORDINARY: '${MCP_VALUE}' } } },
     };
     const authority = createTestConfigAuthority(root, {
       relativePath,
       config,
-      environment: { PROVIDER_KEY: 'provider-secret', MCP_VALUE: 'mcp-secret' },
+      environment: { PROVIDER_KEY: OUTBOUND_RAW_MARKER, MCP_VALUE: OUTBOUND_RAW_MARKER },
     });
     const source = readFileSync(selectedPath, 'utf8');
     symlinkSync(relativePath, join(root, 'selected-alias'));
@@ -104,11 +105,12 @@ describe('WorkspaceFileReadModelService work URLs', () => {
       }));
       if (!('content' in result.body) || typeof result.body.content !== 'string') throw new Error('Selected config response is missing content.');
       const projected = JSON.parse(result.body.content) as SaivageConfig;
-      expect(projected.models.default).toEqual(['tok_primary']);
+      expect(projected.models.default).toEqual([OUTBOUND_IDENTITY]);
       expect(projected.providers.ghu_provider.apiKey).toBe('[REDACTED]');
       expect(projected.mcpServers?.rt_server).toEqual(expect.objectContaining({ env: { ORDINARY: '[REDACTED]' } }));
       expect(result.body.content).not.toContain('provider-secret');
       expect(result.body.content).not.toContain('mcp-secret');
+      expect(result.body.content).not.toContain(OUTBOUND_RAW_MARKER);
     }
     expect(readFileSync(selectedPath, 'utf8')).toBe(source);
   }));

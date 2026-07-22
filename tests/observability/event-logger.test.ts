@@ -7,6 +7,7 @@ import { EventQueryService } from '../../src/application/event-query-service.js'
 import { createEventLog } from '../../src/observability/event-logger.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import { AppLogPublicationError } from '../../src/persistence/app-log.js';
+import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -21,11 +22,11 @@ describe('logged event outbound projection', () => {
     log.appendEvent({ id: 'sk-contract-event', timestamp, kind: 'runtime_actionable_error', actionable_error: {
       code: 'contract_response_violation', message: 'Bearer contract-message-secret', nextAction: 'token=contract-action-secret',
       acceptedValues: ['tok_accepted'], docsRef: 'sk-doc-ref', runId: 'tok_run', sessionId: 'sk-session',
-      currentState: { operation: 'tok_operation', statusCode: 500, failureCode: 'sk-failure' },
+      currentState: { operation: OUTBOUND_IDENTITY, statusCode: 500, failureCode: 'sk-failure' },
     } });
     log.appendEvent({ id: 'sk-enum-event', timestamp, kind: 'runtime_actionable_error', actionable_error: {
       code: 'invalid_enum_value', message: 'token=enum-message-secret', nextAction: 'token=enum-action-secret',
-      currentState: { field: 'tok_field', value: { token: 'opaque-secret', identity: 'sk-opaque' } },
+      currentState: { field: OUTBOUND_IDENTITY, value: { token: OUTBOUND_RAW_MARKER, identity: 'sk-opaque' } },
     } });
     log.appendEvent({ id: 'tok_mcp_event', timestamp, kind: 'mcp_tool_invocation', server: 'ghu_server', tool: 'rt_tool', success: false, duration_ms: 12, error: 'password=mcp-secret' });
 
@@ -33,19 +34,20 @@ describe('logged event outbound projection', () => {
     expect(events[0]).toMatchObject({ id: 'tok_event', goal_id: 'card-token', phase: 'sk-phase', error_message: 'token=[REDACTED]' });
     expect(events[1]).toMatchObject({ actionable_error: {
       code: 'contract_response_violation', acceptedValues: ['tok_accepted'], docsRef: 'sk-doc-ref', runId: 'tok_run', sessionId: 'sk-session',
-      currentState: { operation: 'tok_operation', statusCode: 500, failureCode: 'sk-failure' },
+      currentState: { operation: OUTBOUND_IDENTITY, statusCode: 500, failureCode: 'sk-failure' },
       message: 'Bearer [REDACTED]', nextAction: 'token=[REDACTED]',
     } });
     expect(events[2]).toMatchObject({ actionable_error: {
-      currentState: { field: 'tok_field', value: { token: '[REDACTED]', identity: 'sk-[REDACTED]' } },
+      currentState: { field: OUTBOUND_IDENTITY, value: { token: '[REDACTED]', identity: 'sk-[REDACTED]' } },
     } });
     expect(events[3]).toMatchObject({ server: 'ghu_server', tool: 'rt_tool', error: 'password=[REDACTED]' });
 
     const bytes = readFileSync(appLogFile(root), 'utf8');
+    expect(bytes).not.toContain(OUTBOUND_RAW_MARKER);
     for (const secret of ['diagnostic-secret', 'contract-message-secret', 'contract-action-secret', 'enum-message-secret', 'enum-action-secret', 'opaque-secret', 'mcp-secret']) {
       expect(bytes).not.toContain(secret);
     }
-    for (const identity of ['tok_operation', 'sk-failure', 'tok_field', 'ghu_server', 'rt_tool', 'sk-phase']) {
+    for (const identity of [OUTBOUND_IDENTITY, 'sk-failure', 'ghu_server', 'rt_tool', 'sk-phase']) {
       expect(bytes).toContain(identity);
     }
   });

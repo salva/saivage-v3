@@ -4,10 +4,11 @@ import type { WebSocket } from 'ws';
 import { KnownWsEnvelopeSchema } from '../../src/contracts/index.js';
 import { sendToClient } from '../../src/server/websocket.js';
 import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
+import { OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 describe('WebSocket outbound serialization', () => {
   it('validates, redacts, and serializes a known envelope without changing its safe shape', () => {
-    const secret = 'sk-synthetic-websocket-secret';
+    const secret = OUTBOUND_RAW_MARKER;
     const ws = {
       OPEN: 1,
       readyState: 1,
@@ -17,7 +18,7 @@ describe('WebSocket outbound serialization', () => {
     const activity = projectAnalystToolInvocationActivity({
       tool: 'unsupported_tok_primary',
       params: { safe: 'visible', nested: { apiKey: secret, count: 3 } },
-      result: { success: false, error: `failed ${secret}`, data: { status: 'visible' } },
+      result: { success: false, error: `failed token=${secret}`, data: { status: 'visible' } },
       sourceInputId: '11111111-1111-4111-8111-111111111111',
       toolCallId: 'call-tok_primary',
     });
@@ -39,7 +40,7 @@ describe('WebSocket outbound serialization', () => {
           safe: 'visible',
           nested: { apiKey: '[REDACTED]', count: 3 },
         },
-        result: { success: false, error: 'failed sk-[REDACTED]', data: { status: 'visible' } },
+        result: { success: false, error: 'failed token=[REDACTED]', data: { status: 'visible' } },
       },
     });
   });

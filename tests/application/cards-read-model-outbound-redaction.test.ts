@@ -11,6 +11,7 @@ import { createCardHistoryProvider } from '../../src/tools/card-history-provider
 import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER, OUTBOUND_TEXT_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -21,8 +22,8 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
     roots.push(root);
     initProjectTree(root);
     const project = card({ id: 'project', type: 'project', title: 'Project', children: ['card-token'], tags: [] });
-    const parent = card({ id: 'card-token', title: 'title token=title-secret', children: ['card-token-a'], tags: ['tok_primary'] });
-    const child = card({ id: 'card-token-a', title: 'child token=child-title-secret', children: [], tags: ['tok_primary'] });
+    const parent = card({ id: 'card-token', title: `title ${OUTBOUND_TEXT_MARKER}`, children: ['card-token-a'], tags: [OUTBOUND_IDENTITY] });
+    const child = card({ id: 'card-token-a', title: `child ${OUTBOUND_TEXT_MARKER}`, children: [], tags: [OUTBOUND_IDENTITY] });
     const entry = historyEntry(parent);
     const diff = [
       { field: 'tags', before: ['tok_primary'], after: ['tok_primary', 'sk-model'] },
@@ -52,7 +53,7 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
       operator_summary: { blocked: true, hasError: true, error: 'token=[REDACTED]', stale: false },
     });
     assertProjectedCard(children.card);
-    expect(children.children[0]).toMatchObject({ id: 'card-token-a', tags: ['tok_primary'], title: 'child token=[REDACTED]' });
+    expect(children.children[0]).toMatchObject({ id: 'card-token-a', tags: [OUTBOUND_IDENTITY], title: 'child token=[REDACTED]' });
 
     const historyList = readModel.listHistory(parent.id).body as { history: Array<Record<string, unknown>> };
     expect(historyList.history[0]).toMatchObject({
@@ -84,8 +85,11 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
     });
 
     const cardSurface = buildInvocationSurface('analyst', [createCardInspectionProvider({ store })]);
-    const listed = await invokeTool(cardSurface, 'list_cards', { tag: 'tok_primary' });
-    expect(listed).toMatchObject({ success: true, data: [{ id: 'card-token', tags: ['tok_primary'], title: 'title token=[REDACTED]' }, { id: 'card-token-a', tags: ['tok_primary'], title: 'child token=[REDACTED]' }] });
+    const listed = await invokeTool(cardSurface, 'list_cards', { tag: OUTBOUND_IDENTITY });
+    expect(listed).toMatchObject({ success: true, data: [
+      { id: 'card-token', tags: ['tok_primary'], title: 'title token=[REDACTED]', logical_path: 'Project / title token=[REDACTED]' },
+      { id: 'card-token-a', tags: ['tok_primary'], title: 'child token=[REDACTED]', logical_path: 'Project / title token=[REDACTED] / child token=[REDACTED]' },
+    ] });
     const got = await invokeTool(cardSurface, 'get_card', { id: 'card-token' });
     expect(got.success).toBe(true);
     assertProjectedCard((got.data as { card: CardRecord }).card);
@@ -97,6 +101,7 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
     assertProjectedCard((toolEntry.data as CardHistoryEntry).snapshot);
     const toolDiff = await invokeTool(historySurface, 'diff_card', { cardId: 'card-token', fromSeq: 7, toSeq: 8 });
     expect((toolDiff.data as { diff: typeof diff }).diff[0]).toEqual(projectedDiff[0]);
+    expect(JSON.stringify({ detail, children, runs, listed, history, projectedDiff })).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it('fails fast on an unknown card diff field', () => {

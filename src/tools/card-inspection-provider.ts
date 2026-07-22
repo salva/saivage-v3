@@ -77,7 +77,7 @@ function getCard(store: CardInspectionStore, cardId: string): ToolResult {
     .filter((child): child is CardRecord => child !== null)
     .map((child) => cardSummary(store, child));
   const projectedCard = projectCardRecordForOutbound(card);
-  if (!isFullStore(store)) return { success: true, data: { card: projectedCard, status: card.lifecycle.status, parent: cardParentId(card.id), logical_path: logicalPath(store, card), children } };
+  if (!isFullStore(store)) return { success: true, data: { card: projectedCard, status: card.lifecycle.status, parent: cardParentId(card.id), logical_path: projectedLogicalPath(store, card), children } };
   const records = cardRecordSummaries(store, cardId);
   const view = toCardView(store, card);
   const operatorSummary = { ...view.operator_summary, error: view.operator_summary.error === null ? null : redactTextForOutbound(view.operator_summary.error) };
@@ -108,7 +108,12 @@ function childIds(store: CardInspectionStore, cardId: string): string[] {
 }
 
 function cardSummary(store: CardInspectionStore, card: CardRecord): Record<string, unknown> {
-  return { id: card.id, logical_path: logicalPath(store, card), type: card.type, title: redactTextForOutbound(card.title), status: card.lifecycle.status, priority: card.priority, parent: cardParentId(card.id), tags: card.tags };
+  return { id: card.id, logical_path: projectedLogicalPath(store, card), type: card.type, title: redactTextForOutbound(card.title), status: card.lifecycle.status, priority: card.priority, parent: cardParentId(card.id), tags: card.tags };
+}
+
+function projectedLogicalPath(store: CardInspectionStore, card: CardRecord): string | null {
+  const path = logicalPath(store, card);
+  return path === null ? null : redactTextForOutbound(path);
 }
 
 function treeNode(store: CardInspectionStore, cardId: string): Record<string, unknown> | null {

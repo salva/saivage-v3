@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { DEFAULT_CARD_PROCESSES, saivageConfigSchema } from '../../src/agents/config-api.js';
 import { redactForOutbound, SECRET_REDACTION_PLACEHOLDER } from '../../src/redaction/index.js';
+import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 describe('effective config outbound projection', () => {
   it('copies every effective namespace exactly while redacting only authoritative secret containers', () => {
@@ -29,8 +30,8 @@ describe('effective config outbound projection', () => {
         reviewer: ['ghu_reviewer_model'],
         temperature: { analyst: 0.1, planner: 0.2, executor: 0.3, reviewer: 0.4, default: 0.5 },
         max_tokens: { analyst: 200, planner: 201, executor: 202, reviewer: 203, default: 204 },
-        profiles: { tok_primary: { preferred: ['sk-model'], allowed: ['rt-model'] } },
-        routing: { analyst: 'tok_primary', planner: 'tok_primary', executor: 'tok_primary', reviewer: 'tok_primary' },
+        profiles: { [OUTBOUND_IDENTITY]: { preferred: ['sk-model'], allowed: ['rt-model'] } },
+        routing: { analyst: OUTBOUND_IDENTITY, planner: OUTBOUND_IDENTITY, executor: OUTBOUND_IDENTITY, reviewer: OUTBOUND_IDENTITY },
         equivalents: { 'sk-model': ['rt-model', 'ghu_model'] },
         failover: { 'sk-model': ['rt-model'] },
         default: 'tok_default_model',
@@ -39,7 +40,7 @@ describe('effective config outbound projection', () => {
         tok_provider: {
           priority: 3,
           models: ['sk-model'],
-          apiKey: 'provider-secret',
+          apiKey: OUTBOUND_RAW_MARKER,
           baseUrl: 'https://tok_provider.example.test/v1?api_key=identity-value',
           authProfile: 'ghu_auth_profile',
           capabilities: {
@@ -89,7 +90,7 @@ describe('effective config outbound projection', () => {
     expect(projected.providers.tok_provider!.accounts!.tok_account).not.toBe(config.providers.tok_provider!.accounts!.tok_account);
     expect(projected.card_processes.planning).not.toBe(config.card_processes.planning);
     expect((projected.mcpServers!.sk_http_server as { url: string }).url).toBe('https://tok-host.example.test/mcp?api_key=structural-config-value');
-    expect(JSON.stringify(projected)).not.toContain('provider-secret');
+    expect(JSON.stringify(projected)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(JSON.stringify(projected)).not.toContain('account-secret');
     expect(JSON.stringify(projected)).not.toContain('first-secret');
     expect(JSON.stringify(projected)).not.toContain('second-secret');

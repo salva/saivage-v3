@@ -2,10 +2,11 @@ import { describe, expect, it } from '@jest/globals';
 
 import type { ProcessToolResult, ProcessView } from '../../src/contracts/operator-api-processes.js';
 import { redactForOutbound } from '../../src/redaction/index.js';
+import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 describe('process outbound owner', () => {
   it('preserves process-view structure while redacting command prose', () => {
-    const rawSecret = 'synthetic-process-command-secret';
+    const rawSecret = OUTBOUND_RAW_MARKER;
     const process: ProcessView = {
       id: 'tok_process',
       status: 'sk-status',
@@ -13,12 +14,12 @@ describe('process outbound owner', () => {
       ended_at: 'sk-ended-at',
       exit_code: 23,
       timed_out: false,
-      owner_id: 'tok_primary',
+      owner_id: OUTBOUND_IDENTITY,
       owner_kind: 'agent',
       session_id: 'sk-session',
       card_id: 'card-token',
       command: `curl -H "Authorization: Bearer ${rawSecret}" https://example.test`,
-      cwd: 'tok_primary',
+      cwd: OUTBOUND_IDENTITY,
       logs: {
         stdout: 'work:///cards/card-token/processes/tok_process/stdout.log',
         stderr: 'work:///cards/card-token/processes/tok_process/stderr.log',

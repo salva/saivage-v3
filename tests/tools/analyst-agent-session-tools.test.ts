@@ -12,6 +12,7 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
+import { OUTBOUND_RAW_MARKER, OUTBOUND_REDACTED_URL, OUTBOUND_URL } from '../helpers/outbound-identity-fixtures.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-18T00:00:00.000Z';
@@ -22,7 +23,7 @@ function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-agen
 function rows(): AgentMessage[] {
   return [
     { id: 'first', session_id: 'planner:project', role: 'user', kind: 'text', content: 'first', round_id: `r-user-${sourceInputId.replaceAll('-', '')}`, message_index: 0, block_index: 0, timestamp },
-    { id: `${sourceInputId}:tool-call:call-1`, session_id: 'planner:project', role: 'assistant', kind: 'tool_call', tool: 'webfetch', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'webfetch', arguments: '{"url":"https://tok_primary.example/path?token=synthetic-query-secret"}' } }] }), round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`, message_index: 1, block_index: 0, timestamp },
+    { id: `${sourceInputId}:tool-call:call-1`, session_id: 'planner:project', role: 'assistant', kind: 'tool_call', tool: 'webfetch', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'webfetch', arguments: JSON.stringify({ url: OUTBOUND_URL }) } }] }), round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`, message_index: 1, block_index: 0, timestamp },
   ];
 }
 function waiting(): ExecutingLlmSnapshot { return { sessionId: 'planner:project', agentId: 'planner:project', role: 'planner', cardId: 'project', activity: { mode: 'waiting', barrier: { kind: 'external', sessionId: 'planner:project', sourceInputId, toolCallId: 'call-1', toolName: 'webfetch' } } }; }
@@ -37,8 +38,8 @@ describe('Analyst agent-session tools', () => {
     if (!('session' in expected.body)) throw new Error('expected conversation');
     const result = await read_agent_session({ projectRoot, captureExecutingLlmSnapshots: snapshots } as unknown as ToolContext, { sessionId: 'planner:project', lastN: 1 });
     expect(result).toEqual({ success: true, data: { session: expected.body.session, activity_status: expected.body.activity_status, total_messages: 2, returned: 1, parse_errors: 0, messages: [expected.body.entries[1]] } });
-    expect(JSON.stringify(result)).not.toContain('synthetic-query-secret');
-    expect(JSON.stringify(result)).toContain('https://tok_primary.example/path?[REDACTED]');
+    expect(JSON.stringify(result)).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(JSON.stringify(result)).toContain(OUTBOUND_REDACTED_URL);
     if (!result.success) throw new Error(result.error);
     const nested = projectToolInvocation({
       shape: 'result-row',

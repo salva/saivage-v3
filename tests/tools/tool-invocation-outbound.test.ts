@@ -7,13 +7,21 @@ import {
   projectToolInvocation,
   type KnownToolInvocationName,
 } from '../../src/tools/tool-invocation-outbound.js';
+import {
+  credentialShapedCard,
+  OUTBOUND_IDENTITY,
+  OUTBOUND_RAW_MARKER,
+  OUTBOUND_REDACTED_URL,
+  OUTBOUND_TEXT_MARKER,
+  OUTBOUND_URL,
+} from '../helpers/outbound-identity-fixtures.js';
 
 const sessionId = parseConversationSessionId('planner:project');
 const sourceInputId = '11111111-1111-4111-8111-111111111111';
-const marker = 'Authorization: Bearer synthetic-secret-value';
+const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
 const validArguments: Record<KnownToolInvocationName, unknown> = {
-  create_card: { type: 'code', title: marker, brief: marker, tags: ['tok_primary'] },
+  create_card: { type: 'code', title: marker, brief: marker, tags: [OUTBOUND_IDENTITY] },
   cancel_card: { cardId: 'card-a', reason: marker },
   delete_card: { ids: ['card-a'] },
   reorder_child: { parentId: 'project', orderedChildIds: ['card-a'] },
@@ -27,7 +35,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   read_control_actions: { limit: 1, since: '2026-07-22T10:00:00.000Z' },
   list_processes_tool: { status: 'running', cardId: 'card-a' },
   list_agent_sessions: {}, read_agent_session: { sessionId: 'planner:project', lastN: 1 },
-  list_cards: { tag: 'tok_primary' }, get_card: { id: 'card-a' }, get_tree: { rootId: 'card-a' },
+  list_cards: { tag: OUTBOUND_IDENTITY }, get_card: { id: 'card-a' }, get_tree: { rootId: 'card-a' },
   list_card_history: { cardId: 'card-a' },
   get_card_history_entry: { cardId: 'card-a', version_seq: 1 },
   diff_card: { cardId: 'card-a', fromSeq: 1, toSeq: 2 },
@@ -41,9 +49,9 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   wait_process: { process_id: 'tok_primary', timeout_ms: 1 },
   kill_process: { process_id: 'tok_primary' },
   websearch: { query: marker, max_results: 1 },
-  webfetch: { url: 'https://tok_primary.example/path?secret=synthetic-secret-value', read_mode: 'text' },
+  webfetch: { url: OUTBOUND_URL, read_mode: 'text' },
   skill: { name: 'tok_primary' },
-  mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: 'synthetic-secret-value', identity: 'stable_value' } },
+  mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
   edit_card: { card_id: 'card-a', title: marker, tags: ['tok_primary'] },
   activate_card: { card_id: 'card-a' },
   emit_result: { outcome: 'tok_primary', summary: marker },
@@ -58,7 +66,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     for (const toolName of KNOWN_TOOL_INVOCATION_NAMES) {
       const complete = projectToolInvocation({ shape: 'complete', identity: identity(toolName), arguments: validArguments[toolName], result: { success: false, error: marker } });
       expect(complete).toMatchObject({ shape: 'complete', identity: identity(toolName), result: { success: false } });
-      expect(JSON.stringify(complete)).not.toContain('synthetic-secret-value');
+      expect(JSON.stringify(complete)).not.toContain(OUTBOUND_RAW_MARKER);
 
       const call = projectToolInvocation({ shape: 'call-row', identity: callIdentity(toolName), arguments: JSON.stringify(validArguments[toolName]) });
       expect(call).toMatchObject({ shape: 'call-row', identity: callIdentity(toolName) });
@@ -67,27 +75,27 @@ describe('projectToolInvocation exhaustive identity switch', () => {
       const result = projectToolInvocation({ shape: 'result-row', identity: identity(toolName), result: { success: false, error: marker } });
       expect(result).toMatchObject({ shape: 'result-row', identity: identity(toolName), result: { success: false } });
       expect(result).not.toHaveProperty('arguments');
-      expect(JSON.stringify(result)).not.toContain('synthetic-secret-value');
+      expect(JSON.stringify(result)).not.toContain(OUTBOUND_RAW_MARKER);
     }
   });
 
   it('preserves structural identities while classifying every valid argument group', () => {
-    expect(complete('list_cards').arguments).toEqual({ tag: 'tok_primary' });
+    expect(complete('list_cards').arguments).toEqual({ tag: OUTBOUND_IDENTITY });
     expect(complete('reconfigure').arguments).toEqual({ action: 'set_server_setting', key: 'host', value: 'tok_primary' });
-    expect(JSON.stringify(complete('create_card').arguments)).not.toContain('synthetic-secret-value');
-    expect(JSON.stringify(complete('write').arguments)).not.toContain('synthetic-secret-value');
-    expect(JSON.stringify(complete('run_command').arguments)).not.toContain('synthetic-secret-value');
-    expect(complete('webfetch').arguments).toEqual({ url: 'https://tok_primary.example/path?[REDACTED]', read_mode: 'text' });
+    expect(JSON.stringify(complete('create_card').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(JSON.stringify(complete('write').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(JSON.stringify(complete('run_command').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(complete('webfetch').arguments).toEqual({ url: OUTBOUND_REDACTED_URL, read_mode: 'text' });
     expect(complete('mcp_tool_call').arguments).toEqual({ serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: '[REDACTED]', identity: 'stable_value' } });
     expect(complete('emit_result').arguments).toMatchObject({ outcome: 'tok_primary' });
-    expect(JSON.stringify(complete('emit_result').arguments)).not.toContain('synthetic-secret-value');
+    expect(JSON.stringify(complete('emit_result').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it('classifies every reconfigure action/key/value branch without rewriting identities', () => {
     const cases = [
       { action: 'set_role_routing', role: 'executor', model_candidate: 'sk-model' },
       { action: 'set_failover_chain', for_model: 'sk-model', ordered_failover_models: ['tok_primary'] },
-      { action: 'mcp_add', name: 'ghu_server', command: marker, args: [marker], env: { UNUSUAL: 'synthetic-secret-value' } },
+      { action: 'mcp_add', name: 'ghu_server', command: marker, args: [marker], env: { UNUSUAL: OUTBOUND_RAW_MARKER } },
       { action: 'mcp_edit', name: 'ghu_server', command: marker },
       { action: 'mcp_remove', name: 'ghu_server' },
       { action: 'set_runtime_setting', key: 'continuous_improvement', value: true },
@@ -103,7 +111,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     }
     const mcp = (projectToolInvocation({ shape: 'complete', identity: identity('reconfigure'), arguments: cases[2], result: { success: false, error: marker } }) as Extract<ToolInvocationProjectionInput, { shape: 'complete' }>).arguments;
     expect(mcp).toMatchObject({ name: 'ghu_server', env: { UNUSUAL: '[REDACTED]' } });
-    expect(JSON.stringify(mcp)).not.toContain('synthetic-secret-value');
+    expect(JSON.stringify(mcp)).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it('keeps unsupported, malformed-JSON, and schema-invalid-known calls readable on distinct paths', () => {
@@ -135,6 +143,65 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     const workspace = projectToolInvocation({ shape: 'result-row', identity: identity('read'), result: { success: true, data: { path: 'project:///tok_primary', content: marker, total_lines: 1, truncated: false } } });
     expect(workspace).toMatchObject({ result: { success: true, data: { path: 'project:///tok_primary' } } });
     expect(JSON.stringify(workspace)).not.toContain('synthetic-secret-value');
+  });
+
+  it('keeps the shared tag filter and matching card result exact in every invocation shape', () => {
+    const card = credentialShapedCard();
+    const completeProjection = projectToolInvocation({
+      shape: 'complete', identity: identity('list_cards'), arguments: { tag: OUTBOUND_IDENTITY },
+      result: { success: true, data: [card] },
+    });
+    expect(completeProjection).toMatchObject({
+      arguments: { tag: OUTBOUND_IDENTITY },
+      result: { success: true, data: [{ id: 'card-token', tags: [OUTBOUND_IDENTITY], title: 'title token=[REDACTED]' }] },
+    });
+    expect(JSON.stringify(completeProjection)).not.toContain(OUTBOUND_RAW_MARKER);
+
+    const callProjection = projectToolInvocation({
+      shape: 'call-row', identity: callIdentity('list_cards'), arguments: JSON.stringify({ tag: OUTBOUND_IDENTITY }),
+    });
+    expect(JSON.parse((callProjection as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ tag: OUTBOUND_IDENTITY });
+    expect(callProjection).not.toHaveProperty('result');
+
+    const resultProjection = projectToolInvocation({
+      shape: 'result-row', identity: identity('list_cards'), result: { success: true, data: [card] },
+    });
+    expect(resultProjection).toMatchObject({ result: { data: [{ tags: [OUTBOUND_IDENTITY] }] } });
+    expect(resultProjection).not.toHaveProperty('arguments');
+    expect(JSON.stringify(resultProjection)).not.toContain(OUTBOUND_RAW_MARKER);
+  });
+
+  it('keeps all rejected call forms shape-independent and never invents the absent side', () => {
+    const cases = [
+      { toolName: 'unsupported_tok_primary', arguments: { apiKey: OUTBOUND_RAW_MARKER, identity: OUTBOUND_IDENTITY } },
+      { toolName: 'webfetch', arguments: { url: 7, apiKey: OUTBOUND_RAW_MARKER } },
+    ] as const;
+    for (const fixture of cases) {
+      const completeProjection = projectToolInvocation({
+        shape: 'complete', identity: identity(fixture.toolName), arguments: fixture.arguments,
+        result: { success: false, error: OUTBOUND_TEXT_MARKER },
+      });
+      expect(completeProjection).toMatchObject({ shape: 'complete', identity: { toolName: fixture.toolName }, result: { success: false } });
+      expect(JSON.stringify(completeProjection)).not.toContain(OUTBOUND_RAW_MARKER);
+
+      const callProjection = projectToolInvocation({
+        shape: 'call-row', identity: callIdentity(fixture.toolName), arguments: JSON.stringify(fixture.arguments),
+      });
+      expect(callProjection).not.toHaveProperty('result');
+      expect(JSON.stringify(callProjection)).not.toContain(OUTBOUND_RAW_MARKER);
+
+      const resultProjection = projectToolInvocation({
+        shape: 'result-row', identity: identity(fixture.toolName), result: { success: false, error: OUTBOUND_TEXT_MARKER },
+      });
+      expect(resultProjection).not.toHaveProperty('arguments');
+      expect(JSON.stringify(resultProjection)).not.toContain(OUTBOUND_RAW_MARKER);
+    }
+
+    const malformed = projectToolInvocation({
+      shape: 'call-row', identity: callIdentity('webfetch'), arguments: `{${OUTBOUND_TEXT_MARKER}`,
+    });
+    expect(malformed).not.toHaveProperty('result');
+    expect(JSON.stringify(malformed)).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it('recursively supplies itself to the bounded read_agent_session result leaf', () => {

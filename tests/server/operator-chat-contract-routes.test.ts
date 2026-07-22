@@ -17,6 +17,10 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
+import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER, OUTBOUND_TEXT_MARKER } from '../helpers/outbound-identity-fixtures.js';
+import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
+import { read_agent_session } from '../../src/tools/analyst-misc-tools.js';
+import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
@@ -87,24 +91,24 @@ describe('operator chat route request contracts', () => {
       label: 'settled valid',
       invocation: {
         tool: 'run_command',
-        params: { command: 'TOKEN=sk-chat-marker npm test' },
-        result: { success: true as const, data: { process_id: 'tok_primary', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/tok_primary/stdout.log', stderr_url: 'work:///processes/tok_primary/stderr.log', stdout_bytes: 1, stderr_bytes: 2 } },
+        params: { command: `TOKEN=${OUTBOUND_RAW_MARKER} npm test` },
+        result: { success: true as const, data: { process_id: OUTBOUND_IDENTITY, exit_code: 0, status: 'exited', stdout_url: `work:///processes/${OUTBOUND_IDENTITY}/stdout.log`, stderr_url: `work:///processes/${OUTBOUND_IDENTITY}/stderr.log`, stdout_bytes: 1, stderr_bytes: 2 } },
       },
     },
     {
       label: 'unsupported',
       invocation: {
         tool: 'unsupported_tok_primary',
-        params: { apiKey: 'sk-chat-marker' },
-        result: { success: false as const, error: 'failed sk-chat-marker' },
+        params: { apiKey: OUTBOUND_RAW_MARKER },
+        result: { success: false as const, error: OUTBOUND_TEXT_MARKER },
       },
     },
     {
       label: 'schema-invalid known',
       invocation: {
         tool: 'webfetch',
-        params: { url: 7, apiKey: 'sk-chat-marker' },
-        result: { success: false as const, error: 'failed sk-chat-marker' },
+        params: { url: 7, apiKey: OUTBOUND_RAW_MARKER },
+        result: { success: false as const, error: OUTBOUND_TEXT_MARKER },
       },
     },
     {
@@ -134,9 +138,56 @@ describe('operator chat route request contracts', () => {
     });
     if (projected.shape !== 'complete') throw new Error('Expected complete chat fixture projection.');
     expect(body.toolInvocations[0]).toEqual({ tool: projected.identity.toolName, params: projected.arguments, result: projected.result });
-    expect(response.body).not.toContain('sk-chat-marker');
+    expect(response.body).not.toContain(OUTBOUND_RAW_MARKER);
     expect(response.body).not.toContain('sourceInputId');
     expect(response.body).not.toContain('toolCallId');
+  });
+
+  it('publishes one settled invocation identically through chat, WebSocket, Agent, chats.get, and bounded session paths', async () => {
+    const sourceInputId = '11111111-1111-4111-8111-111111111111';
+    const toolCallId = 'call-tok_primary';
+    const timestamp = '2026-07-22T10:00:00.000Z';
+    const invocation = {
+      tool: 'run_command',
+      params: { command: `TOKEN=${OUTBOUND_RAW_MARKER} npm test` },
+      result: { success: true as const, data: {
+        process_id: OUTBOUND_IDENTITY, exit_code: 0, status: 'exited',
+        stdout_url: `work:///processes/${OUTBOUND_IDENTITY}/stdout.log`,
+        stderr_url: `work:///processes/${OUTBOUND_IDENTITY}/stderr.log`, stdout_bytes: 1, stderr_bytes: 2,
+      } },
+      sourceInputId,
+      toolCallId,
+    };
+    submit.mockResolvedValueOnce({ sessionId: 'analyst:global', toolInvocations: [invocation], restart: null });
+    const sent = await fastify.inject({ method: 'POST', url: '/api/chats/analyst%3Aglobal', headers: authHeaders, payload: { content: 'invoke' } });
+    const chatInvocation = (sent.json() as { toolInvocations: Array<{ tool: string; params: unknown; result: unknown }> }).toolInvocations[0]!;
+
+    appendConversationBatch({ projectRoot }, buildAnalystIngressRows(sourceInputId, 'workspace', 'invoke'));
+    appendConversationBatch({ projectRoot }, [{
+      id: `${sourceInputId}:tool-call:${toolCallId}`, session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: invocation.tool, tool_call_id: toolCallId,
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: toolCallId, type: 'function', function: { name: invocation.tool, arguments: JSON.stringify(invocation.params) } }] }),
+      round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`, message_index: 3, block_index: 0, timestamp,
+    }, {
+      id: `${sourceInputId}:tool-result:${toolCallId}`, session_id: 'analyst:global', role: 'tool', kind: 'tool_result', tool: invocation.tool, tool_call_id: toolCallId,
+      content: JSON.stringify(invocation.result), round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`, message_index: 4, block_index: 0, timestamp,
+    }]);
+
+    const agentResult = new AgentOperatorReadModelService(projectRoot, () => []).getConversation('analyst:global');
+    if (agentResult.statusCode === 400 || agentResult.statusCode === 404) throw new Error(agentResult.body.error);
+    const agentRows = agentResult.body.entries.slice(-2);
+    const got = await fastify.inject({ method: 'GET', url: '/api/chats/analyst%3Aglobal', headers: authHeaders });
+    expect((got.json() as { entries: unknown[] }).entries.slice(-2)).toEqual(agentRows);
+
+    const bounded = await read_agent_session({ projectRoot, captureExecutingLlmSnapshots: () => [] } as unknown as ToolContext, { sessionId: 'analyst:global', lastN: 2 });
+    if (!bounded.success) throw new Error(bounded.error);
+    expect((bounded.data as { messages: unknown[] }).messages).toEqual(agentRows);
+
+    const callArguments = JSON.parse(JSON.parse(agentRows[0]!.content).tool_calls[0].function.arguments);
+    const result = JSON.parse(agentRows[1]!.content);
+    expect({ tool: agentRows[0]!.tool, params: callArguments, result }).toEqual(chatInvocation);
+    const activity = projectAnalystToolInvocationActivity(invocation);
+    expect({ tool: activity.tool, params: activity.params, result: activity.result }).toEqual(chatInvocation);
+    expect(JSON.stringify({ chatInvocation, agentRows, bounded, activity })).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it('preserves optional content semantics after request parsing', async () => {
