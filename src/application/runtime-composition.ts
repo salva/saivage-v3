@@ -162,7 +162,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeProcessRootScope: services.runtimeProcessRootScope, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, freshness: services.freshness });
   const runtimeControl = new RuntimeControlService(runtimeMechanics);
   const runtimeApi: RuntimeApi = runtimeControl;
-  cardStore.setNotifyCard((cardId, notification) => runtimeApi.notifyCard(cardId, notification));
   let analystRuntimeCache: AnalystRuntime | null = null;
   const analystProvider = createInvocationServiceProvider(invocationService);
   const createAnalystSession = (_turn: AnalystTurnInput): AnalystSession => {

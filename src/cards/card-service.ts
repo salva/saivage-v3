@@ -66,7 +66,6 @@ import {
 import { canCreateChildInStatus } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 import type { CardNotification } from '../schemas/types.js';
-import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { CardServiceInvariantError } from './errors.js';
 import { cardDepth, cardParentId } from '../schemas/card-id.js';
 import type { CardActivationOutcome } from '../contracts/tool-api.js';
@@ -123,11 +122,9 @@ function assertChildParentAdmission(parent: CardRecord, message: string): void {
 
 export class CardService {
   readonly maxDepth = 5;
-  private notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
 
   constructor(readonly projectRoot: string, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
 
-  setNotifyCard(notifyCard: ((cardId: string, notification: CardNotification) => NotifyCardResult) | undefined): void { this.notifyCard = notifyCard; }
   get recordReader() { return { record: (cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest') => this.readRecord(cardId, filename, version), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
 
   private state(): CardIndex {
