@@ -22,6 +22,7 @@ import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { buildFilesDebugOperatorContractHandlers } from '../../src/server/routes/operator-files-debug-handlers.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { createTestConfigAuthority } from '../helpers/project-config.js';
 
 const authHeaders = { authorization: 'Bearer e2e-files-token' };
 const mutationContext = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'canonical files e2e' };
@@ -65,7 +66,7 @@ async function harness(): Promise<Harness> {
   new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventLogger: createEventLog(root) }).mount(
     app,
     filesDebugOperatorApiContracts,
-    buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider }),
+    buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider, configAuthority: createTestConfigAuthority(root) }),
   );
   await app.ready();
   apps.push(app);
@@ -109,7 +110,7 @@ describe('canonical card Files browsing through real routes and CardService stat
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventLogger: createEventLog(root) }).mount(
       reconstructedApp,
       filesDebugOperatorApiContracts,
-      buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider }),
+      buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider, configAuthority: createTestConfigAuthority(root) }),
     );
     await reconstructedApp.ready();
     apps.push(reconstructedApp);

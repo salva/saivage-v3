@@ -13,6 +13,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { appLogFile, cardNamespace } from '../../src/persistence/layout.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { createEventLog } from '../../src/observability/index.js';
+import { createTestConfigAuthority } from '../helpers/project-config.js';
 
 describe('operator files and debug contract handlers', () => {
   let fastify: FastifyInstance;
@@ -31,7 +32,7 @@ describe('operator files and debug contract handlers', () => {
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot) }).mount(
       fastify,
       filesDebugOperatorApiContracts,
-      buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider }),
+      buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider, configAuthority: createTestConfigAuthority(projectRoot) }),
     );
     await fastify.ready();
   });

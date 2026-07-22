@@ -8,6 +8,9 @@ import { CardService } from '../../src/cards/card-service.js';
 import { cardNamespace } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
+import { createTestConfigAuthority } from '../helpers/project-config.js';
+import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import type { SaivageConfig } from '../../src/agents/config-api.js';
 
 function cardFilesReader(cards: CardService) {
   return {
@@ -44,12 +47,13 @@ describe('WorkspaceFileReadModelService work URLs', () => {
   it('reads process logs and stash files through canonical work URLs', () => withRoot((root) => {
     mkdirSync(join(root, '.saivage/work', 'processes', 'proc-1'), { recursive: true });
     mkdirSync(join(root, '.saivage/work', 'tmp', 'stash'), { recursive: true });
-    writeFileSync(join(root, '.saivage/work', 'processes', 'proc-1', 'stdout.log'), 'stdout output', 'utf8');
-    writeFileSync(join(root, '.saivage/work', 'tmp', 'stash', 'webfetch.txt'), 'stashed output', 'utf8');
-    const service = new WorkspaceFileReadModelService(root, records);
+    writeFileSync(join(root, '.saivage/work', 'processes', 'proc-1', 'stdout.log'), 'stdout token=process-secret', 'utf8');
+    writeFileSync(join(root, '.saivage/work', 'tmp', 'stash', 'webfetch.txt'), 'stashed apiKey=stash-secret', 'utf8');
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
-    expect(service.readFileContent('work:///processes/proc-1/stdout.log')).toEqual(expect.objectContaining({ body: expect.objectContaining({ path: 'work:///processes/proc-1/stdout.log', content: 'stdout output' }) }));
-    expect(service.readFileContent('work:///tmp/stash/webfetch.txt')).toEqual(expect.objectContaining({ body: expect.objectContaining({ path: 'work:///tmp/stash/webfetch.txt', content: 'stashed output' }) }));
+    expect(service.readFileContent('work:///processes/proc-1/stdout.log')).toEqual(expect.objectContaining({ body: expect.objectContaining({ path: 'work:///processes/proc-1/stdout.log', content: 'stdout token=[REDACTED]', redacted: true, sensitivity: 'sensitive-redacted' }) }));
+    expect(service.readFileContent('work:///tmp/stash/webfetch.txt')).toEqual(expect.objectContaining({ body: expect.objectContaining({ path: 'work:///tmp/stash/webfetch.txt', content: 'stashed apiKey=[REDACTED]', redacted: true, sensitivity: 'sensitive-redacted' }) }));
+    expect(service.readFileContent('.saivage/work/processes/proc-1/stdout.log')).toEqual(expect.objectContaining({ body: expect.objectContaining({ path: '.saivage/work/processes/proc-1/stdout.log', content: 'stdout token=[REDACTED]', redacted: true, sensitivity: 'sensitive-redacted' }) }));
   }));
 
   it('omits and rejects blocked work paths while preserving ordinary work files', () => withRoot((root) => {
@@ -58,7 +62,7 @@ describe('WorkspaceFileReadModelService work URLs', () => {
     writeFileSync(join(workRoot, '.env'), 'synthetic blocked value', 'utf8');
     writeFileSync(join(workRoot, 'stdout.log'), 'stdout output', 'utf8');
     symlinkSync('.env', join(workRoot, 'safe-alias.log'));
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     const listing = service.listFiles('work:///processes/proc-1');
     expect(listing.body).toEqual(expect.objectContaining({
@@ -67,14 +71,94 @@ describe('WorkspaceFileReadModelService work URLs', () => {
     expect(service.readFileContent('work:///processes/proc-1/.env').statusCode).toBe(403);
     expect(service.listFiles('work:///processes/proc-1/.env').statusCode).toBe(403);
     expect(service.readFileContent('work:///processes/proc-1/safe-alias.log').statusCode).toBe(403);
-    expect(service.readFileContent('work:///processes/proc-1/stdout.log')).toEqual(expect.objectContaining({ body: expect.objectContaining({ content: 'stdout output', redacted: false, sensitivity: 'normal' }) }));
+    expect(service.readFileContent('work:///processes/proc-1/stdout.log')).toEqual(expect.objectContaining({ body: expect.objectContaining({ content: 'stdout output', redacted: true, sensitivity: 'sensitive-redacted' }) }));
+  }));
+
+  it('projects a custom selected config directly through its lexical path and contained alias', () => withRoot((root) => {
+    const relativePath = 'config/custom-selected.yaml';
+    const selectedPath = join(root, relativePath);
+    const config = {
+      models: { default: ['tok_primary'], max_tokens: { analyst: 200 } },
+      providers: { ghu_provider: { models: ['tok_primary'], apiKey: '${PROVIDER_KEY}' } },
+      compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'ghu_provider', account: null, model: 'tok_primary' } },
+      card_processes: DEFAULT_CARD_PROCESSES,
+      mcpServers: { rt_server: { transport: 'stdio', command: 'node', env: { ORDINARY: '${MCP_VALUE}' } } },
+    };
+    const authority = createTestConfigAuthority(root, {
+      relativePath,
+      config,
+      environment: { PROVIDER_KEY: 'provider-secret', MCP_VALUE: 'mcp-secret' },
+    });
+    const source = readFileSync(selectedPath, 'utf8');
+    symlinkSync(relativePath, join(root, 'selected-alias'));
+    const service = new WorkspaceFileReadModelService(root, records, authority);
+
+    for (const path of [relativePath, 'selected-alias']) {
+      const result = service.readFileContent(path);
+      expect(result.body).toEqual(expect.objectContaining({
+        path,
+        size: Buffer.byteLength(source),
+        contentType: 'application/json',
+        redacted: true,
+        sensitivity: 'sensitive-redacted',
+      }));
+      if (!('content' in result.body) || typeof result.body.content !== 'string') throw new Error('Selected config response is missing content.');
+      const projected = JSON.parse(result.body.content) as SaivageConfig;
+      expect(projected.models.default).toEqual(['tok_primary']);
+      expect(projected.providers.ghu_provider.apiKey).toBe('[REDACTED]');
+      expect(projected.mcpServers?.rt_server).toEqual(expect.objectContaining({ env: { ORDINARY: '[REDACTED]' } }));
+      expect(result.body.content).not.toContain('provider-secret');
+      expect(result.body.content).not.toContain('mcp-secret');
+    }
+    expect(readFileSync(selectedPath, 'utf8')).toBe(source);
+  }));
+
+  it('projects a selected config addressed through work URL before generic work text handling', () => withRoot((root) => {
+    const authority = createTestConfigAuthority(root, {
+      relativePath: '.saivage/work/tmp/selected.yaml',
+      config: {
+        models: { default: ['tok_primary'], max_tokens: { analyst: 200 } },
+        providers: { provider: { models: ['tok_primary'], apiKey: 'selected-secret' } },
+        compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'provider', account: null, model: 'tok_primary' } },
+        card_processes: DEFAULT_CARD_PROCESSES,
+      },
+    });
+    const service = new WorkspaceFileReadModelService(root, records, authority);
+
+    const result = service.readFileContent('work:///tmp/selected.yaml');
+    expect(result.body).toEqual(expect.objectContaining({ path: 'work:///tmp/selected.yaml', contentType: 'application/json', redacted: true, sensitivity: 'sensitive-redacted' }));
+    if (!('content' in result.body) || typeof result.body.content !== 'string') throw new Error('Selected work config response is missing content.');
+    expect(JSON.parse(result.body.content)).toEqual(expect.objectContaining({
+      models: expect.objectContaining({ default: ['tok_primary'] }),
+      providers: expect.objectContaining({ provider: expect.objectContaining({ apiKey: '[REDACTED]' }) }),
+    }));
+    expect(result.body.content).not.toContain('selected-secret');
+  }));
+
+  it('retains binary rejection for ordinary and selected work files', () => withRoot((root) => {
+    mkdirSync(join(root, '.saivage/work/tmp'), { recursive: true });
+    writeFileSync(join(root, '.saivage/work/tmp/binary.bin'), Buffer.from([0, 1, 2, 3]));
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+
+    expect(service.readFileContent('work:///tmp/binary.bin')).toEqual({
+      statusCode: 415,
+      body: { error: 'Binary or non-text file cannot be previewed.', path: 'work:///tmp/binary.bin' },
+    });
+
+    const selectedAuthority = createTestConfigAuthority(root, { relativePath: '.saivage/work/tmp/selected-binary.bin' });
+    writeFileSync(selectedAuthority.path, Buffer.from([0, 1, 2, 3]));
+    const selectedService = new WorkspaceFileReadModelService(root, records, selectedAuthority);
+    expect(selectedService.readFileContent('work:///tmp/selected-binary.bin')).toEqual({
+      statusCode: 415,
+      body: { error: 'Binary or non-text file cannot be previewed.', path: 'work:///tmp/selected-binary.bin' },
+    });
   }));
 
   it('lists work directories with work URL child paths while preserving project-relative navigation', () => withRoot((root) => {
     mkdirSync(join(root, '.saivage/work', 'processes', 'proc-1'), { recursive: true });
     writeFileSync(join(root, '.saivage/work', 'processes', 'proc-1', 'stdout.log'), 'stdout output', 'utf8');
     writeFileSync(join(root, 'README.md'), 'readme', 'utf8');
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('work:///processes/proc-1')).toEqual(expect.objectContaining({ body: expect.objectContaining({ files: [expect.objectContaining({ path: 'work:///processes/proc-1/stdout.log' })] }) }));
     expect(service.readFileContent('README.md')).toEqual(expect.objectContaining({ body: expect.objectContaining({ path: 'README.md', content: 'readme' }) }));
@@ -84,7 +168,7 @@ describe('WorkspaceFileReadModelService work URLs', () => {
   it('lists the canonical work root and treats it as a directory for content reads', () => withRoot((root) => {
     mkdirSync(join(root, '.saivage/work', 'processes'), { recursive: true });
     mkdirSync(join(root, '.saivage/work', 'tmp'), { recursive: true });
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('work:///')).toEqual({
       body: {
@@ -102,7 +186,7 @@ describe('WorkspaceFileReadModelService work URLs', () => {
 describe('WorkspaceFileReadModelService record URLs', () => {
   it('validates the complete URL before reading and maps only typed absence to fixed 404', () => withRoot((root) => {
     const record = jest.fn(() => { throw new AuthoredRecordNotFoundError(); });
-    const service = new WorkspaceFileReadModelService(root, () => ({ ...records(), record }));
+    const service = new WorkspaceFileReadModelService(root, () => ({ ...records(), record }), createTestConfigAuthority(root));
     for (const path of [
       'record:///bogus.md?card=project&v=latest',
       'record:///card.json?card=project&v=latest',
@@ -119,7 +203,7 @@ describe('WorkspaceFileReadModelService record URLs', () => {
 
   it('propagates hostile non-absence reader failures unchanged', () => withRoot((root) => {
     const hostile = Object.assign(new Error('HOSTILE_RECORD_FAILURE'), { token: 'HOSTILE_TOKEN' });
-    const service = new WorkspaceFileReadModelService(root, () => ({ ...records(), record: () => { throw hostile; } }));
+    const service = new WorkspaceFileReadModelService(root, () => ({ ...records(), record: () => { throw hostile; } }), createTestConfigAuthority(root));
     expect(() => service.readFileContent('record:///brief.md?card=project&v=latest')).toThrow(hostile);
   }));
 });
@@ -128,7 +212,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
   it('reserves canonical card paths and every normalized lexical equivalent without physical fallback', () => withRoot((root) => {
     mkdirSync(join(root, '.saivage/cards/project'), { recursive: true });
     writeFileSync(join(root, '.saivage/cards/project', 'unlinked.txt'), 'must stay opaque', 'utf8');
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     for (const path of [
       '.saivage/cards',
@@ -147,7 +231,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
   it('treats POSIX backslashes as ordinary filename characters rather than card grammar separators', () => withRoot((root) => {
     const ordinaryName = '.saivage\\cards';
     writeFileSync(join(root, ordinaryName), 'ordinary backslash filename', 'utf8');
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent(ordinaryName)).toEqual(expect.objectContaining({
       body: expect.objectContaining({ path: ordinaryName, content: 'ordinary backslash filename' }),
@@ -165,7 +249,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
     symlinkSync('.saivage/cards/project/card.jsonl', join(root, 'card-alias'));
     symlinkSync('../../cards/project/card.jsonl', join(root, '.saivage/work', 'card-alias'));
     symlinkSync('ordinary.txt', join(root, 'ordinary-alias'));
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent('card-alias').statusCode).toBe(404);
     expect(service.readFileContent('work:///card-alias').statusCode).toBe(404);
@@ -184,7 +268,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
         symlinkSync(join(root, '.saivage/cards'), join(root, 'absolute'));
         symlinkSync(outside, join(root, 'leave'));
         symlinkSync(join(root, '.saivage/cards'), join(outside, 'reenter'));
-        const service = new WorkspaceFileReadModelService(root, records);
+        const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
         expect(service.listFiles('links/relative/project').statusCode).toBe(404);
         expect(service.listFiles('absolute/project').statusCode).toBe(404);
@@ -199,7 +283,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
     symlinkSync('cycle-b', join(root, 'cycle-a'));
     symlinkSync('cycle-a', join(root, 'cycle-b'));
     symlinkSync('missing-target', join(root, 'broken'));
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent('cycle-a').statusCode).toBe(403);
     expect(service.readFileContent('broken').statusCode).toBe(404);
@@ -208,7 +292,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
 
   it('rejects malformed work URLs before alias handling and retains canonical work spelling', () => withRoot((root) => {
     mkdirSync(join(root, '.saivage/work'), { recursive: true });
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     for (const path of ['work:////', 'work:///double//segment', 'work:///trailing/', 'work:///segment?query=1', 'work:///segment#fragment', 'work:///foo..bar']) {
       expect(service.listFiles(path).statusCode).toBe(403);
@@ -220,7 +304,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
     mkdirSync(join(root, '.saivage/locks'), { recursive: true });
     writeFileSync(join(root, '.saivage/locks/runtime.lock'), 'synthetic lock', 'utf8');
     writeFileSync(join(root, '.env'), 'synthetic blocked value', 'utf8');
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('.saivage/locks').statusCode).toBe(403);
     expect(service.readFileContent('.saivage/locks').statusCode).toBe(403);
@@ -236,7 +320,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
     symlinkSync('.env', join(root, 'safe-file-alias'));
     symlinkSync('.saivage/locks', join(root, 'safe-directory-alias'));
     symlinkSync('.saivage/saivage.yaml', join(root, 'safe-redacted-alias'));
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     const listing = service.listFiles('.');
     expect(listing.body).toEqual(expect.objectContaining({
@@ -266,7 +350,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
     mkdirSync(join(root, '.saivage'), { recursive: true });
     writeFileSync(join(root, '.env'), 'synthetic blocked value', 'utf8');
     symlinkSync('../.env', join(root, '.saivage/saivage.yaml'));
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent('.saivage/saivage.yaml').statusCode).toBe(403);
   }));
@@ -279,7 +363,7 @@ describe('WorkspaceFileReadModelService security admission', () => {
         mkdirSync(join(outside, 'directory'));
         symlinkSync(join(outside, 'outside.txt'), join(root, 'outside-file-alias'));
         symlinkSync(join(outside, 'directory'), join(root, 'outside-directory-alias'));
-        const service = new WorkspaceFileReadModelService(root, records);
+        const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
         expect(service.readFileContent('outside-file-alias').statusCode).toBe(403);
         expect(service.listFiles('outside-directory-alias').statusCode).toBe(403);
@@ -299,7 +383,7 @@ describe('WorkspaceFileReadModelService canonical card files', () => {
     initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    const service = new WorkspaceFileReadModelService(root, () => cardFilesReader(cards));
+    const service = new WorkspaceFileReadModelService(root, () => cardFilesReader(cards), createTestConfigAuthority(root));
     const project = cards.read('project')!;
 
     expect(service.listFiles('.saivage').body).toEqual(expect.objectContaining({ files: expect.arrayContaining([
@@ -326,7 +410,7 @@ describe('WorkspaceFileReadModelService canonical card files', () => {
     const reviewPath = join(cardNamespace(root, 'project'), 'review.jsonl');
     writeFileSync(statusPath, 'complete but malformed\n', 'utf8');
     writeFileSync(reviewPath, 'unterminated optional suffix', 'utf8');
-    const service = new WorkspaceFileReadModelService(root, () => cardFilesReader(cards));
+    const service = new WorkspaceFileReadModelService(root, () => cardFilesReader(cards), createTestConfigAuthority(root));
 
     const cardFiles = service.listFiles('.saivage/cards/project');
     expect(listedNames(cardFiles.body)).toEqual(['children', 'card.jsonl', 'brief.jsonl', 'status.jsonl', 'review.jsonl']);

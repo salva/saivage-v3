@@ -26,6 +26,7 @@ jest.unstable_mockModule('node:fs', () => ({
 }));
 
 const { WorkspaceFileReadModelService } = await import('../../src/application/read-models/workspace-file-read-model.js');
+const { createTestConfigAuthority } = await import('../helpers/project-config.js');
 
 const roots: string[] = [];
 const records = () => ({
@@ -75,7 +76,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.mkdirSync(lockRoot, { recursive: true });
     realFs.writeFileSync(projectBlocked, 'synthetic blocked project value');
     realFs.writeFileSync(workBlocked, 'synthetic blocked work value');
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent('.env').statusCode).toBe(403);
     expect(service.readFileContent('work:///processes/proc-1/.env').statusCode).toBe(403);
@@ -97,7 +98,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.writeFileSync(workBlocked, 'synthetic blocked work value');
     realFs.symlinkSync('.env', projectAlias);
     realFs.symlinkSync('.env', workAlias);
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     const projectListing = service.listFiles('.');
     const workListing = service.listFiles('work:///processes/proc-1');
@@ -121,7 +122,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.writeFileSync(blockedFile, 'synthetic blocked value');
     realFs.symlinkSync('.env', fileAlias);
     realFs.symlinkSync('.saivage/locks', directoryAlias);
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent('safe-file-alias').statusCode).toBe(403);
     expect(service.listFiles('safe-directory-alias').statusCode).toBe(403);
@@ -136,7 +137,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.mkdirSync(join(root, '.saivage'), { recursive: true });
     realFs.writeFileSync(blockedFile, 'synthetic blocked value');
     realFs.symlinkSync('../.env', redactedAlias);
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent('.saivage/saivage.yaml').statusCode).toBe(403);
     expect(targetProjectionTracesFor(blockedFile, redactedAlias)).toEqual([]);
@@ -153,7 +154,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.mkdirSync(outsideDirectory);
     realFs.symlinkSync(outsideFile, fileAlias);
     realFs.symlinkSync(outsideDirectory, directoryAlias);
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent('outside-file-alias').statusCode).toBe(403);
     expect(service.listFiles('outside-directory-alias').statusCode).toBe(403);
@@ -172,7 +173,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.writeFileSync(join(cardTarget, 'arbitrary'), 'must not be inspected');
     realFs.symlinkSync(cardTarget, projectBlocked);
     realFs.symlinkSync(cardTarget, workBlocked);
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('.env').statusCode).toBe(403);
     expect(service.readFileContent('.env').statusCode).toBe(403);
@@ -195,7 +196,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.writeFileSync(join(cardTarget, 'arbitrary'), 'must not be inspected');
     realFs.symlinkSync(cardTarget, projectAlias);
     realFs.symlinkSync(cardTarget, workAlias);
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('card-alias').statusCode).toBe(404);
     expect(service.readFileContent('card-alias').statusCode).toBe(404);
@@ -210,7 +211,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
 
   it('rejects traversal, outside paths, and malformed work URLs without classifier I/O', () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('../outside').statusCode).toBe(403);
     expect(service.listFiles(join(tmpdir(), 'outside-absolute')).statusCode).toBe(403);
@@ -225,7 +226,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
       realFs.symlinkSync(index === 40 ? 'ordinary.txt' : `link-${index + 1}`, join(root, `link-${index}`));
     }
     realFs.writeFileSync(join(root, 'ordinary.txt'), 'ordinary');
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.readFileContent('link-0').statusCode).toBe(403);
     expect(traces.filter((trace) => trace.operation === 'readlinkSync')).toHaveLength(40);
@@ -236,7 +237,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const cards = join(root, '.saivage/cards');
     realFs.mkdirSync(join(cards, 'project'), { recursive: true });
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     expect(service.listFiles('.saivage/cards').statusCode).toBe(404);
     expect(service.listFiles('./.saivage/cards/').statusCode).toBe(404);
@@ -252,7 +253,7 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     realFs.mkdirSync(join(root, '.saivage'), { recursive: true });
     realFs.writeFileSync(yamlPath, `apiKey: ${syntheticSecret}\nname: visible-name\n`);
     realFs.symlinkSync('.saivage/saivage.yaml', aliasPath);
-    const service = new WorkspaceFileReadModelService(root, records);
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
 
     const direct = service.readFileContent('.saivage/saivage.yaml');
     const alias = service.readFileContent('safe-redacted-alias');

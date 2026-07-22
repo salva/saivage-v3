@@ -49,7 +49,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication }),
     ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
-    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.runtimeApplication.cardStore }),
+    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.runtimeApplication.cardStore, configAuthority: options.configAuthority }),
     ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication.processRunner }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
     ...buildConfigOperatorContractHandlers({

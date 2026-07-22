@@ -3,12 +3,13 @@ import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:p
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import type { OperatorApiHandlerResult, WorkspaceFilesListResponse } from '../../contracts/index.js';
 import { isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
-import { redactTextForOutbound } from '../../redaction/index.js';
+import { redactForOutbound, redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
 import { AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
 import { recordSlotDefinitionForFilename } from '../../runtime/records/record-slots.js';
 import { cardIdSchema } from '../../schemas/index.js';
+import type { ResolvedConfigAuthority } from '../../config/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
@@ -86,8 +87,17 @@ function parseRecordContentRequest(requestedPath: string): RecordContentRequest 
 export class WorkspaceFileReadModelService {
   private readonly canonicalCards: CanonicalCardFilesReadModel;
 
-  constructor(private readonly projectRoot: string, private readonly records: () => CanonicalCardFilesReader) {
+  constructor(
+    private readonly projectRoot: string,
+    private readonly records: () => CanonicalCardFilesReader,
+    private readonly configAuthority: ResolvedConfigAuthority,
+  ) {
     this.canonicalCards = new CanonicalCardFilesReadModel(records);
+  }
+
+  private isSelectedConfig(absolutePath: string): boolean {
+    const authorityPath = resolve(this.configAuthority.path);
+    return absolutePath === authorityPath || realpathSync(absolutePath) === realpathSync(authorityPath);
   }
 
   private resolveRequestedPath(requestedPath: string): ResolvedRequestPath {
@@ -124,6 +134,13 @@ export class WorkspaceFileReadModelService {
   private isRedactedPath(path: { policyRelativePath: string; realTargetProjectRelativePath?: string }): boolean {
     return isRedacted(path.policyRelativePath)
       || (path.realTargetProjectRelativePath !== undefined && isRedacted(path.realTargetProjectRelativePath));
+  }
+
+  private isWorkPath(path: { kind: 'project' | 'work'; policyRelativePath: string; realTargetProjectRelativePath?: string }): boolean {
+    const inWorkNamespace = (candidate: string): boolean => candidate === SAIVAGE_WORK_RELATIVE_DIR || candidate.startsWith(`${SAIVAGE_WORK_RELATIVE_DIR}/`);
+    return path.kind === 'work'
+      || inWorkNamespace(path.policyRelativePath)
+      || (path.realTargetProjectRelativePath !== undefined && inWorkNamespace(path.realTargetProjectRelativePath));
   }
 
   private classifyAllowedNonCardAlias(policyRelativePath: string): 'generic' | 'reserved-card' | 'indeterminate' {
@@ -313,7 +330,21 @@ export class WorkspaceFileReadModelService {
     if (fileStat.size > MAX_FILE_SIZE_BYTES) return { statusCode: 413, body: { error: `File exceeds maximum size of ${MAX_FILE_SIZE_BYTES} bytes.`, path: responsePath, size: fileStat.size, maxSize: MAX_FILE_SIZE_BYTES } };
     const rawBuffer = readFileSync(absolutePath);
     if (isBinaryBuffer(rawBuffer)) return { statusCode: 415, body: { error: 'Binary or non-text file cannot be previewed.', path: responsePath } };
-    const redacted = this.isRedactedPath(resolvedPath);
+    if (this.isSelectedConfig(absolutePath)) {
+      const effective = this.configAuthority.loadEffective();
+      const projected = redactForOutbound({ source: 'config', value: effective.config });
+      return {
+        body: {
+          path: responsePath,
+          size: fileStat.size,
+          contentType: 'application/json',
+          content: `${JSON.stringify(projected, null, 2)}\n`,
+          redacted: true,
+          sensitivity: 'sensitive-redacted',
+        },
+      };
+    }
+    const redacted = this.isWorkPath(resolvedPath) || this.isRedactedPath(resolvedPath);
     const content = rawBuffer.toString('utf-8');
     return { body: { path: responsePath, size: fileStat.size, contentType: 'text/plain', content: redacted ? redactTextForOutbound(content) : content, redacted, sensitivity: redacted ? 'sensitive-redacted' : 'normal' } };
   }
