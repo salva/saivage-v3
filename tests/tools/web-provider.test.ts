@@ -83,7 +83,8 @@ describe('WebProvider', () => {
       const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' })]);
       const result = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/final', metadata_only: true });
 
-      expect(result).toMatchObject({ success: true, data: { url: 'https://93.184.216.34/final', status: 404, headers: { 'content-type': 'text/plain', etag: 'final' }, metadata_only: true } });
+      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/final', status: 404, headers: { 'content-type': 'text/plain', etag: 'final' }, metadata_only: true } });
+      expect(result).not.toHaveProperty('data.url');
       expect(getReaderSpy).not.toHaveBeenCalled();
       expect(cancelSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -94,7 +95,7 @@ describe('WebProvider', () => {
 
   it('awaits metadata redirect and final body cancellation without acquiring readers', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
-    const redirect = new Response('redirect body', { status: 302, headers: { location: '/final' } });
+    const redirect = new Response('redirect body', { status: 302, headers: { location: '/final?raw-final-query-marker=yes' } });
     const final = new Response('final body larger than one byte', { status: 207, headers: { 'content-type': 'text/plain', etag: 'redirect-final' } });
     const redirectReader = jest.spyOn(redirect.body!, 'getReader');
     const finalReader = jest.spyOn(final.body!, 'getReader');
@@ -108,7 +109,7 @@ describe('WebProvider', () => {
     try {
       const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' })]);
       let settled = false;
-      const pending = invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/start', metadata_only: true }).finally(() => { settled = true; });
+      const pending = invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/start?raw-query-marker=yes', metadata_only: true }).finally(() => { settled = true; });
       for (let attempt = 0; attempt < 200 && redirectCancel.mock.calls.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
       expect(redirectCancel).toHaveBeenCalledTimes(1);
       expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -123,8 +124,9 @@ describe('WebProvider', () => {
       releaseFinal();
       await expect(pending).resolves.toMatchObject({
         success: true,
-        data: { url: 'https://93.184.216.34/final', status: 207, headers: { 'content-type': 'text/plain', etag: 'redirect-final' }, metadata_only: true },
+        data: { redacted_url: 'https://93.184.216.34/final?[REDACTED]', status: 207, headers: { 'content-type': 'text/plain', etag: 'redirect-final' }, metadata_only: true },
       });
+      expect(JSON.stringify(await pending)).not.toContain('raw-final-query-marker');
       expect(redirectReader).not.toHaveBeenCalled();
       expect(finalReader).not.toHaveBeenCalled();
     } finally {
@@ -168,8 +170,10 @@ describe('WebProvider', () => {
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { briefRecords: { write } } } as never;
       const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentRole: 'analyst', analystToolContext })]);
-      const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'record:///brief.md?card=project&v=next' });
-      expect(result).toMatchObject({ success: true, data: { saved_as: 'record:///brief.md?card=project&v=2' } });
+      const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/path?raw-query-marker=yes', save_as: 'record:///brief.md?card=project&v=next' });
+      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://example.com/path?[REDACTED]', saved_as: 'record:///brief.md?card=project&v=2' } });
+      expect(JSON.stringify(result)).not.toContain('raw-query-marker');
+      expect(result).not.toHaveProperty('data.url');
       expect(write).toHaveBeenCalledTimes(1);
       expect(write).toHaveBeenCalledWith('record:///brief.md?card=project&v=next', content);
     } finally {
@@ -191,8 +195,32 @@ describe('WebProvider', () => {
       if (!result.success) return;
       expect(result.data).toEqual(expect.objectContaining({ stash_url: expect.stringMatching(/^work:\/\/\/tmp\/stash\/webfetch-.*\.txt$/), truncated: true }));
       expect(result.data).not.toHaveProperty('stash_path');
+      expect(result.data).not.toHaveProperty('url');
       const read = await invokeTool(surface, 'read', { path: (result.data as { stash_url: string }).stash_url });
       expect(read).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ content: '0123456789abcdef' }) }));
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('omits raw URL metadata from inline, binary, and filesystem-save results', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
+    const fetchSpy = jest.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('inline', { status: 200, headers: { 'content-type': 'text/plain' } }))
+      .mockResolvedValueOnce(new Response('binary', { status: 200, headers: { 'content-type': 'application/octet-stream' } }))
+      .mockResolvedValueOnce(new Response('saved', { status: 200, headers: { 'content-type': 'text/plain' } }));
+    try {
+      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentRole: 'executor' })]);
+      const inline = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/inline?raw-query-marker=yes' });
+      const binary = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/binary?raw-query-marker=yes' });
+      const saved = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/saved?raw-query-marker=yes', save_as: 'saved.txt' });
+
+      expect(inline).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/inline?[REDACTED]', text: 'inline', truncated: false } });
+      expect(binary).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/binary?[REDACTED]', content: null, binary: true } });
+      expect(saved).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/saved?[REDACTED]', saved_as: 'saved.txt', write: { path: 'saved.txt', written: true } } });
+      expect(JSON.stringify([inline, binary, saved])).not.toContain('raw-query-marker');
+      for (const result of [inline, binary, saved]) expect(result).not.toHaveProperty('data.url');
     } finally {
       fetchSpy.mockRestore();
       rmSync(root, { recursive: true, force: true });

@@ -1,5 +1,7 @@
 import type { AnalystMutationReadContext } from '../../agents/analyst-tool-runner.js';
-export interface PreparedFetchedBrief { readonly content: string; readonly metadata: Readonly<Record<string, unknown>>; }
+import type { WebfetchMetadata } from '../../contracts/webfetch.js';
+
+export interface PreparedFetchedBrief { readonly content: string; readonly metadata: WebfetchMetadata; }
 
 export interface AnalystWebReadClient {
   fetchText(input: { url: string; read_mode?: 'auto' | 'text'; max_bytes?: number }, signal?: AbortSignal): Promise<PreparedFetchedBrief>;

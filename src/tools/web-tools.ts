@@ -14,6 +14,8 @@ import { authorizeWriteProject, writeProject, type WorkspaceContext } from './pr
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { prepareAnalystBriefWebfetch, type PreparedFetchedBrief } from '../application/analyst-prepare/webfetch.js';
+import { redactUrl } from '../redaction/text.js';
+import { WebfetchInvocationSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -29,20 +31,7 @@ export interface WebProviderContext extends WorkspaceContext {
 }
 
 const websearchSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
-const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
-
-function redactUrl(raw: string): string {
-  try {
-    const url = new URL(raw);
-    url.username = url.username ? '[REDACTED]' : '';
-    url.password = url.password ? '[REDACTED]' : '';
-    url.search = url.search ? '?[REDACTED]' : '';
-    url.hash = '';
-    return url.toString();
-  } catch {
-    return '[INVALID_URL]';
-  }
-}
+const webfetchSchema = WebfetchInvocationSchema.extend({ save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
 
 function parseHttpUrl(raw: string): URL {
   const url = new URL(raw);
@@ -174,7 +163,7 @@ async function websearchCore(params: { query: string; max_results?: number }, si
   }
 }
 
-async function webfetchCore(ctx: WebProviderContext, params: { url: string; read_mode?: ReadMode; metadata_only?: boolean; max_bytes?: number; max_inline_bytes?: number; save_as?: string }, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<InvocationToolResult> {
+async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<InvocationToolResult> {
   try {
     const url = parseHttpUrl(params.url);
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
@@ -184,13 +173,13 @@ async function webfetchCore(ctx: WebProviderContext, params: { url: string; read
       const fetchPromise = fetchPublic(url, { kind: 'metadata' }, signal);
       const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
       const headers = headersObject(fetched.response.headers);
-      const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
+      const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
       return { success: true, data: { ...metadata, metadata_only: true } };
     }
     const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes }, signal);
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     const headers = headersObject(fetched.response.headers);
-    const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
+    const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
     if (!fetched.response.ok) return { success: false, error: `HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.` };
     const contentType = headers['content-type'] ?? '';
     const mode = params.read_mode ?? 'auto';
@@ -222,7 +211,7 @@ async function fetchAnalystBrief(input: { url: string; read_mode?: ReadMode; max
   const maxBytes = Math.min(Math.max(input.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
   const fetched = await fetchPublic(url, { kind: 'bounded', maxBytes }, signal);
   const headers = headersObject(fetched.response.headers);
-  const metadata = { url: fetched.url.toString(), redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
+  const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
   if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);
   const contentType = headers['content-type'] ?? '';
   const mode = input.read_mode ?? 'auto';

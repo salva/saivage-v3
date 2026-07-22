@@ -9,4 +9,10 @@ describe('webfetch presenter', () => {
     expect(inlineText(view.headline)).toContain('work:///tmp/stash/webfetch.txt');
     expect(view.headline).toEqual([{ kind: 'file', root: 'output', path: '.saivage/work/tmp/stash/webfetch.txt', label: 'work:///tmp/stash/webfetch.txt' }]);
   });
+
+  it('renders the redacted result URL contract when no saved path exists', () => {
+    const view = presentToolResult(JSON.stringify({ success: true, data: { redacted_url: 'https://example.test/path?[REDACTED]' } }), { tool: 'webfetch' });
+
+    expect(inlineText(view.headline)).toBe('https://example.test/path?[REDACTED]');
+  });
 });

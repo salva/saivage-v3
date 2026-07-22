@@ -124,6 +124,17 @@ export type {
   Candidate,
 } from './provider-candidate.js';
 
+export {
+  WebfetchInvocationSchema,
+  WebfetchMetadataSchema,
+  WebfetchResultSchema,
+} from './webfetch.js';
+export type {
+  WebfetchInvocation,
+  WebfetchMetadata,
+  WebfetchResult,
+} from './webfetch.js';
+
 export type {
   AgentConversationResponse,
   AgentDetailResponse,

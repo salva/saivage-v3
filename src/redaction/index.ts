@@ -12,6 +12,8 @@ import type { SaivageConfig } from '../agents/config-api.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
 import type { ProcessOutboundValue } from '../application/read-models/process-outbound.js';
 import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';
+import type { WebfetchInvocation, WebfetchResult } from '../contracts/webfetch.js';
+import { projectWebfetchInvocationForOutbound, projectWebfetchResultForOutbound } from '../tools/webfetch-outbound.js';
 
 export {
   SECRET_REDACTION_PLACEHOLDER,
@@ -35,6 +37,8 @@ export type OutboundRedactionRequest =
   | { source: 'card-diff'; value: CardDiffEntry[] }
   | { source: 'config'; value: SaivageConfig }
   | { source: 'process-view'; value: ProcessOutboundValue }
+  | { source: 'webfetch-invocation'; value: WebfetchInvocation }
+  | { source: 'webfetch-result'; value: WebfetchResult }
   | { source: 'dynamic'; value: unknown; options?: StructuredRedactionOptions };
 
 export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
@@ -47,7 +51,9 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
               : Request extends { source: 'card-diff' } ? CardDiffEntry[]
                 : Request extends { source: 'config' } ? SaivageConfig
                   : Request extends { source: 'process-view'; value: infer Value } ? Value
-                    : unknown;
+                    : Request extends { source: 'webfetch-invocation' } ? WebfetchInvocation
+                      : Request extends { source: 'webfetch-result' } ? WebfetchResult
+                        : unknown;
 
 export const OUTBOUND_REDACTION_SOURCES = [
   'provider-exchange',
@@ -59,6 +65,8 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'card-diff',
   'config',
   'process-view',
+  'webfetch-invocation',
+  'webfetch-result',
   'dynamic',
 ] as const satisfies readonly OutboundRedactionRequest['source'][];
 const outboundSourceCompileGuard = {
@@ -71,6 +79,8 @@ const outboundSourceCompileGuard = {
   'card-diff': true,
   config: true,
   'process-view': true,
+  'webfetch-invocation': true,
+  'webfetch-result': true,
   dynamic: true,
 } as const satisfies Record<OutboundRedactionRequest['source'], true>;
 void outboundSourceCompileGuard;
@@ -91,6 +101,8 @@ export function redactForOutbound(input: unknown, options: StructuredRedactionOp
     case 'card-diff': return projectCardDiff(input.value);
     case 'config': return projectEffectiveConfigForOutbound(input.value);
     case 'process-view': return projectProcessForOutbound(input.value);
+    case 'webfetch-invocation': return projectWebfetchInvocationForOutbound(input.value);
+    case 'webfetch-result': return projectWebfetchResultForOutbound(input.value);
     case 'dynamic': return projectDynamicForOutbound(input.value);
     default: return assertNever(input);
   }
