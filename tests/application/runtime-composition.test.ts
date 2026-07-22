@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { saivageConfigSchema } from '../../src/agents/config-schema.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { createRuntimeApplication, type RuntimeApiFactoryDeps } from '../../src/application/runtime-composition.js';
+import { createInvocationServiceProvider, invocationRequest } from '../../src/application/micro-actor-runtime-api-factory.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { createEventLog } from '../../src/observability/index.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
@@ -17,6 +18,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { dataPropertyGraphContains } from '../helpers/data-property-graph.js';
+import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 
 const roots: string[] = [];
 afterEach(() => { jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -50,7 +52,63 @@ function mechanics() {
   return { start: async () => undefined, startProject: async () => ({ runtime: null, status: 'stopped', started: false, stopped: true }), pause: async () => ({ status: 'stopped' }), resume: async () => ({ status: 'stopped' }), stopProject: async () => ({ status: 'stopped', contained: false }), notifyCard: () => ({ ok: false }), cancelCard: async () => { throw new Error('unused'); }, getStatus: () => ({ status: 'stopped', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }), getRuntimeState: () => null, getActorRuntimeReadModel: () => ({ pauseMode: 'idle', cards: [] }), captureAutonomousExecutingLlmSnapshots: () => [], closeApplicationAdmission() {}, cleanupForApplicationStop: async () => undefined } as any;
 }
 
+function invocationInput(overrides: Record<string, unknown> = {}): LlmInvocationInput {
+  return {
+    inputId: 'turn-1',
+    agentId: 'planner:project',
+    role: 'planner',
+    sessionId: 'planner:project',
+    systemPrompt: 'plan',
+    providerConversation: { sourceSessionId: 'planner:project', messages: [] },
+    tools: [],
+    terminalToolNames: ['report_done'],
+    modelParams: { temperature: 0.2, maxTokens: 1000 },
+    capabilityRequest: { requiresTools: true },
+    episodeContext: { cardId: 'project' },
+    ...overrides,
+  };
+}
+
 describe('runtime compaction composition', () => {
+  it('maps LlmInvocationInput through the production invocation service provider', async () => {
+    const invokeWithRecovery = jest.fn<InvocationService['invokeWithRecovery']>(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
+    const invocationService = { invokeWithRecovery, projectProviderExchanges: jest.fn() } as unknown as InvocationService;
+    const provider = createInvocationServiceProvider(invocationService);
+    const signal = new AbortController().signal;
+    const input = invocationInput();
+    const request = invocationRequest(input, signal);
+
+    expect(request).toEqual({
+      inputId: 'turn-1',
+      role: 'planner',
+      sessionId: 'planner:project',
+      systemPrompt: 'plan',
+      providerConversation: { sourceSessionId: 'planner:project', messages: [] },
+      tools: [],
+      terminalToolNames: ['report_done'],
+      modelParams: { temperature: 0.2, maxTokens: 1000 },
+      capabilityRequest: { requiresTools: true },
+      abortSignal: signal,
+    });
+    await expect(provider.completeTurn(input, signal)).resolves.toEqual({ result: { kind: 'message', content: 'done' }, provider_exchanges: [] });
+    expect(invokeWithRecovery).toHaveBeenCalledWith(request);
+  });
+
+  it('forwards prepared compaction without adding an ordinary maxTokens authority', async () => {
+    const invokeWithRecovery = jest.fn<InvocationService['invokeWithRecovery']>(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
+    const invocationService = { invokeWithRecovery, projectProviderExchanges: jest.fn() } as unknown as InvocationService;
+    const provider = createInvocationServiceProvider(invocationService);
+    const preparedCompaction = prepareCompaction({ input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' }, 'plan', []);
+    const signal = new AbortController().signal;
+    const input = invocationInput({ modelParams: {}, preparedCompaction });
+    const request = invocationRequest(input, signal);
+
+    expect(request).toEqual(expect.objectContaining({ modelParams: {}, preparedCompaction }));
+    expect(request.capabilityRequest).not.toHaveProperty('requestedCompletionTokens');
+    await provider.completeTurn(input, signal);
+    expect(invokeWithRecovery).toHaveBeenCalledWith(request);
+  });
+
   it('composes direct conversation freshness effects', () => {
     let deps!: RuntimeApiFactoryDeps;
     const runtimeApiFactory = jest.fn((value: RuntimeApiFactoryDeps) => { deps = value; return mechanics(); });
