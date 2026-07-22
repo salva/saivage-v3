@@ -1,7 +1,6 @@
 import type { WebSocket } from 'ws';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { sanitizeAnalystText } from '../agents/analyst-api.js';
-import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
 import type { WsEnvelope } from '../contracts/index.js';
@@ -10,6 +9,7 @@ import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { projectAnalystToolInvocationActivity } from './tool-activity-projection.js';
 import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import type { GlobalConversationSessionId } from '../schemas/index.js';
 
 export interface AnalystWsHandlerOptions {
   projectRoot: string;
@@ -25,8 +25,8 @@ export class AnalystWsHandler {
 
   constructor(private readonly options: AnalystWsHandlerOptions) {}
 
-  initialize(_ws: WebSocket): string {
-    return GLOBAL_ANALYST_SESSION_ID;
+  initialize(_ws: WebSocket): GlobalConversationSessionId {
+    return this.options.runtimeApplication.analystSessionId;
   }
 
   handleRawMessage(ws: WebSocket, raw: Buffer | ArrayBuffer | Buffer[]): Promise<void> {
@@ -42,7 +42,7 @@ export class AnalystWsHandler {
         for (const invocation of response.toolInvocations ?? []) {
           this.options.sendToClient(ws, {
             type: 'activity',
-            content: projectAnalystToolInvocationActivity(invocation),
+            content: projectAnalystToolInvocationActivity(invocation,this.options.runtimeApplication.analystSessionId),
           });
         }
         const restartPort = response.restart?.status === 'scheduled' ? this.options.restartPort : undefined;

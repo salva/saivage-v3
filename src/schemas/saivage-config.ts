@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import type { AgentRole } from './types.js';
+import { agentNameSchema } from './agent-name.js';
+import { recordNameSchema } from './record-name.js';
+import { cardTypeValues } from './types.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -7,16 +9,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 // ── Zod Schemas ───────────────────────────────────────────────
 
-// Model list: a single string or array of strings, normalized to array
-const modelListSchema = z
-  .union([z.string(), z.array(z.string())])
-  .transform((v) => (typeof v === 'string' ? [v] : v));
-
 // Routing profile
 const routingProfileSchema = z.object({
   preferred: z.array(z.string()).default([]),
   allowed: z.array(z.string()).default([]),
-});
+}).strict();
 
 const modelEquivalentsSchema = z.preprocess((value) => {
   if (isRecord(value)) {
@@ -29,19 +26,22 @@ const modelEquivalentsSchema = z.preprocess((value) => {
   return value;
 }, z.array(z.array(z.string())));
 
+const namedIdentifierSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
+const outcomeIdentifierSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);
+const modelRouteSchema = z.object({
+  candidates: z.array(z.string().min(1)).min(1).optional(),
+  profile: namedIdentifierSchema.optional(),
+  temperature: z.number().min(0).max(2),
+  max_tokens: z.number().int().positive(),
+}).strict().superRefine((route, ctx) => {
+  if ((route.candidates === undefined) === (route.profile === undefined)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'exactly one of candidates or profile is required' });
+});
 const modelsSectionSchema = z.object({
-    analyst: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
-    planner: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
-    executor: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
-    reviewer: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
-    temperature: z.object({ analyst: z.number().min(0).max(2).optional(), planner: z.number().min(0).max(2).optional(), executor: z.number().min(0).max(2).optional(), reviewer: z.number().min(0).max(2).optional(), default: z.number().min(0).max(2).optional() }).strict().optional(),
-    max_tokens: z.object({ analyst: z.number().int().positive().optional(), planner: z.number().int().positive().optional(), executor: z.number().int().positive().optional(), reviewer: z.number().int().positive().optional(), default: z.number().int().positive().optional() }).strict().optional(),
-    profiles: z.record(z.string(), routingProfileSchema).optional(),
-    routing: z.object({ analyst: z.string().optional(), planner: z.string().optional(), executor: z.string().optional(), reviewer: z.string().optional() }).strict().optional(),
-    equivalents: modelEquivalentsSchema.optional(),
-    failover: z.record(z.string(), z.array(z.string())).optional(),
-    default: modelListSchema.pipe(z.array(z.string()).min(1)).optional(),
-  }).strict();
+  routes: z.record(namedIdentifierSchema, modelRouteSchema),
+  profiles: z.record(namedIdentifierSchema, routingProfileSchema).default({}),
+  equivalents: modelEquivalentsSchema.default([]),
+  failover: z.record(z.string(), z.array(z.string().min(1))).default({}),
+}).strict();
 
 // Provider capabilities
 export const providerCapabilitySchema = z.object({
@@ -63,7 +63,7 @@ const providerAccountSchema = z.object({
   authProfile: z.string().optional(),
   models: z.array(z.string()).optional(),
   capabilities: providerCapabilitySchema.optional(),
-});
+}).strict();
 
 // Provider entry
 const providerEntrySchema = z.object({
@@ -75,32 +75,13 @@ const providerEntrySchema = z.object({
   capabilities: providerCapabilitySchema.optional(),
   modelCapabilities: z.record(z.string(), providerCapabilitySchema).optional(),
   accounts: z.record(z.string(), providerAccountSchema).optional(),
-});
+}).strict();
 
 // Server section
 const serverSectionSchema = z.object({
   port: z.number().int().positive().default(8080),
   host: z.string().default('0.0.0.0'),
-});
-
-// Runtime section
-const processTimeoutsPersistedSchema = z.object({
-  planner_ms: z.number().int().positive().default(1200000),
-  executor_ms: z.number().int().positive().default(1200000),
-  reviewer_ms: z.number().int().positive().default(1200000),
 }).strict();
-
-export const runtimeSectionSchema = z.object({
-  continuous_improvement: z.boolean().default(false),
-  process_timeouts: processTimeoutsPersistedSchema.default({}),
-}).strict().transform((runtime) => ({
-  continuousImprovement: runtime.continuous_improvement,
-  processTimeouts: {
-    plannerMs: runtime.process_timeouts.planner_ms,
-    executorMs: runtime.process_timeouts.executor_ms,
-    reviewerMs: runtime.process_timeouts.reviewer_ms,
-  },
-}));
 
 export const candidateSchema = z.object({
   provider: z.string().min(1),
@@ -181,24 +162,22 @@ const stoppedProcessEntrySchema = z.object({
   node: z.string(),
   prompt: z.string(),
 }).strict();
+const promotionSchema = z.union([z.literal('current'), z.object({ latest_node: namedIdentifierSchema }).strict()]);
 const processEdgeTargetSchema = z.union([
-  z.object({ node: z.string() }).strict(),
-  z.object({ terminal: processTerminalPortSchema }).strict(),
+  z.object({ node: namedIdentifierSchema }).strict(),
+  z.object({ terminal: processTerminalPortSchema, promote: promotionSchema, export_records: z.array(recordNameSchema) }).strict(),
 ]);
 const processEdgeSchema = z.object({
   target: processEdgeTargetSchema,
   prompt: z.string().optional(),
 }).strict();
-const processRecordSchema = z.object({
-  name: z.enum(['brief.md', 'status.md', 'review.md']),
-  updated: z.boolean().default(false),
-}).strict();
 const processNodeSchema = z.object({
-  role: z.enum(['planner', 'reviewer', 'executor']),
-  prompt: z.string(),
-  correction_prompt: z.string(),
-  records: z.array(processRecordSchema).default([]),
-  edges: z.record(z.string(), processEdgeSchema),
+  agent: agentNameSchema,
+  prompt: namedIdentifierSchema,
+  correction_prompt: namedIdentifierSchema,
+  records: z.record(recordNameSchema, z.enum(['present', 'updated'])).default({}),
+  descendant_context: z.object({ records: z.array(recordNameSchema), require_unchanged_until_accept: z.boolean() }).strict().optional(),
+  edges: z.record(outcomeIdentifierSchema, processEdgeSchema),
 }).strict();
 const cardProcessSchema = z.object({
   entries: z.object({
@@ -210,28 +189,37 @@ const cardProcessSchema = z.object({
   nodes: z.record(z.string(), processNodeSchema),
 }).strict();
 
-export const cardProcessesSchema = z.object({
-  planning: cardProcessSchema,
-  terminal: cardProcessSchema,
+const recordDefinitionSchema = z.object({
+  format: z.literal('markdown'),
+  schema: z.string().regex(/^[a-z][a-z0-9-]{0,63}\.v[1-9][0-9]*$/u),
+  writers: z.array(agentNameSchema).min(1),
+  bootstrap: z.boolean(),
+}).strict();
+const cardTypeWorkflowSchema = z.object({
+  permitted_child_types: z.array(z.enum(cardTypeValues)),
+  records: z.record(recordNameSchema, recordDefinitionSchema),
+  workflow: cardProcessSchema,
+}).strict();
+export const cardTypesSchema = z.record(z.enum(cardTypeValues), cardTypeWorkflowSchema);
+
+const agentDefinitionSchema = z.object({
+  prompt: namedIdentifierSchema,
+  tools: z.array(z.string().regex(/^[a-z][a-z0-9_]{0,63}$/u)),
+  model_route: namedIdentifierSchema,
+  skills: z.boolean(),
+  session: z.enum(['global', 'card']),
+  can_create_children: z.boolean(),
 }).strict();
 
-const effectiveModelListSchema = z.array(z.string()).min(1);
 const effectiveRoutingProfileSchema = z.object({
   preferred: z.array(z.string()),
   allowed: z.array(z.string()),
 }).strict();
 const effectiveModelsSectionSchema = z.object({
-  analyst: effectiveModelListSchema.optional(),
-  planner: effectiveModelListSchema.optional(),
-  executor: effectiveModelListSchema.optional(),
-  reviewer: effectiveModelListSchema.optional(),
-  temperature: z.object({ analyst: z.number().min(0).max(2).optional(), planner: z.number().min(0).max(2).optional(), executor: z.number().min(0).max(2).optional(), reviewer: z.number().min(0).max(2).optional(), default: z.number().min(0).max(2).optional() }).strict().optional(),
-  max_tokens: z.object({ analyst: z.number().int().positive().optional(), planner: z.number().int().positive().optional(), executor: z.number().int().positive().optional(), reviewer: z.number().int().positive().optional(), default: z.number().int().positive().optional() }).strict().optional(),
-  profiles: z.record(z.string(), effectiveRoutingProfileSchema).optional(),
-  routing: z.object({ analyst: z.string().optional(), planner: z.string().optional(), executor: z.string().optional(), reviewer: z.string().optional() }).strict().optional(),
-  equivalents: z.array(z.array(z.string())).optional(),
-  failover: z.record(z.string(), z.array(z.string())).optional(),
-  default: effectiveModelListSchema.optional(),
+  routes: z.record(namedIdentifierSchema, modelRouteSchema),
+  profiles: z.record(namedIdentifierSchema, effectiveRoutingProfileSchema),
+  equivalents: z.array(z.array(z.string())),
+  failover: z.record(z.string(), z.array(z.string())),
 }).strict();
 const effectiveProviderAccountSchema = z.object({
   priority: z.number().int().optional(),
@@ -254,14 +242,6 @@ const effectiveProviderEntrySchema = z.object({
 const effectiveServerSectionSchema = z.object({
   port: z.number().int().positive(),
   host: z.string(),
-}).strict();
-const effectiveRuntimeSectionSchema = z.object({
-  continuousImprovement: z.boolean(),
-  processTimeouts: z.object({
-    plannerMs: z.number().int().positive(),
-    executorMs: z.number().int().positive(),
-    reviewerMs: z.number().int().positive(),
-  }).strict(),
 }).strict();
 const effectiveCompactionSectionSchema = z.object({
   enabled: z.literal(true),
@@ -290,70 +270,48 @@ const effectiveStreamableHttpMcpServerSchema = z.object({
   autostart: z.boolean(),
 }).strict();
 const effectiveMcpServerEntrySchema = z.discriminatedUnion('transport', [effectiveStdioMcpServerSchema, effectiveStreamableHttpMcpServerSchema]);
-const effectiveProcessRecordSchema = z.object({
-  name: z.enum(['brief.md', 'status.md', 'review.md']),
-  updated: z.boolean(),
-}).strict();
-const effectiveProcessNodeSchema = z.object({
-  role: z.enum(['planner', 'reviewer', 'executor']),
-  prompt: z.string(),
-  correction_prompt: z.string(),
-  records: z.array(effectiveProcessRecordSchema),
-  edges: z.record(z.string(), processEdgeSchema),
-}).strict();
-const effectiveCardProcessSchema = z.object({
-  entries: z.object({
-    BACKLOG: processEntrySchema,
-    CHANGED: processEntrySchema,
-    BLOCKED: processEntrySchema,
-    STOPPED: stoppedProcessEntrySchema,
-  }).strict(),
-  nodes: z.record(z.string(), effectiveProcessNodeSchema),
-}).strict();
-const effectiveCardProcessesSchema = z.object({
-  planning: effectiveCardProcessSchema,
-  terminal: effectiveCardProcessSchema,
-}).strict();
-
 // ── Full Config Schema ────────────────────────────────────────
 
 export const saivageConfigSchema = z.object({
-  models: modelsSectionSchema.default({}),
+  agents: z.record(agentNameSchema, agentDefinitionSchema),
+  analyst_agent: agentNameSchema,
+  models: modelsSectionSchema,
   providers: z.record(z.string(), providerEntrySchema).default({}),
   server: serverSectionSchema.default({}),
-  runtime: runtimeSectionSchema.default({}),
   compaction: compactionSectionSchema,
-  card_processes: cardProcessesSchema,
+  card_types: cardTypesSchema,
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
 }).strict().superRefine(validateAnalystReserve);
 
 export const effectiveSaivageConfigSchema = z.object({
+  agents: z.record(agentNameSchema, agentDefinitionSchema),
+  analyst_agent: agentNameSchema,
   models: effectiveModelsSectionSchema,
   providers: z.record(z.string(), effectiveProviderEntrySchema),
   server: effectiveServerSectionSchema,
-  runtime: effectiveRuntimeSectionSchema,
   compaction: effectiveCompactionSectionSchema,
-  card_processes: effectiveCardProcessesSchema,
+  card_types: cardTypesSchema,
   mcpServers: z.record(z.string(), effectiveMcpServerEntrySchema).optional(),
 }).strict().superRefine(validateAnalystReserve);
 
 function validateAnalystReserve(value: {
-  models: { max_tokens?: Partial<Record<AgentRole | 'default', number>> };
+  agents: Record<string, { model_route: string }>;
+  analyst_agent: string;
+  models: { routes: Record<string, { max_tokens: number }> };
   compaction: { input_budget_tokens: number; completion_reserve_fraction: number };
 }, ctx: z.RefinementCtx): void {
-  const maxTokens = value.models.max_tokens ?? {};
-  const analystTokens = maxTokens['analyst'];
-  const defaultTokens = maxTokens['default'];
-  const requested = analystTokens ?? defaultTokens ?? 4096;
-  const source = analystTokens !== undefined ? 'analyst' : defaultTokens !== undefined ? 'default' : 'hard default';
+  const analyst = value.agents[value.analyst_agent];
+  const route = analyst ? value.models.routes[analyst.model_route] : undefined;
+  if (!route) return;
+  const requested = route.max_tokens;
   const budget = value.compaction.input_budget_tokens;
   const fraction = value.compaction.completion_reserve_fraction;
   const reserved = Math.floor(budget * fraction);
   if (requested > reserved) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['models', 'max_tokens', source === 'analyst' ? 'analyst' : source === 'default' ? 'default' : 'analyst'],
-      message: `Effective Analyst max tokens ${requested} (source: ${source}) exceed reserved completion tokens ${reserved} (floor(input_budget_tokens ${budget} * completion_reserve_fraction ${fraction})). Raise compaction.input_budget_tokens or compaction.completion_reserve_fraction, or lower the configured Analyst max.`,
+      path: ['models', 'routes', analyst.model_route, 'max_tokens'],
+      message: `Effective Analyst max tokens ${requested} exceed reserved completion tokens ${reserved} (floor(input_budget_tokens ${budget} * completion_reserve_fraction ${fraction})).`,
     });
   }
 }
@@ -367,37 +325,16 @@ export type StreamableHttpMcpServerConfig = z.infer<typeof effectiveStreamableHt
 export type ProviderEntry = z.infer<typeof effectiveProviderEntrySchema>;
 export type ProviderAccount = z.infer<typeof effectiveProviderAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
-export type CardProcessesSource = z.infer<typeof cardProcessesSchema>;
-export type CardProcessSource = CardProcessesSource['planning'];
+export type CardTypesSource = z.infer<typeof cardTypesSchema>;
+export type CardTypeSource = NonNullable<CardTypesSource[keyof CardTypesSource]>;
+export type CardProcessSource = CardTypeSource['workflow'];
 
 // ── Model Params ──────────────────────────────────────────────
 
-export interface ModelParams {
-  temperature: number;
-  maxTokens: number;
-}
-
-/**
- * Get temperature and max_tokens for a role using the fallback chain:
- * role-specific → models.default → hardcoded defaults (0.7, 4096)
- */
-export function getModelParamsForRole(
-  config: SaivageConfig,
-  role: AgentRole,
-): ModelParams {
-  const models = config.models;
-  const tempMap = models.temperature ?? {};
-  const tokensMap = models.max_tokens ?? {};
-
-  const temperature =
-    (tempMap as Record<string, number | undefined>)[role] ??
-    (tempMap as Record<string, number | undefined>)['default'] ??
-    0.7;
-
-  const maxTokens =
-    (tokensMap as Record<string, number | undefined>)[role] ??
-    (tokensMap as Record<string, number | undefined>)['default'] ??
-    4096;
-
-  return { temperature, maxTokens };
+export function getModelParamsForAgent(config: SaivageConfig, agentName: string): { temperature: number; maxTokens: number } {
+  const agent = config.agents[agentName];
+  if (!agent) throw new Error(`Unknown agent '${agentName}'.`);
+  const route = config.models.routes[agent.model_route];
+  if (!route) throw new Error(`Unknown model route '${agent.model_route}'.`);
+  return { temperature: route.temperature, maxTokens: route.max_tokens };
 }

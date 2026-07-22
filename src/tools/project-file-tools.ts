@@ -3,13 +3,11 @@ import { closeSync, createReadStream, lstatSync, mkdirSync, openSync, readFileSy
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
-import type { AgentRole } from '../schemas/index.js';
+import type { AgentName } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
-import { AuthoredRecordNotFoundError, type CardService } from '../cards/card-api.js';
-import { propagateAnalystBriefEdit } from '../runtime/changed-propagation.js';
-import { analystBriefEditEffect } from '../cards/status-api.js';
+import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
@@ -25,7 +23,7 @@ export const READ_HEAD_SAMPLE_BYTES = 4096;
 const GREP_HEAD_SAMPLE_BYTES = 1024;
 const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
-export type WorkspaceContext = { projectRoot: string; cardId?: string; agentRole?: AgentRole; store?: Pick<CardService, 'read' | 'getAncestors' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
+export type WorkspaceContext = { projectRoot: string; cardId?: string; agentName?: AgentName; filesystemWrite?:boolean;store?: Pick<CardService, 'read' | 'getAncestors' | 'recordReader' | 'readRecord' | 'openRecord' | 'editRecord' | 'closeRecord' | 'discardRecord'>; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
 
 export class WorkspaceToolInputError extends Error {
@@ -114,8 +112,8 @@ function assertNoSymlinkComponents(root: string, target: string): void {
   }
 }
 
-function canWriteWorkspaceFiles(role: AgentRole | undefined): boolean {
-  return role === undefined || role === 'executor' || role === 'analyst';
+function canWriteWorkspaceFiles(ctx:WorkspaceContext): boolean {
+  return ctx.agentName===undefined || ctx.filesystemWrite===true;
 }
 
 function isSaivageInternalDestination(projectRoot: string, destination: string): boolean {
@@ -125,7 +123,7 @@ function isSaivageInternalDestination(projectRoot: string, destination: string):
 }
 
 function vfsCtx(ctx: WorkspaceContext) {
-  return { projectRoot: ctx.projectRoot, records: ctx.store?.recordReader, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError };
+  return { projectRoot: ctx.projectRoot, records: ctx.store?.recordReader, agent: { cardId: ctx.cardId, agentName: ctx.agentName }, fail: toolInputError };
 }
 
 function assertScopedReadable(ctx: WorkspaceContext, resolved: VfsResolved): ResolvedToolPath {
@@ -143,7 +141,7 @@ function assertScopedWritable(ctx: WorkspaceContext, raw: string, resolved: VfsR
     if (resolved.recordKind === 'directory') throw toolInputError('write requires a file path, not a directory.');
     return resolved;
   }
-  if ((resolved.kind === 'project' || resolved.kind === 'system') && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write ${resolved.kind} files.`);
+  if ((resolved.kind === 'project' || resolved.kind === 'system') && !canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write ${resolved.kind} files.`);
   if (resolved.kind === 'project') assertNoSymlinkComponents(ctx.projectRoot, resolved.absolutePath);
   if (resolved.absolutePath === '/' || raw.endsWith('/') || (resolved.kind !== 'system' && (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')))) throw toolInputError('write requires a file path, not a directory.');
   if (resolved.kind !== 'tmp' && isSaivageInternalDestination(ctx.projectRoot, resolved.absolutePath)) throw toolInputError('Cannot modify Saivage internal state directories.');
@@ -166,7 +164,7 @@ function resolveReadPath(ctx: WorkspaceContext, raw: string): { resolved: Resolv
 function resolveWritePath(ctx: WorkspaceContext, raw: string): Exclude<ResolvedToolPath, { kind: 'record' }> {
   const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'write');
   if (resolved === null) {
-    if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
+    if (!canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write project files.`);
     return { kind: 'project', ...assertWritable(ctx.projectRoot, raw), isRoot: false };
   }
   const writable = assertScopedWritable(ctx, raw, resolved);
@@ -277,11 +275,10 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
 }
 
 export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
-  if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) return writeAnalystBriefRecord(ctx, params);
   if (params.path.startsWith('record:///')) {
-    if (!ctx.store || !ctx.agentRole) throw new Error('Record writes require an injected card store and agent role.');
+    if (!ctx.store || !ctx.agentName) throw new Error('Record writes require an injected card store and named agent.');
     const target = resolveRecordWriteTarget(vfsCtx(ctx), params.path);
-    assertRecordWrite(target.agent.agentRole, target.agent.cardId, target.cardId, target.filename, target.version, toolInputError);
+    assertRecordWrite(target.agent.agentName, target.agent.cardId, target.cardId, ctx.store!.recordReader.definition(target.cardId,target.filename), target.version, toolInputError);
     const card = ctx.store.read(target.cardId);
     if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
     const open = ctx.store.openRecord(target.cardId, target.filename);
@@ -296,13 +293,9 @@ export async function writeProject(ctx: WorkspaceContext, params: { path: string
 }
 
 export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: string; content?: string }): void {
-  if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) {
-    assertAnalystBriefRecordWritable(ctx, params);
-    return;
-  }
   if (params.path.startsWith('record:///')) {
     const target = resolveRecordWriteTarget(vfsCtx(ctx), params.path);
-    assertRecordWrite(target.agent.agentRole, target.agent.cardId, target.cardId, target.filename, target.version, toolInputError);
+    assertRecordWrite(target.agent.agentName, target.agent.cardId, target.cardId, ctx.store!.recordReader.definition(target.cardId,target.filename), target.version, toolInputError);
     return;
   }
   if (params.path.startsWith('tmp:///')) {
@@ -310,55 +303,12 @@ export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: str
     return;
   }
   if (params.path.startsWith('system:///')) {
-    if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write system files.`);
+    if (!canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write system files.`);
     resolveWritePath(ctx, params.path);
     return;
   }
-  if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
+  if (!canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write project files.`);
   resolveWritePath(ctx, params.path);
-}
-
-function writeAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; content: string }): unknown {
-  const target = assertAnalystBriefRecordWritable(ctx, params);
-  const card = ctx.store!.read(target.cardId)!;
-  const open = ctx.store!.openRecord(target.cardId, 'brief.md');
-  ctx.store!.editRecord(target.cardId, 'brief.md', open.version, params.content);
-  const closed = ctx.store!.closeRecord(target.cardId, 'brief.md', open.version, 'analyst', card.version_seq);
-  try {
-    propagateAnalystBriefEdit(ctx.store! as CardService, target.cardId, { kind: 'analyst_edit', summary: 'Analyst updated brief.md' }, ctx.notifyCard!);
-    return { card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true, propagation: { ok: true } };
-  } catch (error) {
-    return { card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(params.content, 'utf8'), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } };
-  }
-}
-
-function assertAnalystBriefRecordWritable(ctx: WorkspaceContext, params: { path: string; content?: string }): { cardId: string; path: string } {
-  if (!params.path.startsWith('record:///')) throw toolInputError('Analyst write only writes record:///brief.md document records. It cannot write host or project files.');
-  if (!ctx.store) throw new Error('Analyst record writes require a card store.');
-  if (!ctx.notifyCard) throw toolInputError('Analyst brief record edits require card notification capability.');
-  const target = resolveAnalystBriefWriteUrl(ctx, params.path);
-  if (params.content !== undefined) {
-    if (params.content.length === 0) throw toolInputError('brief.md content must not be empty.');
-    validateBriefMarkdown(params.content);
-  }
-  const card = ctx.store.read(target.cardId);
-  if (!card) throw toolInputError(`Card '${target.cardId}' not found.`);
-  if (analystBriefEditEffect(card.lifecycle.status) === null) throw toolInputError(`Analyst brief edits do not support target card status ${card.lifecycle.status}.`);
-  try { ctx.store.readRecord(target.cardId, 'brief.md', 'open'); throw toolInputError(`Cannot write '${target.path}': latest brief.md version is open.`); } catch (error) { if (error instanceof WorkspaceToolInputError) throw error; if (!(error instanceof AuthoredRecordNotFoundError)) throw error; }
-  return target;
-}
-
-function resolveAnalystBriefWriteUrl(ctx: WorkspaceContext, raw: string): { cardId: string; path: string } {
-  const target = resolveRecordWriteTarget(vfsCtx(ctx), raw);
-  if (target.filename !== 'brief.md') throw toolInputError('Analyst write only supports record:///brief.md document writes.');
-  if (target.version !== 'next') throw toolInputError('Analyst record writes must use v=next.');
-  return { cardId: target.cardId, path: target.recordUrl };
-}
-
-function validateBriefMarkdown(content: string): void {
-  for (const heading of ['# Goal', '# Instructions', '# Acceptance Criteria']) {
-    if (!content.includes(heading)) throw toolInputError(`brief.md must include '${heading}'.`);
-  }
 }
 
 export async function globProject(ctx: WorkspaceContext, params: { directory: string; pattern: string; max_results?: number }): Promise<unknown> {
@@ -546,7 +496,6 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
 }
 
 export async function editProject(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): Promise<unknown> {
-  if (ctx.agentRole === 'analyst' && params.path.startsWith('record:///')) return editAnalystBriefRecord(ctx, params);
   if (params.path.startsWith('record:///')) {
     if (!ctx.store) throw new Error('Record edits require an injected card store.');
     const target = resolveRecordWriteTarget(vfsCtx(ctx), params.path);
@@ -570,18 +519,8 @@ export async function editProject(ctx: WorkspaceContext, params: { path: string;
   return { path: relativePath, replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next, 'utf8'), edited: true };
 }
 
-function editAnalystBriefRecord(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): unknown {
-  const target = assertAnalystBriefRecordWritable(ctx, { path: params.path });
-  const content = ctx.store!.readRecord(target.cardId, 'brief.md', 'latest').artifact.content;
-  const occurrences = content.split(params.old_string).length - 1;
-  if (occurrences === 0) throw toolInputError('old_string was not found.');
-  if (occurrences > 1 && params.replace_all !== true) throw toolInputError('old_string appears multiple times; set replace_all to true.');
-  const next = params.replace_all === true ? content.split(params.old_string).join(params.new_string) : content.replace(params.old_string, params.new_string);
-  return writeAnalystBriefRecord(ctx, { path: target.path, content: next });
-}
-
 export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: string }): Promise<unknown> {
-  if (!canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write project files.`);
+  if (!canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write project files.`);
   const affected = patchPaths(params.patch);
   if (affected.length === 0) throw toolInputError('Patch does not contain any file changes.');
   for (const path of affected) assertWritable(ctx.projectRoot, path);

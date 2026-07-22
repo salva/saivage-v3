@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import type { CanonicalReadInstrumentation } from '../../src/persistence/growing-file.js';
 import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
-import { currentRecordDefinitionForFilename } from '../../src/records/current-record-definitions.js';
+import { testRecordDefinition } from '../helpers/record-definitions.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -18,7 +18,7 @@ function recorder(): { instrumentation: CanonicalReadInstrumentation; paths: str
 }
 
 function input(parent: string, title: string, type: 'goal' | 'code' = 'code') {
-  return { type, parent, title, brief: `${title} brief`, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
+  return { type, parent, title, bootstrap_content: `${title} brief`, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
 }
 
 describe('bounded card resource reads', () => {
@@ -32,7 +32,7 @@ describe('bounded card resource reads', () => {
     const grandchild = cards.create(input(parent.id, 'Grandchild'));
     cards.deleteSubtrees([retained.id], () => true);
     writeFileSync(cardStreamFile(root, retainedDescendant.id), '{tombstoned-descendant-must-not-be-read}\n');
-    writeFileSync(cardRecordStreamFile(root, sibling.id, currentRecordDefinitionForFilename('brief.md')), '{complete-malformed}\n');
+    writeFileSync(cardRecordStreamFile(root, sibling.id, testRecordDefinition('brief.md')), '{complete-malformed}\n');
 
     const rootRead = recorder();
     const hierarchy = cards.getCardChildren('project', rootRead.instrumentation);
@@ -67,7 +67,7 @@ describe('bounded card resource reads', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-lazy-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const parent = cards.create(input('project', 'Parent', 'goal'));
-    const target = cards.create(input(parent.id, 'Target'));
+    const target = cards.create(input(parent.id, 'Target', 'goal'));
     cards.openRecord(target.id, 'status.md');
     cards.editRecord(target.id, 'status.md', 1, 'Status');
     cards.closeRecord(target.id, 'status.md', 1, 'executor', 1);
@@ -84,11 +84,11 @@ describe('bounded card resource reads', () => {
 
     const recordRead = recorder();
     expect(cards.readRecord(target.id, 'brief.md', 'latest', recordRead.instrumentation).artifact.content).toBe('Target brief');
-    expect(recordRead.paths).toEqual([...path, cardRecordStreamFile(root, target.id, currentRecordDefinitionForFilename('brief.md'))]);
+    expect(recordRead.paths).toEqual([...path, cardRecordStreamFile(root, target.id, testRecordDefinition('brief.md'))]);
     for (const slot of ['status', 'review'] as const) {
       const slotRead = recorder();
       expect(cards.readRecord(target.id, `${slot}.md`, 'latest', slotRead.instrumentation).artifact.content).toBe(slot === 'status' ? 'Status' : 'Review');
-      expect(slotRead.paths).toEqual([...path, cardRecordStreamFile(root, target.id, currentRecordDefinitionForFilename(`${slot}.md`))]);
+      expect(slotRead.paths).toEqual([...path, cardRecordStreamFile(root, target.id, testRecordDefinition(`${slot}.md`))]);
     }
 
     const listRead = recorder();

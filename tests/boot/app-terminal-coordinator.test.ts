@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { APP_CLEANUP_LEAF_TIMEOUT_MS, createAppTerminalCoordinator } from '../../src/boot/app.js';
 import { mkdtempSync, rmSync } from 'node:fs'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
-import { CardService } from '../../src/cards/card-service.js'; import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js'; import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js'; import { SupervisorRuntimeApi, RuntimeControlConflictError } from '../../src/runtime/actors/supervisor-runtime-api.js'; import { initProjectTree } from '../helpers/canonical-project.js'; import { createTestProcessRunner } from '../helpers/test-process-runner.js'; import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js'; import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { CardService } from '../helpers/canonical-project.js'; import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js'; import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js'; import { SupervisorRuntimeApi, RuntimeControlConflictError } from '../../src/runtime/actors/supervisor-runtime-api.js'; import { initProjectTree } from '../helpers/canonical-project.js'; import { createTestProcessRunner } from '../helpers/test-process-runner.js'; import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js'; import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 
 const roots: string[] = [];

@@ -38,7 +38,7 @@ function validateInitial(card: CardRecord, path: string): void {
     && card.lifecycle.status === 'backlog';
   if (!common) fail(path, 'has an invalid initial card');
   if (card.id === 'project') {
-    if (card.type !== 'project' || card.created_by !== 'analyst' || card.tags.length !== 0 || card.priority !== 0
+    if (card.type !== 'project' || card.created_by !== 'runtime:bootstrap' || card.tags.length !== 0 || card.priority !== 0
       || card.urgency !== 'normal' || card.depends_on.length !== 0 || card.related.length !== 0) fail(path, 'has an invalid initial project card');
   } else if (card.type === 'project' || cardParentId(card.id) === null) fail(path, 'has an invalid initial child card');
 }
@@ -68,10 +68,10 @@ function validateTerminal(path: string, prior: CardRecord, next: CardRecord, his
   const result = next.lifecycle.result;
   if (result.summary !== next.status_text || next.status_text === null || next.status_text_updated_at === null) fail(path, 'has inconsistent terminal summary');
   if (next.lifecycle.status === 'done') {
-    if (result.kind !== 'done' || next.lifecycle.error !== null || next.lifecycle.completed_at !== next.status_text_updated_at) fail(path, 'has invalid done terminal relationships');
+    if (result.kind !== 'workflow-result' || result.terminal!=='DONE' || next.lifecycle.error !== null || next.lifecycle.completed_at !== next.status_text_updated_at) fail(path, 'has invalid done terminal relationships');
   } else if (next.lifecycle.status === 'failed') {
-    if (result.kind !== 'failed' || next.lifecycle.error !== next.status_text || next.lifecycle.completed_at !== next.status_text_updated_at) fail(path, 'has invalid failed terminal relationships');
-  } else if (result.kind !== 'blocked' || next.lifecycle.error !== next.status_text || next.lifecycle.completed_at !== null) fail(path, 'has invalid blocked terminal relationships');
+    if ((result.kind === 'workflow-result'&&result.terminal!=='FAILED') || next.lifecycle.error !== next.status_text || next.lifecycle.completed_at !== next.status_text_updated_at) fail(path, 'has invalid failed terminal relationships');
+  } else if (result.kind !== 'workflow-result' || result.terminal!=='BLOCKED' || next.lifecycle.error !== next.status_text || next.lifecycle.completed_at !== null) fail(path, 'has invalid blocked terminal relationships');
   requireSame(path, next.pending_notifications, [], 'terminal row retained notifications');
   const fields = ['lifecycle', ...(!same(prior.status_text, next.status_text) ? ['status_text'] : []), ...(!same(prior.status_text_updated_at, next.status_text_updated_at) ? ['status_text_updated_at'] : []), ...(prior.pending_notifications.length > 0 ? ['pending_notifications'] : [])];
   requireHistory(path, history, fields, 'terminal lifecycle commit');
@@ -87,7 +87,7 @@ function validateVersion(path: string, prior: CardRecord, next: CardRecord, hist
       if (!['backlog', 'changed', 'stopped'].includes(prior.lifecycle.status)) fail(path, 'edits a disallowed lifecycle state');
       const fields = actualDelta(prior, next);
       if (fields.length === 0 || fields.some((field) => !['title', 'tags', 'priority', 'urgency', 'related'].includes(field))) fail(path, 'has an invalid update delta');
-      requireHistory(path, history, fields, 'planner edit_card');
+      requireHistory(path, history, fields, 'agent edit_card');
       break;
     }
     case 'notification_enqueue': {

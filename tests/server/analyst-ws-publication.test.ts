@@ -33,7 +33,7 @@ describe('Analyst WebSocket publication propagation', () => {
       authPolicy: { validateWebSocketRequest: () => ({ ok: true }) } as never,
       liveSyncSocket: liveSyncSocket as never,
       saivageConfig: {} as never,
-      runtimeApplication: {} as never,
+      runtimeApplication: { analystSessionId: 'agent:analyst:global' } as never,
     });
     class TestSocket extends EventEmitter {
       readonly OPEN = 1;

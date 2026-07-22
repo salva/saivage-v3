@@ -41,7 +41,6 @@ export {
   ChatSendRequestSchema,
   ChatSendResponseSchema,
   RestartChatAcknowledgementSchema,
-  ChatSessionParamsSchema,
   ChatWorkspaceContextSchema,
 } from './operator-api-chats.js';
 export type { ChatEntriesResponse, ChatSendRequest, ChatSendResponse, ChatWorkspaceContext, RestartChatAcknowledgement } from './operator-api-chats.js';
@@ -127,6 +126,7 @@ export type {
 
 export {
   CardDetailResponseSchema,
+  CardRecordDescriptorSchema,
   CardChildrenResponseSchema,
   CardDiffQuerySchema,
   CardDiffResponseSchema,
@@ -158,6 +158,7 @@ export {
 } from './operator-api-runtime-cards.js';
 export type {
   CardDetailResponse,
+  CardRecordDescriptor,
   CardChildrenResponse,
   CardDiffResponse,
   CardHistoryEntryResponse,

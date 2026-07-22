@@ -18,7 +18,7 @@ describe('aggregate conversation inventory physical reads', () => {
   it('opens every exact candidate once, reads each present file once, and projects without rereading', () => {
     const result = runChild('valid');
     expect(result.error).toBeNull();
-    expect(result.sessions?.map(({ id }) => id)).toEqual(['planner:project', 'reviewer:project']);
+    expect(result.sessions?.map(({ id }) => id)).toEqual(['agent:planner:project', 'agent:reviewer:project']);
     expect(result.ledger[result.paths.analyst]).toEqual({ openAttempts: 1, descriptorReads: 0, pathReads: 0, closes: 0 });
     expect(result.ledger[result.paths.planner]).toEqual({ openAttempts: 1, descriptorReads: 1, pathReads: 0, closes: 1 });
     expect(result.ledger[result.paths.reviewer]).toEqual({ openAttempts: 1, descriptorReads: 1, pathReads: 0, closes: 1 });
@@ -36,7 +36,7 @@ describe('aggregate conversation inventory physical reads', () => {
 
   it.each([
     { scenario: 'empty-malformed' as const, expectedError: null },
-    { scenario: 'empty-live-malformed' as const, expectedError: "Executing agent snapshot 'planner:project' has no aggregate conversation row." },
+    { scenario: 'empty-live-malformed' as const, expectedError: "Executing agent snapshot 'agent:planner:project' has no aggregate conversation row." },
   ])('does not access the malformed app log for $scenario inventory', ({ scenario, expectedError }) => {
     const result = runChild(scenario);
     expect(result.sessions).toEqual(expectedError === null ? [] : null);
@@ -48,8 +48,8 @@ describe('aggregate conversation inventory physical reads', () => {
     const result = runChild('models');
     expect(result.error).toBeNull();
     expect(result.sessions).toEqual([
-      expect.objectContaining({ id: 'planner:project', model: 'planner-model' }),
-      expect.objectContaining({ id: 'reviewer:project', model: 'reviewer-model' }),
+      expect.objectContaining({ id: 'agent:planner:project', model: 'planner-model' }),
+      expect.objectContaining({ id: 'agent:reviewer:project', model: 'reviewer-model' }),
     ]);
     expect(result.ledger[result.paths.app]).toEqual({ openAttempts: 1, descriptorReads: 1, pathReads: 0, closes: 1 });
   });

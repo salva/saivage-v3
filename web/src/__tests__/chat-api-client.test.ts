@@ -16,7 +16,8 @@ const sendChatMessageSignatureIsExact: Equal<
 describe('Analyst chat API client', () => {
   const originalFetch = globalThis.fetch;
   const request = vi.fn();
-  const canonicalUrl = `${window.location.origin}/api/chats/analyst%3Aglobal`;
+  const analystSessionId = 'agent:analyst:global' as const;
+  const canonicalUrl = `${window.location.origin}/api/chat`;
 
   beforeEach(() => {
     request.mockReset();
@@ -29,9 +30,9 @@ describe('Analyst chat API client', () => {
 
   it('uses the identity-free GET signature and exact canonical route', async () => {
     const signal = new AbortController().signal;
-    request.mockResolvedValue(new Response(JSON.stringify({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } }), { status: 200 }));
+    request.mockResolvedValue(new Response(JSON.stringify({ session_id: analystSessionId, session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } }), { status: 200 }));
 
-    await expect(getChatEntries(signal)).resolves.toEqual({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
+    await expect(getChatEntries(signal)).resolves.toEqual({ session_id: analystSessionId, session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
 
     expect(getChatEntriesSignatureIsExact).toBe(true);
     expect(request).toHaveBeenCalledTimes(1);
@@ -48,10 +49,10 @@ describe('Analyst chat API client', () => {
       entityId: 'project',
       refinement: { tab: 'history' },
     };
-    request.mockResolvedValue(new Response(JSON.stringify({ sessionId: 'analyst:global', toolInvocations: [], restart: null }), { status: 200 }));
+    request.mockResolvedValue(new Response(JSON.stringify({ sessionId: analystSessionId, toolInvocations: [], restart: null }), { status: 200 }));
 
     await expect(sendChatMessage('inspect this', workspaceContext)).resolves.toEqual({
-      sessionId: 'analyst:global',
+      sessionId: analystSessionId,
       toolInvocations: [],
       restart: null,
     });

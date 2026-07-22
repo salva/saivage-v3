@@ -1,6 +1,5 @@
 import type { CardRecord } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
-import { isTerminalType } from './lifecycle.js';
 import { CardServiceInvariantError } from './errors.js';
 import { cardDepth, cardParentId } from '../schemas/card-id.js';
 
@@ -34,14 +33,6 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
     const parentId = cardParentId(card.id);
     if (parentId !== null && !byId.has(parentId)) {
       throw new CardServiceInvariantError(`Card '${card.id}' references missing parent '${parentId}'.`);
-    }
-    if (parentId !== null) {
-      const parent = byId.get(parentId)!;
-      if (isTerminalType(parent.type)) {
-        throw new CardServiceInvariantError(
-          `Terminal card '${parent.id}' (type=${parent.type}) cannot be parent of '${card.id}'.`,
-        );
-      }
     }
     for (const childId of card.children) if (cardParentId(childId) !== card.id) throw new CardServiceInvariantError(`Card '${card.id}' has invalid linked child '${childId}'.`);
     for (const dep of card.depends_on) {

@@ -10,6 +10,7 @@ import type {
 import { cardIdSchema, childCardId } from '../../schemas/card-id.js';
 import { isRedacted } from '../../workspace/index.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
+import { recordStreamFilename } from '../../schemas/record-name.js';
 import type { WorkspaceFileContentResult, WorkspaceFilesListResult } from './workspace-file-read-model.js';
 
 const CARDS_ROOT = '.saivage/cards';
@@ -22,6 +23,7 @@ export interface CanonicalCardFilesReader {
     version: number;
     artifact: { state: string; content: string; committed_at?: string | null };
   };
+  definition(cardId:string,filename:string):unknown;
   getCanonicalCard(id: string): CardServiceTargetRead<CanonicalCardReadProjection>;
   getCanonicalCardChildren(id: string): CardServiceTargetRead<CanonicalCardChildrenReadProjection>;
   getCanonicalCardFilesMetadata(id: string): CardServiceTargetRead<CanonicalCardFilesMetadataReadProjection>;
@@ -52,8 +54,8 @@ function parseCanonicalCardPath(path: string): ParsedCardPath | null {
   if (index === components.length) return { kind: 'namespace', cardId };
   if (index + 1 === components.length && components[index] === 'children') return { kind: 'children', cardId };
   if (index + 1 === components.length) {
-    const match = /^(card|brief|status|review)\.jsonl$/.exec(components[index]!);
-    if (match) return { kind: 'artifact', cardId, slot: match[1] as CanonicalCardFileSlot };
+    const match = /^(card|[a-z][a-z0-9-]{0,63})\.jsonl$/u.exec(components[index]!);
+    if (match) return { kind: 'artifact', cardId, slot: (match[1]==='card'?'card':`${match[1]}.md`) as CanonicalCardFileSlot };
   }
   return null;
 }
@@ -115,8 +117,8 @@ export class CanonicalCardFilesReadModel {
         files: [
           directoryRow('children', `${path}/children`, projection.value.card.card.updated_at),
           ...projection.value.files.map((file) => ({
-            name: `${file.slot}.jsonl`,
-            path: `${path}/${file.slot}.jsonl`,
+            name: file.slot === 'card' ? 'card.jsonl' : recordStreamFilename(file.slot),
+            path: `${path}/${file.slot === 'card' ? 'card.jsonl' : recordStreamFilename(file.slot)}`,
             type: 'file' as const,
             size: file.size,
             modifiedAt: file.modifiedAt,

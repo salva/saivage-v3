@@ -9,9 +9,6 @@ import {
   conversationSessionIdentity,
   type AgentMessage,
   type ConversationSessionId,
-  type ExecutorConversationSessionId,
-  type PlannerConversationSessionId,
-  type ReviewerConversationSessionId,
 } from '../../schemas/index.js';
 import { projectToolInvocation } from '../../tools/tool-invocation-outbound.js';
 import {
@@ -48,7 +45,7 @@ export function projectAgentConversationForOutbound(input: AgentConversationProj
 
   const projectedRows = projectCompleteCanonicalConversation(rows, declaration, projectToolInvocation)
     .filter((message) => message.kind !== 'provider_private');
-  const session = projectSessionSummary(sessionId, identity.cardId, status, rows[0]!.timestamp, input.model);
+  const session = projectSessionSummary(sessionId, status, rows[0]!.timestamp, input.model);
   return AgentConversationResponseSchema.parse({
     session,
     entries: projectedRows,
@@ -97,22 +94,12 @@ function withoutArguments(call: NonNullable<ReturnType<typeof inspectCompleteCan
 
 function projectSessionSummary(
   sessionId: ConversationSessionId,
-  cardId: ReturnType<typeof conversationSessionIdentity>['cardId'],
   status: AgentActivityStatus['status'],
   startedAt: string,
   model: string | null,
 ): AgentSessionSummary {
-  const common = { status, started_at: startedAt, ...(model ? { model } : {}) };
-  if (sessionId === 'analyst:global') return { id: sessionId, role: 'analyst', card_id: null, ...common };
-  if (isPlannerSessionId(sessionId)) return { id: sessionId, role: 'planner', card_id: cardId, ...common };
-  if (isReviewerSessionId(sessionId)) return { id: sessionId, role: 'reviewer', card_id: cardId, ...common };
-  if (isExecutorSessionId(sessionId)) return { id: sessionId, role: 'executor', card_id: cardId, ...common };
-  throw new Error(`Unreachable conversation session '${sessionId}'.`);
+  const identity=conversationSessionIdentity(sessionId);return {id:sessionId,agent_name:identity.agentName,session_scope:identity.cardId===null?'global':'card',card_id:identity.cardId,status,started_at:startedAt,...(model?{model}:{})};
 }
-
-function isPlannerSessionId(sessionId: ConversationSessionId): sessionId is PlannerConversationSessionId { return sessionId.startsWith('planner:'); }
-function isReviewerSessionId(sessionId: ConversationSessionId): sessionId is ReviewerConversationSessionId { return sessionId.startsWith('reviewer:'); }
-function isExecutorSessionId(sessionId: ConversationSessionId): sessionId is ExecutorConversationSessionId { return sessionId.startsWith('executor:'); }
 
 function stripPrivateProjectionMarker(message: AgentMessage): AgentMessage {
   if (!message.provider_projection) return message;

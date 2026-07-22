@@ -5,6 +5,9 @@ import {
   cardHistoryHeaderSchema,
   runtimeStateSchema,
   cardIdSchema,
+  cardTypeSchema,
+  agentNameSchema,
+  recordNameSchema,
   positiveSafeIntegerSchema,
 } from '../schemas/index.js';
 import {
@@ -43,7 +46,8 @@ export const RuntimeGetStateResponseSchema = z.object({
 export const OperatorCardSchema = operatorCardSchema;
 
 export const CardChildrenResponseSchema = z.object({ card: OperatorCardSchema, children: z.array(OperatorCardSchema) }).strict();
-export const CardDetailResponseSchema = z.object({ card: OperatorCardSchema }).strict();
+export const CardRecordDescriptorSchema=z.object({name:recordNameSchema,format:z.literal('markdown'),schema:z.string().min(1),writers:z.array(agentNameSchema),bootstrap:z.boolean()}).strict();
+export const CardDetailResponseSchema = z.object({ card: OperatorCardSchema,records:z.array(CardRecordDescriptorSchema) }).strict();
 
 export const CardHistoryParamsSchema = z.object({ id: cardIdSchema });
 export const canonicalPositiveSafeIntegerStringSchema = z.string().regex(/^[1-9][0-9]*$/).superRefine((raw, ctx) => {
@@ -75,10 +79,10 @@ export const RuntimeStatusResponseSchema = z.object({
       cardId: cardIdSchema,
       actorState: publicCardActorStateSchema,
       processState: z.discriminatedUnion('kind', [
-        z.object({ family: z.enum(['planning', 'terminal']), stateId: z.string().min(1), kind: z.literal('ready') }).strict(),
-        z.object({ family: z.enum(['planning', 'terminal']), stateId: z.string().min(1), kind: z.literal('entry'), entry: z.enum(['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED']) }).strict(),
-        z.object({ family: z.enum(['planning', 'terminal']), stateId: z.string().min(1), kind: z.literal('node'), nodeId: z.string().min(1), executionOrdinal: z.number().int().nonnegative().safe() }).strict(),
-        z.object({ family: z.enum(['planning', 'terminal']), stateId: z.string().min(1), kind: z.literal('terminal'), terminal: z.enum(['DONE', 'BLOCKED', 'FAILED']) }).strict(),
+        z.object({ cardType: cardTypeSchema, stateId: z.string().min(1), kind: z.literal('ready') }).strict(),
+        z.object({ cardType: cardTypeSchema, stateId: z.string().min(1), kind: z.literal('entry'), entry: z.enum(['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED']) }).strict(),
+        z.object({ cardType: cardTypeSchema, stateId: z.string().min(1), kind: z.literal('node'), nodeId: z.string().min(1), executionOrdinal: z.number().int().nonnegative().safe() }).strict(),
+        z.object({ cardType: cardTypeSchema, stateId: z.string().min(1), kind: z.literal('terminal'), terminal: z.enum(['DONE', 'BLOCKED', 'FAILED']) }).strict(),
       ]).nullable(),
     }).strict()),
   }).strict(),
@@ -99,9 +103,10 @@ export const RuntimeCardRunsResponseSchema = z.object({
     title: z.string(),
     status_text: z.string().optional(),
   }).strict()),
-  dormant_planners: z.array(z.object({
-    goal_card_id: cardIdSchema,
-    planner_session_id: z.string(),
+  dormant_agents: z.array(z.object({
+    card_id: cardIdSchema,
+    agent_name:z.string().min(1),
+    session_id: z.string(),
   }).strict()),
 }).strict();
 
@@ -111,6 +116,7 @@ export type RuntimeGetStateResponse = z.infer<typeof RuntimeGetStateResponseSche
 export type OperatorCard = z.infer<typeof OperatorCardSchema>;
 export type CardChildrenResponse = z.infer<typeof CardChildrenResponseSchema>;
 export type CardDetailResponse = z.infer<typeof CardDetailResponseSchema>;
+export type CardRecordDescriptor = z.infer<typeof CardRecordDescriptorSchema>;
 export type CardHistoryListResponse = z.infer<typeof CardHistoryListResponseSchema>;
 export type CardHistoryEntryResponse = z.infer<typeof CardHistoryEntryResponseSchema>;
 export type CardDiffResponse = z.infer<typeof CardDiffResponseSchema>;

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
-import { stabilizeRoleSession } from '../../src/runtime/actors/conversation-recovery.js';
+import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-recovery.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
@@ -22,15 +22,15 @@ describe('stable same-session recovery', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-recovery-'));
     initProjectTree(projectRoot);
     roots.push(projectRoot);
-    const sessionId: ConversationSessionId = 'planner:project';
+    const sessionId: ConversationSessionId = 'agent:planner:project';
     mkdirSync(dirname(conversationFile(projectRoot, sessionId)), { recursive: true });
     const base = { session_id: sessionId, round_id: 'r-pre-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
     const rows: AgentMessage[] = [
-      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
+      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
       { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }) } }] }), tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
     ];
     appendConversationBatch({ projectRoot }, rows);
-    const result = stabilizeRoleSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
+    const result = stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     expect(result.disposition).toBe('ordinary_interruption');
     const recovered = readConversation(projectRoot, sessionId).physicalRows;
     expect(recovered).toHaveLength(rows.length + 2);
@@ -41,9 +41,9 @@ describe('stable same-session recovery', () => {
   });
 
   it.each<ConversationSessionId>([
-    'planner:project',
-    'executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    'reviewer:project',
+    'agent:planner:project',
+    'agent:executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    'agent:reviewer:project',
   ])('treats pending-notification settlement as an interrupted continuation for %s', (sessionId) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-recovery-prefix-'));
     initProjectTree(projectRoot);
@@ -51,25 +51,25 @@ describe('stable same-session recovery', () => {
     roots.push(projectRoot);
     const base = { session_id: sessionId, round_id: 'r-pre-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
     appendConversationBatch({ projectRoot }, [
-      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: sessionId.split(':')[0], card_id: sessionId.slice(sessionId.indexOf(':') + 1), input_id: source, timestamp: base.timestamp }) },
+      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: sessionId.split(':')[1], card_id: sessionId.split(':').slice(2).join(':'), input_id: source, timestamp: base.timestamp }) },
       { ...base, id: `${source}:tool-call:emit-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'emit-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 1 },
       { ...base, id: `${source}:tool-result:emit-1`, role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 2 },
     ] satisfies AgentMessage[]);
 
-    expect(stabilizeRoleSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
+    expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
   });
 
   it('projects the synthetic failed settlement and recovery notice through Generic, Chat, Codex, and Responses', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-recovery-transports-'));
     initProjectTree(projectRoot);
     roots.push(projectRoot);
-    const sessionId: ConversationSessionId = 'planner:project';
+    const sessionId: ConversationSessionId = 'agent:planner:project';
     const base = { session_id: sessionId, round_id: 'r-pre-cccccccccccccccccccccccccccccccc', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
     appendConversationBatch({ projectRoot }, [
-      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
+      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
       { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', message_index: 1 },
     ] satisfies AgentMessage[]);
-    stabilizeRoleSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
+    stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
     const generic = providerConversation.messages;
     const notice = generic.find((row) => row.kind === 'model_recovered')!;

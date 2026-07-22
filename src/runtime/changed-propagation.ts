@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import type { AnalystIssue, CardStatus } from '../schemas/index.js';
 import type { CardService } from '../cards/card-api.js';
-import { analystBriefEditEffect } from '../cards/status-api.js';
+import { analystRecordEditEffect } from '../cards/status-api.js';
 import { sanitizeAnalystText } from '../sanitization/analyst-sanitization.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from './runtime-api.js';
 
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'blocked']);
-const ANALYST_BRIEF_FLIPPABLE: ReadonlySet<CardStatus> = new Set(['blocked', 'done', 'failed']);
+const ANALYST_RECORD_FLIPPABLE: ReadonlySet<CardStatus> = new Set(['blocked', 'done', 'failed']);
 
 export type ChangeOrigin =
   | { kind: 'analyst_edit'; summary: string }
@@ -71,7 +71,7 @@ function notifyOnce(
   }
 }
 
-function analystBriefEditedCardAndAncestorRecipients(store: PropagationStore, path: readonly string[], editedCardId: string): string[] {
+function analystRecordEditedCardAndAncestorRecipients(store: PropagationStore, path: readonly string[], editedCardId: string): string[] {
   const recipients = [editedCardId];
   for (const cardId of path) {
     const card = store.read(cardId);
@@ -82,7 +82,7 @@ function analystBriefEditedCardAndAncestorRecipients(store: PropagationStore, pa
   return recipients;
 }
 
-function analystBriefAncestorRecipients(store: PropagationStore, path: readonly string[]): string[] {
+function analystRecordAncestorRecipients(store: PropagationStore, path: readonly string[]): string[] {
   const recipients: string[] = [];
   for (const cardId of path) {
     const card = store.read(cardId);
@@ -108,33 +108,33 @@ export function propagateChange(store: CardService, editedCardId: string, origin
   return { flipped };
 }
 
-export function propagateAnalystBriefEdit(store: PropagationStore, editedCardId: string, origin: ChangeOrigin, notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult): ChangedPropagation {
+export function propagateAnalystRecordEdit(store: PropagationStore, editedCardId: string, origin: ChangeOrigin, notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult): ChangedPropagation {
   const edited = store.read(editedCardId);
   if (!edited) throw new Error(`Card '${editedCardId}' not found.`);
 
   let flipped: ChangedPropagation['flipped'];
   let notifyRecipients: string[];
-  const effect = analystBriefEditEffect(edited.lifecycle.status);
+  const effect = analystRecordEditEffect(edited.lifecycle.status);
 
   if (effect === null) {
-    throw new Error(`Analyst brief edit propagation does not support target card status '${edited.lifecycle.status}'.`);
+    throw new Error(`Analyst record edit propagation does not support target card status '${edited.lifecycle.status}'.`);
   }
   if (edited.lifecycle.status === 'running') {
     flipped = [];
     notifyRecipients = [editedCardId];
   } else if (edited.lifecycle.status === 'stopped') {
     const path = ancestorPathIncludingEdited(store, editedCardId);
-    flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
-    notifyRecipients = analystBriefEditedCardAndAncestorRecipients(store, path, editedCardId);
+    flipped = flipRestingCardsAlongPath(store, path, ANALYST_RECORD_FLIPPABLE).flipped;
+    notifyRecipients = analystRecordEditedCardAndAncestorRecipients(store, path, editedCardId);
   } else if (edited.lifecycle.status === 'backlog') {
     const path = ancestorPathExcludingEdited(store, editedCardId);
-    flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
-    notifyRecipients = analystBriefAncestorRecipients(store, path);
+    flipped = flipRestingCardsAlongPath(store, path, ANALYST_RECORD_FLIPPABLE).flipped;
+    notifyRecipients = analystRecordAncestorRecipients(store, path);
   } else if (effect === 'reopen') {
     const path = ancestorPathIncludingEdited(store, editedCardId);
-    flipped = flipRestingCardsAlongPath(store, path, ANALYST_BRIEF_FLIPPABLE).flipped;
-    notifyRecipients = analystBriefEditedCardAndAncestorRecipients(store, path, editedCardId);
-  } else throw new Error(`Analyst brief edit effect '${effect}' has no propagation path for status '${edited.lifecycle.status}'.`);
+    flipped = flipRestingCardsAlongPath(store, path, ANALYST_RECORD_FLIPPABLE).flipped;
+    notifyRecipients = analystRecordEditedCardAndAncestorRecipients(store, path, editedCardId);
+  } else throw new Error(`Analyst record edit effect '${effect}' has no propagation path for status '${edited.lifecycle.status}'.`);
 
   const summary = originSummary(origin);
   notifyOnce(notifyRecipients, notifyCard, origin.kind, summary);

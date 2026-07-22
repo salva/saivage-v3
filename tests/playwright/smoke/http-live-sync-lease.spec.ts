@@ -4,7 +4,7 @@ import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js'
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const token = 'synthetic-http-live-sync-token';
-const sessionId = 'planner:project';
+const sessionId = 'agent:planner:project';
 const port = Number(process.env.SAIVAGE_PLAYWRIGHT_WEB_PORT ?? 4177);
 
 function nonInternalIpv4Address(): string {

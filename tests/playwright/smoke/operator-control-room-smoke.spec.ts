@@ -30,17 +30,17 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}`)));
   await expect(page.getByText('Card Detail').first()).toBeVisible();
-  const detail=page.getByRole('region',{name:'Card detail'}); const hi=detail.getByTestId('card-detail-highlight'); await expect(hi.locator('.card-entity__name')).toHaveText('Synthetic dashboard smoke card'); await expect(hi.locator('.card-entity__type')).toHaveText('Code'); await expect(hi.locator('.status-badge')).toContainText('done'); await expect(hi.locator('.ori-key').first()).toHaveText('v3'); const result=detail.locator('.section').filter({has:page.getByRole('heading',{name:'Result',exact:true})}); const details=result.locator('details'); await expect(details).not.toHaveAttribute('open',''); await result.locator('summary').click(); await expect(details).toHaveAttribute('open',''); await expect(result.locator('pre')).toContainText('"kind": "done"'); await expect(result.locator('pre')).toContainText('"summary": "synthetic result"');
+  const detail=page.getByRole('region',{name:'Card detail'}); const hi=detail.getByTestId('card-detail-highlight'); await expect(hi.locator('.card-entity__name')).toHaveText('Synthetic dashboard smoke card'); await expect(hi.locator('.card-entity__type')).toHaveText('Code'); await expect(hi.locator('.status-badge')).toContainText('done'); await expect(hi.locator('.ori-key').first()).toHaveText('v3'); const result=detail.locator('.section').filter({has:page.getByRole('heading',{name:'Result',exact:true})}); const details=result.locator('details'); await expect(details).not.toHaveAttribute('open',''); await result.locator('summary').click(); await expect(details).toHaveAttribute('open',''); await expect(result.locator('pre')).toContainText('"kind": "workflow-result"'); await expect(result.locator('pre')).toContainText('"summary": "synthetic result"');
 
   await page.getByText('Agents').first().click();
   await expect(page).toHaveURL(/\/agents$/);
   await expect(page.getByText('analyst').first()).toBeVisible();
   await expect(page.getByText('planner').first()).toBeVisible();
   await page.locator('.session-card').first().click();
-  await expect(page.locator('.detail-header-bar')).toContainText('analyst:global');
+  await expect(page.locator('.detail-header-bar')).toContainText('agent:analyst:global');
   await expect(page.locator('[data-testid="round-card"]').first()).toBeVisible();
   await expect(page.locator('[data-testid="round-card"]').first()).toContainText('Synthetic agent transcript.');
-  const ps=page.locator('.role-section').filter({has:page.locator('.role-heading',{hasText:'planner'})}); const pc=ps.locator('.session-card'); await expect(pc).toHaveCount(1); await expect(pc.locator('.session-model')).toHaveText('synthetic-model'); await expect(pc.locator('.status-badge')).toContainText('inactive'); await expect(pc.getByRole('button',{name:'Synthetic Project'})).toBeVisible(); await pc.click(); await expect(page).toHaveURL(/\/agents\/planner:project$/); await expect(page.locator('.detail-header-bar')).toContainText('planner:project');
+  const ps=page.locator('.role-section').filter({has:page.locator('.role-heading',{hasText:'planner'})}); const pc=ps.locator('.session-card'); await expect(pc).toHaveCount(1); await expect(pc.locator('.session-model')).toHaveText('synthetic-model'); await expect(pc.locator('.status-badge')).toContainText('inactive'); await expect(pc.getByRole('button',{name:'Synthetic Project'})).toBeVisible(); await pc.click(); await expect(page).toHaveURL(/\/agents\/agent:planner:project$/); await expect(page.locator('.detail-header-bar')).toContainText('agent:planner:project');
 
   await page.getByText('Files').first().click();
   await expect(page).toHaveURL(/\/files$/);

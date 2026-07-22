@@ -15,22 +15,22 @@ describe('conversation compaction file persistence', () => {
     appendConversationBatch({ projectRoot: root }, [source]);
     const valid = metadata('c1', hashConversationRows([source]));
     appendConversationBatch({ projectRoot: root }, [valid]);
-    expect(readConversation(root, 'planner:project').latestCompaction!.cutoffMessageId).toBe(source.id);
+    expect(readConversation(root, 'agent:planner:project').latestCompaction!.cutoffMessageId).toBe(source.id);
 
     expect(() => appendConversationBatch({ projectRoot: root }, [metadata('c2', '0'.repeat(64))])).toThrow(/hash mismatch/);
-    expect(readConversation(root, 'planner:project').compactions).toHaveLength(1);
+    expect(readConversation(root, 'agent:planner:project').compactions).toHaveLength(1);
   }));
 
   it('rejects a complete old-format envelope rather than normalizing it', () => withRoot((root) => {
-    const path = conversationFile(root, 'planner:project');
+    const path = conversationFile(root, 'agent:planner:project');
     mkdirSync(dirname(path), { recursive: true });
     const old = { ...metadata('old', '0'.repeat(64)), content: canonicalJson({ cutoff: { round_id: 'activation', through_message_id: 'activation', boundary: 'round' }, retained_static_message_ids: [], merged_history: null, individual_rounds: [], round_coverage: [], rendered_context: 'old', applied_policy: policy() }) };
     writeFileSync(path, `${JSON.stringify({ version: 1, type: 'rows', rows: [old] })}\n`);
-    expect(() => readConversation(root, 'planner:project')).toThrow(/malformed|invalid/i);
+    expect(() => readConversation(root, 'agent:planner:project')).toThrow(/malformed|invalid/i);
   }));
 
   it('rejects a complete pre-cutover policy row containing a removed derived field', () => withRoot((root) => {
-    const path = conversationFile(root, 'planner:project');
+    const path = conversationFile(root, 'agent:planner:project');
     mkdirSync(dirname(path), { recursive: true });
     const source = activation();
     const current = metadata('old-policy', hashConversationRows([source]));
@@ -38,35 +38,35 @@ describe('conversation compaction file persistence', () => {
     payload.applied_policy.requested_completion_tokens = 200;
     const oldPolicy = { ...current, content: canonicalJson(payload) };
     writeFileSync(path, `${JSON.stringify({ version: 1, type: 'rows', rows: [source, oldPolicy] })}\n`);
-    expect(() => readConversation(root, 'planner:project')).toThrow(/unrecognized key|malformed|invalid/i);
+    expect(() => readConversation(root, 'agent:planner:project')).toThrow(/unrecognized key|malformed|invalid/i);
   }));
 
   it('rejects a durable row whose session disagrees with the requested canonical filename', () => withRoot((root) => {
-    const path = conversationFile(root, 'planner:project');
+    const path = conversationFile(root, 'agent:planner:project');
     mkdirSync(dirname(path), { recursive: true });
-    const wrongSession = { ...activation(), session_id: 'reviewer:project' };
+    const wrongSession = { ...activation(), session_id: 'agent:reviewer:project' };
     writeFileSync(path, `${JSON.stringify({ version: 1, type: 'rows', rows: [wrongSession] })}\n`);
-    expect(() => readConversation(root, 'planner:project')).toThrow(/reviewer:project.*planner:project/);
-    expect(wrongSession.session_id).toBe('reviewer:project');
+    expect(() => readConversation(root, 'agent:planner:project')).toThrow(/agent:reviewer:project.*agent:planner:project/);
+    expect(wrongSession.session_id).toBe('agent:reviewer:project');
   }));
 
   it('keeps the existing identifiable unterminated-final-suffix handling', () => withRoot((root) => {
     appendConversationBatch({ projectRoot: root }, [activation()]);
-    const path = conversationFile(root, 'planner:project');
+    const path = conversationFile(root, 'agent:planner:project');
     appendFileSync(path, '{"incomplete":');
-    expect(readConversation(root, 'planner:project').sourceRows).toHaveLength(1);
+    expect(readConversation(root, 'agent:planner:project').sourceRows).toHaveLength(1);
     expect(readFileSync(path, 'utf8').endsWith('\n')).toBe(true);
   }));
 });
 
 function activation(): AgentMessage {
   const timestamp = '2026-07-16T00:00:00.000Z';
-  return agentMessageSchema.parse({ id: 'activation', session_id: 'planner:project', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp }), round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp });
+  return agentMessageSchema.parse({ id: 'activation', session_id: 'agent:planner:project', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp }), round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp });
 }
 
 function metadata(id: string, hash: string): AgentMessage {
   const payload = contextCompactionContentSchema.parse({ boundary: 'round', retained_static_message_ids: [], summaries: [{ kind: 'individual', rounds: [{ complete: true, segments: [{ kind: 'initial', source_message_ids: ['activation'] }] }], content_hash: hash, summary_text: 'summary', evidence: [] }], applied_policy: policy() });
-  return agentMessageSchema.parse({ id, session_id: 'planner:project', role: 'system', kind: 'context_compaction', content: canonicalJson(payload), round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:01:00.000Z' });
+  return agentMessageSchema.parse({ id, session_id: 'agent:planner:project', role: 'system', kind: 'context_compaction', content: canonicalJson(payload), round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:01:00.000Z' });
 }
 
 function policy() {

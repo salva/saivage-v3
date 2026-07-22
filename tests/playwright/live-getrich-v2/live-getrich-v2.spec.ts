@@ -1,7 +1,6 @@
 import { expect, test, type Page, type Request } from '@playwright/test';
 
-const analystSessionId = 'analyst:global';
-const analystSessionPath = encodeURIComponent(analystSessionId);
+const analystSessionId = 'agent:analyst:global';
 
 /**
  * Live end-to-end suite against the saivage-v3 deployment serving the
@@ -89,7 +88,7 @@ test.describe('saivage-v3 live deployment — getrich-v2', () => {
   });
 
   test('chats.send responds with a contract-valid success body for the analyst session', async ({ request }) => {
-    const res = await request.post(`/api/chats/${analystSessionPath}`, {
+    const res = await request.post('/api/chat', {
       data: { content: 'live e2e ping — please reply with the single word OK', workspaceContext: { view: 'dashboard', entityId: null, refinement: null } },
       timeout: 120_000,
     });

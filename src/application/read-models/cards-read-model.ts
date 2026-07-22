@@ -83,7 +83,8 @@ export class CardsReadModelService {
     const result = this.store.getCardDetail(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     const card = OperatorCardSchema.parse(redactForOutbound({ source: 'operator-card', value: toOperatorCard(result.value) }));
-    return { body: CardDetailResponseSchema.parse({ card }) };
+    const records=this.store.recordReader.definitions(id).map(({filename,writers,format,schema,bootstrap})=>({name:filename,writers,format,schema,bootstrap}));
+    return { body: CardDetailResponseSchema.parse({ card,records }) };
   }
 
   listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {

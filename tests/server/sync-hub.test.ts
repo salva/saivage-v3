@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { SyncHub } from '../../src/server/sync-hub.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { WebSocket } from 'ws';
 
@@ -29,11 +29,11 @@ describe('SyncHub semantic hints', () => {
     hub.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: 'card-a' });
     hub.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: 'card-b' });
     hub.cardProjectionChanged({ resource: 'cards', scope: 'history', card_id: 'card-a' });
-    hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'brief' });
-    hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'status' });
+    hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'brief' });
+    hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'status' });
     hub.agentsChanged();
-    hub.conversationChanged('analyst:global');
-    hub.conversationChanged('analyst:global');
+    hub.conversationChanged('agent:analyst:global');
+    hub.conversationChanged('agent:analyst:global');
     expect(invalidate).not.toHaveBeenCalled();
 
     jest.advanceTimersByTime(25);
@@ -43,10 +43,10 @@ describe('SyncHub semantic hints', () => {
       { resource: 'cards', scope: 'detail', card_id: 'card-a' },
       { resource: 'cards', scope: 'detail', card_id: 'card-b' },
       { resource: 'cards', scope: 'history', card_id: 'card-a' },
-      { resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'brief' },
-      { resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'status' },
+      { resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'brief' },
+      { resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'status' },
       { resource: 'agents' },
-      { resource: 'conversation', id: 'analyst:global' },
+      { resource: 'conversation', id: 'agent:analyst:global' },
     ]);
   });
 
@@ -60,11 +60,11 @@ describe('SyncHub semantic hints', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root, hub);
-      const parent = cards.create({ type: 'goal', parent: 'project', title: 'sync parent', brief: 'sync', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const parent = cards.create({ type: 'goal', parent: 'project', title: 'sync parent', bootstrap_content: 'sync', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       jest.advanceTimersByTime(25);
       jest.mocked(ws.send).mockClear();
 
-      const child = cards.create({ type: 'code', parent: parent.id, title: 'sync child', brief: 'sync', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const child = cards.create({ type: 'code', parent: parent.id, title: 'sync child', bootstrap_content: 'sync', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       expect(child.id).toBe('card-a-a');
       expect(cards.read(parent.id)?.children).toEqual([child.id]);
       expect(cards.listChildren(parent.id)).toEqual([child.id]);

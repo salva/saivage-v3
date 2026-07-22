@@ -1,150 +1,69 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { afterEach,describe,expect,it } from '@jest/globals';
+import { mkdirSync,mkdtempSync,rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import * as YAML from 'yaml';
+import { join } from 'node:path';
 
-import { cardProcessesSchema, type CardProcessesSource } from '../../../src/schemas/saivage-config.js';
-import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
-import { cardProcessEntryForStatus, compileCardProcesses } from '../../../src/runtime/card-process/card-process-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../../src/agents/default-workflow-config.js';
+import { bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
+import { saivageConfigSchema,type SaivageConfig } from '../../../src/schemas/saivage-config.js';
 import type { CardStatus } from '../../../src/schemas/index.js';
-import { createProcessPromptRegistry } from '../../../src/runtime/card-process/process-prompt-registry.js';
+import { ProviderRegistry } from '../../../src/agents/provider.js';
+import { ModelRouter } from '../../../src/agents/model-router.js';
 
-const roots: string[] = [];
-afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
+function source():SaivageConfig{return saivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));}
+function failure(change:(value:SaivageConfig)=>void,message:RegExp):void{const value=source();change(value);expect(()=>compileProjectWorkflows(value)).toThrow(message);}
+const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
-function source(): CardProcessesSource {
-  return cardProcessesSchema.parse(structuredClone(DEFAULT_CARD_PROCESSES));
-}
-
-function expectCompileFailure(change: (value: CardProcessesSource) => void, message: RegExp): void {
-  const value = source();
-  change(value);
-  expect(() => compileCardProcesses(value)).toThrow(message);
-}
-
-describe('card process source and compilation', () => {
+describe('named-agent card-type workflow compilation',()=>{
   it.each([
-    ['backlog', 'BACKLOG'],
-    ['running', null],
-    ['blocked', 'BLOCKED'],
-    ['changed', 'CHANGED'],
-    ['stopped', 'STOPPED'],
-    ['done', null],
-    ['failed', null],
-    ['cancelled', null],
-  ] satisfies Array<[CardStatus, 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED' | null]>)('maps %s to its pre-running process entry', (status, entry) => {
-    expect(cardProcessEntryForStatus(status)).toBe(entry);
+    ['backlog','BACKLOG'],['running',null],['blocked','BLOCKED'],['changed','CHANGED'],['stopped','STOPPED'],['done',null],['failed',null],['cancelled',null],
+  ] satisfies Array<[CardStatus,'BACKLOG'|'CHANGED'|'BLOCKED'|'STOPPED'|null]>)('maps %s to its workflow entry',(status,entry)=>expect(cardProcessEntryForStatus(status)).toBe(entry));
+
+  it('compiles every card type into immutable named-agent, record, child, and terminal contracts',()=>{
+    const compiled=compileProjectWorkflows(source());
+    expect([...compiled.cardTypes.keys()]).toEqual(['project','goal','architecture','code','test','doc','data','research','ops']);
+    const goal=compiled.cardTypes.get('goal')!;
+    expect(goal.nodes.get('plan')!.agent.name).toBe('planner');
+    expect([...goal.nodes.get('plan')!.childCreationTypes]).toContain('code');
+    expect(goal.records.get('brief.md')!.bootstrap).toBe(true);
+    expect(goal.nodes.get('plan')!.edges.get('complete_direct')!.terminalRoute).toMatchObject({terminal:'DONE',promotion:{kind:'current'}});
+    expect((compiled.cardTypes as Map<unknown,unknown>).set).toBeUndefined();
+    expect(compiled.cardTypes.get('project')).not.toBe(compiled.cardTypes.get('goal'));
+    for(const type of ['architecture','code','test','doc','data','research','ops'] as const)expect(compiled.cardTypes.get(type)?.nodes.keys().next().value).toBe('execute');
+    expect(compiled.agents.get('planner')?.tools).toEqual(['create_card','edit_card','cancel_card','activate_card','reorder_child','queue_notification','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_history','get_card_history_entry','diff_card','websearch','webfetch']);
+    expect(compiled.agents.get('reviewer')?.tools).not.toContain('mcp_tool_call');
+    expect(compiled.agents.get('executor')?.tools).toContain('mcp_tool_call');
+    expect(compiled.agents.get('analyst')?.tools).toHaveLength(41);
   });
 
-  it('compiles the authoritative graph with distinct entry and terminal BLOCKED namespaces', () => {
-    const compiled = compileCardProcesses(source());
-    expect(compiled.planning.states.get('entry:BLOCKED')).toEqual({ kind: 'entry', entry: 'BLOCKED' });
-    expect(compiled.planning.states.get('terminal:BLOCKED')).toEqual({ kind: 'terminal', terminal: 'BLOCKED' });
-    expect(compiled.planning.definition.states.get('node:plan')!.on.get('result:blocked')).toEqual({ target: 'terminal:BLOCKED', reenter: false });
-    expect([...compiled.planning.definition.states.get('node:plan')!.on.keys()]).toEqual(['result:complete_direct', 'result:admit_review', 'result:blocked', 'result:failed', 'execution:failed']);
-    expect((compiled.planning.states as Map<unknown, unknown>).set).toBeUndefined();
-    expect((compiled.planning.definition.states as Map<unknown, unknown>).set).toBeUndefined();
-    expect(compiled.planning.states.get('node:plan')).not.toHaveProperty('outcomes');
-    expect(compiled.planning.states.get('node:plan')).not.toHaveProperty('edges');
+  it('selects and freezes prompt text during structural compilation before publication',()=>{
+    const projectRoot=mkdtempSync(join(tmpdir(),'workflow-prompts-'));roots.push(projectRoot);const path=join(projectRoot,'.saivage','config','prompts','code','agents');mkdirSync(path,{recursive:true});writeFileSync(join(path,'executor.md'),'Card override {{contractDescription}}');
+    const compiled=compileProjectWorkflows(source(),{projectRoot});const node=compiled.cardTypes.get('code')!.nodes.get('execute')!;
+    expect(node.selectedAgentPrompt).toMatchObject({source:'card-specific',text:'Card override {{contractDescription}}'});
+    writeFileSync(join(path,'executor.md'),'changed after compile');
+    expect(node.selectedAgentPrompt.text).toBe('Card override {{contractDescription}}');
   });
 
-  it('requires exactly both families, all entries, strict tagged edge objects, and a STOPPED prompt', () => {
-    const valid = structuredClone(DEFAULT_CARD_PROCESSES) as Record<string, any>;
-    for (const mutation of [
-      (v: any) => { delete v.planning; },
-      (v: any) => { v.other = v.planning; },
-      (v: any) => { delete v.planning.entries.CHANGED; },
-      (v: any) => { v.planning.entries.INTERRUPTED = { node: 'plan' }; },
-      (v: any) => { delete v.planning.entries.STOPPED.prompt; },
-      (v: any) => { v.terminal.nodes.execute.edges.done = 'DONE'; },
-      (v: any) => { v.terminal.nodes.execute.edges.done.target = {}; },
-      (v: any) => { v.terminal.nodes.execute.edges.done.target = { node: 'execute', terminal: 'DONE' }; },
-      (v: any) => { v.terminal.nodes.execute.edges.done.target = { terminal: 'UNKNOWN' }; },
-      (v: any) => { v.terminal.nodes.execute.edges.done.prompt = 'not-consumed'; },
-      (v: any) => { v.terminal.nodes.execute.counter = 1; },
-      (v: any) => { v.terminal.nodes.execute.edges.done.action = 'shell'; },
-      (v: any) => { v.terminal.nodes.execute.prompt_path = '../escape'; },
-    ]) {
-      const candidate = structuredClone(valid);
-      mutation(candidate);
-      const parsed = cardProcessesSchema.safeParse(candidate);
-      if (parsed.success) expect(() => compileCardProcesses(parsed.data)).toThrow();
-      else expect(parsed.success).toBe(false);
-    }
-    for (const name of ['card.json', 'unknown.md']) {
-      const candidate = structuredClone(valid);
-      candidate.planning.nodes.plan.records = [{ name, updated: false }];
-      expect(cardProcessesSchema.safeParse(candidate).success).toBe(false);
-    }
+  it('binds configured provider candidates once and fails when a required route has none',()=>{
+    const valid=source();valid.providers={test:{models:['gpt-5.6']}};const structural=compileProjectWorkflows(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(valid,new ProviderRegistry(valid)));
+    expect(bound.runtimeBound).toBe(true);expect(bound.candidateChains.get('reviewer')).toEqual([expect.objectContaining({provider:'test',model:'gpt-5.6'})]);
+    const unavailable=source();const unbound=compileProjectWorkflows(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(unavailable,new ProviderRegistry(unavailable)))).toThrow(/no capability-compatible configured provider candidate/);
   });
 
-  it('rejects duplicate YAML node and outcome keys at configuration parsing', () => {
-    const duplicateNode = YAML.parseDocument('card_processes:\n  planning:\n    nodes:\n      plan: {}\n      plan: {}\n');
-    const duplicateOutcome = YAML.parseDocument('card_processes:\n  terminal:\n    nodes:\n      execute:\n        edges:\n          done: {}\n          done: {}\n');
-    expect(duplicateNode.errors[0]?.message).toMatch(/Map keys must be unique/);
-    expect(duplicateOutcome.errors[0]?.message).toMatch(/Map keys must be unique/);
+  it('rejects missing agents, invalid writer capability, invalid child authority, and graph defects',()=>{
+    failure((value)=>{value.card_types.code!.workflow.nodes.execute!.agent='missing';},/missing agent/);
+    failure((value)=>{value.card_types.code!.records['status.md']!.writers=[];},/writer authority/);
+    failure((value)=>{value.agents.planner!.can_create_children=false;},/cannot list create_card/);
+    failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges={loop:{target:{node:'execute'},prompt:'execute'}};},/no path to a terminal/);
   });
 
-  it('rejects invalid identities, role/writer mismatches, duplicate records, missing targets, and graph defects', () => {
-    expectCompileFailure((v) => { v.terminal.nodes.execute.prompt = '../escape'; }, /identifier/);
-    expectCompileFailure((v) => { v.terminal.nodes.execute.role = 'planner'; }, /incompatible/);
-    expectCompileFailure((v) => { v.planning.nodes.plan.records.push({ name: 'status.md', updated: false }); }, /duplicate/);
-    expectCompileFailure((v) => { v.planning.nodes.plan.records = [{ name: 'review.md', updated: true }]; }, /unsupported record/);
-    const plannerBrief = source();
-    plannerBrief.planning.nodes.plan.records = [{ name: 'brief.md', updated: true }];
-    expect(() => compileCardProcesses(plannerBrief)).not.toThrow();
-    expectCompileFailure((v) => { v.planning.entries.BACKLOG.node = 'missing'; }, /missing node/);
-    expectCompileFailure((v) => { v.planning.nodes.plan.edges.admit_review.target = { node: 'missing' }; }, /missing node/);
-    expectCompileFailure((v) => {
-      v.planning.nodes.orphan = structuredClone(v.planning.nodes.plan);
-    }, /unreachable/);
-    expectCompileFailure((v) => {
-      v.terminal.nodes.execute.edges = { loop: { target: { node: 'execute' } } };
-    }, /no path to a terminal/);
-  });
-
-  it('accepts cycles with a terminal path and reusable prompt identities in every reference position', () => {
-    const value = source();
-    value.terminal.entries.STOPPED.prompt = 'shared';
-    value.terminal.nodes.execute.prompt = 'shared';
-    value.terminal.nodes.execute.correction_prompt = 'shared';
-    value.terminal.nodes.verify = {
-      role: 'executor', prompt: 'shared', correction_prompt: 'shared', records: [],
-      edges: { again: { target: { node: 'execute' }, prompt: 'shared' }, done: { target: { terminal: 'DONE' } } },
-    };
-    value.terminal.nodes.execute.edges.done = { target: { node: 'verify' }, prompt: 'shared' };
-    const compiled = compileCardProcesses(value);
-    expect(compiled.terminal.definition.states.get('node:verify')!.on.get('result:again')).toEqual({ target: 'node:execute', reenter: false });
-    expect(compiled.terminal.transitionPrompts.values().next().value).toBeDefined();
-  });
-
-  it('compiles same-node outcomes as explicit external reentry without prompt topology duplication', () => {
-    const value = source();
-    value.terminal.nodes.execute.edges.again = { target: { node: 'execute' }, prompt: 'implementation-to-verification' };
-    const process = compileCardProcesses(value).terminal;
-    expect(process.definition.states.get('node:execute')!.on.get('result:again')).toEqual({ target: 'node:execute', reenter: true });
-    expect(process.transitionPrompts.get('12:node:executeresult:again')).toBe('implementation-to-verification');
-    expect(process.transitionPrompts.get('12:node:executeresult:again')).not.toEqual(expect.objectContaining({ target: expect.anything() }));
-  });
-});
-
-describe('ProcessPromptRegistry', () => {
-  it('preloads exact bundled artifacts, uses an exact override, and caches reusable references', () => {
-    const overrideRoot = mkdtempSync(join(tmpdir(), 'saivage-process-overrides-'));
-    roots.push(overrideRoot);
-    const path = join(overrideRoot, 'goal', 'process', 'plan.md');
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, 'Project-specific plan instruction.');
-    const registry = createProcessPromptRegistry(compileCardProcesses(source()), { defaultRoot: 'src/prompts', overrideRoot });
-    expect(registry.get('goal', 'plan' as any)).toBe('Project-specific plan instruction.');
-    expect(registry.get('project', 'plan' as any)).toContain('current planning step');
-    expect(registry.get('goal', 'correct-plan-result' as any)).toBe(registry.get('goal', 'correct-plan-result' as any));
-  });
-
-  it('fails on a missing referenced artifact without scanning or accepting a configured path', () => {
-    const value = source();
-    value.terminal.nodes.execute.prompt = 'missing-artifact';
-    expect(() => createProcessPromptRegistry(compileCardProcesses(value), { defaultRoot: 'src/prompts' })).toThrow(/architecture\/missing-artifact.*missing effective artifact/);
+  it('uses intentionally local export and latest-node promotion validation',()=>{
+    failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges.done!.target={terminal:'DONE',promote:'current',export_records:['brief.md']};},/without a source-node present or updated requirement/);
+    const value=source();
+    const code=value.card_types.code!;
+    code.workflow.nodes.verify=structuredClone(code.workflow.nodes.execute!);
+    code.workflow.nodes.execute!.edges.done={target:{node:'verify'},prompt:'execute'};
+    code.workflow.nodes.verify!.edges.done={target:{terminal:'DONE',promote:{latest_node:'execute'},export_records:['status.md']}};
+    expect(()=>compileProjectWorkflows(value)).not.toThrow();
   });
 });

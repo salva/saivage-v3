@@ -50,12 +50,12 @@ jest.unstable_mockModule('node:fs', () => ({
   realpathSync: mockedRealpathSync,
 }));
 
-const { CardService } = await import('../../src/cards/card-service.js');
+const { CardService } = await import('../helpers/canonical-project.js');
 const { cardStreamFile } = await import('../../src/persistence/layout.js');
 const { initProjectTree } = await import('../helpers/canonical-project.js');
 
 const roots: string[] = [];
-const input = { type: 'code' as const, parent: 'project', title: 'Claim', brief: 'Claim directly.', tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
+const input = { type: 'code' as const, parent: 'project', title: 'Claim', bootstrap_content: 'Claim directly.', tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
 
 beforeEach(() => {
   candidateMkdirPaths.length = 0;

@@ -1,4 +1,5 @@
 import type { AgentMessage, MessageKind, ConversationSessionId } from '../../schemas/index.js';
+import { conversationSessionIdentity } from '../../schemas/index.js';
 import {
   loggedToolCallIdentity,
   loggedToolCallKey,
@@ -61,15 +62,15 @@ function recoveryVisibility(kind: MessageKind): RecoveryVisibility {
   return recoveryVisibilityByKind[kind];
 }
 
-export type RoleSessionStabilization =
+export type AgentSessionStabilization =
   | { disposition: 'clean'; messages: AgentMessage[] }
   | { disposition: 'ordinary_interruption'; messages: AgentMessage[] };
 
-export function stabilizeRoleSession(args: {
+export function stabilizeAgentSession(args: {
   sessionId: ConversationSessionId;
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
-}): RoleSessionStabilization {
+}): AgentSessionStabilization {
   let conversation: ValidatedConversation;
   try { conversation = readConversation(args.conversations.projectRoot, args.sessionId); }
   catch (error) {
@@ -121,26 +122,24 @@ export function stabilizeRoleSession(args: {
   };
 }
 
-function activationMarker(message: AgentMessage): { role: string; cardId: string; inputId: string } | null {
+function activationMarker(message: AgentMessage): { agentName: string; cardId: string; inputId: string } | null {
   if (message.kind !== 'activity') return null;
   try {
-    const payload = JSON.parse(message.content) as { event?: unknown; role?: unknown; card_id?: unknown; input_id?: unknown };
+    const payload = JSON.parse(message.content) as { event?: unknown; agent_name?: unknown; card_id?: unknown; input_id?: unknown };
     if (payload.event !== 'activation_open') return null;
-    if (typeof payload.role !== 'string' || typeof payload.card_id !== 'string' || typeof payload.input_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(payload.input_id)) throw new Error(`Activation marker '${message.id}' has malformed content.`);
-    return { role: payload.role, cardId: payload.card_id, inputId: payload.input_id };
+    if (typeof payload.agent_name !== 'string' || typeof payload.card_id !== 'string' || typeof payload.input_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(payload.input_id)) throw new Error(`Activation marker '${message.id}' has malformed content.`);
+    return { agentName: payload.agent_name, cardId: payload.card_id, inputId: payload.input_id };
   } catch (error) {
     if (message.id.includes(':activation:')) throw error;
     return null;
   }
 }
 
-function requireAssociatedActivationMarker(message: AgentMessage, sessionId: ConversationSessionId): { role: string; cardId: string; inputId: string } {
+function requireAssociatedActivationMarker(message: AgentMessage, sessionId: ConversationSessionId): { agentName: string; cardId: string; inputId: string } {
   const marker = activationMarker(message);
   if (!marker) throw new Error(`Latest activation marker for '${sessionId}' is missing or malformed.`);
-  const separator = sessionId.indexOf(':');
-  const expectedRole = sessionId.slice(0, separator);
-  const expectedCard = sessionId.slice(separator + 1);
-  if (marker.role !== expectedRole || marker.cardId !== expectedCard) throw new Error(`Activation marker '${message.id}' does not match session '${sessionId}'.`);
+  const identity=conversationSessionIdentity(sessionId);
+  if (identity.cardId===null||marker.agentName !== identity.agentName || marker.cardId !== identity.cardId) throw new Error(`Activation marker '${message.id}' does not match session '${sessionId}'.`);
   return marker;
 }
 

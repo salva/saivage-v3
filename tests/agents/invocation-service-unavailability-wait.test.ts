@@ -15,11 +15,11 @@ const alternate: Candidate = { provider: 'alt', account: null, model: 'm-alt' };
 
 function request(chain: Candidate[] = [candidate], signal?: AbortSignal): InvocationRequest {
   return {
-    inputId: 'planner:card:1',
-    role: 'planner',
-    sessionId: 'planner:card',
+    inputId: 'agent:planner:card:1',
+    agentName: 'planner',
+    sessionId: 'agent:planner:card',
     systemPrompt: 'system',
-    providerConversation: { sourceSessionId: 'planner:card', messages: [] },
+    providerConversation: { sourceSessionId: 'agent:planner:card', messages: [] },
     tools: [],
     terminalToolNames: [],
     modelParams: {},
@@ -65,7 +65,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
 
     await expect(invocation).rejects.toMatchObject({
       originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } },
-      provider_exchanges: [{ source_input_id: 'planner:card:1', attempt_index: 0, status: 'error', error: { name: 'Error', message: 'owner stopped' } }],
+      provider_exchanges: [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'error', error: { name: 'Error', message: 'owner stopped' } }],
     });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(markFailed).not.toHaveBeenCalled();
@@ -159,7 +159,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const availability = new MemoryCandidateAvailability();
     availability.markFailed(candidate, { state: 'COOLING', untilMs: 3 * 60 * 60 * 1000, reason: 'server_transient' });
     const invocation = service({ availability }).invokeWithRecovery(request());
-    const rejection = expect(invocation).rejects.toThrow("No LLM candidate became available for role 'planner' within 7200000ms.");
+    const rejection = expect(invocation).rejects.toThrow("No LLM candidate became available for agent 'planner' within 7200000ms.");
 
     await jest.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
 
@@ -175,7 +175,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const availability = new MemoryCandidateAvailability();
     availability.markFailed(candidate, { state: 'BLOCKED_UNTIL', untilMs: 60_000, reason: 'auth_permanent' });
 
-    await expect(service({ availability }).invokeWithRecovery(request())).rejects.toThrow("No healthy candidates available for role 'planner'.");
+    await expect(service({ availability }).invokeWithRecovery(request())).rejects.toThrow("No healthy candidates available for agent 'planner'.");
     expect(jest.getTimerCount()).toBe(0);
   });
 

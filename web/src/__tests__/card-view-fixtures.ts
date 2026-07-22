@@ -3,11 +3,15 @@ import type { CardRecord } from '../api/types';
 
 function lifecycleFor(status: RawCardRecord['lifecycle']['status']): RawCardRecord['lifecycle'] {
   switch (status) {
-    case 'done': return { status, result: { kind: 'done', summary: 'Done' }, error: null, completed_at: '2026-01-01T00:00:00.000Z' };
-    case 'failed': return { status, result: { kind: 'failed', summary: 'Failed' }, error: 'Failed', completed_at: '2026-01-01T00:00:00.000Z' };
-    case 'blocked': return { status, result: { kind: 'blocked', summary: 'Blocked' }, error: 'Blocked', completed_at: null };
+    case 'done': return { status, result: workflowResult('DONE', 'approved', 'Done'), error: null, completed_at: '2026-01-01T00:00:00.000Z' };
+    case 'failed': return { status, result: workflowResult('FAILED', 'failed', 'Failed'), error: 'Failed', completed_at: '2026-01-01T00:00:00.000Z' };
+    case 'blocked': return { status, result: workflowResult('BLOCKED', 'blocked', 'Blocked'), error: 'Blocked', completed_at: null };
     default: return { status, result: null, error: null, completed_at: null };
   }
+}
+
+function workflowResult(terminal: 'DONE' | 'BLOCKED' | 'FAILED', outcome: string, summary: string) {
+  return { kind: 'workflow-result' as const, terminal, agent_name: 'executor', node_id: 'execute', outcome, summary, records: [] };
 }
 
 export function rawCard(id: string, overrides: Partial<RawCardRecord> = {}): RawCardRecord {

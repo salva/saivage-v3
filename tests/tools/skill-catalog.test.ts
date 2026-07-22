@@ -38,7 +38,7 @@ describe('SkillCatalog', () => {
     const catalog = new SkillCatalog(root);
 
     expect(catalog.read('reviewer', 'review')).toEqual({ name: 'review', content: '# Review\n\nExact text.\n' });
-    expect(() => catalog.read('executor', 'review')).toThrow("Skill 'review' is unavailable for role 'executor'.");
+    expect(() => catalog.read('executor', 'review')).toThrow("Skill 'review' is unavailable for agent 'executor'.");
   }));
 
   it('accepts an empty index', () => temporaryProject((root, skillsDir) => {
@@ -56,7 +56,7 @@ describe('SkillCatalog', () => {
 
   it('treats an absent index as unavailable for reads and reports a missing selected file', () => temporaryProject((root, skillsDir) => {
     const catalog = new SkillCatalog(root);
-    expect(() => catalog.read('analyst', 'missing')).toThrow("Skill 'missing' is unavailable for role 'analyst'.");
+    expect(() => catalog.read('analyst', 'missing')).toThrow("Skill 'missing' is unavailable for agent 'analyst'.");
 
     writeIndex(skillsDir, [{ name: 'present', file: 'missing.md', target_agents: ['analyst'] }]);
     expect(() => catalog.read('analyst', 'present')).toThrow(/Failed to read skill 'present' file at .*missing\.md: ENOENT/);
@@ -86,7 +86,6 @@ describe('SkillCatalog', () => {
     ]],
     ['empty target roles', [{ name: 'one', file: 'one.md', target_agents: [] }]],
     ['duplicate target role', [{ name: 'one', file: 'one.md', target_agents: ['executor', 'executor'] }]],
-    ['unsupported target role', [{ name: 'one', file: 'one.md', target_agents: ['planner'] }]],
     ['absolute file', [{ name: 'one', file: '/outside.md', target_agents: ['executor'] }]],
     ['Windows absolute file', [{ name: 'one', file: 'C:/outside.md', target_agents: ['executor'] }]],
     ['parent file segment', [{ name: 'one', file: '../outside.md', target_agents: ['executor'] }]],

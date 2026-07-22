@@ -16,9 +16,10 @@ vi.mock('../../api/client', () => ({
 
 import { ApiError, getAgentConversation, getAgentLlmExchange, listAgentSessions } from '../../api/client';
 
-const S1 = 'planner:project' as const;
-const S2 = 'reviewer:project' as const;
-const session: AgentSession = { id: S1, role: 'planner', status: 'active', started_at: '2026-01-01T00:00:00.000Z' };
+const S1 = 'agent:planner:project' as const;
+const S2 = 'agent:reviewer:project' as const;
+const session: AgentSession = { id: S1, agent_name: 'planner', session_scope: 'card', card_id: 'project', status: 'active', started_at: '2026-01-01T00:00:00.000Z' };
+const reviewerSession: AgentSession = { id: S2, agent_name: 'reviewer', session_scope: 'card', card_id: 'project', status: 'active', started_at: session.started_at };
 const entry = { id: 'm1', session_id: S1, role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:01.000Z' } as const;
 const activityStatus: ActivityStatus = { status: 'inactive', pending_calls: [] };
 const exchange = { provider: 'provider-one' } as any;
@@ -87,7 +88,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     let oldSignal: AbortSignal | undefined;
     vi.mocked(listAgentSessions)
       .mockImplementationOnce((signal) => { oldSignal = signal; return oldRequest.promise; })
-      .mockResolvedValueOnce({ sessions: [{ id: S2, role: 'reviewer', status: 'active', started_at: session.started_at }] });
+      .mockResolvedValueOnce({ sessions: [reviewerSession] });
     const store = useAgentStore();
     const oldFetch = store.fetchSessions();
     await store.fetchSessions();
@@ -133,7 +134,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(store.sessionsRefreshing).toBe(false);
     expect(store.sessions).toEqual([session]);
 
-    pending.resolve({ sessions: [{ id: S2, role: 'reviewer', status: 'active', started_at: session.started_at }] });
+    pending.resolve({ sessions: [reviewerSession] });
     await expect(old).resolves.toBe(false);
     expect(store.sessions).toEqual([session]);
   });
@@ -174,7 +175,7 @@ describe('useAgentStore singular agent resource ownership', () => {
   });
 
   it('rejects a successful conversation response for the wrong session identity', async () => {
-    vi.mocked(getAgentConversation).mockResolvedValue({ session: { id: S2, role: 'reviewer', status: 'active', started_at: session.started_at }, entries: [], activity_status: activityStatus });
+    vi.mocked(getAgentConversation).mockResolvedValue({ session: reviewerSession, entries: [], activity_status: activityStatus });
     const store = useAgentStore();
     const token = store.beginConversationSelection(S1);
     await expect(store.fetchConversation(token)).rejects.toThrow(`does not match selected session ${S1}`);
@@ -185,7 +186,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     const oldRequest = deferred<any>();
     vi.mocked(getAgentConversation)
       .mockReturnValueOnce(oldRequest.promise)
-      .mockResolvedValueOnce({ session: { id: S2, role: 'reviewer', status: 'active', started_at: session.started_at }, entries: [{ ...entry, session_id: S2, content: 'new' }], activity_status: activityStatus });
+      .mockResolvedValueOnce({ session: reviewerSession, entries: [{ ...entry, session_id: S2, content: 'new' }], activity_status: activityStatus });
     const store = useAgentStore();
     const oldToken = store.beginConversationSelection(S1);
     const oldFetch = store.fetchConversation(oldToken);

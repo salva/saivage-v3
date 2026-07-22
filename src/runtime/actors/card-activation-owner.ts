@@ -1,4 +1,4 @@
-import type { CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
+import type { AgentName, CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardService } from '../../cards/card-service.js';
 import type { ProcessPosition, CardProcessEntry } from '../card-process/card-process-config.js';
@@ -13,7 +13,7 @@ export interface CardActivationInput {
   caller: CardActivationCaller;
   entry: CardProcessEntry;
   notificationDelivery: CardNotificationDeliveryPort;
-  alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'>;
+  alreadyStabilizedAgents: ReadonlySet<AgentName>;
   claimResult(): void;
 }
 
@@ -68,7 +68,7 @@ export class CardActivationOwner {
   retainedPublicationFailure: unknown = null;
   retainedLocalFailure: unknown = null;
   processorActivated = false;
-  readonly alreadyStabilizedRoles: ReadonlySet<'planner' | 'reviewer' | 'executor'>;
+  readonly alreadyStabilizedAgents: ReadonlySet<AgentName>;
 
   constructor(args: {
     card: CardRecord;
@@ -79,7 +79,7 @@ export class CardActivationOwner {
     caller: CardActivationCaller;
     phase: Extract<CardActivationOwnerPhase, 'prepared_root' | 'child_admission'>;
     parentRelationship?: ParentActivationRelationship;
-    alreadyStabilizedRoles?: ReadonlySet<'planner' | 'reviewer' | 'executor'>;
+    alreadyStabilizedAgents?: ReadonlySet<AgentName>;
   }) {
     this.cardId = args.card.id;
     this.store = args.store;
@@ -90,7 +90,7 @@ export class CardActivationOwner {
     this.phase = args.phase;
     this.cachedStatus = args.card.lifecycle.status;
     this.parentRelationship = args.parentRelationship ?? null;
-    this.alreadyStabilizedRoles = args.alreadyStabilizedRoles ?? new Set();
+    this.alreadyStabilizedAgents = args.alreadyStabilizedAgents ?? new Set();
     void this.settlement.promise.catch(() => undefined);
   }
 

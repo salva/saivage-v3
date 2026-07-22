@@ -22,6 +22,7 @@ const canonicalCard = {
   status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
 } as const;
 const canonicalOperatorCard = { ...canonicalCard, allowedActions: [], operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false } } as const;
+const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['analyst', 'planner'], bootstrap: true }] as const;
 const canonicalCardKeys = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const;
 
 describe('operator API runtime contract without runtime ledgers', () => {
@@ -56,8 +57,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
   it('exposes only exact chat operations and no aggregate chat contract', () => {
     expect(operatorApiContracts).not.toHaveProperty('chats.list');
     expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ operationId: 'chats.get', method: 'GET', path: '/api/chats/:sessionId' }),
-      expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chats/:sessionId' }),
+      expect.objectContaining({ operationId: 'chats.get', method: 'GET', path: '/api/chat' }),
+      expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chat' }),
     ]));
     expect(operatorRouteInventory()).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ method: 'GET', path: '/api/chats' }),
@@ -135,20 +136,20 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('requires strict live process state and a nonnegative safe node ordinal', () => {
-    const base = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [{ cardId: 'project', actorState: 'running', processState: { family: 'planning', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] } };
+    const base = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [{ cardId: 'project', actorState: 'running', processState: { cardType: 'project', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] } };
     expect(parseOperatorResponse('runtime.status', base)).toEqual(base);
     expect(() => parseOperatorResponse('runtime.status', { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ cardId: 'project', actorState: 'running' }] } })).toThrow();
     for (const executionOrdinal of [-1, Number.MAX_SAFE_INTEGER + 1, 0.5]) expect(() => parseOperatorResponse('runtime.status', { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ ...base.actorRuntime.cards[0], processState: { ...base.actorRuntime.cards[0]!.processState, executionOrdinal } }] } })).toThrow();
   });
 
   it('accepts the exact runtime card-runs contract', () => {
-    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_planners: [] };
+    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_agents: [] };
     expect(parseOperatorResponse('runtime.cardRuns', response)).toEqual(response);
     expect(() => parseOperatorResponse('runtime.cardRuns', { ...response, active_card_run: null })).toThrow();
   });
 
   it('rejects removed cards_with_pending_corrections from runtime card-runs', () => {
-    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_planners: [] };
+    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_agents: [] };
     expect(() => parseOperatorResponse('runtime.cardRuns', { ...response, cards_with_pending_corrections: [] })).toThrow();
   });
 
@@ -210,16 +211,16 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('derives detail, children, and history snapshots from one complete required card shape', () => {
-    expect(parseOperatorResponse('cards.get', { card: canonicalOperatorCard }).card).toEqual(canonicalOperatorCard);
+    expect(parseOperatorResponse('cards.get', { card: canonicalOperatorCard, records: canonicalRecordDescriptors }).card).toEqual(canonicalOperatorCard);
     expect(parseOperatorResponse('cards.children', { card: canonicalOperatorCard, children: [canonicalOperatorCard] }).children[0]).toEqual(canonicalOperatorCard);
-    const entry = { entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card', changed_fields: ['title'], change_summary: 'title updated', snapshot: canonicalCard } as const;
+    const entry = { entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'agent edit_card', changed_fields: ['title'], change_summary: 'title updated', snapshot: canonicalCard } as const;
     expect(parseOperatorResponse('cards.history.get', { entry }).entry.snapshot).toEqual(canonicalCard);
 
     for (const key of canonicalCardKeys) {
       const incompleteOperator = { ...canonicalOperatorCard } as Record<string, unknown>;
       const incompleteSnapshot = { ...canonicalCard } as Record<string, unknown>;
       delete incompleteOperator[key]; delete incompleteSnapshot[key];
-      expect(() => parseOperatorResponse('cards.get', { card: incompleteOperator })).toThrow();
+      expect(() => parseOperatorResponse('cards.get', { card: incompleteOperator, records: canonicalRecordDescriptors })).toThrow();
       expect(() => parseOperatorResponse('cards.children', { card: canonicalOperatorCard, children: [incompleteOperator] })).toThrow();
       expect(() => parseOperatorResponse('cards.history.get', { entry: { ...entry, snapshot: incompleteSnapshot } })).toThrow();
     }

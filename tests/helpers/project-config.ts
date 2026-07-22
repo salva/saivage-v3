@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import * as YAML from 'yaml';
-import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { TEST_SAIVAGE_CONFIG } from './test-saivage-config.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
 
 export function writeSaivageConfig(root: string, value: unknown): void {
@@ -22,19 +22,11 @@ export function createTestConfigAuthority(
 ): ResolvedConfigAuthority {
   const path = join(root, options.relativePath ?? '.saivage/config/files-test.yaml');
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, YAML.stringify(options.config ?? {
-    models: { default: ['test-model'], max_tokens: { analyst: 200 } },
-    providers: { test: { models: ['test-model'] } },
-    compaction: {
-      enabled: true,
-      input_budget_tokens: 1000,
-      summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
-    },
-    card_processes: DEFAULT_CARD_PROCESSES,
-  }), 'utf8');
+  writeFileSync(path, YAML.stringify(options.config ?? TEST_SAIVAGE_CONFIG), 'utf8');
   return createResolvedConfigAuthority({
     path,
     source: { kind: 'cli', argument: '--config' },
     interpolationEnvironment: options.environment ?? {},
+    projectRoot:root,
   });
 }

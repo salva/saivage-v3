@@ -24,7 +24,10 @@ function compiledModule(relativePath) {
 
 const [
   { saivageConfigSchema },
-  { DEFAULT_CARD_PROCESSES },
+  { DEFAULT_SAIVAGE_CONFIG },
+  { compileProjectWorkflows, bindRuntimeWorkflows },
+  { ProviderRegistry },
+  { ModelRouter },
   { createRuntimeApplication },
   { NO_FRESHNESS_EFFECTS },
   { CardService },
@@ -34,7 +37,10 @@ const [
   { ProcessRunner },
 ] = await Promise.all([
   import(compiledModule('schemas/saivage-config.js')),
-  import(compiledModule('agents/default-card-processes.js')),
+  import(compiledModule('agents/default-workflow-config.js')),
+  import(compiledModule('runtime/card-process/card-process-config.js')),
+  import(compiledModule('agents/provider.js')),
+  import(compiledModule('agents/model-router.js')),
   import(compiledModule('application/runtime-composition.js')),
   import(compiledModule('application/freshness-effects.js')),
   import(compiledModule('cards/card-service.js')),
@@ -49,15 +55,21 @@ let application;
 
 try {
   const config = saivageConfigSchema.parse({
-    models: { default: ['test-model'], max_tokens: { analyst: 200 } },
+    ...structuredClone(DEFAULT_SAIVAGE_CONFIG),
+    models: {
+      ...structuredClone(DEFAULT_SAIVAGE_CONFIG.models),
+      routes: Object.fromEntries(Object.keys(DEFAULT_SAIVAGE_CONFIG.models.routes).map((name) => [name, { candidates: ['test-model'], temperature: 0, max_tokens: 200 }])),
+    },
     providers: { test: { models: ['test-model'] } },
     compaction: {
       enabled: true,
       input_budget_tokens: 1000,
       summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
     },
-    card_processes: DEFAULT_CARD_PROCESSES,
   });
+  const structuralWorkflows = compileProjectWorkflows(config, { projectRoot });
+  const providerRegistry = new ProviderRegistry(config);
+  const workflows = bindRuntimeWorkflows(structuralWorkflows, new ModelRouter(config, providerRegistry));
   const configAuthority = createResolvedConfigAuthority({
     path: join(projectRoot, '.saivage', 'saivage.yaml'),
     source: { kind: 'default' },
@@ -79,7 +91,9 @@ try {
     config,
     configAuthority,
     eventLogger: createEventLog(projectRoot, NO_FRESHNESS_EFFECTS.timelineChanged),
-    cardStore: new CardService(projectRoot, NO_FRESHNESS_EFFECTS),
+    workflows,
+    providerRegistry,
+    cardStore: new CardService(projectRoot, workflows, NO_FRESHNESS_EFFECTS),
     freshness: NO_FRESHNESS_EFFECTS,
     processRunner,
     runtimeProcessRootScope,
@@ -102,4 +116,4 @@ try {
   }
 }
 
-console.log('Compiled production composition loaded role and process prompts from dist/prompts.');
+console.log('Compiled production composition loaded agent and process prompts from dist/prompts.');

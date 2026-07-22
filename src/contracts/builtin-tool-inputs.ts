@@ -9,7 +9,7 @@ export const analystCreateCardInputSchema = z.object({
   type: z.enum(cardTypeValues).describe(`The non-project card type. Allowed values: ${cardTypeValues.join(', ')}.`),
   parent: z.string().nullable().optional().describe("The ID of the parent card. Use null only when creating the root project card; use 'project' for top-level goals."),
   title: z.string().describe('A short title.'),
-  brief: z.string().describe('Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.'),
+  bootstrap_content: z.string().trim().min(1).describe('Non-empty Markdown content for the child type configured bootstrap record.'),
   tags: z.array(z.string().describe('A tag string')).optional().describe('Optional tags.'),
   priority: z.number().int().optional().describe('Optional priority value (0-100).'),
   urgency: z.enum(urgencyValues).optional().describe('Optional urgency level.'),
@@ -53,7 +53,7 @@ export const killProcessInputSchema = z.object({ process_id: z.string().min(1) }
 export const websearchInputSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
 export const skillInputSchema = z.object({ name: z.string().optional() }).strict();
 
-export const plannerCreateCardInputSchema = z.object({ type: z.string(), title: z.string(), brief: z.string(), tags: z.array(z.string()).optional(), priority: z.number().int().optional(), urgency: z.string().optional(), depends_on: z.array(z.string()).optional(), related: z.array(z.string()).optional() }).strict();
+export const plannerCreateCardInputSchema = z.object({ type: z.string(), title: z.string(), bootstrap_content: z.string().trim().min(1), tags: z.array(z.string()).optional(), priority: z.number().int().optional(), urgency: z.string().optional(), depends_on: z.array(z.string()).optional(), related: z.array(z.string()).optional() }).strict();
 export const plannerEditCardInputSchema = z.object({ card_id: cardIdSchema, title: z.string().optional(), tags: z.array(z.string()).optional(), priority: z.number().int().optional(), urgency: z.string().optional(), related: z.array(z.string()).optional() }).strict();
 export const plannerCancelCardInputSchema = z.object({ card_id: cardIdSchema, reason: z.string().optional() }).strict();
 export const plannerReorderChildInputSchema = z.object({ orderedChildIds: z.array(z.string()) }).strict();

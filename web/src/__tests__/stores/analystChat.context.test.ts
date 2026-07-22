@@ -22,9 +22,9 @@ describe('analyst chat workspace context', () => {
     setActivePinia(createPinia());
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
-    apiMocks.getChatEntries.mockResolvedValue({ session: null, entries: [] as AgentConversationEntry[], activity_status: { status: 'inactive', pending_calls: [] } });
+    apiMocks.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global', session: null, entries: [] as AgentConversationEntry[], activity_status: { status: 'inactive', pending_calls: [] } });
     apiMocks.sendChatMessage.mockResolvedValue({
-      sessionId: 'analyst:global',
+      sessionId: 'agent:analyst:global',
       toolInvocations: [],
       restart: null,
     });
@@ -36,7 +36,7 @@ describe('analyst chat workspace context', () => {
     workspaceRoute.entityId = '11111111-1111-4111-8111-111111111111';
     workspaceRoute.refinement = { tab: 'history' };
     const chat = useAnalystChat();
-    chat.activeSessionId = 'analyst:global';
+    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('what is this?');
     await chat.sendMessage();
     expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('what is this?', { view: 'cards', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
@@ -44,7 +44,7 @@ describe('analyst chat workspace context', () => {
 
   it('sends the deterministic null workspace context at the default route state', async () => {
     const chat = useAnalystChat();
-    chat.activeSessionId = 'analyst:global';
+    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('hello');
     await chat.sendMessage();
     expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('hello', { view: null, entityId: null, refinement: null });
@@ -54,14 +54,14 @@ describe('analyst chat workspace context', () => {
     const target = { kind: 'card' as const, id: '22222222-2222-4222-8222-222222222222' };
     const payload = { intent: 'navigate_workspace' as const, target };
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: 'analyst:global',
+      sessionId: 'agent:analyst:global',
       toolInvocations: [{ tool: 'navigate_workspace', params: {}, result: { success: true, data: payload } }],
       restart: null,
     });
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
     const chat = useAnalystChat();
-    chat.activeSessionId = 'analyst:global';
+    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('open this card');
     await chat.sendMessage();
     expect(applySpy).toHaveBeenCalledTimes(1);
@@ -70,14 +70,14 @@ describe('analyst chat workspace context', () => {
 
   it('does not dispatch failed navigation invocations', async () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: 'analyst:global',
+      sessionId: 'agent:analyst:global',
       toolInvocations: [{ tool: 'navigate_back', params: {}, result: { success: false, error: 'denied' } }],
       restart: null,
     });
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
     const chat = useAnalystChat();
-    chat.activeSessionId = 'analyst:global';
+    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('go back');
     await chat.sendMessage();
     expect(applySpy).not.toHaveBeenCalled();

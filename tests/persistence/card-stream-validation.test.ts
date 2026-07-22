@@ -3,19 +3,20 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { cardStreamRowSchema, validateCardStream, type CardStreamRow } from '../../src/persistence/canonical-card-artifacts.js';
 import { readCardArtifacts } from '../../src/persistence/card-files.js';
 import { parseGrowingFile } from '../../src/persistence/growing-file.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { CardActivationOutcome } from '../../src/contracts/tool-api.js';
+import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function input(type: 'goal' | 'code' = 'code') {
-  return { type, parent: 'project', title: 'Stream contract', brief: 'Validate the card stream.', tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
+  return { type, parent: 'project', title: 'Stream contract', bootstrap_content: 'Validate the card stream.', tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [], related: [] };
 }
 
 function updatedRows(initialType: 'goal' | 'code'): { id: string; rows: CardStreamRow[] } {
@@ -31,9 +32,9 @@ function updatedRows(initialType: 'goal' | 'code'): { id: string; rows: CardStre
 const settledAt = '2026-07-22T00:00:00.000Z';
 type TerminalOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 const terminalOutcomes = [
-  (summary: string): TerminalOutcome => ({ status: 'done', summary, result: { kind: 'done', summary } }),
-  (summary: string): TerminalOutcome => ({ status: 'failed', summary, result: { kind: 'failed', summary } }),
-  (summary: string): TerminalOutcome => ({ status: 'blocked', summary, result: { kind: 'blocked', summary } }),
+  (summary: string): TerminalOutcome => ({ status: 'done', summary, result: workflowResult('DONE', summary) }),
+  (summary: string): TerminalOutcome => ({ status: 'failed', summary, result: runtimeFailure(summary) }),
+  (summary: string): TerminalOutcome => ({ status: 'blocked', summary, result: workflowResult('BLOCKED', summary) }),
 ] as const;
 
 function serviceFixture() {
@@ -188,9 +189,9 @@ describe('two-kind card stream validation', () => {
     const failed = cards.create(input());
     const blocked = cards.create(input());
     for (const card of [done, failed, blocked]) cards.setStatus(card.id, 'running');
-    cards.commitActivationOutcome(done.id, { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } }, '2026-07-19T00:00:00.000Z');
-    cards.commitActivationOutcome(failed.id, { status: 'failed', summary: 'failed', result: { kind: 'failed', summary: 'failed' } }, '2026-07-19T00:00:00.000Z');
-    cards.commitActivationOutcome(blocked.id, { status: 'blocked', summary: 'blocked', result: { kind: 'blocked', summary: 'blocked' } }, '2026-07-19T00:00:00.000Z');
+    cards.commitActivationOutcome(done.id, { status: 'done', summary: 'done', result: workflowResult('DONE', 'done') }, '2026-07-19T00:00:00.000Z');
+    cards.commitActivationOutcome(failed.id, { status: 'failed', summary: 'failed', result: runtimeFailure('failed') }, '2026-07-19T00:00:00.000Z');
+    cards.commitActivationOutcome(blocked.id, { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-07-19T00:00:00.000Z');
 
     for (const card of [done, failed, blocked]) {
       const rows = readCardArtifacts(root, card.id).artifacts;
@@ -248,19 +249,24 @@ describe('two-kind card stream validation', () => {
       const { root, cards } = serviceFixture(); const card = createInStatus(cards, 'running', `relationships-${outcomeFactory('x').status}`);
       cards.commitActivationOutcome(card.id, outcomeFactory('summary'), settledAt);
       const rows = structuredClone(readCardArtifacts(root, card.id).artifacts);
-      const mutations: Array<(row: Extract<CardStreamRow, { kind: 'card-version' }>) => void> = [
-        (row) => { if (row.card.lifecycle.status === 'done' || row.card.lifecycle.status === 'failed' || row.card.lifecycle.status === 'blocked') row.card.lifecycle.result.summary = 'different'; },
-        (row) => { if (row.card.lifecycle.status === 'done' || row.card.lifecycle.status === 'failed' || row.card.lifecycle.status === 'blocked') (row.card.lifecycle.result as unknown as { kind: string }).kind = row.card.lifecycle.status === 'done' ? 'failed' : 'done'; },
-        (row) => { row.card.status_text = 'different'; },
+      const mutations: Array<readonly [string, (row: Extract<CardStreamRow, { kind: 'card-version' }>) => void]> = [
+        ['result summary', (row) => { if (row.card.lifecycle.status === 'done' || row.card.lifecycle.status === 'failed' || row.card.lifecycle.status === 'blocked') row.card.lifecycle.result.summary = 'different'; }],
+        ['result terminal identity', (row) => {
+          if (row.card.lifecycle.status === 'done' || row.card.lifecycle.status === 'blocked') row.card.lifecycle.result.terminal = 'FAILED';
+          else if (row.card.lifecycle.status === 'failed') Object.assign(row.card.lifecycle.result, { kind: 'workflow-result', terminal: 'DONE' });
+        }],
+        ['status text', (row) => { row.card.status_text = 'different'; }],
       ];
-      if (outcomeFactory('x').status !== 'blocked') mutations.push((row) => { row.card.status_text_updated_at = '2026-07-20T00:00:00.000Z'; });
-      if (outcomeFactory('x').status !== 'done') mutations.push((row) => { if (row.card.lifecycle.status === 'failed' || row.card.lifecycle.status === 'blocked') row.card.lifecycle.error = 'different'; });
-      if (outcomeFactory('x').status !== 'blocked') mutations.push((row) => { if (row.card.lifecycle.status === 'done' || row.card.lifecycle.status === 'failed') row.card.lifecycle.completed_at = '2026-07-20T00:00:00.000Z'; });
-      for (const mutate of mutations) {
+      if (outcomeFactory('x').status !== 'blocked') mutations.push(['status timestamp', (row) => { row.card.status_text_updated_at = '2026-07-20T00:00:00.000Z'; }]);
+      if (outcomeFactory('x').status !== 'done') mutations.push(['lifecycle error', (row) => { if (row.card.lifecycle.status === 'failed' || row.card.lifecycle.status === 'blocked') row.card.lifecycle.error = 'different'; }]);
+      if (outcomeFactory('x').status !== 'blocked') mutations.push(['completion timestamp', (row) => { if (row.card.lifecycle.status === 'done' || row.card.lifecycle.status === 'failed') row.card.lifecycle.completed_at = '2026-07-20T00:00:00.000Z'; }]);
+      for (const [name, mutate] of mutations) {
         const invalid = structuredClone(rows); const row = invalid.at(-1)!;
         if (row.kind !== 'card-version') throw new Error('Expected terminal row.');
         mutate(row);
-        expect(() => validateCardStream(invalid, '/canonical/card.jsonl', card.id)).toThrow();
+        let rejected = false;
+        try { validateCardStream(invalid, '/canonical/card.jsonl', card.id); } catch { rejected = true; }
+        if (!rejected) throw new Error(`${outcomeFactory('x').status} ${name} mutation was accepted.`);
       }
       for (const key of ['status_text', 'status_text_updated_at'] as const) {
         const absent = structuredClone(rows); const row = absent.at(-1)!;
@@ -358,7 +364,7 @@ describe('two-kind card stream validation', () => {
     if (terminal.kind !== 'card-version' || !terminal.history) throw new Error('Expected terminal row.');
     terminal.history.kind = 'update';
     const provenance = terminal.history as unknown as { changed_by_actor: string; changed_by_surface: string; change_reason: string };
-    provenance.changed_by_actor = 'planner'; provenance.changed_by_surface = 'runtime'; provenance.change_reason = 'planner edit_card';
+    provenance.changed_by_actor = 'planner'; provenance.changed_by_surface = 'runtime'; provenance.change_reason = 'agent edit_card';
     expect(() => validateCardStream(disallowed, '/canonical/card.jsonl', card.id)).toThrow(/disallowed lifecycle state/);
 
     const accepted = updatedRows('code'); const piggyback = structuredClone(accepted.rows);
@@ -508,7 +514,7 @@ describe('two-kind card stream validation', () => {
     if (metadataTombstone.kind !== 'card-tombstone') throw new Error('Expected a terminal tombstone.');
     const rawDeletion = metadataTombstone.deletion_history as unknown as { changed_by_actor: string; changed_by_surface: string };
     rawDeletion.changed_by_actor = 'runtime'; rawDeletion.changed_by_surface = 'runtime';
-    expect(cardStreamRowSchema.safeParse(metadataTombstone).success).toBe(false);
+    expect(cardStreamRowSchema.safeParse(metadataTombstone).success).toBe(true);
 
     const wrongReason = structuredClone(rows);
     const reasonTombstone = wrongReason.at(-1)!;

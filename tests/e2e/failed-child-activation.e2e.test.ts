@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
@@ -72,9 +72,9 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Plan children', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Fail once', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Run second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Plan children', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const failedChild = cards.create({ type: 'code', parent: parent.id, title: 'A', bootstrap_content: 'Fail once', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const sibling = cards.create({ type: 'code', parent: parent.id, title: 'B', bootstrap_content: 'Run second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
 
     const parentAfterRejectedRetry = deferred<void>();
@@ -91,13 +91,13 @@ describe('failed child activation lifecycle E2E', () => {
     const provider = {
       projectProviderExchanges: jest.fn(),
       completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
-        if (input.sessionId === 'planner:project') {
+        if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
           if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Parent workflow complete.' }));
           return complete(tool('fail-project', 'emit_result', { outcome: 'failed', summary: 'Project failed after child failure.' }));
         }
-        if (input.sessionId === `planner:${parent.id}`) {
+        if (input.sessionId === `agent:planner:${parent.id}`) {
           parentCalls += 1;
           if (parentCalls === 1) return complete(tool('activate-a', 'activate_card', { card_id: failedChild.id }));
           if (parentCalls === 2) {
@@ -115,7 +115,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: 'record:///status.md?v=next', content: 'Sibling complete; failed child retained.' }));
           return complete(tool('fail-parent', 'emit_result', { outcome: 'failed', summary: 'Parent failed after child failure.' }));
         }
-        if (input.sessionId === `executor:${failedChild.id}`) {
+        if (input.sessionId === `agent:executor:${failedChild.id}`) {
           failedChildCalls += 1;
           if (failedChildCalls === 1) {
             failedRunningVersion = cards.read(failedChild.id)!.version_seq;
@@ -123,7 +123,7 @@ describe('failed child activation lifecycle E2E', () => {
           }
           throw new Error('Failed child received an unexpected extra turn.');
         }
-        if (input.sessionId === `executor:${sibling.id}`) {
+        if (input.sessionId === `agent:executor:${sibling.id}`) {
           siblingCalls += 1;
           if (siblingCalls === 1) {
             siblingAdmitted.resolve();
@@ -145,8 +145,8 @@ describe('failed child activation lifecycle E2E', () => {
 
     const ownership = supervisor as unknown as RuntimeOwnership;
     const failed = cards.read(failedChild.id)!;
-    expect(failed).toMatchObject({ version_seq: failedRunningVersion + 1, lifecycle: { status: 'failed', result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') }, error: expect.stringContaining('authentication failed permanently') } });
-    expect(failureToolResult).toEqual({ success: true, data: { card_id: failedChild.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') } } });
+    expect(failed).toMatchObject({ version_seq: failedRunningVersion + 1, lifecycle: { status: 'failed', result: { kind: 'runtime-failure', summary: expect.stringContaining('authentication failed permanently') }, error: expect.stringContaining('authentication failed permanently') } });
+    expect(failureToolResult).toEqual({ success: true, data: { card_id: failedChild.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'runtime-failure', summary: expect.stringContaining('authentication failed permanently') } } });
     expect(rejectedRetryToolResult).toEqual({ success: false, error: `Card '${failedChild.id}' in status 'failed' is not activatable.` });
     expect(ownership.activationOwners.has(failedChild.id)).toBe(false);
     expect([...ownership.activationOwners.keys()]).toEqual(['project', parent.id]);
@@ -169,11 +169,11 @@ describe('failed child activation lifecycle E2E', () => {
 
     releaseSibling.resolve();
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
-    expect(cards.read(failedChild.id)).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed' } } });
+    expect(cards.read(failedChild.id)).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'runtime-failure' } } });
     expect(failedChildCalls).toBe(1);
     expect(history(cards, failedChild.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
-    expect(cards.read(parent.id)).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'Parent failed after child failure.' } } });
-    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'Project failed after child failure.' } } });
+    expect(cards.read(parent.id)).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'workflow-result', summary: 'Parent failed after child failure.' } } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'workflow-result', summary: 'Project failed after child failure.' } } });
     expect(selectLinkedRunningChain(cards)).toEqual([]);
     expect(ownership.activationOwners.size).toBe(0);
     expect(supervisor.getRuntimeState()).toBeNull();
@@ -184,7 +184,7 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Retry child', brief: 'Fail, change, and retry', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Retry child', bootstrap_content: 'Fail, change, and retry', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     const retryAdmitted = deferred<void>();
     const releaseRetry = deferred<void>();
@@ -194,7 +194,7 @@ describe('failed child activation lifecycle E2E', () => {
     const provider = {
       projectProviderExchanges: jest.fn(),
       completeTurn: jest.fn(async (input: LlmInvocationInput): Promise<ProviderTurnCompletion> => {
-        if (input.sessionId === 'planner:project') {
+        if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-child-first', 'activate_card', { card_id: child.id }));
           if (projectCalls === 2) {
@@ -206,7 +206,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (projectCalls === 4) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Changed child retry complete.' }));
           return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete after changed retry.' }));
         }
-        if (input.sessionId === `executor:${child.id}`) {
+        if (input.sessionId === `agent:executor:${child.id}`) {
           childCalls += 1;
           if (childCalls === 1) throw permanentFailure(input);
           if (childCalls === 2) {
@@ -226,14 +226,14 @@ describe('failed child activation lifecycle E2E', () => {
     supervisor.launchStartedProject(prepared.launch);
 
     await retryAdmitted.promise;
-    expect(firstActivationResult).toEqual({ success: true, data: { card_id: child.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'failed', summary: expect.stringContaining('authentication failed permanently') } } });
+    expect(firstActivationResult).toEqual({ success: true, data: { card_id: child.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'runtime-failure', summary: expect.stringContaining('authentication failed permanently') } } });
     expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', lifecycle: { status: 'running' } });
     expect(ownership.activationOwners.get(child.id)?.cardId).toBe(child.id);
     expect(supervisor.getStatus().currentCardId).toBe(child.id);
     releaseRetry.resolve();
 
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
-    expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', lifecycle: { status: 'done', result: { kind: 'done', summary: 'Changed child completed.' } } });
+    expect(cards.read(child.id)).toMatchObject({ title: 'Retry child changed', lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'Changed child completed.' } } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(2);
     expect(childCalls).toBe(3);
     expect(ownership.activationOwners.size).toBe(0);
@@ -244,7 +244,7 @@ describe('failed child activation lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', brief: 'Fail cleanup', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Cleanup', bootstrap_content: 'Fail cleanup', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     const initialVersion = cards.read(child.id)!.version_seq;
     const registry = new ManagedProcessGroupRegistry();
@@ -254,13 +254,13 @@ describe('failed child activation lifecycle E2E', () => {
     let executorCalls = 0;
     let plannerCalls = 0;
     const provider = { completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
-      if (input.role === 'planner') {
+      if (input.agentName === 'planner') {
         plannerCalls += 1;
         if (plannerCalls === 1) return complete(tool('activate-cleanup-child', 'activate_card', { card_id: child.id }));
         if (plannerCalls === 2) return complete(tool('write-project-failure', 'write', { path: 'record:///status.md?v=next', content: 'Child cleanup failed.' }));
         return complete(tool('fail-project', 'emit_result', { outcome: 'failed', summary: 'Child cleanup failed.' }));
       }
-      if (input.role === 'executor') return complete(++executorCalls === 1
+      if (input.agentName === 'executor') return complete(++executorCalls === 1
         ? tool('write', 'write', { path: 'record:///status.md?v=next', content: 'Accepted output.' })
         : tool('accepted', 'emit_result', { outcome: 'done', summary: 'Accepted before cleanup.' }));
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
@@ -272,11 +272,11 @@ describe('failed child activation lifecycle E2E', () => {
     await waitUntil(() => cards.read(child.id)?.lifecycle.status === 'failed');
     await waitUntil(() => !(supervisor as unknown as RuntimeOwnership).activationOwners.has(child.id));
 
-    expect(cards.read(child.id)).toMatchObject({ version_seq: initialVersion + 2, lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
+    expect(cards.read(child.id)).toMatchObject({ version_seq: initialVersion + 2, lifecycle: { status: 'failed', result: { kind: 'runtime-failure', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect(cards.readRecord(child.id, 'status.md', 'latest').artifact.content).toBe('Accepted output.');
     expect(() => cards.readRecord(child.id, 'status.md', 'open')).toThrow();
-    const terminalRows = readConversation(projectRoot, `executor:${child.id}`).physicalRows.filter((row) => row.tool_call_id === 'accepted');
+    const terminalRows = readConversation(projectRoot, `agent:executor:${child.id}`).physicalRows.filter((row) => row.tool_call_id === 'accepted');
     expect(terminalRows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool_result', content: JSON.stringify({ success: true, data: { accepted: true } }) })]));
     expect((supervisor as unknown as RuntimeOwnership).activationOwners.has(child.id)).toBe(false);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
@@ -296,7 +296,7 @@ describe('failed child activation lifecycle E2E', () => {
     supervisor.launchStartedProject(prepared.launch);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
-    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'failed', summary: 'malformed provider envelope' }, error: 'malformed provider envelope' } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'runtime-failure', summary: 'malformed provider envelope' }, error: 'malformed provider envelope' } });
     expect(cards.read('project')!.version_seq).toBeGreaterThan(runningVersion);
     expect(history(cards, 'project').filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
     expect((supervisor as unknown as RuntimeOwnership).activationOwners.size).toBe(0);

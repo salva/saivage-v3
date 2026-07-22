@@ -1,4 +1,4 @@
-import type { AgentRole, ConversationSessionId } from '../../schemas/index.js';
+import type { AgentName, ConversationSessionId } from '../../schemas/index.js';
 
 export interface ToolInvocationIdentity {
   readonly sessionId: ConversationSessionId;
@@ -33,7 +33,7 @@ export type ExecutingLlmActivity =
 export interface ExecutingLlmSnapshot {
   readonly sessionId: ConversationSessionId;
   readonly agentId: string;
-  readonly role: Extract<AgentRole, 'planner' | 'reviewer' | 'executor' | 'analyst'>;
+  readonly agentName: AgentName;
   readonly cardId: string | null;
   readonly activity: ExecutingLlmActivity;
 }

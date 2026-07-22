@@ -1,5 +1,5 @@
 import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
-import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
+import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, conversationSessionIdentity, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 
 const TIMESTAMP = '2026-07-17T00:00:00.000Z';
 
@@ -23,10 +23,10 @@ export function compactedConversationFixture(sessionId: ConversationSessionId, i
 
 function round(sessionId: ConversationSessionId, name: string, index: number): AgentMessage[] {
   const roundId = `r-user-${String(index).padStart(32, '0')}`;
-  const role = sessionId.slice(0, sessionId.indexOf(':'));
-  const marker = role === 'analyst'
-    ? { event: 'activation_open', role, input_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, timestamp: TIMESTAMP }
-    : { event: 'activation_open', role, card_id: sessionId.slice(sessionId.indexOf(':') + 1), input_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, timestamp: TIMESTAMP };
+  const identity = conversationSessionIdentity(sessionId);
+  const marker = identity.cardId === null
+    ? { event: 'activation_open', agent_name: identity.agentName, input_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, timestamp: TIMESTAMP }
+    : { event: 'activation_open', agent_name: identity.agentName, card_id: identity.cardId, input_id: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`, timestamp: TIMESTAMP };
   return [
     agentMessageSchema.parse({ id: `${name}-activation`, session_id: sessionId, role: 'system', kind: 'activity', content: JSON.stringify(marker), round_id: roundId, message_index: 0, block_index: 0, timestamp: TIMESTAMP }),
     agentMessageSchema.parse({ id: `${name}-text`, session_id: sessionId, role: 'user', kind: 'text', content: `${name} covered history`, round_id: roundId, message_index: 1, block_index: 0, timestamp: TIMESTAMP }),

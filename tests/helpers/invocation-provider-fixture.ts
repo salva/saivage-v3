@@ -1,5 +1,5 @@
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
-import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 
@@ -26,13 +26,10 @@ export function invocationProviderRegistry(candidates: readonly Candidate[]): Pr
   }
   const first = candidates[0]!;
   return new ProviderRegistry({
-    models: { default: [...new Set(candidates.map((candidate) => candidate.model))] },
+    agents:structuredClone(DEFAULT_SAIVAGE_CONFIG.agents) as unknown as SaivageConfig['agents'],analyst_agent:'analyst',
+    models: { routes:Object.fromEntries(Object.keys(DEFAULT_SAIVAGE_CONFIG.models.routes).map((name)=>[name,{candidates:[...new Set(candidates.map((candidate)=>candidate.model))],temperature:0.2,max_tokens:2000}])),profiles:{},equivalents:[],failover:{} },
     providers,
     server: { port: 8080, host: '127.0.0.1' },
-    runtime: {
-      continuousImprovement: false,
-      processTimeouts: { plannerMs: 1_200_000, executorMs: 1_200_000, reviewerMs: 1_200_000 },
-    },
     compaction: {
       enabled: true,
       input_budget_tokens: 100_000,
@@ -45,7 +42,7 @@ export function invocationProviderRegistry(candidates: readonly Candidate[]): Pr
       snap: 'compact_straddler',
       summarizer_candidate: first,
     },
-    card_processes: DEFAULT_CARD_PROCESSES,
+    card_types:structuredClone(DEFAULT_SAIVAGE_CONFIG.card_types),
   });
 }
 

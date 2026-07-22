@@ -1,8 +1,8 @@
-import type { OperationalAgentRole } from '../schemas/index.js';
+import type { AgentName } from '../schemas/index.js';
 import type { LlmCompleteOptions, LlmModelParams, ToolDefinition } from './llm-contracts.js';
 
 export function buildLlmOptions(
-  role: OperationalAgentRole,
+  agentName: AgentName,
   tools: ToolDefinition[],
   terminalToolOffered: readonly string[],
   modelParams: LlmModelParams,
@@ -15,8 +15,8 @@ export function buildLlmOptions(
     max_tokens: modelParams.max_tokens,
     signal,
     stream: false as const,
-    contract_id: `${role}.v1`,
-    contractName: role,
+    contract_id: `${agentName}.v1`,
+    contractName: agentName,
     terminalToolOffered,
     tools,
     tool_choice: 'auto',

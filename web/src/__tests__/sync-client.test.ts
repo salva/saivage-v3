@@ -94,11 +94,11 @@ describe('SyncClient', () => {
     client.start();
 
     emitSync({ t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-a' });
-    emitSync({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'brief' });
+    emitSync({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'brief.md' });
     await flush();
     expect(onInvalidate.mock.calls.map(([target]) => target)).toEqual([
       { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-a' },
-      { t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'brief' },
+      { t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'brief.md' },
     ]);
   });
 
@@ -258,7 +258,7 @@ describe('SyncClient', () => {
 
     expect('randomUUID' in globalThis.crypto).toBe(false);
 
-    const close = client.openConversation('planner:project', refetch);
+    const close = client.openConversation('agent:planner:project', refetch);
     await flush();
     expect(conn.sendRaw).not.toHaveBeenCalled();
     expect(refetch).not.toHaveBeenCalled();
@@ -268,22 +268,22 @@ describe('SyncClient', () => {
     emitOpen();
     await flush();
     const subscribe = vi.mocked(conn.sendRaw).mock.calls.at(-1)![0] as { t: string; resource: string; id: string; lease: string };
-    expect(subscribe).toMatchObject({ t: 'subscribe', resource: 'conversation', id: 'planner:project' });
+    expect(subscribe).toMatchObject({ t: 'subscribe', resource: 'conversation', id: 'agent:planner:project' });
     expect(subscribe.lease).toBe('000102030405060708090a0b0c0d0e0f');
     expect(subscribe.lease).toMatch(/^[0-9a-f]{32}$/);
     expect(subscribe.lease).not.toContain('-');
     expect(getRandomValues).toHaveBeenCalledTimes(1);
     expect(client.connectionState.value).toBe('connected');
-    emitSync({ t: 'subscribed', resource: 'conversation', id: 'planner:project', lease: subscribe.lease });
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(1);
 
-    emitSync({ t: 'invalidate', resource: 'conversation', id: 'planner:project' });
+    emitSync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project' });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(2);
 
     close();
-    expect(conn.sendRaw).toHaveBeenCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'planner:project', lease: subscribe.lease });
+    expect(conn.sendRaw).toHaveBeenCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease });
   });
 
   it('shares one conversation subscription until its final consumer leaves', async () => {
@@ -291,8 +291,8 @@ describe('SyncClient', () => {
     const client = new SyncClient(conn);
     const first = vi.fn(async () => undefined);
     const second = vi.fn(async () => undefined);
-    const closeFirst = client.openConversation('planner:project', first);
-    const closeSecond = client.openConversation('planner:project', second);
+    const closeFirst = client.openConversation('agent:planner:project', first);
+    const closeSecond = client.openConversation('agent:planner:project', second);
     client.start();
     emitOpen();
     await flush();
@@ -300,7 +300,7 @@ describe('SyncClient', () => {
     const subscriptions = vi.mocked(conn.sendRaw).mock.calls.map(([frame]) => frame).filter((frame: any) => frame.t === 'subscribe');
     expect(subscriptions).toHaveLength(1);
     const lease = (subscriptions[0] as any).lease;
-    emitSync({ t: 'subscribed', resource: 'conversation', id: 'planner:project', lease });
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease });
     await flush();
     expect(first).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenCalledTimes(1);
@@ -308,21 +308,21 @@ describe('SyncClient', () => {
     closeFirst();
     expect(vi.mocked(conn.sendRaw).mock.calls.map(([frame]) => frame).filter((frame: any) => frame.t === 'unsubscribe')).toHaveLength(0);
     closeSecond();
-    expect(conn.sendRaw).toHaveBeenLastCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'planner:project', lease });
+    expect(conn.sendRaw).toHaveBeenLastCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'agent:planner:project', lease });
   });
 
   it('subscribes every mounted conversation when the socket opens', () => {
     const { conn, emitOpen } = createConn();
     const client = new SyncClient(conn);
-    client.openConversation('planner:project', async () => undefined);
-    client.openConversation('analyst:global', async () => undefined);
+    client.openConversation('agent:planner:project', async () => undefined);
+    client.openConversation('agent:analyst:global', async () => undefined);
     client.start();
 
     emitOpen();
 
     expect(vi.mocked(conn.sendRaw).mock.calls.map(([frame]) => frame)).toEqual([
-      { t: 'subscribe', resource: 'conversation', id: 'planner:project', lease: '000102030405060708090a0b0c0d0e0f' },
-      { t: 'subscribe', resource: 'conversation', id: 'analyst:global', lease: '101112131415161718191a1b1c1d1e1f' },
+      { t: 'subscribe', resource: 'conversation', id: 'agent:planner:project', lease: '000102030405060708090a0b0c0d0e0f' },
+      { t: 'subscribe', resource: 'conversation', id: 'agent:analyst:global', lease: '101112131415161718191a1b1c1d1e1f' },
     ]);
   });
 
@@ -330,7 +330,7 @@ describe('SyncClient', () => {
     const { conn, emitOpen, emitSync } = createConn();
     const client = new SyncClient(conn);
     const refetch = vi.fn(async () => undefined);
-    client.openConversation('planner:project', refetch);
+    client.openConversation('agent:planner:project', refetch);
     client.start();
     emitOpen();
     await flush();
@@ -344,10 +344,10 @@ describe('SyncClient', () => {
     expect(currentLease).not.toBe(firstLease);
     expect(getRandomValues).toHaveBeenCalledTimes(2);
 
-    emitSync({ t: 'subscribed', resource: 'conversation', id: 'planner:project', lease: firstLease });
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: firstLease });
     await flush();
     expect(refetch).not.toHaveBeenCalled();
-    emitSync({ t: 'subscribed', resource: 'conversation', id: 'planner:project', lease: currentLease });
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: currentLease });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(1);
   });
@@ -357,7 +357,7 @@ describe('SyncClient', () => {
     vi.mocked(conn.sendRaw).mockReturnValue(false);
     const client = new SyncClient(conn);
     const refetch = vi.fn(async () => undefined);
-    const close = client.openConversation('planner:project', refetch);
+    const close = client.openConversation('agent:planner:project', refetch);
     client.start();
     setState('connected');
 
@@ -376,26 +376,26 @@ describe('SyncClient', () => {
     expect(client.connectionState.value).toBe('connected');
 
     close();
-    expect(conn.sendRaw).toHaveBeenLastCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'planner:project', lease: secondLease });
+    expect(conn.sendRaw).toHaveBeenLastCalledWith({ t: 'unsubscribe', resource: 'conversation', id: 'agent:planner:project', lease: secondLease });
   });
 
   it('refetches conversations only from canonical live-sync invalidate frames', async () => {
     const harness = createConn();
     const client = new SyncClient(harness.conn);
     const refetch = vi.fn(async () => undefined);
-    client.openConversation('analyst:global', refetch);
+    client.openConversation('agent:analyst:global', refetch);
     client.start();
     await flush();
     refetch.mockClear();
 
     harness.emitEvent({
       type: 'activity',
-      content: { event: 'analyst_tool_invoked', session_id: 'analyst:global', tool: 'read', summary: 'opened docs', success: true },
+      content: { event: 'analyst_tool_invoked', session_id: 'agent:analyst:global', tool: 'read', summary: 'opened docs', success: true },
     } as Parameters<WsEventHandler>[0]);
     await flush();
     expect(refetch).not.toHaveBeenCalled();
 
-    harness.emitSync({ t: 'invalidate', resource: 'conversation', id: 'analyst:global' });
+    harness.emitSync({ t: 'invalidate', resource: 'conversation', id: 'agent:analyst:global' });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(1);
   });
@@ -414,13 +414,13 @@ describe('SyncClient', () => {
 
     harness.emitEvent({
       type: 'status',
-      content: { event: 'analyst_turn_acknowledged', sessionId: 'analyst:global', restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } },
+      content: { event: 'analyst_turn_acknowledged', sessionId: 'agent:analyst:global', restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } },
     } as Parameters<WsEventHandler>[0]);
     expect(chat.restartAcknowledgement).toEqual({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
 
     harness.emitEvent({
       type: 'status',
-      content: { event: 'analyst_turn_acknowledged', sessionId: 'analyst:global', restart: { status: 'scheduled' } },
+      content: { event: 'analyst_turn_acknowledged', sessionId: 'agent:analyst:global', restart: { status: 'scheduled' } },
     } as Parameters<WsEventHandler>[0]);
     expect(chat.restartAcknowledgement).toBeNull();
     expect(useFeedbackStore().toasts).toContainEqual(expect.objectContaining({ title: 'Server restart scheduled' }));

@@ -4,13 +4,8 @@ import { reconfigureParamsSchema } from '../../src/config/index.js';
 
 describe('reconfigure input contract', () => {
   const valid = [
-    { action: 'set_role_routing', role: 'planner', model_candidate: 'tok_model' },
-    { action: 'set_failover_chain', for_model: 'sk-model', ordered_failover_models: ['rt-model'] },
-    { action: 'mcp_add', name: 'tok_server', command: 'node', args: ['server.js'], env: { TOKEN: 'secret' } },
-    { action: 'mcp_edit', name: 'ghu_server', command: 'bun', args: [], env: {} },
-    { action: 'mcp_remove', name: 'rt_server' },
-    { action: 'set_runtime_setting', key: 'continuous_improvement', value: true },
-    { action: 'set_runtime_setting', key: 'process_timeouts', value: { planner_ms: 1, executor_ms: 2, reviewer_ms: 3 } },
+    { action: 'set_agent_model_route', agent: 'planner', model_route: 'planning' },
+    { action: 'set_model_failover', for_model: 'sk-model', ordered_failover_models: ['rt-model'] },
     { action: 'set_server_setting', key: 'port', value: 8181 },
     { action: 'set_server_setting', key: 'host', value: 'tok_host' },
   ] as const;
@@ -20,9 +15,11 @@ describe('reconfigure input contract', () => {
   });
 
   it.each([
-    { action: 'set_role_routing', role: 'planner' },
-    { action: 'set_role_routing', role: 'planner', model_candidate: 'm', value: true },
-    { action: 'set_failover_chain', for_model: 'm', ordered_failover_models: 'fallback' },
+    { action: 'set_agent_model_route', agent: 'planner' },
+    { action: 'set_agent_model_route', agent: 'planner', model_route: 'planning', value: true },
+    { action: 'set_model_failover', for_model: 'm', ordered_failover_models: 'fallback' },
+    { action: 'set_role_routing', agentName: 'planner', model_candidate: 'm' },
+    { action: 'set_failover_chain', for_model: 'm', ordered_failover_models: [] },
     { action: 'mcp_add', name: 'server' },
     { action: 'mcp_edit', name: 'server', command: '' },
     { action: 'mcp_remove', name: 'server', command: 'node' },

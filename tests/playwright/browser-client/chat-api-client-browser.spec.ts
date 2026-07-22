@@ -9,10 +9,10 @@ type ObservedChatRequest = {
 test('production chat API client emits only canonical Analyst requests', async ({ page, baseURL }) => {
   if (!baseURL) throw new Error('Playwright baseURL is required.');
 
-  const canonicalUrl = `${baseURL}/api/chats/analyst%3Aglobal`;
+  const canonicalUrl = `${baseURL}/api/chat`;
   const observedRequests: ObservedChatRequest[] = [];
 
-  await page.route('**/api/chats/**', async (route) => {
+  await page.route('**/api/chat', async (route) => {
     throw new Error(`Unexpected chat request: ${route.request().method()} ${route.request().url()}`);
   });
 
@@ -29,7 +29,7 @@ test('production chat API client emits only canonical Analyst requests', async (
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } }),
+        body: JSON.stringify({ session_id: 'agent:analyst:global', session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } }),
       });
       return;
     }
@@ -38,7 +38,7 @@ test('production chat API client emits only canonical Analyst requests', async (
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ sessionId: 'analyst:global', toolInvocations: [], restart: null }),
+        body: JSON.stringify({ sessionId: 'agent:analyst:global', toolInvocations: [], restart: null }),
       });
       return;
     }
@@ -63,12 +63,12 @@ test('production chat API client emits only canonical Analyst requests', async (
   expect(observedRequests).toEqual([
     {
       method: 'GET',
-      pathname: '/api/chats/analyst%3Aglobal',
+      pathname: '/api/chat',
       body: null,
     },
     {
       method: 'POST',
-      pathname: '/api/chats/analyst%3Aglobal',
+      pathname: '/api/chat',
       body: {
         content: 'inspect this',
         workspaceContext: {

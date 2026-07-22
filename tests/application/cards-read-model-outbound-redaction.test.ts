@@ -10,8 +10,10 @@ import type { CardHistoryEntry, CardRecord, RuntimeState } from '../../src/schem
 import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
 import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER, OUTBOUND_TEXT_MARKER } from '../helpers/outbound-identity-fixtures.js';
+import { workflowResult } from '../helpers/workflow-result.js';
+import { testRecordDefinitions } from '../helpers/record-definitions.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -42,6 +44,8 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
       read: (id: string) => cards.get(id) ?? null,
       listChildren: (id: string) => cards.get(id)?.children ?? [],
       getAncestors: (id: string) => id === parent.id ? ['project'] : [],
+      recordReader: { definitions: () => testRecordDefinitions('goal') },
+      workflows: TEST_WORKFLOWS,
     };
     const readModel = new CardsReadModelService(root, store as never, { getRuntimeState: () => null });
 
@@ -70,7 +74,7 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
     expect(projectedNotifications.before[0]).toMatchObject({ id: 'sk-notification', source: 'tok_primary', content: 'token=[REDACTED]' });
 
     appendConversationBatch({ projectRoot: root }, [{
-      id: 'sk-message', session_id: 'planner:project', role: 'user', kind: 'text', content: 'plan',
+      id: 'sk-message', session_id: 'agent:planner:project', role: 'user', kind: 'text', content: 'plan',
       round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp,
     }]);
     const state: RuntimeState = { status: 'running', project_id: 'project', pid: 42, started_at: timestamp, current_card_id: 'card-token', updated_at: timestamp };
@@ -81,7 +85,7 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
         { card_id: 'project', card_type: 'project', title: 'Project' },
         { card_id: 'card-token', card_type: 'code', title: 'title token=[REDACTED]', status_text: 'token=[REDACTED]' },
       ],
-      dormant_planners: [{ goal_card_id: 'project', planner_session_id: 'planner:project' }],
+      dormant_agents: [{ card_id: 'project', agent_name: 'planner', session_id: 'agent:planner:project' }],
     });
 
     const cardSurface = buildInvocationSurface('analyst', [createCardInspectionProvider({ store })]);
@@ -125,7 +129,7 @@ function card(overrides: Partial<CardRecord> & Pick<CardRecord, 'id' | 'title' |
     title: overrides.title,
     lifecycle: overrides.id === 'project' ? { status: 'backlog', result: null, error: null, completed_at: null } : {
       status: 'blocked',
-      result: { kind: 'blocked', summary: 'token=lifecycle-summary-secret', resume_reason: 'token=resume-secret', blocker_cause: 'generic' },
+      result: workflowResult('BLOCKED','token=lifecycle-summary-secret'),
       error: 'token=lifecycle-error-secret', completed_at: null,
     },
     subtype: null,
@@ -165,7 +169,7 @@ function assertProjectedCard(card: CardRecord & { operator_summary?: { error: st
     id: 'card-token', type: 'code', children: ['card-token-a'], tags: ['tok_primary'], depends_on: ['card-sk'], related: ['card-rt'],
     title: 'title token=[REDACTED]', status_text: 'token=[REDACTED]',
     lifecycle: {
-      status: 'blocked', result: { kind: 'blocked', summary: 'token=[REDACTED]', resume_reason: 'token=[REDACTED]', blocker_cause: 'generic' },
+      status: 'blocked', result: { kind: 'workflow-result', terminal: 'BLOCKED', agent_name: 'executor', node_id: 'execute', outcome: 'blocked', summary: 'token=[REDACTED]', records: [] },
       error: 'token=[REDACTED]', completed_at: null,
     },
     pending_notifications: [{ id: 'sk-notification', content: 'token=[REDACTED]', created_at: timestamp, source: 'tok_primary' }],

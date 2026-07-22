@@ -103,9 +103,10 @@ export function projectRuntimeCardRuns(value: RuntimeCardRunsResponse): RuntimeC
       title: redactTextForOutbound(item.title),
       ...(item.status_text !== undefined ? { status_text: redactTextForOutbound(item.status_text) } : {}),
     })),
-    dormant_planners: parsed.dormant_planners.map((planner) => ({
-      goal_card_id: planner.goal_card_id,
-      planner_session_id: planner.planner_session_id,
+    dormant_agents: parsed.dormant_agents.map((agent) => ({
+      card_id: agent.card_id,
+      agent_name:agent.agent_name,
+      session_id: agent.session_id,
     })),
   });
 }
@@ -132,26 +133,22 @@ function projectLifecycle(value: CardRecord['lifecycle']): CardRecord['lifecycle
     case 'cancelled':
       return { ...lifecycle };
     case 'done':
-      return { ...lifecycle, result: { kind: lifecycle.result.kind, summary: redactTextForOutbound(lifecycle.result.summary) } };
+      return { ...lifecycle, result: projectTerminalResult(lifecycle.result) };
     case 'failed':
       return {
         ...lifecycle,
-        result: { kind: lifecycle.result.kind, summary: redactTextForOutbound(lifecycle.result.summary) },
+        result: projectTerminalResult(lifecycle.result),
         error: redactTextForOutbound(lifecycle.error),
       };
     case 'blocked':
       return {
         ...lifecycle,
-        result: {
-          kind: lifecycle.result.kind,
-          summary: redactTextForOutbound(lifecycle.result.summary),
-          ...(lifecycle.result.resume_reason !== undefined ? { resume_reason: redactTextForOutbound(lifecycle.result.resume_reason) } : {}),
-          ...(lifecycle.result.blocker_cause !== undefined ? { blocker_cause: lifecycle.result.blocker_cause } : {}),
-        },
+        result: projectTerminalResult(lifecycle.result),
         error: redactTextForOutbound(lifecycle.error),
       };
   }
 }
+function projectTerminalResult<T extends import('../../schemas/index.js').CardResult>(result:T):T{return {...result,summary:redactTextForOutbound(result.summary)};}
 
 function projectDiffValue(field: string, value: unknown): unknown {
   switch (field) {

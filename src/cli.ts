@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -14,6 +14,11 @@ import { publishInitialProjectCard } from './persistence/card-files.js';
 import { readProjectIdentity } from './persistence/project-identity.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from './persistence/generated-state.js';
 import { OperatorRuntimeHttpClient } from './application/operator-runtime-http-client.js';
+import { DEFAULT_SAIVAGE_CONFIG } from './agents/default-workflow-config.js';
+import { replaceConfigYaml } from './config/config-file.js';
+import { createResolvedConfigAuthority } from './config/resolved-config-authority.js';
+
+function loadCanonicalWorkflows(projectRoot:string){const path=join(projectRoot,'.saivage','saivage.yaml');const authority=createResolvedConfigAuthority({path,source:{kind:'default'},interpolationEnvironment:process.env,projectRoot});return authority.loadEffective().workflows;}
 
 interface CliOptions { port?: string; host?: string; config?: string; 'project-root'?: string; 'create-runtime'?: boolean; }
 const USAGE = `Saivage v3 CLI
@@ -42,11 +47,14 @@ async function handleInit(): Promise<void> {
   const projectRoot = process.cwd();
   withDirectMutationComposition(projectRoot, 'init', (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
+    const configPath=join(canonicalProjectRoot,'.saivage','saivage.yaml');
+    if(!existsSync(configPath))replaceConfigYaml(configPath,DEFAULT_SAIVAGE_CONFIG);
+    const workflows=loadCanonicalWorkflows(canonicalProjectRoot);
     if (readProjectIdentity(canonicalProjectRoot) === null) composition.createAndBindProjectIdentity();
     if (readProjectCardOrAssertInitialPublicationAllowed(canonicalProjectRoot) !== null) { console.log(`Project already initialized at ${canonicalProjectRoot}`); return; }
     mkdirSync(join(canonicalProjectRoot, '.saivage', 'cards'), { recursive: true });
     const root = newProjectRootInput(canonicalProjectRoot);
-    publishInitialProjectCard(canonicalProjectRoot, root);
+    publishInitialProjectCard(canonicalProjectRoot, root,workflows.cardTypes.get('project')!);
     console.log(`Project initialized at ${canonicalProjectRoot}`);
   });
 }
@@ -89,6 +97,7 @@ async function handleReset(): Promise<void> {
   const projectRoot = process.cwd();
   withDirectMutationComposition(projectRoot, 'bound', (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
+    const workflows=loadCanonicalWorkflows(canonicalProjectRoot);
     const generatedRoots = resetOwnedGeneratedRoots(canonicalProjectRoot);
     console.log('Reset will remove these exact generated roots as whole trees:');
     for (const target of generatedRoots) console.log(`- ${target}`);
@@ -96,7 +105,7 @@ async function handleReset(): Promise<void> {
     for (const target of generatedRoots) rmSync(target, { recursive: true, force: true });
     mkdirSync(saivageCardsRoot(canonicalProjectRoot), { recursive: true });
     const root = newProjectRootInput(canonicalProjectRoot);
-    publishInitialProjectCard(canonicalProjectRoot, root);
+    publishInitialProjectCard(canonicalProjectRoot, root,workflows.cardTypes.get('project')!);
     console.log('Project reset with a new root project card. Every path outside the four reset-owned generated roots was preserved.');
   });
 }

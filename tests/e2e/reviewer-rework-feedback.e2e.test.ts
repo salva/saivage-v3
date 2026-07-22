@@ -5,8 +5,9 @@ import { join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { workflowResult } from '../helpers/workflow-result.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
@@ -46,16 +47,16 @@ describe('reviewer rework completion E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Completed child', brief: 'Complete the child.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Completed child', bootstrap_content: 'Complete the child.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(child.id, 'running');
-    cards.commitActivationOutcome(child.id, { status: 'done', summary: 'Child complete.', result: { kind: 'done', summary: 'Child complete.' } }, '2026-07-17T00:00:00.000Z');
+    cards.commitActivationOutcome(child.id, { status: 'done', summary: 'Child complete.', result: workflowResult('DONE','Child complete.') }, '2026-07-17T00:00:00.000Z');
 
     let plannerCalls = 0;
     let reviewerCalls = 0;
     let remediationProjection: LlmInvocationInput['providerConversation'] | null = null;
     const provider: LLMProviderPort = {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => {
-        if (input.role === 'planner') {
+        if (input.agentName === 'planner') {
           plannerCalls += 1;
           if (plannerCalls === 1) return complete(tool('planner-write-initial', 'write', { path: 'record:///status.md?v=next', content: 'Initial completion evidence.' }));
           if (plannerCalls === 2) return complete(tool('planner-done-initial', 'emit_result', { outcome: 'admit_review', summary: 'Initial submission.' }));
@@ -102,14 +103,14 @@ describe('reviewer rework completion E2E', () => {
 
     expect(runtime.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });
     expect(runtime.getRuntimeState()).toBeNull();
-    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'Approved after concrete remediation.' } } });
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'Approved after concrete remediation.' } } });
     expect(plannerCalls).toBe(4);
     expect(reviewerCalls).toBe(4);
     expect(provider.completeTurn).toHaveBeenCalledTimes(8);
 
     expect(remediationProjection).not.toBeNull();
     expect(remediationProjection!.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
-    const plannerRows = readConversation(projectRoot, 'planner:project').physicalRows;
+    const plannerRows = readConversation(projectRoot, 'agent:planner:project').physicalRows;
     expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
     expect(cards.readRecord('project', 'status.md', 2).artifact.content).toBe(REVISED_EVIDENCE);
     expect(cards.readRecord('project', 'review.md', 1)).toMatchObject({ recordUrl: 'record:///review.md?card=project&v=1', artifact: { content: 'Rework required: add explicit remediation evidence.' } });

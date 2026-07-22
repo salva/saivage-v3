@@ -11,22 +11,11 @@ export interface SelfReport {
   at: string;
 }
 
-export interface DoneResult extends Record<string, unknown> {
-  kind: 'done';
-  summary: string;
-}
-
-export interface FailedResult extends Record<string, unknown> {
-  kind: 'failed';
-  summary: string;
-}
-
-export interface BlockedResult extends Record<string, unknown> {
-  kind: 'blocked';
-  summary: string;
-  resume_reason?: string;
-  blocker_cause?: 'reviewer_unavailable' | 'token_budget_exceeded' | 'generic';
-}
+export interface WorkflowResult extends Record<string, unknown> { kind:'workflow-result';terminal:'DONE'|'BLOCKED'|'FAILED';agent_name:string;node_id:string;outcome:string;summary:string;records:readonly {name:string;url:string;version:number}[] }
+export interface RuntimeFailureResult extends Record<string,unknown>{kind:'runtime-failure';summary:string}
+export type DoneResult = WorkflowResult;
+export type FailedResult = WorkflowResult | RuntimeFailureResult;
+export type BlockedResult = WorkflowResult;
 
 export type CardResult = DoneResult | FailedResult | BlockedResult;
 
@@ -61,22 +50,11 @@ export const selfReportSchema: z.ZodType<SelfReport> = z.object({
   at: timestampSchema,
 }).strict();
 
-export const doneResultSchema: z.ZodType<DoneResult> = z.object({
-  kind: z.literal('done'),
-  summary: nonEmptyStringSchema,
-}).strict();
-
-export const failedResultSchema: z.ZodType<FailedResult> = z.object({
-  kind: z.literal('failed'),
-  summary: nonEmptyStringSchema,
-}).strict();
-
-export const blockedResultSchema: z.ZodType<BlockedResult> = z.object({
-  kind: z.literal('blocked'),
-  summary: nonEmptyStringSchema,
-  resume_reason: nonEmptyStringSchema.optional(),
-  blocker_cause: z.enum(['reviewer_unavailable', 'token_budget_exceeded', 'generic']).optional(),
-}).strict();
+const workflowResultSchema: z.ZodType<WorkflowResult> = z.object({kind:z.literal('workflow-result'),terminal:z.enum(['DONE','BLOCKED','FAILED']),agent_name:nonEmptyStringSchema,node_id:nonEmptyStringSchema,outcome:nonEmptyStringSchema,summary:nonEmptyStringSchema,records:z.array(z.object({name:nonEmptyStringSchema,url:nonEmptyStringSchema,version:z.number().int().positive()}).strict())}).strict();
+const runtimeFailureResultSchema: z.ZodType<RuntimeFailureResult> = z.object({kind:z.literal('runtime-failure'),summary:nonEmptyStringSchema}).strict();
+export const doneResultSchema: z.ZodType<DoneResult> = workflowResultSchema;
+export const failedResultSchema: z.ZodType<FailedResult> = z.union([workflowResultSchema,runtimeFailureResultSchema]);
+export const blockedResultSchema: z.ZodType<BlockedResult> = workflowResultSchema;
 
 export const cardResultSchema: z.ZodType<CardResult> = z.union([
   doneResultSchema,

@@ -11,7 +11,7 @@ const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 function session(projectRoot: string, eventLogger: ReturnType<typeof createEventLog>): AnalystSession {
   return new AnalystSession({
-    projectRoot, sessionId: 'analyst:global', config: {}, promptTemplates: {}, restartServerAvailable: false,
+    projectRoot, sessionId: 'agent:analyst:global', config: {}, candidateChain: [], promptTemplates: {}, restartServerAvailable: false,
     provider: {}, conversations: { projectRoot }, compactionPolicy: {}, compactor: {}, summarizerProvider: {}, eventLogger, cardStore: {},
     runtimeProjectionChanged() {}, createInvocationSurface() { throw new Error('unused'); }, async shutdownProcesses() {},
   } as never);

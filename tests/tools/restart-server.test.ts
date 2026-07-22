@@ -18,7 +18,7 @@ describe('restart_server', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-restart-tool-'));
     try {
       expect(createAnalystControlProvider(context(projectRoot, true)).tools.map((tool) => tool.name)).toContain('restart_server');
-      expect(createAnalystControlProvider({ ...context(projectRoot, false) }).tools.map((tool) => tool.name)).not.toContain('restart_server');
+      expect(createAnalystControlProvider({ ...context(projectRoot, false) }).tools.map((tool) => tool.name)).toContain('restart_server');
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 

@@ -7,6 +7,8 @@ import { run } from '../../src/cli.js';
 import { readCard } from '../../src/persistence/card-files.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
+import { stringify } from 'yaml';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 
 const generatedDescendants = [
   'cards/project/marker.bin',
@@ -58,7 +60,7 @@ describe('CLI reset generated-root boundary', () => {
     const root = createInitializedProject('saivage-reset-cli-');
     const markers = seedGeneratedMarkers(root);
     const preserved = new Map<string, string>([
-      ['.saivage/saivage.yaml', 'models: []\n'],
+      ['.saivage/saivage.yaml', stringify(DEFAULT_SAIVAGE_CONFIG)],
       ['.saivage/auth-profiles.json', '{"profiles":[]}\n'],
       ['.saivage/project.json', readFileSync(join(root, '.saivage', 'project.json'), 'utf8')],
       ['.saivage/config/prompts/project/analyst.md', '# operator prompt\n'],

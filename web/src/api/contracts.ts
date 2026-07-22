@@ -16,8 +16,8 @@ export {
   processesOperatorApiContracts,
 } from '@saivage/contracts/operator-api';
 
-export { GLOBAL_ANALYST_SESSION_ID, ConversationSessionIdSchema, parseConversationSessionId } from '@saivage/schemas';
-export type { ConversationSessionId, AnalystConversationSessionId } from '@saivage/schemas';
+export { ConversationSessionIdSchema, parseConversationSessionId } from '@saivage/schemas';
+export type { ConversationSessionId } from '@saivage/schemas';
 
 export type {
   OperatorApiOperationId,
@@ -34,6 +34,7 @@ export type {
   AgentLlmExchangeResponse,
   AgentSessionSummary,
   CardDetailResponse,
+  CardRecordDescriptor,
   CardChildrenResponse,
   CardDiffResponse,
   CardHistoryEntryResponse,
@@ -70,7 +71,7 @@ export {
   KnownWsEnvelopeSchema,
   LiveSyncClientFrameSchema,
   LiveSyncCardInvalidateFrameSchema,
-  LiveSyncCardRecordSlotSchema,
+  LiveSyncCardRecordNameSchema,
   LiveSyncInvalidateFrameSchema,
   LiveSyncSubscribedFrameSchema,
   LiveSyncSubscribeFrameSchema,
@@ -101,7 +102,7 @@ export type {
   LiveSyncClientFrame,
   LiveSyncCardInvalidateFrame,
   LiveSyncCardInvalidateTarget,
-  LiveSyncCardRecordSlot,
+  LiveSyncCardRecordName,
   LiveSyncInvalidateFrame,
   LiveSyncSubscribedFrame,
   LiveSyncInvalidateTarget,
@@ -128,7 +129,6 @@ export type {
   CreatedBy,
   DoctorResponse,
   EntityLink,
-  AgentRole,
   MessageKind,
   MessageRole,
   NoteAuthor,

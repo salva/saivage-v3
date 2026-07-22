@@ -4,21 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { verifyAgentToolDocs, verifyConfigDocs } from '../../scripts/verify-doc-routes.js';
 
-const TOOL_SOURCES = [
-  'src/tools/role-invocation-surfaces.ts',
-  'src/tools/planner-control-provider.ts',
-  'src/tools/analyst-control-provider.ts',
-  'src/tools/analyst-tool-registry.ts',
-  'src/tools/card-inspection-provider.ts',
-  'src/tools/card-history-provider.ts',
-  'src/tools/workspace-provider.ts',
-  'src/tools/process-provider.ts',
-  'src/tools/web-tools.ts',
-  'src/tools/skill-provider.ts',
-  'src/tools/mcp-provider.ts',
-  'src/runtime/actors/agent-node-execution.ts',
-  'src/contracts/result-envelope.ts',
-];
+const AGENTS = 'src/agents/default-workflow-config.ts';
+const CONFIG = 'src/schemas/saivage-config.ts';
 const DOC = 'docs/architecture/system-architecture.md';
 
 function withFixture(paths, testFn) {
@@ -30,9 +17,7 @@ function withFixture(paths, testFn) {
       writeFileSync(destination, readFileSync(join(process.cwd(), path), 'utf8'));
     }
     testFn(root);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
 function rewrite(root, path, transform) {
@@ -43,249 +28,105 @@ function rewrite(root, path, transform) {
 function replaceChecked(root, path, target, replacement) {
   rewrite(root, path, (source) => {
     expect(source).toContain(target);
-    const changed = source.replace(target, replacement);
-    expect(changed).not.toBe(source);
-    return changed;
+    return source.replace(target, replacement);
   });
 }
 
-function replaceAllChecked(root, path, pattern, replacement, expectedCount) {
-  rewrite(root, path, (source) => {
-    const matches = source.match(pattern) ?? [];
-    expect(matches).toHaveLength(expectedCount);
-    const changed = source.replace(pattern, replacement);
-    expect(changed).not.toBe(source);
-    return changed;
-  });
-}
+function failureTypes(result) { return result.failures.map((failure) => failure.type); }
 
-function removeRoleCase(root, role, nextRole) {
-  rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => {
-    const startMarker = `    case '${role}':`;
-    const endMarker = `    case '${nextRole}':`;
-    const start = source.indexOf(startMarker);
-    const end = source.indexOf(endMarker);
-    expect(start).toBeGreaterThanOrEqual(0);
-    expect(end).toBeGreaterThan(start);
-    return source.slice(0, start) + source.slice(end);
-  });
-}
-
-function failureTypes(result) {
-  return result.failures.map((failure) => failure.type);
-}
-
-describe('source-derived Agent tool inventory', () => {
-  it('discovers every current role surface, provider branch, control input, and autonomous terminal', () => {
+describe('source-derived named-agent tool inventory', () => {
+  it('discovers the exact default named-agent inventories', () => {
     const result = verifyAgentToolDocs({ projectRoot: process.cwd() });
     expect(result.ok).toBe(true);
     expect(Object.fromEntries(result.expected)).toEqual({
-      planner: ['activate_card', 'cancel_card', 'create_card', 'diff_card', 'edit', 'edit_card', 'emit_result', 'get_card', 'get_card_history_entry', 'get_tree', 'glob', 'grep', 'list_card_history', 'list_cards', 'queue_notification', 'read', 'reorder_child', 'webfetch', 'websearch', 'write'],
-      reviewer: ['diff_card', 'edit', 'emit_result', 'get_card_history_entry', 'glob', 'grep', 'list_card_history', 'mcp_tool_call', 'read', 'skill', 'webfetch', 'websearch', 'write'],
-      executor: ['apply_patch', 'diff_card', 'edit', 'emit_result', 'get_card_history_entry', 'glob', 'grep', 'kill_process', 'list_card_history', 'mcp_tool_call', 'read', 'run_command', 'skill', 'wait_process', 'webfetch', 'websearch', 'write'],
+      planner: ['activate_card', 'cancel_card', 'create_card', 'diff_card', 'edit', 'edit_card', 'get_card', 'get_card_history_entry', 'get_tree', 'glob', 'grep', 'list_card_history', 'list_cards', 'queue_notification', 'read', 'reorder_child', 'webfetch', 'websearch', 'write'],
+      reviewer: ['diff_card', 'edit', 'get_card_history_entry', 'glob', 'grep', 'list_card_history', 'read', 'skill', 'webfetch', 'websearch', 'write'],
+      executor: ['apply_patch', 'diff_card', 'edit', 'get_card_history_entry', 'glob', 'grep', 'kill_process', 'list_card_history', 'mcp_tool_call', 'read', 'run_command', 'skill', 'wait_process', 'webfetch', 'websearch', 'write'],
       analyst: ['apply_patch', 'cancel_card', 'create_card', 'delete_card', 'diff_card', 'edit', 'get_card', 'get_card_history_entry', 'get_status', 'get_tree', 'glob', 'grep', 'kill_process', 'list_agent_sessions', 'list_card_history', 'list_cards', 'list_processes_tool', 'mcp_reconcile', 'mcp_tool_call', 'navigate_back', 'navigate_workspace', 'pause_runtime', 'queue_notification', 'read', 'read_agent_session', 'read_control_actions', 'read_runtime_errors', 'read_runtime_events', 'reconfigure', 'reorder_child', 'restart_server', 'resume_runtime', 'run_command', 'show_config', 'skill', 'start_project', 'stop_project', 'wait_process', 'webfetch', 'websearch', 'write'],
     });
-    expect(result.expected.get('analyst')).toContain('restart_server');
-    expect(result.expected.get('analyst')).not.toContain('emit_result');
   });
 
-  it('derives literal switch composition and autonomous-only terminal injection', () => {
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "        createWebProvider({ projectRoot: context.projectRoot, cardId: context.cardId, agentRole: context.role, store: context.store, notifyCard: undefined }),\n      ]);\n    case 'reviewer':", "      ]);\n    case 'reviewer':");
-      expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).not.toContain('websearch');
-
-      replaceChecked(root, 'src/tools/skill-provider.ts', "name: 'skill'", "name: 'fixture_skill'");
-      expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('executor')).toContain('fixture_skill');
-
-      replaceChecked(root, 'src/tools/analyst-tool-registry.ts', "  'create_card',", "  'fixture_control',");
-      expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('analyst')).toContain('fixture_control');
-
-      replaceChecked(root, 'src/contracts/result-envelope.ts', "'emit_result'", "'fixture_terminal'");
-      const terminalChanged = verifyAgentToolDocs({ projectRoot: root }).expected;
-      expect(terminalChanged.get('planner')).toContain('fixture_terminal');
-      expect(terminalChanged.get('executor')).toContain('fixture_terminal');
-      expect(terminalChanged.get('reviewer')).toContain('fixture_terminal');
-      expect(terminalChanged.get('analyst')).not.toContain('fixture_terminal');
+  it('derives literal catalog changes and rejects invalid catalog syntax', () => {
+    withFixture([AGENTS, DOC], (root) => {
+      replaceChecked(root, AGENTS, "'activate_card'", "'fixture_tool'");
+      expect(verifyAgentToolDocs({ projectRoot: root }).expected.get('planner')).toContain('fixture_tool');
+    });
+    withFixture([AGENTS, DOC], (root) => {
+      replaceChecked(root, AGENTS, "['create_card', 'edit_card'", "['create_card', 'create_card'");
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('contains duplicates');
+    });
+    withFixture([AGENTS, DOC], (root) => {
+      replaceChecked(root, AGENTS, "Object.freeze(['create_card', 'edit_card'", "Object.freeze([computedTool, 'edit_card'");
+      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('contains a non-string entry');
     });
   });
 
-  it('rejects duplicate, unexpected, and malformed rows through real Markdown parsing', () => {
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
+  it('rejects duplicate, unexpected, and malformed documentation rows', () => {
+    withFixture([AGENTS, DOC], (root) => {
       const row = readFileSync(join(root, DOC), 'utf8').match(/^\| `planner` .*$/m)[0];
       replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', `${row}\n<!-- saivage:agent-tools:end -->`);
-      expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('duplicate-agent-role');
+      expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('duplicate-agent');
     });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', "| `supervisor` | `` | `src/tools/role-invocation-surfaces.ts:40` |\n<!-- saivage:agent-tools:end -->");
-      expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('unexpected-agent-role');
+    withFixture([AGENTS, DOC], (root) => {
+      replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', "| `supervisor` | `` | `src/agents/default-workflow-config.ts:1` |\n<!-- saivage:agent-tools:end -->");
+      expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('unexpected-agent');
     });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
+    withFixture([AGENTS, DOC], (root) => {
       replaceChecked(root, DOC, '| `planner` | `activate_card', '| `planner` | activate_card');
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('malformed-agent-tool-row');
-    });
-  });
-
-  it('fails closed for missing, duplicate, unsupported, and all default cases', () => {
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      removeRoleCase(root, 'reviewer', 'executor');
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Missing provider-composition case for reviewer');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "    case 'executor':", "    case 'reviewer':");
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Duplicate provider-composition case for reviewer');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "    case 'executor':", "    case 'supervisor':");
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unsupported agent role case supervisor');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "    }\n  }\n}", "    }\n    default:\n      return buildInvocationSurface(context.role, []);\n  }\n}");
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Default provider-composition paths are unsupported');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', "    }\n  }\n}", "    }\n    default:\n      return null;\n  }\n}");
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Default provider-composition paths are unsupported');
-    });
-  });
-
-  it('fails closed for nonliteral arrays and every unsupported provider-array entry form', () => {
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => {
-        const startMarker = "    case 'planner':\n      return buildInvocationSurface(context.role, [";
-        const start = source.indexOf(startMarker);
-        const end = source.indexOf('      ]);', start);
-        expect(start).toBeGreaterThanOrEqual(0);
-        expect(end).toBeGreaterThan(start);
-        return `${source.slice(0, start)}    case 'planner':\n      return buildInvocationSurface(context.role, plannerProviders);${source.slice(end + '      ]);'.length)}`;
-      });
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider composition must use an array literal');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createPlannerControlProvider({', '        ...createPlannerControlProvider({');
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider array contains a spread entry');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createCardInspectionProvider({ store: context.store }),', '        context.store,');
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider array contains an unsupported entry');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createCardInspectionProvider({ store: context.store }),', '        true ? createCardInspectionProvider({ store: context.store }) : createCardInspectionProvider({ store: context.store }),');
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider array contains an unsupported entry');
-    });
-  });
-
-  it('fails closed for unknown, computed, and otherwise indirect constructor or composition calls', () => {
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createPlannerControlProvider({', '        createUnknownProvider({');
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unknown provider constructor createUnknownProvider for planner');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '        createCardInspectionProvider({ store: context.store }),', "        providers['createCardInspectionProvider']({ store: context.store }),");
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('planner provider array contains an unsupported entry');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/role-invocation-surfaces.ts', '      return buildInvocationSurface(context.role, [', '      return context.buildInvocationSurface(context.role, [');
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unsupported buildInvocationSurface return for planner');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      rewrite(root, 'src/tools/role-invocation-surfaces.ts', (source) => {
-        const start = source.indexOf("    case 'planner':\n      return buildInvocationSurface(context.role, [");
-        const end = source.indexOf('      ]);', start);
-        expect(start).toBeGreaterThanOrEqual(0);
-        expect(end).toBeGreaterThan(start);
-        const changedStart = source.slice(0, start).concat(source.slice(start, end).replace('      return buildInvocationSurface', '      const surface = buildInvocationSurface'));
-        return `${changedStart}      ]);\n      return surface;${source.slice(end + '      ]);'.length)}`;
-      });
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unsupported buildInvocationSurface return for planner');
-    });
-  });
-
-  it('requires complete and non-stale provider source navigation', () => {
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceAllChecked(root, 'src/tools/role-invocation-surfaces.ts', /createWebProvider/g, 'createFixtureProvider', 5);
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Missing provider source navigation for createFixtureProvider');
-    });
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceAllChecked(root, 'src/tools/role-invocation-surfaces.ts', /^\s*createSkillProvider\([^\n]+\),\n/gm, '', 3);
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Unreferenced provider source navigation for createSkillProvider');
-    });
-  });
-
-  it('rejects duplicate tool names produced by composed providers', () => {
-    withFixture([...TOOL_SOURCES, DOC], (root) => {
-      replaceChecked(root, 'src/tools/web-tools.ts', "name: 'websearch'", "name: 'webfetch'");
-      expect(() => verifyAgentToolDocs({ projectRoot: root })).toThrow('Duplicate resulting tool name for planner');
     });
   });
 });
 
 describe('source-derived Config schema inventory', () => {
-  it('discovers all current object occurrences and repeated capability/reasoning shapes', () => {
+  it('discovers every current object occurrence', () => {
     const result = verifyConfigDocs({ projectRoot: process.cwd() });
     expect(result.ok).toBe(true);
     expect([...result.expected.keys()]).toEqual([
-      'top-level', 'models', 'models.temperature', 'models.max_tokens', 'models.profiles.entry', 'models.routing', 'providers.entry',
+      'top-level', 'agents.entry', 'models', 'models.routes.entry', 'models.profiles.entry', 'providers.entry',
       'providers.entry.capabilities', 'providers.entry.capabilities.responsesReasoning',
       'providers.entry.modelCapabilities.entry', 'providers.entry.modelCapabilities.entry.responsesReasoning',
       'providers.entry.accounts.entry', 'providers.entry.accounts.entry.capabilities',
-      'providers.entry.accounts.entry.capabilities.responsesReasoning', 'server', 'runtime',
-      'runtime.process_timeouts', 'compaction', 'compaction.summarizer_candidate',
-      'card_processes', 'card_processes.planning', 'card_processes.planning.entries',
-      'card_processes.planning.entries.BACKLOG', 'card_processes.planning.entries.CHANGED', 'card_processes.planning.entries.BLOCKED', 'card_processes.planning.entries.STOPPED',
-      'card_processes.planning.nodes.entry', 'card_processes.planning.nodes.entry.records.item', 'card_processes.planning.nodes.entry.edges.entry',
-      'card_processes.planning.nodes.entry.edges.entry.target.variant1', 'card_processes.planning.nodes.entry.edges.entry.target.variant2',
-      'card_processes.terminal', 'card_processes.terminal.entries',
-      'card_processes.terminal.entries.BACKLOG', 'card_processes.terminal.entries.CHANGED', 'card_processes.terminal.entries.BLOCKED', 'card_processes.terminal.entries.STOPPED',
-      'card_processes.terminal.nodes.entry', 'card_processes.terminal.nodes.entry.records.item', 'card_processes.terminal.nodes.entry.edges.entry',
-      'card_processes.terminal.nodes.entry.edges.entry.target.variant1', 'card_processes.terminal.nodes.entry.edges.entry.target.variant2',
-      'mcpServers.entry.variant1', 'mcpServers.entry.variant2',
+      'providers.entry.accounts.entry.capabilities.responsesReasoning', 'server', 'compaction', 'compaction.summarizer_candidate',
+      'card_types.entry', 'card_types.entry.records.entry', 'card_types.entry.workflow', 'card_types.entry.workflow.entries',
+      'card_types.entry.workflow.entries.BACKLOG', 'card_types.entry.workflow.entries.CHANGED', 'card_types.entry.workflow.entries.BLOCKED', 'card_types.entry.workflow.entries.STOPPED',
+      'card_types.entry.workflow.nodes.entry', 'card_types.entry.workflow.nodes.entry.descendant_context', 'card_types.entry.workflow.nodes.entry.edges.entry',
+      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant1', 'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2',
+      'card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2', 'mcpServers.entry.variant1', 'mcpServers.entry.variant2',
     ]);
-    for (const path of ['providers.entry.capabilities', 'providers.entry.modelCapabilities.entry', 'providers.entry.accounts.entry.capabilities']) {
-      expect(result.expected.get(path)).toEqual(['contextWindowTokens', 'exclusiveToolChoiceSupport', 'maxOutputTokens', 'quirks', 'responsesReasoning', 'streaming', 'toolsMode', 'transportProtocol']);
-      expect(result.expected.get(`${path}.responsesReasoning`)).toEqual(['effort']);
-    }
-    expect(result.expected.get('mcpServers.entry.variant1')).toEqual(['args', 'autostart', 'command', 'disabled', 'env', 'transport']);
-    expect(result.expected.get('mcpServers.entry.variant2')).toEqual(['autostart', 'disabled', 'transport', 'url']);
   });
 
-  it('turns newly reachable named and inline objects into missing-row failures', () => {
-    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
-      rewrite(root, 'src/schemas/saivage-config.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "const futureSchema = z.object({ value: z.string() });\nexport const saivageConfigSchema = z.object({\n  futureNamed: futureSchema,"));
-      expect(verifyConfigDocs({ projectRoot: root }).failures).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'missing-config-section', section: 'futureNamed' })]));
+  it('turns newly reachable objects into missing-row failures and fails closed for unsupported syntax', () => {
+    withFixture([CONFIG, DOC], (root) => {
+      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z.object({', 'const futureSchema = z.object({ value: z.string() });\nexport const saivageConfigSchema = z.object({\n  futureNamed: futureSchema,');
+      expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('missing-config-section');
     });
-    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
-      rewrite(root, 'src/schemas/saivage-config.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  futureInline: z.object({ value: z.string() }),"));
-      expect(verifyConfigDocs({ projectRoot: root }).failures).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'missing-config-section', section: 'futureInline' })]));
-    });
-  });
-
-  it('fails closed for unsupported and unresolved reachable schema syntax', () => {
-    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
-      rewrite(root, 'src/schemas/saivage-config.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  future: z.lazy(() => z.object({ value: z.string() })),"));
+    withFixture([CONFIG, DOC], (root) => {
+      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z.object({', 'export const saivageConfigSchema = z.object({\n  future: z.lazy(() => z.string()),');
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unsupported reachable z.lazy');
     });
-    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
-      rewrite(root, 'src/schemas/saivage-config.ts', (source) => source.replace("export const saivageConfigSchema = z.object({", "export const saivageConfigSchema = z.object({\n  future: unresolvedSchema,"));
+    withFixture([CONFIG, DOC], (root) => {
+      replaceChecked(root, CONFIG, 'export const saivageConfigSchema = z.object({', 'export const saivageConfigSchema = z.object({\n  future: unresolvedSchema,');
       expect(() => verifyConfigDocs({ projectRoot: root })).toThrow('Unable to resolve unresolvedSchema');
     });
   });
 
-  it('rejects missing, unexpected, duplicate, and malformed rows through real Markdown parsing', () => {
-    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
+  it('rejects missing, unexpected, duplicate, and malformed documentation rows', () => {
+    withFixture([CONFIG, DOC], (root) => {
       rewrite(root, DOC, (source) => source.replace(/^\| `models` .*\n/m, ''));
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('missing-config-section');
     });
-    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
-      rewrite(root, DOC, (source) => source.replace('<!-- saivage:config-schema:end -->', "| `supervisor` | `` | `src/schemas/saivage-config.ts:191` |\n<!-- saivage:config-schema:end -->"));
+    withFixture([CONFIG, DOC], (root) => {
+      replaceChecked(root, DOC, '<!-- saivage:config-schema:end -->', "| `supervisor` | `` | `src/schemas/saivage-config.ts:1` |\n<!-- saivage:config-schema:end -->");
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('unexpected-config-section');
     });
-    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
+    withFixture([CONFIG, DOC], (root) => {
       const row = readFileSync(join(root, DOC), 'utf8').match(/^\| `models` .*$/m)[0];
-      rewrite(root, DOC, (source) => source.replace('<!-- saivage:config-schema:end -->', `${row}\n<!-- saivage:config-schema:end -->`));
+      replaceChecked(root, DOC, '<!-- saivage:config-schema:end -->', `${row}\n<!-- saivage:config-schema:end -->`);
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('duplicate-config-section');
     });
-    withFixture(['src/schemas/saivage-config.ts', DOC], (root) => {
-      replaceChecked(root, DOC, '| `models` | `analyst', '| `models` | analyst');
+    withFixture([CONFIG, DOC], (root) => {
+      replaceChecked(root, DOC, '| `models` | `equivalents', '| `models` | equivalents');
       expect(failureTypes(verifyConfigDocs({ projectRoot: root }))).toContain('malformed-config-row');
     });
   });

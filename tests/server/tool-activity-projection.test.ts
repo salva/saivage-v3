@@ -17,7 +17,7 @@ describe('tool activity projection', () => {
       params: { command: 'npm test' },
       result: { success: true, data: { process_id: 'proc-1', exit_code: null, status: 'running', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 1, stderr_bytes: 0 } },
       ...IDENTITY,
-    });
+    },'agent:analyst:global');
 
     expect((projected.result as { data: Record<string, unknown> }).data).toEqual(expect.objectContaining({ process_id: 'proc-1', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 1, stderr_bytes: 0 }));
   });
@@ -28,7 +28,7 @@ describe('tool activity projection', () => {
       params: { url: 'https://example.test' },
       result: { success: true, data: { redacted_url: 'https://example.test/', status: 200, headers: {}, bytes: 123, truncated: true, stash_url: 'work:///tmp/stash/webfetch.txt' } },
       ...IDENTITY,
-    });
+    },'agent:analyst:global');
 
     expect((projected.result as { data: Record<string, unknown> }).data.stash_url).toBe('work:///tmp/stash/webfetch.txt');
     expect((projected.result as { data: Record<string, unknown> }).data).not.toHaveProperty('stash_path');
@@ -49,12 +49,12 @@ describe('tool activity projection', () => {
     },
   ])('projects $label once and final WebSocket serialization copies identical classified activity', ({ invocation }) => {
     const projector = jest.fn(projectToolInvocation);
-    const activity = projectAnalystToolInvocationActivity(invocation, projector);
+    const activity = projectAnalystToolInvocationActivity(invocation, 'agent:analyst:global', projector);
     expect(projector).toHaveBeenCalledTimes(1);
 
     const complete = projectToolInvocation({
       shape: 'complete',
-      identity: { sessionId: 'analyst:global', sourceInputId: invocation.sourceInputId, toolCallId: invocation.toolCallId, toolName: invocation.tool },
+      identity: { sessionId: 'agent:analyst:global', sourceInputId: invocation.sourceInputId, toolCallId: invocation.toolCallId, toolName: invocation.tool },
       arguments: invocation.params,
       result: invocation.result,
     });

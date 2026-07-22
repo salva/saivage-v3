@@ -1,4 +1,4 @@
-import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
+import type { ConversationSessionId } from '../schemas/index.js';
 import { ClassifiedToolInvocationActivityContentSchema, type ClassifiedToolInvocationActivityContent } from '../contracts/operator-events.js';
 import type { ToolInvocationProjector, ToolInvocationResult } from '../contracts/tool-invocation-projection.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
@@ -13,12 +13,13 @@ export interface AnalystToolInvocationActivityInput {
 
 export function projectAnalystToolInvocationActivity(
   invocation: AnalystToolInvocationActivityInput,
+  sessionId:ConversationSessionId,
   invocationProjector: ToolInvocationProjector = projectToolInvocation,
 ): ClassifiedToolInvocationActivityContent {
   const projected = invocationProjector({
     shape: 'complete',
     identity: {
-      sessionId: GLOBAL_ANALYST_SESSION_ID,
+      sessionId,
       sourceInputId: invocation.sourceInputId,
       toolCallId: invocation.toolCallId,
       toolName: invocation.tool,
@@ -29,7 +30,7 @@ export function projectAnalystToolInvocationActivity(
   if (projected.shape !== 'complete') throw new Error('WebSocket activity invocation projected to a non-complete shape.');
   return ClassifiedToolInvocationActivityContentSchema.parse({
     event: 'tool_invocation',
-    sessionId: GLOBAL_ANALYST_SESSION_ID,
+    sessionId,
     tool: projected.identity.toolName,
     params: projected.arguments,
     result: narrowActivityResult(projected.result),

@@ -32,26 +32,26 @@ describe('latest provider-exchange selection', () => {
 
   it('selects independently for every exact key by timestamp and then attempt index', () => {
     const root = project();
-    publish(root, 'planner:project', 'planner-old', firstTimestamp, 9);
+    publish(root, 'agent:planner:project', 'planner-old', firstTimestamp, 9);
     publish(root, 'summary:project', 'summary', firstTimestamp, 0);
-    publish(root, 'planner:project', 'planner-later-low-attempt', laterTimestamp, 0);
-    publish(root, 'reviewer:project', 'reviewer-low-attempt', firstTimestamp, 0);
-    publish(root, 'reviewer:project', 'reviewer-high-attempt', firstTimestamp, 2);
+    publish(root, 'agent:planner:project', 'planner-later-low-attempt', laterTimestamp, 0);
+    publish(root, 'agent:reviewer:project', 'reviewer-low-attempt', firstTimestamp, 0);
+    publish(root, 'agent:reviewer:project', 'reviewer-high-attempt', firstTimestamp, 2);
 
     const latest = readLatestProviderExchangePayloadMap(root);
-    expect(latest.get('planner:project')?.model).toBe('planner-later-low-attempt');
-    expect(latest.get('reviewer:project')?.model).toBe('reviewer-high-attempt');
+    expect(latest.get('agent:planner:project')?.model).toBe('planner-later-low-attempt');
+    expect(latest.get('agent:reviewer:project')?.model).toBe('reviewer-high-attempt');
     expect(latest.get('summary:project')?.model).toBe('summary');
   });
 
   it('retains the earlier physical row on an exact comparator tie and singular lookup delegates to it', () => {
     const root = project();
-    publish(root, 'planner:project', 'physical-first', firstTimestamp, 1, 'source-first');
-    publish(root, 'planner:project', 'physical-second', firstTimestamp, 1, 'source-second');
+    publish(root, 'agent:planner:project', 'physical-first', firstTimestamp, 1, 'source-first');
+    publish(root, 'agent:planner:project', 'physical-second', firstTimestamp, 1, 'source-second');
 
-    expect(readLatestProviderExchangePayloadMap(root).get('planner:project')?.model).toBe('physical-first');
-    expect(readLatestProviderExchangePayload(root, 'planner:project')?.model).toBe('physical-first');
-    expect(readLatestProviderExchangePayload(root, 'reviewer:project')).toBeNull();
+    expect(readLatestProviderExchangePayloadMap(root).get('agent:planner:project')?.model).toBe('physical-first');
+    expect(readLatestProviderExchangePayload(root, 'agent:planner:project')?.model).toBe('physical-first');
+    expect(readLatestProviderExchangePayload(root, 'agent:reviewer:project')).toBeNull();
   });
 
   it('fails the complete read when any canonical app-log envelope is malformed', () => {

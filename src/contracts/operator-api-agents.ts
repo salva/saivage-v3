@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { providerExchangePayloadSchema } from './provider-exchange.js';
-import { agentMessageSchema, AnalystConversationSessionIdSchema, ConversationSessionIdSchema, PlannerConversationSessionIdSchema, ReviewerConversationSessionIdSchema, ExecutorConversationSessionIdSchema } from '../schemas/index.js';
+import { agentMessageSchema, agentNameSchema, ConversationSessionIdSchema, conversationSessionIdentity } from '../schemas/index.js';
 import {
   ApiErrorSchema,
   ForbiddenErrorSchema,
@@ -15,17 +15,9 @@ export const AgentSessionParamsSchema = z.object({ id: ConversationSessionIdSche
 export const AgentConversationParamsSchema = AgentSessionParamsSchema;
 export const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
 const sessionFields = { status: z.enum(['active', 'waiting', 'inactive']), started_at: z.string().datetime(), model: z.string().optional() };
-export const AnalystSessionSummarySchema = z.object({ id: AnalystConversationSessionIdSchema, role: z.literal('analyst'), goal_card_id: z.null().optional(), card_id: z.null().optional(), ...sessionFields }).strict();
-const plannerSessionSchema = z.object({ id: PlannerConversationSessionIdSchema, role: z.literal('planner'), goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), ...sessionFields }).strict();
-const reviewerSessionSchema = z.object({ id: ReviewerConversationSessionIdSchema, role: z.literal('reviewer'), goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), ...sessionFields }).strict();
-const executorSessionSchema = z.object({ id: ExecutorConversationSessionIdSchema, role: z.literal('executor'), goal_card_id: z.string().nullable().optional(), card_id: z.string().nullable().optional(), ...sessionFields }).strict();
-function requireMatchingCard(value: { id: string; role: string; card_id?: string | null }, ctx: z.RefinementCtx): void {
-  if (value.role === 'analyst') return;
-  const cardId = value.id.slice(value.id.indexOf(':') + 1);
-  if (value.card_id !== cardId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['card_id'], message: 'Agent card ownership must match its session identity.' });
-}
-const agentSessionSummaryUnion = z.discriminatedUnion('role', [AnalystSessionSummarySchema, plannerSessionSchema, reviewerSessionSchema, executorSessionSchema]);
-export const AgentSessionSummarySchema = agentSessionSummaryUnion.superRefine(requireMatchingCard);
+const agentSessionBase=z.object({id:ConversationSessionIdSchema,agent_name:agentNameSchema,session_scope:z.enum(['global','card']),card_id:z.string().nullable(),...sessionFields}).strict();
+function requireMatchingIdentity(value:z.infer<typeof agentSessionBase>,ctx:z.RefinementCtx):void{const identity=conversationSessionIdentity(value.id);if(value.agent_name!==identity.agentName)ctx.addIssue({code:z.ZodIssueCode.custom,path:['agent_name'],message:'Agent name must match session identity.'});if(value.card_id!==identity.cardId)ctx.addIssue({code:z.ZodIssueCode.custom,path:['card_id'],message:'Card ownership must match session identity.'});if(value.session_scope!==(identity.cardId===null?'global':'card'))ctx.addIssue({code:z.ZodIssueCode.custom,path:['session_scope'],message:'Session scope must match identity.'});}
+export const AgentSessionSummarySchema=agentSessionBase.superRefine(requireMatchingIdentity);
 export const AgentConversationEntrySchema = agentMessageSchema;
 export const AgentActivityStatusSchema = z.object({
   status: z.enum(['active', 'waiting', 'inactive']),
@@ -38,7 +30,7 @@ export const AgentListResponseSchema = z.object({
   sessions: z.array(AgentSessionSummarySchema),
 }).strict();
 const detailFields = { message_count: z.number().int().nonnegative(), last_activity_at: z.string().nullable() };
-export const AgentSessionDetailSchema = z.discriminatedUnion('role', [AnalystSessionSummarySchema.extend(detailFields), plannerSessionSchema.extend(detailFields), reviewerSessionSchema.extend(detailFields), executorSessionSchema.extend(detailFields)]).superRefine(requireMatchingCard);
+export const AgentSessionDetailSchema = agentSessionBase.extend(detailFields).superRefine(requireMatchingIdentity);
 export const AgentDetailResponseSchema = z.object({
   session: AgentSessionDetailSchema,
 }).strict();

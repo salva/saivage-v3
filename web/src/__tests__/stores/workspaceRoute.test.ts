@@ -50,8 +50,8 @@ describe('workspaceRoute store', () => {
     const router = makeRouter(route('dashboard'));
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
-    router.triggerAfterEach(route('agent-detail', { id: 'planner:project' }), route('dashboard'));
-    expect(store.current).toEqual({ view: 'agents', entityId: 'planner:project', refinement: null });
+    router.triggerAfterEach(route('agent-detail', { id: 'agent:planner:project' }), route('dashboard'));
+    expect(store.current).toEqual({ view: 'agents', entityId: 'agent:planner:project', refinement: null });
     store.apply({ intent: 'navigate_back' });
     expect(router.replaceMock).toHaveBeenCalledWith({ name: 'dashboard', query: undefined });
   });
@@ -62,7 +62,7 @@ describe('workspaceRoute store', () => {
     store.registerRouterListener(router);
     const rows: Array<{ target: NavigateTarget; expected: RouteLocationRaw }> = [
       { target: { kind: 'card', id: '11111111-1111-4111-8111-111111111111' }, expected: { name: 'card-detail', params: { id: '11111111-1111-4111-8111-111111111111' }, query: undefined } },
-      { target: { kind: 'transcript', id: 'planner:project' }, expected: { name: 'agent-detail', params: { id: 'planner:project' }, query: undefined } },
+      { target: { kind: 'transcript', id: 'agent:planner:project' }, expected: { name: 'agent-detail', params: { id: 'agent:planner:project' }, query: undefined } },
       { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'process-detail', params: { id: 'pid-1' }, query: undefined } },
       { target: { kind: 'process_list' }, expected: { name: 'debug', query: undefined } },
       { target: { kind: 'agent_session_list' }, expected: { name: 'agents', query: undefined } },

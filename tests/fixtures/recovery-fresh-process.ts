@@ -1,4 +1,4 @@
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
@@ -26,6 +26,6 @@ const runtime = new SupervisorRuntimeApi({
 const prepared = await runtime.beginStartProject();
 if (!prepared.accepted) throw new Error('fresh process Run was rejected');
 runtime.launchStartedProject(prepared.launch);
-for (let count = 0; count < 500 && readConversation(projectRoot, 'planner:project').sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open')).length < 2; count += 1) await new Promise((resolve) => setTimeout(resolve, 2));
+for (let count = 0; count < 500 && readConversation(projectRoot, 'agent:planner:project').sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open')).length < 2; count += 1) await new Promise((resolve) => setTimeout(resolve, 2));
 await runtime.stopProject();
-process.stdout.write(JSON.stringify({ cards: cards.list().map(({ id, lifecycle }) => ({ id, status: lifecycle.status })), markerCount: readConversation(projectRoot, 'planner:project').sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open')).length, noticeCount: readConversation(projectRoot, 'planner:project').sourceRows.filter((row) => row.kind === 'model_recovered').length }));
+process.stdout.write(JSON.stringify({ cards: cards.list().map(({ id, lifecycle }) => ({ id, status: lifecycle.status })), markerCount: readConversation(projectRoot, 'agent:planner:project').sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open')).length, noticeCount: readConversation(projectRoot, 'agent:planner:project').sourceRows.filter((row) => row.kind === 'model_recovered').length }));

@@ -1,6 +1,3 @@
-import { existsSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { MemoryCandidateAvailability } from '../agents/candidate-availability.js';
@@ -29,13 +26,14 @@ import type { SummarizerProviderPort } from '../runtime/actors/compaction/summar
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
-import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
+import { globalAgentSessionId } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
-import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
+import { buildAgentSurface } from '../tools/agent-invocation-surface.js';
 import { createAnalystMutationServices } from './analyst-mutation-services.js';
-import { cardTypesForProcess, compileCardProcesses, describeNodeResultContract } from '../runtime/card-process/card-process-config.js';
+import { describeNodeResultContract } from '../runtime/card-process/card-process-config.js';
 import { createProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
 import { EventQueryService } from './event-query-service.js';
+import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -43,6 +41,7 @@ export interface RuntimeApplication {
   readonly cardStore: CardService;
   readonly processRunner: ProcessRunner;
   readonly analystRuntime: AnalystRuntime;
+  readonly analystSessionId: import('../schemas/index.js').GlobalConversationSessionId;
   closeRuntimeAdmission(): void;
   closeAnalystAdmission(): void;
   cleanupRuntimeForApplicationStop(): Promise<void>;
@@ -55,6 +54,8 @@ export interface RuntimeApplicationServices {
   projectRoot: string;
   processIdentity: RuntimeProcessIdentity;
   config: SaivageConfig;
+  workflows: CompiledRuntimeWorkflows;
+  providerRegistry:ProviderRegistry;
   configAuthority: ResolvedConfigAuthority;
   eventLogger: EventLog;
   cardStore: CardService;
@@ -67,13 +68,6 @@ export interface RuntimeApplicationServices {
   mcpToolInvocation: McpToolInvocationPort;
 }
 
-function bundledPromptDefaultsRoot(): string {
-  const moduleDir = dirname(fileURLToPath(import.meta.url));
-  const sourceTreeRoot = join(moduleDir, '..', 'prompts');
-  if (existsSync(sourceTreeRoot)) return sourceTreeRoot;
-  return join(moduleDir, '..', '..', 'prompts');
-}
-
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
   const { projectRoot, config, eventLogger, cardStore, restartServerAvailable = false, restartPort } = services;
   const interventionBinding = new RuntimeInterventionBinding();
@@ -81,7 +75,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const candidateAvailability = new MemoryCandidateAvailability();
   const conversations: ConversationFileContext = { projectRoot, changes: services.freshness };
 
-  const registry = new ProviderRegistry(config);
+  const registry = services.providerRegistry;
   const summarizerCandidate = registry.assertCandidate(config.compaction.summarizer_candidate);
   const router = new ModelRouter(
     config,
@@ -111,20 +105,13 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const compactor: CompactorPort = { shouldCompact, compact };
   const processRunner = services.processRunner;
   const runtimeGate = new RuntimeGate();
-  const promptTemplates = createPromptTemplateRegistry({
-    defaultRoot: bundledPromptDefaultsRoot(),
-    overrideRoot: join(projectRoot, '.saivage', 'config', 'prompts'),
-  });
-  const cardProcesses = compileCardProcesses(config.card_processes);
-  const processPrompts = createProcessPromptRegistry(cardProcesses, {
-    defaultRoot: bundledPromptDefaultsRoot(),
-    overrideRoot: join(projectRoot, '.saivage', 'config', 'prompts'),
-  });
-  for (const process of [cardProcesses.planning, cardProcesses.terminal]) {
-    for (const cardType of cardTypesForProcess(process)) {
+  const promptTemplates = createPromptTemplateRegistry(services.workflows);
+  const workflows = services.workflows;
+  const processPrompts = createProcessPromptRegistry(workflows);
+  for (const [cardType, process] of workflows.cardTypes) {
       for (const [stateId, node] of process.states) {
         if (node.kind !== 'node') continue;
-        promptTemplates.validateProcessNode(cardType, node.role, {
+        promptTemplates.validateProcessNode(cardType, node.agent.name, {
           cardId: 'startup-validation-card',
           cardTitle: 'Startup prompt validation',
           cardBrief: 'Startup validates the effective role template before actor construction.',
@@ -133,16 +120,16 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
           toolList: '- startup-validation: no runtime tool invocation',
         });
       }
-    }
   }
 
-  const runtimeMechanics = createMicroActorRuntimeApi({ projectRoot, processIdentity: services.processIdentity, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeProcessRootScope: services.runtimeProcessRootScope, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, freshness: services.freshness });
+  const runtimeMechanics = createMicroActorRuntimeApi({ projectRoot, processIdentity: services.processIdentity, cardStore, interventionBinding, invocationService, promptTemplates, workflows, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeProcessRootScope: services.runtimeProcessRootScope, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, freshness: services.freshness });
   const runtimeControl = new RuntimeControlService(runtimeMechanics);
   const runtimeApi: RuntimeApi = runtimeControl;
+  const analystSessionId=globalAgentSessionId(workflows.analyst.name);
   let analystRuntimeCache: AnalystRuntime | null = null;
   const analystProvider = createInvocationServiceProvider(invocationService);
   const createAnalystSession = (_turn: AnalystTurnInput): AnalystSession => {
-    const directScope = processRunner.createDirectScope(services.analystProcessRootScope, `analyst-session:${GLOBAL_ANALYST_SESSION_ID}`, 'operator_session');
+    const directScope = processRunner.createDirectScope(services.analystProcessRootScope, `analyst-session:${analystSessionId}`, 'operator_session');
     const createInvocationSurface = () => {
       const notifyCard = runtimeApi.notifyCard.bind(runtimeApi);
       const analystMutations = createAnalystMutationServices({ projectRoot, store: cardStore, configAuthority: services.configAuthority, notifyCard, cancelCard: runtimeApi.cancelCard.bind(runtimeApi) });
@@ -153,12 +140,12 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         processRunner,
         processScope: directScope,
         store: cardStore,
-        sessionId: GLOBAL_ANALYST_SESSION_ID,
+        sessionId: analystSessionId,
         runtime: runtimeApi,
         runtimeControl,
         mcpToolInvocation: services.mcpToolInvocation,
         restartServerAvailable,
-        actor: 'analyst',
+        actor: workflows.analyst.name,
         surface: 'web-chat',
         captureExecutingLlmSnapshots: () => {
           const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
@@ -169,7 +156,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         analystMutations,
         eventQueries,
       };
-      return buildRoleSurface({ role: 'analyst', toolContext: context });
+      return buildAgentSurface({ agentName: workflows.analyst.name, toolNames: workflows.analyst.tools, projectRoot, store: cardStore, processRunner, processScope: directScope, processOwnerId: analystSessionId, mcpToolInvocation: services.mcpToolInvocation, analystToolContext: context });
     };
     const shutdownProcesses = async (): Promise<void> => {
       const report = await processRunner.closeAndTerminateDirectScope({ directScope, category: 'operator_session', reason: 'session closed', graceMs: 5_000 });
@@ -177,8 +164,9 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     };
     return new AnalystSession({
       projectRoot,
-      sessionId: GLOBAL_ANALYST_SESSION_ID,
+      sessionId: analystSessionId,
       config,
+      candidateChain:workflows.candidateChains.get(workflows.analyst.name)!,
       promptTemplates,
       restartServerAvailable,
       restartPort,
@@ -210,7 +198,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         runtimeControl,
         mcpToolInvocation: services.mcpToolInvocation,
         restartServerAvailable,
-        actor: 'analyst',
+        actor: workflows.analyst.name,
         surface: 'web-chat',
         captureExecutingLlmSnapshots: () => {
           const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
@@ -221,7 +209,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         analystMutations,
         eventQueries,
       };
-      return Array.from(buildRoleSurface({ role: 'analyst', toolContext: context }).tools.keys());
+      return Array.from(buildAgentSurface({ agentName: workflows.analyst.name, toolNames: workflows.analyst.tools, projectRoot, store: cardStore, processRunner, processScope: directScope, processOwnerId: 'analyst-tool-catalog', mcpToolInvocation: services.mcpToolInvocation, analystToolContext: context }).tools.keys());
     } finally {
       processRunner.closeScope(directScope);
     }
@@ -230,6 +218,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   return {
     runtimeApi,
+    analystSessionId,
     runtimeControl,
     cardStore,
     processRunner,

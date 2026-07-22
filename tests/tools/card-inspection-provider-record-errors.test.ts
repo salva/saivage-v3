@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { initProjectTree } from '../helpers/canonical-project.js';

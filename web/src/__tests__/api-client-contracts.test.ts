@@ -104,10 +104,10 @@ describe('operator API client contracts after S06 mutation removal', () => {
   });
 
   it('retains exact Agent identities', () => {
-    const agentId: Parameters<typeof client.getAgentConversation>[0] = 'planner:project';
+    const agentId: Parameters<typeof client.getAgentConversation>[0] = 'agent:planner:project';
     const llmId: Parameters<typeof client.getAgentLlmExchange>[0] = agentId;
     const exact: ConversationSessionId = llmId;
-    expect(exact).toBe('planner:project');
+    expect(exact).toBe('agent:planner:project');
   });
 
   it('serializes the literal current diff key and forwards record cancellation', async () => {

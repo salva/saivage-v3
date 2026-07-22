@@ -69,7 +69,6 @@ import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
 import { useLiveSyncStore } from '../../stores/liveSync';
-import { GLOBAL_ANALYST_SESSION_ID as ANALYST_SESSION_ID } from '../../api/contracts';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 
@@ -163,12 +162,13 @@ function settleRootGate(): void {
 onMounted(() => {
   mounted = true;
   window.addEventListener('saivage:focus-chat', handleFocusChat);
-  closeAnalystConversation = liveSync.openConversation(ANALYST_SESSION_ID, refreshConversation);
   void refreshConversation();
   void cards.ensureRoot().then(settleRootGate, settleRootGate);
 });
 
-watch(activeSessionId, () => {
+watch(activeSessionId, (sessionId) => {
+  closeAnalystConversation?.();
+  closeAnalystConversation=sessionId?liveSync.openConversation(sessionId,refreshConversation):null;
   timelineControls.resetScrollState();
 });
 

@@ -12,7 +12,7 @@ import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
-const MSG: AgentMessage = { id: 'm1', session_id: 'analyst:global', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
+const MSG: AgentMessage = { id: 'm1', session_id: 'agent:analyst:global', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
 const TOOL: ToolDefinition = { type: 'function', function: { name: 'read_file', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } } } } };
 const TERMINAL_TOOL: ToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'finish', parameters: { type: 'object', properties: { summary: { type: 'string' } } } } };
 
@@ -21,7 +21,7 @@ afterEach(() => { jest.restoreAllMocks(); });
 describe('OpenAI Responses request shape', () => {
   it('sends stateless fields and preserves the ordered operational and terminal tool surface', () => {
     const opts: LlmCompleteOptions = { inputId: 'input-1', contract_id: 'c', contractName: 'contract', terminalToolOffered: ['emit_result'], tools: [TOOL, TERMINAL_TOOL], tool_choice: 'auto', max_tokens: 1234 };
-    const body = buildOpenAIResponsesRequest(CANDIDATE, 'sys', { sourceSessionId: 'analyst:global', messages: [MSG] }, opts, { responsesReasoning: { effort: 'medium' } }) as unknown as Record<string, unknown>;
+    const body = buildOpenAIResponsesRequest(CANDIDATE, 'sys', { sourceSessionId: 'agent:analyst:global', messages: [MSG] }, opts, { responsesReasoning: { effort: 'medium' } }) as unknown as Record<string, unknown>;
 
     expect(body.model).toBe('gpt-5.6');
     expect(body.instructions).toBe('sys');
@@ -44,7 +44,7 @@ describe('OpenAI Responses request shape', () => {
     const opts: LlmCompleteOptions = { inputId: 'input-2', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
     const latest: AgentMessage = { ...MSG, id: 'c2:rendered', role: 'system', content: 'latest C2 rendered context' };
     const suffix: AgentMessage = { ...MSG, id: 'suffix', content: 'uncovered suffix' };
-    const body = buildOpenAIResponsesRequest(CANDIDATE, 'role prompt', { sourceSessionId: 'analyst:global', messages: [latest, suffix] }, opts) as unknown as { instructions: string; input: unknown[] };
+    const body = buildOpenAIResponsesRequest(CANDIDATE, 'role prompt', { sourceSessionId: 'agent:analyst:global', messages: [latest, suffix] }, opts) as unknown as { instructions: string; input: unknown[] };
 
     expect(body.instructions).toBe('role prompt\n\n--- system context ---\nlatest C2 rendered context');
     expect(JSON.stringify(body)).not.toContain('older C1 rendered context');
@@ -56,8 +56,8 @@ describe('OpenAI Responses request shape', () => {
   });
 
   it('builds and sends one byte-identical latest-only candidate from validated C1/C2 state', async () => {
-    const fixture = compactedConversationFixture('planner:project', true);
-    const providerConversation = providerConversationProjection(validateConversationRows('planner:project', fixture.rows));
+    const fixture = compactedConversationFixture('agent:planner:project', true);
+    const providerConversation = providerConversationProjection(validateConversationRows('agent:planner:project', fixture.rows));
     const opts: LlmCompleteOptions = { inputId: 'input-3', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 123 };
     const capabilities = { transportProtocol: 'openai-responses' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, streaming: false, contextWindowTokens: 10000, maxOutputTokens: 1000, quirks: [] };
     const built = buildCandidateRequest({ candidate: CANDIDATE, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: 'role prompt', providerConversation, options: opts }).request;
@@ -67,7 +67,7 @@ describe('OpenAI Responses request shape', () => {
       return new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: 'done' }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }), { status: 200 });
     });
 
-    const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', capabilities }).complete(CANDIDATE, 'role prompt', providerConversation, 'planner:project', opts);
+    const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test/v1', apiKey: 'test-key', capabilities }).complete(CANDIDATE, 'role prompt', providerConversation, 'agent:planner:project', opts);
 
     const body = JSON.parse(built.serializedBody) as { instructions: string; input: unknown[] };
     expect(body.instructions).toBe(`role prompt\n\n--- system context ---\nRound one-activation:\n${fixture.c2Summary}\n\nRound two-activation:\n${fixture.c2Summary}`);

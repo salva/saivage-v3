@@ -21,11 +21,11 @@ describe('conversation file persistence', () => {
   it('keeps direct reads strict while append alone treats ENOENT as an operation-local empty start', () => {
     const projectRoot = root();
     let missing: unknown;
-    try { readConversation(projectRoot, 'planner:project'); } catch (error) { missing = error; }
+    try { readConversation(projectRoot, 'agent:planner:project'); } catch (error) { missing = error; }
     expect((missing as NodeJS.ErrnoException).code).toBe('ENOENT');
 
     appendConversationBatch({ projectRoot }, [text('first')]);
-    expect(readConversation(projectRoot, 'planner:project').physicalRows.map(({ id }) => id)).toEqual(['first']);
+    expect(readConversation(projectRoot, 'agent:planner:project').physicalRows.map(({ id }) => id)).toEqual(['first']);
   });
 
   it('publishes one physical envelope per batch and emits freshness only after publication', () => {
@@ -35,11 +35,11 @@ describe('conversation file persistence', () => {
     const context = { projectRoot, changes };
 
     appendConversationBatch(context, [text('first')]);
-    expect(effects).toEqual(['conversation:planner:project', 'agents']);
+    expect(effects).toEqual(['conversation:agent:planner:project', 'agents']);
     effects.length = 0;
     appendConversationBatch(context, [text('second'), text('third')]);
-    expect(effects).toEqual(['conversation:planner:project', 'agents']);
-    expect(readFileSync(conversationFile(projectRoot, 'planner:project'), 'utf8').trim().split('\n').map((line) => JSON.parse(line).rows.map((row: AgentMessage) => row.id))).toEqual([['first'], ['second', 'third']]);
+    expect(effects).toEqual(['conversation:agent:planner:project', 'agents']);
+    expect(readFileSync(conversationFile(projectRoot, 'agent:planner:project'), 'utf8').trim().split('\n').map((line) => JSON.parse(line).rows.map((row: AgentMessage) => row.id))).toEqual([['first'], ['second', 'third']]);
   });
 
   it('persists a private/visible tool-call pair in one envelope', () => {
@@ -48,9 +48,9 @@ describe('conversation file persistence', () => {
     const input = invocationInput(inputId);
     appendLlmTurnToolCallBatch({ projectRoot }, input, { id: 'call-1', type: 'function', function: { name: 'webfetch', arguments: '{"url":"https://example.com"}' } }, privateContext(inputId));
 
-    const physical = readConversation(projectRoot, 'planner:project').physicalRows;
+    const physical = readConversation(projectRoot, 'agent:planner:project').physicalRows;
     expect(physical.map((row) => row.kind)).toEqual(['provider_private', 'tool_call']);
-    expect(JSON.parse(readFileSync(conversationFile(projectRoot, 'planner:project'), 'utf8')).rows).toHaveLength(2);
+    expect(JSON.parse(readFileSync(conversationFile(projectRoot, 'agent:planner:project'), 'utf8')).rows).toHaveLength(2);
   });
 
   it('performs the append before freshness effects', () => {
@@ -67,7 +67,7 @@ describe('conversation file persistence', () => {
     };
 
     appendConversationBatch({ projectRoot, changes }, [text('second'), text('third'), text('fourth')], { io });
-    expect(trace).toEqual(['open', 'stat', 'write', 'fsync', 'close', 'conversation:planner:project', 'agents']);
+    expect(trace).toEqual(['open', 'stat', 'write', 'fsync', 'close', 'conversation:agent:planner:project', 'agents']);
   });
 
   it('fails fast without observation when a previously nonempty conversation is missing at append open', () => {
@@ -85,7 +85,7 @@ describe('conversation file persistence', () => {
     const projectRoot = root();
     const inputId = '00000000-0000-4000-8000-000000000002';
     const visible = appendLlmTurnMessageBatch({ projectRoot }, invocationInput(inputId), 'private projection', privateContext(inputId));
-    expect(readConversation(projectRoot, 'planner:project').physicalRows).toContainEqual(visible);
+    expect(readConversation(projectRoot, 'agent:planner:project').physicalRows).toContainEqual(visible);
   });
 });
 
@@ -97,7 +97,7 @@ function root(): string {
 }
 
 function text(id: string): AgentMessage {
-  return agentMessageSchema.parse({ id, session_id: 'planner:project', role: 'user', kind: 'text', content: id, round_id: `r-user-${id === 'first' ? '1' : id === 'second' ? '2' : id === 'third' ? '3' : '4'}${'0'.repeat(31)}`, message_index: 1, block_index: 0, timestamp: '2026-07-19T00:00:00.000Z' });
+  return agentMessageSchema.parse({ id, session_id: 'agent:planner:project', role: 'user', kind: 'text', content: id, round_id: `r-user-${id === 'first' ? '1' : id === 'second' ? '2' : id === 'third' ? '3' : '4'}${'0'.repeat(31)}`, message_index: 1, block_index: 0, timestamp: '2026-07-19T00:00:00.000Z' });
 }
 
 function changesRecording(effects: string[]) {
@@ -105,7 +105,7 @@ function changesRecording(effects: string[]) {
 }
 
 function invocationInput(inputId: string): CanonicalLlmInvocationInput {
-  return { inputId, agentId: 'planner:project', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: {} };
+  return { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: {} };
 }
 
 function privateContext(sourceInputId: string) {

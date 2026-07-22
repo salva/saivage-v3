@@ -1,7 +1,6 @@
 export type {
   ActivityStatus,
   AgentConversationEntry,
-  AgentRole,
   AgentSession,
   CardHistoryHeader,
   CardRecord,

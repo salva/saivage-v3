@@ -1,4 +1,4 @@
-import { ConversationSessionIdSchema, type OperationalAgentRole } from '../schemas/index.js';
+import { ConversationSessionIdSchema, type AgentName } from '../schemas/index.js';
 import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
@@ -55,7 +55,7 @@ interface CandidateRecoveryRecord {
 
 interface InvocationRequestBase {
   inputId: string;
-  role: OperationalAgentRole;
+  agentName: AgentName;
   sessionId: string;
   systemPrompt: string;
   providerConversation: ProviderConversationProjection;
@@ -103,10 +103,10 @@ export class InvocationService {
   }
 
   async resolveCandidates(
-    role: OperationalAgentRole,
+    agentName: AgentName,
     capabilityRequest: CapabilityRequest,
   ): Promise<Candidate[]> {
-    return this.router.resolve(role, capabilityRequest);
+    return this.router.resolve(agentName, capabilityRequest);
   }
 
   async invokeCall(
@@ -118,7 +118,7 @@ export class InvocationService {
     const outputTokens =
       request.preparedCompaction?.requestedCompletionTokens ?? request.modelParams.maxTokens;
     const options = buildLlmOptions(
-      request.role,
+      request.agentName,
       request.tools,
       request.terminalToolNames,
       { temperature: request.modelParams.temperature, max_tokens: outputTokens },
@@ -172,7 +172,7 @@ export class InvocationService {
     const deadlineMs = Date.now() + LLM_UNAVAILABILITY_TIMEOUT_MS;
     const chain =
       request.candidateChain ??
-      (await this.resolveCandidates(request.role, request.capabilityRequest));
+      (await this.resolveCandidates(request.agentName, request.capabilityRequest));
     if (chain.length === 0) this.throwNoCandidates(request, settled);
     const states: CandidateRecoveryRecord[] = chain.map((candidate) => ({
       candidate,
@@ -186,7 +186,7 @@ export class InvocationService {
       updateReadyStates(states);
       const next = this.nextCandidateState(states, deadlineMs);
       if (next.kind === 'timeout') {
-        const message = `No LLM candidate became available for role '${request.role}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
+        const message = `No LLM candidate became available for agent '${request.agentName}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
         throw new ProviderTurnFailure({
           failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
           provider_exchanges: settled,
@@ -200,7 +200,7 @@ export class InvocationService {
       }
       if (next.kind === 'none') {
         const originalFailure =
-          lastFailure ?? new Error(`No healthy candidates available for role '${request.role}'.`);
+          lastFailure ?? new Error(`No healthy candidates available for agent '${request.agentName}'.`);
         throw new ProviderTurnFailure({
           failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
           provider_exchanges: settled,
@@ -242,7 +242,7 @@ export class InvocationService {
         if (isAbortFromSignal(originalFailure, request.abortSignal)) throw originalFailure;
         record.attempts += 1;
         const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
-          role: request.role,
+          agentName: request.agentName,
           candidate,
           attempt: record.attempts,
           maxAttempts: 1 + this.maxRecoveryRetries,
@@ -348,7 +348,7 @@ export class InvocationService {
 
   private throwNoCandidates(request: InvocationRequest, settled: ProviderExchangeAttempt[]): never {
     const decision = defaultInvocationRecoveryPolicy.decideNoCandidates({
-      role: request.role,
+      agentName: request.agentName,
       attempt: 1,
       maxAttempts: 1,
       recoveryDelayMs: this.recoveryDelayMs,

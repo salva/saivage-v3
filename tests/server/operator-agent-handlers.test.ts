@@ -32,13 +32,13 @@ afterEach(() => {
 
 describe('operator Agent exact identity contracts and handlers', () => {
   const variants: Array<[string, string, string | null]> = [
-    ['analyst:global', 'analyst', null],
-    ['planner:project', 'planner', 'project'],
-    ['reviewer:project', 'reviewer', 'project'],
-    ['executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'executor', 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+    ['agent:analyst:global', 'analyst', null],
+    ['agent:planner:project', 'planner', 'project'],
+    ['agent:reviewer:project', 'reviewer', 'project'],
+    ['agent:executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'executor', 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
   ];
-  it.each(variants)('parses correlated success variants for %s', (id, role, cardId) => {
-    const session = { id, role, card_id: cardId, status: 'inactive', started_at: timestamp };
+  it.each(variants)('parses correlated success variants for %s', (id, agentName, cardId) => {
+    const session = { id, agent_name: agentName, session_scope: cardId === null ? 'global' : 'card', card_id: cardId, status: 'inactive', started_at: timestamp };
     expect(AgentListResponseSchema.parse({ sessions: [session] }).sessions[0]!.id).toBe(id);
     expect(AgentDetailResponseSchema.parse({ session: { ...session, message_count: 1, last_activity_at: timestamp } }).session.id).toBe(id);
     expect(AgentConversationResponseSchema.parse({ session, entries: [entry(id)], activity_status: { status: 'inactive', pending_calls: [] } }).session.id).toBe(id);
@@ -46,9 +46,9 @@ describe('operator Agent exact identity contracts and handlers', () => {
   });
 
   it('rejects role, card ownership, entry, and LLM identity mismatches', () => {
-    expect(AgentListResponseSchema.safeParse({ sessions: [{ id: 'planner:project', role: 'reviewer', card_id: 'project', status: 'inactive', started_at: timestamp }] }).success).toBe(false);
-    expect(AgentListResponseSchema.safeParse({ sessions: [{ id: 'planner:project', role: 'planner', card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', status: 'inactive', started_at: timestamp }] }).success).toBe(false);
-    expect(AgentConversationResponseSchema.safeParse({ session: { id: 'planner:project', role: 'planner', card_id: 'project', status: 'inactive', started_at: timestamp }, entries: [entry('reviewer:project')], activity_status: { status: 'inactive', pending_calls: [] } }).success).toBe(false);
+    expect(AgentListResponseSchema.safeParse({ sessions: [{ id: 'agent:planner:project', agent_name: 'reviewer', session_scope: 'card', card_id: 'project', status: 'inactive', started_at: timestamp }] }).success).toBe(false);
+    expect(AgentListResponseSchema.safeParse({ sessions: [{ id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', status: 'inactive', started_at: timestamp }] }).success).toBe(false);
+    expect(AgentConversationResponseSchema.safeParse({ session: { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', status: 'inactive', started_at: timestamp }, entries: [entry('agent:reviewer:project')], activity_status: { status: 'inactive', pending_calls: [] } }).success).toBe(false);
     expect(AgentLlmExchangeResponseSchema.safeParse({ sessionId: 'analyst:test', exchange: exchange() }).success).toBe(false);
   });
 
@@ -73,7 +73,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const root = projectRoot();
     const payload = sensitiveExchange(status);
     appendAppLogEntry(root, 'provider_exchange', () => providerExchangeEntry({
-      session_id: 'planner:project',
+      session_id: 'agent:planner:project',
       source_input_id: payload.source_input_id,
       attempt_index: payload.attempt_index,
       timestamp: payload.completed_at,
@@ -83,7 +83,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const request = { log: { error: jest.fn() } };
     const handlers = buildAgentOperatorContractHandlers({ projectRoot: root });
 
-    const result = await handlers['agents.llmExchange']!({ params: { id: 'planner:project' }, request } as never);
+    const result = await handlers['agents.llmExchange']!({ params: { id: 'agent:planner:project' }, request } as never);
 
     expect(result.statusCode).toBeUndefined();
     const response = AgentLlmExchangeResponseSchema.parse(result.body);
@@ -91,7 +91,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     for (const secret of operatorClassifiedSecrets[status]) expect(serialized).not.toContain(secret);
     for (const identity of operatorStructuralIdentities[status]) expect(serialized).toContain(identity);
     expect(serialized).toContain('[REDACTED]');
-    expect(response.sessionId).toBe('planner:project');
+    expect(response.sessionId).toBe('agent:planner:project');
     expect(response.exchange.source_input_id).toBe('operator-source-identity');
     expect(response.exchange.started_at).toBe(timestamp);
     expect(response.exchange.completed_at).toBe('2026-07-17T00:00:01.000Z');
@@ -120,7 +120,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const root = projectRoot('saivage-secret-project-path-');
     const payload = { ...sensitiveExchange('ok'), source_input_id: secret, attempt_index: 0 };
     const entry = providerExchangeEntry({
-      session_id: 'planner:project', source_input_id: payload.source_input_id,
+      session_id: 'agent:planner:project', source_input_id: payload.source_input_id,
       attempt_index: payload.attempt_index, timestamp: payload.completed_at, payload,
     });
     const line = serializeGrowingEnvelope([entry], appLogEntrySchema);
@@ -135,8 +135,8 @@ describe('operator Agent exact identity contracts and handlers', () => {
     );
 
     try {
-      await expect(handlers['agents.llmExchange']!({ params: { id: 'planner:project' } } as never)).rejects.toThrow();
-      const response = await fastify.inject({ method: 'GET', url: '/api/agents/planner%3Aproject/llm-exchange' });
+      await expect(handlers['agents.llmExchange']!({ params: { id: 'agent:planner:project' } } as never)).rejects.toThrow();
+      const response = await fastify.inject({ method: 'GET', url: '/api/agents/agent%3Aplanner%3Aproject/llm-exchange' });
       expect(response.statusCode).toBe(500);
       expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
       const output = response.body;

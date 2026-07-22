@@ -3,35 +3,6 @@ import type { ConversationSessionId } from './conversation-session-id.js';
 export const cardTypeValues = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
 export type CardType = typeof cardTypeValues[number];
 
-export const planningCardTypeValues = ['project', 'goal'] as const satisfies readonly CardType[];
-export const terminalCardTypeValues = ['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const satisfies readonly CardType[];
-
-const planningCardTypes: ReadonlySet<CardType> = new Set<CardType>(planningCardTypeValues);
-const terminalCardTypes: ReadonlySet<CardType> = new Set<CardType>(terminalCardTypeValues);
-
-export function isPlanningCardType(type: CardType): boolean {
-  return planningCardTypes.has(type);
-}
-
-export function isTerminalCardType(type: CardType): boolean {
-  return terminalCardTypes.has(type);
-}
-
-export type PromptCardTypeKey = CardType | 'analyst';
-export type PromptRoleKey = 'planner' | 'executor' | 'reviewer' | 'analyst';
-export type PromptSlot = readonly [cardType: PromptCardTypeKey, role: PromptRoleKey];
-
-const planningPromptPairs = planningCardTypeValues.flatMap((cardType) => [
-  [cardType, 'planner'] as const,
-  [cardType, 'reviewer'] as const,
-]);
-const terminalPromptPairs = terminalCardTypeValues.map((cardType) => [cardType, 'executor'] as const);
-
-export const activePromptPairs = [
-  ...planningPromptPairs,
-  ...terminalPromptPairs,
-  ['analyst', 'analyst'] as const,
-] as const satisfies readonly PromptSlot[];
 
 export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'stopped', 'done', 'failed', 'cancelled'] as const;
 export type CardStatus = typeof cardStatusValues[number];
@@ -43,8 +14,8 @@ export type { ActionableErrorEnvelope } from './actionable-error.js';
 
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
 export type Urgency = typeof urgencyValues[number];
-export type CreatedBy = 'analyst' | 'planner';
-export type NoteAuthor = 'user' | 'analyst' | 'planner' | 'executor' | 'reviewer' | 'runtime';
+export type CreatedBy = import('./agent-name.js').AgentName | 'runtime:bootstrap';
+export type NoteAuthor = 'user' | 'runtime' | import('./agent-name.js').AgentName;
 export type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui';
 
 import type { CardLifecycleState } from './lifecycle.js';
@@ -78,8 +49,8 @@ export interface CardView { card: CardRecord; logical_path: string | null; statu
 export type CardHistoryKind = 'update' | 'notification_enqueue' | 'notification_remove' | 'status' | 'terminal' | 'child_link' | 'reorder' | 'delete';
 export interface CardHistoryEntryBase { entry_id: string; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type RuntimeCardHistoryEntry = CardHistoryEntryBase & { kind: Exclude<CardHistoryKind, 'update' | 'delete'>; changed_by_actor: 'runtime'; changed_by_surface: 'runtime' };
-export type UpdateCardHistoryEntry = CardHistoryEntryBase & { kind: 'update'; changed_by_actor: 'planner'; changed_by_surface: 'runtime' };
-export type DeleteCardHistoryEntry = CardHistoryEntryBase & { kind: 'delete'; changed_by_actor: 'analyst'; changed_by_surface: 'runtime' };
+export type UpdateCardHistoryEntry = CardHistoryEntryBase & { kind: 'update'; changed_by_actor: import('./agent-name.js').AgentName; changed_by_surface: 'runtime' };
+export type DeleteCardHistoryEntry = CardHistoryEntryBase & { kind: 'delete'; changed_by_actor: import('./agent-name.js').AgentName; changed_by_surface: 'runtime' };
 export type CardHistoryEntry = RuntimeCardHistoryEntry | UpdateCardHistoryEntry | DeleteCardHistoryEntry;
 export type CardHistoryHeader = CardHistoryEntry extends infer Entry ? Entry extends CardHistoryEntry ? Omit<Entry, 'snapshot'> : never : never;
 export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; outcome: 'ok' | 'error' | 'denied'; outcome_summary: string; error?: string; created_at: string; }
@@ -87,12 +58,6 @@ export interface ProjectConfig { id: 'project'; name: string; context: string; g
 export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as const;
 export interface AnalystIssue { summary: string; severity?: typeof analystIssueSeverityValues[number]; evidence_path?: string; }
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
-export const agentRoleValues = ['analyst', 'planner', 'executor', 'reviewer'] as const;
-export const agentInvocationRoleValues = ['planner', 'executor', 'reviewer'] as const;
-export const operationalAgentRoleValues = agentRoleValues;
-export type AgentRole = typeof agentRoleValues[number];
-export type AgentInvocationRole = typeof agentInvocationRoleValues[number];
-export type OperationalAgentRole = typeof operationalAgentRoleValues[number];
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'model_issue' | 'model_repair' | 'context_compaction' | 'model_recovered' | 'system_prompt' | 'provider_private';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
@@ -103,9 +68,7 @@ export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pi
 export interface DoctorCheck { name: string; passed: boolean; details?: string; }
 export interface DoctorIssue { severity: 'error' | 'warning'; message: string; }
 export interface DoctorResponse { status: 'ok' | 'issues_found'; checks: DoctorCheck[]; issues: DoctorIssue[]; }
-export const skillTargetRoleValues = ['executor', 'reviewer', 'analyst'] as const;
-export type SkillTargetRole = typeof skillTargetRoleValues[number];
-export interface SkillIndexEntry { name: string; file: string; target_agents: SkillTargetRole[]; }
+export interface SkillIndexEntry { name: string; file: string; target_agents: import('./agent-name.js').AgentName[]; }
 
 
 export { eventKindValues, runtimeEventKindValues, agentEventKindValues, type EventKind } from './event-catalog.js';

@@ -1,11 +1,11 @@
-import type { SkillTargetRole } from '../schemas/index.js';
+import type { AgentName } from '../schemas/index.js';
 import { skillInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { defineTool, type ToolProvider } from './invocation.js';
 import { SkillCatalog } from './skill-catalog.js';
 
 export interface SkillProviderContext {
   readonly projectRoot: string;
-  readonly agentRole: SkillTargetRole;
+  readonly agentName: AgentName;
 }
 
 export function createSkillProvider(ctx: SkillProviderContext): ToolProvider {
@@ -20,9 +20,9 @@ export function createSkillProvider(ctx: SkillProviderContext): ToolProvider {
         executor: async (args) => {
           try {
             if (args.name === undefined) {
-              return { success: true, data: { skills: catalog.list(ctx.agentRole) } };
+              return { success: true, data: { skills: catalog.list(ctx.agentName) } };
             }
-            const skill = catalog.read(ctx.agentRole, args.name);
+            const skill = catalog.read(ctx.agentName, args.name);
             return { success: true, data: { skill_name: skill.name, skill_content: skill.content } };
           } catch (error) {
             return { success: false, error: error instanceof Error ? error.message : String(error) };

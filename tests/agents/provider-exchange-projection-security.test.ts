@@ -13,7 +13,7 @@ import { projectProviderExchangeForPublication } from '../../src/agents/provider
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 const roots: string[] = [];
-const sessionId = 'planner:project';
+const sessionId = 'agent:planner:project';
 const sourceInputId = 'source-input-identity';
 const startedAt = '2026-07-19T10:00:00.000Z';
 const errorCompletedAt = '2026-07-19T10:00:01.000Z';
@@ -32,11 +32,11 @@ describe('provider exchange publication security projection', () => {
     };
     const service = invocationService(root, freshness);
 
-    service.projectProviderExchanges('planner:project', sourceInputId, providerAttempts(), []);
+    service.projectProviderExchanges('agent:planner:project', sourceInputId, providerAttempts(), []);
     expect(readableCounts).toEqual([1, 2]);
     expect(readAppLogEntries(root, 'provider_exchange').map((row) => row.data.attempt_index)).toEqual([0, 1]);
 
-    for (const [ordinal, session] of ['analyst:global', 'reviewer:project', 'executor:project'].entries()) {
+    for (const [ordinal, session] of ['agent:analyst:global', 'agent:reviewer:project', 'agent:executor:project'].entries()) {
       const input = `canonical-${ordinal}`;
       service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], []);
     }
@@ -49,7 +49,7 @@ describe('provider exchange publication security projection', () => {
     expect(readAppLogEntries(root, 'provider_exchange')).toHaveLength(8);
     expect(readableCounts).toEqual([1, 2, 3, 4, 5]);
 
-    service.projectProviderExchanges('planner:project', 'empty', [], []);
+    service.projectProviderExchanges('agent:planner:project', 'empty', [], []);
     expect(readableCounts).toHaveLength(5);
   });
 

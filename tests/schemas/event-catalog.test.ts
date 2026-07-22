@@ -54,7 +54,7 @@ describe('durable event catalog', () => {
 
   it('rejects removed metadata, generic routing fields, and removed event kinds', () => {
     expect(loggedEventSchema.safeParse({ ...events[0], metadata: {} }).success).toBe(false);
-    expect(loggedEventSchema.safeParse({ ...events[0], session_id: 'analyst:global' }).success).toBe(false);
+    expect(loggedEventSchema.safeParse({ ...events[0], session_id: 'agent:analyst:global' }).success).toBe(false);
     expect(loggedEventSchema.safeParse({ id: 'old', timestamp, kind: 'card_history_appended' }).success).toBe(false);
   });
 });

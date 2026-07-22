@@ -16,11 +16,11 @@
       <div v-else class="agents-content">
         <StatusBanner v-if="isStale" class="agents-stale" tone="stale" message="Agent session data is stale. Refresh or wait for reconnect to resync with the authoritative REST state." />
         <StatusBanner v-if="sessionsRefreshError" tone="warning" :message="sessionsRefreshError" />
-        <template v-for="entry in roleEntries" :key="entry.role">
+        <template v-for="entry in agentEntries" :key="entry.agentName">
           <div class="role-section">
             <h3 class="role-heading">
-              <span class="role-icon">{{ roleIcon(entry.role) }}</span>
-              {{ entry.role }}
+              <span class="role-icon">{{ agentIcon(entry.agentName) }}</span>
+              {{ entry.agentName }}
               <span class="role-count">{{ entry.sessions.length }}</span>
             </h3>
             <div class="session-list">
@@ -37,8 +37,7 @@
                   <StatusBadge :status="statusForAgentSession(session.status)" show-dot />
                 </div>
                 <div class="session-meta">
-                  <button v-if="session.goal_card_id" type="button" class="session-card-link" @click.stop="goToCard(session.goal_card_id!)">{{ cardTitle(session.goal_card_id) }}</button>
-                  <button v-if="session.card_id && session.card_id !== session.goal_card_id" type="button" class="session-card-link" @click.stop="goToCard(session.card_id!)">{{ cardTitle(session.card_id) }}</button>
+                  <button v-if="session.card_id" type="button" class="session-card-link" @click.stop="goToCard(session.card_id)">{{ cardTitle(session.card_id) }}</button>
                 </div>
                 <div class="session-time">
                   Started: <span :title="timestampTitle(session.started_at)">{{ fmtDate(session.started_at) }}</span>
@@ -47,7 +46,7 @@
             </div>
           </div>
         </template>
-        <ViewState v-if="roleEntries.length === 0" class="agents-empty" state="empty" title="No agent sessions recorded yet" />
+        <ViewState v-if="agentEntries.length === 0" class="agents-empty" state="empty" title="No agent sessions recorded yet" />
       </div>
       </template>
 
@@ -65,7 +64,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../stores/agents';
 import { useCardStore } from '../stores/cards';
-import type { AgentRole, AgentSession } from '../types/view-models';
+import type { AgentSession } from '../types/view-models';
 import type { ConversationSessionId } from '../api/contracts';
 import { parseAgentDetailRouteParam } from '../router/agent-session-route';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
@@ -87,20 +86,16 @@ const errorMsg = computed(() => sessionsError.value);
 const routeSession = computed(() => parseAgentDetailRouteParam(route.params.id));
 const selectedSessionId = computed(() => routeSession.value.kind === 'valid' ? routeSession.value.sessionId : null);
 
-interface RoleEntry { role: AgentRole; sessions: AgentSession[] }
-const roleEntries = computed<RoleEntry[]>(() => {
-  const entries: RoleEntry[] = [];
-  for (const [role, sessions] of sessionsByRole.value) {
-    entries.push({ role, sessions });
+interface AgentEntry { agentName:string; sessions: AgentSession[] }
+const agentEntries = computed<AgentEntry[]>(() => {
+  const entries: AgentEntry[] = [];
+  for (const [agentName, sessions] of sessionsByRole.value) {
+    entries.push({ agentName, sessions });
   }
   return entries;
 });
 
-const ROLE_ICONS: Record<AgentRole, string> = {
-  analyst: '(AN)', planner: '(PL)', executor: '(EX)',
-  reviewer: '(RV)',
-};
-function roleIcon(role: AgentRole): string { return ROLE_ICONS[role]; }
+function agentIcon(agentName:string):string{return `(${agentName.slice(0,2).toUpperCase()})`;}
 function fmtDate(ts: string): string { return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute'); }
 
 function selectSession(id: ConversationSessionId): void { void router.push({ name: 'agent-detail', params: { id } }); }

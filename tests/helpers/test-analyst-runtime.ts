@@ -9,7 +9,7 @@ import type { CardService } from '../../src/cards/card-api.js';
 import type { PromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 import type { RestartPort } from '../../src/boot/restart-port.js';
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
-import { buildRoleSurface } from '../../src/tools/role-invocation-surfaces.js';
+import { buildAgentSurface } from '../../src/tools/agent-invocation-surface.js';
 import type { TestProcessRunnerComposition } from './test-process-runner.js';
 
 export interface TestAnalystRuntimeOptions {
@@ -42,7 +42,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
   const sessionOperations: Function[] = [];
   const sessionConstructionInputs: object[] = [];
   const createSession = (_turn: AnalystTurnInput): AnalystSession => {
-    const directScope = options.processes.processRunner.createDirectScope(options.processes.analystProcessRootScope, 'analyst-session:analyst:global', 'operator_session');
+    const directScope = options.processes.processRunner.createDirectScope(options.processes.analystProcessRootScope, 'analyst-session:agent:analyst:global', 'operator_session');
     directScopes.push(directScope);
     const createInvocationSurface = () => {
       const notifyCard = options.runtime.notifyCard.bind(options.runtime);
@@ -54,7 +54,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         processRunner: options.processes.processRunner,
         processScope: directScope,
         store: options.cardStore,
-        sessionId: 'analyst:global',
+        sessionId: 'agent:analyst:global',
         runtime: options.runtime,
         runtimeControl: options.runtimeControl,
         mcpToolInvocation: options.mcpToolInvocation,
@@ -65,7 +65,8 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         captureExecutingLlmSnapshots: options.captureExecutingLlmSnapshots,
         analystMutations,
       };
-      return buildRoleSurface({ role: 'analyst', toolContext: context });
+      const agentName=options.config.analyst_agent;
+      return buildAgentSurface({agentName,toolNames:options.config.agents[agentName]!.tools,projectRoot:options.projectRoot,store:options.cardStore as never,analystToolContext:context,processRunner:options.processes.processRunner,processScope:directScope,processOwnerId:'agent:analyst:global',mcpToolInvocation:options.mcpToolInvocation});
     };
     const shutdownProcesses = async () => {
       const report = await options.processes.processRunner.closeAndTerminateDirectScope({ directScope, category: 'operator_session', reason: 'session closed', graceMs: 5_000 });
@@ -74,8 +75,9 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
     sessionOperations.push(createInvocationSurface, shutdownProcesses);
     const sessionInput = {
       projectRoot: options.projectRoot,
-      sessionId: 'analyst:global' as const,
+      sessionId: 'agent:analyst:global' as const,
       config: options.config,
+      candidateChain:[{provider:'test',account:null,model:'test-model'}],
       promptTemplates: options.promptTemplates,
       restartServerAvailable: options.restartServerAvailable ?? false,
       restartPort: options.restartPort,

@@ -97,7 +97,7 @@ export function logShutdownWarnings(report: ShutdownReport): void {
   for (const warning of report.warnings) console.warn(`[shutdown] ${warning.component}: ${warning.code}`);
 }
 
-export interface NewProjectRootInput { readonly title: string; readonly brief: string }
+export interface NewProjectRootInput { readonly title: string; readonly bootstrap_content: string }
 
 export interface App {
   readonly environment: Environment;
@@ -107,7 +107,7 @@ export interface App {
 
 export function newProjectRootInput(projectRoot: string): NewProjectRootInput {
   const title = basename(projectRoot) || 'saivage-project';
-  return { title, brief: `# Goal\n\nDefine and execute the ${title} project.\n\n# Instructions\n\nUse this root card as the canonical project objective and planning anchor.\n\n# Acceptance Criteria\n\n- The project objective is captured in the root card brief.\n- Child work is created under this project card.\n` };
+  return { title, bootstrap_content: `# Goal\n\nDefine and execute the ${title} project.\n\n# Instructions\n\nUse this root card as the canonical project objective and planning anchor.\n\n# Acceptance Criteria\n\n- The project objective is captured in the root card bootstrap record.\n- Child work is created under this project card.\n` };
 }
 
 export interface StartAppOptions {
@@ -148,7 +148,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
     if (prelock.createRuntime && readProjectCardOrAssertInitialPublicationAllowed(prelock.projectRoot) === null) {
       mkdirSync(resolve(prelock.projectRoot, '.saivage', 'cards'), { recursive: true });
       const root = newProjectRootInput(prelock.projectRoot);
-      publishInitialProjectCard(prelock.projectRoot, root);
+       publishInitialProjectCard(prelock.projectRoot, root,environment.workflows.cardTypes.get('project')!);
     }
     const restartPort = createRestartPort({
       onAcknowledgedRestart: () => terminal.stop(),

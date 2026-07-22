@@ -1,4 +1,5 @@
 import type { CardRecord } from '../../src/schemas/index.js';
+import { workflowResult } from './workflow-result.js';
 
 export const OUTBOUND_IDENTITY = 'tok_primary';
 export const OUTBOUND_MODEL_IDENTITY = 'sk-model';
@@ -19,7 +20,7 @@ export function credentialShapedCard(overrides: Partial<CardRecord> = {}): CardR
     title: `title ${OUTBOUND_TEXT_MARKER}`,
     lifecycle: {
       status: 'blocked',
-      result: { kind: 'blocked', summary: OUTBOUND_TEXT_MARKER, resume_reason: OUTBOUND_TEXT_MARKER, blocker_cause: 'generic' },
+      result: workflowResult('BLOCKED',OUTBOUND_TEXT_MARKER),
       error: OUTBOUND_TEXT_MARKER,
       completed_at: null,
     },

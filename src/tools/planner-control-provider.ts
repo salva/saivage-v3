@@ -18,22 +18,26 @@ import type { PlannerChildControlPort } from '../runtime/actors/card-activation-
 import { cardParentId } from '../schemas/card-id.js';
 import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
 import { plannerCancelCardInputSchema, plannerCreateCardInputSchema, plannerEditCardInputSchema, plannerQueueNotificationInputSchema, plannerReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { parseAgentName } from '../schemas/agent-name.js';
 
 interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
   create?(input: NewChildCardInput): CardRecord;
-  editCard?(cardId: string, changes: CardEditPatch): CardRecord;
+  editCard?(cardId: string, changes: CardEditPatch,agentName:import('../schemas/index.js').AgentName): CardRecord;
   setStatus(cardId: string, status: 'changed'): CardRecord;
   reorderChildren?(parentId: string, orderedChildIds: string[]): ReorderChildrenResult;
 }
 
 export interface PlannerControlProviderContext {
+  readonly agentName:import('../schemas/index.js').AgentName;
   readonly projectRoot: string;
   readonly parentCardId: string;
   readonly sessionId: string;
   readonly store: PlannerControlStore;
   readonly parentControl: PlannerChildControlPort;
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  readonly childCreationTypes:ReadonlySet<CardType>;
+  readonly childActivationTypes:ReadonlySet<CardType>;
 }
 
 export function createPlannerControlProvider(ctx: PlannerControlProviderContext): ToolProvider {
@@ -53,6 +57,7 @@ export function createPlannerControlProvider(ctx: PlannerControlProviderContext)
 function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolResult {
   const type = plannerCreatedType(record.type);
   if (!type.success) return type;
+  if(!ctx.childCreationTypes.has(type.type))return failure(`Child type '${type.type}' is not permitted for this node.`);
   const dependsOn = record.depends_on ?? [];
   const dependencyError = validateImmediateChildDependencies(ctx, dependsOn);
   if (dependencyError) return failure(dependencyError);
@@ -63,11 +68,11 @@ function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof p
     type: type.type,
     parent: ctx.parentCardId,
     title: requireNonEmptyString(record.title, 'title'),
-    brief: requireNonEmptyString(record.brief, 'brief'),
+    bootstrap_content: requireNonEmptyString(record.bootstrap_content, 'bootstrap_content'),
     tags: record.tags ?? [],
     priority: record.priority ?? 0,
     urgency: optionalUrgency(record.urgency),
-    created_by: 'planner',
+    created_by: parseAgentName(ctx.sessionId.split(':')[1]),
     depends_on: dependsOn,
     related: record.related ?? [],
   };
@@ -84,7 +89,7 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof pla
   if (!ctx.store.editCard) throw new Error('Planner edit_card requires a mutable card store.');
   const shouldMarkChanged = child.card.lifecycle.status === 'failed' || child.card.lifecycle.status === 'blocked';
   if (shouldMarkChanged) ctx.store.setStatus(record.card_id, 'changed');
-  const updated = ctx.store.editCard(record.card_id, patch);
+  const updated = ctx.store.editCard(record.card_id, patch,ctx.agentName);
   return { success: true, data: { card: compactPlannerToolCard(updated) } };
 }
 
@@ -96,7 +101,7 @@ function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof
 }
 
 function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>): ToolResult {
-  const queued = queueNotification(record.card_id, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.notifyCard);
+  const queued = queueNotification(record.card_id, record.kind, record.body, { actor: ctx.agentName, surface: 'runtime' }, ctx.notifyCard);
   if (!queued.ok && queued.reason === 'terminal_card') return { success: false, error: `Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status } };
   if (!queued.ok) return { success: false, error: `Card '${queued.cardId}' not found.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId } };
   return { success: true, data: { queued: true, card_id: record.card_id, notification_id: queued.notificationId } };
@@ -111,6 +116,7 @@ async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<ty
 
 async function activateCard(ctx: PlannerControlProviderContext, record: ActivateCardArguments, invocation?: LlmToolInvocationContext): Promise<ToolResult> {
   if (cardParentId(record.card_id) !== ctx.parentCardId) return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
+  const child=ctx.store.read(record.card_id);if(!child)return failure(`Child '${record.card_id}' not found.`);if(!ctx.childActivationTypes.has(child.type))return failure(`Child type '${child.type}' is not permitted for activation by this node.`);
   if (!invocation) throw new Error('activate_card requires an LLM invocation context.');
   const lease = invocation.childInvocation.reserveChild(record.card_id);
   try {

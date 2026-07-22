@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import net from 'node:net';
 import { z } from 'zod';
 
-import type { AgentRole } from '../schemas/index.js';
+import type { AgentName } from '../schemas/index.js';
 import { buildScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
@@ -13,7 +13,7 @@ import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult 
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { prepareAnalystBriefWebfetch, type PreparedFetchedBrief } from '../application/analyst-prepare/webfetch.js';
+import { prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/analyst-prepare/webfetch.js';
 import { redactUrl } from '../redaction/text.js';
 import { WebfetchInvocationSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
 import { websearchInputSchema } from '../contracts/builtin-tool-inputs.js';
@@ -27,7 +27,7 @@ const MAX_REDIRECTS = 5;
 type ReadMode = 'auto' | 'text';
 
 export interface WebProviderContext extends WorkspaceContext {
-  readonly agentRole: Extract<AgentRole, 'planner' | 'executor' | 'reviewer' | 'analyst'>;
+  readonly agentName: AgentName;
   readonly analystToolContext?: ToolContext;
 }
 
@@ -207,7 +207,7 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
   }
 }
 
-async function fetchAnalystBrief(input: { url: string; read_mode?: ReadMode; max_bytes?: number }, signal: AbortSignal): Promise<PreparedFetchedBrief> {
+async function fetchAnalystRecord(input: { url: string; read_mode?: ReadMode; max_bytes?: number }, signal: AbortSignal): Promise<PreparedFetchedRecord> {
   const url = parseHttpUrl(input.url);
   const maxBytes = Math.min(Math.max(input.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
   const fetched = await fetchPublic(url, { kind: 'bounded', maxBytes }, signal);
@@ -239,14 +239,14 @@ export function createWebProvider(ctx: WebProviderContext): ToolProvider {
           const analyst = ctx.analystToolContext;
           if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);
           const preparedContext: ToolContext = { ...analyst, analystPreparation: { web: { fetchText: (input) => {
-            const pending = fetchAnalystBrief(input, signal);
+            const pending = fetchAnalystRecord(input, signal);
             return invocation ? invocation.waits.waitExternal(pending) : pending;
           } } } };
           return runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
             action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: 'intervention_ready',
-            prepare: prepareAnalystBriefWebfetch,
+            prepare: prepareAnalystRecordWebfetch,
             mutate: (prepared, input, mutation) => {
-              const outcome = mutation.services.briefRecords.write(input.save_as, prepared.content);
+              const outcome = mutation.services.recordMutations.write(input.save_as, prepared.content);
               if (outcome.kind === 'denied' || !outcome.success) return outcome;
               const data = outcome.data as Record<string, unknown>;
               return { kind: 'returned', success: true, data: { ...prepared.metadata, saved_as: data['record_url'], write: data, bytes: Buffer.byteLength(prepared.content, 'utf8') } };

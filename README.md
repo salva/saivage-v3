@@ -43,13 +43,26 @@ cd "$TARGET_PROJECT"
 
 Initial project-card publication is allowed only when all four exact generated roots—`.saivage/cards`, `.saivage/agents`, `.saivage/logs`, and `.saivage/work`—are absent. `init` first creates and binds missing durable project identity, then either accepts a strictly valid existing project card, publishes from zero generated roots, or rejects the first retained exact root. After that partial-state rejection, the new identity intentionally remains so the remedy is executable: stop Saivage, run the current built `"$SAIVAGE_BIN" reset`, and retry `init`. Do not selectively delete roots or expect `init` or `start --create-runtime` to repair retained state.
 
-Before starting, configure model roles in `$TARGET_PROJECT/.saivage/saivage.yaml`. `AgentRole` is exactly `analyst | planner | executor | reviewer`, and `start` fail-fasts unless all four resolve. Each role resolves, in order, through `models.<role>` as a model name or non-empty list; `models.routing.<role>` pointing to `models.profiles.<name>`; or `models.default`. Direct model, temperature, and max-token role maps accept the four roles, with `default` valid only for direct models, temperature, and max tokens; routing has no `default`. Unknown role-shaped keys fail instead of being removed. Profile, model-equivalent, and failover names keep their separate arbitrary identity domains. The minimal recommended quick-start path is one `models.default` plus a provider entry that can serve it. See the Source-Derived Reference section in [the architecture summary](docs/architecture/system-architecture.md) for the full config-schema inventory.
+Before starting, configure the required named-agent catalog, selected global Analyst, named model routes, and all nine card-type workflows in `$TARGET_PROJECT/.saivage/saivage.yaml`. Agent names are configuration identities, not code-owned roles. Every agent owns one generic prompt reference, exact ordered tools, model route, skill capability, session scope, and child-creation ceiling. Every card type independently owns its permitted child types, records, bootstrap record, lifecycle entries, nodes, outcome edges, exports, and result promotion. Unknown fields and incomplete card-type maps fail startup.
 
-Minimal model configuration (quick-start path only):
+The following abbreviated shape shows the current contract; `saivage init` publishes the complete default with all nine workflows:
 
 ```yaml
+agents:
+  analyst: {prompt: analyst, tools: [read, write, edit, create_card, get_status, reconfigure], model_route: analyst, skills: false, session: global, can_create_children: true}
+  planner: {prompt: planner, tools: [read, write, edit, create_card, activate_card], model_route: planner, skills: false, session: card, can_create_children: true}
+  reviewer: {prompt: reviewer, tools: [read, write, edit, skill], model_route: reviewer, skills: true, session: card, can_create_children: false}
+  executor: {prompt: executor, tools: [read, write, edit, run_command, skill, mcp_tool_call], model_route: executor, skills: true, session: card, can_create_children: false}
+analyst_agent: analyst
 models:
-  default: ["gpt-4.1"]
+  routes:
+    analyst: {candidates: ["gpt-4.1"], temperature: 0.7, max_tokens: 4096}
+    planner: {candidates: ["gpt-4.1"], temperature: 0.7, max_tokens: 4096}
+    reviewer: {candidates: ["gpt-4.1"], temperature: 0.2, max_tokens: 4096}
+    executor: {candidates: ["gpt-4.1"], temperature: 0.3, max_tokens: 8192}
+  profiles: {}
+  equivalents: []
+  failover: {}
 providers:
   openai:
     models: ["gpt-4.1", "org/summary/model"]
@@ -64,9 +77,14 @@ compaction:
 server:
   port: 8080
   host: "0.0.0.0"
-runtime: {}
-card_processes:
-  planning:
+card_types:
+  project:
+    permitted_child_types: [goal, architecture, code, test, doc, data, research, ops]
+    records:
+      brief.md: {format: markdown, schema: card-brief.v1, writers: [analyst, planner], bootstrap: true}
+      status.md: {format: markdown, schema: work-status.v1, writers: [planner, executor], bootstrap: false}
+      review.md: {format: markdown, schema: work-review.v1, writers: [reviewer], bootstrap: false}
+    workflow:
     entries:
       BACKLOG: {node: plan}
       CHANGED: {node: plan}
@@ -74,54 +92,41 @@ card_processes:
       STOPPED: {node: recover, prompt: stopped-recovery}
     nodes:
       plan:
-        role: planner
+        agent: planner
         prompt: plan
         correction_prompt: correct-plan-result
-        records: [{name: status.md, updated: true}]
+        records: {status.md: updated}
         edges:
-          complete_direct: {target: {terminal: DONE}}
+          complete_direct: {target: {terminal: DONE, promote: current, export_records: [status.md]}}
           admit_review: {target: {node: review}, prompt: plan-to-review}
-          blocked: {target: {terminal: BLOCKED}}
-          failed: {target: {terminal: FAILED}}
+          blocked: {target: {terminal: BLOCKED, promote: current, export_records: [status.md]}}
+          failed: {target: {terminal: FAILED, promote: current, export_records: [status.md]}}
       review:
-        role: reviewer
+        agent: reviewer
         prompt: review
         correction_prompt: correct-review-result
-        records: [{name: review.md, updated: true}]
+        records: {review.md: updated}
         edges:
-          approved: {target: {terminal: DONE}}
+          approved: {target: {terminal: DONE, promote: current, export_records: [review.md]}}
           revision_required: {target: {node: plan}, prompt: review-to-plan}
-          blocked: {target: {terminal: BLOCKED}}
-          failed: {target: {terminal: FAILED}}
+          blocked: {target: {terminal: BLOCKED, promote: current, export_records: [review.md]}}
+          failed: {target: {terminal: FAILED, promote: current, export_records: [review.md]}}
       recover:
-        role: planner
+        agent: planner
         prompt: recover
         correction_prompt: correct-plan-result
-        records: [{name: status.md, updated: true}]
+        records: {status.md: updated}
         edges:
-          complete_direct: {target: {terminal: DONE}}
+          complete_direct: {target: {terminal: DONE, promote: current, export_records: [status.md]}}
           admit_review: {target: {node: review}, prompt: plan-to-review}
-          blocked: {target: {terminal: BLOCKED}}
-          failed: {target: {terminal: FAILED}}
-  terminal:
-    entries:
-      BACKLOG: {node: execute}
-      CHANGED: {node: execute}
-      BLOCKED: {node: execute}
-      STOPPED: {node: execute, prompt: stopped-recovery}
-    nodes:
-      execute:
-        role: executor
-        prompt: execute
-        correction_prompt: correct-execution-result
-        records: [{name: status.md, updated: true}]
-        edges:
-          done: {target: {terminal: DONE}}
-          blocked: {target: {terminal: BLOCKED}}
-          failed: {target: {terminal: FAILED}}
+          blocked: {target: {terminal: BLOCKED, promote: current, export_records: [status.md]}}
+          failed: {target: {terminal: FAILED, promote: current, export_records: [status.md]}}
+# goal has an independent copy of the project-style workflow. Architecture,
+# code, test, doc, data, research, and ops each have an independent one-node
+# workflow in the generated default; aliases or missing types are not accepted.
 ```
 
-This is the authoritative default topology. Planner chooses `complete_direct` or `admit_review`; reviewer chooses `approved` or `revision_required`; child count never selects review. Edges are strict tagged objects, and reusable edge prompts are allowed only when the target is another node. Configuration is required—there is no synthesized fallback.
+The generated default preserves the visible project/goal plan-review loop and one-node execution workflows, but these are independent card-type artifacts rather than families. Edges are strict tagged objects; terminal edges choose ordered record exports and either the current accepted result or an earlier reachable node result. Configuration is required—there is no runtime family fallback.
 
 Direct public OpenAI GPT-5.6 through the Responses API is selected by provider capability, not by a model-name heuristic. Public OpenAI Responses uses API-key credentials only; Codex/OpenAI OAuth auth profiles are a separate `openai-codex-backend` contract and are not aliases for public OpenAI API keys.
 
@@ -153,7 +158,7 @@ Compaction is a boot requirement, not an optional feature. `init` and `start --c
 
 Configured MCP reconciliation must converge before runtime mechanics start. Startup installs the reconciled MCP invocation authority exactly once; reconciliation or later runtime-start failure aborts startup and is contained through the normal App terminal coordinator, without retry or configuration rollback.
 
-Agent prompts are customizable with file-level Markdown overrides in `.saivage/config/prompts/<cardType>/<role>.md`. Process artifacts use `.saivage/config/prompts/<cardType>/process/<identity>.md`; bundled equivalents live below `src/prompts/<cardType>/`. Every effective planner/reviewer/executor role template must include `{{contractDescription}}` exactly once and must not hard-code `emit_result` fields or values. For example:
+Agent prompts use card-specific overrides at `.saivage/config/prompts/<cardType>/<agentName>.md`. Exact absence falls back to `.saivage/config/prompts/agents/<agentName>.md`, then the bundled generic template selected by `agents.<name>.prompt`; other read errors fail startup. Process prompts remain `.saivage/config/prompts/<cardType>/process/<identity>.md`. Every autonomous effective template includes `{{contractDescription}}` exactly once and does not hard-code `emit_result` fields or values.
 
 ```markdown
 Perform the current configured executor node step. Follow its node/edge prompt context.
@@ -163,9 +168,9 @@ Use the generated Executor contract for this node exactly; the configured edge d
 
 The generated contract accepts strict parsed `{outcome,summary}`. Hidden correction keeps plain text, invalid outcomes, pending notifications, and stale/missing required records in the same node. `updated:true` compares the once-captured record version/revision baseline. Terminal routes claim before close/settlement/node cleanup and supervisor-owned publication through the exact activation owner; intermediate routes do not claim and clean the current executor scope before the next node.
 
-Prompt overrides are durable operator configuration: `saivage init`, `saivage reset`, and `start --create-runtime` preserve them while recreating generated state. Before deployment, audit every role override; update incompatible files to defer exactly once to `{{contractDescription}}`, or remove them. Startup fails rather than normalizing old `status` fields or outcome values.
+Prompt overrides are durable operator configuration preserved by reset. Audit every named-agent override before deployment; startup fails rather than normalizing old role paths, `status` fields, or outcome values.
 
-Skills are an optional, on-demand capability governed by the independent `SkillTargetRole = executor | reviewer | analyst`; this three-role target vocabulary is deliberately not the four-role `AgentRole`. Planner does not receive the `skill` tool. When used, `.saivage/skills/index.json` is a strict JSON array whose entries contain exactly `name`, `file`, and `target_agents`:
+Skills are optional and on demand. `target_agents` contains exact configured agent names, and an agent may load skills only when its global contract has `skills: true` and lists `skill`. `.saivage/skills/index.json` is a strict JSON array whose entries contain exactly `name`, `file`, and `target_agents`:
 
 ```json
 [
@@ -177,7 +182,7 @@ Skills are an optional, on-demand capability governed by the independent `SkillT
 ]
 ```
 
-Files are exact normalized relative paths beneath `.saivage/skills`. Both listing and named loading are filtered to the caller's role, and skill content is loaded only when the agent calls the tool; Saivage does not automatically match or inject skills. An absent index is allowed and lists no skills. Old non-empty entries containing `triggers`, `updated_at`, or any other extra field are unsupported and fail strict validation; there is no compatibility reader or automatic rewrite. Roll out this schema per deployment only with the stopped, reset-only procedure in the [operator runbook](docs/runbook/index.md#skill-index-format-cutover), never with mixed old/new binaries. Reset preserves the operator-authored index rather than translating it.
+Files are exact normalized relative paths beneath `.saivage/skills`. Listing and loading are filtered to the caller's configured name; content is loaded only when requested. An absent index is allowed. Unknown fields or agent names fail strict validation, with no compatibility rewrite.
 
 Current card IDs use parent-local spreadsheet segments (`card-a`, `card-b`, ..., `card-z`, `card-aa`; nested parents restart at `a`). Every creation starts at `a` and directly attempts exclusive creation of each exact candidate namespace, advancing only when that `mkdir` returns `EEXIST` and never inspecting or enumerating the collision. A successful namespace claim remains consumed even if publication or linking later fails; membership begins only after complete initial publication and the parent's cumulative `children` array append.
 
@@ -185,11 +190,11 @@ Card streams use only format v2. One strict `cardRecordSchema` defines the curre
 
 Card status rules are operation-specific, not one universal terminal taxonomy. Blocked work remains unresolved and can be re-entered by its exact parent through `activate_card` and configured `BLOCKED`; stopped work is reused only by explicit activation through `STOPPED`. See the [functional specification](docs/spec/system-specification.md) and [architecture](docs/architecture/system-architecture.md) for the authoritative contracts.
 
-Canonical card state lives in `card.jsonl`. The authored-record registry is separate and contains exactly three slots: `brief.md`, `status.md`, and `review.md`, backed by `brief.jsonl`, `status.jsonl`, and `review.jsonl`; `card.jsonl` remains a first-class canonical Files artifact rather than an authored slot.
+Canonical card state lives in `card.jsonl`. Each card type's compiled workflow defines an ordered set of safe Markdown record names, exact schema identity, named writers, and exactly one bootstrap record. Each name maps directly to its card-owned stream; `card.jsonl` remains distinct. Default names such as `brief.md`, `status.md`, and `review.md` are examples, not a closed registry.
 
 Generated card state uses exact append-only streams. The root lives at `.saivage/cards/project/{card,brief}.jsonl`; each child adds its claimed spreadsheet segment beneath the parent's `children/<segment>/` namespace, with `card.jsonl`, required `brief.jsonl`, optional `status.jsonl`/`review.jsonl`, and fixed `conversations/<role>.jsonl` files. Exclusive child-namespace creation is claim authority, while the cumulative `children` array is the sole membership authority. Card streams contain exactly `card-version` rows followed by at most one terminal `card-tombstone`; every version and tombstone retains the initial immutable card type. Tombstones make card-domain detail/history/version/diff/record reads opaque, but an already known exact role conversation remains directly readable and appendable. Records use logical versions plus contiguous stream revisions. Normal reads follow committed links and exact paths without enumerating child, version, slot, session, or temporary siblings; incomplete and complete-but-unlinked child namespaces remain invisible. The shared conversation grammar is exactly `analyst:global` plus matching planner/reviewer/executor hierarchical-card identities; canonical messages, generic Agent APIs, direct conversation live-sync frames, and the web client preserve that union. Successful conversation publication calls direct `conversationChanged` and `agentsChanged` effects before narrow non-private entry observation. Agent inventory derives only present eligible role files from active cards plus `analyst:global`. The former external chat integration and its dynamic Analyst identities have been removed completely. Multi-root subtree deletion performs one whole-set dependency/permission preflight and a deterministic dependent-before-dependency, child-before-parent tombstone order; an append I/O failure may leave only a valid committed prefix with no uncertain-append effects. Every replacement/first publication uses a fresh exclusive same-directory UUID temp under ordinary umask. Reset requires stop → back up and manually make preserved inputs current → current-built `saivage reset` → start, removes exactly `.saivage/cards`, `.saivage/agents`, `.saivage/logs`, and `.saivage/work` wholesale, and republishes only the current format while preserving configuration, credentials, prompts, source, skills, and docs. Generic Files behavior is unchanged.
 
-Agent inventory is durable conversation inventory, while `active | waiting | inactive` is a process-local projection of the exact currently executing role/session. Every read freezes that live map before aggregate or direct conversation acquisition. Aggregate lists omit tombstoned-card sessions; exact known-session reads retain inactive historical access. Analyst chat uses the same direct projection and represents an uncreated conversation with a null session. Runtime status no longer contains `actorRuntime.agents`; session/conversation contracts are the sole public agent-activity source.
+Agent inventory is durable conversation inventory, while `active | waiting | inactive` is a process-local projection of the exact currently executing named-agent session. Every read freezes that live map before aggregate or direct conversation acquisition. Aggregate lists omit tombstoned-card sessions; exact known-session reads retain inactive historical access. Analyst chat uses the same direct projection and represents an uncreated conversation with a null session. Runtime status no longer contains `actorRuntime.agents`; session/conversation contracts are the sole public agent-activity source.
 
 The four reset-owned roots are also the initial-publication presence boundary. When no canonical project namespace exists, any object at one of them blocks a new root card; a non-directory or symlink at exact `.saivage/cards` is classified before child access. A valid canonical root card with a strict current-format two-kind stream is accepted directly rather than triggering a four-root health scan.
 
@@ -229,7 +234,7 @@ Omitting `SAIVAGE_API_TOKEN` intentionally runs development auth-disabled mode, 
 | [Architecture](docs/architecture/system-architecture.md) | current architecture summary | How the functional model is organized into runtime, agents, storage, API, and UI subsystems. |
 | [README](README.md) | current validation and documentation authority map | Quick start, validation profiles, and this canonical documentation map. |
 
-Explicit Run selects the complete linked project-rooted running chain without installing actors, stabilizes every eligible conversation leaf-to-root, publishes every participant `stopped` leaf-to-root, and starts only project through configured STOPPED. An unmatched parent `activate_card` is settled as ordinary interrupted outcome-unknown work; terminal child results are never reconstructed or replayed. A partial reset is not atomic: the first error stops the attempt, and a later Run freshly selects the remaining running prefix or stopped project. Stopped descendants remain inactive until an exact parent `activate_card` reuses their identity through STOPPED. Intervention-ready Analyst brief/card edits and immediate-parent planner edits preserve stopped.
+Explicit Run selects the complete linked project-rooted running chain without installing actors, derives each card's deterministic named sessions from its compiled workflow, stabilizes every eligible conversation leaf-to-root, publishes every participant `stopped` leaf-to-root, and starts only project through configured STOPPED. An unmatched parent `activate_card` is settled as ordinary interrupted outcome-unknown work; terminal child results are never reconstructed or replayed. A partial reset is not atomic: the first error stops the attempt, and a later Run freshly selects the remaining running prefix or stopped project. Stopped descendants remain inactive until an exact parent `activate_card` reuses their identity through STOPPED. Intervention-ready Analyst configured-record/card edits and immediate-parent named-agent edits preserve stopped.
 
 Conversation and app-log mutation use direct synchronous domain-owner functions. Stable role conversations are append-only: compaction never replaces a version or writes a cache. Planner, reviewer, executor, and Analyst persisted turns all use the singular prepared conversation actor. Each autonomous activation carries one exact prompt/tool budget; each Analyst submission prepares its exact rendered prompt, ordered tools, configured output request, and temperature before source publication, then retains that prepared value across tool continuations. Candidate admission uses a best-effort canonical-body byte/4 heuristic, while providers remain authoritative. One first-pass rejection backed by strict structured input-context evidence and no accepted output may force one strictly reducing compaction append and one fresh ordinary route pass under the same input identity; for an Analyst continuation, an already accepted tool effect and its one persisted result remain outside this seam and are never replayed or duplicated. A second rejection or clean no-smaller result is terminal, with no third pass or route-by-compaction expansion. Direct, nonpersisting summarizers remain unprepared, fixed to the one Registry-validated configured candidate, and receive no self-compaction or replay; summary attempts retain distinct summary-session/input app-log evidence. Durable policy stores only policy inputs plus the otherwise unreconstructible static estimate, not derived completion/threshold/window values. The minimal ordered summary-group payload and strict marker-first Analyst source format are reset-only cutovers: stop the service, preserve configuration, credentials, operator inputs, source, and documentation, run the current built `saivage reset`, and start the current binary. Old generated conversations are not migrated or compatibility-read.
 

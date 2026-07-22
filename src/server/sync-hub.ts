@@ -6,7 +6,7 @@ import type { LiveSyncSocket } from './live-sync-socket.js';
 function targetKey(target: LiveSyncInvalidateTarget): string {
   if (target.resource === 'conversation') return `${target.resource}\u0000${target.id}`;
   if (target.resource === 'cards') return target.scope === 'record'
-    ? `${target.resource}\u0000${target.scope}\u0000${target.card_id}\u0000${target.slot}`
+    ? `${target.resource}\u0000${target.scope}\u0000${target.card_id}\u0000${target.record_name}`
     : `${target.resource}\u0000${target.scope}\u0000${target.card_id}`;
   return target.resource;
 }

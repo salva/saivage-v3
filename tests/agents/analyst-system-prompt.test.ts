@@ -16,7 +16,7 @@ const localPromptDisplayFixture = [{
 
 describe('analyst workspace-context prompt contract', () => {
   it('includes the deictic-resolution paragraph in the rendered system prompt', () => {
-    const prompt = createTestPromptTemplateRegistry().render('analyst', 'analyst', {
+    const prompt = createTestPromptTemplateRegistry().render('global', 'analyst', {
       toolList: formatPromptToolList(localPromptDisplayFixture),
       vocabularySnippet: formatVocabularySnippet(),
       projectContext: '{"projectRoot":"test"}',

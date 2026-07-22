@@ -25,14 +25,15 @@ import type { FreshnessEffects } from '../../application/freshness-effects.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { RuntimeContainmentError, RuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import type { RuntimeProcessIdentity } from '../lock.js';
-import { cardProcessEntryForStatus, type CompiledCardProcesses, type CardProcessEntry, type ProcessRole } from '../card-process/card-process-config.js';
+import { cardProcessEntryForStatus, type CompiledRuntimeWorkflows, type CardProcessEntry } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
-import { stabilizeRoleSession } from './conversation-recovery.js';
+import { stabilizeAgentSession } from './conversation-recovery.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
-import { executorActorId, plannerActorId, reviewerActorId } from './ids.js';
+import { namedCardActorId } from './ids.js';
 import { cardParentId } from '../../schemas/card-id.js';
 import { deferred, type Deferred } from './deferred.js';
 import { AppLogPublicationError } from '../../persistence/app-log.js';
+import { RecordAcceptanceOutcomeUnknown } from './agent-node-execution.js';
 
 export interface SupervisorRuntimeApiOptions {
   projectRoot: string; now?: () => string;
@@ -40,7 +41,7 @@ export interface SupervisorRuntimeApiOptions {
   conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentsChanged' | 'conversationChanged'>;
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry;
-  cardProcesses: CompiledCardProcesses; processPrompts: ProcessPromptRegistry;
+  workflows: CompiledRuntimeWorkflows; processPrompts: ProcessPromptRegistry;
   runtimeGate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort;
   processIdentity: RuntimeProcessIdentity;
 }
@@ -125,7 +126,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (!root || root.id !== PROJECT_CARD_ID || root.type !== 'project') throw new Error(`Root card record '${PROJECT_CARD_ID}' is missing.`);
     const entry = runningChain.length > 0 ? 'STOPPED' : cardProcessEntryForStatus(root.lifecycle.status);
     if (entry === null) throw new Error(`Project card in status '${root.lifecycle.status}' cannot start.`);
-    const stabilized = runningChain.length > 0 ? new Set(eligibleRoles(root)) : new Set<ProcessRole>();
+    const stabilized = runningChain.length > 0 ? new Set(eligibleAgents(this.behavior.workflows, root)) : new Set<import('../../schemas/index.js').AgentName>();
     const runIdentity = {};
     const owner = this.createOwner(root, entry, { kind: 'root' }, 'prepared_root', undefined, stabilized);
     const launch = Object.freeze({ owner, runIdentity }) as SupervisorLaunchPlan;
@@ -141,8 +142,8 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (runningChain.length > 0) {
       for (const card of [...runningChain].reverse()) {
         this.requirePreparation(owner, runIdentity);
-        for (const role of eligibleRoles(card)) {
-         if (!this.publish(owner, () => { stabilizeRoleSession({ sessionId: sessionForRecovery(role, card.id), conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); return true; })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
+        for (const agentName of eligibleAgents(this.behavior.workflows, card)) {
+          if (!this.publish(owner, () => { stabilizeAgentSession({ sessionId: namedCardActorId(agentName, card.id), conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); return true; })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
         }
       }
       for (const card of [...runningChain].reverse()) {
@@ -255,32 +256,33 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     lease.markRejected(); lease.deliverInterruption(error); return lease.activation as Promise<never>;
   }
 
-  private createOwner(card: CardRecord, entry: CardProcessEntry, caller: CardActivationCaller, phase: 'prepared_root' | 'child_admission', relationship?: CardActivationOwner['parentRelationship'], stabilized?: ReadonlySet<ProcessRole>): CardActivationOwner {
+  private createOwner(card: CardRecord, entry: CardProcessEntry, caller: CardActivationCaller, phase: 'prepared_root' | 'child_admission', relationship?: CardActivationOwner['parentRelationship'], stabilized?: ReadonlySet<import('../../schemas/index.js').AgentName>): CardActivationOwner {
     const activationId = randomUUID();
     const parentControl = this.boundParentControl(card.id, activationId);
-    const process = card.type === 'project' || card.type === 'goal' ? this.behavior.cardProcesses.planning : this.behavior.cardProcesses.terminal;
-    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => this.ownershipInvalidated(), gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
+    const process = this.behavior.workflows.cardTypes.get(card.type);
+    if (!process) throw new Error(`No compiled workflow for card type '${card.type}'.`);
+    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, candidateChains:this.behavior.workflows.candidateChains,processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => this.ownershipInvalidated(), gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
     processor.start();
-    return new CardActivationOwner({ card, store: this.behavior.actorStore, processor, activationId, entry, caller, phase, parentRelationship: relationship ?? undefined, alreadyStabilizedRoles: stabilized as ReadonlySet<'planner' | 'reviewer' | 'executor'> | undefined });
+    return new CardActivationOwner({ card, store: this.behavior.actorStore, processor, activationId, entry, caller, phase, parentRelationship: relationship ?? undefined, alreadyStabilizedAgents: stabilized });
   }
 
   private activateProcessor(owner: CardActivationOwner): void {
     this.requireOwner(owner);
     if (owner.processorActivated || owner.phase !== 'active' || owner.containmentOwner !== 'none') return;
     owner.processorActivated = true;
-    const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller: owner.caller, entry: owner.entry, alreadyStabilizedRoles: owner.alreadyStabilizedRoles, notificationDelivery: { selectNotifications: () => this.requireKnownCard(owner).pending_notifications, removeNotifications: (ids: readonly string[]) => owner.store.removeNotifications(owner.cardId, [...ids]) }, claimResult: () => this.claimResult(owner) };
+    const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller: owner.caller, entry: owner.entry, alreadyStabilizedAgents: owner.alreadyStabilizedAgents, notificationDelivery: { selectNotifications: () => this.requireKnownCard(owner).pending_notifications, removeNotifications: (ids: readonly string[]) => owner.store.removeNotifications(owner.cardId, [...ids]) }, claimResult: () => this.claimResult(owner) };
     void owner.processor.activate(input, owner.abortController.signal).then((outcome) => this.settleResult(owner, outcome), (error) => {
       if (owner.terminalWinner === 'cancel' || owner.containmentOwner !== 'none') return;
-      if (error instanceof AppLogPublicationError) {
+      if (error instanceof AppLogPublicationError || error instanceof RecordAcceptanceOutcomeUnknown) {
         void this.containProcessorPublicationFailure(owner, error).catch((cleanupError) => { owner.retainedLocalFailure ??= cleanupError; });
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      void this.settleResult(owner, { status: 'failed', summary: message, result: { kind: 'failed', summary: message } });
+      void this.settleResult(owner, { status: 'failed', summary: message, result: { kind: 'runtime-failure', summary: message } });
     });
   }
 
-  private async containProcessorPublicationFailure(owner: CardActivationOwner, error: AppLogPublicationError): Promise<void> {
+  private async containProcessorPublicationFailure(owner: CardActivationOwner, error: Error): Promise<void> {
     if (this.activationOwners.get(owner.cardId) !== owner) return;
     owner.retainedPublicationFailure = error;
     let lease: ChildInvocationLease | null = null;
@@ -297,21 +299,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     } catch (cleanupError) { owner.retainedLocalFailure ??= cleanupError; }
     try { await this.joinProcessor(owner); }
     catch (cleanupError) { owner.retainedLocalFailure ??= cleanupError; }
-    if (!owner.parentRelationship) {
-      owner.settlement.reject(error);
-      return;
-    }
-    const relationship = owner.parentRelationship;
-    this.ownershipTransition(false, () => {
-      if (this.activationOwners.get(owner.cardId) !== owner) return;
-      const parent = this.activationOwners.get(relationship.parentCardId);
-      if (parent?.childCardId === owner.cardId) parent.childCardId = null;
-      this.activationOwners.delete(owner.cardId);
-      this.currentCardId = relationship.parentCardId;
-      if (relationship.invocation.phase() !== 'contained') relationship.invocation.markContained();
-    });
     owner.settlement.reject(error);
-    relationship.invocation.deliverInterruption(error);
   }
 
   private claimResult(owner: CardActivationOwner): void {
@@ -449,7 +437,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (record.owner === 'stop') {
       const sessions = owners.flatMap((owner) => owner.parentRelationship ? [owner.parentRelationship.invocation.identity.sessionId] : []);
       this.ownershipTransition(true, () => {
-        this.runtimeGate.completeRun(); for (const owner of owners) { const lease = owner.parentRelationship?.invocation; if (lease?.phase() === 'contained' && !(owner.retainedPublicationFailure instanceof AppLogPublicationError)) lease.markReleased(); }
+        this.runtimeGate.completeRun(); for (const owner of owners) { const lease = owner.parentRelationship?.invocation; if (lease?.phase() === 'contained' && owner.retainedPublicationFailure === null) lease.markReleased(); }
         this.activationOwners.clear(); this.preparedLaunch = null; this.runIdentity = null; this.currentCardId = null; this.containment = null; this.status = 'stopped'; this.behavior.interventionBinding.markStoppedReady();
       }, sessions[0]);
     }
@@ -509,5 +497,4 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
 
 export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): RuntimeControlMechanics { return new SupervisorRuntimeApi(options); }
 export class RuntimeControlConflictError extends Error { readonly code = 'runtime_control_conflict'; constructor(message = 'Runtime control conflicts with an in-flight project stop.') { super(message); } }
-function eligibleRoles(card: CardRecord): readonly ProcessRole[] { return card.type === 'project' || card.type === 'goal' ? ['planner', 'reviewer'] : ['executor']; }
-function sessionForRecovery(role: ProcessRole, cardId: string) { return role === 'planner' ? plannerActorId(cardId) : role === 'reviewer' ? reviewerActorId(cardId) : executorActorId(cardId); }
+function eligibleAgents(workflows: CompiledRuntimeWorkflows, card: CardRecord): readonly import('../../schemas/index.js').AgentName[] { const workflow=workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow for '${card.type}'.`);return [...new Set([...workflow.nodes.values()].map((node)=>node.agent.name))]; }

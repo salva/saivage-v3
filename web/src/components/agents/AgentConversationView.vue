@@ -6,7 +6,7 @@
     <ViewState v-else-if="!currentSession" state="empty" title="Select a session to view its conversation" />
     <template v-else>
       <div class="conv-header">
-        <PanelHeader :title="currentSession.role">
+        <PanelHeader :title="currentSession.agent_name">
           <template #meta><span class="conv-model">{{ currentSession.model || 'default' }}</span><StatusBadge :status="statusForAgentSession(currentSession.status)" /></template>
           <template #actions><div class="conv-toolbar"><div class="conv-toolbar-group"><button class="conv-tb-btn" @click="timelineControls.expandAll()">Expand all</button><button class="conv-tb-btn" @click="timelineControls.collapseAll()">Collapse all</button></div><div class="conv-toolbar-group"><label class="auto-scroll-pause-toggle"><input type="checkbox" :checked="timelineControls.autoScrollPaused.value" @change="timelineControls.toggleAutoScrollPause()" />Pause auto-scroll</label></div><div class="conv-toolbar-group"><button class="conv-tb-btn" :aria-pressed="rawPanelOpen" @click="rawPanelOpen = !rawPanelOpen">{{ rawPanelOpen ? 'Hide raw exchange' : 'Raw exchange' }}</button></div></div></template>
         </PanelHeader>

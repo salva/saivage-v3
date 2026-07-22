@@ -85,11 +85,12 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
 
       liveSyncSocket.add(ws);
 
-      analystWsHandler.initialize(ws);
+      const analystSessionId = analystWsHandler.initialize(ws);
 
       sendToClient(ws, buildConnectedEnvelope({
+        sessionId: analystSessionId,
         timestamp: new Date().toISOString(),
-          clientCount: liveSyncSocket.clientCount(),
+        clientCount: liveSyncSocket.clientCount(),
       }));
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {

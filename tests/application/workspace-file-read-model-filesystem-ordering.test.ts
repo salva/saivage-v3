@@ -31,6 +31,8 @@ const { createTestConfigAuthority } = await import('../helpers/project-config.js
 const roots: string[] = [];
 const records = () => ({
   record: (_cardId: string, _filename: string, _version: number | 'latest' | 'open') => { throw new Error('No records in workspace file tests.'); },
+  definition: (_cardId: string, _filename: string) => { throw new Error('No record definitions in workspace file tests.'); },
+  definitions: (_cardId: string) => [],
   getCanonicalCard: () => ({ kind: 'card-not-found' as const }),
   getCanonicalCardChildren: () => ({ kind: 'card-not-found' as const }),
   getCanonicalCardFilesMetadata: () => ({ kind: 'card-not-found' as const }),

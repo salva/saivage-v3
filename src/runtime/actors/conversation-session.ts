@@ -1,6 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { agentMessageSchema } from '../../schemas/index.js';
-import { GLOBAL_ANALYST_SESSION_ID, type AgentMessage, type MessageRole, type ConversationSessionId } from '../../schemas/index.js';
+import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, type MessageRole, type ConversationSessionId } from '../../schemas/index.js';
 import type { ValidatedConversation } from '../../contracts/conversation-compaction.js';
 import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
@@ -47,7 +46,7 @@ export function buildUserContextMessage(
   });
 }
 
-export function appendActivationMarker(conversations: ConversationFileContext, sessionId: ConversationSessionId, payload: { event: 'activation_open'; role: 'planner' | 'reviewer' | 'executor'; card_id: string; input_id: string }): AgentMessage {
+export function appendActivationMarker(conversations: ConversationFileContext, sessionId: ConversationSessionId, payload: { event: 'activation_open'; agent_name: string; card_id: string; input_id: string }): AgentMessage {
   const timestamp = new Date().toISOString();
   const seed = `${sessionId}:${payload.input_id}:${timestamp}`;
   const message = agentMessageSchema.parse({
@@ -66,30 +65,30 @@ export function appendActivationMarker(conversations: ConversationFileContext, s
 }
 
 export function buildAnalystIngressRows(
+  sessionId: ConversationSessionId,
   inputId: string,
   workspaceContent: string,
   userContent: string,
 ): readonly [AgentMessage, AgentMessage, AgentMessage] {
   return [
-    buildAnalystActivationMarker(inputId),
-    buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'system', workspaceContent),
-    buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent),
+    buildAnalystActivationMarker(sessionId,inputId),
+    buildContextTextMessage(sessionId, 'system', workspaceContent),
+    buildContextTextMessage(sessionId, 'user', userContent),
   ];
 }
 
-export function buildAnalystRestartRows(inputId: string, userContent: string): readonly [AgentMessage, AgentMessage] {
-  return [buildAnalystActivationMarker(inputId), buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent)];
+export function buildAnalystRestartRows(sessionId:ConversationSessionId,inputId: string, userContent: string): readonly [AgentMessage, AgentMessage] {
+  return [buildAnalystActivationMarker(sessionId,inputId), buildContextTextMessage(sessionId, 'user', userContent)];
 }
 
-export function buildAnalystActivationMarker(inputId: string): AgentMessage {
-  const sessionId = GLOBAL_ANALYST_SESSION_ID;
+export function buildAnalystActivationMarker(sessionId:ConversationSessionId,inputId: string): AgentMessage {
   const timestamp = new Date().toISOString();
   return agentMessageSchema.parse({
     id: `${sessionId}:activation:${randomUUID()}`,
     session_id: sessionId,
     role: 'system',
     kind: 'activity',
-    content: JSON.stringify({ event: 'activation_open', role: 'analyst', input_id: inputId, timestamp }),
+    content: JSON.stringify({ event: 'activation_open', agent_name: conversationSessionIdentity(sessionId).agentName, input_id: inputId, timestamp }),
     round_id: generateRoundId('pre'),
     message_index: 0,
     block_index: 0,

@@ -5,6 +5,7 @@ import type { EnvironmentSource } from './env-interpolation.js';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { createResolvedConfigAuthority, type ConfigSelectionSource, type ResolvedConfigAuthority } from './resolved-config-authority.js';
 import { realpathSync } from 'node:fs';
+import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 
 export type NodeEnvironment = 'development' | 'production' | 'test';
 export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
@@ -14,6 +15,7 @@ export interface Environment {
   readonly projectRoot: string;
   readonly configAuthority: ResolvedConfigAuthority;
   readonly config: SaivageConfig;
+  readonly workflows:CompiledProjectWorkflows;
   readonly configWarnings: readonly string[];
   readonly server: {
     readonly host: string;
@@ -70,6 +72,7 @@ const environmentSchema = z.object({
   projectRoot: z.string().min(1),
   configAuthority: z.custom<ResolvedConfigAuthority>(),
   config: z.custom<SaivageConfig>(),
+  workflows:z.custom<CompiledProjectWorkflows>(),
   configWarnings: z.array(z.string()),
   server: z.object({
     host: z.string().min(1),
@@ -165,11 +168,12 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
       ? { kind: 'environment', variable: 'SAIVAGE_CONFIG' }
       : { kind: 'default' };
   const configPath = resolve(cli.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`);
-  const configAuthority = createResolvedConfigAuthority({ path: configPath, source, interpolationEnvironment: env });
+  const configAuthority = createResolvedConfigAuthority({ path: configPath, source, interpolationEnvironment: env,projectRoot });
   let config: SaivageConfig;
+  let workflows:CompiledProjectWorkflows;
   let warnings: readonly string[];
   try {
-    ({ config, warnings } = configAuthority.loadEffective());
+    ({ config,workflows, warnings } = configAuthority.loadEffective());
   } catch (error) {
     const failure = error as Error & { fieldPath?: string };
     throw new EnvironmentLoadError(`Configuration validation failed: ${failure.message}`, {
@@ -188,6 +192,7 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
     projectRoot,
     configAuthority,
     config,
+    workflows,
     configWarnings: warnings,
     server: {
       host: cli.host ?? env['SAIVAGE_HOST'] ?? config.server.host ?? '0.0.0.0',

@@ -52,12 +52,13 @@ try {
 
   await import('../../src/persistence/conversation-file.js');
   const { AgentOperatorReadModelService } = await import('../../src/application/read-models/agent-operator-read-model.js');
+  const { TEST_WORKFLOWS } = await import('../helpers/canonical-project.js');
   let sessions: unknown = null;
   let error: string | null = null;
   const live = scenario === 'empty-live-malformed'
-    ? [{ sessionId: 'planner:project', agentId: 'planner:project', role: 'planner', cardId: 'project', activity: { mode: 'active', barrier: null } } as const]
+    ? [{ sessionId: 'agent:planner:project', agentId: 'agent:planner:project', agentName: 'planner', cardId: 'project', activity: { mode: 'active', barrier: null } } as const]
     : [];
-  try { sessions = new AgentOperatorReadModelService(root, () => live).listSessions().sessions; }
+  try { sessions = new AgentOperatorReadModelService(root, () => live, TEST_WORKFLOWS).listSessions().sessions; }
   catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
 
   process.stdout.write(`${JSON.stringify({ scenario, paths, ledger: Object.fromEntries(ledger), sessions, error })}\n`);
@@ -75,7 +76,7 @@ function createFixture(projectRoot: string, fixtureScenario: string | undefined)
   const saivage = join(projectRoot, '.saivage');
   const cardRoot = join(saivage, 'cards', 'project');
   const cardConversations = join(cardRoot, 'conversations');
-  const analyst = join(saivage, 'agents', 'conversations', 'analyst%3Aglobal.jsonl');
+  const analyst = join(saivage, 'agents', 'conversations', 'analyst.jsonl');
   const planner = join(cardConversations, 'planner.jsonl');
   const reviewer = join(cardConversations, 'reviewer.jsonl');
   const app = join(saivage, 'logs', 'app.jsonl');
@@ -83,7 +84,7 @@ function createFixture(projectRoot: string, fixtureScenario: string | undefined)
   fs.mkdirSync(join(saivage, 'agents', 'conversations'), { recursive: true });
   const card = {
     id: 'project', type: 'project', children: [], title: 'Read ledger project', subtype: null, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
-    tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: stamp, updated_at: stamp, version_seq: 1,
+    tags: [], priority: 0, urgency: 'normal', created_by: 'runtime:bootstrap', created_at: stamp, updated_at: stamp, version_seq: 1,
     assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
     status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
   };
@@ -92,21 +93,21 @@ function createFixture(projectRoot: string, fixtureScenario: string | undefined)
   if (scenario === 'malformed') {
     fs.writeFileSync(planner, '{"version":1,"type":"rows","rows":[{"invalid":true}]}\n');
   } else if (!scenario.startsWith('empty-')) {
-    writeEnvelope(planner, [message('planner:project', 'planner-one', stamp, 0)]);
-    writeEnvelope(reviewer, [message('reviewer:project', 'reviewer-one', stamp, 0)]);
-    appendEnvelope(reviewer, [message('reviewer:project', 'reviewer-two', '2026-07-21T00:00:01.000Z', 1)]);
+    writeEnvelope(planner, [message('agent:planner:project', 'planner-one', stamp, 0)]);
+    writeEnvelope(reviewer, [message('agent:reviewer:project', 'reviewer-one', stamp, 0)]);
+    appendEnvelope(reviewer, [message('agent:reviewer:project', 'reviewer-two', '2026-07-21T00:00:01.000Z', 1)]);
   }
   if (scenario.endsWith('malformed')) {
     fs.mkdirSync(join(saivage, 'logs'), { recursive: true });
     fs.writeFileSync(app, '{"version":1,"type":"rows","rows":[{"invalid":true}]}\n');
   } else if (scenario === 'models') {
     fs.mkdirSync(join(saivage, 'logs'), { recursive: true });
-    writeEnvelope(app, [providerExchange('planner:project', 'planner-model', stamp, 0), providerExchange('reviewer:project', 'reviewer-model', stamp, 0)]);
+    writeEnvelope(app, [providerExchange('agent:planner:project', 'planner-model', stamp, 0), providerExchange('agent:reviewer:project', 'reviewer-model', stamp, 0)]);
   }
   return { analyst, planner, reviewer, app };
 }
 
-function message(session_id: 'planner:project' | 'reviewer:project', id: string, timestamp: string, message_index: number) {
+function message(session_id: 'agent:planner:project' | 'agent:reviewer:project', id: string, timestamp: string, message_index: number) {
   return { id, session_id, role: 'user', kind: 'text', content: id, round_id: 'r-user-00000000000000000000000000000000', message_index, block_index: 0, timestamp };
 }
 

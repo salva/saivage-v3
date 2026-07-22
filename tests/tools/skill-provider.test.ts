@@ -28,7 +28,7 @@ function writeCatalog(skillsDir: string): void {
 describe('SkillProvider', () => {
   it('returns only ordered role-filtered name projections', async () => temporaryProject(async (root, skillsDir) => {
     writeCatalog(skillsDir);
-    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentRole: 'executor' })]);
+    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
 
     expect(await invokeTool(surface, 'skill', {})).toEqual({
       success: true,
@@ -38,7 +38,7 @@ describe('SkillProvider', () => {
 
   it('returns the exact named skill projection without delimiters or metadata', async () => temporaryProject(async (root, skillsDir) => {
     writeCatalog(skillsDir);
-    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentRole: 'executor' })]);
+    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
 
     expect(await invokeTool(surface, 'skill', { name: 'executor-skill' })).toEqual({
       success: true,
@@ -48,15 +48,15 @@ describe('SkillProvider', () => {
 
   it('returns generic model-visible errors for missing, cross-role, and file-read failures', async () => temporaryProject(async (root, skillsDir) => {
     writeCatalog(skillsDir);
-    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentRole: 'executor' })]);
+    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
 
     expect(await invokeTool(surface, 'skill', { name: 'missing' })).toEqual({
       success: false,
-      error: "Skill 'missing' is unavailable for role 'executor'.",
+      error: "Skill 'missing' is unavailable for agent 'executor'.",
     });
     expect(await invokeTool(surface, 'skill', { name: 'reviewer-skill' })).toEqual({
       success: false,
-      error: "Skill 'reviewer-skill' is unavailable for role 'executor'.",
+      error: "Skill 'reviewer-skill' is unavailable for agent 'executor'.",
     });
     expect(await invokeTool(surface, 'skill', { name: 'broken' })).toEqual({
       success: false,

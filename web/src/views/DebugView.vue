@@ -154,7 +154,7 @@
                 @click="explicitAgentSessionId = session.id"
               >
                 <span class="agent-debug-session-id mono">{{ session.id }}</span>
-                <span class="agent-debug-session-meta">{{ session.role }} · {{ session.status }}</span>
+                <span class="agent-debug-session-meta">{{ session.agent_name }} · {{ session.status }}</span>
               </button>
             </aside>
             <div>

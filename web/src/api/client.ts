@@ -28,7 +28,7 @@ import type {
   CardDiffResponse,
   ControlActionsListResponse,
 } from './types';
-import { GLOBAL_ANALYST_SESSION_ID, type ConversationSessionId } from './contracts';
+import { type ConversationSessionId } from './contracts';
 import { getAuthToken } from './auth';
 import {
   operatorApiContracts,
@@ -233,12 +233,12 @@ export function listControlActions(query?: { card_id?: string; since?: string })
 }
 
 export function getChatEntries(signal?: AbortSignal): Promise<ChatEntriesResponse> {
-  return operatorRequest('chats.get', { params: { sessionId: GLOBAL_ANALYST_SESSION_ID }, signal }) as Promise<ChatEntriesResponse>;
+  return operatorRequest('chats.get', { signal }) as Promise<ChatEntriesResponse>;
 }
 
 export function sendChatMessage(content: string, workspaceContext?: ChatWorkspaceContext): Promise<ChatResponse> {
   const body = workspaceContext === undefined ? { content } : { content, workspaceContext };
-  return operatorRequest('chats.send', { params: { sessionId: GLOBAL_ANALYST_SESSION_ID }, body });
+  return operatorRequest('chats.send', { body });
 }
 
 export function listFiles(path?: string): Promise<FilesListResponse> {

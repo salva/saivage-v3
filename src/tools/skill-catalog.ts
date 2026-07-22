@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
-import { skillIndexSchema, type SkillIndexEntry, type SkillTargetRole } from '../schemas/index.js';
+import { skillIndexSchema, type SkillIndexEntry, type AgentName } from '../schemas/index.js';
 
 export interface SkillCatalogItem {
   readonly name: string;
@@ -21,15 +21,15 @@ export class SkillCatalog {
     this.indexPath = join(this.skillsPath, 'index.json');
   }
 
-  list(role: SkillTargetRole): SkillCatalogItem[] {
+  list(agentName: AgentName): SkillCatalogItem[] {
     return this.loadIndex()
-      .filter((entry) => entry.target_agents.includes(role))
+      .filter((entry) => entry.target_agents.includes(agentName))
       .map((entry) => ({ name: entry.name }));
   }
 
-  read(role: SkillTargetRole, name: string): SkillCatalogContent {
-    const entry = this.loadIndex().find((candidate) => candidate.name === name && candidate.target_agents.includes(role));
-    if (!entry) throw new Error(`Skill '${name}' is unavailable for role '${role}'.`);
+  read(agentName: AgentName, name: string): SkillCatalogContent {
+    const entry = this.loadIndex().find((candidate) => candidate.name === name && candidate.target_agents.includes(agentName));
+    if (!entry) throw new Error(`Skill '${name}' is unavailable for agent '${agentName}'.`);
 
     const filePath = resolve(this.skillsPath, entry.file);
     const relativePath = relative(this.skillsPath, filePath);

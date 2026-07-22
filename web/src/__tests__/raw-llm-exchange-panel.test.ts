@@ -18,13 +18,13 @@ function exchange(overrides: Partial<ProviderExchangePayload> = {}): ProviderExc
 function mountPanel(payload: ProviderExchangePayload | null) {
   setActivePinia(createPinia());
   const store = useAgentStore();
-  store.llmExchangeSessionId = 'planner:project';
+  store.llmExchangeSessionId = 'agent:planner:project';
   store.currentLlmExchange = payload;
   store.llmExchangeLoaded = true;
   const begin = vi.spyOn(store, 'beginLlmExchangeSelection');
   const fetch = vi.spyOn(store, 'fetchLlmExchange').mockResolvedValue(undefined);
   const clear = vi.spyOn(store, 'clearLlmExchange');
-  const wrapper = mount(RawLlmExchangePanel, { props: { sessionId: 'planner:project' } });
+  const wrapper = mount(RawLlmExchangePanel, { props: { sessionId: 'agent:planner:project' } });
   return { wrapper, store, begin, fetch, clear };
 }
 
@@ -33,7 +33,7 @@ describe('RawLlmExchangePanel', () => {
     const { wrapper, begin, fetch, clear } = mountPanel(exchange());
     await flushPromises();
     expect(begin).toHaveBeenCalledOnce();
-    expect(begin).toHaveBeenCalledWith('planner:project');
+    expect(begin).toHaveBeenCalledWith('agent:planner:project');
     const token = begin.mock.results[0].value;
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledWith(token);

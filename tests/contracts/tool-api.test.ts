@@ -8,6 +8,7 @@ import {
   type CardActivationOutcome,
 } from '../../src/contracts/tool-api.js';
 import type { BlockedResult } from '../../src/schemas/index.js';
+import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 
 describe('activate_card shared tool contract', () => {
   it('accepts exactly one valid card_id', () => {
@@ -28,9 +29,9 @@ describe('activate_card shared tool contract', () => {
 
   it('requires each outcome variant exact result shape and forbids a cancelled result', () => {
     const outcomes: CardActivationOutcome[] = [
-      { status: 'done', summary: 'done summary', result: { kind: 'done', summary: 'done result' } },
-      { status: 'failed', summary: 'failed summary', result: { kind: 'failed', summary: 'failed result' } },
-      { status: 'blocked', summary: 'blocked summary', result: { kind: 'blocked', summary: 'blocked result', resume_reason: 'wait' } },
+      { status: 'done', summary: 'done summary', result: workflowResult('DONE', 'done result') },
+      { status: 'failed', summary: 'failed summary', result: runtimeFailure('failed result') },
+      { status: 'blocked', summary: 'blocked summary', result: workflowResult('BLOCKED', 'blocked result') },
       { status: 'cancelled', summary: 'cancelled summary' },
     ];
 
@@ -45,7 +46,7 @@ describe('activate_card shared tool contract', () => {
     // @ts-expect-error cancelled outcomes have no result field
     const cancelledWithResult: CardActivationOutcome = { status: 'cancelled', summary: 'cancelled', result: { kind: 'failed', summary: 'invalid' } };
 
-    const exactBlocked: BlockedResult = { kind: 'blocked', summary: 'blocked result', resume_reason: 'wait' };
+    const exactBlocked: BlockedResult = workflowResult('BLOCKED', 'blocked result');
     const exactBlockedToolResult: ActivateCardToolResult = { success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: exactBlocked.summary, result: exactBlocked } };
     // @ts-expect-error activate_card tool results do not admit rework
     const reworkToolResult: ActivateCardToolResult = { success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'revise', result: { kind: 'rework', summary: 'revise' } } };
@@ -62,16 +63,16 @@ describe('activate_card shared tool contract', () => {
 
   it.each([
     {
-      outcome: { status: 'done', summary: 'done summary', result: { kind: 'done', summary: 'done result' } } as const,
-      expected: { success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'done summary', result: { kind: 'done', summary: 'done result' } } },
+      outcome: { status: 'done', summary: 'done summary', result: workflowResult('DONE', 'done result') } as const,
+      expected: { success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'done summary', result: workflowResult('DONE', 'done result') } },
     },
     {
-      outcome: { status: 'blocked', summary: 'blocked summary', result: { kind: 'blocked', summary: 'blocked result', resume_reason: 'wait' } } as const,
-      expected: { success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'blocked summary', result: { kind: 'blocked', summary: 'blocked result', resume_reason: 'wait' } } },
+      outcome: { status: 'blocked', summary: 'blocked summary', result: workflowResult('BLOCKED', 'blocked result') } as const,
+      expected: { success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'blocked summary', result: workflowResult('BLOCKED', 'blocked result') } },
     },
     {
-      outcome: { status: 'failed', summary: 'failed summary', result: { kind: 'failed', summary: 'failed result' } } as const,
-      expected: { success: true, data: { card_id: 'card-a', outcome: 'failed', summary: 'failed summary', result: { kind: 'failed', summary: 'failed result' } } },
+      outcome: { status: 'failed', summary: 'failed summary', result: runtimeFailure('failed result') } as const,
+      expected: { success: true, data: { card_id: 'card-a', outcome: 'failed', summary: 'failed summary', result: runtimeFailure('failed result') } },
     },
     {
       outcome: { status: 'cancelled', summary: 'cancelled summary' } as const,

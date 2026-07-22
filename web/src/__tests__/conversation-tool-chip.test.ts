@@ -20,7 +20,7 @@ const pendingRead: ToolDisplayModel = {
 
 function readPair(resultContent: string, status: ToolPair['status']): ToolPair {
   const callContent = JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-read', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'README.md' }) } }] });
-  const base = { session_id: 'analyst:global', round_id: 'r', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00Z', tool: 'read', tool_call_id: 'call-read' };
+  const base = { session_id: 'agent:analyst:global', round_id: 'r', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00Z', tool: 'read', tool_call_id: 'call-read' };
   return {
     call: { ...base, id: 'call', role: 'assistant', kind: 'tool_call', content: callContent },
     result: { ...base, id: 'result', role: 'tool', kind: 'tool_result', content: resultContent },

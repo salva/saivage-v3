@@ -1,6 +1,7 @@
-import type { OperationalAgentRole, ConversationSessionId } from '../../schemas/index.js';
+import type { AgentName, ConversationSessionId } from '../../schemas/index.js';
 import type { ProviderConversationProjection, ProviderTurnCompletion, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
+import type { Candidate } from '../../contracts/provider-candidate.js';
 
 export type PreparedCompaction = {
   readonly inputBudgetTokens: number;
@@ -26,7 +27,7 @@ export type PreparedCompaction = {
 interface LlmInvocationInputBase {
   inputId: string;
   agentId: string;
-  role: OperationalAgentRole;
+  agentName: AgentName;
   /** Invocation/persistence owner. Ordinary actor turns require this to equal providerConversation.sourceSessionId. */
   sessionId: string;
   systemPrompt: string;
@@ -36,6 +37,7 @@ interface LlmInvocationInputBase {
   terminalToolNames: string[];
   capabilityRequest: CapabilityRequest;
   episodeContext: Record<string, unknown>;
+  candidateChain?:readonly Candidate[];
 }
 
 export type LlmInvocationInput = LlmInvocationInputBase & (

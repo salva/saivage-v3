@@ -53,7 +53,7 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
     session_id: input.sessionId,
     role: 'system',
     kind: 'activity',
-    content: JSON.stringify({ event: 'llm_turn_started', inputId: input.inputId, role: input.role }),
+    content: JSON.stringify({ event: 'llm_turn_started', inputId: input.inputId, agent_name: input.agentName }),
     round_id: roundId('pre', input.inputId),
     message_index: 0,
     block_index: 0,

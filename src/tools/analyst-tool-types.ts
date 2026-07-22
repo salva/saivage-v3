@@ -31,7 +31,7 @@ export interface ToolContext {
   runtimeControl?: RuntimeControlApplicationPort;
   mcpToolInvocation: McpToolInvocationPort;
   restartServerAvailable: boolean;
-  actor: 'analyst';
+  actor: import('../schemas/index.js').AgentName;
   surface: 'web-chat';
   analystMutations?: AnalystMutationServices;
   analystPreparation?: AnalystPreparationReadServices;

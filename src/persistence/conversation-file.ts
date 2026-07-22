@@ -1,10 +1,11 @@
 import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { validateConversationRows, type ValidatedConversation } from '../contracts/conversation-compaction.js';
-import { agentMessageSchema, parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../schemas/index.js';
+import { agentMessageSchema, cardAgentSessionId, globalAgentSessionId, type AgentMessage, type ConversationSessionId } from '../schemas/index.js';
 import { readCanonicalGrowingFile, serializeGrowingEnvelope, appendEnvelope, publishFirstEnvelope, type GrowingFileIo } from './growing-file.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { conversationFile } from '../runtime/actors/conversation-inventory.js';
 import { listCards } from './card-files.js';
+import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 
 export interface ConversationFileContext {
   readonly projectRoot: string;
@@ -33,11 +34,11 @@ function readInventoryCandidate(projectRoot: string, sessionId: ConversationSess
   catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
 }
 
-export function readConversationInventory(projectRoot: string): readonly ConversationInventoryEntry[] {
-  const candidates: ConversationSessionId[] = ['analyst:global'];
+export function readConversationInventory(projectRoot: string,workflows:CompiledProjectWorkflows): readonly ConversationInventoryEntry[] {
+  const candidates: ConversationSessionId[] = [globalAgentSessionId(workflows.analyst.name)];
   for (const card of listCards(projectRoot)) {
-    if (card.type === 'project' || card.type === 'goal') candidates.push(parseConversationSessionId(`planner:${card.id}`), parseConversationSessionId(`reviewer:${card.id}`));
-    else candidates.push(parseConversationSessionId(`executor:${card.id}`));
+    const workflow=workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow for '${card.type}'.`);
+    for(const name of new Set([...workflow.nodes.values()].map((node)=>node.agent.name)))candidates.push(cardAgentSessionId(name,card.id));
   }
   const inventory = candidates.flatMap((sessionId) => {
     const conversation = readInventoryCandidate(projectRoot, sessionId);

@@ -1,174 +1,82 @@
-import type { CardProcessSource, CardProcessesSource } from '../../schemas/saivage-config.js';
-import { planningCardTypeValues, terminalCardTypeValues, type CardStatus, type CardType } from '../../schemas/index.js';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { AgentName } from '../../schemas/agent-name.js';
+import { parseRecordName, type RecordName } from '../../schemas/record-name.js';
+import type { CardProcessSource, CardTypeSource, SaivageConfig } from '../../schemas/saivage-config.js';
+import { cardTypeValues, type CardStatus, type CardType } from '../../schemas/index.js';
 import { compileActorDefinition, type CompiledActorDefinition, type CompiledTransitionDefinition } from '../micro-actor/index.js';
-import { currentRecordDefinitionForFilename } from '../../records/current-record-definitions.js';
+import { validateCompiledAgentPrompt } from '../../utils/prompt-api.js';
+import type { Candidate } from '../../contracts/provider-candidate.js';
+import type { ModelRouter } from '../../agents/model-router.js';
 
-export type CardProcessFamily = 'planning' | 'terminal';
 export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
 export type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';
-export type ProcessRole = 'planner' | 'reviewer' | 'executor';
-export type ProcessRecordFilename = 'brief.md' | 'status.md' | 'review.md';
 export type ProcessPromptId = string & { readonly __processPromptId: unique symbol };
+export type RecordRequirementKind = 'present' | 'updated';
+export type CompiledAgentPrompt = Readonly<{ source: 'card-specific'|'generic-override'|'bundled'; reference:string; path:string; text:string }>;
+export type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source:'override'|'bundled'; path:string; text:string }>;
+export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly overridePromptRoot?:string }
 
-export type ProcessStateMetadata =
-  | Readonly<{ kind: 'ready' }>
-  | Readonly<{ kind: 'entry'; entry: CardProcessEntry }>
-  | Readonly<{ kind: 'node'; nodeId: string; role: ProcessRole; promptId: ProcessPromptId; correctionPromptId: ProcessPromptId; requiredRecords: readonly Readonly<{ filename: ProcessRecordFilename; updated: boolean }>[] }>
-  | Readonly<{ kind: 'terminal'; terminal: CardProcessTerminal }>;
+export type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; writers: readonly AgentName[]; bootstrap: boolean }>;
+export type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly string[]; modelRoute: string; model: Readonly<{ candidates: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
+export type CompiledRecordRequirement = Readonly<{ definition: CompiledRecordDefinition; kind: RecordRequirementKind }>;
+export type CompiledDescendantContext = Readonly<{ records: readonly CompiledRecordDefinition[]; requireUnchangedUntilAccept: boolean }>;
+export type CompiledTerminalRoute = Readonly<{ terminal: CardProcessTerminal; promotion: Readonly<{ kind: 'current' } | { kind: 'latest-node'; nodeId: string }>; exportRecords: readonly CompiledRecordDefinition[] }>;
+export type CompiledEdge = Readonly<{ outcome: string; targetState: string; targetNodeId: string | null; terminalRoute: CompiledTerminalRoute | null; promptId: ProcessPromptId | null }>;
+export type CompiledNodeContract = Readonly<{ kind: 'node'; nodeId: string; agent: CompiledAgentContract; selectedAgentPrompt:CompiledAgentPrompt; promptId: ProcessPromptId; nodePrompt:string; correctionPromptId: ProcessPromptId; correctionPrompt:string; requirements: readonly CompiledRecordRequirement[]; descendantContext: CompiledDescendantContext | null; outcomes: readonly string[]; edges: ReadonlyMap<string, CompiledEdge>; childCreationTypes: ReadonlySet<CardType>; childActivationTypes: ReadonlySet<CardType>; readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition>; writableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition> }>;
+export type ProcessStateMetadata = Readonly<{ kind: 'ready' }> | Readonly<{ kind: 'entry'; entry: CardProcessEntry }> | CompiledNodeContract | Readonly<{ kind: 'terminal'; terminal: CardProcessTerminal }>;
+export type ProcessNodeMetadata = CompiledNodeContract;
+export type ProcessPosition = Readonly<{ cardType: CardType; stateId: string; kind: 'ready' }> | Readonly<{ cardType: CardType; stateId: string; kind: 'entry'; entry: CardProcessEntry }> | Readonly<{ cardType: CardType; stateId: string; kind: 'node'; nodeId: string; executionOrdinal: number }> | Readonly<{ cardType: CardType; stateId: string; kind: 'terminal'; terminal: CardProcessTerminal }>;
+export interface CompiledCardTypeWorkflow { readonly cardType: CardType; readonly permittedChildTypes: ReadonlySet<CardType>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly definition: CompiledActorDefinition; readonly states: ReadonlyMap<string, ProcessStateMetadata>; readonly nodes: ReadonlyMap<string, CompiledNodeContract>; readonly transitionPrompts: ReadonlyMap<string, ProcessPromptId>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
+export interface CompiledProjectWorkflows { readonly analyst: CompiledAgentContract; readonly analystPrompt:CompiledAgentPrompt; readonly agents: ReadonlyMap<AgentName, CompiledAgentContract>; readonly cardTypes: ReadonlyMap<CardType, CompiledCardTypeWorkflow> }
+export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows { readonly runtimeBound: true;readonly candidateChains:ReadonlyMap<AgentName,readonly Candidate[]> }
 
-export type ProcessNodeMetadata = Extract<ProcessStateMetadata, { kind: 'node' }>;
-
-export type ProcessPosition =
-  | Readonly<{ family: CardProcessFamily; stateId: string; kind: 'ready' }>
-  | Readonly<{ family: CardProcessFamily; stateId: string; kind: 'entry'; entry: CardProcessEntry }>
-  | Readonly<{ family: CardProcessFamily; stateId: string; kind: 'node'; nodeId: string; executionOrdinal: number }>
-  | Readonly<{ family: CardProcessFamily; stateId: string; kind: 'terminal'; terminal: CardProcessTerminal }>;
-
-export interface CompiledCardProcess {
-  readonly family: CardProcessFamily;
-  readonly definition: CompiledActorDefinition;
-  readonly states: ReadonlyMap<string, ProcessStateMetadata>;
-  readonly transitionPrompts: ReadonlyMap<string, ProcessPromptId>;
-}
-
-export type CompiledCardProcesses = Readonly<Record<CardProcessFamily, CompiledCardProcess>>;
-
-const IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/;
-const OUTCOME_IDENTIFIER = /^[a-z][a-z0-9_-]{0,63}$/;
+const IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
+const OUTCOME_IDENTIFIER = /^[a-z][a-z0-9_-]{0,63}$/u;
 const ENTRY_PORTS = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
 const TERMINAL_PORTS = ['DONE', 'BLOCKED', 'FAILED'] as const;
+const knownToolNames = new Set(['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reorder_child', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']);
 
-class ImmutableMap<K, V> implements ReadonlyMap<K, V> {
-  readonly #values: Map<K, V>;
-  constructor(entries: Iterable<readonly [K, V]>) { this.#values = new Map(entries); Object.freeze(this); }
-  get size(): number { return this.#values.size; }
-  get(key: K): V | undefined { return this.#values.get(key); }
-  has(key: K): boolean { return this.#values.has(key); }
-  entries(): MapIterator<[K, V]> { return this.#values.entries(); }
-  keys(): MapIterator<K> { return this.#values.keys(); }
-  values(): MapIterator<V> { return this.#values.values(); }
-  forEach(callbackfn: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown): void { for (const [key, value] of this.#values) callbackfn.call(thisArg, value, key, this); }
-  [Symbol.iterator](): MapIterator<[K, V]> { return this.#values[Symbol.iterator](); }
-  get [Symbol.toStringTag](): string { return 'ImmutableMap'; }
+class ImmutableMap<K, V> implements ReadonlyMap<K, V> { readonly #values: Map<K,V>; constructor(entries: Iterable<readonly [K,V]>) { this.#values = new Map(entries); Object.freeze(this); } get size(){return this.#values.size;} get(key:K){return this.#values.get(key);} has(key:K){return this.#values.has(key);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:V,key:K,map:ReadonlyMap<K,V>)=>void,thisArg?:unknown){for(const [k,v] of this.#values) callbackfn.call(thisArg,v,k,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableMap';} }
+class ImmutableSet<T> implements ReadonlySet<T> { readonly #values:Set<T>; constructor(values:Iterable<T>){this.#values=new Set(values);Object.freeze(this);} get size(){return this.#values.size;} has(value:T){return this.#values.has(value);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:T,value2:T,set:ReadonlySet<T>)=>void,thisArg?:unknown){for(const value of this.#values)callbackfn.call(thisArg,value,value,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableSet';} }
+const immutableMap=<K,V>(entries:Iterable<readonly [K,V]>):ReadonlyMap<K,V>=>new ImmutableMap(entries);
+const immutableSet=<T>(values:Iterable<T>):ReadonlySet<T>=>new ImmutableSet(values);
+function bundledPromptRoot():string{const moduleDir=dirname(fileURLToPath(import.meta.url));const source=join(moduleDir,'..','..','prompts');return existsSync(source)?source:join(moduleDir,'..','..','..','prompts');}
+function promptRoots(options:WorkflowCompileOptions):{defaultRoot:string;overrideRoot:string|undefined}{return{defaultRoot:options.defaultPromptRoot??bundledPromptRoot(),overrideRoot:options.overridePromptRoot??(options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined)};}
+function readUtf8(path:string):string{const text=new TextDecoder('utf-8',{fatal:true}).decode(readFileSync(path));if(text.trim().length===0)throw new Error(`Prompt artifact '${path}' must contain non-whitespace UTF-8 text.`);return text;}
+function readOptional(path:string):string|null{try{return readUtf8(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}}
+const agentPromptCaches=new WeakMap<object,Map<string,CompiledAgentPrompt>>();const processPromptCaches=new WeakMap<object,Map<string,CompiledProcessPrompt>>();
+function selectAgentPrompt(cardType:CardType|'global',agent:CompiledAgentContract,roots:{defaultRoot:string;overrideRoot:string|undefined}):CompiledAgentPrompt{let cache=agentPromptCaches.get(roots);if(!cache){cache=new Map();agentPromptCaches.set(roots,cache);}const key=`${cardType}/${agent.name}`;const existing=cache.get(key);if(existing)return existing;let selected:CompiledAgentPrompt;if(cardType!=='global'&&roots.overrideRoot){const path=join(roots.overrideRoot,cardType,'agents',`${agent.name}.md`);const text=readOptional(path);if(text!==null){selected=Object.freeze({source:'card-specific',reference:agent.prompt,path,text});cache.set(key,selected);return selected;}}if(roots.overrideRoot){const path=join(roots.overrideRoot,'agents',`${agent.name}.md`);const text=readOptional(path);if(text!==null){selected=Object.freeze({source:'generic-override',reference:agent.prompt,path,text});cache.set(key,selected);return selected;}}const path=join(roots.defaultRoot,'agents',`${agent.prompt}.md`);selected=Object.freeze({source:'bundled',reference:agent.prompt,path,text:readUtf8(path)});cache.set(key,selected);return selected;}
+function selectProcessPrompt(cardType:CardType,id:ProcessPromptId,roots:{defaultRoot:string;overrideRoot:string|undefined}):CompiledProcessPrompt{let cache=processPromptCaches.get(roots);if(!cache){cache=new Map();processPromptCaches.set(roots,cache);}const key=`${cardType}/${id}`;const existing=cache.get(key);if(existing)return existing;let selected:CompiledProcessPrompt;if(roots.overrideRoot){const path=join(roots.overrideRoot,cardType,'process',`${id}.md`);const text=readOptional(path);if(text!==null){selected=Object.freeze({reference:id,source:'override',path,text});cache.set(key,selected);return selected;}}const path=join(roots.defaultRoot,cardType,'process',`${id}.md`);selected=Object.freeze({reference:id,source:'bundled',path,text:readUtf8(path)});cache.set(key,selected);return selected;}
+function identifier(value:string,location:string):string { if(!IDENTIFIER.test(value))throw new Error(`${location} must be a lowercase identifier of at most 64 characters.`);return value; }
+function promptId(value:string,location:string):ProcessPromptId{return identifier(value,location) as ProcessPromptId;}
+function outcomeIdentifier(value:string,location:string):string{if(!OUTCOME_IDENTIFIER.test(value))throw new Error(`${location} must be a lowercase outcome identifier of at most 64 characters.`);return value;}
+const nodeState=(id:string)=>`node:${id}`; const entryState=(entry:CardProcessEntry)=>`entry:${entry}`; const terminalState=(terminal:CardProcessTerminal)=>`terminal:${terminal}`;
+export function processTransitionPromptKey(source:string,event:string):string{return `${source.length}:${source}${event}`;}
+export function cardProcessEntryForStatus(status:CardStatus):CardProcessEntry|null{if(status==='backlog')return'BACKLOG';if(status==='changed')return'CHANGED';if(status==='blocked')return'BLOCKED';if(status==='stopped')return'STOPPED';return null;}
+
+function resolveRoute(config:SaivageConfig, name:string):readonly string[]{const route=config.models.routes[name];if(!route)throw new Error(`models.routes.${name} is missing.`);if(route.candidates){if(new Set(route.candidates).size!==route.candidates.length)throw new Error(`models.routes.${name}.candidates contains a duplicate.`);return Object.freeze([...route.candidates]);}const profile=config.models.profiles[route.profile!];if(!profile)throw new Error(`models.routes.${name}.profile references missing profile '${route.profile}'.`);const candidates=[...profile.preferred,...profile.allowed];if(candidates.length===0)throw new Error(`models.routes.${name}.profile resolves to no candidates.`);if(new Set(candidates).size!==candidates.length)throw new Error(`models.profiles.${route.profile} contains a duplicate candidate.`);return Object.freeze(candidates);}
+function compileAgents(config:SaivageConfig):ReadonlyMap<AgentName,CompiledAgentContract>{const result:Array<readonly[AgentName,CompiledAgentContract]>=[];for(const [rawName,source] of Object.entries(config.agents)){const name=rawName as AgentName;const duplicate=new Set<string>();for(const tool of source.tools){if(duplicate.has(tool))throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);duplicate.add(tool);if(!knownToolNames.has(tool))throw new Error(`agents.${name}.tools contains unknown tool '${tool}'.`);}if(source.skills!==source.tools.includes('skill'))throw new Error(`agents.${name}.skills must agree with the skill tool.`);if(source.tools.includes('create_card')&&!source.can_create_children)throw new Error(`agents.${name} cannot list create_card when can_create_children is false.`);const route=config.models.routes[source.model_route];if(!route)throw new Error(`agents.${name}.model_route references missing route '${source.model_route}'.`);result.push([name,Object.freeze({name,prompt:source.prompt,tools:Object.freeze([...source.tools]),modelRoute:source.model_route,model:Object.freeze({candidates:resolveRoute(config,source.model_route),temperature:route.temperature,maxTokens:route.max_tokens}),skills:source.skills,session:source.session,canCreateChildren:source.can_create_children})]);}return immutableMap(result);}
+
+function compileCardType(cardType:CardType,source:CardTypeSource,agents:ReadonlyMap<AgentName,CompiledAgentContract>,roots:{defaultRoot:string;overrideRoot:string|undefined}):CompiledCardTypeWorkflow{
+  const location=`card_types.${cardType}`;const loadedProcessPrompts=new Map<ProcessPromptId,CompiledProcessPrompt>();const getProcessPrompt=(id:ProcessPromptId):CompiledProcessPrompt=>{const existing=loadedProcessPrompts.get(id);if(existing)return existing;const selected=selectProcessPrompt(cardType,id,roots);loadedProcessPrompts.set(id,selected);return selected;};const childTypes=new Set<CardType>();for(const child of source.permitted_child_types){if(child==='project')throw new Error(`${location}.permitted_child_types cannot contain project.`);if(childTypes.has(child))throw new Error(`${location}.permitted_child_types contains duplicate '${child}'.`);childTypes.add(child);}
+  const recordEntries:Array<readonly[RecordName,CompiledRecordDefinition]>=[];let bootstrap:CompiledRecordDefinition|null=null;for(const [rawName,definition]of Object.entries(source.records)){const name=parseRecordName(rawName);if(new Set(definition.writers).size!==definition.writers.length)throw new Error(`${location}.records.${name}.writers contains a duplicate.`);for(const writer of definition.writers)if(!agents.has(writer))throw new Error(`${location}.records.${name}.writers references missing agent '${writer}'.`);const compiled=Object.freeze({name,format:definition.format,schema:definition.schema,writers:Object.freeze([...definition.writers]),bootstrap:definition.bootstrap});recordEntries.push([name,compiled]);if(definition.bootstrap){if(bootstrap)throw new Error(`${location}.records must contain exactly one bootstrap record.`);bootstrap=compiled;}}
+  if(!bootstrap)throw new Error(`${location}.records must contain exactly one bootstrap record.`);const records=immutableMap(recordEntries);const metadataEntries:Array<readonly[string,ProcessStateMetadata]>=[['lifecycle:ready',Object.freeze({kind:'ready' as const})]];const nodeSources=new Map<string,{source:CardProcessSource['nodes'][string];requirements:readonly CompiledRecordRequirement[];edges:Map<string,CompiledEdge>}>();
+  for(const[rawNodeId,node]of Object.entries(source.workflow.nodes)){const nodeId=identifier(rawNodeId,`${location}.workflow.nodes key`);const agent=agents.get(node.agent);if(!agent)throw new Error(`${location}.workflow.nodes.${nodeId}.agent references missing agent '${node.agent}'.`);if(agent.session!=='card')throw new Error(`${location}.workflow.nodes.${nodeId}.agent must use card session scope.`);const requirements:Array<CompiledRecordRequirement>=[];for(const[rawRecord,kind]of Object.entries(node.records)){const name=parseRecordName(rawRecord);const definition=records.get(name);if(!definition)throw new Error(`${location}.workflow.nodes.${nodeId}.records references unknown record '${name}'.`);if(kind==='updated'&&(!definition.writers.includes(agent.name)||!agent.tools.includes('write')||!agent.tools.includes('edit')))throw new Error(`${location}.workflow.nodes.${nodeId}.records.${name} requires writer authority plus write and edit tools.`);requirements.push(Object.freeze({definition,kind}));}const edges=new Map<string,CompiledEdge>();for(const[rawOutcome,edge]of Object.entries(node.edges)){const outcome=outcomeIdentifier(rawOutcome,`${location}.workflow.nodes.${nodeId}.edges key`);if('node'in edge.target){edges.set(outcome,Object.freeze({outcome,targetState:nodeState(edge.target.node),targetNodeId:edge.target.node,terminalRoute:null,promptId:edge.prompt===undefined?null:promptId(edge.prompt,`${location}.workflow.nodes.${nodeId}.edges.${outcome}.prompt`)}));}else{if(edge.prompt!==undefined)throw new Error(`${location}.workflow.nodes.${nodeId}.edges.${outcome} cannot have a terminal transition prompt.`);const requiredNames=new Set(requirements.map((r)=>r.definition.name));const exports=edge.target.export_records.map((raw)=>{const name=parseRecordName(raw);const definition=records.get(name);if(!definition)throw new Error(`${location}.workflow.nodes.${nodeId}.edges.${outcome} exports unknown record '${name}'.`);if(!requiredNames.has(name))throw new Error(`${location}.workflow.nodes.${nodeId}.edges.${outcome} exports '${name}' without a source-node present or updated requirement.`);return definition;});const promotion=edge.target.promote==='current'?Object.freeze({kind:'current' as const}):Object.freeze({kind:'latest-node' as const,nodeId:edge.target.promote.latest_node});edges.set(outcome,Object.freeze({outcome,targetState:terminalState(edge.target.terminal),targetNodeId:null,terminalRoute:Object.freeze({terminal:edge.target.terminal,promotion,exportRecords:Object.freeze(exports)}),promptId:null}));}}
+    if(edges.size===0)throw new Error(`${location}.workflow.nodes.${nodeId}.edges must not be empty.`);nodeSources.set(nodeId,{source:node,requirements:Object.freeze(requirements),edges});}
+  if(nodeSources.size===0)throw new Error(`${location}.workflow.nodes must not be empty.`);for(const[nodeId,node]of nodeSources)for(const edge of node.edges.values())if(edge.targetNodeId&&!nodeSources.has(edge.targetNodeId))throw new Error(`${location}.workflow.nodes.${nodeId} targets missing node '${edge.targetNodeId}'.`);
+  const entryTargets=new Map<CardProcessEntry,string>();const promptEntries:Array<readonly[string,ProcessPromptId]>=[];for(const entry of ENTRY_PORTS){const value=source.workflow.entries[entry];if(!nodeSources.has(value.node))throw new Error(`${location}.workflow.entries.${entry} targets missing node '${value.node}'.`);entryTargets.set(entry,value.node);metadataEntries.push([entryState(entry),Object.freeze({kind:'entry',entry})]);if(value.prompt!==undefined)promptEntries.push([processTransitionPromptKey(entryState(entry),'entry:route'),promptId(value.prompt,`${location}.workflow.entries.${entry}.prompt`)]);}
+  const reachable=new Set<string>();const visit=(id:string)=>{if(reachable.has(id))return;reachable.add(id);for(const edge of nodeSources.get(id)!.edges.values())if(edge.targetNodeId)visit(edge.targetNodeId);};for(const target of entryTargets.values())visit(target);for(const id of nodeSources.keys())if(!reachable.has(id))throw new Error(`${location}.workflow.nodes.${id} is unreachable from every entry.`);const terminalReachable=new Set<string>();for(const[id,node]of nodeSources)if([...node.edges.values()].some((edge)=>edge.terminalRoute))terminalReachable.add(id);let changed=true;while(changed){changed=false;for(const[id,node]of nodeSources)if(!terminalReachable.has(id)&&[...node.edges.values()].some((edge)=>edge.targetNodeId&&terminalReachable.has(edge.targetNodeId))){terminalReachable.add(id);changed=true;}}for(const id of nodeSources.keys())if(!terminalReachable.has(id))throw new Error(`${location}.workflow.nodes.${id} has no path to a terminal.`);
+  // Deliberately limited promotion validation: existence plus a directed path from latest_node to this terminal source.
+  const pathExists=(from:string,to:string,seen=new Set<string>()):boolean=>{if(from===to)return true;if(seen.has(from))return false;seen.add(from);return[...nodeSources.get(from)!.edges.values()].some((edge)=>edge.targetNodeId!==null&&pathExists(edge.targetNodeId,to,seen));};for(const[sourceId,node]of nodeSources)for(const edge of node.edges.values()){const promotion=edge.terminalRoute?.promotion;if(promotion?.kind==='latest-node'){if(!nodeSources.has(promotion.nodeId))throw new Error(`${location}.workflow.nodes.${sourceId}.edges.${edge.outcome} promotes missing node '${promotion.nodeId}'.`);if(!pathExists(promotion.nodeId,sourceId))throw new Error(`${location}.workflow.nodes.${sourceId}.edges.${edge.outcome} has no path from promoted node '${promotion.nodeId}' to its terminal source.`);}}
+  const processPromptIds=new Set<ProcessPromptId>();const nodeEntries:Array<readonly[string,CompiledNodeContract]>=[];for(const[nodeId,value]of nodeSources){const agent=agents.get(value.source.agent)!;const creation:Iterable<CardType>=agent.canCreateChildren&&agent.tools.includes('create_card')?childTypes:[];const activation:Iterable<CardType>=agent.tools.includes('activate_card')?childTypes:[];const writable=recordEntries.filter(([,record])=>record.writers.includes(agent.name));const descendant=value.source.descendant_context?Object.freeze({records:Object.freeze(value.source.descendant_context.records.map((name)=>{const record=records.get(name);if(!record)throw new Error(`${location}.workflow.nodes.${nodeId}.descendant_context references unknown record '${name}'.`);return record;})),requireUnchangedUntilAccept:value.source.descendant_context.require_unchanged_until_accept}):null;const selectedAgentPrompt=selectAgentPrompt(cardType,agent,roots);validateCompiledAgentPrompt(cardType,agent.name,selectedAgentPrompt,true);const nodePromptId=promptId(value.source.prompt,`${location}.workflow.nodes.${nodeId}.prompt`);const correctionPromptId=promptId(value.source.correction_prompt,`${location}.workflow.nodes.${nodeId}.correction_prompt`);processPromptIds.add(nodePromptId);processPromptIds.add(correctionPromptId);const compiled:CompiledNodeContract=Object.freeze({kind:'node',nodeId,agent,selectedAgentPrompt,promptId:nodePromptId,nodePrompt:getProcessPrompt(nodePromptId).text,correctionPromptId,correctionPrompt:getProcessPrompt(correctionPromptId).text,requirements:value.requirements,descendantContext:descendant,outcomes:Object.freeze([...value.edges.keys()]),edges:immutableMap(value.edges),childCreationTypes:immutableSet(creation),childActivationTypes:immutableSet(activation),readableRecords:records,writableRecords:immutableMap(writable)});nodeEntries.push([nodeId,compiled]);metadataEntries.push([nodeState(nodeId),compiled]);for(const edge of value.edges.values())if(edge.promptId){promptEntries.push([processTransitionPromptKey(nodeState(nodeId),`result:${edge.outcome}`),edge.promptId]);processPromptIds.add(edge.promptId);}}
+  for(const prompt of promptEntries){processPromptIds.add(prompt[1]);}for(const terminal of TERMINAL_PORTS)metadataEntries.push([terminalState(terminal),Object.freeze({kind:'terminal',terminal})]);const states:Record<string,{parked?:boolean;terminal?:boolean;on?:Record<string,string|{target:string;reenter:true}>}>={'lifecycle:ready':{parked:true,on:{}}};for(const entry of ENTRY_PORTS){states['lifecycle:ready']!.on![`activate:${entry}`]=entryState(entry);states[entryState(entry)]={on:{'entry:route':nodeState(entryTargets.get(entry)!)}};}for(const[nodeId,node]of nodeSources){const stateId=nodeState(nodeId);const on:Record<string,string|{target:string;reenter:true}>={};for(const[outcome,edge]of node.edges)on[`result:${outcome}`]=edge.targetState===stateId?{target:stateId,reenter:true}:edge.targetState;on['execution:failed']=terminalState('FAILED');states[stateId]={on};}for(const terminal of TERMINAL_PORTS)states[terminalState(terminal)]={terminal:true};const definition=compileActorDefinition({initial:'lifecycle:ready',states});const stateMetadata=immutableMap(metadataEntries);if(definition.states.size!==stateMetadata.size)throw new Error(`${location}.workflow compiled metadata mismatch.`);const processPrompts=immutableMap([...processPromptIds].map((id)=>[id,selectProcessPrompt(cardType,id,roots)] as const));return Object.freeze({cardType,permittedChildTypes:immutableSet(childTypes),records,bootstrapRecord:bootstrap,definition,states:stateMetadata,nodes:immutableMap(nodeEntries),transitionPrompts:immutableMap(promptEntries),processPrompts});
 }
 
-function immutableMap<K, V>(entries: Iterable<readonly [K, V]>): ReadonlyMap<K, V> { return new ImmutableMap(entries); }
-function identifier(value: string, location: string): string { if (!IDENTIFIER.test(value)) throw new Error(`${location} must be a lowercase process identifier of at most 64 characters.`); return value; }
-function promptId(value: string, location: string): ProcessPromptId { return identifier(value, location) as ProcessPromptId; }
-function outcomeIdentifier(value: string, location: string): string { if (!OUTCOME_IDENTIFIER.test(value)) throw new Error(`${location} must be a lowercase outcome identifier of at most 64 characters.`); return value; }
-function nodeState(nodeId: string): string { return `node:${nodeId}`; }
-function entryState(entry: CardProcessEntry): string { return `entry:${entry}`; }
-function terminalState(terminal: CardProcessTerminal): string { return `terminal:${terminal}`; }
-
-export function processTransitionPromptKey(source: string, event: string): string { return `${source.length}:${source}${event}`; }
-
-export function cardProcessEntryForStatus(status: CardStatus): CardProcessEntry | null {
-  if (status === 'backlog') return 'BACKLOG';
-  if (status === 'changed') return 'CHANGED';
-  if (status === 'blocked') return 'BLOCKED';
-  if (status === 'stopped') return 'STOPPED';
-  return null;
-}
-
-function applicableCardTypes(family: CardProcessFamily): readonly CardType[] { return family === 'planning' ? planningCardTypeValues : terminalCardTypeValues; }
-
-type ValidatedEdge = Readonly<{ targetState: string; targetNodeId: string | null; terminal: CardProcessTerminal | null; promptId: ProcessPromptId | null }>;
-
-function compileFamily(family: CardProcessFamily, source: CardProcessSource): CompiledCardProcess {
-  const compatibleRoles: ReadonlySet<ProcessRole> = family === 'planning' ? new Set(['planner', 'reviewer']) : new Set(['executor']);
-  const metadataEntries: Array<readonly [string, ProcessStateMetadata]> = [['lifecycle:ready', Object.freeze({ kind: 'ready' as const })]];
-  const nodeSources = new Map<string, { metadata: ProcessNodeMetadata; edges: Map<string, ValidatedEdge> }>();
-
-  for (const [rawNodeId, rawNode] of Object.entries(source.nodes)) {
-    const nodeId = identifier(rawNodeId, `card_processes.${family}.nodes key`);
-    if (!compatibleRoles.has(rawNode.role)) throw new Error(`card_processes.${family}.nodes.${nodeId}.role '${rawNode.role}' is incompatible with the ${family} family.`);
-    const recordNames = new Set<string>();
-    const requiredRecords = Object.freeze(rawNode.records.map((record, index) => {
-      if (recordNames.has(record.name)) throw new Error(`card_processes.${family}.nodes.${nodeId}.records contains duplicate '${record.name}'.`);
-      recordNames.add(record.name);
-      if (record.updated && !currentRecordDefinitionForFilename(record.name).writers.includes(rawNode.role)) throw new Error(`card_processes.${family}.nodes.${nodeId}.records.${index} requires ${rawNode.role} to update unsupported record '${record.name}'.`);
-      return Object.freeze({ filename: record.name, updated: record.updated });
-    }));
-    const edges = new Map<string, ValidatedEdge>();
-    for (const [rawOutcome, rawEdge] of Object.entries(rawNode.edges)) {
-      const outcome = outcomeIdentifier(rawOutcome, `card_processes.${family}.nodes.${nodeId}.edges key`);
-      if ('node' in rawEdge.target) {
-        const targetNodeId = identifier(rawEdge.target.node, `card_processes.${family}.nodes.${nodeId}.edges.${outcome}.target.node`);
-        edges.set(outcome, Object.freeze({ targetState: nodeState(targetNodeId), targetNodeId, terminal: null, promptId: rawEdge.prompt === undefined ? null : promptId(rawEdge.prompt, `card_processes.${family}.nodes.${nodeId}.edges.${outcome}.prompt`) }));
-      } else {
-        if (rawEdge.prompt !== undefined) throw new Error(`card_processes.${family}.nodes.${nodeId}.edges.${outcome} cannot specify prompt for terminal target ${rawEdge.target.terminal}.`);
-        edges.set(outcome, Object.freeze({ targetState: terminalState(rawEdge.target.terminal), targetNodeId: null, terminal: rawEdge.target.terminal, promptId: null }));
-      }
-    }
-    if (edges.size === 0) throw new Error(`card_processes.${family}.nodes.${nodeId}.edges must contain at least one outcome.`);
-    const metadata: ProcessNodeMetadata = Object.freeze({ kind: 'node', nodeId, role: rawNode.role, promptId: promptId(rawNode.prompt, `card_processes.${family}.nodes.${nodeId}.prompt`), correctionPromptId: promptId(rawNode.correction_prompt, `card_processes.${family}.nodes.${nodeId}.correction_prompt`), requiredRecords });
-    nodeSources.set(nodeId, { metadata, edges });
-    metadataEntries.push([nodeState(nodeId), metadata]);
-  }
-  if (nodeSources.size === 0) throw new Error(`card_processes.${family}.nodes must contain at least one node.`);
-
-  const entryTargets = new Map<CardProcessEntry, string>();
-  const promptEntries: Array<readonly [string, ProcessPromptId]> = [];
-  for (const entry of ENTRY_PORTS) {
-    const rawEntry = source.entries[entry];
-    const targetNodeId = identifier(rawEntry.node, `card_processes.${family}.entries.${entry}.node`);
-    if (!nodeSources.has(targetNodeId)) throw new Error(`card_processes.${family}.entries.${entry} targets missing node '${targetNodeId}'.`);
-    if (entry === 'STOPPED' && rawEntry.prompt === undefined) throw new Error(`card_processes.${family}.entries.STOPPED.prompt is required.`);
-    entryTargets.set(entry, targetNodeId);
-    metadataEntries.push([entryState(entry), Object.freeze({ kind: 'entry', entry })]);
-    if (rawEntry.prompt !== undefined) promptEntries.push([processTransitionPromptKey(entryState(entry), 'entry:route'), promptId(rawEntry.prompt, `card_processes.${family}.entries.${entry}.prompt`)]);
-  }
-  for (const terminal of TERMINAL_PORTS) metadataEntries.push([terminalState(terminal), Object.freeze({ kind: 'terminal', terminal })]);
-
-  for (const [nodeId, node] of nodeSources) for (const edge of node.edges.values()) if (edge.targetNodeId && !nodeSources.has(edge.targetNodeId)) throw new Error(`card_processes.${family}.nodes.${nodeId} targets missing node '${edge.targetNodeId}'.`);
-
-  const reachable = new Set<string>();
-  const visit = (nodeId: string): void => { if (reachable.has(nodeId)) return; reachable.add(nodeId); for (const edge of nodeSources.get(nodeId)!.edges.values()) if (edge.targetNodeId) visit(edge.targetNodeId); };
-  for (const target of entryTargets.values()) visit(target);
-  for (const nodeId of nodeSources.keys()) if (!reachable.has(nodeId)) throw new Error(`card_processes.${family}.nodes.${nodeId} is unreachable from every entry.`);
-  const terminalReachable = new Set<string>();
-  for (const [nodeId, node] of nodeSources) if ([...node.edges.values()].some((edge) => edge.terminal !== null)) terminalReachable.add(nodeId);
-  let changed = true;
-  while (changed) { changed = false; for (const [nodeId, node] of nodeSources) if (!terminalReachable.has(nodeId) && [...node.edges.values()].some((edge) => edge.targetNodeId && terminalReachable.has(edge.targetNodeId))) { terminalReachable.add(nodeId); changed = true; } }
-  for (const nodeId of nodeSources.keys()) if (!terminalReachable.has(nodeId)) throw new Error(`card_processes.${family}.nodes.${nodeId} has no path to a terminal.`);
-
-  const states: Record<string, { parked?: boolean; terminal?: boolean; on?: Record<string, string | { target: string; reenter: true }> }> = { 'lifecycle:ready': { parked: true, on: {} } };
-  for (const entry of ENTRY_PORTS) {
-    states['lifecycle:ready']!.on![`activate:${entry}`] = entryState(entry);
-    states[entryState(entry)] = { on: { 'entry:route': nodeState(entryTargets.get(entry)!) } };
-  }
-  for (const [nodeId, node] of nodeSources) {
-    const stateId = nodeState(nodeId);
-    const on: Record<string, string | { target: string; reenter: true }> = {};
-    for (const [outcome, edge] of node.edges) {
-      on[`result:${outcome}`] = edge.targetState === stateId ? { target: stateId, reenter: true } : edge.targetState;
-      if (edge.promptId) promptEntries.push([processTransitionPromptKey(stateId, `result:${outcome}`), edge.promptId]);
-    }
-    on['execution:failed'] = terminalState('FAILED');
-    states[stateId] = { on };
-  }
-  for (const terminal of TERMINAL_PORTS) states[terminalState(terminal)] = { terminal: true };
-  const definition = compileActorDefinition({ initial: 'lifecycle:ready', states });
-  const metadata = immutableMap(metadataEntries);
-  if (definition.states.size !== metadata.size || [...definition.states.keys()].some((key) => !metadata.has(key))) throw new Error(`Compiled process '${family}' metadata does not match its actor definition.`);
-  return Object.freeze({ family, definition, states: metadata, transitionPrompts: immutableMap(promptEntries) });
-}
-
-export function compileCardProcesses(source: CardProcessesSource): CompiledCardProcesses { return Object.freeze({ planning: compileFamily('planning', source.planning), terminal: compileFamily('terminal', source.terminal) }); }
-export function cardTypesForProcess(process: CompiledCardProcess): readonly CardType[] { return applicableCardTypes(process.family); }
-
-export function processNodeOutcomes(process: CompiledCardProcess, stateId: string): readonly string[] {
-  const state = process.definition.states.get(stateId);
-  if (!state || process.states.get(stateId)?.kind !== 'node') throw new Error(`Process '${process.family}' has no node state '${stateId}'.`);
-  return Object.freeze([...state.on.keys()].filter((event) => event.startsWith('result:')).map((event) => event.slice('result:'.length)));
-}
-
-export function processNodeTransition(process: CompiledCardProcess, stateId: string, outcome: string): CompiledTransitionDefinition {
-  const transition = process.definition.states.get(stateId)?.on.get(`result:${outcome}`);
-  if (!transition) throw new Error(`Process '${process.family}' node state '${stateId}' has no outcome '${outcome}'.`);
-  return transition;
-}
-
-export function describeNodeResultContract(process: CompiledCardProcess, stateId: string): string {
-  return `Call emit_result with exactly two fields: outcome (one of: ${processNodeOutcomes(process, stateId).join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).`;
-}
+export function compileProjectWorkflows(config:SaivageConfig,options:WorkflowCompileOptions={}):CompiledProjectWorkflows{const roots=promptRoots(options);const knownModels=new Set<string>();for(const routeName of Object.keys(config.models.routes))for(const model of resolveRoute(config,routeName))knownModels.add(model);for(const group of config.models.equivalents)for(const model of group)knownModels.add(model);for(const[source,targets]of Object.entries(config.models.failover)){if(!knownModels.has(source))throw new Error(`models.failover references unknown source model '${source}'.`);if(new Set(targets).size!==targets.length)throw new Error(`models.failover.${source} contains a duplicate model.`);for(const target of targets)if(!knownModels.has(target))throw new Error(`models.failover.${source} references unknown model '${target}'.`);}const agents=compileAgents(config);const analyst=agents.get(config.analyst_agent);if(!analyst)throw new Error(`analyst_agent references missing agent '${config.analyst_agent}'.`);if(analyst.session!=='global')throw new Error('analyst_agent must use global session scope.');const analystPrompt=selectAgentPrompt('global',analyst,roots);validateCompiledAgentPrompt('global',analyst.name,analystPrompt,false);const sourceKeys=Object.keys(config.card_types);if(sourceKeys.length!==cardTypeValues.length||cardTypeValues.some((type)=>!(type in config.card_types)))throw new Error(`card_types must contain exactly: ${cardTypeValues.join(', ')}.`);const cardTypes=immutableMap(cardTypeValues.map((type)=>[type,compileCardType(type,config.card_types[type]!,agents,roots)] as const));return Object.freeze({analyst,analystPrompt,agents,cardTypes});}
+export function bindRuntimeWorkflows(structural:CompiledProjectWorkflows,router:ModelRouter):CompiledRuntimeWorkflows{const chains:Array<readonly[AgentName,readonly Candidate[]]>=[];for(const agent of structural.agents.values()){const candidates=router.resolve(agent.name,{requiresTools:agent.tools.length>0});if(candidates.length===0)throw new Error(`Agent '${agent.name}' model route '${agent.modelRoute}' has no capability-compatible configured provider candidate.`);chains.push([agent.name,Object.freeze([...candidates])]);}return Object.freeze({...structural,runtimeBound:true as const,candidateChains:immutableMap(chains)});}
+export function processNodeOutcomes(process:CompiledCardTypeWorkflow,stateId:string):readonly string[]{const node=process.states.get(stateId);if(!node||node.kind!=='node')throw new Error(`Workflow '${process.cardType}' has no node state '${stateId}'.`);return node.outcomes;}
+export function processNodeTransition(process:CompiledCardTypeWorkflow,stateId:string,outcome:string):CompiledTransitionDefinition{const transition=process.definition.states.get(stateId)?.on.get(`result:${outcome}`);if(!transition)throw new Error(`Workflow '${process.cardType}' node '${stateId}' has no outcome '${outcome}'.`);return transition;}
+export function processTerminalRoute(process:CompiledCardTypeWorkflow,stateId:string,outcome:string):CompiledTerminalRoute|null{const node=process.states.get(stateId);if(!node||node.kind!=='node')throw new Error(`Workflow '${process.cardType}' has no node '${stateId}'.`);return node.edges.get(outcome)?.terminalRoute??null;}
+export function describeNodeResultContract(process:CompiledCardTypeWorkflow,stateId:string):string{return `Call emit_result with exactly two fields: outcome (one of: ${processNodeOutcomes(process,stateId).join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).`;}

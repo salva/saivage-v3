@@ -13,7 +13,7 @@ function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promis
 }
 
 function ctx(projectRoot: string) {
-  return { projectRoot, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentRole: 'executor' as const };
+  return { projectRoot, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentName: 'executor' as const };
 }
 
 describe('project file tool read limits', () => {

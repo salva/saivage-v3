@@ -18,7 +18,7 @@ function card(id: string, title: string, children: string[] = [], status: 'backl
     children,
     title,
     subtype: null,
-    lifecycle: { status, result: status === 'blocked' ? { kind: 'blocked', summary: 'blocked' } : null, error: status === 'blocked' ? 'blocked' : null, completed_at: null },
+    lifecycle: { status, result: status === 'blocked' ? { kind: 'workflow-result', terminal: 'BLOCKED', agent_name: 'executor', node_id: 'execute', outcome: 'blocked', summary: 'blocked', records: [] } : null, error: status === 'blocked' ? 'blocked' : null, completed_at: null },
     operator_summary: { blocked: status === 'blocked', hasError: false, error: null, completedAt: null, stale: false },
     tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
     assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
@@ -40,6 +40,19 @@ const target = { ...card(targetId, 'Deep linked target'), version_seq: 3 };
 const targetPrior = { ...target, title: 'Earlier target', version_seq: 2 };
 const newlyLinked = card(newId, 'Current detail outside retained slice');
 const project = card('project', 'Cards fixture project', [sourceId, goalId, ...overflow.map((entry) => entry.id)], 'running');
+const recordsFor = (id: string) => id === targetId ? [
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['executor'], bootstrap: false },
+  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', writers: ['reviewer'], bootstrap: false },
+  { name: 'decision.md', format: 'markdown' as const, schema: 'decision.v1', writers: ['reviewer'], bootstrap: false },
+] : id === goalId ? [
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst', 'planner'], bootstrap: true },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['planner'], bootstrap: false },
+  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', writers: ['reviewer'], bootstrap: false },
+] : [
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['executor'], bootstrap: false },
+];
 
 type RecordReply = { status: number; content?: string };
 type Fixture = { requests: string[]; omitNewEdge: boolean; missingDetails: Set<string>; detailDelay: Map<string, Promise<void>>; hierarchyDelay: Map<string, Promise<void>>; recordDelay: Map<string, Promise<void>>; historyDelay: Map<string, Promise<void>>; recordReplies: Map<string, RecordReply[]> };
@@ -95,7 +108,7 @@ async function install(page: Page): Promise<Fixture> {
       if (fixture.missingDetails.has(id)) return json(route, { error: 'Card not found', cardId: id }, 404);
       const found = [project, source, goal, target, newlyLinked, ...overflow].find((entry) => entry.id === id);
       const detailCard = found && id === goalId ? { ...found, title: 'Detail authority goal' } : found;
-      return detailCard ? json(route, parseOperatorResponse('cards.get', { card: detailCard })) : json(route, { error: 'Card not found', cardId: id }, 404);
+      return detailCard ? json(route, parseOperatorResponse('cards.get', { card: detailCard, records: recordsFor(id) })) : json(route, { error: 'Card not found', cardId: id }, 404);
     }
     return route.fallback();
   });
@@ -104,9 +117,9 @@ async function install(page: Page): Promise<Fixture> {
     const path = url.searchParams.get('path') ?? '';
     if (!path.startsWith('record:///')) return route.fallback();
     fixture.requests.push(`GET ${url.pathname}?path=${path}`);
-    const slot = path.match(/^record:\/\/\/([^.]*)\.md/)?.[1] ?? '';
+    const recordStem = path.match(/^record:\/\/\/([^.]*)\.md/)?.[1] ?? '';
     const cardId = new URLSearchParams(path.split('?')[1] ?? '').get('card') ?? '';
-    const key = `${cardId}:${slot}`;
+    const key = `${cardId}:${recordStem}`;
     await fixture.recordDelay.get(key);
     const queued = fixture.recordReplies.get(key)?.shift();
     if (queued) {
@@ -206,7 +219,7 @@ test('refresh detail 404 aborts selected resources, blocks healing fan-out, and 
   const briefPath = `GET /api/files/content?path=record:///brief.md?card=${targetId}&v=latest`;
   const briefBefore = fixture.requests.filter((entry) => entry === briefPath).length; const historyBefore = fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}/history`).length;
   await page.evaluate((frames) => { for (const frame of frames) window.__saivageWsFixture?.emit(frame); }, [
-    { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, slot: 'brief' },
+    { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, record_name: 'brief.md' },
     { t: 'invalidate', resource: 'cards', scope: 'history', card_id: targetId },
   ]);
   await expect.poll(() => fixture.requests.filter((entry) => entry === briefPath).length).toBe(briefBefore + 1); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}/history`).length).toBe(historyBefore + 1);
@@ -217,7 +230,7 @@ test('refresh detail 404 aborts selected resources, blocks healing fan-out, and 
   const selectedBaseline = selectedReads();
   await page.evaluate((frames) => { for (const frame of frames) window.__saivageWsFixture?.emit(frame); }, [
     { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: targetId },
-    { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, slot: 'brief' },
+    { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, record_name: 'brief.md' },
     { t: 'invalidate', resource: 'cards', scope: 'history', card_id: targetId },
     { t: 'invalidate', resource: 'cards', scope: 'diff', card_id: targetId },
   ]); await page.evaluate(() => Promise.resolve()); expect(selectedReads()).toBe(selectedBaseline);
@@ -324,7 +337,7 @@ test('exact record invalidation retains failed content until one operator Retry'
   await page.goto(`/cards/${targetId}`);
   await expect(page.getByText('Accepted brief remains visible.')).toBeVisible();
   const briefPath = `GET /api/files/content?path=record:///brief.md?card=${targetId}&v=latest`;
-  await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, slot: 'brief' });
+  await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, record_name: 'brief.md' });
   await expect(page.getByText('Accepted brief remains visible.')).toBeVisible();
   await expect(page.getByText('fixture_failure')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Retry' })).toBeVisible();
@@ -344,14 +357,14 @@ test('exact record invalidation retains failed content until one operator Retry'
 test('reconnect snapshots loaded scopes once and keeps accepted-empty optional records current on 404', async ({ page }) => {
   const fixture = await install(page);
   await page.goto(`/cards/${targetId}`);
-  await expect(page.getByText('No review record yet.')).toBeVisible();
+  await expect(page.getByText('No review.md record yet.')).toBeVisible();
   const rootBefore = fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children').length;
   const reviewPath = `GET /api/files/content?path=record:///review.md?card=${targetId}&v=latest`;
   const reviewBefore = fixture.requests.filter((entry) => entry === reviewPath).length;
   await page.evaluate(() => window.__saivageWsFixture?.closeAll());
   await expect.poll(() => fixture.requests.filter((entry) => entry === 'GET /api/cards/project/children').length).toBe(rootBefore + 1);
   await expect.poll(() => fixture.requests.filter((entry) => entry === reviewPath).length).toBe(reviewBefore + 1);
-  await expect(page.getByText('No review record yet.')).toBeVisible();
+  await expect(page.getByText('No review.md record yet.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Retry' })).toHaveCount(0);
   expect(fixture.requests).not.toContain(`GET /api/cards/${sourceId}/children`);
 });
@@ -386,16 +399,16 @@ test('unselected card history and diff invalidations do not reload the selected 
   expect(fixture.requests).toEqual(before);
 });
 
-test('exact-slot close refreshes only that selected slot and unselected targets are ignored', async ({ page }) => {
+test('exact-record close refreshes only that selected record and unselected targets are ignored', async ({ page }) => {
   const fixture = await install(page);
   fixture.recordReplies.set(`${targetId}:status`, [{ status: 404 }, { status: 200, content: 'Closed status replacement.' }]);
   await page.goto(`/cards/${targetId}`);
-  await expect(page.getByText('No status record yet.')).toBeVisible();
+  await expect(page.getByText('No status.md record yet.')).toBeVisible();
   const before = fixture.requests.length;
-  await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'record', card_id: sourceId, slot: 'review' });
+  await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'record', card_id: sourceId, record_name: 'review.md' });
   await page.evaluate(() => Promise.resolve());
   expect(fixture.requests).toHaveLength(before);
-  await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, slot: 'status' });
+  await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'record', card_id: targetId, record_name: 'status.md' });
   await expect(page.getByText('Closed status replacement.')).toBeVisible();
   expect(fixture.requests.filter((entry) => entry.includes('review.md') && entry.includes(`card=${targetId}`))).toHaveLength(1);
 });

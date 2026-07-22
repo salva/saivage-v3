@@ -4,6 +4,8 @@ import { useAnalystChat } from '../stores/analystChat';
 import { useFeedbackStore } from '../stores/feedback';
 import type { AgentConversationEntry, ChatEntriesResponse } from '../api/types';
 
+const analystSessionId = 'agent:analyst:global' as const;
+
 const apiMocks = vi.hoisted(() => ({
   getChatEntries: vi.fn(),
   sendChatMessage: vi.fn(),
@@ -18,7 +20,7 @@ vi.mock('../api/client', () => ({
 function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
   return {
     id: 'entry-1',
-    session_id: 'analyst:global',
+    session_id: analystSessionId,
     role: 'user',
     kind: 'text',
     content: 'message',
@@ -38,7 +40,7 @@ function deferred<T>() {
 }
 
 function chat(entries: AgentConversationEntry[] = []) {
-  return { session: entries.length === 0 ? null : { id: 'analyst:global' as const, role: 'analyst' as const, status: 'inactive' as const, started_at: '2025-01-01T00:00:00Z' }, entries, activity_status: { status: 'inactive' as const, pending_calls: [] } };
+  return { session_id: analystSessionId, session: entries.length === 0 ? null : { id: analystSessionId, agent_name: 'analyst', session_scope: 'global' as const, card_id: null, status: 'inactive' as const, started_at: '2025-01-01T00:00:00Z' }, entries, activity_status: { status: 'inactive' as const, pending_calls: [] } };
 }
 
 describe('analyst chat store', () => {
@@ -50,14 +52,15 @@ describe('analyst chat store', () => {
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
     apiMocks.getChatEntries.mockResolvedValue(chat());
-    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
+    apiMocks.sendChatMessage.mockResolvedValue({ sessionId: analystSessionId, toolInvocations: [], restart: null });
+    useAnalystChat().activeSessionId = analystSessionId;
   });
 
   it('createNewChat resolves to the canonical analyst session', async () => {
     const store = useAnalystChat();
     const sessionId = store.createNewChat();
-    expect(sessionId).toBe('analyst:global');
-    expect(store.activeSessionId).toBe('analyst:global');
+    expect(sessionId).toBe(analystSessionId);
+    expect(store.activeSessionId).toBe(analystSessionId);
     expect(store.messagesError).toBeNull();
   });
 
@@ -66,7 +69,7 @@ describe('analyst chat store', () => {
     await store.fetchMessages();
     apiMocks.getChatEntries.mockClear();
 
-    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: 'analyst:global', tool: 'list_cards', summary: 'listed cards', success: true });
+    store.ingestWsEvent({ event: 'analyst_tool_invoked', sessionId: analystSessionId, tool: 'list_cards', summary: 'listed cards', success: true });
 
     expect(apiMocks.getChatEntries).not.toHaveBeenCalled();
   });
@@ -78,7 +81,7 @@ describe('analyst chat store', () => {
     await store.fetchMessages();
 
     expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith(expect.any(AbortSignal));
-    expect(store.activeSessionId).toBe('analyst:global');
+    expect(store.activeSessionId).toBe(analystSessionId);
   });
 
   it.each([
@@ -86,7 +89,7 @@ describe('analyst chat store', () => {
     { status: 'active' as const, pending_calls: [] },
     { status: 'waiting' as const, pending_calls: [{ id: 'call-1', tool: 'webfetch', started_at: '2025-01-01T00:00:01Z' }] },
   ])('retains the exact $status detail session/activity from the exact detail tuple', async (activity_status) => {
-    apiMocks.getChatEntries.mockResolvedValueOnce({ session: { id: 'analyst:global', role: 'analyst', status: activity_status.status, started_at: '2025-01-01T00:00:00Z' }, entries: [], activity_status });
+    apiMocks.getChatEntries.mockResolvedValueOnce({ session_id: analystSessionId, session: { id: analystSessionId, agent_name: 'analyst', session_scope: 'global', card_id: null, status: activity_status.status, started_at: '2025-01-01T00:00:00Z' }, entries: [], activity_status });
     const store = useAnalystChat();
     await store.fetchMessages();
     expect(store.activeSession?.status).toBe(activity_status.status);
@@ -102,7 +105,7 @@ describe('analyst chat store', () => {
     expect(store.sending).toBe(true);
     expect(store.activityStatus).toEqual({ status: 'inactive', pending_calls: [] });
     expect(store.activeSession).toBeNull();
-    pending.resolve({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
+    pending.resolve({ sessionId: analystSessionId, toolInvocations: [], restart: null });
     await send;
   });
 
@@ -131,15 +134,15 @@ describe('analyst chat store', () => {
     await store.fetchMessages();
     apiMocks.getChatEntries.mockClear();
 
-    store.ingestWsEvent({ event: 'card_history_appended', sessionId: 'analyst:global' });
-    store.ingestWsEvent({ event: 'control_action_recorded', sessionId: 'analyst:global', actor: 'analyst', surface: 'web-chat', action: 'approved', target_id: '11111111-1111-4111-8111-111111111111' });
+    store.ingestWsEvent({ event: 'card_history_appended', sessionId: analystSessionId });
+    store.ingestWsEvent({ event: 'control_action_recorded', sessionId: analystSessionId, actor: 'analyst', surface: 'web-chat', action: 'approved', target_id: '11111111-1111-4111-8111-111111111111' });
 
     expect(apiMocks.getChatEntries).not.toHaveBeenCalled();
   });
 
   it('presents a confirmation-required response without adding a status transcript entry', async () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: 'analyst:global',
+      sessionId: analystSessionId,
       toolInvocations: [],
       restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
     });
@@ -171,7 +174,7 @@ describe('analyst chat store', () => {
   it('updates confirmation state only after a successful response consumes the next turn', async () => {
     const store = useAnalystChat();
     store.ingestRestartAcknowledgement({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
-    apiMocks.sendChatMessage.mockResolvedValueOnce({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
+    apiMocks.sendChatMessage.mockResolvedValueOnce({ sessionId: analystSessionId, toolInvocations: [], restart: null });
     store.setDraft('not the phrase');
 
     await store.sendMessage();
@@ -182,7 +185,7 @@ describe('analyst chat store', () => {
   it('preserves the scheduled acknowledgement and optimistic confirmation when shutdown interrupts refetch', async () => {
     const store = useAnalystChat();
     store.ingestRestartAcknowledgement({ status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
-    apiMocks.sendChatMessage.mockResolvedValueOnce({ sessionId: 'analyst:global', toolInvocations: [], restart: { status: 'scheduled' } });
+    apiMocks.sendChatMessage.mockResolvedValueOnce({ sessionId: analystSessionId, toolInvocations: [], restart: { status: 'scheduled' } });
     apiMocks.getChatEntries.mockRejectedValueOnce(new Error('server shutting down'));
     store.setDraft('RESTART SERVER');
 
@@ -203,7 +206,7 @@ describe('analyst chat store', () => {
   it('retains a consumed acknowledgement when a non-scheduled response refetch fails', async () => {
     const store = useAnalystChat();
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: 'analyst:global',
+      sessionId: analystSessionId,
       toolInvocations: [],
       restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
     });
@@ -297,7 +300,7 @@ describe('analyst chat store', () => {
     initial.reject(new Error('late initial failure'));
     await expect(old).resolves.toBeUndefined();
     expect(store.messages).toEqual([newest]);
-    expect(store.activeSessionId).toBe('analyst:global');
+    expect(store.activeSessionId).toBe(analystSessionId);
     expect(store.activityStatus).toEqual({ status: 'inactive', pending_calls: [] });
     expect(store.messagesError).toBeNull();
     expect(store.messagesLoading).toBe(false);

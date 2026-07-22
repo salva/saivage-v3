@@ -25,12 +25,12 @@ describe('authoritative context route-pass ordering', () => {
       return contextExhausted();
     });
     const service = invocationService([first, second]);
-    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', role: 'planner', sessionId: 'planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 100 }, capabilityRequest: {}, candidateChain: [first, second] };
+    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 100 }, capabilityRequest: {}, candidateChain: [first, second] };
 
     await expect(service.invokeWithRecovery(request)).rejects.toMatchObject({ failure: { kind: 'input_context_exhausted' }, provider_exchanges: [{ attempt_index: 0 }] });
     expect(calls).toEqual(['test-a']);
 
-    await expect(service.invokeWithRecovery({ ...request, providerConversation: { sourceSessionId: 'planner:project', messages: [] } })).rejects.toMatchObject({ failure: { kind: 'input_context_exhausted' }, provider_exchanges: [{ attempt_index: 0 }] });
+    await expect(service.invokeWithRecovery({ ...request, providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] } })).rejects.toMatchObject({ failure: { kind: 'input_context_exhausted' }, provider_exchanges: [{ attempt_index: 0 }] });
     expect(calls).toEqual(['test-a', 'test-a']);
   });
 });

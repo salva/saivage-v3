@@ -2,17 +2,17 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
-import { currentRecordDefinitionForFilename } from '../../src/records/current-record-definitions.js';
+import { testRecordDefinition } from '../helpers/record-definitions.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { parseConversationSessionId, type ConversationSessionId } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'e2e' };
-function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: string[] = []) { return { type, parent, title: type, brief: `${type} brief`, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on, related: [] }; }
+function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: string[] = []) { return { type, parent, title: type, bootstrap_content: `${type} brief`, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on, related: [] }; }
 function row(session_id: ConversationSessionId, id: string) { return { id, session_id, role: 'user' as const, kind: 'text' as const, content: id, round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' }; }
 
 describe('reset-only hierarchical card storage', () => {
@@ -24,9 +24,9 @@ describe('reset-only hierarchical card storage', () => {
     const dependent = cards.create(input(goal.id, 'code', [dependency.id]));
     const survivor = cards.create(input('project', 'code', [dependency.id]));
     expect(readFileSync(cardStreamFile(root, goal.id), 'utf8')).toContain('card-version');
-    expect(readFileSync(cardRecordStreamFile(root, dependency.id, currentRecordDefinitionForFilename('brief.md')), 'utf8')).toContain('record-revision');
+    expect(readFileSync(cardRecordStreamFile(root, dependency.id, testRecordDefinition('brief.md')), 'utf8')).toContain('record-revision');
     const status = cards.openRecord(dependency.id, 'status.md'); cards.editRecord(dependency.id, 'status.md', status.version, 'status'); cards.closeRecord(dependency.id, 'status.md', status.version, 'executor', dependency.version_seq);
-    const dependencySession = parseConversationSessionId(`executor:${dependency.id}`);
+    const dependencySession = parseConversationSessionId(`agent:executor:${dependency.id}`);
     appendConversationBatch({ projectRoot: root }, [row(dependencySession, 'message')]);
     const dependencyStreamBefore = readFileSync(cardStreamFile(root, dependency.id), 'utf8');
     const dependentStreamBefore = readFileSync(cardStreamFile(root, dependent.id), 'utf8');

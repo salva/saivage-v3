@@ -4,7 +4,7 @@ import {
   cardHistoryEntrySchema,
   cardRecordSchema,
   positiveSafeIntegerSchema,
-  type AgentRole,
+  type AgentName,
   type CardHistoryEntry,
   type CardRecord,
   type CardStatus,
@@ -17,13 +17,14 @@ import {
   replaceOpenAuthoredRecord,
   type RecordProjection,
 } from '../persistence/authored-record-files.js';
-import { currentRecordDefinitionForFilename } from '../records/current-record-definitions.js';
+import type { RecordDefinition } from '../records/record-definition.js';
+import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
+import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 import {
   listCards,
   publishCardTombstone,
   publishCardVersion,
   publishInitialChildCard,
-  proveCreatedCardPublication,
   readCard,
   readCardArtifacts,
   readCanonicalCard,
@@ -46,7 +47,7 @@ import {
 } from '../persistence/card-files.js';
 import type { CanonicalReadInstrumentation, GrowingFileIo } from '../persistence/growing-file.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../application/freshness-effects.js';
-import type { LiveSyncCardRecordSlot } from '../contracts/index.js';
+import type { LiveSyncCardRecordName } from '../contracts/index.js';
 import { CardIndex } from './card-index.js';
 import {
   assertSetStatusAdmission,
@@ -56,7 +57,6 @@ import {
   buildEditedCard,
   collectEditChangedFields,
   enqueueCardNotification,
-  isTerminalType,
   pruneCardEditPatch,
   removeCardNotifications,
   summarizeChangedFields,
@@ -110,23 +110,32 @@ function diffSnapshots(from: CardRecord, to: CardRecord): CardDiffEntry[] {
     .map((field) => ({ field, before: from[field], after: to[field] }));
 }
 
-function historyEntry(prior: CardRecord, kind: CardHistoryEntry['kind'], fields: string[], summary: string, reason: string): CardHistoryEntry {
-  const provenance = kind === 'update' ? { changed_by_actor: 'planner', changed_by_surface: 'runtime' }
-    : kind === 'delete' ? { changed_by_actor: 'analyst', changed_by_surface: 'runtime' }
+function historyEntry(prior: CardRecord, kind: CardHistoryEntry['kind'], fields: string[], summary: string, reason: string,agentName?:AgentName): CardHistoryEntry {
+  const provenance = kind === 'update' ? { changed_by_actor: agentName!, changed_by_surface: 'runtime' }
+    : kind === 'delete' ? { changed_by_actor: agentName!, changed_by_surface: 'runtime' }
       : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };
   return cardHistoryEntrySchema.parse({ entry_id: randomUUID(), kind, card_id: prior.id, version_seq: prior.version_seq, snapshot: prior, changed_at: new Date().toISOString(), ...provenance, change_reason: reason, changed_fields: fields, change_summary: summary });
 }
 
-function assertChildParentAdmission(parent: CardRecord, message: string): void {
-  if (isTerminalType(parent.type) || !canCreateChildInStatus(parent.lifecycle.status)) throw new Error(`${message} '${parent.id}'.`);
+function assertChildParentAdmission(parent: CardRecord, message: string, workflows:CompiledProjectWorkflows): void {
+  if ((workflows.cardTypes.get(parent.type)?.permittedChildTypes.size??0)===0 || !canCreateChildInStatus(parent.lifecycle.status)) throw new Error(`${message} '${parent.id}'.`);
 }
 
 export class CardService {
   readonly maxDepth = 5;
 
-  constructor(readonly projectRoot: string, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
+  constructor(readonly projectRoot: string, readonly workflows: CompiledProjectWorkflows, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
 
-  get recordReader() { return { record: (cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest') => this.readRecord(cardId, filename, version), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
+  private recordDefinition(cardId:string,filename:string):RecordDefinition {
+    const card = this.read(cardId);
+    if (!card) throw new AuthoredRecordNotFoundError();
+    const definition = this.workflows.cardTypes.get(card.type)?.records.get(filename as never);
+    if (!definition) throw new AuthoredRecordDefinitionNotFoundError();
+    return { filename: definition.name, writers: definition.writers, format: definition.format, schema: definition.schema, bootstrap: definition.bootstrap };
+  }
+  private recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,writers:definition.writers,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap}));}
+
+  get recordReader() { return { record: (cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest') => this.readRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
 
   private state(): CardIndex {
     const state = new CardIndex();
@@ -134,14 +143,14 @@ export class CardService {
     return state;
   }
 
-  private publishCardVersionEffects(history: CardHistoryEntry, parentId: string | null, runtimeChanged: boolean, recordSlots: readonly LiveSyncCardRecordSlot[] = []): void {
+  private publishCardVersionEffects(history: CardHistoryEntry, parentId: string | null, runtimeChanged: boolean, recordNames: readonly LiveSyncCardRecordName[] = []): void {
     const cardId = history.card_id;
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: cardId });
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'history', card_id: cardId });
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'diff', card_id: cardId });
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'children', card_id: cardId });
     if (parentId) this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'children', card_id: parentId });
-    for (const slot of recordSlots) this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot });
+    for (const record_name of recordNames) this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name });
     if (runtimeChanged) this.freshness.runtimeChanged();
   }
 
@@ -165,15 +174,15 @@ export class CardService {
   getDescendantIds(id: string): string[] { const state = this.state(); const out: string[] = []; const visit = (parent: string): void => { for (const child of state.childrenOf(parent)) { out.push(child); visit(child); } }; visit(id); return out; }
   blocksFor(id: string): string[] { return this.list().filter((card) => card.depends_on.includes(id)).map((card) => card.id); }
 
-  readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), version, instrumentation); }
-  openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), undefined, this.cardAppendIo); }
-  editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection { return replaceOpenAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), version, content, this.cardAppendIo); }
-  closeRecord(cardId: string, filename: string, version: number, role: AgentRole, cardVersionSeq: number): RecordProjection {
-    const closed = closeAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), version, role, cardVersionSeq, this.cardAppendIo);
-    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot: closed.slot });
+  readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, instrumentation); }
+  openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), undefined, this.cardAppendIo); }
+  editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection { return replaceOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, content, this.cardAppendIo); }
+  closeRecord(cardId: string, filename: string, version: number, agentName: AgentName, cardVersionSeq: number): RecordProjection {
+    const closed = closeAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, agentName, cardVersionSeq, this.cardAppendIo);
+    this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name: filename as never });
     return closed;
   }
-  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection { return discardAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), version, reason, this.cardAppendIo); }
+  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection { return discardAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, reason, this.cardAppendIo); }
 
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
     return clone(readCardDetail(this.projectRoot, id, instrumentation));
@@ -185,10 +194,12 @@ export class CardService {
     return readCanonicalCardHierarchy(this.projectRoot, id, instrumentation);
   }
   getCanonicalCardFilesMetadata(id: string): CardTargetRead<CanonicalCardFilesMetadataReadProjection> {
-    return readCanonicalCardFilesMetadata(this.projectRoot, id);
+    if(!this.read(id))return {kind:'card-not-found'};
+    return readCanonicalCardFilesMetadata(this.projectRoot, id,this.recordDefinitions(id));
   }
   getCanonicalCardFileContent(id: string, slot: CanonicalCardFileSlot, maximumBytes: number): CanonicalCardFileContentRead {
-    return readCanonicalCardFileContent(this.projectRoot, id, slot, maximumBytes);
+    if(!this.read(id))return {kind:'card-not-found'};
+    return readCanonicalCardFileContent(this.projectRoot, id, slot, maximumBytes,this.recordDefinitions(id));
   }
   getCardChildren(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<{ parent: CardRecord; activeChildren: CardRecord[] }> {
     return clone(readCardHierarchy(this.projectRoot, id, instrumentation));
@@ -220,21 +231,23 @@ export class CardService {
   }
 
   create(input: NewChildCardInput): CardRecord {
+    if(input.bootstrap_content.trim().length===0)throw new Error('Child bootstrap_content must contain non-whitespace Markdown.');
+    if(input.title.length===0||!Number.isInteger(input.priority))throw new Error('Child title and priority are invalid.');
     const parent = this.read(input.parent);
     if (!parent) throw new Error(`Parent card '${input.parent}' does not exist.`);
-    assertChildParentAdmission(parent, 'Cannot create a child under');
+    assertChildParentAdmission(parent, 'Cannot create a child under', this.workflows);
     const depth = cardDepth(parent.id) + 1;
     if (depth > this.maxDepth) throw new Error(`Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}.`);
     for (const dependencyId of input.depends_on) if (!this.read(dependencyId)) throw new Error(`Dependency card '${dependencyId}' does not exist.`);
     const parentBeforeClaim = this.read(parent.id);
     if (!parentBeforeClaim) throw new Error(`Parent '${parent.id}' changed before child namespace claim.`);
-    assertChildParentAdmission(parentBeforeClaim, 'Cannot claim a child namespace under');
-    const card = publishInitialChildCard(this.projectRoot, input);
+    assertChildParentAdmission(parentBeforeClaim, 'Cannot claim a child namespace under', this.workflows);
+    const childWorkflow=this.workflows.cardTypes.get(input.type);if(!childWorkflow)throw new Error(`No workflow for child type '${input.type}'.`);
+    const card = publishInitialChildCard(this.projectRoot, input,childWorkflow);
     if (cardParentId(card.id) !== parentBeforeClaim.id || cardDepth(card.id) !== depth) throw new Error(`Claimed card '${card.id}' does not belong to requested parent '${parentBeforeClaim.id}'.`);
     const freshParent = this.read(parent.id);
     if (!freshParent || freshParent.children.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
-    assertChildParentAdmission(freshParent, 'Cannot link a child under');
-    proveCreatedCardPublication(this.projectRoot, card);
+    assertChildParentAdmission(freshParent, 'Cannot link a child under', this.workflows);
     const linked = cardRecordSchema.parse({ ...freshParent, children: [...freshParent.children, card.id], version_seq: freshParent.version_seq + 1, updated_at: new Date().toISOString() });
     const linkHistory = historyEntry(freshParent, 'child_link', ['children'], `linked child ${card.id}`, 'child linked');
     publishCardVersion(this.projectRoot, linked, linkHistory, this.cardAppendIo);
@@ -242,21 +255,21 @@ export class CardService {
     return clone(card);
   }
 
-  private publishVersion(existing: CardRecord, candidate: CardRecord, kind: CardHistoryEntry['kind'], fields: string[], reason: string, summary = summarizeChangedFields(fields)): CardRecord {
-    const history = historyEntry(existing, kind, fields, summary, reason);
+  private publishVersion(existing: CardRecord, candidate: CardRecord, kind: CardHistoryEntry['kind'], fields: string[], reason: string, summary = summarizeChangedFields(fields),agentName?:AgentName): CardRecord {
+    const history = historyEntry(existing, kind, fields, summary, reason,agentName);
     publishCardVersion(this.projectRoot, cardRecordSchema.parse(candidate), history, this.cardAppendIo);
     this.publishCardVersionEffects(history, cardParentId(existing.id), fields.includes('lifecycle'));
     return clone(candidate);
   }
 
-  editCard(id: string, changes: CardEditPatch): CardRecord {
+  editCard(id: string, changes: CardEditPatch,agentName:AgentName): CardRecord {
     const existing = this.read(id); if (!existing) throw new Error(`Card '${id}' not found.`);
     if (!['backlog', 'changed', 'stopped'].includes(existing.lifecycle.status)) throw new Error(`Card '${id}' cannot be edited in status '${existing.lifecycle.status}'.`);
     const patch = pruneCardEditPatch(existing, changes);
     if (Object.keys(patch).length === 0) return existing;
     const candidate = buildEditedCard(existing, patch, new Date().toISOString());
     const fields = collectEditChangedFields(existing, candidate, patch);
-    return this.publishVersion(existing, candidate, 'update', fields, 'planner edit_card');
+    return this.publishVersion(existing, candidate, 'update', fields, 'agent edit_card',undefined,agentName);
   }
 
   setStatus(id: string, status: SetStatusTarget): CardRecord {
@@ -329,7 +342,7 @@ export class CardService {
     return this.publishVersion(parent, { ...parent, children: fullOrder, version_seq: parent.version_seq + 1, updated_at: new Date().toISOString() }, 'reorder', ['children'], 'children reordered', 'children reordered');
   }
 
-  deleteSubtrees(requestedIds: readonly string[], allowed: (card: CardRecord) => boolean): { deleted: string[]; requested: string[] } {
+  deleteSubtrees(requestedIds: readonly string[], allowed: (card: CardRecord) => boolean,agentName:AgentName): { deleted: string[]; requested: string[] } {
     if (requestedIds.length === 0) throw new Error('Deletion requires at least one card id.');
     const state = this.state(); const roots = [...new Set(requestedIds)]; const intended = new Set<string>();
     for (const id of roots) { const card = state.get(id); if (!card || id === 'project') throw new Error(`Card '${id}' cannot be deleted.`); intended.add(id); for (const child of state.descendantsOf(id)) intended.add(child); }
@@ -341,7 +354,7 @@ export class CardService {
     const ready = [...intended].filter((id) => indegree.get(id) === 0).sort(); const order: string[] = [];
     while (ready.length) { const id = ready.shift()!; order.push(id); for (const next of outgoing.get(id)!) { indegree.set(next, indegree.get(next)! - 1); if (indegree.get(next) === 0) { ready.push(next); ready.sort(); } } }
     if (order.length !== intended.size) throw new Error('Deletion dependency and hierarchy constraints conflict.');
-    for (const id of order) { const card = state.get(id)!; const entry = historyEntry(card, 'delete', ['__deleted__'], 'card deleted', 'analyst subtree deletion'); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishCardVersionEffects(entry, cardParentId(card.id), true, ['brief', 'status', 'review']); }
+    for (const id of order) { const card = state.get(id)!;const recordNames=[...this.workflows.cardTypes.get(card.type)!.records.keys()]; const entry = historyEntry(card, 'delete', ['__deleted__'], 'card deleted', 'analyst subtree deletion',agentName); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishCardVersionEffects(entry, cardParentId(card.id), true, recordNames); }
     return { deleted: order, requested: roots };
   }
 }

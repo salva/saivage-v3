@@ -10,7 +10,7 @@ function router() { return createRouter({ history: createWebHistory(), routes: [
 function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
   return {
     id: 'entry-1',
-    session_id: 'planner:11111111-1111-4111-8111-111111111111',
+    session_id: 'agent:planner:card-a',
     role: 'system',
     kind: 'system_prompt',
     content: 'Plan and coordinate card 11111111-1111-4111-8111-111111111111',

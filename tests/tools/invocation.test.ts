@@ -33,7 +33,7 @@ describe('tool invocation surface', () => {
   it('returns model-visible errors for unsupported tool names', async () => {
     const surface = buildInvocationSurface('reviewer', [provider('a')]);
 
-    await expect(invokeTool(surface, 'missing', {})).resolves.toEqual({ success: false, error: "Unsupported tool 'missing' for role 'reviewer'." });
+    await expect(invokeTool(surface, 'missing', {})).resolves.toEqual({ success: false, error: "Unsupported tool 'missing' for agent 'reviewer'." });
   });
 
   it('returns model-visible errors for invalid parsed arguments', async () => {

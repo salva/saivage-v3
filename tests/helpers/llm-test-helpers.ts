@@ -2,11 +2,14 @@ import type { LlmCompleteOptions, LlmCompleteResult, ProviderTurnCompletion, Too
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import type { CompactorPort } from '../../src/runtime/actors/llm-actor.js';
 import type { SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
-import { compileCardProcesses } from '../../src/runtime/card-process/card-process-config.js';
-import { cardProcessesSchema } from '../../src/schemas/saivage-config.js';
+import { bindRuntimeWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import type { McpToolInvocationPort } from '../../src/mcp/manager-api.js';
 import { ChildInvocationLease } from '../../src/runtime/actors/child-invocation-wait.js';
 import type { LlmToolInvocationContext, ToolInvocationIdentity } from '../../src/runtime/actors/executing-llm-snapshot.js';
+import { TEST_WORKFLOWS } from './canonical-project.js';
+import { TEST_SAIVAGE_CONFIG } from './test-saivage-config.js';
+import { ProviderRegistry } from '../../src/agents/provider.js';
+import { ModelRouter } from '../../src/agents/model-router.js';
 
 export const testCompactionPolicy: AutonomousCompactionPolicy = {
   input_budget_tokens: 100_000,
@@ -32,7 +35,7 @@ export const unusedMcpToolInvocation: McpToolInvocationPort = {
 
 export function testLlmToolInvocationContext(overrides: Partial<ToolInvocationIdentity> = {}): LlmToolInvocationContext {
   const identity: ToolInvocationIdentity = Object.freeze({
-    sessionId: 'executor:card-a',
+    sessionId: 'agent:executor:card-a',
     sourceInputId: '11111111-1111-4111-8111-111111111111',
     toolCallId: 'test-tool-call',
     toolName: 'test_tool',
@@ -62,14 +65,7 @@ export const testAutonomousCompaction = {
   compactionConfig: testCompactionPolicy,
   summarizerProvider: unusedSummarizerProvider,
   mcpToolInvocation: unusedMcpToolInvocation,
-  cardProcesses: compileCardProcesses(cardProcessesSchema.parse({
-    planning: { entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'recover', prompt: 'stopped-recovery' } }, nodes: {
-      plan: { role: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: [{ name: 'status.md', updated: true }], edges: { complete_direct: { target: { terminal: 'DONE' } }, admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },
-      review: { role: 'reviewer', prompt: 'review', correction_prompt: 'correct-review-result', records: [{ name: 'review.md', updated: true }], edges: { approved: { target: { terminal: 'DONE' } }, revision_required: { target: { node: 'plan' }, prompt: 'review-to-plan' }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },
-      recover: { role: 'planner', prompt: 'recover', correction_prompt: 'correct-plan-result', records: [{ name: 'status.md', updated: true }], edges: { complete_direct: { target: { terminal: 'DONE' } }, admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } },
-    } },
-    terminal: { entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } }, nodes: { execute: { role: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: [{ name: 'status.md', updated: true }], edges: { done: { target: { terminal: 'DONE' } }, blocked: { target: { terminal: 'BLOCKED' } }, failed: { target: { terminal: 'FAILED' } } } } } },
-  })),
+  workflows: bindRuntimeWorkflows(TEST_WORKFLOWS,new ModelRouter(TEST_SAIVAGE_CONFIG,new ProviderRegistry(TEST_SAIVAGE_CONFIG))),
   processPrompts: { get: (_cardType: string, promptId: string) => `test process prompt: ${promptId}` },
 };
 

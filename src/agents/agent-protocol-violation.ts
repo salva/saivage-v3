@@ -1,10 +1,10 @@
-import type { OperationalAgentRole } from '../schemas/index.js';
+import type { AgentName } from '../schemas/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
 export interface AgentProtocolViolation {
   kind: 'agent_protocol_violation';
   session_id: string;
-  role: OperationalAgentRole;
+  agent_name: AgentName;
   provider?: string;
   model?: string;
   tool_call_id?: string;
@@ -53,7 +53,7 @@ export function buildAgentProtocolViolation(input: Omit<AgentProtocolViolation, 
   return {
     kind: 'agent_protocol_violation',
     session_id: input.session_id,
-    role: input.role,
+    agent_name: input.agent_name,
     provider: input.provider,
     model: input.model,
     tool_call_id: input.tool_call_id,

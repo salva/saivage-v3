@@ -14,7 +14,7 @@ const SYSTEM = 'system-prompt';
 const MESSAGES: AgentMessage[] = [
   {
     id: 'm1',
-    session_id: 'analyst:global',
+    session_id: 'agent:analyst:global',
     role: 'user',
     kind: 'text',
     content: 'hi',
@@ -55,7 +55,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL],
       tool_choice: 'auto',
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
@@ -90,7 +90,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       tools: [],
       tool_choice: 'auto',
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
 
     expect(Object.prototype.hasOwnProperty.call(body, 'tools')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'tool_choice')).toBe(false);
@@ -100,7 +100,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
 
   it('records current request parameters without an LLM phase while retaining terminal evidence', async () => {
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 }));
-    const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: 'key' }).complete(CANDIDATE, SYSTEM, { sourceSessionId: 'analyst:global', messages: MESSAGES }, 'analyst:global', {
+    const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: 'key' }).complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, 'agent:analyst:global', {
       inputId: 'test:input:record', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL], tool_choice: 'auto',
     });
 

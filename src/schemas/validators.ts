@@ -3,12 +3,10 @@ import {
   agentEventKindValues,
   eventKindValues,
   runtimeEventKindValues,
-  agentRoleValues,
   analystIssueSeverityValues,
   cardActionValues,
   cardStatusValues,
   cardTypeValues,
-  skillTargetRoleValues,
   urgencyValues,
 } from './types.js';
 import { loggedEventSchema, loggedEventSchemaByKind } from './event-catalog.js';
@@ -18,6 +16,7 @@ import { cardLifecycleStateSchema } from './lifecycle.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from './message-identity.js';
 import { cardIdSchema, cardParentId } from './card-id.js';
 import { parseCanonicalContextCompaction } from './context-compaction.js';
+import { agentNameSchema } from './agent-name.js';
 import { ConversationSessionIdSchema } from './conversation-session-id.js';
 export { nonRootCardIdSchema } from './card-id.js';
 export { cardIdSchema };
@@ -31,8 +30,8 @@ export const cardStatusSchema = z.enum(cardStatusValues);
 export const cardActionSchema = z.enum(cardActionValues);
 export const positiveSafeIntegerSchema = z.number().int().safe().positive();
 export const urgencySchema = z.enum(urgencyValues);
-export const createdBySchema = z.enum(['analyst', 'planner']);
-export const noteAuthorSchema = z.enum(['user', 'analyst', 'planner', 'executor', 'reviewer', 'runtime']);
+export const createdBySchema = z.union([agentNameSchema,z.literal('runtime:bootstrap')]);
+export const noteAuthorSchema = z.union([z.literal('user'),z.literal('runtime'),agentNameSchema]);
 export const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui']);
 export const cardNotificationSchema: z.ZodType<import('./types.js').CardNotification> = z.object({ id: z.string().min(1), content: z.string().min(1), created_at: z.string().datetime(), source: z.string().min(1).optional() }).strict();
 const cardRecordShape = { id: cardIdSchema, type: cardTypeSchema, children: z.array(cardIdSchema), title: z.string().min(1), lifecycle: cardLifecycleStateSchema, subtype: z.null(), tags: z.array(z.string()), priority: z.number().int(), urgency: urgencySchema, created_by: createdBySchema, created_at: z.string().datetime(), updated_at: z.string().datetime(), version_seq: positiveSafeIntegerSchema, assigned_to: z.null(), depends_on: z.array(cardIdSchema), related: z.array(cardIdSchema), metrics: z.null(), estimate: z.null(), started_at: z.null(), duration_ms: z.null(), status_text: z.string().nullable(), status_text_updated_at: z.string().datetime().nullable(), status_text_author_session_id: z.null(), latest_self_report: z.null(), metadata: z.null(), pending_notifications: z.array(cardNotificationSchema) };
@@ -50,8 +49,8 @@ export const cardViewSchema: z.ZodType<import('./types.js').CardView> = z.object
 export const cardHistoryKindSchema = z.enum(['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete']);
 const historyCommonShape = { entry_id: z.string().uuid(), card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, changed_at: z.string().datetime(), change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() };
 const historyProvenance = {
-  update: { changed_by_actor: z.literal('planner'), changed_by_surface: z.literal('runtime') },
-  delete: { changed_by_actor: z.literal('analyst'), changed_by_surface: z.literal('runtime') },
+  update: { changed_by_actor: agentNameSchema, changed_by_surface: z.literal('runtime') },
+  delete: { changed_by_actor: agentNameSchema, changed_by_surface: z.literal('runtime') },
   runtime: { changed_by_actor: z.literal('runtime'), changed_by_surface: z.literal('runtime') },
 } as const;
 const runtimeHistoryKinds = ['notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder'] as const;
@@ -72,7 +71,6 @@ export const analystIssueSchema: z.ZodType<import('./types.js').AnalystIssue> = 
 export const analystIssuesSchema = z.array(analystIssueSchema);
 export const projectConfigSchema = z.object({ id: z.literal('project'), name: z.string().min(1), context: z.string(), goals_summary: z.string(), constraints: z.array(z.string()), planner_enabled: z.boolean(), created_at: z.string().datetime(), updated_at: z.string().datetime() });
 export const processStatusSchema = z.enum(['running', 'exited', 'failed', 'killed']);
-export const agentRoleSchema = z.enum(agentRoleValues);
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
 export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'model_issue', 'model_repair', 'context_compaction', 'model_recovered', 'system_prompt', 'provider_private']);
 export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment']), entity_id: z.string().min(1), label: z.string().optional() }).strict();
@@ -110,7 +108,7 @@ export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: 
 
 export const runtimeStatusSchema = z.enum(['stopped', 'starting', 'running', 'pausing', 'paused', 'closing', 'error']);
 export const runtimeStateSchema = z.object({ status: runtimeStatusSchema, project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), current_card_id: cardIdSchema, updated_at: z.string().datetime() }).strict();
-export const skillTargetRoleSchema = z.enum(skillTargetRoleValues);
+export const skillTargetAgentSchema = agentNameSchema;
 const skillFileSchema = z.string().min(1).superRefine((file, ctx) => {
   const segments = file.split('/');
   const isAbsolute = file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file) || file.startsWith('\\\\');
@@ -121,7 +119,7 @@ const skillFileSchema = z.string().min(1).superRefine((file, ctx) => {
 export const skillIndexEntrySchema: z.ZodType<import('./types.js').SkillIndexEntry> = z.object({
   name: z.string().min(1),
   file: skillFileSchema,
-  target_agents: z.array(skillTargetRoleSchema).min(1).superRefine((roles, ctx) => {
+  target_agents: z.array(skillTargetAgentSchema).min(1).superRefine((roles, ctx) => {
     if (new Set(roles).size !== roles.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Skill target roles must be unique.' });
   }),
 }).strict();

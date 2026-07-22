@@ -22,8 +22,8 @@ export function cardNamespace(projectRoot: string, cardId: string): string {
 
 export function cardStreamFile(projectRoot: string, cardId: string): string { return join(cardNamespace(projectRoot, cardId), 'card.jsonl'); }
 export function cardRecordStreamFile(projectRoot: string, cardId: string, definition: { readonly filename: RecordName }): string { return join(cardNamespace(projectRoot, cardId), recordStreamFilename(definition.filename)); }
-export function cardConversationFile(projectRoot: string, cardId: string, role: 'planner' | 'executor' | 'reviewer'): string { return join(cardNamespace(projectRoot, cardId), 'conversations', `${role}.jsonl`); }
-export function analystConversationFile(projectRoot: string): string { return join(saivageRoot(projectRoot), 'agents', 'conversations', 'analyst%3Aglobal.jsonl'); }
+export function cardConversationFile(projectRoot: string, cardId: string, agentName: string): string { return join(cardNamespace(projectRoot, cardId), 'conversations', `${agentName}.jsonl`); }
+export function globalAgentConversationFile(projectRoot: string, agentName:string): string { return join(saivageRoot(projectRoot), 'agents', 'conversations', `${agentName}.jsonl`); }
 
 export function saivageLogsRoot(projectRoot: string): string {
   return join(saivageRoot(projectRoot), 'logs');

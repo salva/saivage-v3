@@ -3,10 +3,7 @@ import { RuntimeCardRunsResponseSchema, type RuntimeCardRunsResponse } from '../
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { readConversationInventory } from '../../persistence/conversation-file.js';
 import { redactForOutbound } from '../../redaction/index.js';
-
-function plannerGoalFromSessionId(sessionId: string): string | null {
-  return sessionId.startsWith('planner:') ? sessionId.slice('planner:'.length) : null;
-}
+import { conversationSessionIdentity } from '../../schemas/index.js';
 
 export function buildCardRunsResponse(projectRoot: string, store: CardService, runtime: Pick<RuntimeApi, 'getRuntimeState'>): RuntimeCardRunsResponse {
   const state = runtime.getRuntimeState();
@@ -16,12 +13,12 @@ export function buildCardRunsResponse(projectRoot: string, store: CardService, r
     if (!card) return [];
     return [{ card_id: card.id, card_type: card.type, title: card.title, ...(card.status_text ? { status_text: card.status_text } : {}) }];
   }) : [];
-  const dormant_planners = readConversationInventory(projectRoot)
+  const dormant_agents = readConversationInventory(projectRoot,store.workflows)
     .flatMap(({ sessionId }) => {
-      const goalId = plannerGoalFromSessionId(sessionId);
-      if (!goalId) return [];
-      return [{ goal_card_id: goalId, planner_session_id: sessionId }];
+      const identity=conversationSessionIdentity(sessionId);
+      if (!identity.cardId) return [];
+      return [{ card_id: identity.cardId,agent_name:identity.agentName,session_id:sessionId }];
     });
-  const response = RuntimeCardRunsResponseSchema.parse({ current_card_id: currentCardId, active_breadcrumb, dormant_planners });
+  const response = RuntimeCardRunsResponseSchema.parse({ current_card_id: currentCardId, active_breadcrumb, dormant_agents });
   return RuntimeCardRunsResponseSchema.parse(redactForOutbound({ source: 'runtime-card-runs', value: response }));
 }

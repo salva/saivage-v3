@@ -8,7 +8,7 @@ import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { list_processes_tool, pause_runtime, resume_runtime, start_project, stop_project } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { get_status } from '../../src/tools/analyst-card-tools.js';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 describe('analyst runtime tools', () => {
@@ -109,7 +109,7 @@ describe('analyst runtime tools', () => {
       initProjectTree(projectRoot);
       const processRunner = createTestProcessRunner(projectRoot).processRunner;
       const cards = new CardService(projectRoot);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       cards.setStatus(card.id, 'running');
       cards.stopRunningForRecovery(card.id);
       const result = await get_status({ projectRoot, store: cards, processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});

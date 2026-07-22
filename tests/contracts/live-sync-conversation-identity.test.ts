@@ -8,7 +8,7 @@ import {
   parseLiveSyncClientFrame,
 } from '../../src/contracts/operator-events.js';
 
-const valid = ['analyst:global', 'planner:project', 'reviewer:project', 'executor:project'] as const;
+const valid = ['agent:analyst:global', 'agent:planner:project', 'agent:reviewer:project', 'agent:executor:project'] as const;
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 
 describe('live-sync conversation identity contracts', () => {
@@ -33,15 +33,15 @@ describe('live-sync scoped Cards contracts', () => {
       .toEqual({ t: 'invalidate', resource: 'cards', scope, card_id: 'card-a-b' });
   });
 
-  it.each(['brief', 'status', 'review'] as const)('accepts the exact record slot %s', (slot) => {
-    expect(LiveSyncInvalidateFrameSchema.parse({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'project', slot }))
-      .toEqual({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'project', slot });
+  it.each(['brief.md', 'status.md', 'review.md'] as const)('accepts the exact record name %s', (record_name) => {
+    expect(LiveSyncInvalidateFrameSchema.parse({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'project', record_name }))
+      .toEqual({ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'project', record_name });
   });
 
   it.each([
     { t: 'invalidate', resource: 'cards' },
     { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-1' },
-    { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-a', slot: 'brief' },
+    { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: 'card-a', record_name: 'brief' },
     { t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a' },
     { t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a', slot: 'draft' },
   ])('rejects noncanonical Cards payload %#', (frame) => {

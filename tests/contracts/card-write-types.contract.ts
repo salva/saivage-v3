@@ -1,5 +1,6 @@
 import type { CardEditPatch, NewChildCardInput, SetStatusTarget } from '../../src/cards/card-api.js';
 import type { CardService } from '../../src/cards/card-service.js';
+import { workflowResult } from '../helpers/workflow-result.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 const edit = { title: 'updated', tags: [], priority: 1, urgency: 'high', related: [] } satisfies CardEditPatch;
 void edit;
@@ -16,7 +17,7 @@ void edit;
 // @ts-expect-error terminal companions are lifecycle-owned
 ({ status_text: 'working' } satisfies CardEditPatch);
 
-const creation = { type: 'code', parent: 'project', title: 'new', brief: 'new', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] } satisfies NewChildCardInput;
+const creation = { type: 'code', parent: 'project', title: 'new', bootstrap_content: 'new', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] } satisfies NewChildCardInput;
 void creation;
 // @ts-expect-error project creation is bootstrap-owned
 ({ ...creation, type: 'project' } satisfies NewChildCardInput);
@@ -67,9 +68,6 @@ void complete;
 // @ts-expect-error canonical fields cannot be omitted
 const incomplete: CardRecord = { id: 'card-a', type: 'code', children: [], title: 'card', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, pending_notifications: [] };
 void incomplete;
-// @ts-expect-error user is not a card creator
-const userCreator: CardRecord = { ...complete, created_by: 'user' };
-void userCreator;
 // @ts-expect-error running cannot retain a result
 const broadRunning: CardRecord = { ...complete, lifecycle: { status: 'running', result: { kind: 'done', summary: 'old' }, error: null, completed_at: null } };
 void broadRunning;
@@ -86,7 +84,7 @@ void runningError; void changedResult; void changedError; void completedCancella
 // @ts-expect-error subtype is required literal null
 const valuedSubtype: CardRecord = { ...complete, subtype: 'legacy' };
 // @ts-expect-error assignment is required literal null
-const valuedAssignment: CardRecord = { ...complete, assigned_to: 'planner:project' };
+const valuedAssignment: CardRecord = { ...complete, assigned_to: 'agent:planner:project' };
 // @ts-expect-error metrics are required literal null
 const valuedMetrics: CardRecord = { ...complete, metrics: {} };
 // @ts-expect-error estimate is required literal null
@@ -96,7 +94,7 @@ const valuedStartedAt: CardRecord = { ...complete, started_at: '2026-07-20T00:00
 // @ts-expect-error duration_ms is required literal null
 const valuedDuration: CardRecord = { ...complete, duration_ms: 1 };
 // @ts-expect-error status_text_author_session_id is required literal null
-const valuedStatusAuthor: CardRecord = { ...complete, status_text_author_session_id: 'planner:project' };
+const valuedStatusAuthor: CardRecord = { ...complete, status_text_author_session_id: 'agent:planner:project' };
 // @ts-expect-error latest_self_report is required literal null
 const valuedSelfReport: CardRecord = { ...complete, latest_self_report: { summary: 'old' } };
 // @ts-expect-error metadata is required literal null
@@ -105,7 +103,7 @@ void valuedSubtype; void valuedAssignment; void valuedMetrics; void valuedEstima
 void valuedDuration; void valuedStatusAuthor; void valuedSelfReport; void valuedMetadata;
 
 type TerminalOutcomeArguments = Parameters<CardService['commitActivationOutcome']>;
-const terminalOutcomeArguments: TerminalOutcomeArguments = ['card-a', { status: 'done', summary: 'done', result: { kind: 'done', summary: 'done' } }, '2026-07-20T00:00:01.000Z'];
+const terminalOutcomeArguments: TerminalOutcomeArguments = ['card-a', { status: 'done', summary: 'done', result: workflowResult('DONE','done') }, '2026-07-20T00:00:01.000Z'];
 // @ts-expect-error terminal publication accepts an activation outcome, not caller-selected lifecycle and companions
 const lifecycleShapedTerminalArguments: TerminalOutcomeArguments = ['card-a', { lifecycle: { status: 'done', result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-20T00:00:01.000Z' }, status_text: 'done', status_text_updated_at: '2026-07-20T00:00:01.000Z' }, '2026-07-20T00:00:01.000Z'];
 // @ts-expect-error the settlement timestamp is a required separate argument

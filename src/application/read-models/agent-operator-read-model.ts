@@ -12,6 +12,7 @@ import type {
   OperatorApiSuccess,
 } from '../../contracts/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
+import type { CompiledProjectWorkflows } from '../../runtime/card-process/card-process-config.js';
 
 type AgentListResponse = OperatorApiSuccess<'agents.list'>;
 type AgentActivityStatus = OperatorApiSuccess<'agents.conversation'>['activity_status'];
@@ -28,11 +29,11 @@ type AgentConversationReadModelResult = SuccessResult<'agents.conversation'> | E
 type SnapshotProvider = () => readonly ExecutingLlmSnapshot[];
 
 export class AgentOperatorReadModelService {
-  constructor(private readonly projectRoot: string, private readonly snapshots: SnapshotProvider) {}
+  constructor(private readonly projectRoot: string, private readonly snapshots: SnapshotProvider,private readonly workflows:CompiledProjectWorkflows) {}
 
   listSessions(): AgentListResponse {
     const live = captureExecutingLlmSnapshotMap(this.snapshots());
-    const inventory = readConversationInventory(this.projectRoot);
+    const inventory = readConversationInventory(this.projectRoot,this.workflows);
     const inventoryIds = new Set(inventory.map(({ sessionId }) => sessionId));
     for (const id of live.keys()) if (!inventoryIds.has(id)) throw new Error(`Executing agent snapshot '${id}' has no aggregate conversation row.`);
     if (inventory.length === 0) return { sessions: [] };
@@ -87,7 +88,7 @@ export function captureExecutingLlmSnapshotMap(snapshots: readonly ExecutingLlmS
   for (const raw of snapshots) {
     const sessionId = parseConversationSessionId(raw.sessionId);
     const identity = conversationSessionIdentity(sessionId);
-    if (raw.agentId !== sessionId || raw.role !== identity.role || raw.cardId !== identity.cardId) throw new Error(`Executing agent snapshot '${raw.sessionId}' has inconsistent identity.`);
+    if (raw.agentId !== sessionId || raw.agentName !== identity.agentName || raw.cardId !== identity.cardId) throw new Error(`Executing agent snapshot '${raw.sessionId}' has inconsistent identity.`);
     if (map.has(sessionId)) throw new Error(`Conversation session '${sessionId}' has duplicate live ownership.`);
     if (raw.activity.mode === 'active' && raw.activity.barrier !== null) throw new Error(`Active snapshot '${sessionId}' has a wait barrier.`);
     if (raw.activity.mode === 'waiting' && !raw.activity.barrier) throw new Error(`Waiting snapshot '${sessionId}' has no wait barrier.`);

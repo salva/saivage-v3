@@ -1,8 +1,9 @@
 import { expect, test } from '@playwright/test';
 import WebSocket from 'ws';
 
-const analystSessionId = 'analyst:global';
+const analystSessionId = 'agent:analyst:global';
 const analystSessionPath = encodeURIComponent(analystSessionId);
+const analystChatPath = '/api/chat';
 
 /**
  * Live read-only coverage for the contract endpoints not exercised by the
@@ -89,24 +90,25 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     const body = await res.json();
     expect(body).toHaveProperty('current_card_id');
     expect(Array.isArray(body.active_breadcrumb)).toBe(true);
-    expect(Array.isArray(body.dormant_planners)).toBe(true);
+    expect(Array.isArray(body.dormant_agents)).toBe(true);
     expect(body).not.toHaveProperty('cards_with_pending_corrections');
   });
 
   test('GET /api/agents/:id returns the per-session envelope', async ({ request }) => {
-    const res = await request.get('/api/agents/analyst');
+    const res = await request.get(`/api/agents/${analystSessionPath}`);
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.session.id).toBe('analyst:global');
-    expect(body.session.role).toBe('analyst');
+    expect(body.session.id).toBe(analystSessionId);
+    expect(body.session.agent_name).toBe('analyst');
+    expect(body.session.session_scope).toBe('global');
     expect(typeof body.session.message_count).toBe('number');
   });
 
   test('GET /api/agents/:id/conversation returns session entries', async ({ request }) => {
-    const res = await request.get('/api/agents/analyst/conversation');
+    const res = await request.get(`/api/agents/${analystSessionPath}/conversation`);
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.session.id).toBe('analyst:global');
+    expect(body.session.id).toBe(analystSessionId);
     expect(Array.isArray(body.entries)).toBe(true);
     if (body.entries.length > 0) {
       const e = body.entries[0];
@@ -117,7 +119,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
   });
 
   test('GET /api/agents/:id/llm-exchange returns the latest captured exchange', async ({ request }) => {
-    const res = await request.get('/api/agents/analyst/llm-exchange');
+    const res = await request.get(`/api/agents/${analystSessionPath}/llm-exchange`);
     if (res.status() === 404) {
       const body = await res.json();
       expect(body.error).toContain('No LLM exchange recorded');
@@ -125,7 +127,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     }
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.exchange.sessionId).toBe('analyst:global');
+    expect(body.exchange.sessionId).toBe(analystSessionId);
     expect(typeof body.exchange.capturedAt).toBe('string');
     expect(Array.isArray(body.exchange.attempts)).toBe(true);
   });
@@ -179,20 +181,18 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
 });
 
 test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
-  test('POST /api/chats/:id with missing content returns 400', async ({ request }) => {
-    const res = await request.post(`/api/chats/${analystSessionPath}`, { data: {} });
+  test('POST /api/chat with missing content returns 400', async ({ request }) => {
+    const res = await request.post(analystChatPath, { data: {} });
     expect(res.status()).toBe(400);
     const body = await res.json();
     expect(typeof body.error).toBe('string');
   });
 
-  test('POST /api/chats/:id for a non-canonical session returns 400 ValidationError', async ({ request }) => {
+  test('removed session-addressed chat route is not accepted', async ({ request }) => {
     const res = await request.post('/api/chats/does-not-exist', { data: { content: 'hi' } });
-    expect(res.status()).toBe(400);
+    expect(res.status()).toBe(404);
     const body = await res.json();
-    expect(body.error).toBe('ValidationError');
-    expect(body.issues).toEqual(expect.arrayContaining([expect.objectContaining({ path: 'sessionId' })]));
-    expect(body).not.toHaveProperty('sessionId');
+    expect(typeof body.error).toBe('string');
   });
 
   test('GET /api/cards/:id for an unknown card returns 404', async ({ request }) => {
@@ -233,8 +233,8 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(() => JSON.parse(text)).not.toThrow();
   });
 
-  test('POST /api/chats/:id with non-string content returns 400 ValidationError', async ({ request }) => {
-    const res = await request.post(`/api/chats/${analystSessionPath}`, { data: { content: 12345 } });
+  test('POST /api/chat with non-string content returns 400 ValidationError', async ({ request }) => {
+    const res = await request.post(analystChatPath, { data: { content: 12345 } });
     expect(res.status()).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('ValidationError');
@@ -315,8 +315,8 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(events).toContain('connected');
   });
 
-  test('POST /api/chats/analyst:global with malformed JSON body returns a clean 400', async ({ request }) => {
-    const res = await request.post(`/api/chats/${analystSessionPath}`, {
+  test('POST /api/chat with malformed JSON body returns a clean 400', async ({ request }) => {
+    const res = await request.post(analystChatPath, {
       headers: { 'content-type': 'application/json' },
       data: 'not-json',
     });
@@ -328,20 +328,20 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
   });
 
   test('chats.send round-trip with two messages preserves both in chats.get', async ({ request }) => {
-    const before = await request.get(`/api/chats/${analystSessionPath}`);
+    const before = await request.get(analystChatPath);
     expect(before.status()).toBe(200);
     const beforeCount = (await before.json()).entries.length;
 
     const marker = `live-e2e-multi-${Date.now()}`;
     for (const suffix of ['a', 'b']) {
-      const res = await request.post(`/api/chats/${analystSessionPath}`, {
+      const res = await request.post(analystChatPath, {
         data: { content: `${marker}-${suffix}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } },
         timeout: 120_000,
       });
       expect(res.status(), `POST ${suffix} — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     }
 
-    const after = await request.get(`/api/chats/${analystSessionPath}`);
+    const after = await request.get(analystChatPath);
     expect(after.status()).toBe(200);
     const afterBody = await after.json();
     expect(afterBody.entries.length).toBeGreaterThanOrEqual(beforeCount + 2);

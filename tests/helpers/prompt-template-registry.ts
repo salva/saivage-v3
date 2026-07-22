@@ -1,6 +1,6 @@
 import { createPromptTemplateRegistry, type PromptTemplateRegistry } from '../../src/utils/prompt-api.js';
-import { resolve } from 'node:path';
+import { TEST_WORKFLOWS } from './canonical-project.js';
 
 export function createTestPromptTemplateRegistry(): PromptTemplateRegistry {
-  return createPromptTemplateRegistry({ defaultRoot: resolve('src/prompts') });
+  return createPromptTemplateRegistry(TEST_WORKFLOWS);
 }

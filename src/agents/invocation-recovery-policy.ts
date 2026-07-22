@@ -1,4 +1,4 @@
-import type { AgentRole } from '../schemas/index.js';
+import type { AgentName } from '../schemas/index.js';
 import { unwrapFailure } from './llm-errors.js';
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
@@ -15,7 +15,7 @@ export type InvocationRecoveryAction =
   | 'fail_invocation';
 
 export interface InvocationRecoveryContext {
-  role: AgentRole | string;
+  agentName: AgentName;
   candidate?: Candidate;
   attempt: number;
   maxAttempts: number;
@@ -147,8 +147,8 @@ export class InvocationRecoveryPolicy {
     const capabilityOnly = capabilitySkips.length > 0;
     const reasons = Array.from(new Set(capabilitySkips.flatMap((skip) => skip.reasons))).sort();
     const message = capabilityOnly
-      ? `No capability-compatible candidates available for role '${context.role}'. Skipped reasons: ${reasons.join(', ') || 'unknown'}.`
-      : `No healthy candidates available for role '${context.role}'.`;
+      ? `No capability-compatible candidates available for agent '${context.agentName}'. Skipped reasons: ${reasons.join(', ') || 'unknown'}.`
+      : `No healthy candidates available for agent '${context.agentName}'.`;
     const synthetic: LlmTransportFailure = capabilityOnly
       ? {
           kind: 'capability_mismatch',
@@ -179,7 +179,7 @@ export class InvocationRecoveryPolicy {
     const sanitizedFailure: LlmTransportFailure | undefined = failure ? { ...failure, message: sanitizeRecoveryMessage(failure.message) } : undefined;
     const eventPayload: Record<string, unknown> = {
       session_id: context.sessionId,
-      role: context.role,
+      agent_name: context.agentName,
       attempt: context.attempt,
       maxAttempts: context.maxAttempts,
       provider: context.candidate?.provider,

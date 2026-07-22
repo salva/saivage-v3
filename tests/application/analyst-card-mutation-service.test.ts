@@ -4,10 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import type { CardRecord, CardStatus, CardType } from '../../src/schemas/index.js';
-import { initProjectTree, testAnalystMutationServices } from '../helpers/canonical-project.js';
+import { initProjectTree, testAnalystMutationServices, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
+import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 
 const FIRST = 'card-a';
 const SECOND = 'card-a-b';
@@ -15,14 +16,15 @@ const SECOND = 'card-a-b';
 function card(status: CardStatus, id = FIRST, type: CardType = 'code'): CardRecord {
   const common = { id, type, children: [], title: id, subtype: null, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
   switch (status) {
-    case 'done': return { ...common, lifecycle: { status, result: { kind: 'done', summary: 'done' }, error: null, completed_at: '2026-07-20T00:00:00.000Z' } };
-    case 'failed': return { ...common, lifecycle: { status, result: { kind: 'failed', summary: 'failed' }, error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } };
-    case 'blocked': return { ...common, lifecycle: { status, result: { kind: 'blocked', summary: 'blocked' }, error: 'blocked', completed_at: null } };
+    case 'done': return { ...common, lifecycle: { status, result: workflowResult('DONE', 'done'), error: null, completed_at: '2026-07-20T00:00:00.000Z' } };
+    case 'failed': return { ...common, lifecycle: { status, result: runtimeFailure('failed'), error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } };
+    case 'blocked': return { ...common, lifecycle: { status, result: workflowResult('BLOCKED', 'blocked'), error: 'blocked', completed_at: null } };
     default: return { ...common, lifecycle: { status, result: null, error: null, completed_at: null } };
   }
 }
 
 function services(store: CardService, notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }))) {
+  if (!('workflows' in store)) Object.assign(store, { workflows: TEST_WORKFLOWS });
   return createAnalystMutationServices({ projectRoot: '/tmp/analyst-mutation-test', store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, cancelCard });
 }
 
@@ -62,7 +64,7 @@ describe('analyst stopped card mutations', () => {
       listChildren: jest.fn((id: string) => id === 'project' ? [FIRST] : id === FIRST ? [SECOND] : []), create: jest.fn(() => child),
     } as unknown as CardService;
     const bundle = services(store);
-    expect(bundle.cards.create({ type: 'code', parent: FIRST, title: 'child', brief: 'brief' })).toMatchObject({ kind: 'returned', success: true });
+    expect(bundle.cards.create({ type: 'code', parent: FIRST, title: 'child', bootstrap_content: 'brief' })).toMatchObject({ kind: 'returned', success: true });
     expect((store.create as jest.Mock)).toHaveBeenCalledTimes(1);
   });
 
@@ -86,7 +88,7 @@ describe('analyst stopped card mutations', () => {
     const child = card('backlog', SECOND);
     const create = jest.fn(() => child);
     const store = { read: () => parent, create, listChildren: (id: string) => id === 'project' ? [FIRST] : id === FIRST ? [SECOND] : [] } as unknown as CardService;
-    const outcome = services(store).cards.create({ type: 'code', parent: FIRST, title: 'child', brief: 'brief' });
+    const outcome = services(store).cards.create({ type: 'code', parent: FIRST, title: 'child', bootstrap_content: 'brief' });
     expect(outcome.kind !== 'denied').toBe(allowed);
     expect(create).toHaveBeenCalledTimes(allowed ? 1 : 0);
   });
@@ -96,10 +98,10 @@ describe('analyst stopped card mutations', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       cards.setStatus(card.id, 'running');
       cards.stopRunningForRecovery(card.id);
-      const service = testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'n' })).briefRecords;
+      const service = testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'n' })).recordMutations;
 
       expect(service.write(`record:///brief.md?card=${card.id}&v=next`, '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew')).toMatchObject({ success: true });
       expect(cards.read(card.id)).toMatchObject({ lifecycle: { status: 'stopped' } });
@@ -148,9 +150,9 @@ describe('analyst child reorder propagation', () => {
 
 describe('other Analyst mutation facets', () => {
   it('calls the configuration authority exactly once through apply', () => {
-    const applyChange = jest.fn(() => ({ success: true, requires_restart: false }));
+    const applyChange = jest.fn(() => ({ success: true, requires_restart: true }));
     const bundle = createAnalystMutationServices({ projectRoot: '/tmp/config-test', store: {} as CardService, configAuthority: { applyChange } as never, cancelCard: jest.fn() as never });
-    expect(bundle.config.apply({ kind: 'set_runtime_setting', key: 'continuous_improvement', value: false })).toMatchObject({ kind: 'returned', success: true });
+    expect(bundle.config.apply({ kind: 'set_server_setting', key: 'host', value: '127.0.0.1' })).toMatchObject({ kind: 'returned', success: true });
     expect(applyChange).toHaveBeenCalledTimes(1);
   });
 
@@ -168,11 +170,11 @@ describe('other Analyst mutation facets', () => {
     try {
       initProjectTree(root);
       const cards = new CardService(root);
-      const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', brief: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const open = cards.openRecord(card.id, 'brief.md');
       cards.editRecord(card.id, 'brief.md', open.version, '# Goal\nFresh current\n# Instructions\nFresh current\n# Acceptance Criteria\nFresh current');
       cards.closeRecord(card.id, 'brief.md', open.version, 'analyst', card.version_seq);
-      const service = testAnalystMutationServices(root, cards).briefRecords;
+      const service = testAnalystMutationServices(root, cards).recordMutations;
       expect(service.edit(`record:///brief.md?card=${card.id}&v=next`, 'Fresh current', 'Newest', true)).toMatchObject({ kind: 'returned', success: true });
       expect(cards.readRecord(card.id, 'brief.md', 'latest').artifact.content).toContain('Newest');
       expect(cards.readRecord(card.id, 'brief.md', 'latest').artifact.content).not.toContain('Fresh current');
@@ -181,16 +183,16 @@ describe('other Analyst mutation facets', () => {
 
   it('admits only typed open-record absence and propagates strict read failures', () => {
     const targetCard = card('backlog');
-    const base = { read: () => targetCard, recordReader: { record: jest.fn() } };
+    const base = { read: () => targetCard, workflows: TEST_WORKFLOWS, recordReader: { record: jest.fn(), definition: () => ({ filename: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, writers: ['analyst'] }) } };
     const content = '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew';
     const path = `record:///brief.md?card=${FIRST}&v=next`;
 
     const absentStore = { ...base, readRecord: () => { throw new AuthoredRecordNotFoundError(); }, openRecord: jest.fn(() => { throw new Error('OPEN_REACHED'); }) } as unknown as CardService;
-    expect(() => services(absentStore).briefRecords.write(path, content)).toThrow('OPEN_REACHED');
+    expect(() => services(absentStore).recordMutations.write(path, content)).toThrow('OPEN_REACHED');
 
     const hostile = new Error('HOSTILE_STRICT_READ');
     const failedStore = { ...base, readRecord: () => { throw hostile; }, openRecord: jest.fn() } as unknown as CardService;
-    expect(() => services(failedStore).briefRecords.write(path, content)).toThrow(hostile);
+    expect(() => services(failedStore).recordMutations.write(path, content)).toThrow(hostile);
     expect(failedStore.openRecord).not.toHaveBeenCalled();
   });
 });

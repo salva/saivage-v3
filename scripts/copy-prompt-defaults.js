@@ -4,8 +4,9 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } fr
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tokenizePromptTemplate } from './prompt-placeholder-validator.js';
-import { activePromptPairs } from '../src/schemas/index.js';
 import { createPromptTemplateRegistry } from '../src/utils/prompt-api.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../src/agents/default-workflow-config.js';
+import { compileProjectWorkflows } from '../src/runtime/card-process/card-process-config.js';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -25,8 +26,9 @@ function assertPromptTree(root) {
   }
   const planningProcessPrompts = ['plan', 'recover', 'review', 'correct-plan-result', 'correct-review-result', 'plan-to-review', 'review-to-plan', 'stopped-recovery'];
   const terminalProcessPrompts = ['execute', 'correct-execution-result', 'stopped-recovery'];
+  const agentPrompts = ['analyst', 'planner', 'reviewer', 'executor'].map((agent) => join('agents', `${agent}.md`));
   const expected = [
-    ...activePromptPairs.map(([cardType, role]) => join(cardType, `${role}.md`)),
+    ...agentPrompts,
     ...['project', 'goal'].flatMap((cardType) => planningProcessPrompts.map((id) => join(cardType, 'process', `${id}.md`))),
     ...['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'].flatMap((cardType) => terminalProcessPrompts.map((id) => join(cardType, 'process', `${id}.md`))),
   ].sort();
@@ -34,10 +36,10 @@ function assertPromptTree(root) {
   if (actual.length !== expected.length || actual.some((file, index) => file !== expected[index])) {
     throw new Error(`Prompt defaults directory must contain exactly: ${expected.join(', ')}`);
   }
-  for (const file of activePromptPairs.map(([cardType, role]) => join(cardType, `${role}.md`))) {
+  for (const file of agentPrompts) {
     tokenizePromptTemplate(file, join(root, file));
   }
-  createPromptTemplateRegistry({ defaultRoot: root });
+  createPromptTemplateRegistry(compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG), { defaultRoot: root });
 }
 
 function copyTree(sourceRoot, outputRoot) {

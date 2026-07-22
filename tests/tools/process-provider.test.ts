@@ -14,7 +14,7 @@ function executorProvider(root: string, processes: TestProcessRunnerComposition,
 }
 
 function analystProvider(root: string, processes: TestProcessRunnerComposition) {
-  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.analystProcessRootScope, 'test:analyst', 'operator_session'), category: 'operator_session', ownerId: 'analyst:global', ownerKind: 'operator' });
+  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.analystProcessRootScope, 'test:analyst', 'operator_session'), category: 'operator_session', ownerId: 'agent:analyst:global', ownerKind: 'operator' });
 }
 
 function expectUnifiedProcessResult(data: unknown, processId?: string): void {
@@ -48,7 +48,7 @@ describe('process provider', () => {
       return promise;
     };
     const context: LlmToolInvocationContext = {
-      ...testLlmToolInvocationContext({ sessionId: 'executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', toolCallId: 'call-process', toolName: 'run_command' }),
+      ...testLlmToolInvocationContext({ sessionId: 'agent:executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', toolCallId: 'call-process', toolName: 'run_command' }),
       waits: { waitProcess, waitExternal: async <T>(_promise: Promise<T>) => { throw new Error('unexpected external wait'); } },
     };
 
@@ -214,8 +214,8 @@ describe('process provider', () => {
     const processId = (result.data as { process_id: string }).process_id;
     expect(processRunner.processRunner.get(processId)).toEqual(expect.objectContaining({
       card_id: null,
-      owner_id: 'analyst:global',
-      agent_session_id: 'analyst:global',
+      owner_id: 'agent:analyst:global',
+      agent_session_id: 'agent:analyst:global',
       owner_kind: 'operator',
     }));
   }));

@@ -4,7 +4,7 @@ import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js'
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const syntheticToken = 'synthetic-playwright-token';
-const sessionId = 'analyst:global';
+const sessionId = 'agent:analyst:global';
 const now = '2026-05-19T12:00:00.000Z';
 const roundId = 'r-assistant-00000000000000000000000000000001';
 
@@ -33,12 +33,13 @@ test('desktop analyst panel keeps the transcript scroll inside the bounded pane'
   await page.setViewportSize({ width: 1280, height: 720 });
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-  await page.route('**/api/chats/analyst%3Aglobal', async (route) => {
+  await page.route('**/api/chat', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(parseOperatorResponse('chats.get', {
-        session: { id: sessionId, role: 'analyst', status: 'inactive', started_at: now },
+        session_id: sessionId,
+        session: { id: sessionId, agent_name: 'analyst', session_scope: 'global', card_id: null, status: 'inactive', started_at: now },
         entries,
         activity_status: { status: 'inactive', pending_calls: [] },
       })),

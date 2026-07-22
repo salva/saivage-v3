@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
 import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -15,7 +15,7 @@ describe('card history provider', () => {
   it('validates numeric inputs before executors and calls only named history resources', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-tool-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const card = cards.create({ type: 'code', parent: 'project', title: 'Card', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Card', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.editCard(card.id, { title: 'Card v2' });
     const list = jest.spyOn(cards, 'listCardHistory');
     const get = jest.spyOn(cards, 'getCardHistoryEntry');

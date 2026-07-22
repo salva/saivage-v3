@@ -15,7 +15,7 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
   const agentReadModel = (): AgentOperatorReadModelService => {
     const runtimeApplication = options.runtimeApplication;
     if (!runtimeApplication) throw new Error('Agent read operations require the runtime application.');
-    return new AgentOperatorReadModelService(projectRoot, () => runtimeApplication.captureExecutingLlmSnapshots());
+    return new AgentOperatorReadModelService(projectRoot, () => runtimeApplication.captureExecutingLlmSnapshots(),runtimeApplication.cardStore.workflows);
   };
 
   return defineOperatorContractHandlers({

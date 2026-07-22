@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
@@ -53,9 +53,9 @@ describe('dependency-completion activation admission E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Run dependency order', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', brief: 'Complete first', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', brief: 'Complete second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });
+    const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', bootstrap_content: 'Run dependency order', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const dependency = cards.create({ type: 'code', parent: parent.id, title: 'A', bootstrap_content: 'Complete first', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const dependent = cards.create({ type: 'code', parent: parent.id, title: 'B', bootstrap_content: 'Complete second', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [dependency.id], related: [] });
     cards.setStatus('project', 'running');
 
     const bRejected = deferred<void>();
@@ -74,13 +74,13 @@ describe('dependency-completion activation admission E2E', () => {
 
     const provider = {
       completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
-        if (input.sessionId === 'planner:project') {
+        if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
           if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Dependency workflow complete.' }));
           return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete.' }));
         }
-        if (input.sessionId === `planner:${parent.id}`) {
+        if (input.sessionId === `agent:planner:${parent.id}`) {
           parentCalls += 1;
           if (parentCalls === 1) return complete(tool('activate-b-first', 'activate_card', { card_id: dependent.id }));
           if (parentCalls === 2) {
@@ -99,12 +99,12 @@ describe('dependency-completion activation admission E2E', () => {
           if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: 'record:///status.md?v=next', content: 'Dependencies complete.' }));
           return complete(tool('complete-parent', 'emit_result', { outcome: 'complete_direct', summary: 'Parent complete.' }));
         }
-        if (input.sessionId === `executor:${dependency.id}`) {
+        if (input.sessionId === `agent:executor:${dependency.id}`) {
           dependencyCalls += 1;
           if (dependencyCalls === 1) return complete(tool('write-a', 'write', { path: 'record:///status.md?v=next', content: 'A completed first.' }));
           return complete(tool('done-a', 'emit_result', { outcome: 'done', summary: 'A complete.' }));
         }
-        if (input.sessionId === `executor:${dependent.id}`) {
+        if (input.sessionId === `agent:executor:${dependent.id}`) {
           dependentCalls += 1;
           if (dependentCalls === 1) {
             dependentProviderStarted.resolve();
@@ -144,13 +144,13 @@ describe('dependency-completion activation admission E2E', () => {
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
     expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id]);
     expect(dependentCalls).toBe(0);
-    expect(() => readConversation(projectRoot, `executor:${dependent.id}`)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
+    expect(() => readConversation(projectRoot, `agent:executor:${dependent.id}`)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
     expect(() => cards.readRecord(dependent.id, 'status.md')).toThrow();
     expect(processRunner.list({ cardId: dependent.id })).toEqual([]);
 
     allowDependency.resolve();
     await settleWithin(dependencyDoneBeforeSecondRequest.promise, 'A completion');
-    expect(cards.read(dependency.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'A complete.' } } });
+    expect(cards.read(dependency.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'A complete.' } } });
     expect(cards.readRecord(dependency.id, 'status.md').artifact.content).toBe('A completed first.');
     expect(dependencyCalls).toBe(2);
     expect(cards.read(dependent.id)?.lifecycle.status).toBe('backlog');
@@ -167,14 +167,14 @@ describe('dependency-completion activation admission E2E', () => {
     allowDependentTool.resolve();
     await settleWithin(dependentToolCompleted.promise, 'B tool completion');
     expect(cards.readRecord(dependent.id, 'status.md', 'open').artifact.content).toBe('B admitted after A.');
-    expect(readConversation(projectRoot, `executor:${dependent.id}`).physicalRows).toEqual(expect.arrayContaining([
+    expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'tool_call', tool: 'write', tool_call_id: 'write-b' }),
       expect.objectContaining({ kind: 'tool_result', tool: 'write', tool_call_id: 'write-b' }),
     ]));
 
     allowDependentCompletion.resolve();
     await waitUntil(() => cards.read(dependent.id)?.lifecycle.status === 'done');
-    expect(cards.read(dependent.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'done', summary: 'B complete.' } } });
+    expect(cards.read(dependent.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'B complete.' } } });
     expect(cards.readRecord(dependent.id, 'status.md').artifact.content).toBe('B admitted after A.');
     expect(dependentCalls).toBe(2);
     expect(ownership.activationOwners.has(dependent.id)).toBe(false);

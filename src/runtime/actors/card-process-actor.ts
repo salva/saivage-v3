@@ -12,9 +12,9 @@ import type { ManagedProcessScope } from '../managed-process-group-registry.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
-import type { CompiledCardProcess, ProcessPosition } from '../card-process/card-process-config.js';
+import { processTerminalRoute, type CompiledCardTypeWorkflow, type CompiledRuntimeWorkflows, type ProcessPosition } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
-import { AgentNodeExecution, type AcceptedNodeResult, type NodeTransition } from './agent-node-execution.js';
+import { AgentNodeExecution, RecordAcceptanceOutcomeUnknown, type AcceptedNodeResult, type NodeTransition } from './agent-node-execution.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import { deferred, type Deferred } from './deferred.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
@@ -27,7 +27,7 @@ type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
 export class CardProcessActor extends BaseActor implements CardProcessorActor {
   readonly cardId: string;
-  readonly process: CompiledCardProcess;
+  readonly process: CompiledCardTypeWorkflow;
   readonly #provider: LLMProviderPort;
   readonly #conversations: ConversationFileContext;
   readonly #gate: RuntimeGate;
@@ -47,11 +47,12 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #executionOrdinal: number | null = null;
   #stagedResult: AcceptedNodeResult | null = null;
   #stagedFailure: Error | null = null;
+  readonly #acceptedByNode = new Map<string, AcceptedNodeResult>();
   #activationSettled = false;
-  #terminalPublicationFailure: AppLogPublicationError | null = null;
+  #terminalPublicationFailure: Error | null = null;
   #terminalJoinFailure: unknown = null;
 
-  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
+  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardTypeWorkflow; candidateChains:CompiledRuntimeWorkflows['candidateChains']; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.definition);
     this.cardId = args.cardId;
     this.process = args.process;
@@ -61,8 +62,8 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#compactor = args.compactor;
     this.#summarizerProvider = args.summarizerProvider;
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
-    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, parentControl: args.parentControl, notifyCard: args.notifyCard, processRunner: args.processRunner, runtimeProcessRootScope: args.runtimeProcessRootScope, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig }, {
-      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), assertCurrentActivation: (input) => this.#assertCurrentActivation(input),
+    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, parentControl: args.parentControl, notifyCard: args.notifyCard, processRunner: args.processRunner, runtimeProcessRootScope: args.runtimeProcessRootScope, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig,candidateChains:args.candidateChains }, {
+      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), assertCurrentActivation: (input) => this.#assertCurrentActivation(input), assertPromotionAvailable:(process,stateId,outcome)=>{const route=processTerminalRoute(process,stateId,outcome);if(route?.promotion.kind==='latest-node'&&!this.#acceptedByNode.has(route.promotion.nodeId))throw new Error(`Promoted node '${route.promotion.nodeId}' has no accepted result.`);},
     });
   }
 
@@ -78,6 +79,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     this.#terminalJoinFailure = null;
     this.#operationTracker = new ActivationOperationTracker();
     this.#runner.beginActivation();
+    this.#acceptedByNode.clear();
     this.#result = deferred<ProcessOutcome>();
     this.parkedSendEvent(`activate:${input.entry}`);
     return this.#result.promise;
@@ -120,12 +122,12 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   processPosition(): ProcessPosition {
     const stateId = this.state();
     const metadata = this.process.states.get(stateId);
-    if (!metadata) throw new Error(`Process '${this.process.family}' has no metadata for current state '${stateId}'.`);
-    if (metadata.kind === 'ready') return Object.freeze({ family: this.process.family, stateId, kind: 'ready' });
-    if (metadata.kind === 'entry') return Object.freeze({ family: this.process.family, stateId, kind: 'entry', entry: metadata.entry });
-    if (metadata.kind === 'terminal') return Object.freeze({ family: this.process.family, stateId, kind: 'terminal', terminal: metadata.terminal });
+    if (!metadata) throw new Error(`Workflow '${this.process.cardType}' has no metadata for current state '${stateId}'.`);
+    if (metadata.kind === 'ready') return Object.freeze({ cardType: this.process.cardType, stateId, kind: 'ready' });
+    if (metadata.kind === 'entry') return Object.freeze({ cardType: this.process.cardType, stateId, kind: 'entry', entry: metadata.entry });
+    if (metadata.kind === 'terminal') return Object.freeze({ cardType: this.process.cardType, stateId, kind: 'terminal', terminal: metadata.terminal });
     if (this.#executionOrdinal === null) throw new Error(`Process node '${stateId}' has no execution ordinal.`);
-    return Object.freeze({ family: this.process.family, stateId, kind: 'node', nodeId: metadata.nodeId, executionOrdinal: this.#executionOrdinal });
+    return Object.freeze({ cardType: this.process.cardType, stateId, kind: 'node', nodeId: metadata.nodeId, executionOrdinal: this.#executionOrdinal });
   }
 
   executingLlmSnapshot(): ExecutingLlmSnapshot | null {
@@ -133,13 +135,13 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     const llm = this.#currentExecutingLlm;
     if (!llm) return null;
     const identity = parseLlmActorId(llm.agentId);
-    if (identity.cardId !== this.cardId || identity.role === 'analyst') throw new Error(`Current LLM actor '${llm.agentId}' does not belong to processor '${this.cardId}'.`);
-    return Object.freeze({ sessionId: parseConversationSessionId(llm.agentId), agentId: llm.agentId, role: identity.role, cardId: identity.cardId, activity: llm.executingActivity() });
+    if (identity.cardId !== this.cardId) throw new Error(`Current LLM actor '${llm.agentId}' does not belong to processor '${this.cardId}'.`);
+    return Object.freeze({ sessionId: parseConversationSessionId(llm.agentId), agentId: llm.agentId, agentName: identity.agentName, cardId: identity.cardId, activity: llm.executingActivity() });
   }
 
   protected onStateEntered(context: ActorLifecycleContext): void {
     const metadata = this.process.states.get(context.target);
-    if (!metadata) throw new Error(`Process '${this.process.family}' entered unknown state '${context.target}'.`);
+    if (!metadata) throw new Error(`Workflow '${this.process.cardType}' entered unknown state '${context.target}'.`);
     if (metadata.kind === 'ready') return;
     if (!this.#result || !this.#activationInput || !this.#activationSignal || !this.#operationTracker) throw new Error(`Card process '${this.cardId}' entered '${context.target}' without an activation.`);
     if (metadata.kind === 'entry') {
@@ -178,11 +180,12 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     const event = `result:${accepted.outcome}`;
     if (!this.process.definition.states.get(sourceState)?.on.has(event)) throw new Error(`Node '${sourceState}' returned unconfigured outcome '${accepted.outcome}'.`);
     this.#stagedResult = accepted;
+    this.#acceptedByNode.set(accepted.nodeId, accepted);
     this.sendEvent(event);
   }
 
   #acceptNodeFailure(error: Error): void {
-    if (error instanceof AppLogPublicationError) {
+    if (error instanceof AppLogPublicationError || error instanceof RecordAcceptanceOutcomeUnknown) {
       this.#terminalPublicationFailure = error;
       this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
       for (const llm of this.#joiningLlmActors) {
@@ -220,12 +223,16 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     }
     if (failure && isRuntimeStoppedInterruption(failure)) this.#result!.reject(failure);
     else {
-      const summary = failure?.message ?? accepted!.summary;
+      const route = accepted ? processTerminalRoute(this.process, context.source, accepted.outcome) : null;
+      const promoted = route ? route.promotion.kind === 'current' ? accepted! : this.#acceptedByNode.get(route.promotion.nodeId) : null;
+      if (!failure && (!route || !promoted)) throw new Error('Accepted terminal route has no promoted result.');
+      const summary = failure?.message ?? promoted!.summary;
+      const result = failure ? { kind: 'runtime-failure' as const, summary } : { kind: 'workflow-result' as const, terminal, agent_name: promoted!.agentName, node_id: promoted!.nodeId, outcome: promoted!.outcome, summary, records: route!.exportRecords.map((record) => { const projection=accepted!.acceptedRecords.find((value)=>value.name===record.name);if(!projection)throw new Error(`Accepted terminal export '${record.name}' is missing.`);return projection; }) };
       const outcome: ProcessOutcome = terminal === 'DONE'
-        ? { status: 'done', summary, result: { kind: 'done', summary } }
+        ? { status: 'done', summary, result: result as import('../../schemas/index.js').DoneResult }
         : terminal === 'BLOCKED'
-          ? { status: 'blocked', summary, result: { kind: 'blocked', summary, resume_reason: summary } }
-          : { status: 'failed', summary, result: { kind: 'failed', summary } };
+          ? { status: 'blocked', summary, result: result as import('../../schemas/index.js').BlockedResult }
+          : { status: 'failed', summary, result: result as import('../../schemas/index.js').FailedResult };
       this.#result!.resolve(outcome);
     }
     this.#activationInput = null;

@@ -29,7 +29,7 @@ test('operator control room supports analyst chat send and migrated debug panels
   await expect(page.getByText(syntheticToken)).toHaveCount(0);
 
   expect(rest.chatPosts).toHaveLength(1);
-  expect(rest.chatPosts[0]?.sessionId).toBe('analyst:global');
+  expect(rest.chatPosts[0]?.sessionId).toBe('agent:analyst:global');
   expect(rest.chatPosts[0]?.body).toMatchObject({
     content: 'Summarize the synthetic runtime',
     workspaceContext: { view: 'dashboard', entityId: null, refinement: null },
@@ -84,7 +84,7 @@ test('card detail view forwards workspace context to analyst chat on send', asyn
 
   expect(rest.chatPosts).toHaveLength(1);
   const post = rest.chatPosts[0];
-  expect(post?.sessionId).toBe('analyst:global');
+  expect(post?.sessionId).toBe('agent:analyst:global');
   expect(post?.body.workspaceContext).toEqual({ view: 'cards', entityId: smokeCardId, refinement: null });
   expect(post?.body.content).toBe(visiblePrompt);
   expect(post?.body.content).not.toContain(syntheticToken);

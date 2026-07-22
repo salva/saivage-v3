@@ -7,7 +7,7 @@ import AppShell from '../components/layout/AppShell.vue';
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
 
 vi.mock('../api/client', () => ({
-  getChatEntries: vi.fn(async () => ({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } })),
+  getChatEntries: vi.fn(async () => ({ session_id: 'agent:analyst:global', session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } })),
   sendChatMessage: vi.fn(async (sessionId: string) => ({ sessionId, toolInvocations: [], restart: null })),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
@@ -97,12 +97,12 @@ describe('AppShell persistent analyst panel', () => {
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
     await flushPromises();
 
-    await router.push('/agents/planner%3Aproject');
+    await router.push('/agents/agent%3Aplanner%3Aproject');
     await flushPromises();
     expect(wrapper.text()).toContain('Agent Detail');
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
 
-    await router.push('/agents/analyst%3Aglobal');
+    await router.push('/agents/agent%3Aanalyst%3Aglobal');
     await flushPromises();
     expect(wrapper.text()).toContain('Agent Detail');
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(false);
@@ -112,7 +112,7 @@ describe('AppShell persistent analyst panel', () => {
 
   it('does not treat invalid Agent route text as the singleton Analyst identity', async () => {
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
-    await router.push('/agents/analyst%3Aother');
+    await router.push('/agents/agent%3Aanalyst%3Aother');
     await flushPromises();
     expect(wrapper.find('#analyst-chat-panel').exists()).toBe(true);
     wrapper.unmount();

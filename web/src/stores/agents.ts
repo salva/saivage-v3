@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { ActivityStatus, AgentConversationEntry, AgentRole, AgentSession, FreshnessState, SessionStatus } from '../api/types';
+import type { ActivityStatus, AgentConversationEntry, AgentSession, FreshnessState, SessionStatus } from '../api/types';
 import { ApiError, getAgentConversation, getAgentLlmExchange, listAgentSessions } from '../api/client';
 import type { ProviderExchangePayload } from '../api/contracts';
 import type { ConversationSessionId } from '../api/contracts';
@@ -68,12 +68,12 @@ export const useAgentStore = defineStore('agents', () => {
     const latest = lastWsEventAt.value ?? lastFetchedAt.value;
     return latest ? Date.now() - new Date(latest).getTime() > STALE_AFTER_MS : false;
   });
-  const sessionsByRole = computed<Map<AgentRole, AgentSession[]>>(() => {
-    const map = new Map<AgentRole, AgentSession[]>();
+  const sessionsByRole = computed<Map<string, AgentSession[]>>(() => {
+    const map = new Map<string, AgentSession[]>();
     for (const session of sessions.value) {
-      const list = map.get(session.role) ?? [];
+      const list = map.get(session.agent_name) ?? [];
       list.push(session);
-      map.set(session.role, list);
+      map.set(session.agent_name, list);
     }
     return map;
   });

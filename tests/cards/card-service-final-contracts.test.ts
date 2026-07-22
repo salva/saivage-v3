@@ -2,25 +2,26 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import type { CardActivationOutcome } from '../../src/contracts/tool-api.js';
 import { readCardArtifacts } from '../../src/persistence/card-files.js';
 import { readCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
 import { cardStreamRowSchema } from '../../src/persistence/canonical-card-artifacts.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 function setup() { const root = mkdtempSync(join(tmpdir(), 'card-contract-')); roots.push(root); initProjectTree(root); return { root, cards: new CardService(root) }; }
-function input(parent = 'project', title = 'child', created_by: 'analyst' | 'planner' = 'analyst', depends_on: string[] = []) { return { type: 'code' as const, parent, title, brief: `${title} brief`, tags: [], priority: 0, urgency: 'normal' as const, created_by, depends_on, related: [] }; }
+function input(parent = 'project', title = 'child', created_by: 'analyst' | 'planner' = 'analyst', depends_on: string[] = []) { return { type: 'code' as const, parent, title, bootstrap_content: `${title} brief`, tags: [], priority: 0, urgency: 'normal' as const, created_by, depends_on, related: [] }; }
 function history(root: string, id: string) { return readCardArtifacts(root, id).artifacts.at(-1)!.history!; }
 function versionCount(root: string, id: string) { return readCardArtifacts(root, id).artifacts.length; }
 const settled = '2026-07-22T00:00:00.000Z';
 type TerminalOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
-const done = (summary = 'done'): Extract<TerminalOutcome, { status: 'done' }> => ({ status: 'done', summary, result: { kind: 'done', summary } });
-const failed = (summary = 'failed'): Extract<TerminalOutcome, { status: 'failed' }> => ({ status: 'failed', summary, result: { kind: 'failed', summary } });
-const blocked = (summary = 'blocked'): Extract<TerminalOutcome, { status: 'blocked' }> => ({ status: 'blocked', summary, result: { kind: 'blocked', summary } });
+const done = (summary = 'done'): Extract<TerminalOutcome, { status: 'done' }> => ({ status: 'done', summary, result: workflowResult('DONE', summary) });
+const failed = (summary = 'failed'): Extract<TerminalOutcome, { status: 'failed' }> => ({ status: 'failed', summary, result: runtimeFailure(summary) });
+const blocked = (summary = 'blocked'): Extract<TerminalOutcome, { status: 'blocked' }> => ({ status: 'blocked', summary, result: workflowResult('BLOCKED', summary) });
 const terminalFactories = [done, failed, blocked] as const;
 
 function createInStatus(cards: CardService, status: 'backlog' | 'running' | 'changed' | 'stopped' | 'done' | 'failed' | 'blocked' | 'cancelled', title: string) {
@@ -41,7 +42,7 @@ describe('exact card producer contracts', () => {
     const project = readCardArtifacts(root, 'project').artifacts[0];
     if (project?.kind !== 'card-version') throw new Error('Expected initial project row.');
     expect(project).toMatchObject({ format_version: 2, card_id: 'project', version: 1, history: null, card: {
-      id: 'project', type: 'project', children: [], tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', version_seq: 1,
+      id: 'project', type: 'project', children: [], tags: [], priority: 0, urgency: 'normal', created_by: 'runtime:bootstrap', version_seq: 1,
       subtype: null, assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
       status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null,
       pending_notifications: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null },
@@ -65,7 +66,7 @@ describe('exact card producer contracts', () => {
       expect(cards.editCard(card.id, { title: card.title }).version_seq).toBe(card.version_seq);
       expect(versionCount(root, card.id)).toBe(before);
       cards.editCard(card.id, { title: `${status} edited`, tags: ['x'], priority: 2, urgency: 'high', related: ['project'] });
-      expect(history(root, card.id)).toMatchObject({ kind: 'update', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card', changed_fields: ['title', 'tags', 'priority', 'urgency', 'related'], change_summary: 'title, tags, priority, urgency, related updated' });
+      expect(history(root, card.id)).toMatchObject({ kind: 'update', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'agent edit_card', changed_fields: ['title', 'tags', 'priority', 'urgency', 'related'], change_summary: 'title, tags, priority, urgency, related updated' });
     }
     for (const status of ['running', 'done', 'failed', 'blocked', 'cancelled'] as const) {
       for (const patchKind of ['empty', 'equal', 'different'] as const) {
@@ -164,9 +165,9 @@ describe('exact card producer contracts', () => {
       expect(versionCount(root, card.id)).toBe(before);
     }
     for (const mismatch of [
-      { status: 'done', summary: 'outer', result: { kind: 'done', summary: 'inner' } },
-      { status: 'failed', summary: 'outer', result: { kind: 'failed', summary: 'inner' } },
-      { status: 'blocked', summary: 'outer', result: { kind: 'blocked', summary: 'inner' } },
+      { status: 'done', summary: 'outer', result: workflowResult('DONE', 'inner') },
+      { status: 'failed', summary: 'outer', result: runtimeFailure('inner') },
+      { status: 'blocked', summary: 'outer', result: workflowResult('BLOCKED', 'inner') },
     ] as const) {
       const running = cards.create(input('project', `mismatch-${mismatch.status}`)); cards.setStatus(running.id, 'running');
       const before = versionCount(root, running.id);

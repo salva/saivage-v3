@@ -9,7 +9,7 @@ const DOC_ROUTE_RE = /\b(GET|POST|PATCH|DELETE|PUT)\s+(?:https?:\/\/[^\s`)'"<>]+
 const INVENTORY_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*current\s*\|/;
 const CODE_LINE_ANCHOR_PATTERN = String.raw`[^\s:|]+:\d+(?:\s+"(?:\\.|[^"\\])*")?`;
 const ROUTE_TABLE_ROW_RE = new RegExp('^\\|\\s*`(GET|POST|PATCH|DELETE|PUT)\\s+([^`]+)`\\s*\\|\\s*([^|]+?)\\s*\\|\\s*`(' + CODE_LINE_ANCHOR_PATTERN + ')`\\s*\\|');
-const ROLE_TOOL_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`\s*\|\s*$/;
+const AGENT_TOOL_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`\s*\|\s*$/;
 const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`\s*\|\s*$/;
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
@@ -169,19 +169,19 @@ function isMarkdownTableScaffolding(line, firstHeading) {
   return trimmed === '' || trimmed.startsWith(`| ${firstHeading} |`) || /^\|\s*:?-+:?\s*\|/.test(trimmed);
 }
 
-function parseRoleToolTable(projectRoot, docPath = AGENTS_DOC) {
+function parseAgentToolTable(projectRoot, docPath = AGENTS_DOC) {
   const fullPath = join(projectRoot, docPath);
   const rows = [];
   const failures = [];
   if (!existsSync(fullPath)) return { rows, failures };
   const content = readFileSync(fullPath, 'utf-8');
   for (const { text, line } of markedBlockLines(content, 'agent-tools')) {
-    const match = text.match(ROLE_TOOL_ROW_RE);
+    const match = text.match(AGENT_TOOL_ROW_RE);
     if (match) {
       rows.push({ key: match[1], tools: match[2].split(',').map((tool) => tool.trim()).filter(Boolean).sort(), anchor: match[3], file: docPath, line });
       continue;
     }
-    if (text.trim().startsWith('|') && !isMarkdownTableScaffolding(text, 'Role')) failures.push({ type: 'malformed-agent-tool-row', file: docPath, line, message: `${docPath}:${line} has a malformed Agent tools data row` });
+    if (text.trim().startsWith('|') && !isMarkdownTableScaffolding(text, 'Agent')) failures.push({ type: 'malformed-agent-tool-row', file: docPath, line, message: `${docPath}:${line} has a malformed Agent tools data row` });
   }
   return { rows, failures };
 }
@@ -248,173 +248,53 @@ function stringArray(node, context) {
   });
 }
 
-const PROVIDER_SOURCE_NAVIGATION = new Map([
-  ['createPlannerControlProvider', 'src/tools/planner-control-provider.ts'],
-  ['createAnalystControlProvider', 'src/tools/analyst-control-provider.ts'],
-  ['createCardInspectionProvider', 'src/tools/card-inspection-provider.ts'],
-  ['createWorkspaceProvider', 'src/tools/workspace-provider.ts'],
-  ['createAnalystWorkspaceProvider', 'src/tools/workspace-provider.ts'],
-  ['createPatchProvider', 'src/tools/workspace-provider.ts'],
-  ['createAnalystPatchProvider', 'src/tools/workspace-provider.ts'],
-  ['createProcessProvider', 'src/tools/process-provider.ts'],
-  ['createCardHistoryProvider', 'src/tools/card-history-provider.ts'],
-  ['createWebProvider', 'src/tools/web-tools.ts'],
-  ['createSkillProvider', 'src/tools/skill-provider.ts'],
-  ['createMcpProvider', 'src/tools/mcp-provider.ts'],
-]);
-
-function findFunction(ast, name) {
-  const found = ast.statements.find((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === name);
-  if (!found || !ts.isFunctionDeclaration(found) || !found.body) throw new Error(`Unable to resolve provider function ${name} in ${ast.fileName}`);
-  return found;
-}
-
-function directReturnObjects(fn) {
-  return fn.body.statements.filter(ts.isReturnStatement).map((statement) => statement.expression && unwrapExpression(statement.expression)).filter(Boolean).filter(ts.isObjectLiteralExpression);
-}
-
-function toolNamesFromProvider(projectRoot, functionName, relPath) {
-  const { ast } = sourceAst(projectRoot, relPath);
-  if (functionName === 'createAnalystControlProvider') {
-    const fn = findFunction(ast, functionName);
-    if (!fn.getText(ast).includes('createAnalystControlTools')) throw new Error('Analyst control provider no longer consumes the executable Analyst catalog');
-    const registry = sourceAst(projectRoot, 'src/tools/analyst-tool-registry.ts');
-    const initializers = constInitializers(registry.ast);
-    const catalog = findFunction(registry.ast, 'createAnalystControlTools');
-    if (!catalog.getText(registry.ast).includes('analystToolOrder.map')) throw new Error('Unable to resolve executable Analyst catalog order');
-    return stringArray(requiredInitializer(initializers, 'analystToolOrder', registry.ast.fileName), 'Analyst control order');
-  }
-  const objects = directReturnObjects(findFunction(ast, functionName));
-  if (objects.length !== 1) throw new Error(`${functionName} must return one direct provider object`);
-  const toolsProperty = objects[0].properties.find((property) => ts.isPropertyAssignment(property) && propertyName(property.name) === 'tools');
-  if (!toolsProperty || !ts.isPropertyAssignment(toolsProperty)) throw new Error(`${functionName} has no statically discoverable tools property`);
-  const tools = unwrapExpression(toolsProperty.initializer);
-  if (!ts.isArrayLiteralExpression(tools)) throw new Error(`${functionName} tools must be an array literal`);
-  return tools.elements.map((element) => {
-    const call = unwrapExpression(element);
-    if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || call.expression.text !== 'defineTool' || call.arguments.length !== 1) throw new Error(`${functionName} contains an unsupported tool definition`);
-    const definition = unwrapExpression(call.arguments[0]);
-    if (!ts.isObjectLiteralExpression(definition)) throw new Error(`${functionName} contains a non-object tool definition`);
-    const nameProperty = definition.properties.find((property) => ts.isPropertyAssignment(property) && propertyName(property.name) === 'name');
-    if (!nameProperty || !ts.isPropertyAssignment(nameProperty)) throw new Error(`${functionName} contains a tool without a name`);
-    const name = unwrapExpression(nameProperty.initializer);
-    if (!ts.isStringLiteral(name)) throw new Error(`${functionName} contains a non-literal tool name`);
-    return name.text;
-  });
-}
-
-function terminalToolName(projectRoot, role) {
-  const nodeExecution = sourceAst(projectRoot, 'src/runtime/actors/agent-node-execution.ts');
-  if (!nodeExecution.content.includes('name: TERMINAL_RESULT_TOOL_NAME')) throw new Error(`configured ${role} node contract does not compose TERMINAL_RESULT_TOOL_NAME`);
-  const result = sourceAst(projectRoot, 'src/contracts/result-envelope.ts');
-  const initializer = requiredInitializer(constInitializers(result.ast), 'TERMINAL_RESULT_TOOL_NAME', result.ast.fileName);
-  if (!ts.isStringLiteral(initializer)) throw new Error('TERMINAL_RESULT_TOOL_NAME must be a string literal');
-  return initializer.text;
-}
-
-const SUPPORTED_AGENT_ROLES = new Set(['planner', 'reviewer', 'executor', 'analyst']);
-const AUTONOMOUS_AGENT_ROLES = new Set(['planner', 'reviewer', 'executor']);
-
-function providerConstructorImports(ast) {
-  const names = new Set();
-  for (const statement of ast.statements) {
-    if (!ts.isImportDeclaration(statement) || !statement.importClause?.namedBindings || !ts.isNamedImports(statement.importClause.namedBindings)) continue;
-    for (const element of statement.importClause.namedBindings.elements) {
-      if (/^create[A-Z][A-Za-z0-9]*Provider$/.test(element.name.text)) names.add(element.name.text);
-    }
-  }
-  return names;
-}
-
-function isRoleDiscriminant(node, contextName) {
-  return ts.isPropertyAccessExpression(node)
-    && ts.isIdentifier(node.expression)
-    && node.expression.text === contextName
-    && node.name.text === 'role';
-}
-
-function directCaseReturn(clause, role) {
-  let statements = clause.statements;
-  if (statements.length === 1 && ts.isBlock(statements[0])) statements = statements[0].statements;
-  if (statements.length === 0 || !statements.slice(0, -1).every(ts.isVariableStatement)) throw new Error(`Unsupported provider-composition case shape for ${role}`);
-  const finalStatement = statements[statements.length - 1];
-  if (!ts.isReturnStatement(finalStatement) || !finalStatement.expression) throw new Error(`Unsupported provider-composition case shape for ${role}`);
-  return finalStatement.expression;
-}
-
-function providerCallsForCase(clause, role, contextName, recognizedConstructors) {
-  const returned = directCaseReturn(clause, role);
-  if (!ts.isCallExpression(returned)
-    || returned.questionDotToken
-    || returned.typeArguments?.length
-    || !ts.isIdentifier(returned.expression)
-    || returned.expression.text !== 'buildInvocationSurface'
-    || returned.arguments.length !== 2) {
-    throw new Error(`Unsupported buildInvocationSurface return for ${role}`);
-  }
-  if (!isRoleDiscriminant(returned.arguments[0], contextName)) throw new Error(`Unsupported buildInvocationSurface role argument for ${role}`);
-  const providers = returned.arguments[1];
-  if (!ts.isArrayLiteralExpression(providers)) throw new Error(`${role} provider composition must use an array literal`);
-  return providers.elements.map((element) => {
-    if (ts.isSpreadElement(element)) throw new Error(`${role} provider array contains a spread entry`);
-    if (!ts.isCallExpression(element)
-      || element.questionDotToken
-      || element.typeArguments?.length
-      || !ts.isIdentifier(element.expression)) {
-      throw new Error(`${role} provider array contains an unsupported entry`);
-    }
-    const functionName = element.expression.text;
-    if (!recognizedConstructors.has(functionName)) throw new Error(`Unknown provider constructor ${functionName} for ${role}`);
-    return functionName;
-  });
-}
-
 function extractImplementedAgentTools(projectRoot) {
-  const source = sourceAst(projectRoot, 'src/tools/role-invocation-surfaces.ts');
-  const functions = source.ast.statements.filter((statement) => ts.isFunctionDeclaration(statement) && statement.name?.text === 'buildRoleSurface');
-  if (functions.length !== 1 || !functions[0].body) throw new Error(`Expected exactly one buildRoleSurface implementation in ${source.ast.fileName}`);
-  const fn = functions[0];
-  if (fn.parameters.length !== 1 || !ts.isIdentifier(fn.parameters[0].name)) throw new Error('buildRoleSurface must have one statically named context parameter');
-  const contextName = fn.parameters[0].name.text;
-  const switches = fn.body.statements.filter(ts.isSwitchStatement);
-  if (switches.length !== 1 || !isRoleDiscriminant(switches[0].expression, contextName)) throw new Error('buildRoleSurface must contain one direct switch over its role discriminant');
-  const recognizedConstructors = providerConstructorImports(source.ast);
-  const usedFunctions = new Set();
-  const result = new Map();
-  for (const clause of switches[0].caseBlock.clauses) {
-    if (ts.isDefaultClause(clause)) {
-      throw new Error('Default provider-composition paths are unsupported');
-    }
-    if (!ts.isStringLiteral(clause.expression)) throw new Error('Agent role cases must use string literals');
-    const role = clause.expression.text;
-    if (!SUPPORTED_AGENT_ROLES.has(role)) throw new Error(`Unsupported agent role case ${role}`);
-    if (result.has(role)) throw new Error(`Duplicate provider-composition case for ${role}`);
-    const providers = providerCallsForCase(clause, role, contextName, recognizedConstructors);
-    const names = [];
-    for (const functionName of providers) {
-      const relPath = PROVIDER_SOURCE_NAVIGATION.get(functionName);
-      if (!relPath) throw new Error(`Missing provider source navigation for ${functionName}`);
-      usedFunctions.add(functionName);
-      names.push(...toolNamesFromProvider(projectRoot, functionName, relPath));
-    }
-    if (AUTONOMOUS_AGENT_ROLES.has(role)) names.push(terminalToolName(projectRoot, role));
-    const unique = uniqueSorted(names);
-    if (unique.length !== names.length) throw new Error(`Duplicate resulting tool name for ${role}`);
-    result.set(role, unique);
+  const source = sourceAst(projectRoot, 'src/agents/default-workflow-config.ts');
+  const initial = requiredInitializer(constInitializers(source.ast), 'DEFAULT_AGENTS', source.ast.fileName);
+  if (!ts.isCallExpression(initial) || !ts.isPropertyAccessExpression(initial.expression)
+    || !ts.isIdentifier(initial.expression.expression) || initial.expression.expression.text !== 'Object'
+    || initial.expression.name.text !== 'freeze' || initial.arguments.length !== 1) {
+    throw new Error('DEFAULT_AGENTS must be one Object.freeze call');
   }
-  for (const role of SUPPORTED_AGENT_ROLES) if (!result.has(role)) throw new Error(`Missing provider-composition case for ${role}`);
-  for (const functionName of PROVIDER_SOURCE_NAVIGATION.keys()) if (!usedFunctions.has(functionName)) throw new Error(`Unreferenced provider source navigation for ${functionName}`);
+  const catalog = unwrapExpression(initial.arguments[0]);
+  if (!ts.isObjectLiteralExpression(catalog)) throw new Error('DEFAULT_AGENTS must freeze an object literal');
+  const result = new Map();
+  for (const property of catalog.properties) {
+    if (!ts.isPropertyAssignment(property)) throw new Error('DEFAULT_AGENTS contains an unsupported member');
+    const agentName = propertyName(property.name);
+    const frozenAgent = unwrapExpression(property.initializer);
+    if (!ts.isCallExpression(frozenAgent) || frozenAgent.arguments.length !== 1) throw new Error(`DEFAULT_AGENTS.${agentName} must be frozen`);
+    const agent = unwrapExpression(frozenAgent.arguments[0]);
+    if (!ts.isObjectLiteralExpression(agent)) throw new Error(`DEFAULT_AGENTS.${agentName} must be an object literal`);
+    const toolsProperty = agent.properties.find((member) => ts.isPropertyAssignment(member) && propertyName(member.name) === 'tools');
+    if (!toolsProperty || !ts.isPropertyAssignment(toolsProperty)) throw new Error(`DEFAULT_AGENTS.${agentName} has no tools`);
+    const frozenTools = unwrapExpression(toolsProperty.initializer);
+    if (!ts.isCallExpression(frozenTools) || frozenTools.arguments.length !== 1) throw new Error(`DEFAULT_AGENTS.${agentName}.tools must be frozen`);
+    const names = stringArray(frozenTools.arguments[0], `DEFAULT_AGENTS.${agentName}.tools`);
+    if (new Set(names).size !== names.length) throw new Error(`DEFAULT_AGENTS.${agentName}.tools contains duplicates`);
+    result.set(agentName, uniqueSorted(names));
+  }
+  if (result.size === 0) throw new Error('DEFAULT_AGENTS must not be empty');
   return result;
 }
 
 const SCHEMA_WRAPPERS = new Set(['optional', 'default', 'strict', 'passthrough', 'superRefine', 'transform', 'pipe']);
-const SCALAR_CHAINS = new Set(['min', 'max', 'int', 'positive', 'nonnegative', 'safe', 'refine']);
+const SCALAR_CHAINS = new Set(['min', 'max', 'int', 'positive', 'nonnegative', 'safe', 'refine', 'regex']);
 const SCALAR_FACTORIES = new Set(['string', 'number', 'boolean', 'enum', 'unknown', 'literal', 'any']);
 
 function extractConfigSchema(projectRoot) {
   const relPath = 'src/schemas/saivage-config.ts';
   const { ast } = sourceAst(projectRoot, relPath);
   const initializers = constInitializers(ast);
+  const importedIdentifiers = new Set(ast.statements.flatMap((statement) => {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) return [];
+    const names = [];
+    if (statement.importClause.name) names.push(statement.importClause.name.text);
+    const bindings = statement.importClause.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) names.push(element.name.text);
+    if (bindings && ts.isNamespaceImport(bindings)) names.push(bindings.name.text);
+    return names;
+  }));
   const rows = new Map();
   const stack = [];
 
@@ -431,6 +311,10 @@ function extractConfigSchema(projectRoot) {
   function traverse(rawNode, path) {
     const node = unwrapExpression(rawNode);
     if (ts.isIdentifier(node)) {
+      if (!initializers.has(node.text)) {
+        if (importedIdentifiers.has(node.text)) return;
+        throw new Error(`Unable to resolve ${node.text}`);
+      }
       if (stack.includes(node.text)) throw new Error(`Recursive config schema reference ${[...stack, node.text].join(' -> ')}`);
       stack.push(node.text);
       traverse(requiredInitializer(initializers, node.text, relPath), path);
@@ -602,25 +486,25 @@ export function verifyAgentToolDocs(options = {}) {
   const expected = options.expectedTools ?? extractImplementedAgentTools(projectRoot);
   const parsed = options.documentedTools
     ? { rows: Array.from(options.documentedTools, ([key, row]) => ({ key, ...row })), failures: [] }
-    : parseRoleToolTable(projectRoot);
+    : parseAgentToolTable(projectRoot);
   const failures = [...parsed.failures];
   const counts = new Map();
   for (const row of parsed.rows) counts.set(row.key, (counts.get(row.key) ?? 0) + 1);
   for (const row of parsed.rows) {
-    if (!expected.has(row.key)) failures.push({ type: 'unexpected-agent-role', role: row.key, file: row.file, line: row.line, message: `${row.file ?? AGENTS_DOC}:${row.line ?? '?'} has unexpected agent-tool role ${row.key}` });
+    if (!expected.has(row.key)) failures.push({ type: 'unexpected-agent', agent: row.key, file: row.file, line: row.line, message: `${row.file ?? AGENTS_DOC}:${row.line ?? '?'} has unexpected named agent ${row.key}` });
   }
-  for (const [role] of expected) {
-    const count = counts.get(role) ?? 0;
-    if (count !== 1) failures.push({ type: count === 0 ? 'missing-agent-role' : 'duplicate-agent-role', role, message: `${AGENTS_DOC} must document agent-tool role ${role} exactly once; found ${count}` });
+  for (const [agent] of expected) {
+    const count = counts.get(agent) ?? 0;
+    if (count !== 1) failures.push({ type: count === 0 ? 'missing-agent' : 'duplicate-agent', agent, message: `${AGENTS_DOC} must document named agent ${agent} exactly once; found ${count}` });
   }
-  const identityValid = failures.every((failure) => !['malformed-agent-tool-row', 'unexpected-agent-role', 'missing-agent-role', 'duplicate-agent-role'].includes(failure.type));
+  const identityValid = failures.every((failure) => !['malformed-agent-tool-row', 'unexpected-agent', 'missing-agent', 'duplicate-agent'].includes(failure.type));
   const documented = new Map();
   if (identityValid) for (const row of parsed.rows) documented.set(row.key, row);
   if (!identityValid) return { ok: false, failures, expected, documented };
-  for (const [role, tools] of expected) {
-    const row = documented.get(role);
-    verifyAnchor(projectRoot, row.anchor, failures, `agent tool row ${role}`);
-    if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', role, message: `${AGENTS_DOC} tools for ${role} do not match runtime role-provider composition (doc=${row.tools.join(',')} source=${tools.join(',')})` });
+  for (const [agent, tools] of expected) {
+    const row = documented.get(agent);
+    verifyAnchor(projectRoot, row.anchor, failures, `agent tool row ${agent}`);
+    if (!sameArray(row.tools, tools)) failures.push({ type: 'agent-tool-parity', agent, message: `${AGENTS_DOC} tools for ${agent} do not match the default named-agent catalog (doc=${row.tools.join(',')} source=${tools.join(',')})` });
   }
   return { ok: failures.length === 0, failures, expected, documented };
 }

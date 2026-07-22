@@ -1,4 +1,3 @@
-import { GLOBAL_ANALYST_SESSION_ID } from '../../schemas/index.js';
 import { AgentOperatorReadModelService } from '../../application/read-models/index.js';
 import type {
   OperatorProjectContext,
@@ -19,17 +18,17 @@ type ChatOperatorHandlerOptions = OperatorProjectContext & {
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions) {
   const { projectRoot } = options;
   const agentReadModel = (): AgentOperatorReadModelService => {
-    return new AgentOperatorReadModelService(projectRoot, () => options.runtimeApplication.captureExecutingLlmSnapshots());
+    return new AgentOperatorReadModelService(projectRoot, () => options.runtimeApplication.captureExecutingLlmSnapshots(),options.runtimeApplication.cardStore.workflows);
   };
 
   return defineOperatorContractHandlers({
     'chats.get': () => {
-      const response = agentReadModel().getConversation(GLOBAL_ANALYST_SESSION_ID);
-      if (response.statusCode === 404) return { body: { session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } } };
+      const response = agentReadModel().getConversation(options.runtimeApplication.analystSessionId);
+      if (response.statusCode === 404) return { body: { session_id:options.runtimeApplication.analystSessionId,session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } } };
       if (response.statusCode === 400) return response;
       const conversation = response.body;
-      if (conversation.session.role !== 'analyst') throw new Error('Global Analyst conversation projected a non-Analyst session.');
-      return { body: { session: conversation.session, entries: conversation.entries, activity_status: conversation.activity_status } };
+      if (conversation.session.id !== options.runtimeApplication.analystSessionId) throw new Error('Global Analyst conversation projected a foreign session.');
+      return { body: { session_id:options.runtimeApplication.analystSessionId,session: conversation.session, entries: conversation.entries, activity_status: conversation.activity_status } };
     },
     'chats.send': async ({ body, reply }) => {
       if (!body.content) return { statusCode: 400, body: { error: 'Message content is required' } };

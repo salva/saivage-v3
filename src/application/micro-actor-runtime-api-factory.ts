@@ -17,7 +17,7 @@ import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
-import type { CompiledCardProcesses } from '../runtime/card-process/card-process-config.js';
+import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
 
 export interface MicroActorRuntimeApiFactoryDeps {
@@ -27,7 +27,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   interventionBinding: RuntimeInterventionBinding;
   invocationService: InvocationService;
   promptTemplates: PromptTemplateRegistry;
-  cardProcesses: CompiledCardProcesses;
+  workflows: CompiledRuntimeWorkflows;
   processPrompts: ProcessPromptRegistry;
   compactionPolicy: AutonomousCompactionPolicy;
   compactor: CompactorPort;
@@ -53,7 +53,7 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     processRunner: deps.processRunner,
     runtimeProcessRootScope: deps.runtimeProcessRootScope,
     promptTemplates: deps.promptTemplates,
-    cardProcesses: deps.cardProcesses,
+    workflows: deps.workflows,
     processPrompts: deps.processPrompts,
     runtimeGate: deps.runtimeGate,
     mcpToolInvocation: deps.mcpToolInvocation,
@@ -70,11 +70,13 @@ export function createInvocationServiceProvider(invocationService: InvocationSer
 }
 
 export function invocationRequest(input: LlmInvocationInput, signal: AbortSignal, candidateChain?: NonNullable<InvocationRequest['candidateChain']>): InvocationRequest {
+  const boundCandidates=candidateChain??input.candidateChain;
+  if(!boundCandidates)throw new Error(`LLM invocation for agent '${input.agentName}' has no bound candidate chain.`);
   const common = {
-    inputId: input.inputId, role: input.role, sessionId: input.sessionId, systemPrompt: input.systemPrompt,
+    inputId: input.inputId, agentName: input.agentName, sessionId: input.sessionId, systemPrompt: input.systemPrompt,
     providerConversation: input.providerConversation,
     tools: input.tools, terminalToolNames: input.terminalToolNames, capabilityRequest: input.capabilityRequest, abortSignal: signal,
-    ...(candidateChain ? { candidateChain } : {}),
+    candidateChain: [...boundCandidates],
   };
   return input.preparedCompaction
     ? { ...common, modelParams: input.modelParams, preparedCompaction: input.preparedCompaction }

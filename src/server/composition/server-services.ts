@@ -14,6 +14,9 @@ import { createFastifyApp } from './fastify-app.js';
 import type { RuntimeProcessIdentity } from '../../runtime/lock.js';
 import { ManagedProcessGroupRegistry } from '../../runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../runtime/process-runner.js';
+import { bindRuntimeWorkflows } from '../../runtime/card-process/card-process-config.js';
+import { ProviderRegistry } from '../../agents/provider.js';
+import { ModelRouter } from '../../agents/model-router.js';
 
 export interface ServerServices {
   projectRoot: string;
@@ -52,7 +55,9 @@ export async function createServerServices(input: {
   terminal.registerAdmissionCloser('websocket-admission', () => liveSyncSocket.closeAdmission());
   const syncHub = new SyncHub(liveSyncSocket);
   const eventLogger = createEventLog(projectRoot, () => syncHub.timelineChanged());
-  const cardStore = new CardService(projectRoot, syncHub);
+  const providerRegistry=new ProviderRegistry(config);
+  const workflows = bindRuntimeWorkflows(environment.workflows,new ModelRouter(config,providerRegistry));
+  const cardStore = new CardService(projectRoot, workflows, syncHub);
 
   const processRegistry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
@@ -60,7 +65,7 @@ export async function createServerServices(input: {
   const mcpProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'mcp-servers');
   const processRunner = new ProcessRunner(projectRoot, processRegistry);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
-  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, configAuthority: environment.configAuthority, eventLogger, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
+  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, workflows,providerRegistry, configAuthority: environment.configAuthority, eventLogger, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
   terminal.registerAdmissionCloser('process-admission', () => runtimeApplication.processRunner.closeLaunchAdmission());
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());

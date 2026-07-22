@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
+import { workflowResult } from '../helpers/workflow-result.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -44,7 +45,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus('project', 'running');
     cards.setStatus(child.id, 'running');
     const inputs: LlmInvocationInput[] = [];
@@ -81,10 +82,10 @@ describe('Stage-I runtime lifecycle E2E', () => {
     if (!restarted.accepted) throw new Error('Restart Run was not accepted.');
     runtime.launchStartedProject(restarted.launch);
     await waitUntil(() => inputs.length === 3);
-    expect(inputs[2]!.sessionId).toBe('planner:project');
+    expect(inputs[2]!.sessionId).toBe('agent:planner:project');
     expect(inputs[2]!.inputId).not.toBe(inputs[1]!.inputId);
     expect(inputs[2]!.providerConversation.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'system', kind: 'model_recovered' })]));
-    expect(readConversation(projectRoot, 'planner:project').physicalRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
+    expect(readConversation(projectRoot, 'agent:planner:project').physicalRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
     expect(cards.read(child.id)?.lifecycle.status).toBe('stopped');
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
@@ -94,10 +95,10 @@ describe('Stage-I runtime lifecycle E2E', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
-    const active = cards.create({ type: 'code', parent: 'project', title: 'Active', brief: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const done = cards.create({ type: 'test', parent: 'project', title: 'Done', brief: 'Done', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const active = cards.create({ type: 'code', parent: 'project', title: 'Active', bootstrap_content: 'Execute', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const done = cards.create({ type: 'test', parent: 'project', title: 'Done', bootstrap_content: 'Done', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.setStatus(done.id, 'running');
-    cards.commitActivationOutcome(done.id, { status: 'done', summary: 'kept', result: { kind: 'done', summary: 'kept' } }, '2026-07-16T00:00:00.000Z');
+    cards.commitActivationOutcome(done.id, { status: 'done', summary: 'kept', result: workflowResult('DONE','kept') }, '2026-07-16T00:00:00.000Z');
     cards.setStatus('project', 'running');
     cards.setStatus(active.id, 'running');
     let releaseTerminal!: () => void;

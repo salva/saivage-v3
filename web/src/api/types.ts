@@ -1,7 +1,6 @@
 import type {
   AgentActivityStatus as ContractActivityStatus,
   AgentConversationEntry,
-  AgentRole,
   AgentSessionSummary,
   CardHistoryEntry,
   CardHistoryHeader,
@@ -24,7 +23,6 @@ export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
 
 export type {
   AgentConversationEntry,
-  AgentRole,
   ChatWorkspaceContext,
   CardAction,
   CardHistoryEntry,
@@ -44,7 +42,8 @@ export type {
   LiveSyncClientFrame,
   LiveSyncCardInvalidateFrame,
   LiveSyncCardInvalidateTarget,
-  LiveSyncCardRecordSlot,
+  LiveSyncCardRecordName,
+  CardRecordDescriptor,
   LiveSyncInvalidateFrame,
   LiveSyncSubscribedFrame,
   LiveSyncInvalidateTarget,

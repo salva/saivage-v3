@@ -2,15 +2,13 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardService } from '../../src/cards/card-service.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
+import { CardService,initProjectTree } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
-import { currentRecordDefinitionForFilename } from '../../src/records/current-record-definitions.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
-function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-record-stream-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const card = cards.create({ type: 'code', parent: 'project', title: 'card', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }); return { cards, card }; }
+function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-record-stream-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const card = cards.create({ type: 'code', parent: 'project', title: 'card', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }); return { cards, card }; }
 
 describe('authored record revision streams', () => {
   it('preserves logical-version URLs across edit, close, discard, and new open versions', () => {
@@ -48,7 +46,7 @@ describe('authored record revision streams', () => {
     expect(() => malformedCard.cards.readRecord(malformedCard.card.id, 'status.md')).toThrow(/malformed/);
 
     const missingBrief = setup();
-    rmSync(cardRecordStreamFile(missingBrief.cards.projectRoot, missingBrief.card.id, currentRecordDefinitionForFilename('brief.md')));
+    rmSync(cardRecordStreamFile(missingBrief.cards.projectRoot, missingBrief.card.id, missingBrief.cards.recordReader.definition(missingBrief.card.id,'brief.md')));
     let missingBriefError: unknown;
     try { missingBrief.cards.readRecord(missingBrief.card.id, 'brief.md'); } catch (error) { missingBriefError = error; }
     expect(missingBriefError).not.toBeInstanceOf(AuthoredRecordNotFoundError);

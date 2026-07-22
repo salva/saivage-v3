@@ -6,8 +6,7 @@ import { isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbso
 import { redactForOutbound, redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
-import { AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
-import { currentRecordDefinitionForFilename } from '../../records/current-record-definitions.js';
+import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
 import { cardIdSchema } from '../../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 
@@ -62,7 +61,7 @@ function isBinaryBuffer(buffer: Buffer): boolean {
   return suspicious / length > 0.3;
 }
 
-function parseRecordContentRequest(requestedPath: string): RecordContentRequest {
+function parseRecordContentRequest(requestedPath: string,records:CanonicalCardFilesReader): RecordContentRequest {
   let parsed: ReturnType<typeof parseScopedPathUrl>;
   try { parsed = parseScopedPathUrl(requestedPath, 'record'); }
   catch { return { kind: 'invalid', error: 'Invalid record URL.' }; }
@@ -70,12 +69,15 @@ function parseRecordContentRequest(requestedPath: string): RecordContentRequest 
   for (const key of parsed.query.keys()) if (key !== 'card' && key !== 'v') return { kind: 'invalid', error: 'Invalid record URL.' };
   if (parsed.query.getAll('card').length !== 1 || parsed.query.getAll('v').length > 1) return { kind: 'invalid', error: 'Invalid record URL.' };
   const filename = parsed.segments[0]!;
-  try { currentRecordDefinitionForFilename(filename); }
-  catch { return { kind: 'invalid', error: 'Invalid record URL.' }; }
   const rawCardId = parsed.query.get('card');
   if (!rawCardId) return { kind: 'invalid', error: 'Record URL requires card.' };
   const parsedCardId = cardIdSchema.safeParse(rawCardId);
   if (!parsedCardId.success) return { kind: 'invalid', error: 'Invalid record URL.' };
+  try { records.definition(parsedCardId.data, filename); }
+  catch (error) {
+    if (error instanceof AuthoredRecordDefinitionNotFoundError) return { kind: 'invalid', error: 'Invalid record URL.' };
+    if (!(error instanceof AuthoredRecordNotFoundError)) throw error;
+  }
   const rawVersion = parsed.query.get('v') ?? 'latest';
   if (rawVersion === 'latest') return { kind: 'valid', cardId: parsedCardId.data, filename, version: 'latest' };
   if (!/^[1-9]\d*$/u.test(rawVersion)) return { kind: 'invalid', error: 'Invalid record version.' };
@@ -302,7 +304,7 @@ export class WorkspaceFileReadModelService {
   readFileContent(requestedPath: string | undefined): WorkspaceFileContentResult {
     if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
     if (requestedPath.startsWith('record:///')) {
-      const request = parseRecordContentRequest(requestedPath);
+      const request = parseRecordContentRequest(requestedPath,this.records());
       if (request.kind === 'invalid') return { statusCode: 400, body: { error: request.error, path: requestedPath } };
       try {
         const record = this.records().record(request.cardId, request.filename, request.version);

@@ -10,22 +10,17 @@ export {
 } from './actor-vocabulary.js';
 export { canonicalJson, contextCompactionContentSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
 export {
-  GLOBAL_ANALYST_SESSION_ID,
-  AnalystConversationSessionIdSchema,
-  PlannerConversationSessionIdSchema,
-  ReviewerConversationSessionIdSchema,
-  ExecutorConversationSessionIdSchema,
   ConversationSessionIdSchema,
   parseConversationSessionId,
+  globalAgentSessionId,
+  cardAgentSessionId,
   conversationSessionIdentity,
-  type AnalystConversationSessionId,
-  type PlannerConversationSessionId,
-  type ReviewerConversationSessionId,
-  type ExecutorConversationSessionId,
+  type GlobalConversationSessionId,
   type CardConversationSessionId,
   type ConversationSessionId,
-  type ConversationRole,
 } from './conversation-session-id.js';
+export { agentNameSchema, parseAgentName, type AgentName } from './agent-name.js';
+export { recordNameSchema, parseRecordName, type RecordName } from './record-name.js';
 export type {
   ActorPauseMode,
   LlmActorPhase,
@@ -48,20 +43,11 @@ export {
   createActionableErrorEnvelope,
 } from './actionable-error.js';
 export {
-  agentRoleValues,
-  agentInvocationRoleValues,
-  operationalAgentRoleValues,
   cardTypeValues,
-  planningCardTypeValues,
-  terminalCardTypeValues,
-  isPlanningCardType,
-  isTerminalCardType,
-  activePromptPairs,
   cardStatusValues,
   cardActionValues,
   urgencyValues,
   analystIssueSeverityValues,
-  skillTargetRoleValues,
 } from './types.js';
 export type {
   ActivationOutcome,
@@ -85,9 +71,6 @@ export {
 } from './lifecycle.js';
 export type {
   CardType,
-  PromptCardTypeKey,
-  PromptRoleKey,
-  PromptSlot,
   CardStatus,
   CardAction,
   ActionableErrorEnvelope,
@@ -106,9 +89,6 @@ export type {
   ProjectConfig,
   AnalystIssue,
   ProcessStatus,
-  AgentRole,
-  AgentInvocationRole,
-  OperationalAgentRole,
   MessageRole,
   MessageKind,
   EntityLink,
@@ -118,7 +98,6 @@ export type {
   DoctorCheck,
   DoctorIssue,
   DoctorResponse,
-  SkillTargetRole,
   SkillIndexEntry,
   RuntimeEventKind,
   AgentEventKind,
@@ -157,14 +136,13 @@ export {
   analystIssuesSchema,
   projectConfigSchema,
   processStatusSchema,
-  agentRoleSchema,
   messageRoleSchema,
   messageKindSchema,
   entityLinkSchema,
   agentMessageSchema,
   runtimeStatusSchema,
   runtimeStateSchema,
-  skillTargetRoleSchema,
+  skillTargetAgentSchema,
   skillIndexEntrySchema,
   skillIndexSchema,
   runtimeEventKindSchema,

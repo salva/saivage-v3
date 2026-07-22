@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../../src/application/read-models/card-view.js';
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { ValidationErrorSchema } from '../../src/contracts/index.js';
@@ -16,7 +16,7 @@ describe('direct card history and operator read models', () => {
   it('projects stopped through hierarchy, detail, history, and operator actions without changing response shapes', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.setStatus(card.id, 'running');
     cards.stopRunningForRecovery(card.id);
     const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => null });
@@ -33,8 +33,8 @@ describe('direct card history and operator read models', () => {
     roots.push(root);
     initProjectTree(root);
     const cards = new CardService(root);
-    const first = cards.create({ type: 'goal', parent: 'project', title: 'First by position', brief: 'One', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const second = cards.create({ type: 'code', parent: 'project', title: 'Second by position', brief: 'Two', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const first = cards.create({ type: 'goal', parent: 'project', title: 'First by position', bootstrap_content: 'One', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const second = cards.create({ type: 'code', parent: 'project', title: 'Second by position', bootstrap_content: 'Two', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
     cards.editCard(first.id, { title: 'Updated title' });
     const history = cards.listCardHistory(first.id);
     expect(history.kind).toBe('found');
@@ -64,7 +64,7 @@ describe('direct card history and operator read models', () => {
   it('keeps every card-domain operator read opaque after tombstone', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-history-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const card = cards.create({ type: 'code', parent: 'project', title: 'Before', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const card = cards.create({ type: 'code', parent: 'project', title: 'Before', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.editCard(card.id, { title: 'After' });
     cards.deleteSubtrees([card.id], () => true);
     const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => { throw new Error('unused'); } });

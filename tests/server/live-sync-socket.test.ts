@@ -11,13 +11,13 @@ describe('LiveSyncSocket conversation leases', () => {
     const live = new LiveSyncSocket();
     const ws = socket();
     live.add(ws);
-    live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'planner:project', lease: 'old' });
-    live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'planner:project', lease: 'current' });
-    live.handleClientFrame(ws, { t: 'unsubscribe', resource: 'conversation', id: 'planner:project', lease: 'old' });
-    live.invalidate({ resource: 'conversation', id: 'planner:project' });
+    live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'agent:planner:project', lease: 'old' });
+    live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'agent:planner:project', lease: 'current' });
+    live.handleClientFrame(ws, { t: 'unsubscribe', resource: 'conversation', id: 'agent:planner:project', lease: 'old' });
+    live.invalidate({ resource: 'conversation', id: 'agent:planner:project' });
 
     expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
-      t: 'invalidate', resource: 'conversation', id: 'planner:project',
+      t: 'invalidate', resource: 'conversation', id: 'agent:planner:project',
     });
   });
 
@@ -35,11 +35,11 @@ describe('LiveSyncSocket conversation leases', () => {
     const live = new LiveSyncSocket();
     const ws = socket();
     live.add(ws);
-    live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'planner:project', lease: 'valid' });
+    live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'agent:planner:project', lease: 'valid' });
     jest.mocked(ws.send).mockClear();
     expect(live.handleClientFrame(ws, { t: 'unsubscribe', resource: 'conversation', id, lease: 'valid' })).toBe(false);
-    live.invalidate({ resource: 'conversation', id: 'planner:project' });
-    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'planner:project' }]);
+    live.invalidate({ resource: 'conversation', id: 'agent:planner:project' });
+    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project' }]);
   });
 });
 
@@ -51,9 +51,9 @@ describe('LiveSyncSocket scoped Cards invalidations', () => {
     live.add(first);
     live.add(second);
 
-    live.invalidate({ resource: 'cards', scope: 'record', card_id: 'card-a-b', slot: 'review' });
+    live.invalidate({ resource: 'cards', scope: 'record', card_id: 'card-a-b', record_name: 'review' });
 
-    const expected = [{ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a-b', slot: 'review' }];
+    const expected = [{ t: 'invalidate', resource: 'cards', scope: 'record', card_id: 'card-a-b', record_name: 'review' }];
     expect(jest.mocked(first.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual(expected);
     expect(jest.mocked(second.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual(expected);
   });

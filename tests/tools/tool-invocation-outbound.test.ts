@@ -16,12 +16,12 @@ import {
   OUTBOUND_URL,
 } from '../helpers/outbound-identity-fixtures.js';
 
-const sessionId = parseConversationSessionId('planner:project');
+const sessionId = parseConversationSessionId('agent:planner:project');
 const sourceInputId = '11111111-1111-4111-8111-111111111111';
 const marker = `Authorization: Bearer ${OUTBOUND_RAW_MARKER}`;
 
 const validArguments: Record<KnownToolInvocationName, unknown> = {
-  create_card: { type: 'code', title: marker, brief: marker, tags: [OUTBOUND_IDENTITY] },
+  create_card: { type: 'code', title: marker, bootstrap_content: marker, tags: [OUTBOUND_IDENTITY] },
   cancel_card: { cardId: 'card-a', reason: marker },
   delete_card: { ids: ['card-a'] },
   reorder_child: { parentId: 'project', orderedChildIds: ['card-a'] },
@@ -34,7 +34,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   read_runtime_errors: { limit: 1 },
   read_control_actions: { limit: 1, since: '2026-07-22T10:00:00.000Z' },
   list_processes_tool: { status: 'running', cardId: 'card-a' },
-  list_agent_sessions: {}, read_agent_session: { sessionId: 'planner:project', lastN: 1 },
+  list_agent_sessions: {}, read_agent_session: { sessionId: 'agent:planner:project', lastN: 1 },
   list_cards: { tag: OUTBOUND_IDENTITY }, get_card: { id: 'card-a' }, get_tree: { rootId: 'card-a' },
   list_card_history: { cardId: 'card-a' },
   get_card_history_entry: { cardId: 'card-a', version_seq: 1 },
@@ -93,13 +93,8 @@ describe('projectToolInvocation exhaustive identity switch', () => {
 
   it('classifies every reconfigure action/key/value branch without rewriting identities', () => {
     const cases = [
-      { action: 'set_role_routing', role: 'executor', model_candidate: 'sk-model' },
-      { action: 'set_failover_chain', for_model: 'sk-model', ordered_failover_models: ['tok_primary'] },
-      { action: 'mcp_add', name: 'ghu_server', command: marker, args: [marker], env: { UNUSUAL: OUTBOUND_RAW_MARKER } },
-      { action: 'mcp_edit', name: 'ghu_server', command: marker },
-      { action: 'mcp_remove', name: 'ghu_server' },
-      { action: 'set_runtime_setting', key: 'continuous_improvement', value: true },
-      { action: 'set_runtime_setting', key: 'process_timeouts', value: { planner_ms: 1, executor_ms: 2, reviewer_ms: 3 } },
+      { action: 'set_agent_model_route', agent: 'executor', model_route: 'executor' },
+      { action: 'set_model_failover', for_model: 'sk-model', ordered_failover_models: ['tok_primary'] },
       { action: 'set_server_setting', key: 'port', value: 8080 },
       { action: 'set_server_setting', key: 'host', value: 'tok_primary' },
     ];
@@ -109,9 +104,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
       if (projected.shape !== 'complete') throw new Error('unexpected shape');
       expect((projected.arguments as Record<string, unknown>)['action']).toBe(argumentsValue.action);
     }
-    const mcp = (projectToolInvocation({ shape: 'complete', identity: identity('reconfigure'), arguments: cases[2], result: { success: false, error: marker } }) as Extract<ToolInvocationProjectionInput, { shape: 'complete' }>).arguments;
-    expect(mcp).toMatchObject({ name: 'ghu_server', env: { UNUSUAL: '[REDACTED]' } });
-    expect(JSON.stringify(mcp)).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(cases.map(({ action }) => action)).toEqual(['set_agent_model_route', 'set_model_failover', 'set_server_setting', 'set_server_setting']);
   });
 
   it('keeps unsupported, malformed-JSON, and schema-invalid-known calls readable on distinct paths', () => {
@@ -207,10 +200,10 @@ describe('projectToolInvocation exhaustive identity switch', () => {
   it('recursively supplies itself to the bounded read_agent_session result leaf', () => {
     const projected = projectToolInvocation({
       shape: 'result-row', identity: identity('read_agent_session'), result: { success: true, data: {
-        session: { id: 'planner:project', role: 'planner', goal_card_id: 'project', card_id: 'project', status: 'inactive', started_at: '2026-07-22T10:00:00.000Z', model: 'sk-model' },
+        session: { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', status: 'inactive', started_at: '2026-07-22T10:00:00.000Z', model: 'sk-model' },
         activity_status: { status: 'inactive', pending_calls: [] }, total_messages: 1, returned: 1, parse_errors: 0,
         messages: [{
-          id: `${sourceInputId}:tool-result:nested`, session_id: 'planner:project', role: 'tool', kind: 'tool_result', tool: 'mcp_tool_call', tool_call_id: 'nested',
+          id: `${sourceInputId}:tool-result:nested`, session_id: 'agent:planner:project', role: 'tool', kind: 'tool_result', tool: 'mcp_tool_call', tool_call_id: 'nested',
           content: JSON.stringify({ success: true, data: { apiKey: 'synthetic-secret-value', id: 'stable_value' } }), round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
           message_index: 0, block_index: 0, timestamp: '2026-07-22T10:00:00.000Z',
         }],

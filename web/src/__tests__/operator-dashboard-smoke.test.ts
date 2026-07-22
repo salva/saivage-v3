@@ -55,9 +55,8 @@ function installOperatorApiFetch(): void {
         return jsonResponse({ events: [], total: 0 });
       case '/api/mcp/tools':
         return jsonResponse({ tools: [], servers: [], invocationStats: {}, serverDetails: [] });
-      case '/api/chats/analyst%3Aglobal':
-      case '/api/chats/analyst:global':
-        return jsonResponse({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
+      case '/api/chat':
+        return jsonResponse({ session_id: 'agent:analyst:global', session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
       default:
         return new Response(JSON.stringify({ message: `Unhandled operator route smoke URL: ${url.pathname}` }), {
           status: 404,
@@ -139,8 +138,7 @@ describe('operator dashboard S06 smoke contract', () => {
     expect(consoleErrors, `${path} console.error output`).toEqual([]);
     expect(unhandledErrors, `${path} window error events`).toEqual([]);
     expect(unhandledRejections, `${path} unhandled promise rejections`).toEqual([]);
-    expect(requestedPaths).not.toContain('/api/chats');
-    expect(requestedPaths.filter((requestedPath) => requestedPath === '/api/chats/analyst%3Aglobal' || requestedPath === '/api/chats/analyst:global')).toHaveLength(1);
+    expect(requestedPaths.filter((requestedPath) => requestedPath === '/api/chat')).toHaveLength(1);
     wrapper.unmount();
   });
 

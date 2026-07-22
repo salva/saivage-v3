@@ -3,9 +3,9 @@ import { installOperatorRestRoutes, smokeCardId } from './fixtures/operator-rest
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const token = 'synthetic-cards-bootstrap-order-token';
-const analystSessionId = 'analyst:global';
-const linkedSessionId = `executor:${smokeCardId}`;
-const exactAnalystPath = `/api/chats/${encodeURIComponent(analystSessionId)}`;
+const analystSessionId = 'agent:analyst:global';
+const linkedSessionId = `agent:executor:${smokeCardId}`;
+const exactAnalystPath = '/api/chat';
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -89,24 +89,11 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
   await rootObserved.promise;
   await expect(page.getByText(/Live updates connected/i).first()).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBe(1);
-  await expect.poll(() => outboundConversationSubscribe(page, analystSessionId)).toMatchObject({
-    t: 'subscribe',
-    resource: 'conversation',
-    id: analystSessionId,
-  });
-  const analystSubscribe = await outboundConversationSubscribe(page, analystSessionId) as { lease: string };
-  eventLedger.push('analyst:subscribe');
-  expect(analystSubscribe.lease).toMatch(/^[0-9a-f]{32}$/);
+  expect(await outboundConversationSubscribe(page, analystSessionId)).toBeNull();
   expect(rootRequests).toBe(1);
   expect(rest.counts.get('GET /api/chats') ?? 0).toBe(0);
   expect(agentRequests).toBe(0);
   expect(analystReads).toBe(0);
-  expect(requestLedger).toEqual(['cards:root']);
-
-  eventLedger.push('analyst:ack:held');
-  await acknowledgeCurrentConversationLease(page, analystSessionId, analystSubscribe.lease);
-  expect(analystReads).toBe(0);
-  expect(agentRequests).toBe(0);
   expect(requestLedger).toEqual(['cards:root']);
 
   rootReleased = true;
@@ -119,6 +106,15 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
   expect(requestLedger[0]).toBe('cards:root');
   expect(requestLedger.slice(1).sort()).toEqual(['agents:list', 'analyst:get:1'].sort());
 
+  await expect.poll(() => outboundConversationSubscribe(page, analystSessionId)).toMatchObject({
+    t: 'subscribe',
+    resource: 'conversation',
+    id: analystSessionId,
+  });
+  const analystSubscribe = await outboundConversationSubscribe(page, analystSessionId) as { lease: string };
+  eventLedger.push('analyst:subscribe');
+  expect(analystSubscribe.lease).toMatch(/^[0-9a-f]{32}$/);
+
   eventLedger.push('analyst:ack:settled');
   await acknowledgeCurrentConversationLease(page, analystSessionId, analystSubscribe.lease);
   await expect.poll(() => analystReads).toBe(2);
@@ -126,9 +122,8 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
   await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id }), analystSessionId);
   await expect.poll(() => analystReads).toBe(3);
   expect(eventLedger).toEqual([
-    'analyst:subscribe',
-    'analyst:ack:held',
     'cards:root:release',
+    'analyst:subscribe',
     'analyst:ack:settled',
     'analyst:invalidate:settled',
   ]);

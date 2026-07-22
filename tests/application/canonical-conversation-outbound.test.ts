@@ -24,7 +24,7 @@ import {
 const timestamp = '2026-07-22T10:00:00.000Z';
 const sourceA = '11111111-1111-4111-8111-111111111111';
 const sourceB = '22222222-2222-4222-8222-222222222222';
-const sessionId = 'planner:project' as const;
+const sessionId = 'agent:planner:project' as const;
 
 const identityProjector: ToolInvocationProjector = (input) => input;
 
@@ -122,7 +122,7 @@ function wrapper(
   pending = status === 'waiting' ? [{ id: 'call-a', tool: 'webfetch', started_at: timestamp }] : [],
 ): BoundedAgentSessionWrapper {
   return {
-    session: { id: sessionId, role: 'planner', goal_card_id: 'project', card_id: 'project', status, started_at: timestamp, model: 'tok_primary' },
+    session: { id: sessionId, agent_name: 'planner', session_scope:'card', card_id: 'project', status, started_at: timestamp, model: 'tok_primary' },
     activity_status: { status, pending_calls: pending },
     total_messages: 9,
     returned: messages.length,
@@ -271,7 +271,7 @@ describe('bounded read_agent_session wrapper projection', () => {
   it('rejects wrapper/session/count mismatch, duplicate rows, result-before-call, and co-selected tool mismatch', () => {
     expect(() => projectBoundedAgentSessionWrapper({ ...wrapper('inactive', [result()]), returned: 0 }, identityProjector)).toThrow('Returned count');
     expect(() => projectBoundedAgentSessionWrapper({ ...wrapper('inactive', [result()]), total_messages: 0 }, identityProjector)).toThrow('Total message count');
-    expect(() => projectBoundedAgentSessionWrapper(wrapper('inactive', [result({ session: 'reviewer:project' })]), identityProjector)).toThrow('Selected message session');
+    expect(() => projectBoundedAgentSessionWrapper(wrapper('inactive', [result({ session: 'agent:reviewer:project' })]), identityProjector)).toThrow('Selected message session');
     expect(() => projectBoundedAgentSessionWrapper(wrapper('inactive', [result(), result()]), identityProjector)).toThrow('duplicate settlements');
     expect(() => projectBoundedAgentSessionWrapper(wrapper('inactive', [result(), call()]), identityProjector)).toThrow('precedes its selected call');
     expect(() => projectBoundedAgentSessionWrapper(wrapper('inactive', [call(), result({ tool: 'websearch' })]), identityProjector)).toThrow('mismatched call/result tool');
@@ -333,7 +333,7 @@ function projectNestedWrapper(value: BoundedAgentSessionWrapper): BoundedAgentSe
   const projected = projectToolInvocation({
     shape: 'result-row',
     identity: {
-      sessionId: 'analyst:global',
+      sessionId: 'agent:analyst:global',
       sourceInputId: sourceB,
       toolCallId: 'nested-session',
       toolName: 'read_agent_session',

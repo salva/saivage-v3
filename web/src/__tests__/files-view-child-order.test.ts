@@ -24,7 +24,7 @@ describe('FilesView committed child order', () => {
       cardView(orderedIds[4], { title: 'C' }),
     ];
     cardsStore.hierarchySlicesByParentId = { [PARENT_ID]: { parent, children } };
-    cardsStore.selectedDetail = { cardId: PARENT_ID, card: parent };
+    cardsStore.selectedDetail = { cardId: PARENT_ID, card: parent, records: [] };
     const wrapper = mount(FilesView, { global: { stubs: { CodeBlock: true, MarkdownText: true } } });
     await wrapper.vm.$nextTick();
     expect(wrapper.findAll('[data-testid="files-card-children-list"] [data-testid="files-card-children-item"] .title').map((n) => n.text())).toEqual(['E', 'B', 'D', 'A', 'C']);

@@ -47,13 +47,14 @@ vi.mock('../api/client', () => {
 });
 
 function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
-  const role = overrides.role ?? 'planner';
-  const id = overrides.id ?? (role === 'analyst' ? 'analyst:global' : role === 'reviewer' ? 'reviewer:project' : role === 'executor' ? 'executor:project' : 'planner:project');
-  const cardId = role === 'analyst' ? null : id.slice(id.indexOf(':') + 1);
+  const agentName = overrides.agent_name ?? 'planner';
+  const sessionScope = overrides.session_scope ?? (agentName === 'analyst' ? 'global' : 'card');
+  const id = overrides.id ?? (sessionScope === 'global' ? `agent:${agentName}:global` : `agent:${agentName}:project`);
+  const cardId = sessionScope === 'global' ? null : id.slice(id.lastIndexOf(':') + 1);
   return AgentSessionSummarySchema.parse({
     id,
-    role,
-    goal_card_id: '11111111-1111-4111-8111-111111111111',
+    agent_name: agentName,
+    session_scope: sessionScope,
     card_id: cardId,
     status: 'active' as const,
     started_at: '2025-06-01T08:00:00Z',
@@ -62,8 +63,8 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
   });
 }
 
-const plannerSession = makeSession({ id: 'planner:project', role: 'planner', status: 'active' });
-const executorSession = makeSession({ id: 'executor:project', role: 'executor', status: 'inactive', model: 'deepseek-v4-pro' });
+const plannerSession = makeSession({ id: 'agent:planner:project', agent_name: 'planner', status: 'active' });
+const executorSession = makeSession({ id: 'agent:executor:project', agent_name: 'executor', status: 'inactive', model: 'deepseek-v4-pro' });
 const allSessions = [plannerSession, executorSession];
 
 function makeRouter() {
@@ -92,7 +93,7 @@ async function mountAgentsView(opts?: {
     entries: [
       {
         id: 'm1',
-        session_id: 'planner:project',
+        session_id: 'agent:planner:project',
         role: 'assistant',
           kind: 'text',
           content: 'Inspect linked evidence.',
@@ -136,7 +137,7 @@ describe('AgentsView', () => {
     expect(agentsViewSource).toContain('class="agents-content"');
   });
 
-  it('renders sessions grouped by role', async () => {
+  it('renders sessions grouped by agent', async () => {
     const { wrapper } = await mountAgentsView({ sessions: allSessions });
     expect(wrapper.text()).toContain('planner');
     expect(wrapper.text()).toContain('executor');
@@ -185,11 +186,11 @@ describe('AgentsView', () => {
   });
 
   it('agent conversation links navigate to supported entities', async () => {
-    const { router } = await mountAgentsView({ sessions: allSessions, initialRoute: '/agents/planner:project' });
+    const { router } = await mountAgentsView({ sessions: allSessions, initialRoute: '/agents/agent:planner:project' });
     const pushSpy = vi.spyOn(router, 'push');
 
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner:project' },
+      props: { sessionId: 'agent:planner:project' },
       global: { plugins: [router, createPinia()] },
     });
     await flushPromises();
@@ -210,7 +211,7 @@ describe('AgentsView', () => {
       entries: [
         {
           id: 'tc1',
-          session_id: 'planner:project',
+          session_id: 'agent:planner:project',
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
@@ -222,12 +223,12 @@ describe('AgentsView', () => {
         },
         {
           id: 'tr1',
-          session_id: 'planner:project',
+          session_id: 'agent:planner:project',
           role: 'tool',
           kind: 'tool_result',
           tool: 'activate_card',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'activated G3', result: { kind: 'done', summary: 'activated G3' } } }),
+          content: JSON.stringify({ success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'activated G3', result: { kind: 'workflow-result', terminal: 'DONE', agent_name: 'executor', node_id: 'execute', outcome: 'done', summary: 'activated G3', records: [] } } }),
           round_id: 'r-assistant-00000000000000000000000000000001',
           message_index: 1,
           block_index: 0,
@@ -236,12 +237,12 @@ describe('AgentsView', () => {
       ],
     };
     const router = makeRouter();
-    await router.push('/agents/planner:project');
+    await router.push('/agents/agent:planner:project');
     await router.isReady();
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner:project' },
+      props: { sessionId: 'agent:planner:project' },
       global: { plugins: [router, pinia] },
     });
     await flushPromises();
@@ -266,12 +267,12 @@ describe('AgentsView', () => {
   it('toolbar exposes a raw LLM exchange toggle that mounts and unmounts the panel', async () => {
     apiMockState.conversation = { session: plannerSession, entries: [] };
     const router = makeRouter();
-    await router.push('/agents/planner:project');
+    await router.push('/agents/agent:planner:project');
     await router.isReady();
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'planner:project' },
+      props: { sessionId: 'agent:planner:project' },
       global: { plugins: [router, pinia] },
     });
     await flushPromises();

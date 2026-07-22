@@ -1,5 +1,5 @@
 import type { SaivageConfig } from '../schemas/saivage-config.js';
-import { getModelListForRole } from '../config/model-role-resolution.js';
+import { getModelListForAgent } from '../config/model-route-resolution.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { ProviderRegistry } from './provider.js';
 import {
@@ -42,9 +42,9 @@ export class ModelRouter {
    * OAuth profiles during startup-time candidate resolution. Transport/auth
    * validation and live cooldown/block filtering happen later at real LLM invocation time.
    */
-  async resolve(role: import('../schemas/index.js').OperationalAgentRole, request?: CapabilityRequest): Promise<Candidate[]> {
+  resolve(agentName: string, request?: CapabilityRequest): Candidate[] {
     this.lastCapabilitySkips = [];
-    const modelList = getModelListForRole(this.config, role);
+    const modelList = getModelListForAgent(this.config, agentName);
     const candidates: Candidate[] = [];
 
     const equivalents = this.config.models.equivalents ?? [];

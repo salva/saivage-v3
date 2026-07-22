@@ -42,17 +42,17 @@ describe('workspace VFS and project-file security', () => {
     symlinkSync(join(root, 'target.txt'), join(root, 'link.txt'));
     await expect(readProject({ projectRoot: root }, { path: '../outside' })).rejects.toThrow(/inside the project root|escapes|traversal/);
     await expect(readProject({ projectRoot: root }, { path: '.env' })).rejects.toThrow(/blocked for security/);
-    await expect(writeProject({ projectRoot: root, agentRole: 'executor' }, { path: '.saivage/state.json', content: 'x' })).rejects.toThrow(/internal state/);
-    await expect(writeProject({ projectRoot: root, agentRole: 'executor' }, { path: 'project:///.saivage/state.json', content: 'x' })).rejects.toThrow(/internal state/);
-    await expect(writeProject({ projectRoot: root, agentRole: 'executor' }, { path: 'link.txt', content: 'x' })).rejects.toThrow(/symlink/);
-    await expect(writeProject({ projectRoot: root, agentRole: 'reviewer' }, { path: 'reviewer-write.txt', content: 'x' })).rejects.toThrow(/reviewer cannot write project files/);
+    await expect(writeProject({ projectRoot: root, agentName: 'executor', filesystemWrite: true }, { path: '.saivage/state.json', content: 'x' })).rejects.toThrow(/internal state/);
+    await expect(writeProject({ projectRoot: root, agentName: 'executor', filesystemWrite: true }, { path: 'project:///.saivage/state.json', content: 'x' })).rejects.toThrow(/internal state/);
+    await expect(writeProject({ projectRoot: root, agentName: 'executor', filesystemWrite: true }, { path: 'link.txt', content: 'x' })).rejects.toThrow(/symlink/);
+    await expect(writeProject({ projectRoot: root, agentName: 'reviewer' }, { path: 'reviewer-write.txt', content: 'x' })).rejects.toThrow(/reviewer cannot write project files/);
   });
 
   it('classifies protected scoped writes by destination while retaining only tmp capability', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-vfs-security-'));
     roots.push(root);
     initProjectTree(root);
-    const ctx = { projectRoot: root, agentRole: 'executor' as const, cardId: 'card-a' };
+    const ctx = { projectRoot: root, agentName: 'executor' as const, cardId: 'card-a', filesystemWrite: true };
     const internalRoot = resolve(root, '.saivage');
     const internalFile = resolve(internalRoot, 'state.json');
     writeFileSync(internalFile, 'retained-state');

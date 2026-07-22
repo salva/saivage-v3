@@ -7,11 +7,10 @@ import {
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
-import { AgentActivityStatusSchema, AgentConversationEntrySchema, AnalystSessionSummarySchema } from './operator-api-agents.js';
-import { AnalystConversationSessionIdSchema } from '../schemas/index.js';
+import { AgentActivityStatusSchema, AgentConversationEntrySchema, AgentSessionSummarySchema } from './operator-api-agents.js';
+import { ConversationSessionIdSchema } from '../schemas/index.js';
 import { ToolInvocationResultSchema } from './tool-invocation-projection.js';
 
-export const ChatSessionParamsSchema = z.object({ sessionId: AnalystConversationSessionIdSchema });
 export const ChatWorkspaceContextSchema = z.object({
   view: z.string().nullable(),
   entityId: z.string().nullable(),
@@ -22,7 +21,8 @@ export const ChatSendRequestSchema = z.object({
   workspaceContext: ChatWorkspaceContextSchema.optional(),
 });
 export const ChatEntriesResponseSchema = z.object({
-  session: AnalystSessionSummarySchema.nullable(),
+  session_id: ConversationSessionIdSchema,
+  session: AgentSessionSummarySchema.nullable(),
   entries: z.array(AgentConversationEntrySchema),
   activity_status: AgentActivityStatusSchema,
 }).strict().superRefine((value, ctx) => {
@@ -31,6 +31,7 @@ export const ChatEntriesResponseSchema = z.object({
     if (value.activity_status.status !== 'inactive' || value.activity_status.pending_calls.length !== 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['activity_status'], message: 'Absent chat session requires inactive activity.' });
     return;
   }
+  if(value.session.id!==value.session_id)ctx.addIssue({code:z.ZodIssueCode.custom,path:['session_id'],message:'Chat session identity must match.'});
   if (value.session.status !== value.activity_status.status) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['activity_status', 'status'], message: 'Session and activity status must match.' });
   for (const [index, entry] of value.entries.entries()) if (entry.session_id !== value.session.id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries', index, 'session_id'], message: 'Chat entry session must match the enclosing session.' });
 });
@@ -44,7 +45,7 @@ export const ChatToolInvocationSchema = z.object({
   result: ToolInvocationResultSchema,
 }).strict();
 export const ChatSendResponseSchema = z.object({
-  sessionId: AnalystConversationSessionIdSchema,
+  sessionId: ConversationSessionIdSchema,
   toolInvocations: z.array(ChatToolInvocationSchema),
   restart: RestartChatAcknowledgementSchema.nullable(),
 }).strict();
@@ -60,8 +61,7 @@ export const chatOperatorApiContracts = {
   'chats.get': {
     operationId: 'chats.get',
     method: 'GET',
-    path: '/api/chats/:sessionId',
-    params: ChatSessionParamsSchema,
+    path: '/api/chat',
     success: ChatEntriesResponseSchema,
     error: ApiErrorSchema,
     response: { 200: ChatEntriesResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
@@ -71,8 +71,7 @@ export const chatOperatorApiContracts = {
   'chats.send': {
     operationId: 'chats.send',
     method: 'POST',
-    path: '/api/chats/:sessionId',
-    params: ChatSessionParamsSchema,
+    path: '/api/chat',
     body: ChatSendRequestSchema,
     success: ChatSendResponseSchema,
     error: ApiErrorSchema,

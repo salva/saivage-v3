@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
 import { cardNamespace, cardStreamFile } from '../../src/persistence/layout.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
@@ -32,7 +32,7 @@ function input(parent: string, title: string, type: 'code' | 'goal' = 'code') {
     type,
     parent,
     title,
-    brief: `${title} brief`,
+    bootstrap_content: `${title} brief`,
     tags: [],
     priority: 0,
     urgency: 'normal' as const,

@@ -24,9 +24,9 @@ describe('registered Analyst card mutation catalog', () => {
       type: 'code',
       parent: 'project',
       title: 'Create once',
-      brief: 'Type is selected at creation.',
+      bootstrap_content: 'Type is selected at creation.',
     }).success).toBe(true);
-    expect(registered.get('create_card')!.inputSchema.safeParse({ type: 'code', parent: 'project', title: 'No legacy status', brief: 'Strict input.', status: 'backlog' }).success).toBe(false);
+    expect(registered.get('create_card')!.inputSchema.safeParse({ type: 'code', parent: 'project', title: 'No legacy status', bootstrap_content: 'Strict input.', status: 'backlog' }).success).toBe(false);
 
     const postCreationInputs = new Map<string, Record<string, unknown>>([
       ['reorder_child', { parentId: 'project', orderedChildIds: [] }],
@@ -40,9 +40,9 @@ describe('registered Analyst card mutation catalog', () => {
     }
   });
 
-  it('filters restart_server by published authentication capability', () => {
+  it('keeps restart_server stable across published authentication capability', () => {
     const names = (restartServerAvailable: boolean) => createAnalystControlProvider({ restartServerAvailable, actor: 'analyst', surface: 'web-chat' } as never).tools.map(({ name }) => name);
-    expect(names(false)).not.toContain('restart_server');
+    expect(names(false)).toContain('restart_server');
     expect(names(true)).toContain('restart_server');
   });
 });

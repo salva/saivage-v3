@@ -11,7 +11,7 @@ import { parseOpenAIResponsesJson } from '../../src/agents/llm-openai-responses-
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };
 const policy = new InvocationRecoveryPolicy();
 const baseContext = {
-  role: 'planner',
+  agentName: 'planner',
   candidate,
   attempt: 1,
   maxAttempts: 4,

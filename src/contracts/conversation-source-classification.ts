@@ -21,8 +21,8 @@ export function classifyConversationSourceRows(sourceSessionId: ConversationSess
     }
   }
   if (current) rounds.push(buildSourceRound(current));
-  if (sourceSessionId === 'analyst:global' && preamble.length > 0) {
-    throw new Error(`Analyst conversation '${sourceSessionId}' must start with an exact analyst activation_open marker and have an empty preamble.`);
+  if (conversationSessionIdentity(sourceSessionId).cardId===null && preamble.length > 0) {
+    throw new Error(`Global-agent conversation '${sourceSessionId}' must start with an exact activation_open marker and have an empty preamble.`);
   }
   return { preamble, rounds };
 }
@@ -46,18 +46,18 @@ function isActivationOpenMarker(sourceSessionId: ConversationSessionId, message:
   const payload = parseJsonObject(message.content);
   if (payload.event !== 'activation_open') return false;
   const identity = conversationSessionIdentity(sourceSessionId);
-  const expectedRole = identity.role;
-  const expectedKeys = expectedRole === 'analyst'
-    ? ['event', 'input_id', 'role', 'timestamp']
-    : ['card_id', 'event', 'input_id', 'role', 'timestamp'];
+  const expectedAgent = identity.agentName;
+  const expectedKeys = identity.cardId===null
+    ? ['agent_name','event', 'input_id', 'timestamp']
+    : ['agent_name','card_id', 'event', 'input_id', 'timestamp'];
   if (JSON.stringify(Object.keys(payload).sort()) !== JSON.stringify(expectedKeys)) {
-    throw new Error(`Conversation '${sourceSessionId}' has a malformed ${expectedRole} activation_open marker.`);
+    throw new Error(`Conversation '${sourceSessionId}' has a malformed ${expectedAgent} activation_open marker.`);
   }
-  if (payload.role !== expectedRole || payload.timestamp !== message.timestamp || !isCanonicalUuid(payload.input_id)) {
-    throw new Error(`Conversation '${sourceSessionId}' has a malformed ${expectedRole} activation_open marker.`);
+  if (payload.agent_name !== expectedAgent || payload.timestamp !== message.timestamp || !isCanonicalUuid(payload.input_id)) {
+    throw new Error(`Conversation '${sourceSessionId}' has a malformed ${expectedAgent} activation_open marker.`);
   }
-  if (expectedRole !== 'analyst' && payload.card_id !== identity.cardId) {
-    throw new Error(`Conversation '${sourceSessionId}' has a malformed ${expectedRole} activation_open marker.`);
+  if (identity.cardId!==null && payload.card_id !== identity.cardId) {
+    throw new Error(`Conversation '${sourceSessionId}' has a malformed ${expectedAgent} activation_open marker.`);
   }
   return true;
 }

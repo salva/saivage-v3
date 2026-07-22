@@ -1,4 +1,4 @@
-import { cardNotificationSchema, isTerminalCardType, type CardNotification, type CardRecord, type CardType, type CreatedBy, type Urgency } from '../schemas/index.js';
+import { cardNotificationSchema, type CardNotification, type CardRecord, type CardType, type CreatedBy, type Urgency } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { acceptsCardNotifications } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
@@ -7,7 +7,7 @@ export interface NewChildCardInput {
   type: Exclude<CardType, 'project'>;
   parent: string;
   title: string;
-  brief: string;
+  bootstrap_content: string;
   tags: string[];
   priority: number;
   urgency: Urgency;
@@ -21,10 +21,6 @@ export type SetStatusTarget = 'running' | 'changed' | 'cancelled';
 export type SetStatusLifecycle = Extract<CardLifecycleState, { status: SetStatusTarget }>;
 
 const EDIT_FIELDS = ['title', 'tags', 'priority', 'urgency', 'related'] as const satisfies ReadonlyArray<keyof CardEditPatch>;
-
-export function isTerminalType(type: CardType): boolean {
-  return isTerminalCardType(type);
-}
 
 export function assertSetStatusAdmission(card: CardRecord, target: SetStatusTarget): void {
   const sources: Record<SetStatusTarget, readonly CardRecord['lifecycle']['status'][]> = {

@@ -4,21 +4,18 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stringify } from 'yaml';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import * as YAML from 'yaml';
-import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 const fixture = join(process.cwd(), 'tests', 'fixtures', 'app-terminal-child.ts');
 const tsx = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
-// Conservative real-child runaway guard for this suite, not a product timing assertion.
 const REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS = 20_000;
 const children = new Set<ChildProcess>();
 
 function runChild(scenario: string, projectRoot?: string, extraEnv: NodeJS.ProcessEnv = {}): ChildProcess {
   const child = spawn(process.execPath, [tsx, fixture, scenario, ...(projectRoot ? [projectRoot] : [])], {
-    cwd: process.cwd(),
-    env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', ...extraEnv },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    cwd: process.cwd(), env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'silent', ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'],
   });
   children.add(child);
   child.once('exit', () => children.delete(child));
@@ -26,8 +23,7 @@ function runChild(scenario: string, projectRoot?: string, extraEnv: NodeJS.Proce
 }
 
 function collect(child: ChildProcess): Promise<{ code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }> {
-  let stdout = '';
-  let stderr = '';
+  let stdout = ''; let stderr = '';
   child.stdout!.setEncoding('utf8').on('data', (chunk: string) => { stdout += chunk; });
   child.stderr!.setEncoding('utf8').on('data', (chunk: string) => { stderr += chunk; });
   return new Promise((resolve, reject) => {
@@ -60,9 +56,7 @@ describe('App terminal process adapters', () => {
   });
 
   it('handles a real SIGTERM through the App coordinator and exits zero', async () => {
-    const port = await availablePort();
-    const root = project(validConfig(port));
-    roots.push(root);
+    const root = project(validConfig(await availablePort())); roots.push(root);
     const child = runChild('signal', root, { SAIVAGE_API_TOKEN: '' });
     const result = collect(child);
     await new Promise<void>((resolve, reject) => {
@@ -75,28 +69,21 @@ describe('App terminal process adapters', () => {
   }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('preserves the original startup failure after coordinator cleanup', async () => {
-    const root = project('models: invalid\n');
-    roots.push(root);
+    const root = project('models: invalid\n'); roots.push(root);
     const result = await collect(runChild('startup-failure', root));
-    expect(result.code).toBe(23);
-    expect(result.signal).toBeNull();
+    expect(result).toMatchObject({ code: 23, signal: null });
     expect(result.stderr).toContain('STARTUP_ERROR:');
   }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('keeps acknowledged restart on exit code 75', async () => {
-    const port = await availablePort();
-    const root = project(validConfig(port));
-    roots.push(root);
-    const result = await collect(runChild('restart-75', root, { SAIVAGE_API_TOKEN: 'child-test-token' }));
-    expect(result.code).toBe(75);
-    expect(result.signal).toBeNull();
+    const root = project(validConfig(await availablePort())); roots.push(root);
+    await expect(collect(runChild('restart-75', root, { SAIVAGE_API_TOKEN: 'child-test-token' }))).resolves.toMatchObject({ code: 75, signal: null });
   }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 
   it('clears a real referenced timer after fast rejection so the child exits promptly', async () => {
     const result = await collect(runChild('coordinator-fast-reject'));
     const payload = JSON.parse(result.stdout.trim()) as { elapsed: number; exitReadyElapsed: number; report: unknown };
-    expect(result.code).toBe(0);
-    expect(result.signal).toBeNull();
+    expect(result).toMatchObject({ code: 0, signal: null });
     expect(payload.elapsed).toBeLessThan(1_000);
     expect(payload.exitReadyElapsed).toBeLessThan(1_000);
     expect(payload.report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_failed' }] });
@@ -105,8 +92,7 @@ describe('App terminal process adapters', () => {
   it('keeps a hanging child alive through the real ten-second bound then runs the later leaf', async () => {
     const result = await collect(runChild('coordinator-hang'));
     const payload = JSON.parse(result.stdout.trim()) as { elapsed: number; later: boolean; report: unknown };
-    expect(result.code).toBe(0);
-    expect(result.signal).toBeNull();
+    expect(result).toMatchObject({ code: 0, signal: null });
     expect(payload.elapsed).toBeGreaterThanOrEqual(9_900);
     expect(payload.later).toBe(true);
     expect(payload.report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_timeout' }] });
@@ -114,5 +100,5 @@ describe('App terminal process adapters', () => {
 });
 
 function validConfig(port: number): string {
-  return YAML.stringify({ models: { default: ['test-model'], max_tokens: { analyst: 200 } }, providers: { test: { models: ['test-model'] } }, compaction: { enabled: true, input_budget_tokens: 1000, summarizer_candidate: { provider: 'test', account: null, model: 'test-model' } }, card_processes: DEFAULT_CARD_PROCESSES, runtime: { continuous_improvement: false }, server: { host: '127.0.0.1', port } });
+  return stringify({ ...structuredClone(TEST_SAIVAGE_CONFIG), server: { host: '127.0.0.1', port } });
 }

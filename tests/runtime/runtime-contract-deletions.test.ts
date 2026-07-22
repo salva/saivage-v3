@@ -47,7 +47,7 @@ describe('runtime ledger contract deletions', () => {
     ]);
   });
 
-  it('removes rework results and admits only the exact blocked result in every shared runtime schema', async () => {
+  it('removes rework results and admits only the exact workflow result in every shared runtime schema', async () => {
     const schemas = await import('../../src/schemas/index.js');
     const schemaIndexSource = readFileSync(join(process.cwd(), 'src/schemas/index.ts'), 'utf8');
     expect(schemaIndexSource).not.toContain('ReworkResult');
@@ -55,7 +55,7 @@ describe('runtime ledger contract deletions', () => {
     expect('ReworkResult' in schemas).toBe(false);
     expect('reworkResultSchema' in schemas).toBe(false);
 
-    const blockedResult = { kind: 'blocked', summary: 'waiting', resume_reason: 'dependency' };
+    const blockedResult = { kind: 'workflow-result',terminal:'BLOCKED',agent_name:'executor',node_id:'execute',outcome:'blocked',summary:'waiting',records:[] };
     const reworkResult = { kind: 'rework', summary: 'revise', feedback: 'incorrect' };
     expect(schemas.cardResultSchema.parse(blockedResult)).toEqual(blockedResult);
     expect(schemas.cardLifecycleStateSchema.parse({ status: 'blocked', result: blockedResult, error: 'waiting', completed_at: null }))

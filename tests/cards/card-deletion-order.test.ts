@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -10,7 +10,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-delete-order-')); roots.push(root); initProjectTree(root); return { root, cards: new CardService(root) }; }
-function create(cards: CardService, parent = 'project', depends_on: string[] = [], type: 'code' | 'goal' = 'code') { return cards.create({ type, parent, title: 'card', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on, related: [] }); }
+function create(cards: CardService, parent = 'project', depends_on: string[] = [], type: 'code' | 'goal' = 'code') { return cards.create({ type, parent, title: 'card', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on, related: [] }); }
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'test' };
 
 describe('complete-union deletion admission and order', () => {
@@ -65,16 +65,15 @@ describe('complete-union deletion admission and order', () => {
       `open:${cardStreamFile(root, left.id)}`, 'stat', 'write', 'fsync', 'close',
       `open:${cardStreamFile(root, right.id)}`, 'stat', 'write', 'close',
     ]);
-    expect(cardEffects).toHaveBeenCalledTimes(8);
+    expect(cardEffects).toHaveBeenCalledTimes(7);
     expect(cardEffects.mock.calls.map(([target]) => target)).toEqual([
       { resource: 'cards', scope: 'detail', card_id: left.id },
       { resource: 'cards', scope: 'history', card_id: left.id },
       { resource: 'cards', scope: 'diff', card_id: left.id },
       { resource: 'cards', scope: 'children', card_id: left.id },
       { resource: 'cards', scope: 'children', card_id: 'project' },
-      { resource: 'cards', scope: 'record', card_id: left.id, slot: 'brief' },
-      { resource: 'cards', scope: 'record', card_id: left.id, slot: 'status' },
-      { resource: 'cards', scope: 'record', card_id: left.id, slot: 'review' },
+      { resource: 'cards', scope: 'record', card_id: left.id, record_name: 'brief.md' },
+      { resource: 'cards', scope: 'record', card_id: left.id, record_name: 'status.md' },
     ]);
     expect(runtimeEffects).toHaveBeenCalledTimes(1);
   });

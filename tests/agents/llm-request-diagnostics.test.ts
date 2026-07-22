@@ -9,7 +9,7 @@ import {
 function message(partial: Partial<AgentMessage> & { content: string }): AgentMessage {
   return {
     id: partial.id ?? 'msg-1',
-    session_id: 'planner:project',
+    session_id: 'agent:planner:project',
     role: partial.role ?? 'user',
     kind: partial.kind ?? 'text',
     content: partial.content,

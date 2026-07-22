@@ -21,7 +21,7 @@ describe('WebSocket outbound serialization', () => {
       result: { success: false, error: `failed token=${secret}`, data: { status: 'visible' } },
       sourceInputId: '11111111-1111-4111-8111-111111111111',
       toolCallId: 'call-tok_primary',
-    });
+    },'agent:analyst:global');
     sendToClient(ws, {
       type: 'activity',
       content: activity,
@@ -34,7 +34,7 @@ describe('WebSocket outbound serialization', () => {
       type: 'activity',
       content: {
         event: 'tool_invocation',
-        sessionId: 'analyst:global',
+        sessionId: 'agent:analyst:global',
         tool: 'unsupported_tok_primary',
         params: {
           safe: 'visible',

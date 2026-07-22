@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 
-import { CardService } from '../../src/cards/card-service.js';
+import { CardService } from '../helpers/canonical-project.js';
 import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
@@ -26,7 +26,7 @@ describe('operator files and debug contract handlers', () => {
     projectRoot = mkdtempSync(join(tmpdir(), 'saivage-files-routes-'));
     initProjectTree(projectRoot);
     cards = new CardService(projectRoot);
-    cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cardServiceProvider = jest.fn(() => cards);
     fastify = Fastify({ logger: false });
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot) }).mount(

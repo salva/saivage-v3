@@ -27,7 +27,7 @@ import { projectLoggedEvent } from '../observability/logged-event-projection.js'
 import { projectControlAction } from '../persistence/control-action-outbound.js';
 import { cardHistoryEntrySchema, cardHistoryHeaderSchema, cardRecordSchema, controlActionAuditEntrySchema, loggedEventSchema } from '../schemas/index.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
-import { redactTextForOutbound, redactUrl, SECRET_REDACTION_PLACEHOLDER } from '../redaction/text.js';
+import { redactTextForOutbound, redactUrl } from '../redaction/text.js';
 import { projectMcpReconcileResultForOutbound, projectMcpToolCallArgumentsForOutbound, projectMcpToolCallResultForOutbound } from './mcp-invocation-outbound.js';
 import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
 import { projectWebfetchInvocationForOutbound, projectWebfetchResultForOutbound } from './webfetch-outbound.js';
@@ -106,7 +106,7 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
   const input = value as Record<string, unknown>;
   switch (toolName) {
     case 'create_card':
-      return copyWithText(input, ['title', 'brief']);
+      return copyWithText(input, ['title', 'bootstrap_content']);
     case 'cancel_card':
       return copyWithText(input, ['reason']);
     case 'queue_notification':
@@ -151,20 +151,8 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
 
 function projectReconfigureArguments(input: Record<string, unknown>): unknown {
   switch (input['action']) {
-    case 'mcp_add':
-    case 'mcp_edit': {
-      const env = input['env'] as Record<string, string> | undefined;
-      return {
-        ...input,
-        command: redactTextForOutbound(input['command'] as string),
-        ...(input['args'] === undefined ? {} : { args: (input['args'] as string[]).map(redactTextForOutbound) }),
-        ...(env === undefined ? {} : { env: Object.fromEntries(Object.keys(env).map((key) => [key, SECRET_REDACTION_PLACEHOLDER])) }),
-      };
-    }
-    case 'set_role_routing': case 'set_failover_chain': case 'mcp_remove': case 'set_runtime_setting': case 'set_server_setting':
-      return structuredClone(input);
-    default:
-      throw new Error(`Unhandled valid reconfigure action '${String(input['action'])}'.`);
+    case 'set_agent_model_route':case 'set_model_failover':case 'set_server_setting':return structuredClone(input);
+    default:throw new Error(`Unhandled valid reconfigure action '${String(input['action'])}'.`);
   }
 }
 
@@ -271,7 +259,7 @@ function projectWebsearchData(data: unknown): unknown {
   };
 }
 
-const CARD_RESULT_TEXT_KEYS = new Set(['title', 'logical_path', 'brief', 'reason', 'body', 'content', 'message', 'summary', 'error', 'change_reason', 'change_summary', 'resume_reason']);
+const CARD_RESULT_TEXT_KEYS = new Set(['title', 'logical_path', 'bootstrap_content', 'reason', 'body', 'content', 'message', 'summary', 'error', 'change_reason', 'change_summary', 'resume_reason']);
 const CONTROL_RESULT_TEXT_KEYS = new Set(['message', 'summary', 'error', 'refinement', 'confirmationMessage']);
 const WORKSPACE_RESULT_TEXT_KEYS = new Set(['content', 'preview', 'pattern', 'message', 'error']);
 

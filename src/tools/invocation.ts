@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { ToolDefinition as LlmToolDefinition } from '../agents/llm-contracts.js';
 import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
-import type { AgentRole } from '../schemas/index.js';
+import type { AgentName } from '../schemas/index.js';
 import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
@@ -32,7 +32,7 @@ export interface ToolProvider {
 }
 
 export interface InvocationSurface {
-  readonly role: AgentRole;
+  readonly agentName: AgentName;
   readonly tools: ReadonlyMap<string, ToolDefinition<any>>;
   readonly providers: readonly ToolProvider[];
 }
@@ -46,7 +46,7 @@ export function defineTool<Schema extends z.ZodTypeAny>(definition: {
   return definition;
 }
 
-export function buildInvocationSurface(role: AgentRole, providers: readonly ToolProvider[]): InvocationSurface {
+export function buildInvocationSurface(agentName: AgentName, providers: readonly ToolProvider[]): InvocationSurface {
   const tools = new Map<string, ToolDefinition<any>>();
   for (const provider of providers) {
     for (const tool of provider.tools) {
@@ -54,10 +54,10 @@ export function buildInvocationSurface(role: AgentRole, providers: readonly Tool
       tools.set(tool.name, tool);
     }
   }
-  return { role, tools, providers };
+  return { agentName, tools, providers };
 }
 
-export function composeInvocationSurface(role: AgentRole, toolNames: readonly string[], providers: readonly ToolProvider[]): InvocationSurface {
+export function composeInvocationSurface(agentName: AgentName, toolNames: readonly string[], providers: readonly ToolProvider[]): InvocationSurface {
   const definitions = new Map<string, { definition: ToolDefinition<any>; provider: ToolProvider }>();
   for (const provider of providers) {
     for (const definition of provider.tools) {
@@ -83,13 +83,13 @@ export function composeInvocationSurface(role: AgentRole, toolNames: readonly st
     if (!selectedTools) return [];
     return [{ providerName: provider.providerName, tools: Object.freeze(selectedTools), ...(provider.cleanup ? { cleanup: provider.cleanup.bind(provider) } : {}) } satisfies ToolProvider];
   });
-  return { role, tools, providers: selectedProviders };
+  return { agentName, tools, providers: selectedProviders };
 }
 
 export async function invokeTool(surface: InvocationSurface, name: string, args: unknown, signal: AbortSignal = new AbortController().signal, context?: LlmToolInvocationContext): Promise<ToolResult> {
   if (signal.aborted) throw abortError(signal);
   const definition = surface.tools.get(name);
-  if (!definition) return { success: false, error: `Unsupported tool '${name}' for role '${surface.role}'.` };
+  if (!definition) return { success: false, error: `Unsupported tool '${name}' for agent '${surface.agentName}'.` };
   const parsed = definition.inputSchema.safeParse(args);
   if (!parsed.success) return { success: false, error: parsed.error.message };
   if (signal.aborted) throw abortError(signal);

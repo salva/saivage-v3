@@ -5,7 +5,7 @@ import { buildToolDisplay, isKnownTool } from '../utils/tool-friendly';
 import type { ToolPair } from '../utils/agent-timeline';
 import { callEnvelope, inlineText } from './tool-presenters/_helpers';
 
-// Oracle derived from buildRoleSurface, provider implementations, autonomous
+// Oracle derived from buildAgentSurface, provider implementations, autonomous
 // emit_result composition, and the canonical generated Agent-tools table.
 const CURRENT_TOOL_CALL_FIXTURES = {
   activate_card: { card_id: 'card-a' }, apply_patch: { patch: '*** Begin Patch' },
@@ -21,8 +21,8 @@ const CURRENT_TOOL_CALL_FIXTURES = {
   mcp_tool_call: { serverName: 'github', toolName: 'issues', args: { state: 'open' } }, navigate_back: {},
   navigate_workspace: { target: { kind: 'card', id: 'card-a', refinement: 'history' } }, pause_runtime: {},
   queue_notification: { card_id: 'card-a', kind: 'progress', body: 'Working' }, read: { path: 'README.md' },
-  read_agent_session: { sessionId: 'executor:card-a', lastN: 5 }, read_control_actions: { limit: 10, since: '2026-07-21T00:00:00Z' },
-  read_runtime_errors: { limit: 10 }, read_runtime_events: { limit: 10, kind: 'card' }, reconfigure: { action: 'set_model', role: 'executor' },
+  read_agent_session: { sessionId: 'agent:executor:card-a', lastN: 5 }, read_control_actions: { limit: 10, since: '2026-07-21T00:00:00Z' },
+  read_runtime_errors: { limit: 10 }, read_runtime_events: { limit: 10, kind: 'card' }, reconfigure: { action: 'set_agent_model_route', agent: 'executor', model_route: 'executor' },
   reorder_child: { orderedChildIds: ['card-a', 'card-b'] }, restart_server: {}, resume_runtime: {},
   run_command: { command: 'npm test', cwd: '.', wait: true }, show_config: {}, skill: { name: 'review' }, start_project: {}, stop_project: {},
   wait_process: { process_id: 'proc-a', timeout_ms: 1000 }, webfetch: { url: 'https://example.com' }, websearch: { query: 'saivage' },
@@ -151,7 +151,7 @@ describe('static tool presenter authority', () => {
   });
 
   it('exposes wrapped canonical webfetch stash URLs as Files links', () => {
-    const call = { id: 'c', session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', content: callEnvelope('webfetch', { url: 'https://example.com' }), round_id: 'assistant:1', message_index: 0, block_index: 0, timestamp: '2026-07-21T00:00:00Z', tool: 'webfetch', tool_call_id: 'c' } as ToolPair['call'];
+    const call = { id: 'c', session_id: 'agent:analyst:global', role: 'assistant', kind: 'tool_call', content: callEnvelope('webfetch', { url: 'https://example.com' }), round_id: 'assistant:1', message_index: 0, block_index: 0, timestamp: '2026-07-21T00:00:00Z', tool: 'webfetch', tool_call_id: 'c' } as ToolPair['call'];
     const result = { ...call, id: 'r', role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }) } as ToolPair['result'];
     const display = buildToolDisplay({ call, result, status: 'ok' });
     expect(display.links).toContainEqual({ kind: 'file', root: 'output', path: '.saivage/work/tmp/stash/webfetch.txt', label: 'work:///tmp/stash/webfetch.txt' });

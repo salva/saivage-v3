@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { copyPromptDefaults } from '../../scripts/copy-prompt-defaults.js';
 import { assertPromptPlaceholders, tokenizePromptTemplate } from '../../scripts/prompt-placeholder-validator.js';
-import { activePromptPairs } from '../../src/schemas/index.js';
 
 function fail(message) {
   throw new Error(message);
@@ -33,10 +32,10 @@ function walkFiles(root, current = root) {
 }
 
 function writeFixtureTree(root) {
-  for (const [cardType, role] of activePromptPairs) {
-    const path = join(root, cardType, `${role}.md`);
+  for (const agent of ['analyst', 'planner', 'reviewer', 'executor']) {
+    const path = join(root, 'agents', `${agent}.md`);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${cardType}/${role} {{toolList}}`);
+    writeFileSync(path, `${agent} {{contractDescription}} {{toolList}}`);
   }
   for (const cardType of ['project', 'goal']) {
     for (const id of ['plan', 'recover', 'review', 'correct-plan-result', 'correct-review-result', 'plan-to-review', 'review-to-plan', 'stopped-recovery']) {

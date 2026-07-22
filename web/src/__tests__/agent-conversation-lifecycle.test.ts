@@ -25,8 +25,8 @@ vi.mock('../stores/liveSync', () => ({
 }));
 
 vi.mock('../api/client', () => ({
-  listAgentSessions: vi.fn(async () => ({ sessions: [makeSession('planner:project'), makeSession('reviewer:project')] })),
-  getAgentConversation: vi.fn(async (sessionId: 'planner:project' | 'reviewer:project') => {
+  listAgentSessions: vi.fn(async () => ({ sessions: [makeSession('agent:planner:project'), makeSession('agent:reviewer:project')] })),
+  getAgentConversation: vi.fn(async (sessionId: 'agent:planner:project' | 'agent:reviewer:project') => {
     lifecycle.events.push(`fetch:${sessionId}`);
     return { session: makeSession(sessionId), entries: [], activity_status: { status: 'active', pending_calls: [] } };
   }),
@@ -37,8 +37,8 @@ vi.mock('../api/client', () => ({
   },
 }));
 
-function makeSession(id: 'planner:project' | 'reviewer:project') {
-  return { id, role: id === 'planner:project' ? 'planner' as const : 'reviewer' as const, status: 'active' as const, started_at: '2026-01-01T00:00:00.000Z' };
+function makeSession(id: 'agent:planner:project' | 'agent:reviewer:project') {
+  return { id, agent_name: id === 'agent:planner:project' ? 'planner' : 'reviewer', session_scope: 'card' as const, card_id: 'project', status: 'active' as const, started_at: '2026-01-01T00:00:00.000Z' };
 }
 
 function makeRouter() {
@@ -76,20 +76,20 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     const refetch = vi.spyOn(store, 'refetchConversation');
     const originalClear = store.clearConversationSelection;
     const clear = vi.spyOn(store, 'clearConversationSelection').mockImplementation((token) => {
-      lifecycle.events.push('clear:planner:project');
+      lifecycle.events.push('clear:agent:planner:project');
       originalClear(token);
     });
-    const wrapper = mount(AgentConversationView, { props: { sessionId: 'planner:project' }, global: { plugins: [pinia] } });
+    const wrapper = mount(AgentConversationView, { props: { sessionId: 'agent:planner:project' }, global: { plugins: [pinia] } });
     await flushPromises();
 
     const token = begin.mock.results[0].value;
-    expect(lifecycle.events.slice(0, 2)).toEqual(['subscribe:planner:project', 'fetch:planner:project']);
-    expect(store.selectedConversationSessionId).toBe('planner:project');
-    await lifecycle.callbacks.get('planner:project')?.();
+    expect(lifecycle.events.slice(0, 2)).toEqual(['subscribe:agent:planner:project', 'fetch:agent:planner:project']);
+    expect(store.selectedConversationSessionId).toBe('agent:planner:project');
+    await lifecycle.callbacks.get('agent:planner:project')?.();
     expect(refetch).toHaveBeenCalledWith(token);
 
     wrapper.unmount();
-    expect(lifecycle.events.slice(-2)).toEqual(['unsubscribe:planner:project', 'clear:planner:project']);
+    expect(lifecycle.events.slice(-2)).toEqual(['unsubscribe:agent:planner:project', 'clear:agent:planner:project']);
     expect(clear).toHaveBeenCalledWith(token);
     expect(store.selectedConversationSessionId).toBeNull();
   });
@@ -98,7 +98,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const router = makeRouter();
-    await router.push('/agents/planner:project');
+    await router.push('/agents/agent:planner:project');
     await router.isReady();
     const store = useAgentStore();
     const originalClear = store.clearConversationSelection;
@@ -110,14 +110,14 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     await flushPromises();
     lifecycle.events.length = 0;
 
-    await router.push('/agents/reviewer:project');
+    await router.push('/agents/agent:reviewer:project');
     await flushPromises();
-    expect(lifecycle.events).toEqual(['unsubscribe:planner:project', 'clear:planner:project', 'subscribe:reviewer:project', 'fetch:reviewer:project']);
-    expect(store.selectedConversationSessionId).toBe('reviewer:project');
+    expect(lifecycle.events).toEqual(['unsubscribe:agent:planner:project', 'clear:agent:planner:project', 'subscribe:agent:reviewer:project', 'fetch:agent:reviewer:project']);
+    expect(store.selectedConversationSessionId).toBe('agent:reviewer:project');
 
     await router.push('/agents');
     await flushPromises();
-    expect(lifecycle.events.slice(-2)).toEqual(['unsubscribe:reviewer:project', 'clear:reviewer:project']);
+    expect(lifecycle.events.slice(-2)).toEqual(['unsubscribe:agent:reviewer:project', 'clear:agent:reviewer:project']);
     expect(store.selectedConversationSessionId).toBeNull();
     wrapper.unmount();
   });

@@ -105,7 +105,6 @@ import Dialog from '../ui/Dialog.vue';
 import { useRuntimeStore } from '../../stores/runtime';
 import { useAuthStore } from '../../stores/auth';
 import { useAnalystChat } from '../../stores/analystChat';
-import { GLOBAL_ANALYST_SESSION_ID as ANALYST_SESSION_ID } from '../../api/contracts';
 import type { WsConnectionState } from '../../types/view-models';
 import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
 import { parseAgentDetailRouteParam } from '../../router/agent-session-route';
@@ -147,7 +146,7 @@ const routeAgentId = computed(() => {
   const parsed = parseAgentDetailRouteParam(route.params.id);
   return parsed.kind === 'valid' ? parsed.sessionId : null;
 });
-const suppressAnalystPane = computed(() => route.name === 'agent-detail' && routeAgentId.value === ANALYST_SESSION_ID);
+const suppressAnalystPane = computed(() => route.name === 'agent-detail' && routeAgentId.value === analystChat.activeSessionId);
 const effectiveMobileActivePane = computed(() => suppressAnalystPane.value ? 'workspace' : mobileActivePane.value);
 
 const sectionLabels: Record<string, string> = {

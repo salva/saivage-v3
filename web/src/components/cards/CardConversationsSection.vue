@@ -16,7 +16,7 @@
     <ul v-else class="session-list">
       <li v-for="session in cardSessions" :key="session.id">
         <SelectableRow class="session-row" :class="'status-' + session.status" @select="openSession(session.id)">
-          <span class="session-role">{{ session.role }}</span>
+          <span class="session-role">{{ session.agent_name }}</span>
           <span class="session-model">{{ session.model || 'default' }}</span>
           <StatusBadge :status="statusForAgentSession(session.status)" />
           <span class="session-time" :title="timestampTitle(session.started_at)">{{ fmtDate(session.started_at) }}</span>
@@ -54,7 +54,7 @@ const {
 const requestPending = computed(() => sessionsLoading.value || sessionsRefreshing.value);
 
 const cardSessions = computed(() =>
-  sessions.value.filter((s) => s.card_id === props.cardId || s.goal_card_id === props.cardId),
+  sessions.value.filter((s) => s.card_id === props.cardId),
 );
 
 function fmtDate(ts: string): string {

@@ -9,6 +9,8 @@ export function buildFilesDebugOperatorContractHandlers(options: OperatorProject
     const cards = options.cardServiceProvider();
     return {
       record: cards.recordReader.record,
+      definition: cards.recordReader.definition,
+      definitions: cards.recordReader.definitions,
       getCanonicalCard: (cardId: string) => cards.getCanonicalCard(cardId),
       getCanonicalCardChildren: (cardId: string) => cards.getCanonicalCardChildren(cardId),
       getCanonicalCardFilesMetadata: (cardId: string) => cards.getCanonicalCardFilesMetadata(cardId),

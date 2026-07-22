@@ -1,18 +1,7 @@
-import { conversationSessionIdentity, parseConversationSessionId, type ConversationRole, type ConversationSessionId } from '../../schemas/index.js';
+import { cardAgentSessionId, conversationSessionIdentity, parseConversationSessionId, type AgentName, type ConversationSessionId } from '../../schemas/index.js';
 
-export function plannerActorId(cardId: string): ConversationSessionId {
-  return parseConversationSessionId(`planner:${cardId}`);
-}
-
-export function reviewerActorId(cardId: string): ConversationSessionId {
-  return parseConversationSessionId(`reviewer:${cardId}`);
-}
-
-export function executorActorId(cardId: string): ConversationSessionId {
-  return parseConversationSessionId(`executor:${cardId}`);
-}
-
-export function parseLlmActorId(actorId: string): { role: ConversationRole; cardId: string | null } {
+export function namedCardActorId(agentName: AgentName, cardId: string): ConversationSessionId { return cardAgentSessionId(agentName, cardId); }
+export function parseLlmActorId(actorId: string): { agentName: AgentName; cardId: string | null } {
   const identity = conversationSessionIdentity(parseConversationSessionId(actorId));
-  return { role: identity.role, cardId: identity.cardId };
+  return { agentName: identity.agentName, cardId: identity.cardId };
 }

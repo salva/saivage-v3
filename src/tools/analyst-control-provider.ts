@@ -5,6 +5,6 @@ import type { ToolProvider } from './invocation.js';
 export function createAnalystControlProvider(ctx: ToolContext): ToolProvider {
   return {
     providerName: 'analyst',
-    tools: createAnalystControlTools(ctx).filter((tool) => tool.name !== 'restart_server' || ctx.restartServerAvailable),
+    tools: createAnalystControlTools(ctx),
   };
 }
