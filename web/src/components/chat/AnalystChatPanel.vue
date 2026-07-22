@@ -108,6 +108,9 @@ const messagesErrorLabel = computed(() => {
   return messagesError.value.message;
 });
 let closeAnalystConversation: (() => void) | null = null;
+let rootSettled = false;
+let refreshPending = false;
+let mounted = false;
 
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
   timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
@@ -139,14 +142,30 @@ async function submitMessage(): Promise<void> {
   focusComposer();
 }
 
+async function refreshConversation(): Promise<void> {
+  if (!rootSettled) {
+    refreshPending = true;
+    return;
+  }
+  await chat.fetchMessages();
+  await nextTick();
+  timelineControls.scrollToLatest();
+}
+
+function settleRootGate(): void {
+  if (!mounted) return;
+  rootSettled = true;
+  if (!refreshPending) return;
+  refreshPending = false;
+  void refreshConversation().catch(() => {});
+}
+
 onMounted(() => {
+  mounted = true;
   window.addEventListener('saivage:focus-chat', handleFocusChat);
-  closeAnalystConversation = liveSync.openConversation(ANALYST_SESSION_ID, async () => {
-    await chat.fetchMessages();
-    await nextTick();
-    timelineControls.scrollToLatest();
-  });
-  void chat.fetchMessages().catch(() => {});
+  closeAnalystConversation = liveSync.openConversation(ANALYST_SESSION_ID, refreshConversation);
+  void refreshConversation();
+  void cards.ensureRoot().then(settleRootGate, settleRootGate);
 });
 
 watch(activeSessionId, () => {
@@ -154,6 +173,7 @@ watch(activeSessionId, () => {
 });
 
 onBeforeUnmount(() => {
+  mounted = false;
   window.removeEventListener('saivage:focus-chat', handleFocusChat);
   closeAnalystConversation?.();
   closeAnalystConversation = null;

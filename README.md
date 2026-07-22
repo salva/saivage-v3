@@ -266,7 +266,7 @@ The same Cards browser authority covers obsolete/missing detail recovery, one re
 
 After a failed or cancelled CI browser-smoke run, one best-effort artifact upload preserves `tmp/playwright-report` and `tmp/playwright-results`; missing output only warns, so cancellation before browser output does not replace the original job conclusion.
 
-`tests/playwright/smoke/cards-bootstrap-request-order.spec.ts` is the operator-smoke authority for first-load ordering: it holds the Cards root response, proves exact Analyst detail and its current-lease acknowledgement remain independent while no global Agent request starts, then proves root settlement renders Cards and releases exactly one Agent inventory used by both Agents and Card Conversations.
+`tests/playwright/smoke/cards-bootstrap-request-order.spec.ts` is the operator-smoke authority for first-load ordering: it holds the Cards root response, proves the Analyst subscription and its current-lease acknowledgement occur while both exact Analyst HTTP and global Agent HTTP remain gated, then proves root settlement renders Cards and releases one coalesced exact Analyst read plus exactly one Agent inventory used by both Agents and Card Conversations. A later acknowledgement still refreshes the exact Analyst conversation.
 
 `web:test:operator-smoke`, and therefore `validate:ui-smoke`, `validate:ui`, and `validate:release`, also includes a real non-loopback plain-HTTP live-sync conversation scenario. Its validation host must expose a non-internal IPv4 interface that local Chromium can reach. If none is available, the gate fails with a clear prerequisite error rather than skipping or substituting localhost; this is validation-host guidance, not a production HTTPS or network requirement.
 

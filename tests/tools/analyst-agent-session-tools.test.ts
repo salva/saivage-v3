@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import type { ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { list_agent_sessions, read_agent_session } from '../../src/tools/analyst-misc-tools.js';
@@ -50,8 +51,9 @@ describe('Analyst agent-session tools', () => {
     const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const sessionId = `executor:${child.id}` as const;
     appendConversationBatch({ projectRoot }, [{ ...rows()[0]!, id: 'child-text', session_id: sessionId }]);
+    appendAppLogEntry(projectRoot, 'provider_exchange', () => providerExchange(sessionId, 'tool-shared-model'));
     const context = { projectRoot, captureExecutingLlmSnapshots: () => [] } as unknown as ToolContext;
-    await expect(list_agent_sessions(context, {})).resolves.toMatchObject({ success: true, data: [expect.objectContaining({ id: sessionId })] });
+    await expect(list_agent_sessions(context, {})).resolves.toMatchObject({ success: true, data: [expect.objectContaining({ id: sessionId, model: 'tool-shared-model' })] });
     cards.deleteSubtrees([child.id], () => true);
     await expect(list_agent_sessions(context, {})).resolves.toEqual({ success: true, data: [] });
     await expect(read_agent_session(context, { sessionId })).resolves.toMatchObject({ success: true, data: { session: { id: sessionId, status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } } });
@@ -64,3 +66,18 @@ describe('Analyst agent-session tools', () => {
     expect(result).toMatchObject({ success: false, error: expect.stringContaining("has no aggregate conversation row") });
   });
 });
+
+function providerExchange(sessionId: string, model: string) {
+  const sourceInputId = `${sessionId}-input`;
+  return {
+    type: 'provider_exchange' as const,
+    data: {
+      session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0, timestamp,
+      payload: {
+        contract_id: 'test.v1', contract_name: 'test', transport: 'generic' as const, provider: 'test', model,
+        source_input_id: sourceInputId, attempt_index: 0, request_params: {}, started_at: timestamp,
+        completed_at: timestamp, status: 'ok' as const, terminal_tool_fired: null, assistant_output_ids: [],
+      },
+    },
+  };
+}

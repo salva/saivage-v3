@@ -54,7 +54,10 @@ try {
   const { AgentOperatorReadModelService } = await import('../../src/application/read-models/agent-operator-read-model.js');
   let sessions: unknown = null;
   let error: string | null = null;
-  try { sessions = new AgentOperatorReadModelService(root, () => []).listSessions().sessions; }
+  const live = scenario === 'empty-live-malformed'
+    ? [{ sessionId: 'planner:project', agentId: 'planner:project', role: 'planner', cardId: 'project', activity: { mode: 'active', barrier: null } } as const]
+    : [];
+  try { sessions = new AgentOperatorReadModelService(root, () => live).listSessions().sessions; }
   catch (cause) { error = cause instanceof Error ? cause.message : String(cause); }
 
   process.stdout.write(`${JSON.stringify({ scenario, paths, ledger: Object.fromEntries(ledger), sessions, error })}\n`);
@@ -66,7 +69,8 @@ try {
 }
 
 function createFixture(projectRoot: string, fixtureScenario: string | undefined) {
-  if (fixtureScenario !== 'valid' && fixtureScenario !== 'malformed') throw new Error(`Unknown fixture scenario '${fixtureScenario}'.`);
+  if (!['valid', 'malformed', 'empty-malformed', 'empty-live-malformed', 'models', 'models-malformed'].includes(fixtureScenario ?? '')) throw new Error(`Unknown fixture scenario '${fixtureScenario}'.`);
+  const scenario = fixtureScenario!;
   const stamp = '2026-07-21T00:00:00.000Z';
   const saivage = join(projectRoot, '.saivage');
   const cardRoot = join(saivage, 'cards', 'project');
@@ -74,6 +78,7 @@ function createFixture(projectRoot: string, fixtureScenario: string | undefined)
   const analyst = join(saivage, 'agents', 'conversations', 'analyst%3Aglobal.jsonl');
   const planner = join(cardConversations, 'planner.jsonl');
   const reviewer = join(cardConversations, 'reviewer.jsonl');
+  const app = join(saivage, 'logs', 'app.jsonl');
   fs.mkdirSync(cardConversations, { recursive: true });
   fs.mkdirSync(join(saivage, 'agents', 'conversations'), { recursive: true });
   const card = {
@@ -84,18 +89,40 @@ function createFixture(projectRoot: string, fixtureScenario: string | undefined)
   };
   writeEnvelope(join(cardRoot, 'card.jsonl'), [{ kind: 'card-version', format_version: 2, card_id: 'project', version: 1, committed_at: stamp, card, history: null }]);
 
-  if (fixtureScenario === 'malformed') {
+  if (scenario === 'malformed') {
     fs.writeFileSync(planner, '{"version":1,"type":"rows","rows":[{"invalid":true}]}\n');
-  } else {
+  } else if (!scenario.startsWith('empty-')) {
     writeEnvelope(planner, [message('planner:project', 'planner-one', stamp, 0)]);
     writeEnvelope(reviewer, [message('reviewer:project', 'reviewer-one', stamp, 0)]);
     appendEnvelope(reviewer, [message('reviewer:project', 'reviewer-two', '2026-07-21T00:00:01.000Z', 1)]);
   }
-  return { analyst, planner, reviewer };
+  if (scenario.endsWith('malformed')) {
+    fs.mkdirSync(join(saivage, 'logs'), { recursive: true });
+    fs.writeFileSync(app, '{"version":1,"type":"rows","rows":[{"invalid":true}]}\n');
+  } else if (scenario === 'models') {
+    fs.mkdirSync(join(saivage, 'logs'), { recursive: true });
+    writeEnvelope(app, [providerExchange('planner:project', 'planner-model', stamp, 0), providerExchange('reviewer:project', 'reviewer-model', stamp, 0)]);
+  }
+  return { analyst, planner, reviewer, app };
 }
 
 function message(session_id: 'planner:project' | 'reviewer:project', id: string, timestamp: string, message_index: number) {
   return { id, session_id, role: 'user', kind: 'text', content: id, round_id: 'r-user-00000000000000000000000000000000', message_index, block_index: 0, timestamp };
+}
+
+function providerExchange(session_id: string, model: string, timestamp: string, attempt_index: number) {
+  const source_input_id = `${session_id}-input`;
+  return {
+    type: 'provider_exchange',
+    data: {
+      session_id, source_input_id, attempt_index, timestamp,
+      payload: {
+        contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: 'test', model,
+        source_input_id, attempt_index, request_params: {}, started_at: timestamp, completed_at: timestamp,
+        status: 'ok', terminal_tool_fired: null, assistant_output_ids: [],
+      },
+    },
+  };
 }
 
 function writeEnvelope(path: string, rows: readonly unknown[]): void {

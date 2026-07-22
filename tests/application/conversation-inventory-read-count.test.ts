@@ -3,11 +3,12 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 
 type LedgerRow = { openAttempts: number; descriptorReads: number; pathReads: number; closes: number };
+type Scenario = 'valid' | 'malformed' | 'empty-malformed' | 'empty-live-malformed' | 'models' | 'models-malformed';
 type ChildResult = {
-  scenario: 'valid' | 'malformed';
-  paths: Record<'analyst' | 'planner' | 'reviewer', string>;
+  scenario: Scenario;
+  paths: Record<'analyst' | 'planner' | 'reviewer' | 'app', string>;
   ledger: Record<string, LedgerRow>;
-  sessions: Array<{ id: string }> | null;
+  sessions: Array<{ id: string; model?: string }> | null;
   error: string | null;
 };
 
@@ -30,10 +31,38 @@ describe('aggregate conversation inventory physical reads', () => {
     expect(result.ledger[result.paths.analyst]).toEqual({ openAttempts: 1, descriptorReads: 0, pathReads: 0, closes: 0 });
     expect(result.ledger[result.paths.planner]).toEqual({ openAttempts: 1, descriptorReads: 1, pathReads: 0, closes: 1 });
     expect(result.ledger[result.paths.reviewer]).toEqual({ openAttempts: 0, descriptorReads: 0, pathReads: 0, closes: 0 });
+    expect(result.ledger[result.paths.app]).toEqual({ openAttempts: 0, descriptorReads: 0, pathReads: 0, closes: 0 });
+  });
+
+  it.each([
+    { scenario: 'empty-malformed' as const, expectedError: null },
+    { scenario: 'empty-live-malformed' as const, expectedError: "Executing agent snapshot 'planner:project' has no aggregate conversation row." },
+  ])('does not access the malformed app log for $scenario inventory', ({ scenario, expectedError }) => {
+    const result = runChild(scenario);
+    expect(result.sessions).toEqual(expectedError === null ? [] : null);
+    expect(result.error).toBe(expectedError);
+    expect(result.ledger[result.paths.app]).toEqual({ openAttempts: 0, descriptorReads: 0, pathReads: 0, closes: 0 });
+  });
+
+  it('reads the app log exactly once for a non-empty multi-session inventory and projects each model', () => {
+    const result = runChild('models');
+    expect(result.error).toBeNull();
+    expect(result.sessions).toEqual([
+      expect.objectContaining({ id: 'planner:project', model: 'planner-model' }),
+      expect.objectContaining({ id: 'reviewer:project', model: 'reviewer-model' }),
+    ]);
+    expect(result.ledger[result.paths.app]).toEqual({ openAttempts: 1, descriptorReads: 1, pathReads: 0, closes: 1 });
+  });
+
+  it('reads a malformed app log exactly once for non-empty inventory before propagating strict failure', () => {
+    const result = runChild('models-malformed');
+    expect(result.sessions).toBeNull();
+    expect(result.error).toMatch(/app\.jsonl.*malformed/);
+    expect(result.ledger[result.paths.app]).toEqual({ openAttempts: 1, descriptorReads: 1, pathReads: 0, closes: 1 });
   });
 });
 
-function runChild(scenario: 'valid' | 'malformed'): ChildResult {
+function runChild(scenario: Scenario): ChildResult {
   const child = spawnSync(process.execPath, ['--import', 'tsx', fixture, scenario], {
     cwd: process.cwd(),
     encoding: 'utf8',

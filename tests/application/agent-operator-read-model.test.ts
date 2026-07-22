@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { AgentOperatorReadModelService, captureExecutingLlmSnapshotMap, projectAgentConversation } from '../../src/application/read-models/agent-operator-read-model.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import type { ExactWaitBarrier, ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -79,6 +80,23 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     expect(conversationBody(service.getConversation('planner:project'))).toMatchObject({ session: { status: 'active' }, activity_status: { status: 'active', pending_calls: [] } });
     owner.value = undefined as never;
     expect(conversationBody(new AgentOperatorReadModelService(root, () => []).getConversation('planner:project'))).toMatchObject({ session: { status: 'inactive' }, activity_status: { status: 'inactive', pending_calls: [] } });
+  });
+
+  it('projects selected models consistently across aggregate and direct reads', () => {
+    const root = project();
+    appendConversationBatch({ projectRoot: root }, [text('planner:project')]);
+    appendConversationBatch({ projectRoot: root }, [text('reviewer:project')]);
+    appendAppLogEntry(root, 'provider_exchange', () => providerExchange('planner:project', 'planner-old', timestamp, 4));
+    appendAppLogEntry(root, 'provider_exchange', () => providerExchange('planner:project', 'planner-current', '2026-07-18T00:00:01.000Z', 0));
+    appendAppLogEntry(root, 'provider_exchange', () => providerExchange('reviewer:project', 'reviewer-current', timestamp, 2));
+
+    const service = new AgentOperatorReadModelService(root, () => []);
+    expect(service.listSessions().sessions).toEqual([
+      expect.objectContaining({ id: 'planner:project', model: 'planner-current' }),
+      expect.objectContaining({ id: 'reviewer:project', model: 'reviewer-current' }),
+    ]);
+    expect(detailBody(service.getSession('planner:project')).session.model).toBe('planner-current');
+    expect(conversationBody(service.getConversation('reviewer:project')).session.model).toBe('reviewer-current');
   });
 
   it('omits tombstoned inventory while exact direct history remains inactive', () => {
@@ -181,3 +199,21 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     }
   });
 });
+
+function providerExchange(sessionId: ConversationSessionId, model: string, completedAt: string, attemptIndex: number) {
+  const sourceInputId = `${sessionId}-${model}`;
+  return {
+    type: 'provider_exchange' as const,
+    data: {
+      session_id: sessionId,
+      source_input_id: sourceInputId,
+      attempt_index: attemptIndex,
+      timestamp: completedAt,
+      payload: {
+        contract_id: 'test.v1', contract_name: 'test', transport: 'generic' as const, provider: 'test', model,
+        source_input_id: sourceInputId, attempt_index: attemptIndex, request_params: {}, started_at: timestamp,
+        completed_at: completedAt, status: 'ok' as const, terminal_tool_fired: null, assistant_output_ids: [],
+      },
+    },
+  };
+}

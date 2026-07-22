@@ -2,14 +2,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
+import { useCardStore } from '../stores/cards';
 
 const getChatEntries = vi.fn();
+const getCardChildren = vi.fn();
 const sendChatMessage = vi.fn();
 const openConversation = vi.fn();
 const closeConversation = vi.fn();
 
 vi.mock('../api/client', () => ({
   getChatEntries: (...args: any[]) => getChatEntries(...args),
+  getCardChildren: (...args: any[]) => getCardChildren(...args),
   sendChatMessage: (...args: any[]) => sendChatMessage(...args),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
@@ -24,6 +27,7 @@ describe('AnalystChatPanel', () => {
     window.localStorage.clear();
     vi.useRealTimers();
     getChatEntries.mockReset();
+    getCardChildren.mockReset();
     sendChatMessage.mockReset();
     openConversation.mockReset();
     closeConversation.mockReset();
@@ -40,10 +44,74 @@ describe('AnalystChatPanel', () => {
       ],
       activity_status: { status: 'inactive', pending_calls: [] },
     });
+    getCardChildren.mockResolvedValue({ card: { id: 'project' }, children: [] });
     sendChatMessage.mockResolvedValue({ sessionId: 'analyst:global', toolInvocations: [], restart: null });
   });
 
-  it('subscribes the analyst transcript to the canonical conversation live-sync resource', async () => {
+  it('subscribes immediately, joins the existing root owner, and coalesces initial and pre-settlement refreshes', async () => {
+    let resolveRoot!: (value: unknown) => void;
+    const rootResponse = new Promise((resolve) => { resolveRoot = resolve; });
+    getCardChildren.mockReturnValue(rootResponse);
+    let callback!: () => Promise<void>;
+    openConversation.mockImplementation((_sessionId: string, refetch: () => Promise<void>) => {
+      callback = refetch;
+      return closeConversation;
+    });
+    const pinia = createPinia();
+    const existingRoot = useCardStore(pinia).ensureRoot();
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
+    await flushPromises();
+
+    expect(openConversation).toHaveBeenCalledTimes(1);
+    expect(openConversation.mock.calls[0][0]).toBe('analyst:global');
+    expect(getCardChildren).toHaveBeenCalledTimes(1);
+    expect(getChatEntries).not.toHaveBeenCalled();
+
+    await callback();
+    await callback();
+    expect(getChatEntries).not.toHaveBeenCalled();
+
+    resolveRoot({ card: { id: 'project' }, children: [] });
+    await existingRoot;
+    await flushPromises();
+    expect(getChatEntries).toHaveBeenCalledTimes(1);
+
+    await callback();
+    expect(getChatEntries).toHaveBeenCalledTimes(2);
+
+    wrapper.unmount();
+    expect(closeConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('admits one pending refresh when root initialization fails', async () => {
+    getCardChildren.mockRejectedValueOnce(new Error('root failed'));
+    openConversation.mockImplementation(() => closeConversation);
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+
+    expect(openConversation).toHaveBeenCalledTimes(1);
+    expect(getChatEntries).toHaveBeenCalledTimes(1);
+
+    wrapper.unmount();
+  });
+
+  it('makes root settlement inert after unmount', async () => {
+    let resolveRoot!: (value: unknown) => void;
+    getCardChildren.mockReturnValue(new Promise((resolve) => { resolveRoot = resolve; }));
+    openConversation.mockImplementation(() => closeConversation);
+    const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
+    await flushPromises();
+
+    expect(getChatEntries).not.toHaveBeenCalled();
+    wrapper.unmount();
+    resolveRoot({ card: { id: 'project' }, children: [] });
+    await flushPromises();
+
+    expect(getChatEntries).not.toHaveBeenCalled();
+    expect(closeConversation).toHaveBeenCalledTimes(1);
+  });
+
+  it('refreshes the analyst transcript from canonical conversation live sync after root settlement', async () => {
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });
     await flushPromises();
 
@@ -58,7 +126,7 @@ describe('AnalystChatPanel', () => {
     expect(closeConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('initializes exactly one direct detail read while disconnected before any acknowledgement', async () => {
+  it('initializes exactly one direct detail read after root settlement while disconnected', async () => {
     openConversation.mockImplementation(() => closeConversation);
     getChatEntries.mockResolvedValueOnce({ session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [createPinia()] } });

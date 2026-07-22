@@ -29,12 +29,13 @@ async function acknowledgeCurrentConversationLease(page: Page, sessionId: string
   }), { id: sessionId, currentLease: lease });
 }
 
-test('Cards root settlement strictly precedes the one global Agent bootstrap request', async ({ page }) => {
+test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquisition', async ({ page }) => {
   const rootRelease = deferred();
   const agentRelease = deferred();
   const rootObserved = deferred();
   const agentObserved = deferred();
-  const ledger: string[] = [];
+  const requestLedger: string[] = [];
+  const eventLedger: string[] = [];
   let rootReleased = false;
   let rootRequests = 0;
   let agentRequests = 0;
@@ -49,7 +50,7 @@ test('Cards root settlement strictly precedes the one global Agent bootstrap req
     const pathname = new URL(request.url()).pathname;
     if (request.method() === 'GET' && pathname === '/api/cards/project/children') {
       rootRequests += 1;
-      ledger.push('cards:root');
+      requestLedger.push('cards:root');
       rootObserved.resolve();
       await rootRelease.promise;
       return route.fallback();
@@ -57,10 +58,10 @@ test('Cards root settlement strictly precedes the one global Agent bootstrap req
     if (request.method() === 'GET' && pathname === '/api/agents') {
       if (!rootReleased) {
         await route.abort('failed');
-        throw new Error(`GET /api/agents started before Cards root settlement: ${ledger.join(', ')}`);
+        throw new Error(`GET /api/agents started before Cards root settlement: ${requestLedger.join(', ')}`);
       }
       agentRequests += 1;
-      ledger.push('agents:list');
+      requestLedger.push('agents:list');
       if (agentRequests !== 1) {
         await route.abort('failed');
         throw new Error(`Expected exactly one held GET /api/agents, observed ${agentRequests}`);
@@ -74,15 +75,18 @@ test('Cards root settlement strictly precedes the one global Agent bootstrap req
       throw new Error('Unexpected removed aggregate request GET /api/chats');
     }
     if (request.method() === 'GET' && pathname === exactAnalystPath) {
+      if (!rootReleased) {
+        await route.abort('failed');
+        throw new Error(`Exact Analyst HTTP started before Cards root settlement: ${requestLedger.join(', ')}`);
+      }
       analystReads += 1;
-      ledger.push(`analyst:get:${analystReads}`);
+      requestLedger.push(`analyst:get:${analystReads}`);
     }
     return route.fallback();
   });
 
   await page.goto('/cards');
   await rootObserved.promise;
-  await expect.poll(() => analystReads).toBe(1);
   await expect(page.getByText(/Live updates connected/i).first()).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBe(1);
   await expect.poll(() => outboundConversationSubscribe(page, analystSessionId)).toMatchObject({
@@ -91,23 +95,43 @@ test('Cards root settlement strictly precedes the one global Agent bootstrap req
     id: analystSessionId,
   });
   const analystSubscribe = await outboundConversationSubscribe(page, analystSessionId) as { lease: string };
+  eventLedger.push('analyst:subscribe');
   expect(analystSubscribe.lease).toMatch(/^[0-9a-f]{32}$/);
   expect(rootRequests).toBe(1);
   expect(rest.counts.get('GET /api/chats') ?? 0).toBe(0);
   expect(agentRequests).toBe(0);
+  expect(analystReads).toBe(0);
+  expect(requestLedger).toEqual(['cards:root']);
 
+  eventLedger.push('analyst:ack:held');
   await acknowledgeCurrentConversationLease(page, analystSessionId, analystSubscribe.lease);
-  await expect.poll(() => analystReads).toBe(2);
+  expect(analystReads).toBe(0);
   expect(agentRequests).toBe(0);
-  expect(ledger.slice(0, 2).sort()).toEqual(['analyst:get:1', 'cards:root'].sort());
-  expect(ledger.at(-1)).toBe('analyst:get:2');
+  expect(requestLedger).toEqual(['cards:root']);
 
   rootReleased = true;
+  eventLedger.push('cards:root:release');
   rootRelease.resolve();
   await expect(page.getByText('Synthetic Project', { exact: true })).toBeVisible();
   await agentObserved.promise;
+  await expect.poll(() => analystReads).toBe(1);
   expect(agentRequests).toBe(1);
-  expect(ledger.at(-1)).toBe('agents:list');
+  expect(requestLedger[0]).toBe('cards:root');
+  expect(requestLedger.slice(1).sort()).toEqual(['agents:list', 'analyst:get:1'].sort());
+
+  eventLedger.push('analyst:ack:settled');
+  await acknowledgeCurrentConversationLease(page, analystSessionId, analystSubscribe.lease);
+  await expect.poll(() => analystReads).toBe(2);
+  eventLedger.push('analyst:invalidate:settled');
+  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id }), analystSessionId);
+  await expect.poll(() => analystReads).toBe(3);
+  expect(eventLedger).toEqual([
+    'analyst:subscribe',
+    'analyst:ack:held',
+    'cards:root:release',
+    'analyst:ack:settled',
+    'analyst:invalidate:settled',
+  ]);
 
   agentRelease.resolve();
   await page.locator('.nav-item-link').filter({ hasText: 'Agents' }).click();
@@ -137,6 +161,7 @@ test('Cards root settlement strictly precedes the one global Agent bootstrap req
 
   expect(rootRequests).toBe(1);
   expect(agentRequests).toBe(1);
+  expect(analystReads).toBe(3);
   expect(rest.counts.get('GET /api/chats') ?? 0).toBe(0);
   expect(rest.unknown).toEqual([]);
 });

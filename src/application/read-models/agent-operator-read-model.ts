@@ -1,4 +1,4 @@
-import { readLatestProviderExchangePayload } from '../../persistence/provider-exchange-log.js';
+import { readLatestProviderExchangePayload, readLatestProviderExchangePayloadMap } from '../../persistence/provider-exchange-log.js';
 import { readConversation, readConversationInventory } from '../../persistence/conversation-file.js';
 import {
   conversationSessionIdentity,
@@ -35,8 +35,17 @@ export class AgentOperatorReadModelService {
 
   listSessions(): AgentListResponse {
     const live = captureExecutingLlmSnapshotMap(this.snapshots());
-    const sessions = readConversationInventory(this.projectRoot).map(({ sessionId, conversation }) => this.project(sessionId, conversation.physicalRows, live.get(sessionId)).session);
-    for (const id of live.keys()) if (!sessions.some((session) => session.id === id)) throw new Error(`Executing agent snapshot '${id}' has no aggregate conversation row.`);
+    const inventory = readConversationInventory(this.projectRoot);
+    const inventoryIds = new Set(inventory.map(({ sessionId }) => sessionId));
+    for (const id of live.keys()) if (!inventoryIds.has(id)) throw new Error(`Executing agent snapshot '${id}' has no aggregate conversation row.`);
+    if (inventory.length === 0) return { sessions: [] };
+    const latestBySession = readLatestProviderExchangePayloadMap(this.projectRoot);
+    const sessions = inventory.map(({ sessionId, conversation }) => projectAgentConversation({
+      sessionId,
+      messages: conversation.physicalRows,
+      model: latestBySession.get(sessionId)?.model ?? null,
+      snapshot: live.get(sessionId),
+    }).session);
     sessions.sort((a, b) => b.started_at.localeCompare(a.started_at) || a.id.localeCompare(b.id));
     return { sessions };
   }
@@ -51,7 +60,7 @@ export class AgentOperatorReadModelService {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { statusCode: 404, body: { error: 'Agent session not found' } };
       throw error;
     }
-    const projected = this.project(parsed, messages, live.get(parsed));
+    const projected = this.project(parsed, messages, readLatestProviderExchangePayload(this.projectRoot, parsed)?.model ?? null, live.get(parsed));
     return { body: { session: { ...projected.session, message_count: messages.length, last_activity_at: this.lastTimestamp(messages) ?? projected.session.started_at } } };
   }
 
@@ -65,11 +74,10 @@ export class AgentOperatorReadModelService {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { statusCode: 404, body: { error: 'Agent session not found' } };
       throw error;
     }
-    return { body: this.project(parsed, messages, live.get(parsed)) };
+    return { body: this.project(parsed, messages, readLatestProviderExchangePayload(this.projectRoot, parsed)?.model ?? null, live.get(parsed)) };
   }
 
-  private project(sessionId: ConversationSessionId, messages: AgentMessage[], snapshot: ExecutingLlmSnapshot | undefined): AgentOperatorConversationResponse {
-    const model = readLatestProviderExchangePayload(this.projectRoot, sessionId)?.model ?? null;
+  private project(sessionId: ConversationSessionId, messages: AgentMessage[], model: string | null, snapshot: ExecutingLlmSnapshot | undefined): AgentOperatorConversationResponse {
     return projectAgentConversation({ sessionId, messages, model, snapshot });
   }
 
