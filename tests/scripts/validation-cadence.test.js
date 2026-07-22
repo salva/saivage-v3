@@ -4,6 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { verifyValidationCadence } from '../../scripts/check-validation-cadence.js';
 
+const TERMINAL_CHILD_PATH = 'tests/boot/app-terminal-child-process.test.ts';
+const TERMINAL_CHILD_IGNORE_REGEX = String.raw`<rootDir>/tests/boot/app-terminal-child-process\.test\.ts$`;
+const TERMINAL_CHILD_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
+const JEST_IGNORE_PATTERNS = [
+  '<rootDir>/tests/playwright/',
+  '<rootDir>/tests/e2e/',
+  TERMINAL_CHILD_IGNORE_REGEX,
+];
+
 function withFixture(files, testFn) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-validation-cadence-'));
   try {
@@ -23,8 +32,10 @@ const PACKAGE_SCRIPTS = {
   'docs:build': 'vitepress build docs',
   typecheck: 'tsc --noEmit',
   build: 'tsc',
-  test: 'jest',
-  'test:direct': 'node ./node_modules/jest/bin/jest.js',
+  test: 'npm run test:parallel && npm run test:terminal-child',
+  'test:parallel': 'NODE_OPTIONS=--experimental-vm-modules jest',
+  'test:terminal-child': TERMINAL_CHILD_COMMAND,
+  'test:direct': 'NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js',
   'audit:root': 'npm audit --audit-level=high --omit=dev',
   'audit:web': 'cd web && npm audit --audit-level=high --omit=dev',
   'audit:security': 'npm run audit:root && npm run audit:web',
@@ -55,6 +66,7 @@ const PACKAGE_SCRIPTS = {
 const PACKAGE_JSON = JSON.stringify({
   engines: { node: '>=24 <25', npm: '>=10 <12' },
   scripts: PACKAGE_SCRIPTS,
+  jest: { testPathIgnorePatterns: JEST_IGNORE_PATTERNS },
 });
 
 const WEB_PACKAGE_JSON = JSON.stringify({
@@ -63,6 +75,8 @@ const WEB_PACKAGE_JSON = JSON.stringify({
 });
 
 const VALID_PROFILE_DOCS = '```bash\nnpm run validate:docs\nnpm run validate:routine\nnpm run validate:ui-smoke\nnpm run validate:ui\nnpm run validate:release\nnpm run audit:security\nnpm run deps:review\n```\n`npm run validate:docs` intentionally runs docs verification only and does not run `npm test` or the Vitest smoke guard.\n';
+
+const VALID_TERMINAL_CHILD_DOCS = 'Root `npm test` is the complete non-E2E backend authority: ordinary parallel Jest is followed by the exact serial real-terminal-child suite. Use `npm run test:terminal-child` for that suite. The `test:direct` helper covers ordinary Jest and excludes the terminal-child suite.\n';
 
 const VALID_PLAYWRIGHT_DOCS = `
 \`\`\`bash
@@ -99,6 +113,22 @@ function mutateWorkflow(search, replacement = '') {
   return VALID_WORKFLOW.replace(search, replacement);
 }
 
+function packageJson({ scripts = PACKAGE_SCRIPTS, ignorePatterns = JEST_IGNORE_PATTERNS } = {}) {
+  return JSON.stringify({
+    engines: { node: '>=24 <25', npm: '>=10 <12' },
+    scripts,
+    jest: { testPathIgnorePatterns: ignorePatterns },
+  });
+}
+
+function expectPackageFailure(packageJsonText, expected) {
+  withFixture(validFiles({ 'package.json': packageJsonText }), (root) => {
+    const result = verifyValidationCadence({ root });
+    expect(result.ok).toBe(false);
+    expect(result.failures).toContainEqual(expect.stringContaining(expected));
+  });
+}
+
 function expectWorkflowFailure(workflow, expected) {
   withFixture(validFiles({ '.github/workflows/validation.yml': workflow }), (root) => {
     const result = verifyValidationCadence({ root });
@@ -110,7 +140,7 @@ function expectWorkflowFailure(workflow, expected) {
 function validFiles(overrides = {}) {
   return {
     'package.json': PACKAGE_JSON,
-    'README.md': 'Use Node.js 24 with `node >=24 <25` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_PLAYWRIGHT_DOCS,
+    'README.md': 'Use Node.js 24 with `node >=24 <25` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_TERMINAL_CHILD_DOCS + VALID_PLAYWRIGHT_DOCS,
     'web/package.json': WEB_PACKAGE_JSON,
     'docs/architecture/system-architecture.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\nValidation-command confusion: canonical `npm run web:test:analyst-ui` and alias `npm run test:web:analyst-ui`; smoke uses `npm run web:test:operator-smoke` or `npm run test:web:operator-smoke`.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\nnpm run test:web:sweep\n```\n' + VALID_PROFILE_DOCS,
     '.github/workflows/validation.yml': VALID_WORKFLOW,
@@ -150,6 +180,65 @@ describe('validation cadence guard', () => {
       expect(result.runtimeEngineEntriesChecked).toContain('web/package.json engines');
       expect(result.docsVerifyEntriesChecked).toContain('scripts/docs-verify.sh:4 node-script scripts/check-existing.js');
       expect(result.failClosedJestGateEntriesChecked).toContain('package.json script test');
+      expect(result.terminalChildJestContractEntriesChecked).toContain('package.json exact ordinary Jest ignore array');
+      expect(PACKAGE_JSON).toContain('app-terminal-child-process\\\\.test\\\\.ts$');
+      expect(JSON.parse(PACKAGE_JSON).jest.testPathIgnorePatterns[2]).toBe(TERMINAL_CHILD_IGNORE_REGEX);
+    });
+  });
+
+  describe('terminal-child Jest ownership mutations', () => {
+    const ignoreMutations = [
+      ['a missing ordinary exclusion', JEST_IGNORE_PATTERNS.slice(0, 2), 'ordinary terminal-child exclusion'],
+      ['the revision-1 unescaped path-looking exclusion', [...JEST_IGNORE_PATTERNS.slice(0, 2), '<rootDir>/tests/boot/app-terminal-child-process.test.ts$'], 'ordinary terminal-child exclusion'],
+      ['an exclusion without the end anchor', [...JEST_IGNORE_PATTERNS.slice(0, 2), String.raw`<rootDir>/tests/boot/app-terminal-child-process\.test\.ts`], 'ordinary terminal-child exclusion'],
+      ['a boot-directory exclusion', [...JEST_IGNORE_PATTERNS.slice(0, 2), '<rootDir>/tests/boot/'], 'ordinary terminal-child exclusion'],
+      ['a wildcard filename exclusion', [...JEST_IGNORE_PATTERNS.slice(0, 2), String.raw`<rootDir>/tests/boot/app-terminal-child-process.*`], 'ordinary terminal-child exclusion'],
+      ['a broader exclusion alongside the canonical exclusion', [...JEST_IGNORE_PATTERNS, '<rootDir>/tests/boot/'], 'ordinary Jest ignore array'],
+      ['a duplicate canonical exclusion', [...JEST_IGNORE_PATTERNS, TERMINAL_CHILD_IGNORE_REGEX], 'duplicate canonical entries'],
+    ];
+
+    it.each(ignoreMutations)('rejects %s', (_label, ignorePatterns, expected) => {
+      expectPackageFailure(packageJson({ ignorePatterns }), expected);
+    });
+
+    const dedicatedMutations = [
+      ['a dropped dedicated path', TERMINAL_CHILD_COMMAND.replace(TERMINAL_CHILD_PATH, ''), 'positively own exactly'],
+      ['a broadened dedicated path', TERMINAL_CHILD_COMMAND.replace(TERMINAL_CHILD_PATH, 'tests/boot/'), 'positively own exactly'],
+      ['a dropped --runTestsByPath owner', TERMINAL_CHILD_COMMAND.replace('--runTestsByPath ', ''), 'through --runTestsByPath'],
+      ['a dropped --runInBand serialization flag', TERMINAL_CHILD_COMMAND.replace('--runInBand ', ''), 'serialize its exact suite'],
+      ['a dropped Playwright/E2E ignore override', TERMINAL_CHILD_COMMAND.replace(" --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'", ''), 'override testPathIgnorePatterns'],
+      ['a permissive no-tests flag', `${TERMINAL_CHILD_COMMAND} --passWithNoTests`, 'dedicated owner must fail'],
+    ];
+
+    it.each(dedicatedMutations)('rejects %s', (_label, command, expected) => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:terminal-child': command } }), expected);
+    });
+
+    const compositionMutations = [
+      ['the ordinary phase', 'npm run test:terminal-child'],
+      ['the terminal-child phase', 'npm run test:parallel'],
+      ['the required phase order', 'npm run test:terminal-child && npm run test:parallel'],
+    ];
+
+    it.each(compositionMutations)('rejects root composition without %s', (_label, test) => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, test } }), 'must compose exactly');
+    });
+
+    it('rejects serialization of the ordinary Jest phase', () => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:parallel': `${PACKAGE_SCRIPTS['test:parallel']} --runInBand` } }), 'must retain Jest default worker parallelism');
+    });
+
+    it('rejects positive terminal-child selection by the ordinary Jest phase', () => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:parallel': `${PACKAGE_SCRIPTS['test:parallel']} ${TERMINAL_CHILD_PATH}` } }), 'must not positively select');
+    });
+
+    it('rejects a second positive package owner for the terminal-child path', () => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'test:terminal-child-alias': TERMINAL_CHILD_COMMAND } }), 'exactly one positive package owner');
+    });
+
+    it('rejects release invoking a backend Jest subphase independently', () => {
+      const release = `${PACKAGE_SCRIPTS['validate:release']} && npm run test:terminal-child`;
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:release': release } }), 'must invoke singular npm test exactly once');
     });
   });
 

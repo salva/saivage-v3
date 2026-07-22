@@ -13,7 +13,9 @@
   },
   "scripts": {
     "pretest": "npm run check:stamp-producers",
-    "test": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "test": "npm run test:parallel && npm run test:terminal-child",
+    "test:parallel": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "test:terminal-child": "NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath tests/boot/app-terminal-child-process.test.ts --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'",
     "test:direct": "NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js",
     "test:e2e": "NODE_OPTIONS=--experimental-vm-modules jest tests/e2e/ --testPathIgnorePatterns='<rootDir>/tests/playwright/'",
     "test:e2e:direct": "NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js tests/e2e/ --testPathIgnorePatterns='<rootDir>/tests/playwright/'",
@@ -146,7 +148,8 @@
     },
     "testPathIgnorePatterns": [
       "<rootDir>/tests/playwright/",
-      "<rootDir>/tests/e2e/"
+      "<rootDir>/tests/e2e/",
+      "<rootDir>/tests/boot/app-terminal-child-process\\.test\\.ts$"
     ],
     "extensionsToTreatAsEsm": [
       ".ts"

@@ -19,6 +19,16 @@ const EXPECTED_NPM_ENGINE = '>=10 <12';
 const RUNTIME_REFERENCE_PATTERN = /Node(?:\.js)?\s+24[\s\S]{0,160}(?:npm\s+10|package\.json\s+engines|package engines|CI|GitHub Actions)/i;
 const REQUIRED_RUNTIME_DOC_FILES = ['README.md', 'docs/architecture/system-architecture.md'];
 const PASS_WITH_NO_TESTS_FLAG = '--passWithNoTests';
+const ROOT_TEST_COMMAND = 'npm run test:parallel && npm run test:terminal-child';
+const PARALLEL_TEST_COMMAND = 'NODE_OPTIONS=--experimental-vm-modules jest';
+const TERMINAL_CHILD_TEST_PATH = 'tests/boot/app-terminal-child-process.test.ts';
+const TERMINAL_CHILD_IGNORE_REGEX = String.raw`<rootDir>/tests/boot/app-terminal-child-process\.test\.ts$`;
+const JEST_IGNORE_PATTERNS = [
+  '<rootDir>/tests/playwright/',
+  '<rootDir>/tests/e2e/',
+  TERMINAL_CHILD_IGNORE_REGEX,
+];
+const TERMINAL_CHILD_TEST_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_TEST_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
 const DATED_LIVE_VALIDATION_RECORD = 'docs/validation/live-getrich-v2-launch-playwright-issues-2026-06-24.md';
 const PLAYWRIGHT_SUITE_OWNERS = [
   ['preview smoke', 'tests/playwright/smoke', 'tests/playwright/smoke/playwright.config.ts', 'web:test:e2e:preview-smoke', String.raw`testMatch: /.*\.spec\.ts/`],
@@ -205,11 +215,6 @@ function splitCommandSegments(command) {
 
 function readJsonFile(root, relativePath) {
   return JSON.parse(readFileSync(path.join(root, relativePath), 'utf8'));
-}
-
-function readPackageScripts(root) {
-  const pkg = readJsonFile(root, 'package.json');
-  return pkg.scripts ?? {};
 }
 
 function listFilesRecursively(root, relativeDirectory) {
@@ -905,6 +910,89 @@ function validateFailClosedJestGates({ scripts, workflowCommands }) {
   return { checked, failures };
 }
 
+function validateTerminalChildJestContract({ pkg, scripts, markdownByFile }) {
+  const failures = [];
+  const checked = [];
+
+  checked.push('package.json root backend Jest composition');
+  if (scripts.test !== ROOT_TEST_COMMAND) {
+    failures.push(`package.json script "test" must compose exactly ${ROOT_TEST_COMMAND}, but is currently: ${scripts.test ?? '<missing>'}`);
+  }
+
+  checked.push('package.json ordinary parallel Jest owner');
+  if (scripts['test:parallel'] !== PARALLEL_TEST_COMMAND) {
+    failures.push(`package.json script "test:parallel" must be exactly the ordinary parallel Jest command ${PARALLEL_TEST_COMMAND}, but is currently: ${scripts['test:parallel'] ?? '<missing>'}`);
+  }
+  if ((scripts['test:parallel'] ?? '').includes('--runInBand')) {
+    failures.push('package.json script "test:parallel" must retain Jest default worker parallelism and must not use --runInBand');
+  }
+  if ((scripts['test:parallel'] ?? '').includes(TERMINAL_CHILD_TEST_PATH)) {
+    failures.push(`package.json script "test:parallel" must not positively select ${TERMINAL_CHILD_TEST_PATH}`);
+  }
+
+  const terminalChildCommand = scripts['test:terminal-child'] ?? '';
+  checked.push('package.json exact serial terminal-child Jest owner');
+  if (!terminalChildCommand.includes(`--runTestsByPath ${TERMINAL_CHILD_TEST_PATH}`)) {
+    failures.push(`package.json script "test:terminal-child" must positively own exactly ${TERMINAL_CHILD_TEST_PATH} through --runTestsByPath`);
+  }
+  if (!terminalChildCommand.includes('--runInBand')) {
+    failures.push('package.json script "test:terminal-child" must serialize its exact suite with --runInBand');
+  }
+  if (!terminalChildCommand.includes("--testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'")) {
+    failures.push('package.json script "test:terminal-child" must override testPathIgnorePatterns with exactly the Playwright/E2E directory exclusion');
+  }
+  if (commandUsesPassWithNoTests(terminalChildCommand)) {
+    failures.push(`package.json script test:terminal-child must not use ${PASS_WITH_NO_TESTS_FLAG}; the dedicated owner must fail when its exact test is absent`);
+  }
+  if (terminalChildCommand !== TERMINAL_CHILD_TEST_COMMAND) {
+    failures.push(`package.json script "test:terminal-child" must be exactly: ${TERMINAL_CHILD_TEST_COMMAND}`);
+  }
+  const positiveOwners = Object.entries(scripts)
+    .filter(([, command]) => command.includes(TERMINAL_CHILD_TEST_PATH))
+    .map(([name]) => name);
+  const dedicatedPathOccurrences = terminalChildCommand.split(TERMINAL_CHILD_TEST_PATH).length - 1;
+  if (JSON.stringify(positiveOwners) !== JSON.stringify(['test:terminal-child']) || dedicatedPathOccurrences !== 1) {
+    failures.push('package.json must have exactly one positive package owner for the terminal-child path: test:terminal-child with one exact path occurrence');
+  }
+
+  const ignorePatterns = pkg.jest?.testPathIgnorePatterns;
+  checked.push('package.json exact ordinary Jest ignore array');
+  if (!Array.isArray(ignorePatterns)) {
+    failures.push('package.json ordinary terminal-child exclusion contract requires jest.testPathIgnorePatterns to be an array');
+  } else {
+    const canonicalCount = ignorePatterns.filter((entry) => entry === TERMINAL_CHILD_IGNORE_REGEX).length;
+    if (canonicalCount === 0) {
+      failures.push(`package.json ordinary terminal-child exclusion must contain the canonical escaped, end-anchored regex ${TERMINAL_CHILD_IGNORE_REGEX}`);
+    } else if (canonicalCount > 1) {
+      failures.push('package.json ordinary terminal-child exclusion must contain exactly one canonical regex; duplicate canonical entries are forbidden');
+    }
+    if (JSON.stringify(ignorePatterns) !== JSON.stringify(JEST_IGNORE_PATTERNS)) {
+      failures.push('package.json ordinary Jest ignore array must contain exactly the Playwright entry, E2E entry, and one canonical terminal-child exclusion in that order; noncanonical, extra, duplicate, and broader exclusions are forbidden');
+    }
+  }
+
+  checked.push('package.json singular release backend Jest authority');
+  const releaseSegments = splitCommandSegments(scripts['validate:release'] ?? '');
+  if (releaseSegments.filter((segment) => segment === 'npm test').length !== 1
+      || releaseSegments.some((segment) => /^npm run test:(?:parallel|terminal-child)(?:\s|$)/.test(segment))) {
+    failures.push('package.json validate:release must invoke singular npm test exactly once and must not invoke backend Jest subphases independently');
+  }
+
+  const readme = markdownByFile.get('README.md') ?? '';
+  checked.push('README.md two-phase backend Jest guidance');
+  const readmeRequirements = [
+    ['root npm test as the complete non-E2E backend authority', /npm test[\s\S]{0,220}complete non-E2E backend authority/i],
+    ['ordinary parallel Jest followed by the exact serial real-terminal-child suite', /ordinary parallel Jest[\s\S]{0,220}(?:followed by|then)[\s\S]{0,220}(?:serial|in-band)[\s\S]{0,160}(?:real-terminal-child|terminal-child)/i],
+    ['the focused npm run test:terminal-child command', /npm run test:terminal-child/],
+    ['test:direct ordinary-set exclusion', /test:direct[\s\S]{0,220}ordinary Jest[\s\S]{0,160}excludes/i],
+  ];
+  for (const [description, pattern] of readmeRequirements) {
+    if (!pattern.test(readme)) failures.push(`README.md must document ${description}`);
+  }
+
+  return { checked, failures };
+}
+
 function markdownCorpus(markdownByFile) {
   return [...markdownByFile.values()].join('\n\n');
 }
@@ -1081,7 +1169,8 @@ function validateDocsVerifySubguards({ root, scripts }) {
 
 export function verifyValidationCadence(options = {}) {
   const root = path.resolve(options.root ?? process.cwd());
-  const scripts = options.packageScripts ?? readPackageScripts(root);
+  const pkg = readJsonFile(root, 'package.json');
+  const scripts = options.packageScripts ?? pkg.scripts ?? {};
   const documented = validateDocumentedCommands({
     root,
     files: options.documentedCommandFiles ?? DEFAULT_DOCUMENTED_COMMAND_FILES,
@@ -1109,9 +1198,10 @@ export function verifyValidationCadence(options = {}) {
   const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
   const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
+  const terminalChildJest = validateTerminalChildJestContract({ pkg, scripts, markdownByFile: documented.markdownByFile });
   const playwrightOwnership = validatePlaywrightOwnership({ root, scripts });
   const playwrightDocumentation = validatePlaywrightDocumentation({ root });
-  const failures = [...documented.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...webTestAliases.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
+  const failures = [...documented.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...webTestAliases.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
   return {
     ok: failures.length === 0,
     failures,
@@ -1125,6 +1215,7 @@ export function verifyValidationCadence(options = {}) {
     runtimeEngineEntriesChecked: runtimeEngines.checked,
     docsVerifyEntriesChecked: docsVerify.checked,
     failClosedJestGateEntriesChecked: failClosedJest.checked,
+    terminalChildJestContractEntriesChecked: terminalChildJest.checked,
     playwrightOwnershipEntriesChecked: playwrightOwnership.checked,
     playwrightDocumentationEntriesChecked: playwrightDocumentation.checked,
   };
@@ -1140,7 +1231,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), ${result.webTestAliasEntriesChecked.length} web-test alias item(s), ${result.runtimeEngineEntriesChecked.length} runtime engine alignment item(s), ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s), and ${result.failClosedJestGateEntriesChecked.length} fail-closed Jest gate item(s) resolve`,
+    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), ${result.webTestAliasEntriesChecked.length} web-test alias item(s), ${result.runtimeEngineEntriesChecked.length} runtime engine alignment item(s), ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s), ${result.failClosedJestGateEntriesChecked.length} fail-closed Jest gate item(s), and ${result.terminalChildJestContractEntriesChecked.length} terminal-child Jest contract item(s) resolve`,
   );
 }
 
