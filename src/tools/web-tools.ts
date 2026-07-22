@@ -8,8 +8,7 @@ import { z } from 'zod';
 import type { AgentRole } from '../schemas/index.js';
 import { buildScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { describe } from './tool-definition.js';
-import type { ToolContext, ToolResult as AnalystToolResult } from './analyst-tool-types.js';
-import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
+import type { ToolContext } from './analyst-tool-types.js';
 import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
@@ -31,15 +30,6 @@ export interface WebProviderContext extends WorkspaceContext {
 
 const websearchSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
 const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
-
-function webContext(ctx: ToolContext): WebProviderContext {
-  return { projectRoot: ctx.projectRoot, agentRole: 'analyst', store: ctx.store, notifyCard: ctx.runtime ? (cardId, notification) => ctx.runtime!.notifyCard(cardId, notification) : undefined };
-}
-
-function analystResult(result: InvocationToolResult): AnalystToolResult {
-  if (result.success) return result;
-  return toolFailure(result.error);
-}
 
 function redactUrl(raw: string): string {
   try {
@@ -221,18 +211,6 @@ async function fetchAnalystBrief(input: { url: string; read_mode?: ReadMode; max
   const isText = mode === 'text' || (mode === 'auto' && /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType));
   if (!isText) throw new Error('Analyst brief record webfetch requires a text response.');
   return { content: Buffer.from(fetched.body).toString('utf8'), metadata };
-}
-
-export async function websearch(_ctx: ToolContext, params: { query: string; max_results?: number }): Promise<AnalystToolResult> {
-  return analystResult(await websearchCore(params));
-}
-
-export async function webfetch(ctx: ToolContext, params: { url: string; read_mode?: ReadMode; metadata_only?: boolean; max_bytes?: number; max_inline_bytes?: number; save_as?: string }): Promise<AnalystToolResult> {
-  try {
-    return analystResult(await webfetchCore(webContext(ctx), params));
-  } catch (err) {
-    return toolFailureFromError(err, err instanceof Error ? err.message : String(err));
-  }
 }
 
 export function createWebProvider(ctx: WebProviderContext): ToolProvider {
