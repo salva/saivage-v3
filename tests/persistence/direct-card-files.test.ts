@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
 import { listCards, publishCardTombstone, publishCardVersion, readCanonicalCardHierarchy, readCard, readLinkedChildren } from '../../src/persistence/card-files.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
+import { currentRecordDefinitionForFilename } from '../../src/records/current-record-definitions.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 import type { CardHistoryEntry, CardRecord } from '../../src/schemas/index.js';
@@ -284,7 +285,7 @@ describe('exact hierarchical card files', () => {
 
   it('does not couple a card-only read to the active root brief', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
-    rmSync(cardRecordStreamFile(root, 'project', 'brief'));
+    rmSync(cardRecordStreamFile(root, 'project', currentRecordDefinitionForFilename('brief.md')));
     expect(readCard(root, 'project')?.id).toBe('project');
   });
 
@@ -293,7 +294,7 @@ describe('exact hierarchical card files', () => {
     const cards = new CardService(root);
     const parent = cards.create({ type: 'goal', parent: 'project', title: 'Parent', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const child = cards.create({ type: 'code', parent: parent.id, title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    writeFileSync(cardRecordStreamFile(root, parent.id, 'brief'), '{complete-malformed}\n');
+    writeFileSync(cardRecordStreamFile(root, parent.id, currentRecordDefinitionForFilename('brief.md')), '{complete-malformed}\n');
     expect(readCard(root, child.id)?.id).toBe(child.id);
   });
 
@@ -301,7 +302,7 @@ describe('exact hierarchical card files', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'Child', brief: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    rmSync(cardRecordStreamFile(root, child.id, 'brief'));
+    rmSync(cardRecordStreamFile(root, child.id, currentRecordDefinitionForFilename('brief.md')));
     expect(readCard(root, child.id)?.id).toBe(child.id);
   });
 });

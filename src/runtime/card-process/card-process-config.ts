@@ -1,7 +1,7 @@
 import type { CardProcessSource, CardProcessesSource } from '../../schemas/saivage-config.js';
 import { planningCardTypeValues, terminalCardTypeValues, type CardStatus, type CardType } from '../../schemas/index.js';
 import { compileActorDefinition, type CompiledActorDefinition, type CompiledTransitionDefinition } from '../micro-actor/index.js';
-import { recordSlotDefinitionForFilename } from '../records/record-slots.js';
+import { currentRecordDefinitionForFilename } from '../../records/current-record-definitions.js';
 
 export type CardProcessFamily = 'planning' | 'terminal';
 export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
@@ -86,7 +86,7 @@ function compileFamily(family: CardProcessFamily, source: CardProcessSource): Co
     const requiredRecords = Object.freeze(rawNode.records.map((record, index) => {
       if (recordNames.has(record.name)) throw new Error(`card_processes.${family}.nodes.${nodeId}.records contains duplicate '${record.name}'.`);
       recordNames.add(record.name);
-      if (record.updated && !recordSlotDefinitionForFilename(record.name).writers.includes(rawNode.role)) throw new Error(`card_processes.${family}.nodes.${nodeId}.records.${index} requires ${rawNode.role} to update unsupported record '${record.name}'.`);
+      if (record.updated && !currentRecordDefinitionForFilename(record.name).writers.includes(rawNode.role)) throw new Error(`card_processes.${family}.nodes.${nodeId}.records.${index} requires ${rawNode.role} to update unsupported record '${record.name}'.`);
       return Object.freeze({ filename: record.name, updated: record.updated });
     }));
     const edges = new Map<string, ValidatedEdge>();

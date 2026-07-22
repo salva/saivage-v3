@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
 import type { CanonicalReadInstrumentation } from '../../src/persistence/growing-file.js';
 import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
+import { currentRecordDefinitionForFilename } from '../../src/records/current-record-definitions.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -31,7 +32,7 @@ describe('bounded card resource reads', () => {
     const grandchild = cards.create(input(parent.id, 'Grandchild'));
     cards.deleteSubtrees([retained.id], () => true);
     writeFileSync(cardStreamFile(root, retainedDescendant.id), '{tombstoned-descendant-must-not-be-read}\n');
-    writeFileSync(cardRecordStreamFile(root, sibling.id, 'brief'), '{complete-malformed}\n');
+    writeFileSync(cardRecordStreamFile(root, sibling.id, currentRecordDefinitionForFilename('brief.md')), '{complete-malformed}\n');
 
     const rootRead = recorder();
     const hierarchy = cards.getCardChildren('project', rootRead.instrumentation);
@@ -83,11 +84,11 @@ describe('bounded card resource reads', () => {
 
     const recordRead = recorder();
     expect(cards.readRecord(target.id, 'brief.md', 'latest', recordRead.instrumentation).artifact.content).toBe('Target brief');
-    expect(recordRead.paths).toEqual([...path, cardRecordStreamFile(root, target.id, 'brief')]);
+    expect(recordRead.paths).toEqual([...path, cardRecordStreamFile(root, target.id, currentRecordDefinitionForFilename('brief.md'))]);
     for (const slot of ['status', 'review'] as const) {
       const slotRead = recorder();
       expect(cards.readRecord(target.id, `${slot}.md`, 'latest', slotRead.instrumentation).artifact.content).toBe(slot === 'status' ? 'Status' : 'Review');
-      expect(slotRead.paths).toEqual([...path, cardRecordStreamFile(root, target.id, slot)]);
+      expect(slotRead.paths).toEqual([...path, cardRecordStreamFile(root, target.id, currentRecordDefinitionForFilename(`${slot}.md`))]);
     }
 
     const listRead = recorder();

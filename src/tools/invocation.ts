@@ -57,6 +57,35 @@ export function buildInvocationSurface(role: AgentRole, providers: readonly Tool
   return { role, tools, providers };
 }
 
+export function composeInvocationSurface(role: AgentRole, toolNames: readonly string[], providers: readonly ToolProvider[]): InvocationSurface {
+  const definitions = new Map<string, { definition: ToolDefinition<any>; provider: ToolProvider }>();
+  for (const provider of providers) {
+    for (const definition of provider.tools) {
+      if (definitions.has(definition.name)) throw new Error(`Duplicate tool '${definition.name}' from provider '${provider.providerName}'.`);
+      definitions.set(definition.name, { definition, provider });
+    }
+  }
+
+  const tools = new Map<string, ToolDefinition<any>>();
+  const selectedByProvider = new Map<ToolProvider, ToolDefinition<any>[]>();
+  for (const name of toolNames) {
+    if (tools.has(name)) throw new Error(`Duplicate requested tool '${name}'.`);
+    const selected = definitions.get(name);
+    if (!selected) throw new Error(`Unknown requested tool '${name}'.`);
+    tools.set(name, selected.definition);
+    const providerTools = selectedByProvider.get(selected.provider) ?? [];
+    providerTools.push(selected.definition);
+    selectedByProvider.set(selected.provider, providerTools);
+  }
+
+  const selectedProviders = providers.flatMap((provider) => {
+    const selectedTools = selectedByProvider.get(provider);
+    if (!selectedTools) return [];
+    return [{ providerName: provider.providerName, tools: Object.freeze(selectedTools), ...(provider.cleanup ? { cleanup: provider.cleanup.bind(provider) } : {}) } satisfies ToolProvider];
+  });
+  return { role, tools, providers: selectedProviders };
+}
+
 export async function invokeTool(surface: InvocationSurface, name: string, args: unknown, signal: AbortSignal = new AbortController().signal, context?: LlmToolInvocationContext): Promise<ToolResult> {
   if (signal.aborted) throw abortError(signal);
   const definition = surface.tools.get(name);

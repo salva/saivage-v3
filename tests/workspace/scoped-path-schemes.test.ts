@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { recordSlotDefinitionForFilename, recordSlotDefinitions } from '../../src/runtime/records/record-slots.js';
+import { currentRecordDefinitionForFilename, currentRecordDefinitions } from '../../src/records/current-record-definitions.js';
 import { resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, type ResolveScopedPathContext } from '../../src/workspace/scoped-path-schemes.js';
 import { resolveScopedPath } from '../../src/workspace/vfs.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
@@ -62,20 +62,20 @@ describe('scoped path resolvers', () => {
   });
 
   it('defines exactly the three authored record slots', () => {
-    expect(recordSlotDefinitions()).toEqual([
-      { filename: 'brief.md', slot: 'brief', writers: ['analyst', 'planner'], format: 'markdown', schema: 'record.brief.markdown.v1' },
-      { filename: 'status.md', slot: 'status', writers: ['planner', 'executor'], format: 'markdown', schema: 'record.status.markdown.v1' },
-      { filename: 'review.md', slot: 'review', writers: ['reviewer'], format: 'markdown', schema: 'record.review.markdown.v1' },
+    expect(currentRecordDefinitions()).toEqual([
+      { filename: 'brief.md', slot: 'brief', writers: ['analyst', 'planner'], format: 'markdown', schema: 'record.brief.markdown.v1', bootstrap: true },
+      { filename: 'status.md', slot: 'status', writers: ['planner', 'executor'], format: 'markdown', schema: 'record.status.markdown.v1', bootstrap: false },
+      { filename: 'review.md', slot: 'review', writers: ['reviewer'], format: 'markdown', schema: 'record.review.markdown.v1', bootstrap: false },
     ]);
-    for (const filename of ['brief.md', 'status.md', 'review.md']) expect(recordSlotDefinitionForFilename(filename).filename).toBe(filename);
+    for (const filename of ['brief.md', 'status.md', 'review.md']) expect(currentRecordDefinitionForFilename(filename).filename).toBe(filename);
   });
 
   it('keeps low-level record slot helpers as plain Error throwers', () => {
-    expect(() => recordSlotDefinitionForFilename('bogus.md')).toThrow(Error);
-    expect(() => recordSlotDefinitionForFilename('card.json')).toThrow(Error);
-    expect(() => recordSlotDefinitionForFilename('nested/brief.md')).toThrow(Error);
+    expect(() => currentRecordDefinitionForFilename('bogus.md')).toThrow(Error);
+    expect(() => currentRecordDefinitionForFilename('card.json')).toThrow(Error);
+    expect(() => currentRecordDefinitionForFilename('nested/brief.md')).toThrow(Error);
     try {
-      recordSlotDefinitionForFilename('bogus.md');
+      currentRecordDefinitionForFilename('bogus.md');
     } catch (error) {
       expect((error as Error).name).toBe('Error');
     }

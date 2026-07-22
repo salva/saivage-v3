@@ -17,6 +17,7 @@ import {
   replaceOpenAuthoredRecord,
   type RecordProjection,
 } from '../persistence/authored-record-files.js';
+import { currentRecordDefinitionForFilename } from '../records/current-record-definitions.js';
 import {
   listCards,
   publishCardTombstone,
@@ -164,15 +165,15 @@ export class CardService {
   getDescendantIds(id: string): string[] { const state = this.state(); const out: string[] = []; const visit = (parent: string): void => { for (const child of state.childrenOf(parent)) { out.push(child); visit(child); } }; visit(id); return out; }
   blocksFor(id: string): string[] { return this.list().filter((card) => card.depends_on.includes(id)).map((card) => card.id); }
 
-  readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readAuthoredRecord(this.projectRoot, cardId, filename, version, instrumentation); }
-  openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, filename, undefined, this.cardAppendIo); }
-  editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection { return replaceOpenAuthoredRecord(this.projectRoot, cardId, filename, version, content, this.cardAppendIo); }
+  readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), version, instrumentation); }
+  openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), undefined, this.cardAppendIo); }
+  editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection { return replaceOpenAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), version, content, this.cardAppendIo); }
   closeRecord(cardId: string, filename: string, version: number, role: AgentRole, cardVersionSeq: number): RecordProjection {
-    const closed = closeAuthoredRecord(this.projectRoot, cardId, filename, version, role, cardVersionSeq, this.cardAppendIo);
+    const closed = closeAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), version, role, cardVersionSeq, this.cardAppendIo);
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, slot: closed.slot });
     return closed;
   }
-  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection { return discardAuthoredRecord(this.projectRoot, cardId, filename, version, reason, this.cardAppendIo); }
+  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection { return discardAuthoredRecord(this.projectRoot, cardId, currentRecordDefinitionForFilename(filename), version, reason, this.cardAppendIo); }
 
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
     return clone(readCardDetail(this.projectRoot, id, instrumentation));

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { CardService } from '../../src/cards/card-service.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
+import { currentRecordDefinitionForFilename } from '../../src/records/current-record-definitions.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { parseConversationSessionId, type ConversationSessionId } from '../../src/schemas/index.js';
 
@@ -23,7 +24,7 @@ describe('reset-only hierarchical card storage', () => {
     const dependent = cards.create(input(goal.id, 'code', [dependency.id]));
     const survivor = cards.create(input('project', 'code', [dependency.id]));
     expect(readFileSync(cardStreamFile(root, goal.id), 'utf8')).toContain('card-version');
-    expect(readFileSync(cardRecordStreamFile(root, dependency.id, 'brief'), 'utf8')).toContain('record-revision');
+    expect(readFileSync(cardRecordStreamFile(root, dependency.id, currentRecordDefinitionForFilename('brief.md')), 'utf8')).toContain('record-revision');
     const status = cards.openRecord(dependency.id, 'status.md'); cards.editRecord(dependency.id, 'status.md', status.version, 'status'); cards.closeRecord(dependency.id, 'status.md', status.version, 'executor', dependency.version_seq);
     const dependencySession = parseConversationSessionId(`executor:${dependency.id}`);
     appendConversationBatch({ projectRoot: root }, [row(dependencySession, 'message')]);

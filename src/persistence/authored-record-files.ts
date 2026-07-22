@@ -1,6 +1,6 @@
-import { basename } from 'node:path';
 import type { AgentRole } from '../schemas/index.js';
-import { authoredRecordSlotValues, parseRecordVersionArtifact, recordVersionArtifactSchema, validateRecordStream, type AuthoredRecordSlot, type RecordVersionArtifact } from './canonical-record-artifacts.js';
+import type { RecordDefinition } from '../records/current-record-definitions.js';
+import { parseRecordVersionArtifact, recordVersionArtifactSchema, validateRecordStream, type AuthoredRecordSlot, type RecordVersionArtifact } from './canonical-record-artifacts.js';
 import { readCard } from './card-files.js';
 import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
 import { cardRecordStreamFile } from './layout.js';
@@ -15,28 +15,23 @@ export class AuthoredRecordNotFoundError extends Error {
   }
 }
 
-function slotFor(filename: string): AuthoredRecordSlot {
-  const slot = basename(filename).replace(/\.(?:md|json)$/u, '');
-  if (!authoredRecordSlotValues.includes(slot as AuthoredRecordSlot)) throw new Error(`Unsupported record slot '${filename}'.`);
-  return slot as AuthoredRecordSlot;
-}
-function projection(artifact: RecordVersionArtifact): RecordProjection {
-  const filename = `${artifact.slot}.md`;
+function projection(definition: RecordDefinition, artifact: RecordVersionArtifact): RecordProjection {
+  const filename = definition.filename;
   return Object.freeze({ cardId: artifact.card_id, filename, slot: artifact.slot, version: artifact.version, recordUrl: `record:///${filename}?card=${encodeURIComponent(artifact.card_id)}&v=${artifact.version}`, artifact });
 }
-function rows(projectRoot: string, cardId: string, slot: AuthoredRecordSlot, instrumentation?: CanonicalReadInstrumentation): RecordVersionArtifact[] {
+function rows(projectRoot: string, cardId: string, definition: RecordDefinition, instrumentation?: CanonicalReadInstrumentation): RecordVersionArtifact[] {
   if (!readCard(projectRoot, cardId, instrumentation)) throw new AuthoredRecordNotFoundError();
-  const path = cardRecordStreamFile(projectRoot, cardId, slot);
-  try { return validateRecordStream(readCanonicalGrowingFile(path, recordVersionArtifactSchema, undefined, instrumentation), path, cardId, slot); }
+  const path = cardRecordStreamFile(projectRoot, cardId, definition);
+  try { return validateRecordStream(readCanonicalGrowingFile(path, recordVersionArtifactSchema, undefined, instrumentation), path, cardId, definition); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT' && slot !== 'brief') return [];
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT' && !definition.bootstrap) return [];
     throw error;
   }
 }
-function append(projectRoot: string, artifact: RecordVersionArtifact, temporary?: PublicationTemporaryIdFactory, io?: GrowingFileIo): RecordProjection {
-  const path = cardRecordStreamFile(projectRoot, artifact.card_id, artifact.slot);
-  const prior = rows(projectRoot, artifact.card_id, artifact.slot);
-  validateRecordStream([...prior, artifact], path, artifact.card_id, artifact.slot);
+function append(projectRoot: string, definition: RecordDefinition, artifact: RecordVersionArtifact, temporary?: PublicationTemporaryIdFactory, io?: GrowingFileIo): RecordProjection {
+  const path = cardRecordStreamFile(projectRoot, artifact.card_id, definition);
+  const prior = rows(projectRoot, artifact.card_id, definition);
+  validateRecordStream([...prior, artifact], path, artifact.card_id, definition);
   const bytes = serializeGrowingEnvelope([artifact], recordVersionArtifactSchema);
   if (prior.length === 0) publishFirstEnvelope(path, bytes, temporary);
   else {
@@ -46,38 +41,41 @@ function append(projectRoot: string, artifact: RecordVersionArtifact, temporary?
       case 'missing': throw new Error(`Authored-record stream '${path}' disappeared before append.`);
     }
   }
-  return projection(artifact);
+  return projection(definition, artifact);
 }
-export function readAuthoredRecord(projectRoot: string, cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection {
-  const slot = slotFor(filename); const all = rows(projectRoot, cardId, slot, instrumentation);
+export function readAuthoredRecord(projectRoot: string, cardId: string, definition: RecordDefinition, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection {
+  const all = rows(projectRoot, cardId, definition, instrumentation);
   let artifact: RecordVersionArtifact | undefined;
   if (version === 'open') artifact = all.at(-1)?.state === 'open' ? all.at(-1) : undefined;
   else if (version === 'latest') artifact = [...all].reverse().find((row) => row.state === 'closed');
   else artifact = [...all].reverse().find((row) => row.version === version);
   if (!artifact) throw new AuthoredRecordNotFoundError();
-  return projection(artifact);
+  return projection(definition, artifact);
 }
-export function openAuthoredRecord(projectRoot: string, cardId: string, filename: string, temporary?: PublicationTemporaryIdFactory, io?: GrowingFileIo): RecordProjection {
-  const slot = slotFor(filename);
-  const all = rows(projectRoot, cardId, slot); const current = all.at(-1);
-  if (current?.state === 'open') return projection(current);
-  const version = (current?.version ?? 0) + 1; const path = cardRecordStreamFile(projectRoot, cardId, slot);
-  return append(projectRoot, parseRecordVersionArtifact({ kind: 'record-revision', format_version: 1, card_id: cardId, slot, version, revision_seq: all.length + 1, state: 'open', opened_at: new Date().toISOString(), committed_at: null, closed_at: null, discarded_at: null, reason: null, writer: null, format: 'markdown', schema: `record.${slot}.markdown.v1`, card_version_seq: null, content: '' }, path, { cardId, slot, version }), temporary, io);
+export function openAuthoredRecord(projectRoot: string, cardId: string, definition: RecordDefinition, temporary?: PublicationTemporaryIdFactory, io?: GrowingFileIo): RecordProjection {
+  const all = rows(projectRoot, cardId, definition); const current = all.at(-1);
+  if (current?.state === 'open') return projection(definition, current);
+  const version = (current?.version ?? 0) + 1; const path = cardRecordStreamFile(projectRoot, cardId, definition);
+  const artifact = parseRecordVersionArtifact({ kind: 'record-revision', format_version: 1, card_id: cardId, slot: definition.slot, version, revision_seq: all.length + 1, state: 'open', opened_at: new Date().toISOString(), committed_at: null, closed_at: null, discarded_at: null, reason: null, writer: null, format: definition.format, schema: definition.schema, card_version_seq: null, content: '' }, path, { cardId, definition, version });
+  return append(projectRoot, definition, artifact, temporary, io);
 }
-function requireOpen(projectRoot: string, cardId: string, filename: string, version: number): { current: RecordVersionArtifact; count: number } {
-  const slot = slotFor(filename); const all = rows(projectRoot, cardId, slot); const current = all.at(-1);
-  if (!current || current.version !== version || current.state !== 'open') throw new Error(`Record '${cardId}/${slot}/${version}' is not open.`);
+function requireOpen(projectRoot: string, cardId: string, definition: RecordDefinition, version: number): { current: RecordVersionArtifact; count: number } {
+  const all = rows(projectRoot, cardId, definition); const current = all.at(-1);
+  if (!current || current.version !== version || current.state !== 'open') throw new Error(`Record '${cardId}/${definition.slot}/${version}' is not open.`);
   return { current, count: all.length };
 }
-export function replaceOpenAuthoredRecord(projectRoot: string, cardId: string, filename: string, version: number, content: string, io?: GrowingFileIo): RecordProjection {
-  const { current, count } = requireOpen(projectRoot, cardId, filename, version);
-  return append(projectRoot, parseRecordVersionArtifact({ ...current, revision_seq: count + 1, content }, cardRecordStreamFile(projectRoot, cardId, current.slot), { cardId, slot: current.slot, version }), undefined, io);
+export function replaceOpenAuthoredRecord(projectRoot: string, cardId: string, definition: RecordDefinition, version: number, content: string, io?: GrowingFileIo): RecordProjection {
+  const { current, count } = requireOpen(projectRoot, cardId, definition, version);
+  const path = cardRecordStreamFile(projectRoot, cardId, definition);
+  return append(projectRoot, definition, parseRecordVersionArtifact({ ...current, revision_seq: count + 1, content }, path, { cardId, definition, version }), undefined, io);
 }
-export function closeAuthoredRecord(projectRoot: string, cardId: string, filename: string, version: number, writer: AgentRole, cardVersionSeq: number, io?: GrowingFileIo): RecordProjection {
-  const { current, count } = requireOpen(projectRoot, cardId, filename, version); const stamp = new Date().toISOString();
-  return append(projectRoot, parseRecordVersionArtifact({ ...current, revision_seq: count + 1, state: 'closed', committed_at: stamp, closed_at: stamp, writer, card_version_seq: cardVersionSeq }, cardRecordStreamFile(projectRoot, cardId, current.slot), { cardId, slot: current.slot, version }), undefined, io);
+export function closeAuthoredRecord(projectRoot: string, cardId: string, definition: RecordDefinition, version: number, writer: AgentRole, cardVersionSeq: number, io?: GrowingFileIo): RecordProjection {
+  const { current, count } = requireOpen(projectRoot, cardId, definition, version); const stamp = new Date().toISOString();
+  const path = cardRecordStreamFile(projectRoot, cardId, definition);
+  return append(projectRoot, definition, parseRecordVersionArtifact({ ...current, revision_seq: count + 1, state: 'closed', committed_at: stamp, closed_at: stamp, writer, card_version_seq: cardVersionSeq }, path, { cardId, definition, version }), undefined, io);
 }
-export function discardAuthoredRecord(projectRoot: string, cardId: string, filename: string, version: number, reason: string, io?: GrowingFileIo): RecordProjection {
-  const { current, count } = requireOpen(projectRoot, cardId, filename, version);
-  return append(projectRoot, parseRecordVersionArtifact({ ...current, revision_seq: count + 1, state: 'discarded', discarded_at: new Date().toISOString(), reason }, cardRecordStreamFile(projectRoot, cardId, current.slot), { cardId, slot: current.slot, version }), undefined, io);
+export function discardAuthoredRecord(projectRoot: string, cardId: string, definition: RecordDefinition, version: number, reason: string, io?: GrowingFileIo): RecordProjection {
+  const { current, count } = requireOpen(projectRoot, cardId, definition, version);
+  const path = cardRecordStreamFile(projectRoot, cardId, definition);
+  return append(projectRoot, definition, parseRecordVersionArtifact({ ...current, revision_seq: count + 1, state: 'discarded', discarded_at: new Date().toISOString(), reason }, path, { cardId, definition, version }), undefined, io);
 }

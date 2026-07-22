@@ -6,6 +6,7 @@ import { CardService } from '../../src/cards/card-service.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
+import { currentRecordDefinitionForFilename } from '../../src/records/current-record-definitions.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -47,7 +48,7 @@ describe('authored record revision streams', () => {
     expect(() => malformedCard.cards.readRecord(malformedCard.card.id, 'status.md')).toThrow(/malformed/);
 
     const missingBrief = setup();
-    rmSync(cardRecordStreamFile(missingBrief.cards.projectRoot, missingBrief.card.id, 'brief'));
+    rmSync(cardRecordStreamFile(missingBrief.cards.projectRoot, missingBrief.card.id, currentRecordDefinitionForFilename('brief.md')));
     let missingBriefError: unknown;
     try { missingBrief.cards.readRecord(missingBrief.card.id, 'brief.md'); } catch (error) { missingBriefError = error; }
     expect(missingBriefError).not.toBeInstanceOf(AuthoredRecordNotFoundError);

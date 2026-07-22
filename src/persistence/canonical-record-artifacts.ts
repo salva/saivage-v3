@@ -11,12 +11,6 @@ const recordStateSchema = z.enum(['open', 'closed', 'discarded']);
 const recordFormatSchema = z.enum(['markdown', 'json']);
 const nullableTimestampSchema = z.string().datetime().nullable();
 
-const slotRegistry = Object.freeze({
-  brief: Object.freeze({ format: 'markdown' as const, schema: 'record.brief.markdown.v1', writers: ['analyst', 'planner'] as readonly AgentRole[] }),
-  status: Object.freeze({ format: 'markdown' as const, schema: 'record.status.markdown.v1', writers: ['planner', 'executor'] as readonly AgentRole[] }),
-  review: Object.freeze({ format: 'markdown' as const, schema: 'record.review.markdown.v1', writers: ['reviewer'] as readonly AgentRole[] }),
-});
-
 export const recordVersionArtifactSchema = z
   .object({
     kind: z.literal('record-revision'),
@@ -39,14 +33,6 @@ export const recordVersionArtifactSchema = z
   })
   .strict()
   .superRefine((artifact, context) => {
-    const definition = slotRegistry[artifact.slot];
-    if (artifact.format !== definition.format) {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ['format'], message: `must be '${definition.format}' for ${artifact.slot}` });
-    }
-    if (artifact.schema !== definition.schema) {
-      context.addIssue({ code: z.ZodIssueCode.custom, path: ['schema'], message: `must be '${definition.schema}' for ${artifact.slot}` });
-    }
-
     if (artifact.state === 'open') {
       for (const field of ['committed_at', 'closed_at', 'discarded_at', 'reason', 'writer', 'card_version_seq'] as const) {
         if (artifact[field] !== null) context.addIssue({ code: z.ZodIssueCode.custom, path: [field], message: 'must be null while open' });
@@ -61,9 +47,7 @@ export const recordVersionArtifactSchema = z
       if (artifact.committed_at !== artifact.closed_at) context.addIssue({ code: z.ZodIssueCode.custom, path: ['committed_at'], message: 'must equal closed_at' });
       if (artifact.discarded_at !== null) context.addIssue({ code: z.ZodIssueCode.custom, path: ['discarded_at'], message: 'must be null when closed' });
       if (artifact.reason !== null) context.addIssue({ code: z.ZodIssueCode.custom, path: ['reason'], message: 'must be null when closed' });
-      if (artifact.writer === null || !definition.writers.includes(artifact.writer)) {
-        context.addIssue({ code: z.ZodIssueCode.custom, path: ['writer'], message: `must be an allowed ${artifact.slot} writer` });
-      }
+      if (artifact.writer === null) context.addIssue({ code: z.ZodIssueCode.custom, path: ['writer'], message: 'is required when closed' });
       if (artifact.card_version_seq === null) context.addIssue({ code: z.ZodIssueCode.custom, path: ['card_version_seq'], message: 'is required when closed' });
       return;
     }
@@ -78,6 +62,14 @@ export const recordVersionArtifactSchema = z
 
 export type RecordVersionArtifact = z.infer<typeof recordVersionArtifactSchema>;
 
+export type RecordArtifactDefinition = Readonly<{
+  slot: AuthoredRecordSlot;
+  writers: readonly AgentRole[];
+  format: RecordVersionArtifact['format'];
+  schema: string;
+  bootstrap: boolean;
+}>;
+
 function parseWithPath<T>(schema: z.ZodType<T>, raw: unknown, path: string, kind: string): T {
   const parsed = schema.safeParse(raw);
   if (!parsed.success) throw new Error(`${kind} at '${path}' is invalid: ${parsed.error.message}`);
@@ -87,23 +79,25 @@ function parseWithPath<T>(schema: z.ZodType<T>, raw: unknown, path: string, kind
 export function parseRecordVersionArtifact(
   raw: unknown,
   path: string,
-  expected?: { cardId: string; slot: AuthoredRecordSlot; version?: number },
+  expected: { cardId: string; definition: RecordArtifactDefinition; version?: number },
 ): RecordVersionArtifact {
   const artifact = parseWithPath(recordVersionArtifactSchema, raw, path, 'Record version artifact');
-  if (expected && (artifact.card_id !== expected.cardId || artifact.slot !== expected.slot || (expected.version !== undefined && artifact.version !== expected.version))) {
+  if (artifact.card_id !== expected.cardId || artifact.slot !== expected.definition.slot || (expected.version !== undefined && artifact.version !== expected.version)) {
     throw new Error(`Record version artifact at '${path}' does not match its card, slot, and version path.`);
   }
+  if (artifact.format !== expected.definition.format || artifact.schema !== expected.definition.schema) throw new Error(`Record version artifact at '${path}' does not match its record definition.`);
+  if (artifact.state === 'closed' && (artifact.writer === null || !expected.definition.writers.includes(artifact.writer))) throw new Error(`Record version artifact at '${path}' has a writer that is not allowed by its record definition.`);
   return artifact;
 }
 
-export function validateRecordStream(rows: readonly RecordVersionArtifact[], path: string, cardId: string, slot: AuthoredRecordSlot): RecordVersionArtifact[] {
+export function validateRecordStream(rows: readonly RecordVersionArtifact[], path: string, cardId: string, definition: RecordArtifactDefinition): RecordVersionArtifact[] {
   if (rows.length === 0) throw new Error(`Record stream '${path}' is empty.`);
   for (const [index, row] of rows.entries()) {
-    parseRecordVersionArtifact(row, path, { cardId, slot });
+    parseRecordVersionArtifact(row, path, { cardId, definition });
     if (row.revision_seq !== index + 1) throw new Error(`Record stream '${path}' has a revision sequence gap.`);
     const prior = rows[index - 1];
     if (!prior) {
-      if (row.version !== 1 || (slot === 'brief' ? row.state !== 'closed' : row.state !== 'open')) throw new Error(`Record stream '${path}' has an invalid first revision.`);
+      if (row.version !== 1 || (definition.bootstrap ? row.state !== 'closed' : row.state !== 'open')) throw new Error(`Record stream '${path}' has an invalid first revision.`);
       continue;
     }
     if (prior.state === 'open') {

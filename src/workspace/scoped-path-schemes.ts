@@ -1,7 +1,7 @@
 import { relative, resolve } from 'node:path';
 
 import type { AgentRole } from '../schemas/index.js';
-import { concreteRecordSlot, latestClosedRecordSlot, recordSlotDefinitionForFilename } from '../runtime/records/record-slots.js';
+import { currentRecordDefinitionForFilename } from '../records/current-record-definitions.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
 import { cardIdSchema } from '../schemas/index.js';
 type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection };
@@ -63,7 +63,7 @@ function readRecordOrNotFound(ctx: ResolveScopedPathContext, read: () => RecordP
 export function assertRecordWrite(role: AgentRole | undefined, currentCardId: string | undefined, cardId: string, filename: string, version: string, fail: ScopedPathErrorFactory): void {
   if (!currentCardId) throw fail('Record writes require an active card context.');
   if (cardId !== currentCardId) throw fail('Agents may write records only for their current card.');
-  const definition = recordSlotDefinitionForFilename(filename);
+  const definition = currentRecordDefinitionForFilename(filename);
   if (!role || !definition.writers.includes(role)) throw fail(`${role} cannot write record slot '${definition.slot}'.`);
   if (version !== 'next') throw fail('Record writes must use v=next.');
 }
@@ -81,7 +81,7 @@ export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: str
   if (parsed.segments.length !== 1) throw ctx.fail(`Invalid record URL '${raw}'.`);
   const filename = parsed.segments[0]!;
   try {
-    recordSlotDefinitionForFilename(filename);
+    currentRecordDefinitionForFilename(filename);
   } catch (error) {
     throw ctx.fail(toolFacingErrorMessage(error));
   }
@@ -104,7 +104,7 @@ export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: stri
   if (parsed.segments.length !== 1) throw ctx.fail(`Invalid record URL '${raw}'.`);
   const filename = parsed.segments[0]!;
   try {
-    recordSlotDefinitionForFilename(filename);
+    currentRecordDefinitionForFilename(filename);
   } catch (error) {
     throw ctx.fail(toolFacingErrorMessage(error));
   }
@@ -112,16 +112,16 @@ export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: stri
   const version = parsed.query?.get('v') ?? 'latest';
   if (version === 'next') {
     const open = readRecordOrNotFound(ctx, () => ctx.records!.record(cardId, filename, 'open'));
-    if (!agent.cardId || cardId !== agent.cardId || !recordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!)) throw ctx.fail('Only the owning agent may read its current open record slot.');
+    if (!agent.cardId || cardId !== agent.cardId || !currentRecordDefinitionForFilename(filename).writers.includes(agent.agentRole!)) throw ctx.fail('Only the owning agent may read its current open record slot.');
     return open;
   }
   if (version === 'latest') {
-    return readRecordOrNotFound(ctx, () => latestClosedRecordSlot(ctx.records!, { cardId, filename }));
+    return readRecordOrNotFound(ctx, () => ctx.records!.record(cardId, filename, 'latest'));
   }
   const numeric = Number(version);
   if (!Number.isInteger(numeric) || numeric < 1) throw ctx.fail(`Invalid record version '${version}'.`);
-  const record = readRecordOrNotFound(ctx, () => concreteRecordSlot(ctx.records!, { cardId, filename, version: numeric }));
-  if (record.artifact.state !== 'closed' && !(record.artifact.state === 'open' && cardId === agent.cardId && recordSlotDefinitionForFilename(filename).writers.includes(agent.agentRole!))) throw ctx.fail('Only closed records are readable outside the owning open slot.');
+  const record = readRecordOrNotFound(ctx, () => ctx.records!.record(cardId, filename, numeric));
+  if (record.artifact.state !== 'closed' && !(record.artifact.state === 'open' && cardId === agent.cardId && currentRecordDefinitionForFilename(filename).writers.includes(agent.agentRole!))) throw ctx.fail('Only closed records are readable outside the owning open slot.');
   return record;
 }
 

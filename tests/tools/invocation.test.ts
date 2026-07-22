@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { buildInvocationSurface, defineTool, invokeTool, invokeToolCall, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
+import { buildInvocationSurface, composeInvocationSurface, defineTool, invokeTool, invokeToolCall, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
@@ -20,6 +20,14 @@ describe('tool invocation surface', () => {
 
   it('throws on duplicate tool names during surface construction', () => {
     expect(() => buildInvocationSurface('executor', [provider('a'), provider('b')])).toThrow("Duplicate tool 'demo' from provider 'b'.");
+  });
+
+  it('composes exact definitions by requested name and order', () => {
+    const surface = composeInvocationSurface('executor', ['second', 'first'], [provider('a', 'first'), provider('b', 'second'), provider('unused', 'third')]);
+    expect([...surface.tools.keys()]).toEqual(['second', 'first']);
+    expect(surface.providers.map(({ providerName }) => providerName)).toEqual(['a', 'b']);
+    expect(() => composeInvocationSurface('executor', ['missing'], [provider('a')])).toThrow("Unknown requested tool 'missing'.");
+    expect(() => composeInvocationSurface('executor', ['demo', 'demo'], [provider('a')])).toThrow("Duplicate requested tool 'demo'.");
   });
 
   it('returns model-visible errors for unsupported tool names', async () => {

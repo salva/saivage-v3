@@ -10,6 +10,7 @@ import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { validateParsedCards } from '../cards/validator.js';
 import type { NewChildCardInput } from '../cards/lifecycle.js';
 import type { NewProjectRootInput } from '../boot/app.js';
+import { currentRecordDefinitionForSlot, type RecordDefinition } from '../records/current-record-definitions.js';
 
 export interface CardArtifactIndex { readonly artifacts: CardVersionArtifact[]; readonly current: CardVersionArtifact; readonly tombstone: CardTombstone | null; readonly snapshot: CanonicalGrowingFileSnapshot<CardVersionArtifact | CardTombstone> }
 
@@ -164,7 +165,8 @@ export function readCanonicalCardFilesMetadata(projectRoot: string, cardId: stri
   if (!reached) return { kind: 'card-not-found' };
   const files: CanonicalCardFileMetadata[] = [];
   for (const slot of ['card', 'brief', 'status', 'review'] as const) {
-    const path = slot === 'card' ? cardStreamFile(reached.realProjectRoot, cardId) : cardRecordStreamFile(reached.realProjectRoot, cardId, slot);
+    const definition = slot === 'card' ? null : currentRecordDefinitionForSlot(slot);
+    const path = definition === null ? cardStreamFile(reached.realProjectRoot, cardId) : cardRecordStreamFile(reached.realProjectRoot, cardId, definition);
     let descriptor: number;
     try {
       descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -181,7 +183,7 @@ function readRecordSlotSnapshot(
   path: string,
   descriptor: number,
   cardId: string,
-  slot: 'brief' | 'status' | 'review',
+  definition: RecordDefinition,
   maximumBytes: number,
 ): { readonly kind: 'found'; readonly snapshot: CanonicalGrowingFileSnapshot<unknown> } | { readonly kind: 'too-large'; readonly size: number } {
   try {
@@ -197,7 +199,7 @@ function readRecordSlotSnapshot(
       fsyncSync(descriptor);
       bytes = bytes.subarray(0, canonicalLength);
     }
-    const rows = validateRecordStream(parseGrowingFile(path, bytes.toString('utf8'), recordVersionArtifactSchema), path, cardId, slot);
+    const rows = validateRecordStream(parseGrowingFile(path, bytes.toString('utf8'), recordVersionArtifactSchema), path, cardId, definition);
     const final = fstatSync(descriptor);
     return { kind: 'found', snapshot: Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() }) };
   } finally {
@@ -217,7 +219,8 @@ export function readCanonicalCardFileContent(
     if (reached.target.snapshot.size > maximumBytes) return { kind: 'too-large', size: reached.target.snapshot.size };
     return { kind: 'found', value: { card: reached.target.current.card, slot, snapshot: reached.target.snapshot } };
   }
-  const path = cardRecordStreamFile(reached.realProjectRoot, cardId, slot);
+  const definition = currentRecordDefinitionForSlot(slot);
+  const path = cardRecordStreamFile(reached.realProjectRoot, cardId, definition);
   let descriptor: number;
   try {
     descriptor = openSync(path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
@@ -225,7 +228,7 @@ export function readCanonicalCardFileContent(
     if ((slot === 'status' || slot === 'review') && (error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'slot-not-found' };
     throw error;
   }
-  const result = readRecordSlotSnapshot(path, descriptor, cardId, slot, maximumBytes);
+  const result = readRecordSlotSnapshot(path, descriptor, cardId, definition, maximumBytes);
   if (result.kind === 'too-large') return result;
   return { kind: 'found', value: { card: reached.target.current.card, slot, snapshot: result.snapshot } };
 }
@@ -291,7 +294,7 @@ function initialBrief(cardId: string, content: string, writer: 'analyst' | 'plan
 function publishInitialStreams(projectRoot: string, card: CardRecord, briefContent: string, writer: 'analyst' | 'planner', temporary?: PublicationTemporaryIdFactory): void {
   const stamp = new Date().toISOString();
   const brief = initialBrief(card.id, briefContent, writer, stamp);
-  publishFirstEnvelope(cardRecordStreamFile(projectRoot, card.id, 'brief'), serializeGrowingEnvelope([brief], recordVersionArtifactSchema), temporary);
+  publishFirstEnvelope(cardRecordStreamFile(projectRoot, card.id, currentRecordDefinitionForSlot('brief')), serializeGrowingEnvelope([brief], recordVersionArtifactSchema), temporary);
   const cardPath = cardStreamFile(projectRoot, card.id);
   const prepared = prepareGrowingEnvelope([{ kind: 'card-version', format_version: 2, card_id: card.id, version: 1, committed_at: stamp, card, history: null }], cardStreamRowSchema);
   validateCardStream(prepared.rows, cardPath, card.id);
@@ -301,8 +304,9 @@ function publishInitialStreams(projectRoot: string, card: CardRecord, briefConte
 export function proveCreatedCardPublication(projectRoot: string, card: CardRecord): void {
   requireDirectory(cardNamespace(projectRoot, card.id));
   requireDirectory(join(cardNamespace(projectRoot, card.id), 'conversations'));
-  const briefPath = cardRecordStreamFile(projectRoot, card.id, 'brief');
-  const brief = validateRecordStream(readCanonicalGrowingFile(briefPath, recordVersionArtifactSchema), briefPath, card.id, 'brief');
+  const briefDefinition = currentRecordDefinitionForSlot('brief');
+  const briefPath = cardRecordStreamFile(projectRoot, card.id, briefDefinition);
+  const brief = validateRecordStream(readCanonicalGrowingFile(briefPath, recordVersionArtifactSchema), briefPath, card.id, briefDefinition);
   const stream = exactStream(projectRoot, card.id);
   if (brief.length !== 1 || brief[0]!.version !== 1 || brief[0]!.revision_seq !== 1 || brief[0]!.state !== 'closed' || stream.artifacts.length !== 1 || stream.tombstone !== null || stream.current.card.children.length !== 0 || JSON.stringify(stream.current.card) !== JSON.stringify(card)) throw new Error(`Claimed child '${card.id}' is not a complete initial publication.`);
 }

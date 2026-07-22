@@ -4,7 +4,7 @@ import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import { type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
-import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
+import { currentRecordDefinitions } from '../records/current-record-definitions.js';
 import { AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
 import { cardParentId } from '../schemas/card-id.js';
 import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
@@ -140,13 +140,13 @@ function isFullStore(store: CardInspectionStore): store is CardService {
 }
 
 function effectiveUpdatedAt(store: CardService, cardId: string): string | null {
-  const committedTimes = [store.recordReader.cardArtifacts(cardId).current.committed_at, ...recordSlotDefinitions().map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return null; throw error; } })].filter((value): value is string => Boolean(value));
+  const committedTimes = [store.recordReader.cardArtifacts(cardId).current.committed_at, ...currentRecordDefinitions().map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return null; throw error; } })].filter((value): value is string => Boolean(value));
   if (committedTimes.length === 0) return null;
   return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }
 
 function cardRecordSummaries(store: CardService, cardId: string): Array<Record<string, unknown>> {
-  return recordSlotDefinitions()
+  return currentRecordDefinitions()
     .map((definition) => {
       try { const record = store.readRecord(cardId, definition.filename); const content = record.artifact.content; const max = 4000; return { filename: definition.filename, path: `record:///${definition.filename}`, url: record.recordUrl, latest: record.version, format: definition.format, schema: definition.schema, writers: definition.writers, size: Buffer.byteLength(content), modifiedAt: record.artifact.committed_at, writer: record.artifact.writer, inline: { content: redactSnippetForOutbound(content, max), truncated: content.length > max } }; }
       catch (error) { if (!(error instanceof AuthoredRecordNotFoundError)) throw error; return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null }; }
