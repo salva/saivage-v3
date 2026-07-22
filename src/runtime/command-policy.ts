@@ -2,17 +2,6 @@ import { redactTextForOutbound } from '../redaction/index.js';
 
 const SAFE_ENV_ALLOWLIST = new Set(['PATH', 'HOME', 'USER', 'LANG', 'TERM']);
 const SAFE_ENV_PREFIXES = ['LC_'];
-const SECRET_ENV_PATTERNS = [
-  /^SAIVAGE_/,
-  /^OPENAI_/,
-  /^ANTHROPIC_/,
-  /^GOOGLE_/,
-  /^AZURE_/,
-  /_TOKEN$/,
-  /_KEY$/,
-  /_SECRET$/,
-  /_PASSWORD$/,
-];
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;
 export const MAX_COMMAND_TIMEOUT_MS = 600_000;
@@ -25,9 +14,7 @@ export function sanitizedCommandEnv(): NodeJS.ProcessEnv {
     const allowed = SAFE_ENV_ALLOWLIST.has(key) || SAFE_ENV_PREFIXES.some((prefix) => key.startsWith(prefix));
     if (allowed) {
       env[key] = value;
-      continue;
     }
-    if (SECRET_ENV_PATTERNS.some((pattern) => pattern.test(key))) continue;
   }
   return env;
 }
