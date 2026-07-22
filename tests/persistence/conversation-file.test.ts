@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { appendLlmTurnMessageBatch, appendLlmTurnToolCallBatch } from '../../src/runtime/actors/llm-delivery-log.js';
 import {
   appendConversationBatch,
-  publishConversationFirstBatch,
   readConversation,
 } from '../../src/persistence/conversation-file.js';
 import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
@@ -35,7 +34,7 @@ describe('conversation file persistence', () => {
     const changes = changesRecording(effects);
     const context = { projectRoot, changes };
 
-    publishConversationFirstBatch(context, [text('first')]);
+    appendConversationBatch(context, [text('first')]);
     expect(effects).toEqual(['conversation:planner:project', 'agents']);
     effects.length = 0;
     appendConversationBatch(context, [text('second'), text('third')]);

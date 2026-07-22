@@ -65,17 +65,6 @@ export function appendActivationMarker(conversations: ConversationFileContext, s
   return message;
 }
 
-export function appendAnalystIngressBatch(
-  conversations: ConversationFileContext,
-  inputId: string,
-  workspaceContent: string,
-  userContent: string,
-): readonly [AgentMessage, AgentMessage, AgentMessage] {
-  const rows = buildAnalystIngressRows(inputId, workspaceContent, userContent);
-  appendConversationBatch(conversations, rows);
-  return rows;
-}
-
 export function buildAnalystIngressRows(
   inputId: string,
   workspaceContent: string,
@@ -86,16 +75,6 @@ export function buildAnalystIngressRows(
     buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'system', workspaceContent),
     buildContextTextMessage(GLOBAL_ANALYST_SESSION_ID, 'user', userContent),
   ];
-}
-
-export function appendAnalystRestartBatch(
-  conversations: ConversationFileContext,
-  inputId: string,
-  userContent: string,
-): readonly [AgentMessage, AgentMessage] {
-  const rows = buildAnalystRestartRows(inputId, userContent);
-  appendConversationBatch(conversations, rows);
-  return rows;
 }
 
 export function buildAnalystRestartRows(inputId: string, userContent: string): readonly [AgentMessage, AgentMessage] {
@@ -159,12 +138,6 @@ export function buildContextTextMessage(sessionId: ConversationSessionId, role: 
     block_index: 0,
     timestamp,
   });
-}
-
-export function appendCanonicalUserText(conversations: ConversationFileContext, sessionId: ConversationSessionId, content: string): AgentMessage {
-  const message = buildContextTextMessage(sessionId, 'user', content);
-  appendConversationBatch(conversations, [message]);
-  return message;
 }
 
 export function providerConversationProjection(conversation: ValidatedConversation): ProviderConversationProjection {

@@ -6,7 +6,7 @@ import { CardService } from '../../src/cards/card-service.js';
 import { appendConversationBatch, readConversation, readConversationInventory } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
-import { appendAnalystIngressBatch } from '../../src/runtime/actors/conversation-session.js';
+import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 import { parseConversationSessionId, type ConversationSessionId } from '../../src/schemas/index.js';
 import { cardConversationFile } from '../../src/persistence/layout.js';
@@ -22,7 +22,7 @@ describe('domain-derived conversation inventory', () => {
     const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     appendConversationBatch({ projectRoot: root }, [message('planner:project', 'planner')]);
     appendConversationBatch({ projectRoot: root }, [message(parseConversationSessionId(`executor:${child.id}`), 'executor')]);
-    appendAnalystIngressBatch({ projectRoot: root }, '11111111-1111-4111-8111-111111111111', 'workspace', 'global');
+    appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows('11111111-1111-4111-8111-111111111111', 'workspace', 'global'));
     const inventory = readConversationInventory(root);
     expect(inventory.map(({ sessionId }) => sessionId)).toEqual(['analyst:global', `executor:${child.id}`, 'planner:project']);
     expect(Object.isFrozen(inventory)).toBe(true);

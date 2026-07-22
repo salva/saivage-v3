@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentOperatorReadModelService, captureExecutingLlmSnapshotMap, projectAgentConversation } from '../../src/application/read-models/agent-operator-read-model.js';
 import { CardService } from '../../src/cards/card-service.js';
-import { publishConversationFirstBatch } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import type { ExactWaitBarrier, ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -64,7 +64,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
 
   it('projects inactive, active, and exact waiting identically across list/detail/conversation', () => {
     const root = project();
-    publishConversationFirstBatch({ projectRoot: root }, [call('planner:project')]);
+    appendConversationBatch({ projectRoot: root }, [call('planner:project')]);
     const barrier = { kind: 'external' as const, sessionId: 'planner:project' as const, sourceInputId: inputId, toolCallId: 'call-1', toolName: 'webfetch' };
     const owner = { value: snapshot('planner:project', { mode: 'waiting', barrier }) };
     const service = new AgentOperatorReadModelService(root, () => [owner.value]);
@@ -86,7 +86,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     const cards = new CardService(root);
     const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const sessionId = `executor:${child.id}` as ConversationSessionId;
-    publishConversationFirstBatch({ projectRoot: root }, [text(sessionId)]);
+    appendConversationBatch({ projectRoot: root }, [text(sessionId)]);
     const service = new AgentOperatorReadModelService(root, () => []);
     expect(service.listSessions().sessions.map(({ id }) => id)).toContain(sessionId);
     cards.deleteSubtrees([child.id], () => true);
@@ -96,7 +96,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
 
   it('enforces aggregate completeness without applying it to unrelated direct reads', () => {
     const root = project();
-    publishConversationFirstBatch({ projectRoot: root }, [text('planner:project')]);
+    appendConversationBatch({ projectRoot: root }, [text('planner:project')]);
     const missing = snapshot('executor:card-a', { mode: 'active', barrier: null });
     const service = new AgentOperatorReadModelService(root, () => [missing]);
     expect(() => service.listSessions()).toThrow("Executing agent snapshot 'executor:card-a' has no aggregate conversation row");
@@ -111,14 +111,14 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
       const child = cards.create({ type: 'code', parent: 'project', title: `child-${index}`, brief: 'brief', tags: [], priority: index, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const sessionId = `executor:${child.id}` as ConversationSessionId;
       sessionIds.push(sessionId);
-      publishConversationFirstBatch({ projectRoot: root }, [text(sessionId)]);
+      appendConversationBatch({ projectRoot: root }, [text(sessionId)]);
     }
     expect(new AgentOperatorReadModelService(root, () => []).listSessions().sessions.map(({ id }) => id)).toEqual([...sessionIds].sort());
   });
 
   it('freezes one captured activity and rejects exact call identity mismatches', () => {
     const root = project();
-    publishConversationFirstBatch({ projectRoot: root }, [call('planner:project')]);
+    appendConversationBatch({ projectRoot: root }, [call('planner:project')]);
     const owner = { value: snapshot('planner:project', { mode: 'active', barrier: null }) };
     const frozen = captureExecutingLlmSnapshotMap([owner.value]);
     expect(Object.isFrozen(frozen.get('planner:project'))).toBe(true);
@@ -137,7 +137,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     let captures = 0;
     const service = new AgentOperatorReadModelService(root, () => {
       captures += 1;
-      publishConversationFirstBatch({ projectRoot: root }, [call('planner:project')]);
+      appendConversationBatch({ projectRoot: root }, [call('planner:project')]);
       return [snapshot('planner:project', { mode: 'waiting', barrier })];
     });
     const response = kind === 'direct' ? service.getConversation('planner:project') : null;
@@ -150,7 +150,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
 
   it.each(['aggregate', 'direct'] as const)('keeps a captured active snapshot stable through %s acquisition when the owner transitions afterward', (kind) => {
     const root = project();
-    publishConversationFirstBatch({ projectRoot: root }, [call('planner:project')]);
+    appendConversationBatch({ projectRoot: root }, [call('planner:project')]);
     const owner = { value: snapshot('planner:project', { mode: 'active', barrier: null }) };
     const service = new AgentOperatorReadModelService(root, () => {
       const captured = owner.value;
@@ -175,7 +175,7 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     ];
     for (const testCase of cases) {
       const root = project();
-      publishConversationFirstBatch({ projectRoot: root }, [testCase.row]);
+      appendConversationBatch({ projectRoot: root }, [testCase.row]);
       const live = snapshot('planner:project', { mode: 'waiting', barrier: testCase.barrier });
       expect(() => new AgentOperatorReadModelService(root, () => [live]).getConversation('planner:project')).toThrow(testCase.message);
     }

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
-import { publishConversationFirstBatch } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import type { ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { list_agent_sessions, read_agent_session } from '../../src/tools/analyst-misc-tools.js';
@@ -28,7 +28,7 @@ function waiting(): ExecutingLlmSnapshot { return { sessionId: 'planner:project'
 describe('Analyst agent-session tools', () => {
   it('returns the exact direct session/activity projection and tails only messages', async () => {
     const projectRoot = setup();
-    publishConversationFirstBatch({ projectRoot }, rows());
+    appendConversationBatch({ projectRoot }, rows());
     const snapshots = () => [waiting()];
     const expected = new AgentOperatorReadModelService(projectRoot, snapshots).getConversation('planner:project');
     if (expected.statusCode === 400 || expected.statusCode === 404) throw new Error(expected.body.error);
@@ -49,7 +49,7 @@ describe('Analyst agent-session tools', () => {
     const cards = new CardService(projectRoot);
     const child = cards.create({ type: 'code', parent: 'project', title: 'child', brief: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     const sessionId = `executor:${child.id}` as const;
-    publishConversationFirstBatch({ projectRoot }, [{ ...rows()[0]!, id: 'child-text', session_id: sessionId }]);
+    appendConversationBatch({ projectRoot }, [{ ...rows()[0]!, id: 'child-text', session_id: sessionId }]);
     const context = { projectRoot, captureExecutingLlmSnapshots: () => [] } as unknown as ToolContext;
     await expect(list_agent_sessions(context, {})).resolves.toMatchObject({ success: true, data: [expect.objectContaining({ id: sessionId })] });
     cards.deleteSubtrees([child.id], () => true);

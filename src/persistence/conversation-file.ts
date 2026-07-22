@@ -56,14 +56,6 @@ function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] {
   return parsed;
 }
 
-export function publishConversationFirstBatch(conversations: ConversationFileContext, messages: readonly AgentMessage[], options: Pick<ConversationAppendOptions, 'publicationTemporaryId'> = {}): void {
-  const parsed = validateBatch(messages);
-  const sessionId = parsed[0]!.session_id;
-  validateConversationRows(sessionId, parsed);
-  publishFirstEnvelope(conversationFile(conversations.projectRoot, sessionId), serializeGrowingEnvelope(parsed, agentMessageSchema), options.publicationTemporaryId);
-  afterPublication(conversations, parsed);
-}
-
 export function appendConversationBatch(conversations: ConversationFileContext, messages: readonly AgentMessage[], options: ConversationAppendOptions = {}): void {
   const parsed = validateBatch(messages);
   const sessionId = parsed[0]!.session_id;

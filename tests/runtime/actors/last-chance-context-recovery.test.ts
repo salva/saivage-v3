@@ -13,7 +13,7 @@ import { CompactionAppendError, CompactionSummaryConstructionError, prepareCompa
 import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
 import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
-import { appendAnalystIngressBatch } from '../../../src/runtime/actors/conversation-session.js';
+import { buildAnalystIngressRows } from '../../../src/runtime/actors/conversation-session.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -45,7 +45,7 @@ describe('ConversationLLMActor last-chance context recovery', () => {
     };
     const compact = jest.fn<CompactorPort['compact']>(async () => { ordering.push('compact'); return compacted(compactedProjection, 17); });
     const { actor, root } = actorHarness(role, agentId, provider, compact);
-    if (role === 'analyst') appendAnalystIngressBatch({ projectRoot: root }, INITIAL_INPUT_ID, source.content, trigger.content);
+    if (role === 'analyst') appendConversationBatch({ projectRoot: root }, buildAnalystIngressRows(INITIAL_INPUT_ID, source.content, trigger.content));
     else appendConversationBatch({ projectRoot: root }, [source, trigger]);
     const initial = input(role, agentId, firstProjection);
 

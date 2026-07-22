@@ -12,7 +12,7 @@ import { buildChatOperatorContractHandlers } from '../../src/server/routes/opera
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import type { ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
-import { appendAnalystIngressBatch } from '../../src/runtime/actors/conversation-session.js';
+import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createEventLog } from '../../src/observability/index.js';
@@ -135,7 +135,8 @@ describe('operator chat route request contracts', () => {
 
   it.each(['inactive', 'active', 'waiting'] as const)('returns the present %s Analyst projection unchanged from agents.conversation', async (status) => {
     const inputId = '11111111-1111-4111-8111-111111111111';
-    const ingress = appendAnalystIngressBatch({ projectRoot }, inputId, 'workspace', 'question');
+    const ingress = buildAnalystIngressRows(inputId, 'workspace', 'question');
+    appendConversationBatch({ projectRoot }, ingress);
     appendConversationBatch({ projectRoot }, [{ id: `${inputId}:tool-call:call-1`, session_id: 'analyst:global', role: 'assistant', kind: 'tool_call', tool: 'webfetch', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'webfetch', arguments: '{"url":"https://example.com"}' } }] }), round_id: `r-assistant-${inputId.replaceAll('-', '')}`, message_index: 3, block_index: 0, timestamp: ingress[2].timestamp }]);
     if (status !== 'inactive') snapshots = [{ sessionId: 'analyst:global', agentId: 'analyst:global', role: 'analyst', cardId: null, activity: status === 'active' ? { mode: 'active', barrier: null } : { mode: 'waiting', barrier: { kind: 'external', sessionId: 'analyst:global', sourceInputId: inputId, toolCallId: 'call-1', toolName: 'webfetch' } } }];
     const expected = new AgentOperatorReadModelService(projectRoot, () => snapshots).getConversation('analyst:global').body;
