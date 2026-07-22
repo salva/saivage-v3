@@ -1,27 +1,10 @@
 import { basename } from 'node:path';
-import { SecretPathError, assertNotSecretPath, looksLikeSecretPath } from './secret-paths.js';
+import { looksLikeSecretPath } from './secret-paths.js';
 
 const SECRET_KEY_RE = /(api[_-]?key|token|secret|password|passwd|credential|cookie|bearer|auth)/i;
 
-export function assertAnalystInspectionTarget(absolutePath: string): void {
-  try {
-    assertNotSecretPath(absolutePath);
-  } catch (err) {
-    if (err instanceof SecretPathError) {
-      const redacted = new SecretPathError(absolutePath);
-      redacted.message = 'Access denied: secret-bearing path is off-limits.';
-      throw redacted;
-    }
-    throw err;
-  }
-}
-
 export function isSecretLikeKey(key: string): boolean {
   return SECRET_KEY_RE.test(key) || looksLikeSecretPath(key) || looksLikeSecretPath(basename(key));
-}
-
-export function isAnalystSecretPath(path: string): boolean {
-  return looksLikeSecretPath(path);
 }
 
 export function redactAnalystSecretValue(value: unknown, path: string[] = []): unknown {

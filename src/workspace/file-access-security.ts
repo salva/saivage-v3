@@ -8,8 +8,6 @@ import { redactTextForOutbound } from '../redaction/index.js';
 import { redactCommandForPolicy } from '../runtime/command-policy.js';
 
 export {
-  assertAnalystInspectionTarget,
-  isAnalystSecretPath,
   isSecretLikeKey,
   redactAnalystSecretValue,
 } from './secret-redaction.js';

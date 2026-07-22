@@ -1,8 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { directoryDirectlyExposesSecretChildren, looksLikeSecretPath } from '../../src/workspace/secret-paths.js';
+import { looksLikeSecretPath } from '../../src/workspace/secret-paths.js';
 
 describe('secret path detection', () => {
   const cases: Array<[string, boolean]> = [
@@ -46,23 +43,5 @@ describe('secret path detection', () => {
 
   it.each(cases)('looksLikeSecretPath(%s) -> %s', (input, expected) => {
     expect(looksLikeSecretPath(input)).toBe(expected);
-  });
-
-  it('detects directories whose direct children expose denylisted material', () => {
-    const root = mkdtempSync(join(tmpdir(), 'secret-path-dir-'));
-    try {
-      const saivageDir = join(root, '.saivage');
-      mkdirSync(saivageDir, { recursive: true });
-      writeFileSync(join(saivageDir, 'auth-profiles.json'), '{"token":"secret"}');
-      writeFileSync(join(saivageDir, 'runtime.json'), '{}');
-      mkdirSync(join(root, 'safe-dir'), { recursive: true });
-      writeFileSync(join(root, 'safe-dir', 'notes.txt'), 'safe');
-
-      expect(directoryDirectlyExposesSecretChildren(saivageDir)).toBe(true);
-      expect(directoryDirectlyExposesSecretChildren(join(root, 'safe-dir'))).toBe(false);
-      expect(directoryDirectlyExposesSecretChildren(root)).toBe(false);
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
   });
 });

@@ -1,5 +1,4 @@
 import { basename, normalize, resolve } from 'node:path';
-import { existsSync, readdirSync } from 'node:fs';
 
 export const SECRET_BASENAMES: readonly RegExp[] = [
   /^auth-profiles(?:\.[^/]+)?$/i,
@@ -67,26 +66,8 @@ export function looksLikeSecretPath(absolutePath: string): boolean {
   return false;
 }
 
-export function directoryDirectlyExposesSecretChildren(absolutePath: string): boolean {
-  if (!absolutePath) return false;
-  const normalized = normalizePath(absolutePath);
-  if (!existsSync(normalized)) return false;
-
-  try {
-    return readdirSync(normalized).some((entry) => looksLikeSecretPath(`${normalized}/${entry}`) || looksLikeSecretBasename(entry.toLowerCase()));
-  } catch {
-    return false;
-  }
-}
-
 export function assertNotSecretPath(absolutePath: string): void {
   if (looksLikeSecretPath(absolutePath)) {
-    throw new SecretPathError(absolutePath);
-  }
-}
-
-export function assertSafeShellCwd(absolutePath: string): void {
-  if (looksLikeSecretPath(absolutePath) || directoryDirectlyExposesSecretChildren(absolutePath)) {
     throw new SecretPathError(absolutePath);
   }
 }

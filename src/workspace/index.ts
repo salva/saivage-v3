@@ -1,8 +1,6 @@
 export {
   SecretPathError,
   assertNotSecretPath,
-  assertSafeShellCwd,
-  directoryDirectlyExposesSecretChildren,
   looksLikeSecretPath,
 } from './secret-paths.js';
 export {
@@ -13,8 +11,6 @@ export {
   redactOperatorErrorMessage,
   resolveContainedProjectPath,
   toContainedRelativePath,
-  assertAnalystInspectionTarget,
-  isAnalystSecretPath,
   isSecretLikeKey,
   redactAnalystSecretValue,
 } from './file-access-security.js';
