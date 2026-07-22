@@ -1,4 +1,5 @@
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
+import { sanitizedCommandEnv } from '../runtime/command-policy.js';
 import { compileMcpArgumentValidator, fingerprintMcpInputSchema, validateMcpArguments, type CachedMcpArgumentValidator } from './mcp-argument-validator.js';
 import { InvalidArgumentsError, ServerNotRunningError, ToolNotFoundError } from './errors.js';
 import { MCP_INVOKE_TIMEOUT_MS, type McpServerStatus, type McpStatus, type McpToolDefinition } from './protocol.js';
@@ -189,7 +190,7 @@ export class McpServerRuntime {
     const launch = this.#processRunner.spawnInteractive({
       file: cfg.command, args: cfg.args ?? [], directScope: this.#processScope, category: 'service_infrastructure',
       ownerId: `mcp:${this.name}`, ownerKind: 'runtime', launchReason: `MCP stdio server ${this.name}`,
-      env: { ...process.env, ...(cfg.env ?? {}) }, stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...sanitizedCommandEnv(), ...(cfg.env ?? {}) }, stdio: ['pipe', 'pipe', 'pipe'],
     });
     launch.process.stderr!.on('error', () => undefined);
     launch.process.stderr!.resume();

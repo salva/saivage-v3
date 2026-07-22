@@ -151,6 +151,44 @@ describe('persisted MCP reconciliation', () => {
     expect(rendered).not.toContain('command');
   });
 
+  it('launches stdio servers with sanitized inheritance and the exact configured overlay', async () => {
+    const touched = ['PATH', 'HOME', 'LC_SAIVAGE_TEST', 'SAIVAGE_API_TOKEN', 'OPENAI_API_KEY', 'DEPLOYMENT_PRIVATE_VALUE'] as const;
+    const original = new Map(touched.map((key) => [key, process.env[key]]));
+    try {
+      process.env.PATH = '/ambient/safe/path';
+      process.env.HOME = '/ambient/safe/home';
+      process.env.LC_SAIVAGE_TEST = 'safe-locale';
+      process.env.SAIVAGE_API_TOKEN = 'ambient-api-credential';
+      process.env.OPENAI_API_KEY = 'ambient-provider-credential';
+      process.env.DEPLOYMENT_PRIVATE_VALUE = 'ambient-deployment-credential';
+      const root = projectRoot();
+      writeConfig(root, {
+        one: {
+          ...stdio('one'),
+          env: { TOKEN: 'explicit-mcp-credential', PATH: '/configured/mcp/path' },
+        },
+      });
+      const { manager, spawn } = createManager(root);
+
+      await manager.reconcilePersistedConfig();
+
+      const options = (spawn.mock.calls as unknown as Array<[string, readonly string[], { env: NodeJS.ProcessEnv }]>)[0]![2];
+      expect(options.env.HOME).toBe('/ambient/safe/home');
+      expect(options.env.LC_SAIVAGE_TEST).toBe('safe-locale');
+      expect(options.env.PATH).toBe('/configured/mcp/path');
+      expect(options.env.TOKEN).toBe('explicit-mcp-credential');
+      expect(options.env.SAIVAGE_API_TOKEN).toBeUndefined();
+      expect(options.env.OPENAI_API_KEY).toBeUndefined();
+      expect(options.env.DEPLOYMENT_PRIVATE_VALUE).toBeUndefined();
+    } finally {
+      for (const key of touched) {
+        const value = original.get(key);
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+    }
+  });
+
   it('keeps manager process authority and retained runtimes structurally unreachable while preserving public projections', async () => {
     const root = projectRoot();
     writeConfig(root, { one: http('http://localhost/one') });

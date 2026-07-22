@@ -1,6 +1,6 @@
 import * as childProcess from 'node:child_process';
 import { closeSync, createReadStream, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 
 import type { AgentRole } from '../schemas/index.js';
@@ -118,6 +118,12 @@ function canWriteWorkspaceFiles(role: AgentRole | undefined): boolean {
   return role === undefined || role === 'executor' || role === 'analyst';
 }
 
+function isSaivageInternalDestination(projectRoot: string, destination: string): boolean {
+  const internalRoot = resolve(projectRoot, '.saivage');
+  const fromInternalRoot = relative(internalRoot, resolve(destination));
+  return fromInternalRoot === '' || (fromInternalRoot !== '..' && !fromInternalRoot.startsWith(`..${sep}`) && !isAbsolute(fromInternalRoot));
+}
+
 function vfsCtx(ctx: WorkspaceContext) {
   return { projectRoot: ctx.projectRoot, records: ctx.store?.recordReader, agent: { cardId: ctx.cardId, agentRole: ctx.agentRole }, fail: toolInputError };
 }
@@ -140,7 +146,7 @@ function assertScopedWritable(ctx: WorkspaceContext, raw: string, resolved: VfsR
   if ((resolved.kind === 'project' || resolved.kind === 'system') && !canWriteWorkspaceFiles(ctx.agentRole)) throw toolInputError(`${ctx.agentRole} cannot write ${resolved.kind} files.`);
   if (resolved.kind === 'project') assertNoSymlinkComponents(ctx.projectRoot, resolved.absolutePath);
   if (resolved.absolutePath === '/' || raw.endsWith('/') || (resolved.kind !== 'system' && (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')))) throw toolInputError('write requires a file path, not a directory.');
-  if (resolved.kind === 'project' && (resolved.relativePath === '.saivage' || resolved.relativePath.startsWith('.saivage/'))) throw toolInputError('Cannot modify Saivage internal state directories.');
+  if (resolved.kind !== 'tmp' && isSaivageInternalDestination(ctx.projectRoot, resolved.absolutePath)) throw toolInputError('Cannot modify Saivage internal state directories.');
   if (isWriteBlocked(resolved.relativePath) || looksLikeSecretPath(resolved.absolutePath)) throw toolInputError(`Write access to '${resolved.relativePath}' is blocked for security reasons.`);
   try {
     if (lstatSync(resolved.absolutePath).isSymbolicLink()) throw toolInputError(`Write access to symlink '${resolved.relativePath}' is blocked for security reasons.`);
