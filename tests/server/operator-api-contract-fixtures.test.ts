@@ -160,7 +160,20 @@ describe('operator API response contracts', () => {
   it('returns a failed tool result unchanged from the agent conversation route', async () => {
     const sessionId = 'planner:project';
     const sourceInputId = '11111111-1111-4111-8111-111111111111';
-    const failedContent = '{"success":false,"error":"tool execution failed","data":{"exit_code":2}}';
+    const failedContent = '{"success":false,"error":"tool execution failed"}';
+    const call: AgentMessage = {
+      id: `${sourceInputId}:tool-call:call-1`,
+      session_id: sessionId,
+      role: 'assistant',
+      kind: 'tool_call',
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'run_command', arguments: '{"command":"exit 2"}' } }] }),
+      round_id: 'r-assistant-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      message_index: 1,
+      block_index: 0,
+      tool: 'run_command',
+      tool_call_id: 'call-1',
+      timestamp: '2026-07-16T00:00:00.000Z',
+    };
     const result: AgentMessage = {
       id: `${sourceInputId}:tool-result:call-1`,
       session_id: sessionId,
@@ -174,11 +187,11 @@ describe('operator API response contracts', () => {
       tool_call_id: 'call-1',
       timestamp: '2026-07-16T00:00:00.000Z',
     };
-    appendConversationBatch({ projectRoot }, [result]);
+    appendConversationBatch({ projectRoot }, [call, result]);
 
     const response = await app.server.fastify.inject({ method: 'GET', url: `/api/agents/${encodeURIComponent(sessionId)}/conversation` });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().entries).toEqual([result]);
+    expect(response.json().entries).toEqual([call, result]);
   });
 });

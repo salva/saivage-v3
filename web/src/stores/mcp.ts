@@ -56,10 +56,10 @@ export const useMcpStore = defineStore('mcp', () => {
     error.value = null;
     try {
       const response: McpToolsResponse = await getMcpTools();
-      servers.value = response.serverDetails ?? [];
-      allTools.value = response.tools ?? [];
-      serverNames.value = response.servers ?? [];
-      invocationStats.value = response.invocationStats ?? {};
+      servers.value = response.serverDetails;
+      allTools.value = response.tools;
+      serverNames.value = response.servers;
+      invocationStats.value = response.invocationStats;
       lastRefreshed.value = new Date().toISOString();
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Failed to fetch MCP tools';

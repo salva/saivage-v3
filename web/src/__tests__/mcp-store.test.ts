@@ -46,8 +46,8 @@ function setupStore() {
 
 const mockMcpToolsResponse = {
   tools: [
-    { name: 'read', description: 'Read a file', inputSchema: { type: 'object' as const } },
-    { name: 'write_file', description: 'Write a file', inputSchema: { type: 'object' as const } },
+    { name: 'read' },
+    { name: 'write_file' },
   ],
   servers: ['filesystem', 'web'],
   invocationStats: {
@@ -63,14 +63,10 @@ const mockMcpToolsResponse = {
       tools: [
         {
           name: 'read',
-          description: 'Read a file',
-          inputSchema: { type: 'object' as const },
           stats: { total: 10, success: 9, error: 1, lastInvokedAt: '2025-06-01T10:00:00Z' },
         },
         {
           name: 'write_file',
-          description: 'Write a file',
-          inputSchema: { type: 'object' as const },
           stats: { total: 3, success: 3, error: 0, lastInvokedAt: '2025-06-01T09:30:00Z' },
         },
       ],
@@ -161,6 +157,25 @@ describe('useMcpStore', () => {
       expect(store.totalErrors).toBe(1);       // 1 error on read
     });
 
+    it('preserves credential-shaped names, stats keys, and process-lifetime totals', async () => {
+      const store = setupStore();
+      vi.mocked(getMcpTools).mockResolvedValue({
+        tools: [{ name: 'tok_tool' }],
+        servers: ['ghu_server'],
+        invocationStats: { 'ghu_server:tok_tool': { total: 17, success: 13, error: 4 } },
+        serverDetails: [{ name: 'ghu_server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', stats: { total: 6, success: 5, error: 1 } }] }],
+      });
+
+      await store.fetchMcpData();
+
+      expect(store.serverNames).toEqual(['ghu_server']);
+      expect(store.allTools).toEqual([{ name: 'tok_tool' }]);
+      expect(store.servers[0]?.tools[0]).toEqual({ name: 'tok_tool', stats: { total: 6, success: 5, error: 1 } });
+      expect(store.invocationStats).toEqual({ 'ghu_server:tok_tool': { total: 17, success: 13, error: 4 } });
+      expect(store.totalInvocations).toBe(17);
+      expect(store.totalErrors).toBe(4);
+    });
+
     it('sets loading=true while fetching', async () => {
       const store = setupStore();
       let resolve: (v: typeof mockMcpToolsResponse) => void;
@@ -202,7 +217,7 @@ describe('useMcpStore', () => {
       expect(store.loading).toBe(false);
     });
 
-    it('handles missing optional fields gracefully', async () => {
+    it('handles empty required collections', async () => {
       const store = setupStore();
       vi.mocked(getMcpTools).mockResolvedValue(mockEmptyResponse);
 
@@ -219,7 +234,7 @@ describe('useMcpStore', () => {
     it('handles a contract-valid response with no server details', async () => {
       const store = setupStore();
       vi.mocked(getMcpTools).mockResolvedValue({
-        tools: [{ name: 't', inputSchema: { type: 'object' } }],
+        tools: [{ name: 't' }],
         servers: ['s'],
         invocationStats: {},
         serverDetails: [],

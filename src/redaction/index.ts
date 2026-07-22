@@ -20,6 +20,9 @@ import type { AgentConversationResponse } from '../contracts/operator-api-agents
 import { projectAgentConversationForOutbound, type AgentConversationProjectionInput } from '../application/read-models/agent-conversation-outbound.js';
 import type { KnownWsEnvelopeWithClassifiedToolActivity } from '../contracts/operator-events.js';
 import { projectWsEnvelopeForOutbound } from './ws-envelope.js';
+import type { InternalMcpToolsReadModel } from '../mcp/status-projection.js';
+import { projectMcpStatusForOutbound, projectMcpToolsForOutbound, type InternalMcpStatusResponse } from '../mcp/mcp-outbound.js';
+import type { McpStatusResponse, McpToolsResponse } from '../contracts/operator-api-mcp.js';
 
 export {
   SECRET_REDACTION_PLACEHOLDER,
@@ -48,6 +51,8 @@ export type OutboundRedactionRequest =
   | { source: 'tool-invocation'; value: ToolInvocationProjectionInput }
   | { source: 'agent-conversation'; value: AgentConversationProjectionInput }
   | { source: 'ws-envelope'; value: KnownWsEnvelopeWithClassifiedToolActivity }
+  | { source: 'mcp-status'; value: InternalMcpStatusResponse }
+  | { source: 'mcp-tools'; value: InternalMcpToolsReadModel }
   | { source: 'dynamic'; value: unknown; options?: StructuredRedactionOptions };
 
 export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
@@ -64,8 +69,10 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
                        : Request extends { source: 'webfetch-result' } ? WebfetchResult
                           : Request extends { source: 'tool-invocation' } ? ToolInvocationProjectionInput
                             : Request extends { source: 'agent-conversation' } ? AgentConversationResponse
-                              : Request extends { source: 'ws-envelope' } ? KnownWsEnvelopeWithClassifiedToolActivity
-                                : unknown;
+                               : Request extends { source: 'ws-envelope' } ? KnownWsEnvelopeWithClassifiedToolActivity
+                                 : Request extends { source: 'mcp-status' } ? McpStatusResponse
+                                   : Request extends { source: 'mcp-tools' } ? McpToolsResponse
+                                     : unknown;
 
 export const OUTBOUND_REDACTION_SOURCES = [
   'provider-exchange',
@@ -82,6 +89,8 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'tool-invocation',
   'agent-conversation',
   'ws-envelope',
+  'mcp-status',
+  'mcp-tools',
   'dynamic',
 ] as const satisfies readonly OutboundRedactionRequest['source'][];
 const outboundSourceCompileGuard = {
@@ -99,6 +108,8 @@ const outboundSourceCompileGuard = {
   'tool-invocation': true,
   'agent-conversation': true,
   'ws-envelope': true,
+  'mcp-status': true,
+  'mcp-tools': true,
   dynamic: true,
 } as const satisfies Record<OutboundRedactionRequest['source'], true>;
 void outboundSourceCompileGuard;
@@ -124,6 +135,8 @@ export function redactForOutbound(input: unknown, options: StructuredRedactionOp
     case 'tool-invocation': return projectToolInvocation(input.value);
     case 'agent-conversation': return projectAgentConversationForOutbound(input.value);
     case 'ws-envelope': return projectWsEnvelopeForOutbound(input.value);
+    case 'mcp-status': return projectMcpStatusForOutbound(input.value);
+    case 'mcp-tools': return projectMcpToolsForOutbound(input.value);
     case 'dynamic': return projectDynamicForOutbound(input.value);
     default: return assertNever(input);
   }

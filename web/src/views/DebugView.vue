@@ -206,8 +206,6 @@
             <div v-for="tool in server.tools" :key="tool.name" class="mcp-tool-card">
               <div class="mcp-tool-name-row">
                 <span class="mcp-tool-name">{{ tool.name }}</span>
-                <span class="mcp-sep" aria-hidden="true">·</span>
-                <span class="mcp-tool-desc">{{ tool.description || 'No description' }}</span>
               </div>
               <div class="mcp-tool-stats">
                 <span class="mcp-stat-item" title="Total invocations"><svg width="12" height="12" viewBox="0 0 12 12" fill="none"><circle cx="6" cy="6" r="5" stroke="currentColor" stroke-width="1"/><line x1="6" y1="3" x2="6" y2="7" stroke="currentColor" stroke-width="1"/><line x1="4" y1="9" x2="8" y2="9" stroke="currentColor" stroke-width="1"/></svg>{{ tool.stats.total }}</span>
@@ -505,7 +503,6 @@ onUnmounted(() => {
 .mcp-sep { color:var(--text-muted); font-weight:400; margin:0 6px; }
 .mcp-tool-name-row { display:flex; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:4px; }
 .mcp-tool-name { font-family:'SF Mono',monospace; font-size:12px; color:var(--accent-2); font-weight:600; }
-.mcp-tool-desc { font-size:12px; color:var(--text-muted); }
 .mcp-tool-stats { display:flex; flex-wrap:wrap; gap:12px; font-size:11px; color:var(--text-muted); }
 .mcp-stat-item { display:inline-flex; align-items:center; gap:4px; }
 .mcp-stat-success { color:var(--accent); }

@@ -8,6 +8,10 @@ export {
   ProcessLogRefsSchema,
   ProcessNotFoundErrorSchema,
   ProcessViewSchema,
+  McpServerStatusSchema,
+  McpStatusResponseSchema,
+  McpToolDefinitionSchema,
+  McpToolsResponseSchema,
   AgentSessionSummarySchema,
   processesOperatorApiContracts,
 } from '@saivage/contracts/operator-api';

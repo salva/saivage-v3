@@ -61,9 +61,9 @@ import type { McpToolsResponse } from '../api/types';
 
 const mockRichResponse: McpToolsResponse = {
   tools: [
-    { name: 'read', description: 'Read a file', inputSchema: { type: 'object' } },
-    { name: 'write_file', description: 'Write a file', inputSchema: { type: 'object' } },
-    { name: 'web_search', description: 'Search the web', inputSchema: { type: 'object' } },
+    { name: 'read' },
+    { name: 'write_file' },
+    { name: 'web_search' },
   ],
   servers: ['filesystem', 'web'],
   invocationStats: {
@@ -80,14 +80,10 @@ const mockRichResponse: McpToolsResponse = {
       tools: [
         {
           name: 'read',
-          description: 'Read a file',
-          inputSchema: { type: 'object' as const },
           stats: { total: 42, success: 40, error: 2, lastInvokedAt: '2025-07-01T10:00:00Z' },
         },
         {
           name: 'write_file',
-          description: 'Write a file',
-          inputSchema: { type: 'object' as const },
           stats: { total: 15, success: 15, error: 0, lastInvokedAt: '2025-07-01T09:30:00Z' },
         },
       ],
@@ -100,8 +96,6 @@ const mockRichResponse: McpToolsResponse = {
       tools: [
         {
           name: 'web_search',
-          description: 'Search the web',
-          inputSchema: { type: 'object' as const },
           stats: { total: 8, success: 7, error: 1, lastInvokedAt: '2025-07-01T08:00:00Z' },
         },
       ],
@@ -133,7 +127,7 @@ const mockServerRunningNoTools: McpToolsResponse = {
 
 const mockServerErrorState: McpToolsResponse = {
   tools: [
-    { name: 'fail_tool', description: 'Always fails', inputSchema: { type: 'object' } },
+    { name: 'fail_tool' },
   ],
   servers: ['broken'],
   invocationStats: {
@@ -148,8 +142,6 @@ const mockServerErrorState: McpToolsResponse = {
       tools: [
         {
           name: 'fail_tool',
-          description: 'Always fails',
-          inputSchema: { type: 'object' as const },
           stats: { total: 5, success: 0, error: 5, lastInvokedAt: '2025-07-01T07:00:00Z' },
         },
       ],
@@ -461,12 +453,12 @@ describe('DebugView — MCP tab', () => {
 
   it('shows invocations with zero errors when no errors exist', async () => {
     const noErrResponse: McpToolsResponse = {
-      tools: [{ name: 't', inputSchema: { type: 'object' } }],
+      tools: [{ name: 't' }],
       servers: ['s'],
       invocationStats: { 's:t': { total: 10, success: 10, error: 0 } },
       serverDetails: [{
         name: 's', transport: 'stdio', status: 'running', toolCount: 1,
-        tools: [{ name: 't', inputSchema: { type: 'object' as const }, stats: { total: 10, success: 10, error: 0 } }],
+        tools: [{ name: 't', stats: { total: 10, success: 10, error: 0 } }],
       }],
     };
     const wrapper = await mountDebugViewWithMcpData(noErrResponse);
@@ -538,7 +530,7 @@ describe('DebugView — MCP tab', () => {
 
   // ── Per-tool rendering ──────────────────────────────────────
 
-  it('renders tool cards with name, description, and stats', async () => {
+  it('renders tool cards with exact names and stats', async () => {
     const wrapper = await mountDebugViewWithMcpData(mockRichResponse);
     clickMcpTab(wrapper);
     await flushPromises();
@@ -550,7 +542,6 @@ describe('DebugView — MCP tab', () => {
     // First tool: read
     const firstCard = toolCards[0];
     expect(firstCard.find('.mcp-tool-name').text()).toBe('read');
-    expect(firstCard.find('.mcp-tool-desc').text()).toBe('Read a file');
 
     // Check stats: total 42, success 40, error 2
     const stats = firstCard.findAll('.mcp-stat-item');
@@ -570,29 +561,6 @@ describe('DebugView — MCP tab', () => {
 
     const errorStats = wrapper.findAll('.mcp-stat-error');
     expect(errorStats.length).toBeGreaterThan(0);
-  });
-
-  it('renders tool with missing description as "No description"', async () => {
-    const noDescResponse: McpToolsResponse = {
-      tools: [{ name: 'bare_tool', inputSchema: { type: 'object' } }],
-      servers: ['s'],
-      invocationStats: {},
-      serverDetails: [{
-        name: 's', transport: 'stdio', status: 'running', toolCount: 1,
-        tools: [{
-          name: 'bare_tool',
-          // description intentionally omitted
-          inputSchema: { type: 'object' as const },
-          stats: { total: 0, success: 0, error: 0 },
-        }],
-      }],
-    };
-    const wrapper = await mountDebugViewWithMcpData(noDescResponse);
-    clickMcpTab(wrapper);
-    await flushPromises();
-
-    const toolDesc = wrapper.find('.mcp-tool-desc');
-    expect(toolDesc.text()).toBe('No description');
   });
 
   // ── Invocation stats table ──────────────────────────────────
@@ -632,6 +600,25 @@ describe('DebugView — MCP tab', () => {
     expect(rowText).toContain('42');
     expect(rowText).toContain('40');
     expect(rowText).toContain('2');
+  });
+
+  it('renders exact credential-shaped topology and the unchanged all-stats table without opaque payload', async () => {
+    const response = {
+      tools: [{ name: 'tok_tool', description: 'opaque-browser-marker' }],
+      servers: ['ghu_server'],
+      invocationStats: { 'ghu_server:tok_tool': { total: 21, success: 18, error: 3 } },
+      serverDetails: [{ name: 'ghu_server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', description: 'opaque-browser-marker', stats: { total: 7, success: 6, error: 1 } }] }],
+    } as unknown as McpToolsResponse;
+    const wrapper = await mountDebugViewWithMcpData(response);
+    clickMcpTab(wrapper);
+    await flushPromises();
+
+    expect(wrapper.find('.mcp-server-name').text()).toBe('ghu_server');
+    expect(wrapper.find('.mcp-tool-name').text()).toBe('tok_tool');
+    expect(wrapper.find('.mcp-stats-row').text()).toContain('ghu_server:tok_tool');
+    expect(wrapper.text()).toContain('All Invocation Stats');
+    expect(wrapper.text()).not.toContain('opaque-browser-marker');
+    expect(wrapper.find('.mcp-stats-table').exists()).toBe(true);
   });
 
   it('does not render "All Invocation Stats" when invocationStats is empty', async () => {

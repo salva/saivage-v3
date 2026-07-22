@@ -346,8 +346,8 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/events` | Operator-session event timeline. | `src/contracts/operator-api-events.ts:34` |
 | `GET /api/files` | Contained, blocked-path-filtered workspace listing. | `src/contracts/operator-api-files-debug.ts:44` |
 | `GET /api/files/content` | Contained, pre-read-admitted workspace content with outbound redaction where required. | `src/contracts/operator-api-files-debug.ts:55` |
-| `GET /api/mcp/status` | MCP status. | `src/contracts/operator-api-mcp.ts:70` |
-| `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:80` |
+| `GET /api/mcp/status` | MCP status. | `src/contracts/operator-api-mcp.ts:66` |
+| `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:76` |
 | `GET /api/processes` | Operator-session process list. | `src/contracts/operator-api-processes.ts:70` |
 | `GET /api/processes/:id` | Operator-session process detail. | `src/contracts/operator-api-processes.ts:80` |
 | `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:123` |

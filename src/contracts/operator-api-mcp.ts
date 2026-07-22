@@ -17,46 +17,39 @@ export const McpServerStatusSchema = z.object({
   transport: McpTransportSchema,
   status: McpStatusStateSchema,
   pid: z.number().int().positive().optional(),
-  error: z.string().optional(),
   startedAt: z.string().optional(),
   tools_count: z.number().int().nonnegative().optional(),
-});
+}).strict();
 export const McpStatusResponseSchema = z.object({
   servers: z.array(McpServerStatusSchema),
   serverAvailability: ServerAvailabilitySchema.optional(),
-});
+}).strict();
 export const McpInvocationStatSchema = z.object({
   total: z.number().int().nonnegative(),
   success: z.number().int().nonnegative(),
   error: z.number().int().nonnegative(),
   lastInvokedAt: z.string().optional(),
-});
+}).strict();
 export const McpToolDefinitionSchema = z.object({
   name: z.string(),
-  title: z.string().optional(),
-  description: z.string().optional(),
-  inputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()),
-  outputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()).optional(),
-  annotations: z.record(z.string(), z.unknown()).optional(),
-  _meta: z.record(z.string(), z.unknown()).optional(),
-});
+}).strict();
+const McpToolWithStatsSchema = z.object({
+  name: z.string(),
+  stats: McpInvocationStatSchema,
+}).strict();
+const McpServerToolsSchema = z.object({
+  name: z.string(),
+  transport: McpTransportSchema,
+  status: McpStatusStateSchema,
+  toolCount: z.number().int().nonnegative(),
+  tools: z.array(McpToolWithStatsSchema),
+}).strict();
 export const McpToolsResponseSchema = z.object({
   tools: z.array(McpToolDefinitionSchema),
   servers: z.array(z.string()),
   invocationStats: z.record(z.string(), McpInvocationStatSchema),
-  serverDetails: z.array(z.object({
-    name: z.string(),
-    transport: McpTransportSchema,
-    status: McpStatusStateSchema,
-    toolCount: z.number().int().nonnegative(),
-    tools: z.array(z.object({
-      name: z.string(),
-      description: z.string().optional(),
-      inputSchema: z.object({ type: z.literal('object') }).catchall(z.unknown()),
-      stats: McpInvocationStatSchema,
-    })),
-  })),
-});
+  serverDetails: z.array(McpServerToolsSchema),
+}).strict();
 
 export type McpTransport = z.infer<typeof McpTransportSchema>;
 export type McpStatusState = z.infer<typeof McpStatusStateSchema>;

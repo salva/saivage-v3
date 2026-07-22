@@ -1,10 +1,19 @@
 import type { McpServerConfig, McpServerHandle } from './server-registry.js';
 import type { McpServerStatus as RuntimeMcpServerStatus, McpToolDefinition } from './protocol.js';
 import type { McpInvocationStat } from './invocation-stats.js';
-import type { OperatorApiSuccess } from '../contracts/index.js';
 
-type McpServerStatusView = OperatorApiSuccess<'mcp.status'>['servers'][number];
-type McpToolsReadModel = OperatorApiSuccess<'mcp.tools'>;
+export interface InternalMcpToolsReadModel {
+  tools: McpToolDefinition[];
+  servers: string[];
+  invocationStats: Record<string, McpInvocationStat>;
+  serverDetails: Array<{
+    name: string;
+    transport: RuntimeMcpServerStatus['transport'];
+    status: RuntimeMcpServerStatus['status'];
+    toolCount: number;
+    tools: Array<McpToolDefinition & { stats: McpInvocationStat }>;
+  }>;
+}
 
 export function buildMcpServerStatus(input: {
   name: string;
@@ -13,7 +22,7 @@ export function buildMcpServerStatus(input: {
   override?: { status: RuntimeMcpServerStatus['status']; error?: string };
   startedAt?: string;
   tools?: McpToolDefinition[];
-}): McpServerStatusView {
+}): RuntimeMcpServerStatus {
   const { name, config: cfg, handle, override, startedAt, tools } = input;
   if (cfg.disabled) return { name, transport: cfg.transport, status: 'stopped' };
   if (override?.status === 'error') return { name, transport: cfg.transport, status: 'error', error: override.error, startedAt, tools_count: tools?.length ?? 0 };
@@ -37,24 +46,15 @@ export function buildMcpToolsReadModel(input: {
   statuses: RuntimeMcpServerStatus[];
   getServerTools: (name: string) => McpToolDefinition[] | undefined;
   invocationStats: Record<string, McpInvocationStat>;
-}): McpToolsReadModel {
+}): InternalMcpToolsReadModel {
   const serverDetails = input.statuses.map((status) => {
     const toolDefs = input.getServerTools(status.name) ?? [];
     const toolList = toolDefs.map((td) => {
       const statsKey = `${status.name}:${td.name}`;
       const stats = input.invocationStats[statsKey] ?? { total: 0, success: 0, error: 0 };
-      return { name: td.name, description: td.description, inputSchema: td.inputSchema, stats };
+      return { ...td, stats };
     });
     return { name: status.name, transport: status.transport, status: status.status, toolCount: toolDefs.length, tools: toolList };
   });
-  const tools: McpToolsReadModel['tools'] = input.tools.map((tool) => ({
-    name: tool.name,
-    title: tool.title,
-    description: tool.description,
-    inputSchema: tool.inputSchema,
-    outputSchema: tool.outputSchema,
-    annotations: tool.annotations ? { ...tool.annotations } : undefined,
-    _meta: tool._meta,
-  }));
-  return { tools, servers: input.servers, invocationStats: input.invocationStats, serverDetails };
+  return { tools: input.tools, servers: input.servers, invocationStats: input.invocationStats, serverDetails };
 }

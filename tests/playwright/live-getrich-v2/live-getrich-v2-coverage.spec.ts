@@ -50,7 +50,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     expect(typeof body.serverAvailability.components).toBe('object');
   });
 
-  test('GET /api/mcp/tools returns a non-empty tool list with descriptors', async ({ request }) => {
+  test('GET /api/mcp/tools returns a non-empty narrowed tool list', async ({ request }) => {
     const res = await request.get('/api/mcp/tools');
     expect(res.status()).toBe(200);
     const body = await res.json();
@@ -58,7 +58,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     expect(body.tools.length).toBeGreaterThan(0);
     const t = body.tools[0];
     expect(typeof t.name).toBe('string');
-    expect(typeof t.inputSchema).toBe('object');
+    expect(Object.keys(t)).toEqual(['name']);
   });
 
   test('GET /api/control-actions returns the control-actions audit list', async ({ request }) => {
