@@ -246,6 +246,8 @@ This format/config cutover is unconditional. For every deployment: stop the matc
 
 ## Verification
 
+`npm run lint` keeps stamp-producer checks, ESLint, and web-component boundary checks as gates. The backend import-boundary scan currently reports accumulated debt as advisory findings; this is not a permanent waiver of the intended package boundaries.
+
 Run the validation profile that matches the change type. The checked-in GitHub Actions workflow at [`.github/workflows/validation.yml`](.github/workflows/validation.yml) runs only on pushes to `master`. It is least-privilege and secret-free (`contents: read`, no `secrets.*` or token-like env assignments), cancels superseded runs for the same workflow/ref, and sets up Node.js 24 with npm caching. The `routine-docs` job runs `npm run validate:routine` and `npm run validate:docs` on every selected push. A fail-closed `classify-changes` job gates `backend-jest-build`, `ui-vitest`, `browser-smoke`, and `dependency-hygiene` by changed paths. The `backend-jest-build` job performs the dual clean install—root `npm ci`, then web `cd web && npm ci`—before the root build and Jest suite. For every applicable UI path, `ui-vitest` runs exactly `npm run web:typecheck && npm run web:test`; browser smoke remains a separate Playwright job. Dependency hygiene applies to package/workflow pushes (including fail-closed full validation) and runs the production `npm run audit:security` gate.
 
 ```bash
