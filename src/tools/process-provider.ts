@@ -5,8 +5,7 @@ import type { ProcessToolResult } from '../contracts/operator-api-processes.js';
 import { killProcessInputSchema, runCommandInputSchema, waitProcessInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
-import type { ManagedProcessScope, ProcessCategory, ProcessRunner } from '../runtime/process-runner.js';
-import type { AgentRole, ProcessRecord } from '../schemas/index.js';
+import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 
@@ -15,11 +14,9 @@ export interface ProcessProviderContext {
   readonly processRunner: ProcessRunner;
   readonly ownerId: string;
   readonly cardId?: string;
-  readonly agentRole?: AgentRole;
   readonly ownerKind: 'agent' | 'operator' | 'runtime';
   readonly directScope: ManagedProcessScope;
   readonly category: ProcessCategory;
-  readonly launchReason?: string;
 }
 
 function failureFromError(err: unknown): ToolResult {
@@ -121,7 +118,6 @@ function processResult(ctx: ProcessProviderContext, processId: string): ProcessT
 }
 
 export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider {
-  const launchReason = ctx.launchReason ?? `${ctx.agentRole ?? 'agent'} process provider run_command`;
   return {
     providerName: 'process',
     async cleanup(reason) {
@@ -149,10 +145,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
               ownerId: ctx.ownerId,
               agentSessionId: ctx.ownerId,
               cwd: scopedCwd(ctx.projectRoot, args.cwd),
-              requiredForCardCompletion: ctx.cardId ? true : false,
               ownerKind: ctx.ownerKind,
-              launchReason,
-              backgroundPolicy: args.wait === false ? undefined : 'foreground',
             });
             if (args.wait === false) return { success: true, data: processResult(ctx, record.id) };
             try {

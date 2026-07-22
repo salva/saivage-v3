@@ -314,7 +314,6 @@ function actorHarness(role: OperationalAgentRole, agentId: ConversationSessionId
   }
   roots.push(root);
   const actor = new ConversationLLMActor({
-    projectRoot: root,
     agentId,
     provider,
     conversations: { projectRoot: root },

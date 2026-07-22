@@ -66,13 +66,12 @@ export type RoleSessionStabilization =
   | { disposition: 'ordinary_interruption'; messages: AgentMessage[] };
 
 export function stabilizeRoleSession(args: {
-  projectRoot: string;
   sessionId: ConversationSessionId;
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
 }): RoleSessionStabilization {
   let conversation: ValidatedConversation;
-  try { conversation = readConversation(args.projectRoot, args.sessionId); }
+  try { conversation = readConversation(args.conversations.projectRoot, args.sessionId); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     conversation = validateConversationRows(args.sessionId, []);
@@ -118,7 +117,7 @@ export function stabilizeRoleSession(args: {
   appendRecoveryNotice(args.conversations, args.sessionId, marker.inputId, 'ordinary_interruption');
   return {
     disposition: 'ordinary_interruption',
-    messages: readConversation(args.projectRoot, args.sessionId).physicalRows,
+    messages: readConversation(args.conversations.projectRoot, args.sessionId).physicalRows,
   };
 }
 

@@ -128,7 +128,6 @@ function project(): string { const root = mkdtempSync(join(tmpdir(), 'saivage-ll
 
 function llm(root: string, provider: LLMProviderPort, conversations: Record<string, unknown> = {}, runtimeProjectionChanged?: () => void): ConversationLLMActor {
   return new ConversationLLMActor({
-    projectRoot: root,
     agentId: 'planner:project',
     provider,
     conversations: { projectRoot: root, ...conversations },

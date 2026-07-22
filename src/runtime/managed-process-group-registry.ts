@@ -198,14 +198,6 @@ export class ManagedProcessGroupRegistry {
     return this.groups.has(groupId);
   }
 
-  state(groupId: string): ManagedGroupState | null {
-    return this.groups.get(groupId)?.state ?? null;
-  }
-
-  childProcess(groupId: string): ChildProcess | null {
-    return this.groups.get(groupId)?.child ?? null;
-  }
-
   private allocateScope(parent: ManagedProcessScope | null, kind: 'container', label: string, category: null): ManagedProcessScope;
   private allocateScope(parent: ManagedProcessScope, kind: 'direct', label: string, category: ProcessCategory): ManagedProcessScope;
   private allocateScope(parent: ManagedProcessScope | null, kind: ScopeRecord['kind'], label: string, category: ProcessCategory | null): ManagedProcessScope {

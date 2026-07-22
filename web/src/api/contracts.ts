@@ -134,6 +134,5 @@ export type {
   NoteAuthor,
   RuntimeState,
   RuntimeStatus,
-  SessionStatus,
   Urgency,
 } from '@saivage/schemas';

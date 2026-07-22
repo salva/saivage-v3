@@ -1,6 +1,6 @@
 import type {
-  ActorCallbackBindings,
   ActorDefinition,
+  ActorLifecycleContext,
   ActorStartContext,
   ActorTransitionContext,
   CompiledActorDefinition,
@@ -16,13 +16,6 @@ export class InternalActorError extends Error {
   }
 }
 
-export class TimeoutError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'TimeoutError';
-  }
-}
-
 export class InvalidActorDefinitionError extends Error {
   constructor(message: string) {
     super(message);
@@ -30,80 +23,53 @@ export class InvalidActorDefinitionError extends Error {
   }
 }
 
-export type RunTaskOptions<Result = unknown> = {
-  on_done?: (result: Result) => void;
-  on_failed?: (error: Error) => void;
-  on_timeout?: (error: TimeoutError) => void;
-  on_done_event?: string;
-  on_failed_event?: string;
-  on_timeout_event?: string;
-  timeout?: number;
-};
-
 type TaskResult<Result = unknown> = {
-  id: number;
   ok: true;
   result: Result;
-  timedOut?: false;
 } | {
-  id: number;
   ok: false;
   error: Error;
-  timedOut?: boolean;
 };
 
-type Task<Result = unknown> = {
-  id: number;
-  controller: AbortController;
-  promise: Promise<TaskResult<Result>>;
-  on_done: (result: Result) => void;
-  on_failed: (error: Error) => void;
-  on_timeout?: (error: TimeoutError) => void;
+type Task = {
+  promise: Promise<TaskResult>;
+  onDone: (result: unknown) => void;
+  onFailed: (error: Error) => void;
 };
 
 export abstract class BaseActor {
   readonly #definition: CompiledActorDefinition;
-  readonly #callbacks: ActorCallbackBindings;
   #currentState: string | undefined;
   #nextEvent: { name: string; sequence: number } | undefined;
   #queuedEventSequence = 0;
   #settledEventSequence = 0;
   #eventSettlementFailure: { sequence: number; error: unknown } | undefined;
   #eventSettlementWaiters = new Set<{ sequence: number; resolve: () => void; reject: (error: unknown) => void }>();
-  #nextTaskId = 1;
-  #stateTasks = new Map<number, Task<any>>();
-  #actorMainPromise: Promise<void> | undefined;
+  #task: Task | null = null;
   #actorMainRunning = false;
   #deliveringTaskResult = false;
   #currentTaskStateHalted = false;
 
-  protected constructor(
-    definition: CompiledActorDefinition,
-    callbacks: ActorCallbackBindings = EMPTY_ACTOR_CALLBACK_BINDINGS,
-  ) {
+  protected constructor(definition: CompiledActorDefinition) {
     this.#definition = definition;
-    this.#callbacks = Object.freeze(callbacks);
   }
+
+  protected abstract onStateEntered(context: ActorLifecycleContext): void;
+  protected abstract onTransition(context: ActorTransitionContext): void;
 
   state(): string {
     return this.#currentState!;
   }
 
   start(): void {
-    if (this.#currentTaskStateHalted) throw new InternalActorError(`Cannot restart actor from halted task state "${this.#currentState}"`);
-    if (this.#currentState !== undefined && !this.#definition.states.get(this.#currentState)?.terminal) {
-      throw new InternalActorError(`Cannot start actor from non-terminal state "${this.#currentState}"`);
-    }
+    if (this.#currentState !== undefined) throw new InternalActorError(`Cannot start actor more than once from state "${this.#currentState}"`);
     this.#currentState = this.#definition.initial;
-    this.#currentTaskStateHalted = false;
     const context: ActorStartContext = Object.freeze({
       source: null,
       event: null,
       target: this.#definition.initial,
-      reentered: false,
-      sequence: null,
     });
-    this.#callbacks.enter?.(context);
+    this.onStateEntered(context);
     this.#ensureActorMain();
   }
 
@@ -127,7 +93,7 @@ export abstract class BaseActor {
     this.#ensureActorMain();
   }
 
-  protected runTask<Result>(run: (signal: AbortSignal) => Promise<Result>, options?: RunTaskOptions<Result>): void {
+  protected runTask<Result>(run: () => Promise<Result>, callbacks: Readonly<{ onDone(result: Result): void; onFailed(error: Error): void }>): void {
     const currentState = this.#currentState!;
     if (this.#definition.states.get(currentState)?.terminal) {
       throw new InternalActorError(`Cannot start task in terminal state "${currentState}"`);
@@ -135,14 +101,12 @@ export abstract class BaseActor {
     if (this.#definition.states.get(currentState)?.parked) {
       throw new InternalActorError(`Cannot start task in parked state "${currentState}"`);
     }
-    const controller = new AbortController();
-    const id = this.#nextTaskId++;
-    const timeout = options?.timeout === 0 ? undefined : options?.timeout;
-    const promise = this.#safeTask(id, run, controller, timeout);
-    const on_done: (result: Result) => void = options?.on_done ?? (() => this.sendEvent(options?.on_done_event ?? 'done'));
-    const on_failed = options?.on_failed ?? (() => this.sendEvent(options?.on_failed_event ?? 'failed'));
-    const on_timeout = options?.on_timeout ?? (options?.on_timeout_event ? (() => this.sendEvent(options.on_timeout_event!)) : undefined);
-    this.#stateTasks.set(id, { id, controller, promise, on_done, on_failed, on_timeout });
+    if (this.#task !== null) throw new InternalActorError(`Actor already has a task in state "${currentState}"`);
+    this.#task = {
+      promise: this.#safeTask(run),
+      onDone: (result) => callbacks.onDone(result as Result),
+      onFailed: callbacks.onFailed,
+    };
   }
 
   protected awaitLifecycleSettlement(): Promise<void> {
@@ -160,7 +124,7 @@ export abstract class BaseActor {
     this.#currentTaskStateHalted = true;
   }
 
-  #dispatchEvent(eventName: string, sequence: number): string {
+  #dispatchEvent(eventName: string): string {
     const currentState = this.#currentState!;
     const stateDef = this.#definition.states.get(currentState)!;
 
@@ -174,16 +138,10 @@ export abstract class BaseActor {
       event: eventName,
       target: transition.target,
       reentered: transition.reenter,
-      sequence,
     });
-    this.#callbacks.leave?.(context);
-    for (const task of this.#stateTasks.values()) {
-      task.controller.abort();
-    }
-    this.#stateTasks.clear();
     this.#currentState = transition.target;
-    this.#callbacks.transition?.(context);
-    this.#callbacks.enter?.(context);
+    this.onTransition(context);
+    this.onStateEntered(context);
 
     return transition.target;
   }
@@ -195,7 +153,7 @@ export abstract class BaseActor {
         if (event !== undefined) {
           this.#nextEvent = undefined;
           try {
-            this.#dispatchEvent(event.name, event.sequence);
+            this.#dispatchEvent(event.name);
             this.#settledEventSequence = event.sequence;
           } catch (error) {
             this.#settledEventSequence = event.sequence;
@@ -215,23 +173,19 @@ export abstract class BaseActor {
           return;
         }
 
-        if (this.#stateTasks.size === 0) {
+        if (this.#task === null) {
           throw new InternalActorError(`Actor stuck in non-terminal state "${this.#currentState!}" with no pending tasks or events`);
         }
 
-        const result = await Promise.race([...this.#stateTasks.values()].map((t) => t.promise));
-        const task = this.#stateTasks.get(result.id)!;
-        this.#stateTasks.delete(result.id);
+        const task = this.#task;
+        const result = await task.promise;
+        if (this.#task !== task) throw new InternalActorError('Actor task slot changed before callback delivery');
+        this.#task = null;
 
         this.#deliveringTaskResult = true;
         try {
-          if (result.timedOut && task.on_timeout) {
-            task.on_timeout(result.error as TimeoutError);
-          } else if (result.ok) {
-            task.on_done(result.result);
-          } else {
-            task.on_failed(result.error);
-          }
+          if (result.ok) task.onDone(result.result);
+          else task.onFailed(result.error);
         } finally { this.#deliveringTaskResult = false; }
         if (this.#currentTaskStateHalted) return;
       }
@@ -255,35 +209,14 @@ export abstract class BaseActor {
   #ensureActorMain(): void {
     if (this.#actorMainRunning) return;
     this.#actorMainRunning = true;
-    this.#actorMainPromise = this.#actorMain();
+    void this.#actorMain();
   }
 
-  async #safeTask<Result>(taskId: number, run: (signal: AbortSignal) => Promise<Result>, controller: AbortController, timeout?: number): Promise<TaskResult<Result>> {
+  async #safeTask<Result>(run: () => Promise<Result>): Promise<TaskResult<Result>> {
     try {
-      const task = run(controller.signal);
-      const result = timeout === undefined
-        ? await task
-        : await this.#withTimeout(task, controller, timeout);
-      return { id: taskId, ok: true, result };
+      return { ok: true, result: await run() };
     } catch (error) {
-      return { id: taskId, ok: false, error: error as Error, timedOut: error instanceof TimeoutError };
-    }
-  }
-
-  async #withTimeout<T>(task: Promise<T>, controller: AbortController, timeout: number): Promise<T> {
-    let timeoutError: TimeoutError | undefined;
-    const timer = setTimeout(() => {
-      timeoutError = new TimeoutError(`Task timed out after ${timeout}ms`);
-      controller.abort(timeoutError);
-    }, timeout);
-    try {
-      const value = await task;
-      if (timeoutError) throw timeoutError;
-      return value;
-    } catch (error) {
-      throw timeoutError ?? error;
-    } finally {
-      clearTimeout(timer);
+      return { ok: false, error: error as Error };
     }
   }
 
@@ -301,33 +234,10 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
     }
   }
 
-  if (definition.initial !== undefined && !(definition.initial in definition.states)) {
+  if (!(definition.initial in definition.states)) {
     throw new InvalidActorDefinitionError(
       `Initial state "${definition.initial}" does not exist in states`,
     );
-  }
-
-  if (definition.sequence) {
-    const seen = new Set<string>();
-    for (let i = 0; i < definition.sequence.length; i++) {
-      const stateName = definition.sequence[i]!;
-      if (seen.has(stateName)) {
-        throw new InvalidActorDefinitionError(
-          `State "${stateName}" appears more than once in sequence`,
-        );
-      }
-      seen.add(stateName);
-      if (!(stateName in definition.states)) {
-        throw new InvalidActorDefinitionError(
-          `Sequence state "${stateName}" does not exist in states`,
-        );
-      }
-      if (definition.states[stateName]?.terminal) {
-        throw new InvalidActorDefinitionError(
-          `Terminal state "${stateName}" cannot be in a sequence`,
-        );
-      }
-    }
   }
 
   for (const [stateName, stateDef] of Object.entries(definition.states)) {
@@ -370,15 +280,6 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
       on.set(eventName, compileTransition(transition));
     }
 
-    if (definition.sequence) {
-      const index = definition.sequence.indexOf(stateName);
-      if (index >= 0 && index < definition.sequence.length - 1) {
-        if (!on.has('done')) {
-          on.set('done', Object.freeze({ target: definition.sequence[index + 1]!, reenter: false }));
-        }
-      }
-    }
-
     compiledStates.push([stateName, Object.freeze({
       on: immutableMap(on),
       terminal: stateDef.terminal,
@@ -387,12 +288,10 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
   }
 
   return Object.freeze({
-    initial: definition.initial ?? stateNames[0]!,
+    initial: definition.initial,
     states: immutableMap(compiledStates),
   });
 }
-
-const EMPTY_ACTOR_CALLBACK_BINDINGS: ActorCallbackBindings = Object.freeze({});
 
 function transitionTarget(transition: TransitionDefinition): string {
   return typeof transition === 'string' ? transition : transition.target;

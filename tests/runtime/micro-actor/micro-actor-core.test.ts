@@ -2,506 +2,314 @@ import { describe, expect, it, jest } from '@jest/globals';
 import {
   BaseActor,
   compileActorDefinition,
-  InvalidActorDefinitionError,
   InternalActorError,
-  TimeoutError,
+  InvalidActorDefinitionError,
 } from '../../../src/runtime/micro-actor/index.js';
 import type {
   ActorDefinition,
-  ActorCallbackBindings,
+  ActorLifecycleContext,
+  ActorTransitionContext,
   CompiledActorDefinition,
-  RunTaskOptions,
 } from '../../../src/runtime/micro-actor/index.js';
 
+type TaskCallbacks<Result> = Readonly<{
+  onDone(result: Result): void;
+  onFailed(error: Error): void;
+}>;
+
 class TestActor extends BaseActor {
-  constructor(definition: CompiledActorDefinition, callbacks?: ActorCallbackBindings) {
-    super(definition, callbacks);
+  readonly #entered: (context: ActorLifecycleContext) => void;
+  readonly #transitioned: (context: ActorTransitionContext) => void;
+
+  constructor(
+    definition: CompiledActorDefinition,
+    hooks: Readonly<{
+      entered?(context: ActorLifecycleContext): void;
+      transitioned?(context: ActorTransitionContext): void;
+    }> = {},
+  ) {
+    super(definition);
+    this.#entered = hooks.entered ?? (() => undefined);
+    this.#transitioned = hooks.transitioned ?? (() => undefined);
   }
 
   event(name: string): void { this.sendEvent(name); }
   parkedEvent(name: string): void { this.parkedSendEvent(name); }
-  task<Result>(run: (signal: AbortSignal) => Promise<Result>, options?: RunTaskOptions<Result>): void {
-    this.runTask(run, options);
-  }
+  task<Result>(run: () => Promise<Result>, callbacks: TaskCallbacks<Result>): void { this.runTask(run, callbacks); }
   settlement(): Promise<void> { return this.awaitLifecycleSettlement(); }
   halt(): void { this.haltCurrentTaskState(); }
+
+  protected onStateEntered(context: ActorLifecycleContext): void { this.#entered(context); }
+  protected onTransition(context: ActorTransitionContext): void { this.#transitioned(context); }
 }
 
-describe('actor definition compilation', () => {
-  it('normalizes and deeply freezes a reusable callback-free topology', () => {
-    const definition = compileActorDefinition({
+const unexpectedFailure = (error: Error): never => { throw error; };
+
+describe('configured actor definition', () => {
+  it('compiles immutable explicit topology and rejects invalid production definitions', () => {
+    const compiled = compileActorDefinition({
+      initial: 'ready',
       states: {
-        a: { parked: true, on: { go: 'b', stay: { target: 'a' }, again: { target: 'a', reenter: true } } },
-        b: { terminal: true },
+        ready: { parked: true, on: { go: 'done', stay: { target: 'ready' }, again: { target: 'ready', reenter: true } } },
+        done: { terminal: true },
       },
     });
-    const state = definition.states.get('a')!;
+    const ready = compiled.states.get('ready')!;
+    expect(ready.on.get('go')).toEqual({ target: 'done', reenter: false });
+    expect(ready.on.get('stay')).toEqual({ target: 'ready', reenter: false });
+    expect(ready.on.get('again')).toEqual({ target: 'ready', reenter: true });
+    expect([compiled, compiled.states, ready, ready.on, ready.on.get('go')].every(Object.isFrozen)).toBe(true);
+    expect('set' in compiled.states).toBe(false);
+    expect('set' in ready.on).toBe(false);
 
-    expect(state.on.get('go')).toEqual({ target: 'b', reenter: false });
-    expect(state.on.get('stay')).toEqual({ target: 'a', reenter: false });
-    expect(state.on.get('again')).toEqual({ target: 'a', reenter: true });
-    expect(Object.isFrozen(definition)).toBe(true);
-    expect(Object.isFrozen(definition.states)).toBe(true);
-    expect(Object.isFrozen(state)).toBe(true);
-    expect(Object.isFrozen(state.on)).toBe(true);
-    expect(Object.isFrozen(state.on.get('go'))).toBe(true);
-    expect('set' in definition.states).toBe(false);
-    expect('delete' in definition.states).toBe(false);
-    expect('clear' in definition.states).toBe(false);
-    expect('set' in state.on).toBe(false);
-    expect(() => Object.assign(state.on.get('go')!, { target: 'a' })).toThrow(TypeError);
-
-    const first = new TestActor(definition);
-    const second = new TestActor(definition);
-    expect(() => { first.start(); second.start(); }).not.toThrow();
-  });
-
-  it('supports different definitions on instances of the same subclass', () => {
-    const first = new TestActor(compileActorDefinition({ states: { first: { terminal: true } } }));
-    const second = new TestActor(compileActorDefinition({ states: { second: { terminal: true } } }));
-
-    first.start();
-    second.start();
-
-    expect(first.state()).toBe('first');
-    expect(second.state()).toBe('second');
-  });
-
-  it('rejects cross-state reentry and identifies source, event, and target', () => {
-    expect(() => compileActorDefinition({
-      states: {
-        a: { on: { go: { target: 'b', reenter: true } } },
-        b: {},
-      },
-    })).toThrow(InvalidActorDefinitionError);
-    expect(() => compileActorDefinition({
-      states: {
-        a: { on: { go: { target: 'b', reenter: true } } },
-        b: {},
-      },
-    })).toThrow(/state "a".*event "go".*"b"/);
-  });
-
-  const invalidDefinitions: Array<[ActorDefinition, string]> = [
-    [{ states: {} }, 'at least one state'],
-    [{ states: { '': {} } }, 'non-empty'],
-    [{ initial: 'missing', states: { a: {} } }, 'Initial state'],
-    [{ sequence: ['a', 'a'], states: { a: {} } }, 'more than once'],
-    [{ sequence: ['missing'], states: { a: {} } }, 'does not exist'],
-    [{ sequence: ['a'], states: { a: { terminal: true } } }, 'cannot be in a sequence'],
-    [{ states: { a: { on: { go: 'missing' } } } }, 'Transition target'],
-    [{ states: { a: { on: { '': 'a' } } } }, 'Event name'],
-    [{ states: { a: { terminal: true, on: { go: 'a' } } } }, 'cannot have transitions'],
-    [{ states: { a: { terminal: true, parked: true } } }, 'both terminal and parked'],
-  ];
-
-  it.each(invalidDefinitions)('rejects invalid definition %#', (definition, message) => {
-    expect(() => compileActorDefinition(definition)).toThrow(message);
-  });
-
-  it('adds sequence done transitions without overriding explicit transitions', () => {
-    const definition = compileActorDefinition({
-      sequence: ['a', 'b'],
-      states: { a: {}, b: { on: { done: 'c' } }, c: { terminal: true } },
-    });
-
-    expect(definition.states.get('a')?.on.get('done')).toEqual({ target: 'b', reenter: false });
-    expect(definition.states.get('b')?.on.get('done')).toEqual({ target: 'c', reenter: false });
+    const invalid: Array<readonly [ActorDefinition, string | RegExp]> = [
+      [{ initial: 'missing', states: {} }, 'at least one state'],
+      [{ initial: '', states: { '': {} } }, 'non-empty'],
+      [{ initial: 'missing', states: { ready: {} } }, 'Initial state'],
+      [{ initial: 'ready', states: { ready: { on: { go: 'missing' } } } }, 'Transition target'],
+      [{ initial: 'ready', states: { ready: { on: { '': 'ready' } } } }, 'Event name'],
+      [{ initial: 'done', states: { done: { terminal: true, on: { go: 'done' } } } }, 'cannot have transitions'],
+      [{ initial: 'done', states: { done: { terminal: true, parked: true } } }, 'both terminal and parked'],
+      [{ initial: 'ready', states: { ready: { on: { go: { target: 'done', reenter: true } } }, done: {} } }, /state "ready".*event "go".*"done"/],
+    ];
+    for (const [definition, message] of invalid) expect(() => compileActorDefinition(definition)).toThrow(message);
+    expect(() => compileActorDefinition(invalid[0]![0])).toThrow(InvalidActorDefinitionError);
   });
 });
 
-describe('state tasks and events', () => {
-  it('halts only during task-result delivery without transition or main-loop failure', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const callbacks: string[] = [];
-    let actor!: TestActor;
-    actor = new TestActor(
-      compileActorDefinition({ states: { running: { on: { done: 'terminal' } }, terminal: { terminal: true } } }),
-      {
-        enter: ({ target }) => {
-          callbacks.push(`enter:${target}`);
-          if (target === 'running') actor.task(() => Promise.resolve(), { on_done: () => actor.halt() });
-        },
-        leave: () => callbacks.push('leave'),
-        transition: () => callbacks.push('transition'),
-      },
+describe('configured actor lifecycle', () => {
+  it('1. starts at the explicit initial state with the exact frozen sequence-free context', () => {
+    const contexts: ActorLifecycleContext[] = [];
+    const actor = new TestActor(
+      compileActorDefinition({ initial: 'ready', states: { ready: { terminal: true } } }),
+      { entered: (context) => contexts.push(context) },
     );
-    expect(() => actor.halt()).toThrow(InternalActorError);
     actor.start();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(actor.state()).toBe('running');
-    expect(callbacks).toEqual(['enter:running']);
-    expect(errorSpy).not.toHaveBeenCalled();
+    expect(actor.state()).toBe('ready');
+    expect(contexts).toEqual([{ source: null, event: null, target: 'ready' }]);
+    expect(Object.isFrozen(contexts[0])).toBe(true);
+  });
+
+  it('2. invokes no hook during construction and no transition hook on start', () => {
+    const entered = jest.fn<(context: ActorLifecycleContext) => void>();
+    const transitioned = jest.fn<(context: ActorTransitionContext) => void>();
+    const actor = new TestActor(
+      compileActorDefinition({ initial: 'ready', states: { ready: { terminal: true } } }),
+      { entered, transitioned },
+    );
+    expect(entered).not.toHaveBeenCalled();
+    expect(transitioned).not.toHaveBeenCalled();
+    actor.start();
+    expect(entered).toHaveBeenCalledTimes(1);
+    expect(transitioned).not.toHaveBeenCalled();
+  });
+
+  it('3. propagates start-entry failure synchronously after assigning state', () => {
+    const actor = new TestActor(
+      compileActorDefinition({ initial: 'ready', states: { ready: { terminal: true } } }),
+      { entered: () => { throw new Error('start failed'); } },
+    );
+    expect(() => actor.start()).toThrow('start failed');
+    expect(actor.state()).toBe('ready');
     expect(() => actor.start()).toThrow(InternalActorError);
-    errorSpy.mockRestore();
   });
 
-  it('runs task completion callbacks and default completion/failure events', async () => {
-    const definition = compileActorDefinition({
-      states: { idle: { on: { done: 'done', failed: 'done' } }, done: { terminal: true } },
-    });
-    let result = '';
-    let completionActor!: TestActor;
-    completionActor = new TestActor(definition, {
-      enter: ({ target }) => {
-        if (target === 'idle') completionActor.task(() => Promise.resolve('ok'), {
-          on_done: (value) => { result = value; completionActor.event('done'); },
-        });
-      },
-    });
-    completionActor.start();
-    await eventually(() => expect(completionActor.state()).toBe('done'));
-    expect(result).toBe('ok');
-
-    let defaultDone!: TestActor;
-    defaultDone = new TestActor(definition, {
-      enter: ({ target }) => {
-        if (target === 'idle') defaultDone.task(() => Promise.resolve(), { timeout: 1_000 });
-      },
-    });
-    defaultDone.start();
-    await eventually(() => expect(defaultDone.state()).toBe('done'));
-
-    let defaultFailed!: TestActor;
-    defaultFailed = new TestActor(definition, {
-      enter: ({ target }) => { if (target === 'idle') defaultFailed.task(() => Promise.reject(new Error('boom'))); },
-    });
-    defaultFailed.start();
-    await eventually(() => expect(defaultFailed.state()).toBe('done'));
-  });
-
-  it('aborts unfinished source-state tasks before state assignment', async () => {
-    const definition = compileActorDefinition({
-      states: { idle: { on: { leave: 'done' } }, done: { terminal: true } },
-    });
-    let signal: AbortSignal | undefined;
-    let actor!: TestActor;
-    actor = new TestActor(definition, {
-      enter: ({ target }) => {
-        if (target !== 'idle') return;
-        actor.task(() => Promise.resolve(), { on_done_event: 'leave' });
-        actor.task((taskSignal) => { signal = taskSignal; return new Promise(() => {}); });
-      },
-    });
-    actor.start();
-
-    await eventually(() => expect(actor.state()).toBe('done'));
-    expect(signal?.aborted).toBe(true);
-  });
-
-  it('routes timeout callbacks and waits for abort cleanup', async () => {
-    const definition = compileActorDefinition({
-      states: { idle: { on: { timeout: 'done' } }, done: { terminal: true } },
-    });
-    const cleanup = deferred<void>();
-    let aborted = false;
-    let timeoutError: TimeoutError | undefined;
-    let actor!: TestActor;
-    actor = new TestActor(definition, {
-      enter: ({ target }) => {
-        if (target !== 'idle') return;
-        actor.task(
-          (signal) => new Promise<void>((resolve, reject) => {
-            signal.addEventListener('abort', () => {
-              aborted = true;
-              cleanup.promise.then(resolve, reject);
-            }, { once: true });
-          }),
-          {
-            timeout: 10,
-            on_timeout: (error) => { timeoutError = error; actor.event('timeout'); },
-          },
-        );
-      },
-    });
-    actor.start();
-    await eventually(() => expect(aborted).toBe(true));
-    expect(timeoutError).toBeUndefined();
-
-    cleanup.resolve();
-    await eventually(() => expect(actor.state()).toBe('done'));
-    expect(timeoutError).toBeInstanceOf(TimeoutError);
-  });
-
-  it('supports timeout events and timeout fallback to failure', async () => {
-    const timeoutDefinition = compileActorDefinition({
-      states: { idle: { on: { timed_out: 'done' } }, done: { terminal: true } },
-    });
-    let timeoutActor!: TestActor;
-    timeoutActor = new TestActor(timeoutDefinition, {
-      enter: ({ target }) => {
-        if (target === 'idle') timeoutActor.task(waitForAbort, { timeout: 5, on_timeout_event: 'timed_out' });
-      },
-    });
-    timeoutActor.start();
-    await eventually(() => expect(timeoutActor.state()).toBe('done'));
-
-    let failedError: Error | undefined;
-    const failureDefinition = compileActorDefinition({
-      states: { idle: { on: { failed: 'done' } }, done: { terminal: true } },
-    });
-    let failureActor!: TestActor;
-    failureActor = new TestActor(failureDefinition, {
-      enter: ({ target }) => {
-        if (target === 'idle') failureActor.task(waitForAbort, {
-          timeout: 5,
-          on_failed: (error) => { failedError = error; failureActor.event('failed'); },
-        });
-      },
-    });
-    failureActor.start();
-    await eventually(() => expect(failureActor.state()).toBe('done'));
-    expect(failedError).toBeInstanceOf(TimeoutError);
-
-    let defaultFailureActor!: TestActor;
-    defaultFailureActor = new TestActor(failureDefinition, {
-      enter: ({ target }) => {
-        if (target === 'idle') defaultFailureActor.task(waitForAbort, { timeout: 5 });
-      },
-    });
-    defaultFailureActor.start();
-    await eventually(() => expect(defaultFailureActor.state()).toBe('done'));
-  });
-
-  it('enforces terminal, parked, and pending-event rules', () => {
-    const terminal = new TestActor(compileActorDefinition({ states: { done: { terminal: true } } }));
+  it('4. rejects repeated start from terminal, parked, and halted states', async () => {
+    const terminal = new TestActor(compileActorDefinition({ initial: 'done', states: { done: { terminal: true } } }));
     terminal.start();
-    expect(() => terminal.task(() => Promise.resolve())).toThrow(InternalActorError);
+    expect(() => terminal.start()).toThrow(InternalActorError);
 
-    const parked = new TestActor(compileActorDefinition({ states: { idle: { parked: true } } }));
-    expect(() => parked.parkedEvent('go')).toThrow(InternalActorError);
+    const parked = new TestActor(compileActorDefinition({ initial: 'ready', states: { ready: { parked: true } } }));
     parked.start();
-    expect(() => parked.task(() => Promise.resolve())).toThrow(InternalActorError);
-    parked.event('one');
-    expect(() => parked.event('two')).toThrow(InternalActorError);
+    expect(() => parked.start()).toThrow(InternalActorError);
 
-    const running = new TestActor(compileActorDefinition({ states: { idle: { parked: true } } }));
-    running.start();
-    expect(() => running.parkedEvent('missing')).not.toThrow();
-
-    let nonParked!: TestActor;
-    nonParked = new TestActor(
-      compileActorDefinition({ states: { running: {} } }),
-      { enter: () => nonParked.task(() => new Promise(() => {})) },
+    let halted = false;
+    let running!: TestActor;
+    running = new TestActor(
+      compileActorDefinition({ initial: 'running', states: { running: {} } }),
+      { entered: () => running.task(() => Promise.resolve(), { onDone: () => { running.halt(); halted = true; }, onFailed: unexpectedFailure }) },
     );
-    nonParked.start();
-    expect(() => nonParked.parkedEvent('missing')).toThrow(InternalActorError);
+    running.start();
+    await eventually(() => expect(halted).toBe(true));
+    expect(() => running.start()).toThrow(InternalActorError);
   });
-});
 
-describe('lifecycle ordering and settlement', () => {
-  it('orders leave, abort, state assignment, transition, and enter with the queued sequence', async () => {
-    const trigger = deferred<void>();
+  it('5. assigns a parked transition target before transition then entry with one exact frozen context', async () => {
     const log: string[] = [];
-    const contexts: unknown[] = [];
+    const contexts: ActorLifecycleContext[] = [];
     let actor!: TestActor;
     actor = new TestActor(
-      compileActorDefinition({ states: { running: { on: { finish: 'done' } }, done: { terminal: true } } }),
+      compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { go: 'done' } }, done: { terminal: true } } }),
       {
-        enter: (context) => {
-          if (context.target === 'running') {
-            actor.task(() => trigger.promise, { on_done_event: 'finish' });
-            actor.task((signal) => new Promise(() => {
-              signal.addEventListener('abort', () => log.push('abort'), { once: true });
-            }));
-          } else {
-            log.push(`enter:${actor.state()}`);
-            contexts.push(context);
-          }
-        },
-        leave: (context) => { log.push(`leave:${actor.state()}`); contexts.push(context); },
-        transition: (context) => { log.push(`transition:${actor.state()}`); contexts.push(context); },
+        transitioned: (context) => { log.push(`transition:${actor.state()}`); contexts.push(context); },
+        entered: (context) => { if (context.source !== null) { log.push(`entry:${actor.state()}`); contexts.push(context); } },
       },
     );
     actor.start();
-    trigger.resolve();
-
-    await eventually(() => expect(actor.state()).toBe('done'));
-    expect(log).toEqual(['leave:running', 'abort', 'transition:done', 'enter:done']);
-    expect(contexts).toHaveLength(3);
+    actor.parkedEvent('go');
+    await actor.settlement();
+    expect(log).toEqual(['transition:done', 'entry:done']);
+    expect(contexts).toHaveLength(2);
     expect(contexts[0]).toBe(contexts[1]);
-    expect(contexts[1]).toBe(contexts[2]);
-    expect(contexts[0]).toEqual({
-      source: 'running', event: 'finish', target: 'done', reentered: false, sequence: 1,
-    });
+    expect(contexts[0]).toEqual({ source: 'ready', event: 'go', target: 'done', reentered: false });
+    expect(Object.isFrozen(contexts[0])).toBe(true);
   });
 
-  it('settles unknown and internal self-transition events without callbacks or abort', async () => {
+  it('6. invokes no hook for a non-reentering same-state edge', async () => {
     const calls: string[] = [];
     const actor = new TestActor(
-      compileActorDefinition({ states: { idle: { parked: true, on: { same: 'idle' } } } }),
-      {
-        leave: () => calls.push('leave'),
-        transition: () => calls.push('transition'),
-        enter: ({ source }) => { if (source !== null) calls.push('enter'); },
-      },
+      compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { stay: 'ready' } } } }),
+      { transitioned: () => calls.push('transition'), entered: ({ source }) => { if (source !== null) calls.push('entry'); } },
     );
     actor.start();
+    actor.parkedEvent('stay');
     await actor.settlement();
-
-    actor.parkedEvent('missing');
-    await actor.settlement();
-    actor.parkedEvent('same');
-    await actor.settlement();
-
     expect(calls).toEqual([]);
   });
 
-  it('keeps source tasks alive for an internal self-transition', async () => {
-    const trigger = deferred<void>();
-    const calls: string[] = [];
-    let pendingSignal: AbortSignal | undefined;
-    let settlement: Promise<void> | undefined;
+  it('7. clears a completed task before success callback and settles only after transition and entry hooks', async () => {
+    const log: string[] = [];
+    let settlement!: Promise<void>;
     let actor!: TestActor;
     actor = new TestActor(
-      compileActorDefinition({ states: { running: { on: { same: { target: 'running' } } } } }),
+      compileActorDefinition({ initial: 'running', states: { running: { on: { done: 'terminal' } }, terminal: { terminal: true } } }),
       {
-        enter: ({ source }) => {
-          if (source !== null) calls.push('enter');
-          actor.task(() => trigger.promise, {
-            on_done: () => {
-              actor.event('same');
-              settlement = actor.settlement();
+        entered: ({ target }) => {
+          log.push(`entry:${target}`);
+          if (target === 'running') actor.task(() => Promise.resolve('ok'), {
+            onDone: () => {
+              log.push('callback');
+              expect(() => actor.task(() => new Promise(() => {}), { onDone: () => undefined, onFailed: unexpectedFailure })).not.toThrow();
+              actor.event('done');
+              settlement = actor.settlement().then(() => { log.push('settled'); });
             },
+            onFailed: unexpectedFailure,
           });
-          actor.task((signal) => { pendingSignal = signal; return new Promise(() => {}); });
         },
-        leave: () => calls.push('leave'),
-        transition: () => calls.push('transition'),
+        transitioned: () => log.push('transition'),
       },
     );
     actor.start();
-    trigger.resolve();
-
     await eventually(() => expect(settlement).toBeDefined());
     await settlement;
-    expect(pendingSignal?.aborted).toBe(false);
-    expect(calls).toEqual([]);
-    expect(actor.state()).toBe('running');
+    expect(log).toEqual(['entry:running', 'callback', 'transition', 'entry:terminal', 'settled']);
   });
 
-  it('explicitly reenters the same state, aborts tasks, and marks context reentered', async () => {
-    const trigger = deferred<void>();
+  it('8. clears a rejected task before its failure callback and explicit event', async () => {
+    const failure = new Error('failed');
     const log: string[] = [];
-    const contexts: unknown[] = [];
+    let actor!: TestActor;
+    actor = new TestActor(
+      compileActorDefinition({ initial: 'running', states: { running: { on: { failed: 'terminal' } }, terminal: { terminal: true } } }),
+      {
+        entered: ({ target }) => {
+          log.push(`entry:${target}`);
+          if (target === 'running') actor.task(() => Promise.reject(failure), {
+            onDone: () => { throw new Error('unexpected success'); },
+            onFailed: (error) => {
+              expect(error).toBe(failure);
+              expect(() => actor.task(() => new Promise(() => {}), { onDone: () => undefined, onFailed: unexpectedFailure })).not.toThrow();
+              log.push('failure');
+              actor.event('failed');
+            },
+          });
+        },
+        transitioned: () => log.push('transition'),
+      },
+    );
+    actor.start();
+    await eventually(() => expect(actor.state()).toBe('terminal'));
+    expect(log).toEqual(['entry:running', 'failure', 'transition', 'entry:terminal']);
+  });
+
+  it('9. reenters the same node after task completion with transition then entry and no abort surface', async () => {
+    const log: string[] = [];
     let entries = 0;
     let actor!: TestActor;
     actor = new TestActor(
-      compileActorDefinition({ states: { running: { on: { again: { target: 'running', reenter: true } } } } }),
+      compileActorDefinition({ initial: 'node', states: { node: { on: { again: { target: 'node', reenter: true } } } } }),
       {
-        enter: (context) => {
-          entries++;
-          if (entries === 1) {
-            actor.task(() => trigger.promise, { on_done_event: 'again' });
-            actor.task((signal) => new Promise(() => {
-              signal.addEventListener('abort', () => log.push('abort'), { once: true });
-            }));
-          } else {
-            actor.task(() => new Promise(() => {}));
-            contexts.push(context);
-            log.push('enter');
-          }
+        transitioned: (context) => log.push(`transition:${context.reentered}`),
+        entered: ({ target }) => {
+          entries += 1;
+          log.push(`entry:${target}`);
+          if (entries === 1) actor.task(() => Promise.resolve(), { onDone: () => actor.event('again'), onFailed: unexpectedFailure });
+          else actor.task(() => new Promise(() => {}), { onDone: () => undefined, onFailed: unexpectedFailure });
         },
-        leave: (context) => { contexts.push(context); log.push('leave'); },
-        transition: (context) => { contexts.push(context); log.push('transition'); },
       },
     );
     actor.start();
-    trigger.resolve();
-
     await eventually(() => expect(entries).toBe(2));
-    expect(log).toEqual(['leave', 'abort', 'transition', 'enter']);
-    expect(contexts).toHaveLength(3);
-    expect(contexts[0]).toEqual({
-      source: 'running', event: 'again', target: 'running', reentered: true, sequence: 1,
-    });
+    expect(log).toEqual(['entry:node', 'transition:true', 'entry:node']);
   });
 
-  it.each(['leave', 'transition', 'enter'] as const)('rejects lifecycle settlement when %s throws', async (phase) => {
+  it.each(['transition', 'entry'] as const)('10. rejects matching lifecycle settlement when the %s hook fails with no fallback', async (phase) => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const calls: string[] = [];
-      const callbacks: ActorCallbackBindings = {
-        leave: () => { calls.push('leave'); if (phase === 'leave') throw new Error('leave failed'); },
-        transition: () => { calls.push('transition'); if (phase === 'transition') throw new Error('transition failed'); },
-        enter: ({ source }) => {
-          if (source === null) return;
-          calls.push('enter');
-          if (phase === 'enter') throw new Error('enter failed');
+      let actor!: TestActor;
+      actor = new TestActor(
+        compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { go: 'done' } }, done: { terminal: true } } }),
+        {
+          transitioned: () => { calls.push('transition'); if (phase === 'transition') throw new Error('transition failed'); },
+          entered: ({ source }) => { if (source !== null) { calls.push('entry'); if (phase === 'entry') throw new Error('entry failed'); } },
         },
-      };
-      const actor = new TestActor(
-        compileActorDefinition({ states: { idle: { parked: true, on: { go: 'done' } }, done: { terminal: true } } }),
-        callbacks,
       );
       actor.start();
       actor.parkedEvent('go');
-
       await expect(actor.settlement()).rejects.toThrow(`${phase} failed`);
-      expect(actor.state()).toBe(phase === 'leave' ? 'idle' : 'done');
-      expect(calls).toEqual(
-        phase === 'leave' ? ['leave']
-          : phase === 'transition' ? ['leave', 'transition']
-            : ['leave', 'transition', 'enter'],
-      );
+      expect(actor.state()).toBe('done');
+      expect(calls).toEqual(phase === 'transition' ? ['transition'] : ['transition', 'entry']);
     } finally {
       errorSpy.mockRestore();
     }
   });
 
-  it('does not abort source tasks or update state when leave throws', async () => {
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    try {
-      const trigger = deferred<void>();
-      let pendingSignal: AbortSignal | undefined;
-      let settlement: Promise<void> | undefined;
-      let actor!: TestActor;
-      actor = new TestActor(
-        compileActorDefinition({ states: { running: { on: { finish: 'done' } }, done: { terminal: true } } }),
-        {
-          enter: ({ target }) => {
-            if (target !== 'running') return;
-            actor.task(() => trigger.promise, {
-              on_done: () => {
-                actor.event('finish');
-                settlement = actor.settlement();
-                void settlement.catch(() => undefined);
-              },
-            });
-            actor.task((signal) => { pendingSignal = signal; return new Promise(() => {}); });
-          },
-          leave: () => { throw new Error('leave failed'); },
-        },
-      );
-      actor.start();
-      trigger.resolve();
-      await eventually(() => expect(settlement).toBeDefined());
+  it('11. permits halt only during callback delivery after slot clear and before an event is queued', async () => {
+    const outside = new TestActor(compileActorDefinition({ initial: 'ready', states: { ready: { parked: true } } }));
+    outside.start();
+    expect(() => outside.halt()).toThrow(InternalActorError);
 
-      await expect(settlement).rejects.toThrow('leave failed');
-      expect(pendingSignal?.aborted).toBe(false);
-      expect(actor.state()).toBe('running');
-    } finally {
-      errorSpy.mockRestore();
-    }
+    let legal = false;
+    let halted!: TestActor;
+    halted = new TestActor(
+      compileActorDefinition({ initial: 'running', states: { running: {} } }),
+      { entered: () => halted.task(() => Promise.resolve(), { onDone: () => { halted.halt(); legal = true; }, onFailed: unexpectedFailure }) },
+    );
+    halted.start();
+    await eventually(() => expect(legal).toBe(true));
+
+    let checkedQueuedEvent = false;
+    let queued!: TestActor;
+    queued = new TestActor(
+      compileActorDefinition({ initial: 'running', states: { running: { on: { done: 'terminal' } }, terminal: { terminal: true } } }),
+      { entered: ({ target }) => { if (target === 'running') queued.task(() => Promise.resolve(), { onDone: () => { queued.event('done'); expect(() => queued.halt()).toThrow(InternalActorError); checkedQueuedEvent = true; }, onFailed: unexpectedFailure }); } },
+    );
+    queued.start();
+    await eventually(() => expect(queued.state()).toBe('terminal'));
+    expect(checkedQueuedEvent).toBe(true);
+  });
+
+  it('12. chains configured execution because each next node entry sees a null task slot', async () => {
+    const entries: string[] = [];
+    let actor!: TestActor;
+    actor = new TestActor(
+      compileActorDefinition({
+        initial: 'a',
+        states: { a: { on: { next: 'b' } }, b: { on: { next: 'done' } }, done: { terminal: true } },
+      }),
+      {
+        entered: ({ target }) => {
+          entries.push(target);
+          if (target !== 'done') actor.task(() => Promise.resolve(), { onDone: () => actor.event('next'), onFailed: unexpectedFailure });
+        },
+      },
+    );
+    actor.start();
+    await eventually(() => expect(actor.state()).toBe('done'));
+    expect(entries).toEqual(['a', 'b', 'done']);
   });
 });
-
-type Deferred<T> = {
-  promise: Promise<T>;
-  resolve(value?: T): void;
-};
-
-function deferred<T>(): Deferred<T> {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((res) => { resolve = res; });
-  return { promise, resolve };
-}
-
-function waitForAbort(signal: AbortSignal): Promise<never> {
-  return new Promise((_resolve, reject) => {
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
-  });
-}
 
 async function eventually(assertion: () => void): Promise<void> {
   let lastError: unknown;

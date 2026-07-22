@@ -169,7 +169,7 @@ export class AnalystSession {
     this.#runtimeProjectionChanged = input.runtimeProjectionChanged;
     this.#createInvocationSurface = input.createInvocationSurface;
     this.#shutdownProcesses = input.shutdownProcesses;
-    this.#llm = new ConversationLLMActor({ projectRoot: input.projectRoot, agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged });
+    this.#llm = new ConversationLLMActor({ agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged });
   }
 
   submit(input: AnalystTurnInput): Promise<AnalystTurnResult> {
@@ -243,7 +243,7 @@ export class AnalystSession {
     this.assertCurrent(operation, signal);
     const invocationInput: PreparedLlmInvocationInput = {
       ...preparedInput,
-      providerConversation: providerConversationProjection(readConversation(this.#projectRoot, this.#sessionId)),
+      providerConversation: providerConversationProjection(readConversation(this.#conversations.projectRoot, this.#sessionId)),
     };
     operation.step = { kind: 'nested', input: invocationInput };
     const terminal = this.terminalHandoff(operation);

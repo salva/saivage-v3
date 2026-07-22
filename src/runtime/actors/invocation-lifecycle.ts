@@ -49,9 +49,6 @@ export class ActivationOperationTracker {
     return this.#operations.join();
   }
 
-  pendingCount(): number {
-    return this.#operations.pendingCount();
-  }
 }
 
 /** Owns provider-turn admission and all Saivage callbacks caused by those turns. */
@@ -120,10 +117,6 @@ export class InvocationLifecycle {
 
   join(): Promise<InvocationJoinOutcome> {
     return this.#operations.join();
-  }
-
-  pendingCount(): number {
-    return this.#operations.pendingCount();
   }
 
   #ownedCurrent(invocation: InvocationLease): OwnedInvocationLease {

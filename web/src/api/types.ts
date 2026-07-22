@@ -17,7 +17,6 @@ import type {
   OperatorApiSuccess,
   RuntimeState as ContractRuntimeState,
   ServerAvailability,
-  SessionStatus,
   RestartChatAcknowledgement,
 } from './contracts';
 export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
@@ -51,7 +50,6 @@ export type {
   LiveSyncInvalidateTarget,
   LiveSyncUnscopedResource,
   ServerAvailability,
-  SessionStatus,
   RestartChatAcknowledgement,
 } from './contracts';
 
@@ -90,7 +88,8 @@ export type ProcessListResponse = OperatorApiSuccess<'processes.list'>;
 export type ProcessDetailResponse = OperatorApiSuccess<'processes.get'>;
 
 
-export type AgentSession = AgentSessionSummary & { role: AgentRole; status: SessionStatus };
+export type AgentSession = AgentSessionSummary;
+export type SessionStatus = AgentSessionSummary['status'];
 export type PendingCall = ContractActivityStatus['pending_calls'][number];
 export type ActivityStatusKind = ContractActivityStatus['status'];
 export type ActivityStatus = ContractActivityStatus;

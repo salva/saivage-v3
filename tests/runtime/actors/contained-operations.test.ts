@@ -83,19 +83,17 @@ describe('ContainedOperations', () => {
     await expect(operations.join()).rejects.toBe(failure);
   });
 
-  it('fails fast on invalid consume and open join while counting pending containment', async () => {
+  it('fails fast on invalid consume and open join while preserving settlement', async () => {
     const operations = new ContainedOperations(new Error('default'));
     expect(() => operations.consume(() => undefined)).toThrow('No contained operation is awaiting consumer delivery.');
     await expect(operations.join()).rejects.toThrow('Contained operation admission must be closed before join.');
 
     const raw = deferred<number>();
     const wrapper = operations.run(new AbortController().signal, async () => raw.promise);
-    expect(operations.pendingCount()).toBe(2);
     const consumer = operations.consume(() => undefined);
     operations.closeAdmission(new Error('closed'));
     raw.resolve(1);
     await Promise.all([wrapper, consumer]);
-    await operations.join();
-    expect(operations.pendingCount()).toBe(0);
+    await expect(operations.join()).resolves.toEqual({ status: 'joined' });
   });
 });

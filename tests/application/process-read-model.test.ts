@@ -2,35 +2,24 @@ import { describe, expect, it } from '@jest/globals';
 
 import { buildProcessView } from '../../src/application/read-models/process-view.js';
 import type { ProcessView } from '../../src/contracts/operator-api.js';
-import type { ProcessRecord } from '../../src/schemas/index.js';
+import type { ProcessRecord } from '../../src/runtime/process-runner.js';
 
 function record(overrides: Partial<ProcessRecord> = {}): ProcessRecord {
   return {
     id: 'proc-1',
     card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     owner_id: 'agent-1',
+    owner_kind: 'agent',
+    agent_session_id: 'agent-1',
     command: 'echo token=super-secret-value',
-    command_hash: 'a'.repeat(64),
     cwd: '/workspace/project/subdir',
-    cwd_canonical: '/workspace/project/subdir',
     status: 'running',
-    pid: 123,
     started_at: '2026-01-01T00:00:00.000Z',
-    started_at_monotonic: 1,
     completed_at: null,
     exit_code: null,
     signal: null,
-    terminal_reason: null,
-    required_for_card_completion: true,
-    output_dir: '/workspace/project/.saivage/work/cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/proc-1',
     stdout_path: '/workspace/project/.saivage/work/cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/proc-1/stdout.log',
     stderr_path: '/workspace/project/.saivage/work/cards/card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/processes/proc-1/stderr.log',
-    agent_session_id: 'agent-1',
-    goal_id: null,
-    launch_reason: null,
-    owner_kind: 'agent',
-    background_policy: null,
-    failure_classification: null,
     ...overrides,
   };
 }

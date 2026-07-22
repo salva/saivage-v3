@@ -30,7 +30,7 @@ describe('stable same-session recovery', () => {
       { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }) } }] }), tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
     ];
     appendConversationBatch({ projectRoot }, rows);
-    const result = stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
+    const result = stabilizeRoleSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     expect(result.disposition).toBe('ordinary_interruption');
     const recovered = readConversation(projectRoot, sessionId).physicalRows;
     expect(recovered).toHaveLength(rows.length + 2);
@@ -56,7 +56,7 @@ describe('stable same-session recovery', () => {
       { ...base, id: `${source}:tool-result:emit-1`, role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 2 },
     ] satisfies AgentMessage[]);
 
-    expect(stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
+    expect(stabilizeRoleSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
   });
 
   it('projects the synthetic failed settlement and recovery notice through Generic, Chat, Codex, and Responses', () => {
@@ -69,7 +69,7 @@ describe('stable same-session recovery', () => {
       { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', role: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
       { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', message_index: 1 },
     ] satisfies AgentMessage[]);
-    stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
+    stabilizeRoleSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
     const generic = providerConversation.messages;
     const notice = generic.find((row) => row.kind === 'model_recovered')!;

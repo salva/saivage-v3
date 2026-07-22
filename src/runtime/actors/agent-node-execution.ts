@@ -172,7 +172,7 @@ export class AgentNodeExecution {
 
   private prepareNodeEntry(process: CompiledCardProcess, node: ProcessNodeMetadata, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface, reviewerPair: ReviewerContextPair | null): void {
     if (!this.#stabilizedRoles.has(node.role)) {
-      if (!input.alreadyStabilizedRoles.has(node.role)) stabilizeRoleSession({ projectRoot: this.deps.projectRoot, sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
+      if (!input.alreadyStabilizedRoles.has(node.role)) stabilizeRoleSession({ sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
       this.#stabilizedRoles.add(node.role);
       appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', role: node.role, card_id: this.deps.cardId, input_id: inputId });
     } else {
@@ -212,7 +212,7 @@ export class AgentNodeExecution {
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), ...(node.role === 'executor' ? { cardType: input.card.type } : {}),
     });
     const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
-    return { inputId, agentId: sessionId, role: node.role, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools), capabilityRequest: { requiresTools: true }, episodeContext: { cardId: input.card.id, caller: input.caller, ...(node.role === 'planner' ? { children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } : {}) } };
+    return { inputId, agentId: sessionId, role: node.role, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools), capabilityRequest: { requiresTools: true }, episodeContext: { cardId: input.card.id, caller: input.caller, ...(node.role === 'planner' ? { children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } : {}) } };
   }
 
   private buildSurface(role: ProcessRole, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {

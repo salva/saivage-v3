@@ -189,7 +189,7 @@ export class McpServerRuntime {
     this.assertCurrent(generation, signal);
     const launch = this.#processRunner.spawnInteractive({
       file: cfg.command, args: cfg.args ?? [], directScope: this.#processScope, category: 'service_infrastructure',
-      ownerId: `mcp:${this.name}`, ownerKind: 'runtime', launchReason: `MCP stdio server ${this.name}`,
+      ownerId: `mcp:${this.name}`, ownerKind: 'runtime',
       env: { ...sanitizedCommandEnv(), ...(cfg.env ?? {}) }, stdio: ['pipe', 'pipe', 'pipe'],
     });
     launch.process.stderr!.on('error', () => undefined);

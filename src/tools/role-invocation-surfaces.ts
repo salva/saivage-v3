@@ -87,7 +87,7 @@ export function buildRoleSurface(context: RoleSurfaceContext): InvocationSurface
         createCardHistoryProvider({ store: toolContext.store }),
         createAnalystWorkspaceProvider(toolContext),
         createAnalystPatchProvider(toolContext),
-        createProcessProvider({ projectRoot: toolContext.projectRoot, processRunner: toolContext.processRunner, directScope: toolContext.processScope, category: 'operator_session', ownerId: toolContext.sessionId ?? 'analyst', agentRole: context.role, ownerKind: 'operator', launchReason: 'analyst workspace run_command' }),
+        createProcessProvider({ projectRoot: toolContext.projectRoot, processRunner: toolContext.processRunner, directScope: toolContext.processScope, category: 'operator_session', ownerId: toolContext.sessionId ?? 'analyst', ownerKind: 'operator' }),
         createWebProvider({ projectRoot: toolContext.projectRoot, agentRole: context.role, store: toolContext.store, notifyCard: undefined, analystToolContext: toolContext }),
         createSkillProvider({ projectRoot: toolContext.projectRoot, agentRole: context.role }),
         createMcpProvider({ mcpToolInvocation: toolContext.mcpToolInvocation, agentRole: context.role }),

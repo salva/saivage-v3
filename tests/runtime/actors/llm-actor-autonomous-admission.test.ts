@@ -149,7 +149,6 @@ describe('prepared conversation LLM admission', () => {
       candidateAvailability: new MemoryCandidateAvailability(),
     });
     const actor = new ConversationLLMActor({
-      projectRoot,
       agentId: 'planner:project',
       provider: {
         completeTurn: (input, signal) => invocationService.invokeWithRecovery({ ...input, abortSignal: signal, candidateChain: [candidate] }).catch((error) => {
@@ -195,7 +194,6 @@ describe('prepared conversation LLM admission', () => {
     const projectionChanged = jest.fn();
 
     const actor = new ConversationLLMActor({
-      projectRoot,
       agentId,
       provider: { completeTurn: providerCall },
       conversations: { projectRoot },
@@ -231,7 +229,6 @@ describe('prepared conversation LLM admission', () => {
     const projectionChanged = jest.fn();
 
     expect(() => new ConversationLLMActor({
-      projectRoot,
       agentId,
       provider: { completeTurn: providerCall },
       conversations: { projectRoot },
@@ -257,7 +254,6 @@ describe('prepared conversation LLM admission', () => {
     const summarize = jest.fn<LLMProviderPort['completeTurn']>();
     const projectionChanged = jest.fn();
     const actor = new ConversationLLMActor({
-      projectRoot,
       agentId: 'planner:project',
       provider: { completeTurn: providerCall },
       conversations: { projectRoot },
@@ -283,7 +279,6 @@ describe('prepared conversation LLM admission', () => {
 
 function toolCallingActor(projectRoot: string, completeTurn: LLMProviderPort['completeTurn'], runtimeProjectionChanged?: () => void): ConversationLLMActor {
   const actor = new ConversationLLMActor({
-    projectRoot,
     agentId: 'planner:project',
     provider: { completeTurn },
     conversations: { projectRoot },

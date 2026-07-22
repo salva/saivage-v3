@@ -100,10 +100,6 @@ export class ContainedOperations {
       : { status: 'external_dependency_abandoned', abandonedCount: this.#abandonedRaw.size };
   }
 
-  pendingCount(): number {
-    return this.#operations.size + this.#consumers.size;
-  }
-
   #track(set: Set<Promise<unknown>>, operation: Promise<unknown>, recordFailure: boolean): void {
     set.add(operation);
     if (recordFailure) void operation.catch((error) => { this.#failure ??= error; });

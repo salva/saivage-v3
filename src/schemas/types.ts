@@ -87,15 +87,12 @@ export interface ProjectConfig { id: 'project'; name: string; context: string; g
 export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as const;
 export interface AnalystIssue { summary: string; severity?: typeof analystIssueSeverityValues[number]; evidence_path?: string; }
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
-export interface ProcessRecord { id: string; card_id: string | null; owner_id: string; command: string; command_hash: string; cwd: string; cwd_canonical: string; status: ProcessStatus; pid?: number | null; started_at: string; started_at_monotonic: number; completed_at?: string | null; exit_code?: number | null; signal?: string | null; terminal_reason?: 'exit' | 'signal' | 'spawn_error' | null; required_for_card_completion: boolean; output_dir: string; stdout_path: string; stderr_path: string; agent_session_id?: string | null; goal_id?: string | null; launch_reason?: string | null; owner_kind: 'agent' | 'operator' | 'runtime'; background_policy?: 'foreground' | null; failure_classification?: 'spawn_error' | null; }
 export const agentRoleValues = ['analyst', 'planner', 'executor', 'reviewer'] as const;
 export const agentInvocationRoleValues = ['planner', 'executor', 'reviewer'] as const;
 export const operationalAgentRoleValues = agentRoleValues;
 export type AgentRole = typeof agentRoleValues[number];
 export type AgentInvocationRole = typeof agentInvocationRoleValues[number];
 export type OperationalAgentRole = typeof operationalAgentRoleValues[number];
-export type SessionStatus = 'active' | 'waiting' | 'inactive';
-export interface AgentSession { id: string; role: AgentRole; goal_card_id?: string | null; card_id?: string | null; status: SessionStatus; started_at: string; model?: string; }
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'model_issue' | 'model_repair' | 'context_compaction' | 'model_recovered' | 'system_prompt' | 'provider_private';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }

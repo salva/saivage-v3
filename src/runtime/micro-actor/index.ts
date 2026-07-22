@@ -3,9 +3,7 @@ export {
   compileActorDefinition,
   InvalidActorDefinitionError,
   InternalActorError,
-  TimeoutError,
 } from './micro-actor.js';
-export type { RunTaskOptions } from './micro-actor.js';
 export type {
   TransitionDefinition,
   StateDefinition,
@@ -16,5 +14,4 @@ export type {
   ActorStartContext,
   ActorTransitionContext,
   ActorLifecycleContext,
-  ActorCallbackBindings,
 } from './types.js';

@@ -23,7 +23,7 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { FreshnessEffects } from './freshness-effects.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
 import { RuntimeInterventionBinding } from './intervention-readiness.js';
-import { RuntimeControlService, type RuntimeControlApplicationPort, type RuntimeControlMechanics } from './runtime-control-service.js';
+import { RuntimeControlService, type RuntimeControlApplicationPort } from './runtime-control-service.js';
 import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
@@ -33,30 +33,9 @@ import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
 import { createAnalystMutationServices } from './analyst-mutation-services.js';
-import { cardTypesForProcess, compileCardProcesses, describeNodeResultContract, type CompiledCardProcesses } from '../runtime/card-process/card-process-config.js';
-import { createProcessPromptRegistry, type ProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
+import { cardTypesForProcess, compileCardProcesses, describeNodeResultContract } from '../runtime/card-process/card-process-config.js';
+import { createProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
 import { EventQueryService } from './event-query-service.js';
-
-export interface RuntimeApiFactoryDeps {
-  projectRoot: string;
-  processIdentity: RuntimeProcessIdentity;
-  cardStore: CardService;
-  interventionBinding: RuntimeInterventionBinding;
-  invocationService: InvocationService;
-  promptTemplates: PromptTemplateRegistry;
-  cardProcesses: CompiledCardProcesses;
-  processPrompts: ProcessPromptRegistry;
-  compactionPolicy: AutonomousCompactionPolicy;
-  compactor: CompactorPort;
-  summarizerProvider: SummarizerProviderPort;
-  processRunner: ProcessRunner;
-  runtimeProcessRootScope: ManagedProcessScope;
-  runtimeGate: RuntimeGate;
-  mcpToolInvocation: McpToolInvocationPort;
-  conversations: ConversationFileContext;
-  freshness: FreshnessEffects;
-}
-
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -79,7 +58,6 @@ export interface RuntimeApplicationServices {
   configAuthority: ResolvedConfigAuthority;
   eventLogger: EventLog;
   cardStore: CardService;
-  runtimeApiFactory?: (deps: RuntimeApiFactoryDeps) => RuntimeControlMechanics;
   restartServerAvailable?: boolean;
   restartPort?: RestartPort;
   freshness: FreshnessEffects;
@@ -158,8 +136,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     }
   }
 
-  const runtimeFactory = services.runtimeApiFactory ?? createMicroActorRuntimeApi;
-  const runtimeMechanics = runtimeFactory({ projectRoot, processIdentity: services.processIdentity, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeProcessRootScope: services.runtimeProcessRootScope, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, freshness: services.freshness });
+  const runtimeMechanics = createMicroActorRuntimeApi({ projectRoot, processIdentity: services.processIdentity, cardStore, interventionBinding, invocationService, promptTemplates, cardProcesses, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeProcessRootScope: services.runtimeProcessRootScope, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, freshness: services.freshness });
   const runtimeControl = new RuntimeControlService(runtimeMechanics);
   const runtimeApi: RuntimeApi = runtimeControl;
   let analystRuntimeCache: AnalystRuntime | null = null;

@@ -33,7 +33,6 @@ export interface CardProcessorActor {
   disposeActivation(reason: unknown): void;
   suppressContinuationAndPrepareJoin(reason: unknown): void;
   joinActivation(): Promise<readonly InvocationJoinOutcome[]>;
-  pendingJoinTaskCount(): number;
   processPosition(): ProcessPosition;
   executingLlmSnapshot(): ExecutingLlmSnapshot | null;
 }
@@ -44,7 +43,6 @@ export type ContainmentOwner = 'none' | 'stop' | 'application_close';
 
 export interface ParentActivationRelationship {
   readonly parentCardId: string;
-  readonly childCardId: string;
   readonly invocation: ChildInvocationLease;
 }
 

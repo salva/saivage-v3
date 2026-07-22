@@ -26,7 +26,6 @@ import { AppLogPublicationError } from '../../persistence/app-log.js';
 type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
 export class CardProcessActor extends BaseActor implements CardProcessorActor {
-  readonly projectRoot: string;
   readonly cardId: string;
   readonly process: CompiledCardProcess;
   readonly #provider: LLMProviderPort;
@@ -53,11 +52,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
   #terminalJoinFailure: unknown = null;
 
   constructor(args: { projectRoot: string; cardId: string; process: CompiledCardProcess; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
-    super(args.process.definition, {
-      enter: (context) => this.#enterProcessState(context),
-      transition: (context) => this.#processTransitioned(context),
-    });
-    this.projectRoot = args.projectRoot;
+    super(args.process.definition);
     this.cardId = args.cardId;
     this.process = args.process;
     this.#provider = args.provider;
@@ -122,8 +117,6 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     return [...outcomes, ...processorOutcomes];
   }
 
-  pendingJoinTaskCount(): number { return (this.#operationTracker?.pendingCount() ?? 0) + (this.#joiningLlmActors ?? []).reduce((count, llm) => count + llm.pendingInvocationCount(), 0); }
-
   processPosition(): ProcessPosition {
     const stateId = this.state();
     const metadata = this.process.states.get(stateId);
@@ -144,7 +137,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     return Object.freeze({ sessionId: parseConversationSessionId(llm.agentId), agentId: llm.agentId, role: identity.role, cardId: identity.cardId, activity: llm.executingActivity() });
   }
 
-  #enterProcessState(context: ActorLifecycleContext): void {
+  protected onStateEntered(context: ActorLifecycleContext): void {
     const metadata = this.process.states.get(context.target);
     if (!metadata) throw new Error(`Process '${this.process.family}' entered unknown state '${context.target}'.`);
     if (metadata.kind === 'ready') return;
@@ -162,13 +155,13 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
     const activationSignal = this.#activationSignal;
     const tracker = this.#operationTracker;
     const ordinal = this.#executionOrdinal;
-    this.runTask((stateSignal) => tracker.run(AbortSignal.any([activationSignal, stateSignal]), (operationSignal) => this.#runner.execute({ process: this.process, stateId: context.target, node: metadata, transition, input, signal: operationSignal, nodeOrdinal: ordinal })), {
-      on_done: (accepted) => { void tracker.trackConsumer(() => this.#acceptNodeResult(context.target, accepted)); },
-      on_failed: (error) => { void tracker.trackConsumer(() => this.#acceptNodeFailure(error)); },
+    this.runTask(() => tracker.run(activationSignal, (operationSignal) => this.#runner.execute({ process: this.process, stateId: context.target, node: metadata, transition, input, signal: operationSignal, nodeOrdinal: ordinal })), {
+      onDone: (accepted) => { void tracker.trackConsumer(() => this.#acceptNodeResult(context.target, accepted)); },
+      onFailed: (error) => { void tracker.trackConsumer(() => this.#acceptNodeFailure(error)); },
     });
   }
 
-  #processTransitioned(context: ActorTransitionContext): void {
+  protected onTransition(context: ActorTransitionContext): void {
     const source = this.process.states.get(context.source);
     const target = this.process.states.get(context.target);
     if (!source || !target) throw new Error(`Process transition '${context.source}' -> '${context.target}' has missing metadata.`);
@@ -244,7 +237,7 @@ export class CardProcessActor extends BaseActor implements CardProcessorActor {
 
   #createMainLlm(agentId: string): ConversationLLMActor {
     const existing = this.#activeLlmActors.get(agentId); if (existing) return existing;
-    const llm = new ConversationLLMActor({ projectRoot: this.projectRoot, agentId, provider: this.#provider, conversations: this.#conversations, gate: this.#gate, compactor: this.#compactor, summarizerProvider: this.#summarizerProvider, runtimeProjectionChanged: this.#runtimeProjectionChanged });
+    const llm = new ConversationLLMActor({ agentId, provider: this.#provider, conversations: this.#conversations, gate: this.#gate, compactor: this.#compactor, summarizerProvider: this.#summarizerProvider, runtimeProjectionChanged: this.#runtimeProjectionChanged });
     this.#activeLlmActors.set(agentId, llm); this.#runtimeProjectionChanged(); return llm;
   }
   #selectExecutingLlm(llm: ConversationLLMActor): void { const current = this.#currentExecutingLlm; if (!current) { this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); return; } if (current === llm) return; current.assertInvocationCanHandoff(); if (current.executingActivity().mode !== 'active') throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`); this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); }

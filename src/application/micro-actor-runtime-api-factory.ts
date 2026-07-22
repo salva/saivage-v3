@@ -34,9 +34,8 @@ export interface MicroActorRuntimeApiFactoryDeps {
   summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner;
   runtimeProcessRootScope: ManagedProcessScope;
-  runtimeGate?: RuntimeGate;
+  runtimeGate: RuntimeGate;
   mcpToolInvocation: McpToolInvocationPort;
-  now?: () => string;
   conversations: ConversationFileContext;
   freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentsChanged' | 'conversationChanged'>;
 }
@@ -58,7 +57,6 @@ export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps
     processPrompts: deps.processPrompts,
     runtimeGate: deps.runtimeGate,
     mcpToolInvocation: deps.mcpToolInvocation,
-    now: deps.now,
     conversations: deps.conversations,
     freshness: deps.freshness,
   });

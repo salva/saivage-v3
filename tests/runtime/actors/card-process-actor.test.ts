@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../../../src/cards/card-service.js';
@@ -10,7 +10,7 @@ import type { ProviderTurnCompletion } from '../../../src/agents/llm-contracts.j
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
-import { readConversation } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
 import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
 import { cardProcessesSchema } from '../../../src/schemas/saivage-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
@@ -18,6 +18,8 @@ import { compileCardProcesses, type CompiledCardProcess } from '../../../src/run
 import { estimateCanonicalStaticTokens } from '../../../src/runtime/actors/compaction/compactor.js';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import { ConversationLLMActor } from '../../../src/runtime/actors/llm-actor.js';
+import { appendActivationMarker } from '../../../src/runtime/actors/conversation-session.js';
+import { agentMessageSchema } from '../../../src/schemas/index.js';
 
 const tool = (id: string, outcome: string, summary = outcome): ProviderTurnCompletion => ({ result: { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ outcome, summary }) } }] }, provider_exchanges: [] });
 
@@ -68,7 +70,7 @@ describe('CardProcessActor configured graph execution', () => {
       ...testAutonomousCompaction,
     }, {
       createLlm: (agentId) => new ConversationLLMActor({
-        projectRoot, agentId, provider: { completeTurn }, conversations: { projectRoot },
+        agentId, provider: { completeTurn }, conversations: { projectRoot },
         compactor: testAutonomousCompaction.compactor, summarizerProvider: testAutonomousCompaction.summarizerProvider,
       }),
       selectLlm: () => undefined,
@@ -82,7 +84,7 @@ describe('CardProcessActor configured graph execution', () => {
     };
     return {
       cardId, store, processRunner: processes.processRunner,
-      execute: () => execution.execute({ process, stateId, node, transition: { context: { source: 'entry:BACKLOG', event: 'entry:route', target: stateId, reentered: false, sequence: 1 }, acceptedResult: null }, input, signal: new AbortController().signal, nodeOrdinal: 0 }),
+      execute: () => execution.execute({ process, stateId, node, transition: { context: { source: 'entry:BACKLOG', event: 'entry:route', target: stateId, reentered: false }, acceptedResult: null }, input, signal: new AbortController().signal, nodeOrdinal: 0 }),
     };
   }
 
@@ -127,6 +129,66 @@ describe('CardProcessActor configured graph execution', () => {
     expect(roles).toEqual(['planner']);
     expect(h.claimResult).toHaveBeenCalledTimes(1);
     expect(h.store.readRecord('project', 'status.md', 'latest').artifact.content).toBe('complete');
+  });
+
+  it('uses the conversation context root for real-actor recovery and projection while planner tools use the workspace root', async () => {
+    const workspaceRoot = mkdtempSync(join(tmpdir(), 'saivage-card-workspace-root-'));
+    const conversationRoot = mkdtempSync(join(tmpdir(), 'saivage-card-conversation-root-'));
+    roots.push(workspaceRoot, conversationRoot);
+    initProjectTree(workspaceRoot);
+    initProjectTree(conversationRoot);
+    writeFileSync(join(workspaceRoot, 'same-path.txt'), 'workspace-root-value');
+    writeFileSync(join(conversationRoot, 'same-path.txt'), 'conversation-root-value');
+
+    const sessionId = 'planner:project';
+    const interruptedInputId = '11111111-1111-4111-8111-111111111111';
+    const contextMarker = appendActivationMarker({ projectRoot: conversationRoot }, sessionId, { event: 'activation_open', role: 'planner', card_id: 'project', input_id: interruptedInputId });
+    appendConversationBatch({ projectRoot: conversationRoot }, [agentMessageSchema.parse({
+      id: `${interruptedInputId}:message`, session_id: sessionId, role: 'assistant', kind: 'text', content: 'context-root interrupted planner state',
+      round_id: contextMarker.round_id, message_index: 1, block_index: 0, timestamp: '2026-07-22T00:00:00.000Z',
+    })]);
+
+    const decoyInputId = '22222222-2222-4222-8222-222222222222';
+    const decoyMarker = appendActivationMarker({ projectRoot: workspaceRoot }, sessionId, { event: 'activation_open', role: 'planner', card_id: 'project', input_id: decoyInputId });
+    appendConversationBatch({ projectRoot: workspaceRoot }, [
+      agentMessageSchema.parse({ id: `${decoyInputId}:tool-call:decoy`, session_id: sessionId, role: 'assistant', kind: 'tool_call', tool: 'emit_result', tool_call_id: 'decoy', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'decoy', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }), round_id: decoyMarker.round_id, message_index: 1, block_index: 0, timestamp: '2026-07-22T00:00:00.000Z' }),
+      agentMessageSchema.parse({ id: `${decoyInputId}:tool-result:decoy`, session_id: sessionId, role: 'tool', kind: 'tool_result', tool: 'emit_result', tool_call_id: 'decoy', content: JSON.stringify({ success: true }), round_id: decoyMarker.round_id, message_index: 2, block_index: 0, timestamp: '2026-07-22T00:00:00.001Z' }),
+    ]);
+    const workspaceDecoyBefore = readConversation(workspaceRoot, sessionId).physicalRows;
+
+    const store = new CardService(workspaceRoot);
+    const processes = createTestProcessRunner(workspaceRoot);
+    const providerInputs: LlmInvocationInput[] = [];
+    const provider: LLMProviderPort = { completeTurn: async (input) => {
+      providerInputs.push(input);
+      if (providerInputs.length === 1) {
+        expect(input.providerConversation.messages).toContainEqual(expect.objectContaining({ content: 'context-root interrupted planner state' }));
+        expect(input.providerConversation.messages).toContainEqual(expect.objectContaining({ kind: 'model_recovered' }));
+        expect(input.providerConversation.messages).not.toContainEqual(expect.objectContaining({ tool_call_id: 'decoy' }));
+        return { result: { kind: 'tool_calls', tool_calls: [{ id: 'read-workspace', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'project:///same-path.txt' }) } }] }, provider_exchanges: [] };
+      }
+      expect(input.providerConversation.messages.some((message) => message.kind === 'tool_result' && message.content.includes('workspace-root-value'))).toBe(true);
+      expect(input.providerConversation.messages.every((message) => !message.content.includes('conversation-root-value'))).toBe(true);
+      const open = store.openRecord('project', 'status.md');
+      store.editRecord('project', 'status.md', open.version, 'distinct roots accepted');
+      return tool('accepted', 'complete_direct', 'distinct roots accepted');
+    } };
+    const actor = new CardProcessActor({
+      projectRoot: workspaceRoot, cardId: 'project', process: testAutonomousCompaction.cardProcesses.planning,
+      store, parentControl: { activateChild: async () => { throw new Error('unused'); }, cancelChild: async () => { throw new Error('unused'); } },
+      notifyCard: () => ({ ok: true, notificationId: 'unused' }), provider, conversations: { projectRoot: conversationRoot },
+      processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
+      promptTemplates: { render: () => 'planner prompt' }, runtimeProjectionChanged() {}, ...testAutonomousCompaction,
+    });
+    actor.start();
+    const claimResult = jest.fn();
+    const outcome = await actor.activate({ activationId: 'distinct-root-activation', card: store.read('project')!, caller: { kind: 'root' }, entry: 'BACKLOG', claimResult, alreadyStabilizedRoles: new Set(), notificationDelivery: { selectNotifications: () => [], removeNotifications: () => undefined } }, new AbortController().signal);
+
+    expect(outcome).toMatchObject({ status: 'done', summary: 'distinct roots accepted' });
+    expect(claimResult).toHaveBeenCalledTimes(1);
+    expect(providerInputs).toHaveLength(2);
+    expect(readConversation(workspaceRoot, sessionId).physicalRows).toEqual(workspaceDecoyBefore);
+    expect(readConversation(conversationRoot, sessionId).sourceRows).toContainEqual(expect.objectContaining({ id: `${interruptedInputId}:model-recovered` }));
   });
 
   it.each(['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const)('routes %s through observable entry and first-node states with exact optional prompt behavior', async (entry) => {

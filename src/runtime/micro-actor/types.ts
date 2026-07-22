@@ -9,8 +9,7 @@ export type StateDefinition = {
 };
 
 export type ActorDefinition = {
-  readonly initial?: string;
-  readonly sequence?: readonly string[];
+  readonly initial: string;
   readonly states: Readonly<Record<string, StateDefinition>>;
 };
 
@@ -34,8 +33,6 @@ export type ActorStartContext = Readonly<{
   source: null;
   event: null;
   target: string;
-  reentered: false;
-  sequence: null;
 }>;
 
 export type ActorTransitionContext = Readonly<{
@@ -43,13 +40,6 @@ export type ActorTransitionContext = Readonly<{
   event: string;
   target: string;
   reentered: boolean;
-  sequence: number;
 }>;
 
 export type ActorLifecycleContext = ActorStartContext | ActorTransitionContext;
-
-export type ActorCallbackBindings = {
-  readonly enter?: (context: ActorLifecycleContext) => void;
-  readonly leave?: (context: ActorTransitionContext) => void;
-  readonly transition?: (context: ActorTransitionContext) => void;
-};

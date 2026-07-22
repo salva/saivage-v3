@@ -99,7 +99,7 @@ function createManager(root: string, control: { failStop?: boolean } = {}) {
     return scope;
   });
   const managerOptions = { configAuthority: testConfigAuthority(root), processRunner, mcpProcessRootScope, eventLogger: { appendEvent() {} } as any };
-  return { manager: new McpManager(managerOptions), managerOptions, processRunner, mcpProcessRootScope, revisionScopes, spawn, signal };
+  return { manager: new McpManager(managerOptions), managerOptions, processRunner, mcpProcessRootScope, revisionScopes, children, spawn, signal };
 }
 
 function deferred<T>() {
@@ -187,6 +187,27 @@ describe('persisted MCP reconciliation', () => {
         else process.env[key] = value;
       }
     }
+  });
+
+  it.each([
+    { exitCode: 1, exitSignal: null, expected: 'Process exited unsuccessfully' },
+    { exitCode: null, exitSignal: 'SIGTERM' as NodeJS.Signals, expected: 'Process exited with a signal' },
+  ])('reports the exact stdio process diagnostic for exitCode=$exitCode signal=$exitSignal', async ({ exitCode, exitSignal, expected }) => {
+    const root = projectRoot();
+    writeConfig(root, { one: stdio('one') });
+    const { manager, children } = createManager(root);
+    await manager.reconcilePersistedConfig();
+    const child = [...children.values()][0]!;
+
+    child.killed = true;
+    child.exitCode = exitCode;
+    child.emit('exit', exitCode, exitSignal);
+    child.emit('close', exitCode, exitSignal);
+
+    for (let attempt = 0; attempt < 20 && manager.getStatus()[0]?.error !== expected; attempt++) {
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    }
+    expect(manager.getStatus()).toEqual([expect.objectContaining({ status: 'error', error: expected })]);
   });
 
   it('keeps manager process authority and retained runtimes structurally unreachable while preserving public projections', async () => {

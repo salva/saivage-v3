@@ -142,7 +142,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       for (const card of [...runningChain].reverse()) {
         this.requirePreparation(owner, runIdentity);
         for (const role of eligibleRoles(card)) {
-         if (!this.publish(owner, () => { stabilizeRoleSession({ projectRoot: this.behavior.projectRoot, sessionId: sessionForRecovery(role, card.id), conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); return true; })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
+         if (!this.publish(owner, () => { stabilizeRoleSession({ sessionId: sessionForRecovery(role, card.id), conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); return true; })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
         }
       }
       for (const card of [...runningChain].reverse()) {
@@ -238,7 +238,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (incomplete.length) return this.rejectLease(lease, new Error(`Child card '${childCardId}' has incomplete dependencies: ${incomplete.map(({ id, status }) => `${id} (${status})`).join(', ')}.`));
     const entry = cardProcessEntryForStatus(admission.child.lifecycle.status);
     if (entry === null) return this.rejectLease(lease, new Error(`Card '${childCardId}' in status '${admission.child.lifecycle.status}' is not activatable.`));
-    const relationship = Object.freeze({ parentCardId: parent.cardId, childCardId, invocation: lease });
+    const relationship = Object.freeze({ parentCardId: parent.cardId, invocation: lease });
     const owner = this.createOwner(admission.child, entry, { kind: 'parent', cardId: parent.cardId, sessionId: lease.identity.sessionId }, 'child_admission', relationship);
     this.ownershipTransition(false, () => {
       this.activationOwners.set(childCardId, owner); parent.childCardId = childCardId; lease.markAdmitted();
@@ -489,7 +489,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     for (const [id, owner] of this.activationOwners) {
       if (id !== owner.cardId) throw new Error('Activation owner map key mismatch.');
       if (!owner.parentRelationship) roots += 1;
-      if (owner.parentRelationship) { const relationship = owner.parentRelationship; const parent = this.activationOwners.get(relationship.parentCardId); if (!parent || parent.childCardId !== id || relationship.childCardId !== id) throw new Error('Activation relationship is not bidirectionally owned.'); const lease = relationship.invocation; if (lease.childCardId !== id || lease.relationship.childCardId !== id || lease.relationship.sessionId !== lease.identity.sessionId || lease.relationship.sourceInputId !== lease.identity.sourceInputId || lease.relationship.toolCallId !== lease.identity.toolCallId || lease.relationship.toolName !== lease.identity.toolName) throw new Error('Activation relationship lease identity mismatch.'); }
+      if (owner.parentRelationship) { const relationship = owner.parentRelationship; const parent = this.activationOwners.get(relationship.parentCardId); if (!parent || parent.childCardId !== id || owner.cardId !== relationship.invocation.childCardId) throw new Error('Activation relationship is not bidirectionally owned.'); const lease = relationship.invocation; if (lease.relationship.childCardId !== id || lease.relationship.sessionId !== lease.identity.sessionId || lease.relationship.sourceInputId !== lease.identity.sourceInputId || lease.relationship.toolCallId !== lease.identity.toolCallId || lease.relationship.toolName !== lease.identity.toolName) throw new Error('Activation relationship lease identity mismatch.'); }
       if (owner.childCardId) { const child = this.activationOwners.get(owner.childCardId); if (!child || child.parentRelationship?.parentCardId !== id) throw new Error('Activation child relationship is incomplete.'); }
       if (owner.phase === 'child_admission' && owner.terminalWinner !== 'open') throw new Error('Child admission cannot have a terminal winner.');
       if (owner.phase === 'settled_contained' && (owner.terminalWinner === 'open' || owner.containmentOwner === 'none')) throw new Error('Settled-contained owner lacks terminal or containment authority.');

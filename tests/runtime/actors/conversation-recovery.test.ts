@@ -197,7 +197,7 @@ describe('exact role-session stabilization', () => {
   }
 
   function stabilize(projectRoot: string, sessionId: ConversationSessionId = 'planner:project') {
-    return stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot }, terminalToolNames: terminalTools });
+    return stabilizeRoleSession({ sessionId, conversations: { projectRoot }, terminalToolNames: terminalTools });
   }
 
   it('treats ENOENT as an empty session only for the initial stabilization read', () => {
@@ -208,6 +208,20 @@ describe('exact role-session stabilization', () => {
     expect(() => readConversation(projectRoot, 'planner:project')).toThrow(expect.objectContaining({ code: 'ENOENT' }));
   });
 
+  it('reads and publishes recovery only through the conversation context root', () => {
+    const context = scenario();
+    appendConversationBatch({ projectRoot: context.projectRoot }, [message({ id: `${context.sourceInputId}:pending`, session_id: context.sessionId, kind: 'text', role: 'assistant', content: 'context pending' })]);
+    const decoyRoot = mkdtempSync(join(tmpdir(), 'saivage-role-stabilization-decoy-'));
+    roots.push(decoyRoot);
+    initProjectTree(decoyRoot);
+    const decoy = agentMessageSchema.parse(message({ id: 'workspace-decoy', session_id: context.sessionId, kind: 'system_prompt', role: 'system', content: 'settled workspace decoy' }));
+    appendConversationBatch({ projectRoot: decoyRoot }, [decoy]);
+
+    expect(stabilizeRoleSession({ sessionId: context.sessionId, conversations: { projectRoot: context.projectRoot }, terminalToolNames: terminalTools }).disposition).toBe('ordinary_interruption');
+    expect(readConversation(context.projectRoot, context.sessionId).sourceRows.at(-1)?.id).toBe(`${context.sourceInputId}:model-recovered`);
+    expect(readConversation(decoyRoot, context.sessionId).physicalRows).toEqual([decoy]);
+  });
+
   it('keeps the required final recovery read strict when the canonical file disappears', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
     appendConversationBatch({ projectRoot }, [message({ id: `${sourceInputId}:pending`, session_id: sessionId, kind: 'text', role: 'assistant', content: 'pending' })]);
@@ -215,7 +229,6 @@ describe('exact role-session stabilization', () => {
     let failure: unknown;
     try {
       stabilizeRoleSession({
-        projectRoot,
         sessionId,
         conversations: { projectRoot, changes: { conversationChanged() { rmSync(path); }, agentsChanged() {} } },
         terminalToolNames: terminalTools,
@@ -334,7 +347,6 @@ describe('exact role-session stabilization', () => {
     const publicationError = new Error('publication callback failed');
     const conversationChanged = jest.fn(() => { throw publicationError; });
     expect(() => stabilizeRoleSession({
-      projectRoot,
       sessionId,
       conversations: { projectRoot, changes: { conversationChanged, agentsChanged() {} } },
       terminalToolNames: terminalTools,
@@ -347,7 +359,7 @@ describe('exact role-session stabilization', () => {
     const { projectRoot, sessionId, sourceInputId } = scenario();
     appendConversationBatch({ projectRoot }, [toolCall(sourceInputId, 'pending', sessionId, 'activate_card')]);
     const publicationError = new Error('result publication callback failed');
-    expect(() => stabilizeRoleSession({ projectRoot, sessionId, conversations: { projectRoot, changes: { conversationChanged() { throw publicationError; }, agentsChanged() {} } }, terminalToolNames: terminalTools })).toThrow(publicationError);
+    expect(() => stabilizeRoleSession({ sessionId, conversations: { projectRoot, changes: { conversationChanged() { throw publicationError; }, agentsChanged() {} } }, terminalToolNames: terminalTools })).toThrow(publicationError);
     const rows = readConversation(projectRoot, sessionId).sourceRows;
     expect(rows.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
     expect(rows.filter((row) => row.kind === 'model_recovered')).toHaveLength(0);

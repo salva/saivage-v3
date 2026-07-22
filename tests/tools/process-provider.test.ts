@@ -10,11 +10,11 @@ import type { LlmToolInvocationContext } from '../../src/runtime/actors/executin
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
 function executorProvider(root: string, processes: TestProcessRunnerComposition, ownerId = 'activation-1') {
-  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentRole: 'executor', ownerKind: 'agent' });
+  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });
 }
 
 function analystProvider(root: string, processes: TestProcessRunnerComposition) {
-  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.analystProcessRootScope, 'test:analyst', 'operator_session'), category: 'operator_session', ownerId: 'analyst:global', agentRole: 'analyst', ownerKind: 'operator', launchReason: 'analyst workspace run_command' });
+  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.analystProcessRootScope, 'test:analyst', 'operator_session'), category: 'operator_session', ownerId: 'analyst:global', ownerKind: 'operator' });
 }
 
 function expectUnifiedProcessResult(data: unknown, processId?: string): void {
@@ -217,8 +217,6 @@ describe('process provider', () => {
       owner_id: 'analyst:global',
       agent_session_id: 'analyst:global',
       owner_kind: 'operator',
-      required_for_card_completion: false,
-      launch_reason: 'analyst workspace run_command',
     }));
   }));
 
@@ -236,7 +234,6 @@ describe('process provider', () => {
       owner_id: 'activation-1',
       agent_session_id: 'activation-1',
       owner_kind: 'agent',
-      launch_reason: 'executor process provider run_command',
     }));
   }));
 

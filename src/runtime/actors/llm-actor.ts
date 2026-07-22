@@ -94,7 +94,6 @@ export type ConversationDisposalDisposition = 'revoked_before_owned_completion' 
 export type LLMToolContinuationContextHook = (continuationInputId: string) => { messages: readonly ProviderVisibleUserContextMessage[]; afterAppend?: () => void } | undefined;
 
 export class ConversationLLMActor {
-  readonly projectRoot: string;
   readonly agentId: ConversationSessionId;
   readonly provider: LLMProviderPort;
   readonly gate: RuntimeGate;
@@ -107,8 +106,7 @@ export class ConversationLLMActor {
   #phase: ConversationPhase = { kind: 'idle', disposition: { kind: 'open' } };
   #executingActivity: ExecutingLlmActivity = Object.freeze({ mode: 'active', barrier: null });
 
-  constructor(args: { projectRoot: string; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void }) {
-    this.projectRoot = args.projectRoot;
+  constructor(args: { agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void }) {
     this.agentId = parseConversationSessionId(args.agentId);
     this.provider = args.provider;
     this.conversations = args.conversations;
@@ -131,7 +129,7 @@ export class ConversationLLMActor {
   waitingToolOutcome(): Extract<LLMActorOutcome, { type: 'tool_call' }> {
     if (this.#phase.kind !== 'waiting_tool') throw new Error(`LLMActor '${this.agentId}' is not waiting for a tool call.`);
     const { waiting, input, outcome } = this.#phase.operation;
-    const logged = readLoggedToolCall(this.projectRoot, input.sessionId, this.agentId, waiting.sourceInputId, waiting.toolCallId);
+    const logged = readLoggedToolCall(this.conversations.projectRoot, input.sessionId, this.agentId, waiting.sourceInputId, waiting.toolCallId);
     if (logged.tool_name !== waiting.toolName) throw new Error(`Logged tool call '${waiting.toolCallId}' tool name changed.`);
     return outcome;
   }
@@ -221,7 +219,7 @@ export class ConversationLLMActor {
       this.#assertRepairOpen(repair);
       continuation?.afterAppend?.();
       this.#assertRepairOpen(repair);
-      const next = { ...input, providerConversation: providerConversationProjection(readConversation(this.projectRoot, input.sessionId)), episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id } };
+      const next = { ...input, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, input.sessionId)), episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id } };
       this.#assertRepairOpen(repair);
       repair.settlement.resolve();
       const nested = this.#arm(next, signal, { terminal, cancellation }, repair.disposition);
@@ -360,8 +358,6 @@ export class ConversationLLMActor {
   }
 
   assertInvocationCanHandoff(): void { if (this.#parkedOperation()?.childLease) throw new Error(`LLMActor '${this.agentId}' cannot hand off with a child invocation lease.`); }
-  pendingInvocationCount(): number { return this.#invocations.pendingCount() + (this.#phase.kind === 'settling_tool' || this.#phase.kind === 'repairing_text' ? 1 : 0); }
-
   #arm(input: CanonicalLlmInvocationInput, signal: AbortSignal | undefined, callbacks: Callbacks, disposition: Disposition): Promise<LLMActorOutcome> {
     const result = deferred<LLMActorOutcome>(); observe(result.promise);
     const settlement = deferred<void>(); observe(settlement.promise);
@@ -473,7 +469,7 @@ export class ConversationLLMActor {
       continuation?.afterAppend?.();
       if (toolTerminal(operation).kind === 'cancel_claimed') return this.#publishToolCancellation(operation);
       if (toolTerminal(operation).kind === 'dispose_claimed') throw asError((toolTerminal(operation) as Extract<ToolTerminal, { kind: 'dispose_claimed' }>).reason);
-      continuationInput = { ...continuationInput, providerConversation: providerConversationProjection(readConversation(this.projectRoot, continuationInput.sessionId)) };
+      continuationInput = { ...continuationInput, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, continuationInput.sessionId)) };
       operation.currentInput = continuationInput;
       this.#releaseChild(operation.parked); operation.settlement.resolve();
       const nested = this.#arm(continuationInput, signal, operation.parked.callbacks, operation.parked.disposition);

@@ -7,7 +7,7 @@ import type { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { DEFAULT_CARD_PROCESSES } from '../../src/agents/default-card-processes.js';
 import { CardService } from '../../src/cards/card-service.js';
-import { readConversation } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -15,7 +15,7 @@ import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
 import { compact, estimateCanonicalStaticTokens, prepareCompaction, shouldCompact } from '../../src/runtime/actors/compaction/compactor.js';
 import { classifyConversationRounds } from '../../src/runtime/actors/compaction/round-classifier.js';
-import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { buildAnalystIngressRows, providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { validateConversationRows } from '../../src/contracts/conversation-compaction.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
@@ -138,6 +138,21 @@ describe('Analyst continuation compaction safety', () => {
     expect(providerNames).not.toContain('emit_result');
     expect(captured.terminalToolNames).toEqual([]);
     expect(captured.preparedCompaction?.estimatedStaticTokens).toBe(estimateCanonicalStaticTokens(captured.systemPrompt, captured.tools));
+  });
+
+  it('projects Analyst history from its conversation context while retaining the workspace root for role surfaces', async () => {
+    const conversationRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-conversation-root-'));
+    const captured: LlmInvocationInput[] = [];
+    const result = harness(jest.fn(async (input: LlmInvocationInput) => { captured.push(input); return { result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }; }), jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] })), jest.fn(), false, false, createTestPromptTemplateRegistry(), compact, conversationRoot);
+    appendConversationBatch({ projectRoot: conversationRoot }, buildAnalystIngressRows('11111111-1111-4111-8111-111111111111', 'context-root prior workspace note', 'context-root prior user row'));
+    appendConversationBatch({ projectRoot: result.projectRoot }, buildAnalystIngressRows('22222222-2222-4222-8222-222222222222', 'workspace-root decoy note', 'workspace-root decoy user row'));
+
+    await result.runtime.submit({ userContent: 'current turn' });
+
+    expect(captured).toHaveLength(1);
+    expect(captured[0]!.providerConversation.messages).toContainEqual(expect.objectContaining({ content: 'context-root prior user row' }));
+    expect(captured[0]!.providerConversation.messages).not.toContainEqual(expect.objectContaining({ content: 'workspace-root decoy user row' }));
+    expect(readConversation(result.projectRoot, 'analyst:global').physicalRows.map((row) => row.content)).toContain('workspace-root decoy user row');
   });
 
   it('exposes only the current Analyst operation through provider work, success, failure, cancellation, and an exact external wait', async () => {
@@ -369,10 +384,12 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
   throw new Error('Timed out waiting for Analyst state.');
 }
 
-function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, summary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, projectProviderExchanges = jest.fn(), preventive = true, restartServerAvailable = false, promptTemplates = createTestPromptTemplateRegistry(), compactImplementation = compact) {
+function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, summary: (input: LlmInvocationInput, signal: AbortSignal) => Promise<any>, projectProviderExchanges = jest.fn(), preventive = true, restartServerAvailable = false, promptTemplates = createTestPromptTemplateRegistry(), compactImplementation = compact, conversationRoot?: string) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-compaction-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
+  const conversationsRoot = conversationRoot ?? projectRoot;
+  if (conversationsRoot !== projectRoot) { roots.push(conversationsRoot); initProjectTree(conversationsRoot); }
   const processes = createTestProcessRunner(projectRoot);
   const config = saivageConfigSchema.parse({ models: { default: ['test/model'] }, providers: { test: { models: ['model'] } }, compaction: { enabled: true, input_budget_tokens: 20480, summarizer_candidate: { provider: 'test', account: null, model: 'model' } }, card_processes: DEFAULT_CARD_PROCESSES });
   const { enabled: _enabled, summarizer_candidate: _candidate, ...compactionPolicy } = config.compaction;
@@ -393,7 +410,7 @@ function harness(primary: (input: LlmInvocationInput, signal: AbortSignal) => Pr
     compactionPolicy,
     compactor: { shouldCompact: preventive ? (compactImplementation === compact ? shouldCompact : () => true) : () => false, compact: compactImplementation },
     summarizerProvider,
-    conversations: { projectRoot },
+    conversations: { projectRoot: conversationsRoot },
     interventionReadiness: new RuntimeInterventionBinding(),
     runtimeProjectionChanged: jest.fn(),
     captureExecutingLlmSnapshots: () => [],

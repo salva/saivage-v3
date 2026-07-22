@@ -1,9 +1,9 @@
 import type { ChildProcess, SpawnOptions } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { createWriteStream, mkdirSync, writeFileSync, type WriteStream } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/layout.js';
-import type { ProcessRecord, ProcessStatus } from '../schemas/index.js';
+import type { ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/clock.js';
 import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
 import {
@@ -22,18 +22,31 @@ export interface ProcessSpawnSpec {
   ownerKind: 'agent' | 'operator' | 'runtime';
   cwd?: string;
   env?: Record<string, string>;
-  requiredForCardCompletion?: boolean;
   agentSessionId?: string;
-  goalId?: string;
-  launchReason?: string;
-  backgroundPolicy?: 'foreground';
 }
 
-export interface InteractiveProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command' | 'backgroundPolicy' | 'env'> {
+export interface InteractiveProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command' | 'env'> {
   file: string;
   args: readonly string[];
   stdio: SpawnOptions['stdio'];
   env: NodeJS.ProcessEnv;
+}
+
+export interface ProcessRecord {
+  id: string;
+  card_id: string | null;
+  owner_id: string;
+  owner_kind: 'agent' | 'operator' | 'runtime';
+  agent_session_id: string | null;
+  command: string;
+  cwd: string;
+  status: ProcessStatus;
+  started_at: string;
+  completed_at: string | null;
+  exit_code: number | null;
+  signal: string | null;
+  stdout_path: string;
+  stderr_path: string;
 }
 
 export interface InteractiveProcessLaunch {
@@ -56,7 +69,7 @@ export interface ProcessListFilter {
 
 interface ProcessPresentation {
   record: ProcessRecord;
-  leaderOutcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal' | 'terminal_reason'> | null;
+  leaderOutcome: Pick<ProcessRecord, 'status' | 'exit_code' | 'signal'> | null;
   streams: { stdout: WriteStream; stderr: WriteStream } | null;
   streamClose: Promise<void> | null;
 }
@@ -65,17 +78,12 @@ function generateId(): string {
   return `proc-${randomBytes(6).toString('hex')}`;
 }
 
-function nowMonotonic(): number {
-  return Math.floor(performance.timeOrigin + performance.now());
-}
-
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export class ProcessRunner {
   private readonly presentations = new Map<string, ProcessPresentation>();
-  private readonly commandHashSalt = randomBytes(32);
   readonly #registry: ManagedProcessGroupRegistry;
 
   constructor(readonly projectRoot: string, registry: ManagedProcessGroupRegistry) {
@@ -190,28 +198,17 @@ export class ProcessRunner {
       id,
       card_id: cardId,
       owner_id: spec.ownerId,
+      owner_kind: spec.ownerKind,
+      agent_session_id: spec.agentSessionId ?? null,
       command: redactCommandForPolicy(spec.command),
-      command_hash: createHash('sha256').update(this.commandHashSalt).update('\0').update(spec.command).digest('hex'),
       cwd,
-      cwd_canonical: resolve(cwd),
       status: 'running',
-      pid: null,
       started_at: now(),
-      started_at_monotonic: nowMonotonic(),
       completed_at: null,
       exit_code: null,
       signal: null,
-      terminal_reason: null,
-      required_for_card_completion: cardId ? (spec.requiredForCardCompletion ?? true) : false,
-      output_dir: outputDir,
       stdout_path: stdoutPath,
       stderr_path: stderrPath,
-      agent_session_id: spec.agentSessionId ?? null,
-      goal_id: spec.goalId ?? null,
-      launch_reason: spec.launchReason ?? null,
-      owner_kind: spec.ownerKind,
-      background_policy: spec.backgroundPolicy ?? null,
-      failure_classification: null,
     };
     const presentation: ProcessPresentation = { record, leaderOutcome: null, streams, streamClose: null };
     this.presentations.set(id, presentation);
@@ -235,7 +232,6 @@ export class ProcessRunner {
       void this.closeStreams(streams);
       throw error;
     }
-    record.pid = child.pid ?? null;
     if (captureOutput && streams) {
       child.stdout?.pipe(streams.stdout);
       child.stderr?.pipe(streams.stderr);
@@ -245,12 +241,11 @@ export class ProcessRunner {
         status: signalCode === 'SIGKILL' || signalCode === 'SIGTERM' ? 'killed' : exitCode === 0 ? 'exited' : 'failed',
         exit_code: exitCode,
         signal: signalCode ?? null,
-        terminal_reason: signalCode ? 'signal' : 'exit',
       };
     });
     child.once('error', (error) => {
       if (streams) streams.stderr.write(`[process-runner] spawn error: ${error.message}\n`);
-      presentation.leaderOutcome = { status: 'failed', exit_code: -1, signal: null, terminal_reason: 'spawn_error' };
+      presentation.leaderOutcome = { status: 'failed', exit_code: -1, signal: null };
     });
     return { record: { ...record }, process: child };
   }
@@ -259,9 +254,9 @@ export class ProcessRunner {
     const presentation = this.presentations.get(procId);
     if (!presentation || presentation.record.status !== 'running') return;
     const outcome = terminationReason
-      ? { status: 'killed' as const, exit_code: null, signal: 'SIGTERM', terminal_reason: 'signal' as const }
-      : presentation.leaderOutcome ?? { status: 'failed' as const, exit_code: null, signal: null, terminal_reason: 'spawn_error' };
-    presentation.record = { ...presentation.record, ...outcome, completed_at: now(), failure_classification: outcome.terminal_reason === 'spawn_error' ? 'spawn_error' : null };
+      ? { status: 'killed' as const, exit_code: null, signal: 'SIGTERM' }
+      : presentation.leaderOutcome ?? { status: 'failed' as const, exit_code: null, signal: null };
+    presentation.record = { ...presentation.record, ...outcome, completed_at: now() };
     presentation.streamClose = this.closeStreams(presentation.streams);
     presentation.streams = null;
   }
