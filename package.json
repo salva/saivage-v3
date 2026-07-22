@@ -109,7 +109,7 @@
     "ts-jest": "^29.4.9",
     "tsx": "4.22.3",
     "typescript": "^5.9.3",
-    "vitepress": "^1.6.4"
+    "vitepress": "2.0.0-alpha.1"
   },
   "jest": {
     "preset": "ts-jest",
