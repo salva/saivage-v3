@@ -116,7 +116,6 @@ export type {
   CardHistoryEntry,
   CardHistoryKind,
   CardRecord,
-  CardRefView,
   CardView,
   CardStatus,
   CardType,

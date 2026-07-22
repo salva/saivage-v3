@@ -31,7 +31,6 @@ export type {
   CardHistoryEntry,
   CardHistoryHeader,
   CardHistoryKind,
-  CardRefView,
   CardStatus,
   CardType,
   DoctorResponse,

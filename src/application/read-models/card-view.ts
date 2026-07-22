@@ -1,5 +1,5 @@
 import { PROJECT_CARD_ID, type CardService } from '../../cards/card-api.js';
-import type { CardOperatorSummary, CardRecord, CardRefView, CardView } from '../../schemas/index.js';
+import type { CardOperatorSummary, CardRecord, CardView } from '../../schemas/index.js';
 import { cardParentId } from '../../schemas/card-id.js';
 
 export function computeCardLogicalPath(store: CardService, card: CardRecord): string | null {
@@ -53,12 +53,6 @@ export function orderedCardsForTree(store: CardService): CardRecord[] {
 
 export function toCardView(store: CardService, card: CardRecord): CardView {
   return { card, logical_path: computeCardLogicalPath(store, card), status: card.lifecycle.status, parent: cardParentId(card.id), operator_summary: toCardOperatorSummary(card) };
-}
-
-export function toCardRefView(store: CardService, id: string): CardRefView {
-  const card = store.read(id);
-  if (!card) return { id, logical_path: null, title: null, missing: true };
-  return { id, logical_path: computeCardLogicalPath(store, card), title: card.title };
 }
 
 export function toCardOperatorSummary(card: CardRecord): CardOperatorSummary {

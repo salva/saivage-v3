@@ -47,7 +47,6 @@ export const cardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.la
 export const cardOperatorSummarySchema: z.ZodType<import('./types.js').CardOperatorSummary> = z.object({ blocked: z.boolean(), hasError: z.boolean(), error: z.string().nullable(), completedAt: z.string().nullable(), stale: z.boolean() }).strict();
 export const operatorCardSchema = z.object({ ...cardRecordShape, allowedActions: z.array(cardActionSchema), operator_summary: cardOperatorSummarySchema }).strict().superRefine(refineCardLifecycle);
 export const cardViewSchema: z.ZodType<import('./types.js').CardView> = z.object({ card: cardRecordSchema, logical_path: z.string().nullable(), status: cardStatusSchema, parent: cardIdSchema.nullable(), operator_summary: cardOperatorSummarySchema }).strict();
-export const cardRefViewSchema: z.ZodType<import('./types.js').CardRefView> = z.object({ id: z.string().min(1), logical_path: z.string().nullable(), title: z.string().nullable(), missing: z.boolean().optional() });
 export const cardHistoryKindSchema = z.enum(['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete']);
 const historyCommonShape = { entry_id: z.string().uuid(), card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, changed_at: z.string().datetime(), change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() };
 const historyProvenance = {

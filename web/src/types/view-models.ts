@@ -5,7 +5,6 @@ export type {
   AgentSession,
   CardHistoryHeader,
   CardRecord,
-  CardRefView,
   CardStatus,
   CardType,
   DetailErrorState,

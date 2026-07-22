@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardService } from '../../src/cards/card-service.js';
-import { computeCardLogicalPath, orderedCardsForTree, toCardRefView, toCardView } from '../../src/application/read-models/card-view.js';
+import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../../src/application/read-models/card-view.js';
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { ValidationErrorSchema } from '../../src/contracts/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -59,8 +59,6 @@ describe('direct card history and operator read models', () => {
     const firstView = toCardView(cards, cards.read(first.id)!);
     expect(firstView).toMatchObject({ card: { id: first.id }, status: 'backlog', parent: 'project', logical_path: '1', operator_summary: { blocked: false, hasError: false, stale: false } });
     expect(firstView.operator_summary).not.toHaveProperty('terminal');
-    const missing = 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
-    expect(toCardRefView(cards, missing)).toEqual({ id: missing, logical_path: null, title: null, missing: true });
   });
 
   it('keeps every card-domain operator read opaque after tombstone', () => {

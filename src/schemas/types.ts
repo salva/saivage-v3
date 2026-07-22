@@ -75,7 +75,6 @@ export interface CardOperatorSummary {
   stale: boolean;
 }
 export interface CardView { card: CardRecord; logical_path: string | null; status: CardStatus; parent: string | null; operator_summary: CardOperatorSummary; }
-export interface CardRefView { id: string; logical_path: string | null; title: string | null; missing?: boolean; }
 export type CardHistoryKind = 'update' | 'notification_enqueue' | 'notification_remove' | 'status' | 'terminal' | 'child_link' | 'reorder' | 'delete';
 export interface CardHistoryEntryBase { entry_id: string; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; change_reason: string | null; changed_fields: string[]; change_summary: string; }
 export type RuntimeCardHistoryEntry = CardHistoryEntryBase & { kind: Exclude<CardHistoryKind, 'update' | 'delete'>; changed_by_actor: 'runtime'; changed_by_surface: 'runtime' };
