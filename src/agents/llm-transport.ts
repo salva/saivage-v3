@@ -82,24 +82,6 @@ export async function resolveLlmTransportConfig(
   };
 }
 
-export function transportAuthProfileDependency(
-  registry: ProviderRegistry,
-  candidate: Candidate,
-): 'none' | 'requires_explicit_auth_profile' | 'requires_implicit_auth_profile' {
-  const provider = registry.get(candidate.provider);
-  if (!provider) return 'none';
-  const account =
-    candidate.account != null
-      ? provider.getAllAccounts().find((a) => a.name === candidate.account)
-      : provider.implicitAccount;
-  if (!account) return 'none';
-  const resolver = new CredentialSourceResolver({
-    loadAuthProfiles: async () => null,
-    usableProfileAccessToken: async () => undefined,
-  });
-  return resolver.authProfileDependency(provider, account);
-}
-
 async function usableProfileAccessToken(
   projectRoot: string,
   profileName: string,

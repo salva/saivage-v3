@@ -39,8 +39,6 @@ export interface ResolvedCredentialSources {
   openAICodexAccountId?: string;
 }
 
-export type AuthProfileDependency = 'none' | 'requires_explicit_auth_profile' | 'requires_implicit_auth_profile';
-
 export interface CredentialSourceResolverOptions {
   loadAuthProfiles: () => Promise<AuthProfilesFile | null>;
   usableProfileAccessToken: (profileName: string, profile: AuthProfile, abortSignal?: AbortSignal) => Promise<string | undefined>;
@@ -89,15 +87,6 @@ export class CredentialSourceResolver {
       return { baseUrl, apiKey: credential.apiKey, openAICodexAccountId: deriveOpenAICodexAccountId(credential.apiKey, provider.name, account.name) };
     }
     return { baseUrl, apiKey: credential.apiKey };
-  }
-
-  authProfileDependency(provider: Provider, account: Account): AuthProfileDependency {
-    if (isExplicitAccount(account) && account.authProfile) return 'requires_explicit_auth_profile';
-    if (provider.authProfile) return 'requires_explicit_auth_profile';
-    if (isExplicitAccount(account) && account.apiKey) return 'none';
-    if (provider.apiKey) return 'none';
-    if (this.providerNeedsCredential(provider.name)) return 'requires_implicit_auth_profile';
-    return 'none';
   }
 
   private resolveBaseUrl(provider: Provider, account: Account): { baseUrl: string; source: BaseUrlSource } {
