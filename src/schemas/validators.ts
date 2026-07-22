@@ -3,7 +3,6 @@ import {
   agentEventKindValues,
   eventKindValues,
   runtimeEventKindValues,
-  type EventKind,
   agentRoleValues,
   analystIssueSeverityValues,
   cardActionValues,

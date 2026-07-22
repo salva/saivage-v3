@@ -10,7 +10,7 @@ import type { CardService } from '../../cards/card-service.js';
 import { processNodeOutcomes, processNodeTransition, processTransitionPromptKey, type CompiledCardProcess, type ProcessNodeMetadata, type ProcessRole } from '../card-process/card-process-config.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
-import type { ConversationLLMActor, LLMActorOutcome } from './llm-actor.js';
+import type { ConversationLLMActor } from './llm-actor.js';
 import type { PreparedLlmInvocationInput } from './llm-invocation.js';
 import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
@@ -83,6 +83,7 @@ export class AgentNodeExecution {
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
     let publicationFailure: AppLogPublicationError | null = null;
     let reviewerPair = node.role === 'reviewer' ? this.captureReviewerPair(input.card.id) : null;
+    let primaryCompletion: { kind: 'success'; value: AcceptedNodeResult } | { kind: 'failure'; reason: unknown };
     try {
       const inputId = this.host.freshInputId();
       this.prepareNodeEntry(process, node, args.transition, input, sessionId, inputId, contract, surface, reviewerPair);
@@ -149,19 +150,24 @@ export class AgentNodeExecution {
         },
       });
       this.host.assertCurrentActivation(input);
-      return accepted;
+      primaryCompletion = { kind: 'success', value: accepted };
     } catch (error) {
       if (error instanceof AppLogPublicationError) publicationFailure = error;
-      throw error;
-    } finally {
-      try {
-        await cleanupInvocationSurface(surface, publicationFailure
-          ? { kind: 'publication_terminal', error: publicationFailure }
-          : { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
-      } catch (cleanupError) {
-        if (!publicationFailure) throw cleanupError;
-      }
+      primaryCompletion = { kind: 'failure', reason: error };
     }
+    let cleanupCompletion: { kind: 'success' } | { kind: 'failure'; reason: unknown };
+    try {
+      await cleanupInvocationSurface(surface, publicationFailure
+        ? { kind: 'publication_terminal', error: publicationFailure }
+        : { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
+      cleanupCompletion = { kind: 'success' };
+    } catch (error) {
+      cleanupCompletion = { kind: 'failure', reason: error };
+    }
+    if (publicationFailure) throw publicationFailure;
+    if (cleanupCompletion.kind === 'failure') throw cleanupCompletion.reason;
+    if (primaryCompletion.kind === 'failure') throw primaryCompletion.reason;
+    return primaryCompletion.value;
   }
 
   private prepareNodeEntry(process: CompiledCardProcess, node: ProcessNodeMetadata, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface, reviewerPair: ReviewerContextPair | null): void {

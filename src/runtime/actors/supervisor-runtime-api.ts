@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { cardRecordSchema, type CardNotification, type CardRecord, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/status-api.js';
-import { CardActivationOwner, type CardActivationCaller, type CardCancellationResult, type CardProcessorActor, type PlannerChildControlPort } from './card-activation-owner.js';
+import { CardActivationOwner, type CardActivationCaller, type CardCancellationResult, type PlannerChildControlPort } from './card-activation-owner.js';
 import { CardProcessActor } from './card-process-actor.js';
 import { toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';

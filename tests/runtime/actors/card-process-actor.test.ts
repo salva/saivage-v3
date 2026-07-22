@@ -16,6 +16,8 @@ import { cardProcessesSchema } from '../../../src/agents/config-schema.js';
 import { DEFAULT_CARD_PROCESSES } from '../../../src/agents/default-card-processes.js';
 import { compileCardProcesses, type CompiledCardProcess } from '../../../src/runtime/card-process/card-process-config.js';
 import { estimateCanonicalStaticTokens } from '../../../src/runtime/actors/compaction/compactor.js';
+import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { ConversationLLMActor } from '../../../src/runtime/actors/llm-actor.js';
 
 const tool = (id: string, outcome: string, summary = outcome): ProviderTurnCompletion => ({ result: { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ outcome, summary }) } }] }, provider_exchanges: [] });
 
@@ -44,6 +46,44 @@ describe('CardProcessActor configured graph execution', () => {
     const claimResult = jest.fn(() => options.onClaim?.());
     const input = () => ({ activationId: 'activation-test', card: store.read(cardId)!, caller: { kind: 'root' as const }, entry: options.entry ?? 'BACKLOG', claimResult, alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(), notificationDelivery: { selectNotifications: () => store.read(cardId)!.pending_notifications, removeNotifications: (ids: readonly string[]) => { options.removeNotifications ? options.removeNotifications(store, cardId, ids) : store.removeNotifications(cardId, [...ids]); } } });
     return { projectRoot, cardId, store, processRunner, actor, claimResult, input };
+  }
+
+  function nodeExecutionHarness(completeTurn: LLMProviderPort['completeTurn']) {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-agent-node-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const store = new CardService(projectRoot);
+    const cardId = store.create({ type: 'code', parent: 'project', title: 'code', brief: 'code', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] }).id;
+    const processes = createTestProcessRunner(projectRoot);
+    const process = testAutonomousCompaction.cardProcesses.terminal;
+    const stateId = 'node:execute';
+    const node = process.states.get(stateId);
+    if (!node || node.kind !== 'node') throw new Error('Missing test executor node.');
+    const execution = new AgentNodeExecution({
+      projectRoot, cardId, store,
+      parentControl: { activateChild: async () => { throw new Error('unused'); }, cancelChild: async () => { throw new Error('unused'); } },
+      notifyCard: () => ({ ok: true, notificationId: 'unused' }),
+      processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope,
+      promptTemplates: { render: () => 'executor prompt' }, conversations: { projectRoot },
+      ...testAutonomousCompaction,
+    }, {
+      createLlm: (agentId) => new ConversationLLMActor({
+        projectRoot, agentId, provider: { completeTurn }, conversations: { projectRoot },
+        compactor: testAutonomousCompaction.compactor, summarizerProvider: testAutonomousCompaction.summarizerProvider,
+      }),
+      selectLlm: () => undefined,
+      freshInputId: () => '00000000-0000-4000-8000-000000000001',
+      assertCurrentActivation: () => undefined,
+    });
+    const input = {
+      activationId: 'activation-test', card: store.read(cardId)!, caller: { kind: 'root' as const }, entry: 'BACKLOG' as const,
+      claimResult: jest.fn(), alreadyStabilizedRoles: new Set<'planner' | 'reviewer' | 'executor'>(['executor']),
+      notificationDelivery: { selectNotifications: () => store.read(cardId)!.pending_notifications, removeNotifications: (ids: readonly string[]) => store.removeNotifications(cardId, [...ids]) },
+    };
+    return {
+      cardId, store, processRunner: processes.processRunner,
+      execute: () => execution.execute({ process, stateId, node, transition: { context: { source: 'entry:BACKLOG', event: 'entry:route', target: stateId, reentered: false, sequence: 1 }, acceptedResult: null }, input, signal: new AbortController().signal, nodeOrdinal: 0 }),
+    };
   }
 
   it('keeps autonomous prompt tools operational-only and provider/compaction tools terminal-last for every role', async () => {
@@ -399,6 +439,37 @@ describe('CardProcessActor configured graph execution', () => {
     await expect(Promise.race([joined, new Promise((_, reject) => setTimeout(() => reject(new Error('join deadlock')), 500))])).resolves.toEqual(expect.any(Array));
     expect(consoleError).not.toHaveBeenCalled();
     expect(projection).not.toHaveBeenCalled();
+  });
+
+  it('preserves primary publication failure identity when executor cleanup also fails', async () => {
+    const publicationError = new AppLogPublicationError('provider_exchange', new Error('publication failed'));
+    const cleanupError = new Error('cleanup failed');
+    const h = nodeExecutionHarness(async () => { throw publicationError; });
+    jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockRejectedValue(cleanupError);
+
+    await expect(h.execute()).rejects.toBe(publicationError);
+  });
+
+  it('prefers executor cleanup failure identity over ordinary execution rejection', async () => {
+    const executionError = new Error('execution failed');
+    const cleanupError = new Error('cleanup failed');
+    const h = nodeExecutionHarness(async () => { throw executionError; });
+    jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockRejectedValue(cleanupError);
+
+    await expect(h.execute()).rejects.toBe(cleanupError);
+  });
+
+  it('prefers executor cleanup failure identity over successful execution', async () => {
+    const cleanupError = new Error('cleanup failed');
+    let h!: ReturnType<typeof nodeExecutionHarness>;
+    h = nodeExecutionHarness(async () => {
+      const open = h.store.openRecord(h.cardId, 'status.md');
+      h.store.editRecord(h.cardId, 'status.md', open.version, 'complete');
+      return tool('complete', 'done');
+    });
+    jest.spyOn(h.processRunner, 'closeAndTerminateDirectScope').mockRejectedValue(cleanupError);
+
+    await expect(h.execute()).rejects.toBe(cleanupError);
   });
 
   it.each(['planner', 'reviewer', 'executor'] as const)('retains duplicate-visible context when %s crashes after candidate appends before removal', async (role) => {

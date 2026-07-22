@@ -242,7 +242,7 @@ export class ConversationLLMActor {
     if (phase.kind === 'arming' || phase.kind === 'invoking') {
       const operation = phase.operation;
       if (operation.completionPersistenceEntered || !operation.callbacks.cancellation) return { kind: 'not_claimed' };
-      const publication = operation.callbacks.cancellation(operation.input, reason);
+      operation.callbacks.cancellation(operation.input, reason);
       this.#invocations.revoke(new Error(reason));
       this.#phase = { kind: 'idle', disposition: operation.disposition };
       const interruption = new Error(reason);
@@ -547,10 +547,21 @@ export class ConversationLLMActor {
       this.#requireExactParked(parked);
       if (this.#executingActivity.mode !== 'active' || parked.childLease?.isWaitingBarrier()) throw new Error(`LLMActor '${this.agentId}' already owns a wait barrier.`);
       this.#executingActivity = Object.freeze({ mode: 'waiting', barrier: Object.freeze(barrier) }); this.#publishExecutingActivityChange();
-      let publicationTerminal = false;
-      try { return await promise; }
-      catch (error) { publicationTerminal = error instanceof AppLogPublicationError; throw error; }
-      finally { if (this.#executingActivity.mode !== 'waiting' || this.#executingActivity.barrier !== barrier) throw new Error(`LLMActor '${this.agentId}' wait barrier changed before settlement.`); this.#executingActivity = Object.freeze({ mode: 'active', barrier: null }); if (!publicationTerminal) this.#publishExecutingActivityChange(); }
+      let awaitedCompletion: { kind: 'success'; value: T } | { kind: 'failure'; reason: unknown };
+      try { awaitedCompletion = { kind: 'success', value: await promise }; }
+      catch (error) { awaitedCompletion = { kind: 'failure', reason: error }; }
+      let settlementCompletion: { kind: 'success' } | { kind: 'failure'; reason: unknown };
+      try {
+        if (this.#executingActivity.mode !== 'waiting' || this.#executingActivity.barrier !== barrier) throw new Error(`LLMActor '${this.agentId}' wait barrier changed before settlement.`);
+        this.#executingActivity = Object.freeze({ mode: 'active', barrier: null });
+        if (awaitedCompletion.kind !== 'failure' || !(awaitedCompletion.reason instanceof AppLogPublicationError)) this.#publishExecutingActivityChange();
+        settlementCompletion = { kind: 'success' };
+      } catch (error) {
+        settlementCompletion = { kind: 'failure', reason: error };
+      }
+      if (settlementCompletion.kind === 'failure') throw settlementCompletion.reason;
+      if (awaitedCompletion.kind === 'failure') throw awaitedCompletion.reason;
+      return awaitedCompletion.value;
     };
     return Object.freeze({ waitExternal: <T>(promise: Promise<T>) => wait({ kind: 'external', ...identity }, promise), waitProcess: <T>(processId: string, promise: Promise<T>) => wait({ kind: 'process', ...identity, processId }, promise) });
   }

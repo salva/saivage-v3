@@ -14,6 +14,7 @@ import { MemoryCandidateAvailability } from '../../../src/agents/candidate-avail
 import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
 import { NO_FRESHNESS_EFFECTS } from '../../../src/application/freshness-effects.js';
 import { invocationProviderRegistry } from '../../helpers/invocation-provider-fixture.js';
+import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -84,6 +85,41 @@ describe('prepared conversation LLM admission', () => {
     lease.markContained();
     lease.deliverInterruption(new Error('contained'));
     await expect(lease.activation).rejects.toThrow('contained');
+  });
+
+  it.each(['rejection', 'success'] as const)('prefers wait settlement publication failure over awaited %s', async (completion) => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-wait-settlement-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const projectionChanged = jest.fn();
+    const actor = toolCallingActor(projectRoot, async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'wait-call', type: 'function' as const, function: { name: 'wait', arguments: '{}' } }] }, provider_exchanges: [] }), projectionChanged);
+    const outcome = await directTurn(actor, preparedInput());
+    if (outcome.type !== 'tool_call') throw new Error('Expected a tool call.');
+    projectionChanged.mockClear();
+    const settlementError = new Error('settlement publication failed');
+    projectionChanged.mockImplementation(() => { if (projectionChanged.mock.calls.length === 2) throw settlementError; });
+    const awaitedError = new Error('awaited operation failed');
+    const awaited = completion === 'rejection' ? Promise.reject<unknown>(awaitedError) : Promise.resolve<unknown>({ accepted: true });
+
+    await expect(actor.toolInvocationContext(outcome).waits.waitExternal(awaited)).rejects.toBe(settlementError);
+    expect(actor.executingActivity()).toEqual({ mode: 'active', barrier: null });
+    expect(projectionChanged).toHaveBeenCalledTimes(2);
+  });
+
+  it('preserves awaited publication failure identity, restores active state, and skips settlement publication', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-llm-wait-publication-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const projectionChanged = jest.fn();
+    const actor = toolCallingActor(projectRoot, async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'wait-call', type: 'function' as const, function: { name: 'wait', arguments: '{}' } }] }, provider_exchanges: [] }), projectionChanged);
+    const outcome = await directTurn(actor, preparedInput());
+    if (outcome.type !== 'tool_call') throw new Error('Expected a tool call.');
+    projectionChanged.mockClear();
+    const publicationError = new AppLogPublicationError('provider_exchange', new Error('publication failed'));
+
+    await expect(actor.toolInvocationContext(outcome).waits.waitExternal(Promise.reject(publicationError))).rejects.toBe(publicationError);
+    expect(actor.executingActivity()).toEqual({ mode: 'active', barrier: null });
+    expect(projectionChanged).toHaveBeenCalledTimes(1);
   });
 
   it('abandons unresolved provider work immediately and fences its later completion from actor effects', async () => {
@@ -245,7 +281,7 @@ describe('prepared conversation LLM admission', () => {
   });
 });
 
-function toolCallingActor(projectRoot: string, completeTurn: LLMProviderPort['completeTurn']): ConversationLLMActor {
+function toolCallingActor(projectRoot: string, completeTurn: LLMProviderPort['completeTurn'], runtimeProjectionChanged?: () => void): ConversationLLMActor {
   const actor = new ConversationLLMActor({
     projectRoot,
     agentId: 'planner:project',
@@ -253,6 +289,7 @@ function toolCallingActor(projectRoot: string, completeTurn: LLMProviderPort['co
     conversations: { projectRoot },
     compactor: { shouldCompact: () => false, compact: jest.fn<CompactorPort['compact']>() },
     summarizerProvider: { completeTurn: jest.fn<LLMProviderPort['completeTurn']>(), projectProviderExchanges: jest.fn() },
+    runtimeProjectionChanged,
   });
   return actor;
 }

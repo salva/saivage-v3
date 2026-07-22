@@ -4,7 +4,6 @@ import { loadEnvironment, type Environment } from '../config/index.js';
 import { publishInitialProjectCard } from '../persistence/card-files.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/generated-state.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity } from '../runtime/lock.js';
-import type { CardRecord } from '../schemas/index.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 import { createRestartPort } from './restart-port.js';
 
