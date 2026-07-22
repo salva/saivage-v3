@@ -50,7 +50,17 @@ function permanentFailure(input: LlmInvocationInput): ProviderTurnFailure {
   const originalFailure = new LlmRequestError({ kind: 'auth_permanent', provider: 'test-provider', status: 401, message });
   const exchange: ProviderExchangeAttempt = {
     contract_id: 'test-contract', contract_name: 'test contract', transport: 'generic', provider: 'test-provider', model: 'test-model',
-    source_input_id: input.inputId, attempt_index: 0, request_params: {}, started_at: '2026-07-17T00:00:00.000Z', completed_at: '2026-07-17T00:00:00.001Z',
+    source_input_id: input.inputId,
+    attempt_index: 0,
+    request_params: {
+      endpoint: 'https://provider.example.test/v1/chat/completions',
+      method: 'POST',
+      stream: false,
+      offered_tools_count: input.tools.length,
+      temperature: 0,
+      max_tokens: 256,
+    },
+    started_at: '2026-07-17T00:00:00.000Z', completed_at: '2026-07-17T00:00:00.001Z',
     status: 'error', response_status: 401, terminal_tool_fired: null, error: { name: 'LlmRequestError', message, status: 401 },
   };
   return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange], originalFailure });

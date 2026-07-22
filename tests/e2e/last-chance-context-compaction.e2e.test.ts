@@ -169,7 +169,27 @@ function toolCompletion(request: InvocationRequest, id: string, name: string, ar
 }
 
 function attempt(request: InvocationRequest, status: 'ok' | 'error', responseStatus: number): ProviderExchangeAttempt {
-  const base = { contract_id: 'e2e.v1', contract_name: 'last-chance-e2e', transport: 'generic' as const, provider: 'test', model: request.role === 'analyst' ? 'org/summary/model' : 'work-model', source_input_id: request.inputId, attempt_index: 0, request_params: {}, started_at: '2026-07-17T00:10:00.000Z', completed_at: '2026-07-17T00:10:00.001Z', response_status: responseStatus, terminal_tool_fired: null };
+  const base = {
+    contract_id: 'e2e.v1',
+    contract_name: 'last-chance-e2e',
+    transport: 'generic' as const,
+    provider: 'test',
+    model: request.role === 'analyst' ? 'org/summary/model' : 'work-model',
+    source_input_id: request.inputId,
+    attempt_index: 0,
+    request_params: {
+      endpoint: 'https://provider.example.test/v1/chat/completions',
+      method: 'POST',
+      stream: false,
+      offered_tools_count: request.tools.length,
+      temperature: 0,
+      max_tokens: 256,
+    },
+    started_at: '2026-07-17T00:10:00.000Z',
+    completed_at: '2026-07-17T00:10:00.001Z',
+    response_status: responseStatus,
+    terminal_tool_fired: null,
+  };
   return status === 'ok' ? { ...base, status } : { ...base, status, error: { name: 'LlmRequestError', message: 'strict context rejection', status: responseStatus } };
 }
 
