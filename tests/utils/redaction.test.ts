@@ -8,9 +8,9 @@ import {
 } from '../../src/redaction/index.js';
 
 describe('outbound redaction', () => {
-  it('has the exact source inventory implemented in the first cutover phase', () => {
+  it('has the exact singular-cutover source inventory', () => {
     expect(OUTBOUND_REDACTION_SOURCES).toEqual([
-      'provider-exchange', 'logged-event', 'control-action', 'operator-card', 'runtime-card-runs', 'card-history', 'card-diff', 'config', 'process-view', 'webfetch-invocation', 'webfetch-result', 'tool-invocation', 'agent-conversation', 'dynamic',
+      'provider-exchange', 'logged-event', 'control-action', 'operator-card', 'runtime-card-runs', 'card-history', 'card-diff', 'config', 'process-view', 'webfetch-invocation', 'webfetch-result', 'tool-invocation', 'agent-conversation', 'ws-envelope', 'mcp-status', 'mcp-tools', 'dynamic',
     ]);
   });
   describe('structured values', () => {
@@ -85,69 +85,19 @@ describe('outbound redaction', () => {
       expect(JSON.stringify(projected)).not.toContain('synthetic-custom-field');
     });
 
-    it('does not truncate typed dynamic values at the legacy depth or entry bounds', () => {
+    it('does not truncate admitted dynamic values by depth or entry count', () => {
       let deep: Record<string, unknown> = { value: 'kept' };
       for (let depth = 0; depth < 10; depth += 1) deep = { child: deep };
       const wide = Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`field${index}`, index]));
 
-      const projected = redactForOutbound({ source: 'dynamic', value: { deep, wide }, options: { maxDepth: 1, maxEntries: 1 } }) as Record<string, any>;
-      expect(projected.deep.child.child.child.child.child.child.child.child.child.child.value).toBe('kept');
+      const projected = redactForOutbound({ source: 'dynamic', value: { deep, wide } }) as { deep: unknown; wide: Record<string, unknown> };
+      let cursor = projected.deep;
+      for (let depth = 0; depth < 10; depth += 1) {
+        expect(cursor).toEqual(expect.objectContaining({ child: expect.anything() }));
+        cursor = (cursor as Record<string, unknown>)['child'];
+      }
+      expect(cursor).toEqual({ value: 'kept' });
       expect(Object.keys(projected.wide)).toHaveLength(101);
-    });
-
-    it('uses the default depth bound of 8', () => {
-      let input: Record<string, unknown> = { value: 'deep' };
-      for (let depth = 0; depth < 8; depth += 1) input = { child: input };
-
-      expect(redactForOutbound(input)).toEqual({
-        child: {
-          child: {
-            child: {
-              child: {
-                child: {
-                  child: {
-                    child: {
-                      child: '[MaxDepth]',
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      });
-    });
-
-    it('uses the default entry bound of 100 for arrays and objects', () => {
-      const array = Array.from({ length: 101 }, (_, index) => index);
-      const object = Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`field${index}`, index]));
-
-      const result = redactForOutbound({ array, object });
-
-      expect(result.array).toEqual([...array.slice(0, 100), '[1 entries truncated]']);
-      expect(result.object).toEqual({
-        ...Object.fromEntries(Object.entries(object).slice(0, 100)),
-        __truncated__: '1 entries truncated',
-      });
-    });
-
-    it('honors caller-supplied depth and entry bounds with the exact truncation markers', () => {
-      expect(redactForOutbound({
-        nested: { child: { value: 'too deep' } },
-        array: [1, 2, 3, 4],
-        object: { first: 1, second: 2, third: 3 },
-      }, { maxDepth: 2, maxEntries: 2 })).toEqual({
-        nested: { child: '[MaxDepth]' },
-        array: [1, 2, '[2 entries truncated]'],
-        __truncated__: '1 entries truncated',
-      });
-
-      expect(redactForOutbound([1, 2, 3, 4], { maxEntries: 2 })).toEqual([1, 2, '[2 entries truncated]']);
-      expect(redactForOutbound({ first: 1, second: 2, third: 3 }, { maxEntries: 2 })).toEqual({
-        first: 1,
-        second: 2,
-        __truncated__: '1 entries truncated',
-      });
     });
   });
 

@@ -3,4 +3,4 @@ export {
   AnalystSession,
 } from './analyst-handler.js';
 export type { AnalystTurnInput, AnalystTurnResult } from './analyst-handler.js';
-export { sanitizeAnalystPayload, sanitizeAnalystText } from './analyst-sanitization.js';
+export { sanitizeAnalystText } from './analyst-sanitization.js';

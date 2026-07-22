@@ -4,6 +4,7 @@ import type { ToolContext } from './analyst-tool-types.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { diffCardInputSchema, getCardHistoryEntryInputSchema, listCardHistoryInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { cardHistoryHeaderSchema } from '../schemas/index.js';
 
 export interface CardHistoryProviderContext {
   readonly store: ToolContext['store'];
@@ -38,7 +39,7 @@ export function createCardHistoryProvider(ctx: CardHistoryProviderContext): Tool
 async function listCardHistory(ctx: CardHistoryProviderContext, params: z.infer<typeof listCardHistoryInputSchema>): Promise<ToolResult> {
   const result = ctx.store.listCardHistory(params.cardId);
   if (result.kind === 'card-not-found') return { success: false, error: `Card '${params.cardId}' not found.` };
-  const entries = result.value.map((entry) => redactForOutbound({ source: 'card-history', value: {
+  const entries = result.value.map((entry) => redactForOutbound({ source: 'card-history', value: cardHistoryHeaderSchema.parse({
     entry_id: entry.entry_id,
     kind: entry.kind,
     card_id: entry.card_id,
@@ -49,7 +50,7 @@ async function listCardHistory(ctx: CardHistoryProviderContext, params: z.infer<
     change_reason: entry.change_reason,
     changed_fields: entry.changed_fields,
     change_summary: entry.change_summary,
-  } }));
+  }) }));
   return { success: true, data: entries };
 }
 
