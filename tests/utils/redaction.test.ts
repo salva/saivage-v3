@@ -1,25 +1,31 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   SECRET_REDACTION_PLACEHOLDER,
+  OUTBOUND_REDACTION_SOURCES,
   redactForOutbound,
   redactSnippetForOutbound,
   redactTextForOutbound,
 } from '../../src/redaction/index.js';
 
 describe('outbound redaction', () => {
+  it('has the exact source inventory implemented in the first cutover phase', () => {
+    expect(OUTBOUND_REDACTION_SOURCES).toEqual([
+      'provider-exchange', 'logged-event', 'control-action', 'operator-card', 'runtime-card-runs', 'card-history', 'card-diff', 'dynamic',
+    ]);
+  });
   describe('structured values', () => {
     it('masks nested secret keys, handles arrays and cycles, and preserves non-secret values', () => {
       const circular: Record<string, unknown> = { safe: 'kept' };
       circular['self'] = circular;
 
-      const result = redactForOutbound({
+      const result = redactForOutbound({ source: 'dynamic', value: {
         title: 'visible',
         nested: {
           apiKey: 'synthetic-api-key',
           items: [{ password: 'synthetic-password', count: 3 }, 'safe'],
         },
         circular,
-      });
+      } });
 
       expect(result).toEqual({
         title: 'visible',
@@ -29,6 +35,64 @@ describe('outbound redaction', () => {
         },
         circular: { safe: 'kept', self: '[Circular]' },
       });
+    });
+
+    it('uses active-path cycles, independently projects repeated siblings, ignores toJSON, and preserves serializer undefined behavior', () => {
+      const shared = { text: 'tok_shared_secret' };
+      const circular: Record<string, unknown> = {};
+      circular.self = circular;
+      const throwingToJson = {
+        visible: 'safe',
+        toJSON(): never { throw new Error('must not run'); },
+      };
+
+      const projected = redactForOutbound({ source: 'dynamic', value: {
+        first: shared,
+        second: shared,
+        circular,
+        error: Object.assign(new Error('token=synthetic-error-secret'), { leaked: 'synthetic-custom-field' }),
+        throwingToJson,
+        omitted: undefined,
+        array: [undefined],
+        apiKey: 'synthetic-key',
+        retryToken: 12,
+        auth: true,
+      } });
+
+      expect(projected).toEqual({
+        first: { text: 'tok-[REDACTED]' },
+        second: { text: 'tok-[REDACTED]' },
+        circular: { self: '[Circular]' },
+        error: 'token=[REDACTED]',
+        throwingToJson: { visible: 'safe', toJSON: undefined },
+        omitted: undefined,
+        array: [undefined],
+        apiKey: '[REDACTED]',
+        retryToken: 0,
+        auth: false,
+      });
+      expect(JSON.parse(JSON.stringify(projected))).toEqual({
+        first: { text: 'tok-[REDACTED]' },
+        second: { text: 'tok-[REDACTED]' },
+        circular: { self: '[Circular]' },
+        error: 'token=[REDACTED]',
+        throwingToJson: { visible: 'safe' },
+        array: [null],
+        apiKey: '[REDACTED]',
+        retryToken: 0,
+        auth: false,
+      });
+      expect(JSON.stringify(projected)).not.toContain('synthetic-custom-field');
+    });
+
+    it('does not truncate typed dynamic values at the legacy depth or entry bounds', () => {
+      let deep: Record<string, unknown> = { value: 'kept' };
+      for (let depth = 0; depth < 10; depth += 1) deep = { child: deep };
+      const wide = Object.fromEntries(Array.from({ length: 101 }, (_, index) => [`field${index}`, index]));
+
+      const projected = redactForOutbound({ source: 'dynamic', value: { deep, wide }, options: { maxDepth: 1, maxEntries: 1 } }) as Record<string, any>;
+      expect(projected.deep.child.child.child.child.child.child.child.child.child.child.value).toBe('kept');
+      expect(Object.keys(projected.wide)).toHaveLength(101);
     });
 
     it('uses the default depth bound of 8', () => {

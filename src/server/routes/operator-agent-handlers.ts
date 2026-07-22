@@ -4,7 +4,7 @@ import type {
   OperatorProjectContext,
 } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
-import { providerExchangePayloadSchema, type ProviderExchangePayload } from '../../contracts/provider-exchange.js';
+import type { ProviderExchangePayload } from '../../contracts/provider-exchange.js';
 import type { OperatorApiSuccess } from '../../contracts/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
 
@@ -32,5 +32,5 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
 }
 
 function projectProviderExchangeForOperator(exchange: ProviderExchangePayload): OperatorApiSuccess<'agents.llmExchange'>['exchange'] {
-  return providerExchangePayloadSchema.parse(redactForOutbound(exchange));
+  return redactForOutbound({ source: 'provider-exchange', value: exchange });
 }

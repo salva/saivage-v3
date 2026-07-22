@@ -88,14 +88,18 @@ describe('operator Agent exact identity contracts and handlers', () => {
     expect(result.statusCode).toBeUndefined();
     const response = AgentLlmExchangeResponseSchema.parse(result.body);
     const serialized = JSON.stringify(response);
-    for (const secret of operatorSecrets[status]) expect(serialized).not.toContain(secret);
+    for (const secret of operatorClassifiedSecrets[status]) expect(serialized).not.toContain(secret);
+    for (const identity of operatorStructuralIdentities[status]) expect(serialized).toContain(identity);
     expect(serialized).toContain('[REDACTED]');
     expect(response.sessionId).toBe('planner:project');
     expect(response.exchange.source_input_id).toBe('operator-source-identity');
     expect(response.exchange.started_at).toBe(timestamp);
     expect(response.exchange.completed_at).toBe('2026-07-17T00:00:01.000Z');
     expect(response.exchange.attempt_index).toBe(status === 'ok' ? 1 : 0);
-    expect(response.exchange.request_params).toMatchObject({ method: 'POST', safe: 'visible', nested: { safe: 'nested-visible', token: '[REDACTED]' } });
+    expect(response.exchange.request_params).toEqual({
+      endpoint: 'https://provider.invalid/v1?[REDACTED]', method: 'POST', stream: false,
+      offered_tools_count: 1, temperature: 0.7, max_tokens: 4096,
+    });
     expect(response.exchange.response_status).toBe(status === 'ok' ? 200 : 401);
     if (status === 'ok') {
       expect(response.exchange.status).toBe('ok');
@@ -158,16 +162,19 @@ function exchange() {
   return { contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: 'test', model: 'model', source_input_id: 'input', attempt_index: 0, request_params: {}, started_at: timestamp, completed_at: timestamp, status: 'ok', terminal_tool_fired: null, assistant_output_ids: [] };
 }
 
-const operatorSecrets = {
+const operatorClassifiedSecrets = {
+  ok: ['operator-endpoint-ok'],
+  error: ['operator-endpoint-error', 'tok_operator_error_message'],
+};
+
+const operatorStructuralIdentities = {
   ok: [
     'tok_operator_contract_id_ok', 'tok_operator_contract_name_ok', 'tok_operator_provider_ok',
-    'tok_operator_model_ok', 'tok_operator_account_ok', 'operator-endpoint-ok',
-    'operator-nested-token-ok', 'tok_operator_nested_ok', 'tok_operator_finish_ok', 'tok_operator_tool_ok',
+    'tok_operator_model_ok', 'tok_operator_account_ok', 'tok_operator_finish_ok', 'tok_operator_tool_ok',
   ],
   error: [
     'tok_operator_contract_id_error', 'tok_operator_contract_name_error', 'tok_operator_provider_error',
-    'tok_operator_model_error', 'tok_operator_account_error', 'operator-endpoint-error',
-    'operator-nested-token-error', 'tok_operator_nested_error', 'tok_operator_error_name', 'tok_operator_error_message',
+    'tok_operator_model_error', 'tok_operator_account_error', 'tok_operator_error_name',
   ],
 };
 
@@ -185,8 +192,10 @@ function sensitiveExchange(status: 'ok' | 'error'): ProviderExchangePayload {
     request_params: {
       endpoint: `https://provider.invalid/v1?api_key=operator-endpoint-${suffix}`,
       method: 'POST',
-      safe: 'visible',
-      nested: { safe: 'nested-visible', token: `operator-nested-token-${suffix}`, text: `metadata tok_operator_nested_${suffix}` },
+      stream: false,
+      offered_tools_count: 1,
+      temperature: 0.7,
+      max_tokens: 4096,
     },
     started_at: timestamp,
     completed_at: '2026-07-17T00:00:01.000Z',

@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import type { CardService } from '../../cards/card-api.js';
-import { cardHistoryHeaderSchema, positiveSafeIntegerSchema, type CardHistoryEntry, type CardHistoryHeader, type CardRecord } from '../../schemas/index.js';
+import { cardHistoryEntrySchema, cardHistoryHeaderSchema, positiveSafeIntegerSchema, type CardHistoryEntry, type CardHistoryHeader, type CardRecord } from '../../schemas/index.js';
 import { allowedOperatorCardActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
@@ -10,6 +10,14 @@ import type {
   OperatorApiResponse,
   OperatorCard,
   ServerAvailability,
+} from '../../contracts/index.js';
+import {
+  CardChildrenResponseSchema,
+  CardDetailResponseSchema,
+  CardDiffResponseSchema,
+  CardHistoryEntryResponseSchema,
+  CardHistoryListResponseSchema,
+  OperatorCardSchema,
 } from '../../contracts/index.js';
 import { toCardOperatorSummary } from './card-view.js';
 
@@ -26,10 +34,6 @@ export function toOperatorCard(card: CardRecord): OperatorCard {
     allowedActions: actions,
     operator_summary: toCardOperatorSummary(card),
   };
-}
-
-function redactValue<T>(value: T): T {
-  return redactForOutbound(value);
 }
 
 function invalidNumberBody(path: 'seq' | 'from' | 'to'): OperatorApiResponse<'cards.history.get', 400> {
@@ -70,20 +74,23 @@ export class CardsReadModelService {
   getChildren(id: string): OperatorApiHandlerResult<'cards.children'> {
     const result = this.store.getCardChildren(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    return { body: { card: toOperatorCard(result.value.parent), children: result.value.activeChildren.map(toOperatorCard) } };
+    const card = OperatorCardSchema.parse(redactForOutbound({ source: 'operator-card', value: toOperatorCard(result.value.parent) }));
+    const children = result.value.activeChildren.map((child) => OperatorCardSchema.parse(redactForOutbound({ source: 'operator-card', value: toOperatorCard(child) })));
+    return { body: CardChildrenResponseSchema.parse({ card, children }) };
   }
 
   getCard(id: string): OperatorApiHandlerResult<'cards.get'> {
     const result = this.store.getCardDetail(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    return { body: { card: toOperatorCard(result.value) } };
+    const card = OperatorCardSchema.parse(redactForOutbound({ source: 'operator-card', value: toOperatorCard(result.value) }));
+    return { body: CardDetailResponseSchema.parse({ card }) };
   }
 
   listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {
     const result = this.store.listCardHistory(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const history = result.value.map((entry) => redactValue(historyHeader(entry)));
-    return { body: { history, total: history.length } };
+    const history = result.value.map((entry) => cardHistoryHeaderSchema.parse(redactForOutbound({ source: 'card-history', value: historyHeader(entry) })));
+    return { body: CardHistoryListResponseSchema.parse({ history, total: history.length }) };
   }
 
   getHistoryEntry(id: string, versionSeq: number): OperatorApiHandlerResult<'cards.history.get'> {
@@ -91,7 +98,8 @@ export class CardsReadModelService {
     const result = this.store.getCardHistoryEntry(id, versionSeq);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     if (result.kind === 'history-entry-not-found') return { statusCode: 404, body: { error: 'Card history entry not found', cardId: id, version_seq: versionSeq } };
-    return { body: { entry: redactValue(result.value) } };
+    const entry = cardHistoryEntrySchema.parse(redactForOutbound({ source: 'card-history', value: result.value }));
+    return { body: CardHistoryEntryResponseSchema.parse({ entry }) };
   }
 
   diffCard(id: string, query: OperatorApiQuery<'cards.diff'>): OperatorApiHandlerResult<'cards.diff'> {
@@ -104,6 +112,7 @@ export class CardsReadModelService {
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     if (result.kind === 'invalid-pivots') return { statusCode: 400, body: { error: 'Invalid diff pivots', from: result.from, to: result.to } };
     if (result.kind === 'diff-source-not-found') return { statusCode: 404, body: { error: 'Card diff source not found', cardId: id, from: result.from, to: result.to, missing_version_seq: result.missingVersionSeq } };
-    return { body: { diff: redactValue(result.diff), from: result.from, to: result.to, card_id: id } };
+    const diff = redactForOutbound({ source: 'card-diff', value: result.diff });
+    return { body: CardDiffResponseSchema.parse({ diff, from: result.from, to: result.to, card_id: id }) };
   }
 }

@@ -1,5 +1,6 @@
 import { readAppLogEntries } from '../persistence/app-log.js';
 import { isErrorEvent, type ErrorEvent, type EventKind, type LoggedEvent } from '../schemas/index.js';
+import { redactForOutbound } from '../redaction/index.js';
 
 export const EVENT_QUERY_MAX_LIMIT = 1000;
 export type EventSelection = 'oldest_page' | 'newest_tail';
@@ -19,7 +20,7 @@ export class EventQueryService {
     const offset = query.offset ?? 0;
     const limit = query.limit ?? 50;
     validateQuery(selection, offset, limit);
-    let matching = readAppLogEntries(this.projectRoot, 'event').map((entry) => entry.data);
+    let matching = readAppLogEntries(this.projectRoot, 'event').map((entry) => redactForOutbound({ source: 'logged-event', value: entry.data }));
     if (query.kind) matching = matching.filter((event) => event.kind === query.kind);
     if (query.goal_id) matching = matching.filter((event) => 'goal_id' in event && event.goal_id === query.goal_id);
     if (query.card_id) matching = matching.filter((event) => 'card_id' in event && event.card_id === query.card_id);
@@ -28,7 +29,9 @@ export class EventQueryService {
   }
   queryErrors(limit?: number): { errors: ErrorEvent[]; total: number } {
     if (limit !== undefined && (!Number.isSafeInteger(limit) || limit <= 0 || limit > EVENT_QUERY_MAX_LIMIT)) throw new Error(`Event query limit must be a positive safe integer no greater than ${EVENT_QUERY_MAX_LIMIT}.`);
-    const matching = readAppLogEntries(this.projectRoot, 'event').map((entry) => entry.data).filter(isErrorEvent);
+    const matching = readAppLogEntries(this.projectRoot, 'event')
+      .map((entry) => redactForOutbound({ source: 'logged-event', value: entry.data }))
+      .filter(isErrorEvent);
     return { errors: limit === undefined ? matching : matching.slice(-limit), total: matching.length };
   }
 }

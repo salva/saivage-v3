@@ -19,7 +19,7 @@ export function buildConfigOperatorContractHandlers(options: OperatorProjectCont
       const actions: OperatorApiSuccess<'controlActions.list'>['control_actions'] = listControlActions(
         options.projectRoot,
         { card_id: query.card_id, since: query.since },
-      ).map((entry) => redactForOutbound(entry));
+      ).map((entry) => redactForOutbound({ source: 'control-action', value: entry }));
       return { body: { control_actions: actions, total: actions.length } };
     },
   });

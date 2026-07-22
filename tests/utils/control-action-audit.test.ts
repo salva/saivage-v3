@@ -12,8 +12,8 @@ beforeEach(() => { projectRoot = mkdtempSync(join(tmpdir(), 'saivage-control-act
 afterEach(() => { rmSync(projectRoot, { recursive: true, force: true }); });
 
 const input = {
-  id: 'audit-1', created_at: '2026-01-01T00:00:00.000Z', actor: 'analyst' as const, surface: 'rest' as const,
-  action: 'runtime.pause', target_kind: 'runtime' as const, target_id: 'project', params_summary: 'apiKey="secret-123"',
+  id: 'tok_audit', created_at: '2026-01-01T00:00:00.000Z', actor: 'analyst' as const, surface: 'rest' as const,
+  action: 'tok_action', target_kind: 'runtime' as const, target_id: 'sk-target', params_summary: 'apiKey="secret-123"',
   outcome: 'error' as const, outcome_summary: 'token=hunter2', error: 'password=abc123',
 };
 
@@ -26,6 +26,7 @@ describe('control action audit persistence', () => {
     expect(created.params_summary).toContain('[REDACTED]');
     expect(created.outcome_summary).toContain('[REDACTED]');
     expect(created.error).toContain('[REDACTED]');
+    expect(created).toMatchObject({ id: 'tok_audit', actor: 'analyst', surface: 'rest', action: 'tok_action', target_kind: 'runtime', target_id: 'sk-target' });
     const path = join(projectRoot, '.saivage', 'logs', 'app.jsonl');
     expect(existsSync(path)).toBe(true);
     expect(readFileSync(path, 'utf8')).not.toMatch(/secret-123|hunter2|abc123/);
@@ -47,7 +48,7 @@ describe('control action audit persistence', () => {
     recordControlAction(projectRoot, () => input);
     recordControlAction(projectRoot, () => input);
     const rows = readFileSync(join(projectRoot, '.saivage', 'logs', 'app.jsonl'), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ data: { id: string } }> }).rows);
-    expect(rows.map((row) => row.data.id)).toEqual(['audit-1', 'audit-1']);
+    expect(rows.map((row) => row.data.id)).toEqual(['tok_audit', 'tok_audit']);
     expect(() => listControlActions(projectRoot)).toThrow(/duplicate logical id/);
   });
 });

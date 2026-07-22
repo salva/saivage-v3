@@ -7,6 +7,8 @@ import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../appl
 import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
 import { AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
 import { cardParentId } from '../schemas/card-id.js';
+import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
+import { redactSnippetForOutbound, redactTextForOutbound } from '../redaction/index.js';
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
@@ -83,9 +85,12 @@ function getCard(store: CardInspectionStore, cardId: string): ToolResult {
     .map((id) => store.read(id))
     .filter((child): child is CardRecord => child !== null)
     .map((child) => cardSummary(store, child));
-  if (!isFullStore(store)) return { success: true, data: { card, status: card.lifecycle.status, parent: cardParentId(card.id), logical_path: logicalPath(store, card), children } };
+  const projectedCard = projectCardRecordForOutbound(card);
+  if (!isFullStore(store)) return { success: true, data: { card: projectedCard, status: card.lifecycle.status, parent: cardParentId(card.id), logical_path: logicalPath(store, card), children } };
   const records = cardRecordSummaries(store, cardId);
-  return { success: true, data: { ...toCardView(store, card), effective_updated_at: effectiveUpdatedAt(store, cardId), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
+  const view = toCardView(store, card);
+  const operatorSummary = { ...view.operator_summary, error: view.operator_summary.error === null ? null : redactTextForOutbound(view.operator_summary.error) };
+  return { success: true, data: { ...view, card: projectedCard, operator_summary: operatorSummary, effective_updated_at: effectiveUpdatedAt(store, cardId), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
 }
 
 function getTree(store: CardInspectionStore, rootId: string): ToolResult {
@@ -112,7 +117,7 @@ function childIds(store: CardInspectionStore, cardId: string): string[] {
 }
 
 function cardSummary(store: CardInspectionStore, card: CardRecord): Record<string, unknown> {
-  return { id: card.id, logical_path: logicalPath(store, card), type: card.type, title: card.title, status: card.lifecycle.status, priority: card.priority, parent: cardParentId(card.id), tags: card.tags };
+  return { id: card.id, logical_path: logicalPath(store, card), type: card.type, title: redactTextForOutbound(card.title), status: card.lifecycle.status, priority: card.priority, parent: cardParentId(card.id), tags: card.tags };
 }
 
 function treeNode(store: CardInspectionStore, cardId: string): Record<string, unknown> | null {
@@ -147,7 +152,7 @@ function effectiveUpdatedAt(store: CardService, cardId: string): string | null {
 function cardRecordSummaries(store: CardService, cardId: string): Array<Record<string, unknown>> {
   return recordSlotDefinitions()
     .map((definition) => {
-      try { const record = store.readRecord(cardId, definition.filename); const content = record.artifact.content; const max = 4000; return { filename: definition.filename, path: `record:///${definition.filename}`, url: record.recordUrl, latest: record.version, format: definition.format, schema: definition.schema, writers: definition.writers, size: Buffer.byteLength(content), modifiedAt: record.artifact.committed_at, writer: record.artifact.writer, inline: { content: content.slice(0, max), truncated: content.length > max } }; }
+      try { const record = store.readRecord(cardId, definition.filename); const content = record.artifact.content; const max = 4000; return { filename: definition.filename, path: `record:///${definition.filename}`, url: record.recordUrl, latest: record.version, format: definition.format, schema: definition.schema, writers: definition.writers, size: Buffer.byteLength(content), modifiedAt: record.artifact.committed_at, writer: record.artifact.writer, inline: { content: redactSnippetForOutbound(content, max), truncated: content.length > max } }; }
       catch (error) { if (!(error instanceof AuthoredRecordNotFoundError)) throw error; return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null }; }
     });
 }

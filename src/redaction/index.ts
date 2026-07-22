@@ -1,188 +1,128 @@
-export const SECRET_REDACTION_PLACEHOLDER = '[REDACTED]';
+import type { ProviderExchangePayload } from '../contracts/provider-exchange.js';
+import type { LoggedEvent, ControlActionAuditEntry, CardHistoryEntry, CardHistoryHeader } from '../schemas/index.js';
+import type { OperatorCard, RuntimeCardRunsResponse } from '../contracts/index.js';
+import type { CardDiffEntry } from '../cards/card-service.js';
+import { projectProviderExchange } from '../agents/provider-exchange-outbound.js';
+import { projectLoggedEvent } from '../observability/logged-event-projection.js';
+import { projectControlAction } from '../persistence/control-action-outbound.js';
+import { projectDynamicForOutbound } from './dynamic.js';
+import { redactTextForOutbound } from './text.js';
+import { projectCardDiff, projectCardHistory, projectOperatorCard, projectRuntimeCardRuns } from '../application/read-models/card-outbound.js';
+
+export {
+  SECRET_REDACTION_PLACEHOLDER,
+  redactSnippetForOutbound,
+  redactTextForOutbound,
+  redactUrl,
+} from './text.js';
 
 export interface StructuredRedactionOptions {
   maxDepth?: number;
   maxEntries?: number;
 }
 
-const SECRET_KEY_PATTERN =
-  /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|token|authorization|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password|credential|credentials?|cookie|set-cookie|auth)\b/i;
+export type OutboundRedactionRequest =
+  | { source: 'provider-exchange'; value: ProviderExchangePayload }
+  | { source: 'logged-event'; value: LoggedEvent }
+  | { source: 'control-action'; value: ControlActionAuditEntry }
+  | { source: 'operator-card'; value: OperatorCard }
+  | { source: 'runtime-card-runs'; value: RuntimeCardRunsResponse }
+  | { source: 'card-history'; value: CardHistoryHeader | CardHistoryEntry }
+  | { source: 'card-diff'; value: CardDiffEntry[] }
+  | { source: 'dynamic'; value: unknown; options?: StructuredRedactionOptions };
 
-const JSON_SECRET_VALUE_RE =
-  /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;
-const YAML_SECRET_VALUE_RE = /(^[ \t]*([A-Za-z][A-Za-z0-9_-]*)[ \t]*:[ \t]*)([^\n#][^\n]*)(?=$|\n)/gmi;
-const ESCAPED_JSON_SECRET_VALUE_RE = /(\\")([^"\\]+)(\\")(\s*:\s*)(\\")([^"\\]*)(\\")/gi;
-const INLINE_SECRET_ASSIGNMENT_RE = /\b([A-Za-z][A-Za-z0-9_-]*(?:(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[A-Za-z0-9_-]*)?)\s*=\s*("[^"]*"|'[^']*'|\S+)/gi;
-const CREDENTIAL_LITERAL_RE = /\b(sk-[^\s"\\]+|tid=[^\s"\\]+|ghu_[A-Za-z0-9_]+|rt_[^\s"\\]+|tok_[^\s"\\]+)\b/g;
-const BEARER_CREDENTIAL_RE = /\b(Bearer\s+)([^\s"\\]+)/gi;
-const URL_SECRET_QUERY_PARAM_RE =
-  /([?&][^=&#\s]*(?:credential|credentials|secret|password|token|authorization|auth|api[_-]?key|apiKey|cookie|set-cookie)[^=&#\s]*=)([^&#\s]+)/gi;
+export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
+  Request extends { source: 'provider-exchange' } ? ProviderExchangePayload
+    : Request extends { source: 'logged-event' } ? LoggedEvent
+      : Request extends { source: 'control-action' } ? ControlActionAuditEntry
+        : Request extends { source: 'operator-card' } ? OperatorCard
+          : Request extends { source: 'runtime-card-runs' } ? RuntimeCardRunsResponse
+            : Request extends { source: 'card-history'; value: infer Value } ? Value
+              : Request extends { source: 'card-diff' } ? CardDiffEntry[]
+                : unknown;
 
-const CONVERSION_FAILURE = '[unserializable dynamic value]';
+export const OUTBOUND_REDACTION_SOURCES = [
+  'provider-exchange',
+  'logged-event',
+  'control-action',
+  'operator-card',
+  'runtime-card-runs',
+  'card-history',
+  'card-diff',
+  'dynamic',
+] as const satisfies readonly OutboundRedactionRequest['source'][];
+const outboundSourceCompileGuard = {
+  'provider-exchange': true,
+  'logged-event': true,
+  'control-action': true,
+  'operator-card': true,
+  'runtime-card-runs': true,
+  'card-history': true,
+  'card-diff': true,
+  dynamic: true,
+} as const satisfies Record<OutboundRedactionRequest['source'], true>;
+void outboundSourceCompileGuard;
+
+export function redactForOutbound<Request extends OutboundRedactionRequest>(request: Request): OutboundRedactionResult<Request>;
+/** Temporary phase-only signature for complete owners not cut over until ordered tasks 3-10. */
+export function redactForOutbound<T>(value: T, options?: StructuredRedactionOptions): T;
+export function redactForOutbound(input: unknown, options: StructuredRedactionOptions = {}): unknown {
+  if (!isTypedRequest(input)) return projectLegacyStructuredValue(input, options);
+
+  switch (input.source) {
+    case 'provider-exchange': return projectProviderExchange(input.value);
+    case 'logged-event': return projectLoggedEvent(input.value);
+    case 'control-action': return projectControlAction(input.value);
+    case 'operator-card': return projectOperatorCard(input.value);
+    case 'runtime-card-runs': return projectRuntimeCardRuns(input.value);
+    case 'card-history': return projectCardHistory(input.value);
+    case 'card-diff': return projectCardDiff(input.value);
+    case 'dynamic': return projectDynamicForOutbound(input.value);
+    default: return assertNever(input);
+  }
+}
+
+function isTypedRequest(value: unknown): value is OutboundRedactionRequest {
+  if (value === null || typeof value !== 'object' || !('source' in value) || !('value' in value)) return false;
+  return (OUTBOUND_REDACTION_SOURCES as readonly unknown[]).includes((value as { source: unknown }).source);
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled outbound redaction source: ${JSON.stringify(value)}`);
+}
+
 const DEFAULT_MAX_DEPTH = 8;
 const DEFAULT_MAX_ENTRIES = 100;
+const SECRET_KEY_PATTERN = /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|token|authorization|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password|credential|credentials?|cookie|set-cookie|auth)\b/i;
 
-function isSecretKey(key: string): boolean {
-  return SECRET_KEY_PATTERN.test(key);
+// Removed when the remaining ordered owner tasks cut over from the old signature.
+function projectLegacyStructuredValue(value: unknown, options: StructuredRedactionOptions): unknown {
+  return visitLegacy(value, 0, new WeakSet<object>(), options);
 }
 
-function shouldPreserveValue(value: string): boolean {
-  return /\$\{[^}]+\}/.test(value);
-}
-
-function redactCredentialMatch(match: string): string {
-  const prefix = match.startsWith('sk-') ? 'sk'
-    : match.startsWith('tid=') ? 'tid'
-      : match.startsWith('ghu_') ? 'ghu'
-        : match.startsWith('rt_') ? 'rt'
-          : match.startsWith('tok_') ? 'tok' : 'credential';
-  return `${prefix}-${SECRET_REDACTION_PLACEHOLDER}`;
-}
-
-function redactCredentialLiterals(content: string): string {
-  if (!content) return content;
-  return content
-    .replace(CREDENTIAL_LITERAL_RE, redactCredentialMatch)
-    .replace(BEARER_CREDENTIAL_RE, (_match, prefix: string) => `${prefix}${SECRET_REDACTION_PLACEHOLDER}`);
-}
-
-function redactSecrets(content: string): string {
-  if (!content) return content;
-  return redactCredentialLiterals(redactYamlSecretValues(redactJsonSecretValues(content)));
-}
-
-function redactProviderLikeText(content: string): string {
-  if (!content) return content;
-  return redactInlineSecretAssignments(redactEscapedJsonSecretValues(redactSecrets(content)));
-}
-
-function redactJsonSecretValues(content: string): string {
-  if (!content) return content;
-
-  return content.replace(JSON_SECRET_VALUE_RE, (_match, keyPart, wsBefore, wsAfter, valuePart) => {
-    const keyInner = keyPart.slice(1, -1);
-
-    if (!isSecretKey(keyInner) || shouldPreserveValue(valuePart)) {
-      return `${keyPart}${wsBefore}:${wsAfter}"${valuePart}"`;
-    }
-
-    return `${keyPart}${wsBefore}:${wsAfter}"${SECRET_REDACTION_PLACEHOLDER}"`;
-  });
-}
-
-function redactYamlSecretValues(content: string): string {
-  if (!content) return content;
-
-  return content.replace(YAML_SECRET_VALUE_RE, (match, prefix: string, key: string, valuePart: string) => {
-    const trimmed = valuePart.trim();
-    if (!isSecretKey(key) || shouldPreserveValue(trimmed)) return match;
-    const quote = trimmed.startsWith('"') && trimmed.endsWith('"') ? '"' : trimmed.startsWith("'") && trimmed.endsWith("'") ? "'" : '';
-    return `${prefix}${quote}${SECRET_REDACTION_PLACEHOLDER}${quote}`;
-  });
-}
-
-function redactEscapedJsonSecretValues(content: string): string {
-  if (!content) return content;
-
-  return content.replace(
-    ESCAPED_JSON_SECRET_VALUE_RE,
-    (match, keyOpen: string, key: string, keyClose: string, separator: string, valueOpen: string, secretValue: string, valueClose: string) => {
-      if (!isSecretKey(key) || shouldPreserveValue(secretValue)) {
-        return match;
-      }
-      return `${keyOpen}${key}${keyClose}${separator}${valueOpen}${SECRET_REDACTION_PLACEHOLDER}${valueClose}`;
-    },
-  );
-}
-
-function redactInlineSecretAssignments(content: string): string {
-  if (!content) return content;
-  return content
-    .replace(INLINE_SECRET_ASSIGNMENT_RE, (match, key: string) => {
-      if (!isSecretKey(key)) return match;
-      return `${key}=${SECRET_REDACTION_PLACEHOLDER}`;
-    })
-    .replace(URL_SECRET_QUERY_PARAM_RE, (_match, prefix: string) => `${prefix}${SECRET_REDACTION_PLACEHOLDER}`);
-}
-
-function rawDynamicText(value: unknown, seen = new WeakSet<object>()): string {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'string') return value;
-  if (value instanceof Error) return value.message;
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value, (_key, entryValue: unknown) => {
-        if (typeof entryValue === 'object' && entryValue !== null) {
-          if (seen.has(entryValue)) return '[Circular]';
-          seen.add(entryValue);
-        }
-        if (entryValue instanceof Error) return entryValue.message;
-        return entryValue;
-      }) ?? CONVERSION_FAILURE;
-    } catch {
-      return CONVERSION_FAILURE;
-    }
-  }
-  try {
-    return String(value);
-  } catch {
-    return CONVERSION_FAILURE;
-  }
-}
-
-function shouldRedactKey(key: string): boolean {
-  return isSecretKey(key);
-}
-
-function redactObjectValue(value: unknown, keyHint: string | undefined, depth: number, seen: WeakSet<object>, options: StructuredRedactionOptions): unknown {
-  if (typeof value === 'string') {
-    return keyHint && shouldRedactKey(keyHint) ? SECRET_REDACTION_PLACEHOLDER : redactProviderLikeText(value);
-  }
-
-  if (value instanceof Error) {
-    return redactProviderLikeText(value.message);
-  }
-
+function visitLegacy(value: unknown, depth: number, activePath: WeakSet<object>, options: StructuredRedactionOptions): unknown {
+  if (typeof value === 'string') return redactTextForOutbound(value);
+  if (value instanceof Error) return redactTextForOutbound(value.message);
   if (value === null || typeof value !== 'object') return value;
-  if (seen.has(value)) return '[Circular]';
+  if (activePath.has(value)) return '[Circular]';
+  if (depth >= (options.maxDepth ?? DEFAULT_MAX_DEPTH)) return '[MaxDepth]';
 
-  const maxDepth = options.maxDepth ?? DEFAULT_MAX_DEPTH;
-  if (depth >= maxDepth) return '[MaxDepth]';
-
-  seen.add(value);
-  const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
-
-  if (Array.isArray(value)) {
-    const output = value.slice(0, maxEntries).map((entry) => redactObjectValue(entry, undefined, depth + 1, seen, options));
-    if (value.length > maxEntries) output.push(`[${value.length - maxEntries} entries truncated]`);
-    seen.delete(value);
-    return output;
-  }
-
-  const output: Record<string, unknown> = {};
-  let count = 0;
-  for (const [key, entryValue] of Object.entries(value as Record<string, unknown>)) {
-    if (count >= maxEntries) {
-      output.__truncated__ = `${Object.keys(value as Record<string, unknown>).length - maxEntries} entries truncated`;
-      break;
+  activePath.add(value);
+  try {
+    const maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
+    if (Array.isArray(value)) {
+      const output = value.slice(0, maxEntries).map((entry) => visitLegacy(entry, depth + 1, activePath, options));
+      if (value.length > maxEntries) output.push(`[${value.length - maxEntries} entries truncated]`);
+      return output;
     }
-    output[key] = shouldRedactKey(key)
-      ? SECRET_REDACTION_PLACEHOLDER
-      : redactObjectValue(entryValue, key, depth + 1, seen, options);
-    count += 1;
+    const entries = Object.entries(value as Record<string, unknown>);
+    const output: Record<string, unknown> = {};
+    for (const [key, entryValue] of entries.slice(0, maxEntries)) {
+      output[key] = SECRET_KEY_PATTERN.test(key) ? '[REDACTED]' : visitLegacy(entryValue, depth + 1, activePath, options);
+    }
+    if (entries.length > maxEntries) output.__truncated__ = `${entries.length - maxEntries} entries truncated`;
+    return output;
+  } finally {
+    activePath.delete(value);
   }
-  seen.delete(value);
-  return output;
-}
-
-export function redactForOutbound<T>(value: T, options: StructuredRedactionOptions = {}): T {
-  return redactObjectValue(value, undefined, 0, new WeakSet<object>(), options) as T;
-}
-
-export function redactTextForOutbound(value: unknown): string {
-  return redactProviderLikeText(rawDynamicText(value));
-}
-
-export function redactSnippetForOutbound(value: unknown, maxLength: number): string {
-  return redactTextForOutbound(value).slice(0, maxLength);
 }

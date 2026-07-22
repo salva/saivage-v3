@@ -8,7 +8,6 @@ import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolDefinition } from './invocation.js';
-import { redactForOutbound } from '../redaction/index.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../application/event-query-service.js';
 
 const JSONL_TAIL_DEFAULT = 50;
@@ -67,12 +66,12 @@ export async function restart_server(ctx: ToolContext, _params: Record<string, n
 }
 
 export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {
-  try { const limit = params.limit ?? JSONL_TAIL_DEFAULT; const result = ctx.eventQueries.queryEvents({ selection: 'newest_tail', limit, ...(params.kind ? { kind: params.kind as (typeof eventKindValues)[number] } : {}) }); const events = redactForOutbound(result.events); return { success: true, data: { total_lines: result.total, returned: events.length, parse_errors: 0, events } }; }
+  try { const limit = params.limit ?? JSONL_TAIL_DEFAULT; const result = ctx.eventQueries.queryEvents({ selection: 'newest_tail', limit, ...(params.kind ? { kind: params.kind as (typeof eventKindValues)[number] } : {}) }); const events = result.events; return { success: true, data: { total_lines: result.total, returned: events.length, parse_errors: 0, events } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 
 export async function read_runtime_errors(ctx: ToolContext, params: { limit?: number }): Promise<ToolResult> {
-  try { const result = ctx.eventQueries.queryErrors(params.limit ?? JSONL_TAIL_DEFAULT); const errors = redactForOutbound(result.errors); return { success: true, data: { total_lines: result.total, returned: errors.length, parse_errors: 0, errors } }; }
+  try { const result = ctx.eventQueries.queryErrors(params.limit ?? JSONL_TAIL_DEFAULT); const errors = result.errors; return { success: true, data: { total_lines: result.total, returned: errors.length, parse_errors: 0, errors } }; }
   catch (err) { return toolFailureFromError(err); }
 }
 

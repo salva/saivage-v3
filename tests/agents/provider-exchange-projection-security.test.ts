@@ -9,6 +9,7 @@ import { providerExchangeLogId } from '../../src/contracts/provider-exchange-log
 import { AppLogPublicationError, readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import type { FreshnessEffects } from '../../src/application/freshness-effects.js';
+import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
 
 const roots: string[] = [];
 const sessionId = 'planner:project';
@@ -108,12 +109,14 @@ describe('provider exchange publication security projection', () => {
       expect(row.data.timestamp).toBe(index === 0 ? errorCompletedAt : successCompletedAt);
       expect(row.data.payload.started_at).toBe(startedAt);
       expect(row.data.payload.completed_at).toBe(row.data.timestamp);
-      expect(row.data.payload.request_params).toMatchObject({
+      expect(row.data.payload.request_params).toEqual({
+        endpoint: 'https://%5BREDACTED%5D:%5BREDACTED%5D@tok-provider.invalid/sk-model?[REDACTED]',
         method: 'POST',
-        safe_label: 'ordinary-visible-metadata',
-        nested: { safe: 'nested-visible-metadata', api_key: '[REDACTED]' },
+        stream: false,
+        offered_tools_count: 2,
+        temperature: 0.7,
+        max_tokens: 4096,
       });
-      expect((row.data.payload.request_params.nested as { list: unknown[] }).list[1]).toEqual({ authorization: '[REDACTED]' });
     }
 
     const errorPayload = rows[0]!.data.payload;
@@ -126,8 +129,7 @@ describe('provider exchange publication security projection', () => {
       error: { status: 401 },
     });
     if (errorPayload.status !== 'error') throw new Error('Expected error payload.');
-    expect(errorPayload.error.name).toContain('[REDACTED]');
-    expect(errorPayload.error.name).toContain('SyntheticError');
+    expect(errorPayload.error.name).toBe('SyntheticError tok_error_name_secret');
     expect(errorPayload.error.message).toContain('[REDACTED]');
     expect(errorPayload.error.message).toContain('provider rejected');
 
@@ -145,16 +147,40 @@ describe('provider exchange publication security projection', () => {
       assistant_output_ids: assistantOutputIds,
     });
     if (successPayload.status !== 'ok') throw new Error('Expected success payload.');
-    expect(successPayload.finish_reason).toContain('safe-finish');
-    expect(successPayload.finish_reason).toContain('[REDACTED]');
-    expect(successPayload.terminal_tool_fired).toContain('safe-tool');
-    expect(successPayload.terminal_tool_fired).toContain('[REDACTED]');
+    expect(successPayload.finish_reason).toBe('safe-finish tok_finish_secret');
+    expect(successPayload.terminal_tool_fired).toBe('safe-tool tok_tool_secret');
 
     const bytes = readFileSync(appLogFile(root), 'utf8');
-    for (const secret of syntheticSecrets) expect(bytes).not.toContain(secret);
+    for (const secret of classifiedSecrets) expect(bytes).not.toContain(secret);
     expect(bytes).toContain('[REDACTED]');
-    expect(bytes).toContain('"api_key":"[REDACTED]"');
-    expect(bytes).toContain('ordinary-visible-metadata');
+    for (const identity of structuralIdentities) expect(bytes).toContain(identity);
+  });
+
+  it('projects every transport request variant directly and rejects an unclassified adapter key', () => {
+    const common = {
+      contract_id: 'tok_contract', contract_name: 'sk-contract', provider: 'ghu_provider', model: 'rt_model',
+      account: 'tok_account', source_input_id: 'tok_input', attempt_index: 0, started_at: startedAt,
+      completed_at: successCompletedAt, status: 'ok' as const, terminal_tool_fired: 'tok_tool', assistant_output_ids: ['sk-output'],
+    };
+    const endpoint = 'https://user:pass@tok-provider.invalid/sk-model?token=query-secret#fragment-secret';
+    const cases: ProviderExchangeAttempt[] = [
+      { ...common, transport: 'generic', request_params: { endpoint, method: 'POST', stream: false, offered_tools_count: 1, temperature: 0.2, max_tokens: 8 } },
+      { ...common, transport: 'codex', request_params: { endpoint, method: 'POST', stream: true, offered_tools_count: 2 } },
+      { ...common, transport: 'openai-responses', request_params: { endpoint, method: 'POST', stream: true, offered_tools_count: 3, max_output_tokens: 16, include: ['tok_include'], store: false, reasoning_keys: ['sk-reasoning'] } },
+    ];
+
+    for (const [attempt_index, attempt] of cases.entries()) {
+      const projected = projectProviderExchangeForPublication({ ...attempt, attempt_index } as ProviderExchangeAttempt & { attempt_index: number }, ['sk-output']);
+      expect(projected.request_params.endpoint).toBe('https://%5BREDACTED%5D:%5BREDACTED%5D@tok-provider.invalid/sk-model?[REDACTED]');
+      expect(projected.contract_id).toBe('tok_contract');
+      expect(projected.provider).toBe('ghu_provider');
+      expect(projected.model).toBe('rt_model');
+    }
+    expect(cases[2]!.request_params).toMatchObject({ include: ['tok_include'], reasoning_keys: ['sk-reasoning'] });
+
+    expect(() => projectProviderExchangeForPublication({
+      ...cases[0]!, attempt_index: 4, request_params: { ...cases[0]!.request_params, new_adapter_member: 'unclassified' },
+    } as ProviderExchangeAttempt & { attempt_index: number }, [])).toThrow(/unrecognized key/i);
   });
 
   it('rejects a source-input mismatch before appending that attempt', () => {
@@ -170,33 +196,23 @@ describe('provider exchange publication security projection', () => {
   });
 });
 
-const syntheticSecrets = [
-  'tok_contract_id_secret',
-  'tok_contract_name_secret',
-  'tok_provider_secret',
-  'tok_model_secret',
-  'tok_account_secret',
+const classifiedSecrets = [
+  'endpoint-user-secret',
+  'endpoint-password-secret',
   'endpoint-query-secret',
-  'nested-api-key-secret',
-  'nested-array-token-secret',
-  'tok_nested_text_secret',
-  'tok_finish_secret',
-  'tok_tool_secret',
-  'tok_error_name_secret',
   'tok_error_message_secret',
 ];
 
+const structuralIdentities = ['tok_contract_id_secret', 'tok_contract_name_secret', 'tok_provider_secret', 'tok_model_secret', 'tok_account_secret', 'tok_finish_secret', 'tok_tool_secret', 'tok_error_name_secret'];
+
 function providerAttempts(): ProviderExchangeAttempt[] {
   const requestParams = {
-    endpoint: 'https://provider.invalid/v1?api_key=endpoint-query-secret',
+    endpoint: 'https://endpoint-user-secret:endpoint-password-secret@tok-provider.invalid/sk-model?api_key=endpoint-query-secret#fragment-secret',
     method: 'POST',
-    safe_label: 'ordinary-visible-metadata',
-    nested: {
-      safe: 'nested-visible-metadata',
-      api_key: 'nested-api-key-secret',
-      text: 'metadata tok_nested_text_secret',
-      list: ['array-safe-value', { authorization: 'nested-array-token-secret' }],
-    },
+    stream: false,
+    offered_tools_count: 2,
+    temperature: 0.7,
+    max_tokens: 4096,
   };
   return [
     {

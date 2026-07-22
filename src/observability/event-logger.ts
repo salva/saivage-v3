@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { LoggedEvent } from '../schemas/index.js';
+import { loggedEventSchema, type LoggedEvent } from '../schemas/index.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { appendAppLogEntry, type AppLogPublicationContext } from '../persistence/app-log.js';
 
@@ -47,11 +47,11 @@ export function createEventLog(projectRoot: string, timelineChanged: () => void 
       const event = prepareEvent();
       return {
         type: 'event',
-        data: redactForOutbound({
+        data: redactForOutbound({ source: 'logged-event', value: loggedEventSchema.parse({
           ...event,
           id: event.id ?? nextEventId(),
           timestamp: event.timestamp ?? new Date().toISOString(),
-        }) as unknown as LoggedEvent,
+        }) }),
       };
     }, context);
     timelineChanged();
