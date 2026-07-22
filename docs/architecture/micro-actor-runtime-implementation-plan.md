@@ -8,16 +8,18 @@ This implementation note is subordinate to [System Architecture](./system-archit
 
 - The runtime installs one process-local instance and the supervisor owns one exact `activationOwners` map.
 - One plain `CardActivationOwner` holds each activation's phase, result/cancel winner, independent containment owner, ready processor, relationship, publication task, and retained failure. It is not a `BaseActor`.
-- `CardProcessActor` remains a `BaseActor` micro-actor. `ConversationLLMActor` is now the direct provider/tool phase owner.
+- The one `CardProcessActor` implementation remains the sole micro-actor over a narrow `BaseActor`. `ConversationLLMActor` is the direct provider/tool phase owner.
   The direct owner has no compiled topology, event queue, `start()`, or actor lifecycle settlement. It alone constructs the complete LLM invocation context and concrete child lease; supervisor transitions coordinate that lease with owner structure.
-- Project/goal restart begins planner; terminal-card restart begins executor; reviewer is nested live work only.
-- Pause is one request flag and one parked frontier. Stop interrupts open work for restartable containment; only when domain cancellation already owns the claim does Stop join that exact actor's cancellation settlement.
+- Backlog, changed, blocked, and stopped card admission select configured `BACKLOG | CHANGED | BLOCKED | STOPPED` entries respectively; each entry routes to its configured ordinary node. Reviewer remains configured nested work rather than a code-selected lifecycle entry.
+- Pause is one request flag and one parked frontier. Stop contains open work; only when domain cancellation already owns the claim does Stop join that exact actor's cancellation settlement.
 - Stable planner/executor/reviewer session owners locally settle only the latest interrupted conversation round.
-- Remaining `BaseActor` micro-actors expose only initial-state `start()`; no recover or rehydrate entrypoint exists.
-- Configured planning and terminal workflows compile once per family into shared entry/node/terminal actor definitions. `CardProcessActor` has no wrapper graph loop or cursor; accepted result events route through the definition, including explicit same-state reentry.
+- `BaseActor` exposes one-use initial-state `start()` and explicit parked-state event activation; no recover or rehydrate entrypoint exists.
+- Configured planning and terminal workflows compile once at startup per family into shared entry/node/terminal definitions. There is no sequence shorthand, wrapper graph loop, or cursor; accepted result events route through the definition, including explicit same-state reentry.
 - Live process position and zero-based node ordinal are process-local projections only. STOPPED recovery constructs a fresh actor and does not rehydrate prior process state.
-- Every remaining `BaseActor` constructor supplies an immutable compiled topology and per-instance generic lifecycle callbacks directly to `BaseActor`. Fixed topologies compile once and are shared; behavior is neither embedded in topology nor discovered through static properties, reflection, or state-named methods. Conversation LLM completion and cancellation instead use exact direct phase replacement, operation-local settlement, and provider lifecycle containment.
-- Start assigns the initial state and invokes only `enter`. External transitions run `leave`, source-task abort/clear, target assignment, `transition`, then `enter`; unknown events and ordinary same-state transitions run no callback.
+- `BaseActor` owns the immutable topology, one pending event, one task slot, and lifecycle settlement. `CardProcessActor` supplies direct transition and state-entry hooks; behavior is not embedded in topology or supplied as generic bindings. Conversation LLM completion and cancellation instead use exact direct phase replacement, operation-local settlement, and provider lifecycle containment.
+- Start assigns the initial parked ready state and invokes state entry directly. Activation sends the selected configured entry event. Node entry fills the sole task slot; settlement clears that slot before the matching completion or failure function runs. The activation tracker owns cancellation of the node operation.
+- A matching tracker consumer stages an accepted result and sends its event. Dispatch assigns the target, runs the direct transition hook, then runs target entry. Same-node reentry therefore orders settled and cleared old task, staged accepted result, accepted event, transition, and one new node entry/task. Unknown events and ordinary non-reentering same-state transitions run no hooks.
+- Ordinary node failure stages `execution:failed` and routes to the code-owned failed terminal. App-log publication failure is distinct: it sends no event, halts the current task state during failure delivery, rejects the process result, and leaves containment joining to Supervisor.
 - Runtime state, actor snapshots, active reconstruction, recovery diagnostics, and replay coordinators do not exist.
 
 ## Card Activation Cancellation Contract
