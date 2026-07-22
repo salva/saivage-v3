@@ -9,6 +9,7 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { AppLogPublicationError, readAppLogEntries } from '../../src/persistence/app-log.js';
+import { UnauthorizedErrorSchema } from '../../src/contracts/operator-api-core.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -20,6 +21,38 @@ const contract = {
 } as const;
 
 describe('ContractRuntime app-log ownership', () => {
+  it('skips AuthPolicy for a public contract', async () => {
+    const fastify = Fastify({ logger: false });
+    const authPolicy = new AuthPolicy({ apiToken: 'required-token' });
+    const validate = jest.spyOn(authPolicy, 'validateHttpRequest');
+    new ContractRuntime({ authPolicy, eventLogger: { appendEventPrepared: jest.fn() } as never }).mount(fastify, { operation: contract }, {
+      operation: () => ({ body: { ok: true } }),
+    });
+
+    const response = await fastify.inject({ method: 'GET', url: '/test' });
+    await fastify.close();
+
+    expect(response.statusCode).toBe(200);
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it('uses AuthPolicy for an operator-session contract and preserves 401 denial', async () => {
+    const fastify = Fastify({ logger: false });
+    const authPolicy = new AuthPolicy({ apiToken: 'required-token' });
+    const validate = jest.spyOn(authPolicy, 'validateHttpRequest');
+    const handler = jest.fn(() => ({ body: { ok: true } }));
+    const operatorContract = { ...contract, auth: 'operator-session' as const, response: { ...contract.response, 401: UnauthorizedErrorSchema } };
+    new ContractRuntime({ authPolicy, eventLogger: { appendEventPrepared: jest.fn() } as never }).mount(fastify, { operation: operatorContract }, { operation: handler });
+
+    const response = await fastify.inject({ method: 'GET', url: '/test' });
+    await fastify.close();
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toMatchObject({ error: 'Unauthorized' });
+    expect(validate).toHaveBeenCalledTimes(1);
+    expect(handler).not.toHaveBeenCalled();
+  });
+
   it('appends an actionable error, then hints, then returns the existing contract failure', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'contract-runtime-log-')); roots.push(projectRoot);
     const trace: string[] = [];

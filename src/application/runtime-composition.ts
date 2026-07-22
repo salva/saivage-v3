@@ -5,7 +5,6 @@ import type { SaivageConfig } from '../agents/config-api.js';
 import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
 import { MemoryCandidateAvailability } from '../agents/candidate-availability.js';
 import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../agents/analyst-api.js';
-import type { ActorRole } from '../agents/authz.js';
 import { ProviderRegistry } from '../agents/provider.js';
 import { ModelRouter } from '../agents/model-router.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
@@ -30,7 +29,7 @@ import type { SummarizerProviderPort } from '../runtime/actors/compaction/summar
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
-import { GLOBAL_ANALYST_SESSION_ID, type ControlActionSurface } from '../schemas/index.js';
+import { GLOBAL_ANALYST_SESSION_ID } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import { buildRoleSurface } from '../tools/role-invocation-surfaces.js';
 import { createAnalystMutationServices } from './analyst-mutation-services.js';
@@ -166,13 +165,11 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   cardStore.setNotifyCard((cardId, notification) => runtimeApi.notifyCard(cardId, notification));
   let analystRuntimeCache: AnalystRuntime | null = null;
   const analystProvider = createInvocationServiceProvider(invocationService);
-  const createAnalystSession = (turn: AnalystTurnInput): AnalystSession => {
-    const actor = turn.actor ?? 'analyst';
-    const surface = turn.surface ?? 'web-chat';
+  const createAnalystSession = (_turn: AnalystTurnInput): AnalystSession => {
     const directScope = processRunner.createDirectScope(services.analystProcessRootScope, `analyst-session:${GLOBAL_ANALYST_SESSION_ID}`, 'operator_session');
     const createInvocationSurface = () => {
       const notifyCard = runtimeApi.notifyCard.bind(runtimeApi);
-      const analystMutations = createAnalystMutationServices({ projectRoot, store: cardStore, configAuthority: services.configAuthority, surface, notifyCard, cancelCard: runtimeApi.cancelCard.bind(runtimeApi) });
+      const analystMutations = createAnalystMutationServices({ projectRoot, store: cardStore, configAuthority: services.configAuthority, notifyCard, cancelCard: runtimeApi.cancelCard.bind(runtimeApi) });
       const context: ToolContext = {
         projectRoot,
         configAuthority: services.configAuthority,
@@ -185,8 +182,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         runtimeControl,
         mcpToolInvocation: services.mcpToolInvocation,
         restartServerAvailable,
-        actor,
-        surface,
+        actor: 'analyst',
+        surface: 'web-chat',
         captureExecutingLlmSnapshots: () => {
           const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
           const analyst = analystRuntimeCache?.executingLlmSnapshot();
@@ -207,8 +204,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       sessionId: GLOBAL_ANALYST_SESSION_ID,
       config,
       promptTemplates,
-      actor,
-      surface,
       restartServerAvailable,
       restartPort,
       provider: analystProvider,
@@ -223,11 +218,11 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       shutdownProcesses,
     });
   };
-  const getAnalystToolNames = (actor: ActorRole, surface: ControlActionSurface): string[] => {
+  const getAnalystToolNames = (): string[] => {
     const directScope = processRunner.createDirectScope(services.analystProcessRootScope, 'analyst-tool-catalog', 'operator_session');
     try {
       const notifyCard = runtimeApi.notifyCard.bind(runtimeApi);
-      const analystMutations = createAnalystMutationServices({ projectRoot, store: cardStore, configAuthority: services.configAuthority, surface, notifyCard, cancelCard: runtimeApi.cancelCard.bind(runtimeApi) });
+      const analystMutations = createAnalystMutationServices({ projectRoot, store: cardStore, configAuthority: services.configAuthority, notifyCard, cancelCard: runtimeApi.cancelCard.bind(runtimeApi) });
       const context: ToolContext = {
         projectRoot,
         configAuthority: services.configAuthority,
@@ -239,8 +234,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         runtimeControl,
         mcpToolInvocation: services.mcpToolInvocation,
         restartServerAvailable,
-        actor,
-        surface,
+        actor: 'analyst',
+        surface: 'web-chat',
         captureExecutingLlmSnapshots: () => {
           const snapshots = [...runtimeMechanics.captureAutonomousExecutingLlmSnapshots()];
           const analyst = analystRuntimeCache?.executingLlmSnapshot();

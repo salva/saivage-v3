@@ -37,7 +37,7 @@ export class AnalystWsHandler {
         const parsed = InboundAnalystMessageEnvelopeSchema.safeParse(rawParsed);
         if (!parsed.success) throw new Error('Invalid analyst websocket message');
 
-        const response = await this.options.runtimeApplication.analystRuntime.submit({ userContent: parsed.data.content.text, actor: 'analyst', surface: 'web-chat' });
+        const response = await this.options.runtimeApplication.analystRuntime.submit({ userContent: parsed.data.content.text });
 
         for (const invocation of response.toolInvocations ?? []) {
           this.options.sendToClient(ws, {

@@ -3,7 +3,7 @@ import { AuthoredRecordNotFoundError, PROJECT_CARD_ID } from '../cards/card-api.
 import { analystBriefEditEffect, canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
-import type { CardRecord, CardType, ControlActionSurface } from '../schemas/index.js';
+import type { CardRecord, CardType } from '../schemas/index.js';
 import { propagateAnalystBriefEdit, propagateChange } from '../runtime/changed-propagation.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { toCardView } from './read-models/card-view.js';
@@ -53,12 +53,12 @@ export interface AnalystMutationServices {
   briefRecords: AnalystBriefRecordMutationService;
 }
 
-export function createAnalystMutationServices(input: { projectRoot: string; store: CardService; configAuthority: ResolvedConfigAuthority; surface: ControlActionSurface; notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
+export function createAnalystMutationServices(input: { projectRoot: string; store: CardService; configAuthority: ResolvedConfigAuthority; notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
   const notifyCard = input.notifyCard ?? ((_cardId, notification) => ({ ok: true, notificationId: notification.id }));
   return {
-    cards: new AnalystCardMutationImplementation(input.store, input.surface, notifyCard, input.cancelCard),
+    cards: new AnalystCardMutationImplementation(input.store, notifyCard, input.cancelCard),
     config: new AnalystConfigMutationImplementation(input.configAuthority),
-    notifications: new AnalystNotificationMutationImplementation(input.projectRoot, input.store, input.surface, notifyCard),
+    notifications: new AnalystNotificationMutationImplementation(input.projectRoot, input.store, notifyCard),
     briefRecords: new AnalystBriefRecordMutationImplementation(input.projectRoot, input.store, notifyCard),
   };
 }
@@ -85,7 +85,7 @@ function subtree(store: CardService, rootId: string): CardRecord[] {
 }
 
 class AnalystCardMutationImplementation implements AnalystCardMutationService {
-  constructor(private readonly store: CardService, private readonly surface: ControlActionSurface, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard'], private readonly cancelCardPort?: Pick<RuntimeApi, 'cancelCard'>['cancelCard']) {}
+  constructor(private readonly store: CardService, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard'], private readonly cancelCardPort?: Pick<RuntimeApi, 'cancelCard'>['cancelCard']) {}
 
   create(input: CreateAnalystCardInput): AnalystMutationOutcome {
     const parent = input.parent;
@@ -129,7 +129,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       const blocked = subtree(this.store, child.id).find((candidate) => candidate.lifecycle.status === 'running');
       if (blocked) return denied(`child subtree '${child.id}' contains '${blocked.id}' in status ${blocked.lifecycle.status}`);
     }
-    const result = this.store.reorderChildren(parentId, [...orderedChildIds], { actor: 'analyst', surface: this.surface, reason: 'analyst reorder_child' });
+    const result = this.store.reorderChildren(parentId, [...orderedChildIds], { actor: 'analyst', surface: 'web-chat', reason: 'analyst reorder_child' });
     if (!result.ok) return failure('reorder_set_mismatch', { reason: 'reorder_set_mismatch', missing: result.missing, extra: result.extra, parent_id: parentId });
     if (result.changed > 0) {
       try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch { /* notification is best effort */ }
@@ -149,10 +149,10 @@ class AnalystConfigMutationImplementation implements AnalystConfigMutationServic
 }
 
 class AnalystNotificationMutationImplementation implements AnalystNotificationMutationService {
-  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly surface: ControlActionSurface, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
+  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
   queue(cardId: string, kind: string, body: string): AnalystMutationOutcome {
     if (!this.notifyCard) throw new Error('Analyst queue_notification requires the runtime card notification port.');
-    const queued = queueNotification(cardId, kind, body, { actor: 'analyst', surface: this.surface }, this.notifyCard);
+    const queued = queueNotification(cardId, kind, body, { actor: 'analyst', surface: 'web-chat' }, this.notifyCard);
     if (!queued.ok && queued.reason === 'terminal_card') return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
     if (!queued.ok) return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
     return success({ queued: true, card_id: cardId, notification_id: queued.notificationId });

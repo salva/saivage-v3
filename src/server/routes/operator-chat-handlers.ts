@@ -31,7 +31,7 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
     },
     'chats.send': async ({ body, reply }) => {
       if (!body.content) return { statusCode: 400, body: { error: 'Message content is required' } };
-      const response = await options.runtimeApplication.analystRuntime.submit({ userContent: body.content, workspaceContext: body.workspaceContext, actor: 'analyst', surface: 'web-chat' });
+      const response = await options.runtimeApplication.analystRuntime.submit({ userContent: body.content, workspaceContext: body.workspaceContext });
       const result = {
         body: {
           sessionId: response.sessionId,

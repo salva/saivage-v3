@@ -9,6 +9,10 @@ import {
 } from '../contracts/index.js';
 import { ConversationSessionIdSchema, cardIdSchema } from '../schemas/index.js';
 
+function assertNever(value: never): never {
+  throw new Error(`Unsupported contract authentication class: ${String(value)}`);
+}
+
 type ContractSchemaOutput<
   TContract extends OperatorRouteContract,
   TKey extends 'params' | 'query' | 'body',
@@ -135,11 +139,14 @@ export class ContractRuntime {
           let candidate: ResponseDescriptor | undefined;
 
           failureCode = 'auth_evaluation_failed';
-          if (contract.auth !== 'public') {
-            const authResult = contract.auth === 'operator-session'
-              ? this.authPolicy.validateHttpRequest(request)
-              : { ok: false as const };
-            if (!authResult.ok) candidate = { statusCode: 401, body: unauthorizedBody() };
+          switch (contract.auth) {
+            case 'public': break;
+            case 'operator-session': {
+              const authResult = this.authPolicy.validateHttpRequest(request);
+              if (!authResult.ok) candidate = { statusCode: 401, body: unauthorizedBody() };
+              break;
+            }
+            default: assertNever(contract.auth);
           }
 
           let parsed: ParsedContractRequest<TContract> | undefined;

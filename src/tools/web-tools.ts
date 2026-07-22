@@ -33,8 +33,7 @@ const websearchSchema = z.object({ query: z.string(), max_results: z.number().in
 const webfetchSchema = z.object({ url: z.string(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional(), max_bytes: z.number().int().optional(), max_inline_bytes: z.number().int().optional(), save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
 
 function webContext(ctx: ToolContext): WebProviderContext {
-  if (ctx.actor === 'planner' || ctx.actor === 'executor' || ctx.actor === 'reviewer' || ctx.actor === 'analyst') return { projectRoot: ctx.projectRoot, agentRole: ctx.actor, store: ctx.store, notifyCard: ctx.runtime ? (cardId, notification) => ctx.runtime!.notifyCard(cardId, notification) : undefined };
-  throw new Error(`Unsupported web tool actor '${ctx.actor}'.`);
+  return { projectRoot: ctx.projectRoot, agentRole: 'analyst', store: ctx.store, notifyCard: ctx.runtime ? (cardId, notification) => ctx.runtime!.notifyCard(cardId, notification) : undefined };
 }
 
 function analystResult(result: InvocationToolResult): AnalystToolResult {

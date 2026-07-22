@@ -23,7 +23,7 @@ function card(status: CardStatus, id = FIRST, type: CardType = 'code'): CardReco
 }
 
 function services(store: CardService, notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }))) {
-  return createAnalystMutationServices({ projectRoot: '/tmp/analyst-mutation-test', store, configAuthority: { applyChange: jest.fn() } as never, surface: 'web-chat', notifyCard, cancelCard });
+  return createAnalystMutationServices({ projectRoot: '/tmp/analyst-mutation-test', store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, cancelCard });
 }
 
 describe('analyst card mutation service deletion', () => {
@@ -128,6 +128,7 @@ describe('analyst child reorder propagation', () => {
     expect(test.getAncestors).not.toHaveBeenCalled();
     expect(test.setStatus).not.toHaveBeenCalled();
     expect(test.notifyCard).not.toHaveBeenCalled();
+    expect(test.reorderChildren).toHaveBeenCalledWith('project', [], { actor: 'analyst', surface: 'web-chat', reason: 'analyst reorder_child' });
   });
 
   it('propagates exactly once for a real reorder', () => {
@@ -149,7 +150,7 @@ describe('analyst child reorder propagation', () => {
 describe('other Analyst mutation facets', () => {
   it('calls the configuration authority exactly once through apply', () => {
     const applyChange = jest.fn(() => ({ success: true, requires_restart: false }));
-    const bundle = createAnalystMutationServices({ projectRoot: '/tmp/config-test', store: {} as CardService, configAuthority: { applyChange } as never, surface: 'web-chat', cancelCard: jest.fn() as never });
+    const bundle = createAnalystMutationServices({ projectRoot: '/tmp/config-test', store: {} as CardService, configAuthority: { applyChange } as never, cancelCard: jest.fn() as never });
     expect(bundle.config.apply({ kind: 'set_runtime_setting', key: 'continuous_improvement', value: false })).toMatchObject({ kind: 'returned', success: true });
     expect(applyChange).toHaveBeenCalledTimes(1);
   });

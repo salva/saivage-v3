@@ -1,50 +1,30 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { allowedActions, decide } from '../../src/permissions/index.js';
-import { CARD_ACTIONS, CARD_STATES, PERMISSION_ROLES } from '../../src/permissions/card-permissions.js';
-import { cardActionSchema } from '../../src/schemas/index.js';
+import { allowedOperatorCardActions } from '../../src/permissions/index.js';
+import { cardActionSchema, cardStatusValues } from '../../src/schemas/index.js';
 
-describe('permission-by-state matrix', () => {
-  it('has an explicit decision for every current role/action/state triple', () => {
-    expect(CARD_ACTIONS).toEqual(['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.reorder_child']);
-    let count = 0;
-    for (const role of PERMISSION_ROLES) {
-      for (const action of CARD_ACTIONS) {
-        for (const targetState of CARD_STATES) {
-          count += 1;
-          const decision = decide({ role, action, targetState });
-          expect(typeof decision.allowed).toBe('boolean');
-          if (!decision.allowed) expect(decision.reason).toMatch(/^(wrong_state|not_authorized|card_archived)$/);
-        }
-      }
+describe('operator card action projection', () => {
+  it('projects every card status in canonical action order', () => {
+    const expected = {
+      backlog: ['card.start', 'card.cancel', 'card.delete'],
+      running: ['card.cancel'],
+      blocked: ['card.cancel', 'card.delete'],
+      changed: ['card.start', 'card.cancel', 'card.delete'],
+      stopped: ['card.start', 'card.cancel', 'card.delete'],
+      done: ['card.delete'],
+      failed: ['card.cancel', 'card.delete'],
+      cancelled: ['card.delete'],
+    } as const;
+    for (const status of cardStatusValues) expect(allowedOperatorCardActions(status)).toEqual(expected[status]);
+  });
+
+  it('never projects create, reorder, or removed restart actions', () => {
+    for (const status of cardStatusValues) {
+      const actions = allowedOperatorCardActions(status);
+      expect(actions).not.toContain('card.create');
+      expect(actions).not.toContain('card.reorder_child');
+      expect(actions).not.toContain('card.restart');
     }
-    expect(count).toBe(PERMISSION_ROLES.length * CARD_ACTIONS.length * CARD_STATES.length);
-  });
-
-  it('allows and denies representative lifecycle decisions from the central matrix', () => {
-    expect(decide({ role: 'planner', action: 'card.start', targetState: 'stopped' })).toEqual({ allowed: true });
-    expect(decide({ role: 'planner', action: 'card.start', targetState: 'failed' })).toEqual({ allowed: false, reason: 'wrong_state' });
-    expect(decide({ role: 'reviewer', action: 'card.delete', targetState: 'failed' })).toEqual({ allowed: false, reason: 'not_authorized' });
-    expect(decide({ role: 'analyst', action: 'card.create', targetState: 'backlog' })).toEqual({ allowed: true });
-    expect(decide({ role: 'analyst', action: 'card.create', targetState: 'running' })).toEqual({ allowed: false, reason: 'wrong_state' });
-    expect(decide({ role: 'analyst', action: 'card.cancel', targetState: 'blocked' })).toEqual({ allowed: true });
-    expect(decide({ role: 'analyst', action: 'card.cancel', targetState: 'done' })).toEqual({ allowed: false, reason: 'wrong_state' });
-    expect(decide({ role: 'analyst', action: 'card.delete', targetState: 'changed' })).toEqual({ allowed: true });
-    expect(decide({ role: 'analyst', action: 'card.reorder_child', targetState: 'changed' })).toEqual({ allowed: true });
-    expect(decide({ role: 'analyst', action: 'card.reorder_child', targetState: 'running' })).toEqual({ allowed: false, reason: 'wrong_state' });
-    expect(allowedActions('operator', 'failed')).toEqual(['card.cancel', 'card.delete']);
-    expect(allowedActions('operator', 'running')).toEqual(['card.cancel']);
-  });
-
-  it('rejects removed card.restart action vocabulary', () => {
     expect(cardActionSchema.safeParse('card.restart').success).toBe(false);
-  });
-
-  it('classifies stopped exhaustively for every role', () => {
-    expect(allowedActions('planner', 'stopped')).toEqual(['card.start', 'card.cancel', 'card.delete']);
-    expect(allowedActions('operator', 'stopped')).toEqual(['card.start', 'card.cancel', 'card.delete']);
-    expect(allowedActions('analyst', 'stopped')).toEqual(['card.create', 'card.cancel', 'card.delete', 'card.reorder_child']);
-    expect(allowedActions('executor', 'stopped')).toEqual([]);
-    expect(allowedActions('reviewer', 'stopped')).toEqual([]);
   });
 });

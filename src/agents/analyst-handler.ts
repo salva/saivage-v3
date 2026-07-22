@@ -1,4 +1,4 @@
-import { type AnalystConversationSessionId, type ControlActionSurface } from '../schemas/index.js';
+import { type AnalystConversationSessionId } from '../schemas/index.js';
 import {
   ANALYST_NO_MODEL_REPLY,
   AnalystOfflineError,
@@ -6,7 +6,6 @@ import {
 } from './analyst-prompt.js';
 import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
 import type { EventLog } from '../observability/index.js';
-import type { ActorRole } from './authz.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
 import { getModelParamsForRole } from './config-schema.js';
 import type { SaivageConfig } from './config-schema.js';
@@ -73,8 +72,6 @@ export interface AnalystResponse {
 export interface AnalystTurnInput {
   userContent: string;
   workspaceContext?: WorkspaceContext;
-  actor?: ActorRole;
-  surface?: ControlActionSurface;
 }
 
 export type AnalystTurnResult = AnalystResponse;
@@ -126,8 +123,6 @@ export class AnalystSession {
   readonly #sessionId: AnalystConversationSessionId;
   readonly #config: SaivageConfig;
   readonly #promptTemplates: PromptTemplateRegistry;
-  readonly #actor: ActorRole;
-  readonly #surface: ControlActionSurface;
   readonly #restartServerAvailable: boolean;
   readonly #restartPort: RestartPort | undefined;
   readonly #conversations: ConversationFileContext;
@@ -146,8 +141,6 @@ export class AnalystSession {
     sessionId: AnalystConversationSessionId;
     config: SaivageConfig;
     promptTemplates: PromptTemplateRegistry;
-    actor: ActorRole;
-    surface: ControlActionSurface;
     restartServerAvailable: boolean;
     restartPort?: RestartPort;
     provider: LLMProviderPort;
@@ -165,8 +158,6 @@ export class AnalystSession {
     this.#sessionId = input.sessionId;
     this.#config = input.config;
     this.#promptTemplates = input.promptTemplates;
-    this.#actor = input.actor;
-    this.#surface = input.surface;
     this.#restartServerAvailable = input.restartServerAvailable;
     this.#restartPort = input.restartPort;
     this.#conversations = input.conversations;
@@ -357,7 +348,7 @@ export class AnalystSession {
   private buildInvocationInput(turn: AnalystTurnInput, surface: InvocationSurface): PreparedLlmInvocationInput {
     const tools = surfaceToolDefinitions(surface); const modelParams = getModelParamsForRole(this.#config, 'analyst');
     const systemPrompt = this.#promptTemplates.render('analyst', 'analyst', { toolList: formatPromptToolList(tools), vocabularySnippet: formatVocabularySnippet(), projectContext: this.buildProjectContext() });
-    return { inputId: randomUUID(), agentId: this.#llm.agentId, role: 'analyst', sessionId: this.#sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.#projectRoot, this.#sessionId)), tools, terminalToolNames: [], modelParams: { temperature: modelParams.temperature }, preparedCompaction: prepareCompaction(this.#compactionPolicy, systemPrompt, tools, modelParams.maxTokens), capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }), episodeContext: { surface: this.#surface } };
+    return { inputId: randomUUID(), agentId: this.#llm.agentId, role: 'analyst', sessionId: this.#sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.#projectRoot, this.#sessionId)), tools, terminalToolNames: [], modelParams: { temperature: modelParams.temperature }, preparedCompaction: prepareCompaction(this.#compactionPolicy, systemPrompt, tools, modelParams.maxTokens), capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }), episodeContext: { surface: 'web-chat' } };
   }
 
   private logBoundaryDiagnostic(phase: string, err: unknown): void {
@@ -468,12 +459,12 @@ export class AnalystRuntime {
   #session: AnalystSession | null = null;
   #admissionOpen = true;
   readonly #createSession: (input: AnalystTurnInput) => AnalystSession;
-  readonly #getAvailableToolNames: (actor: ActorRole, surface: ControlActionSurface) => string[];
+  readonly #getAvailableToolNames: () => string[];
   readonly #terminateRoot: (reason: string) => Promise<import('../runtime/process-runner.js').ProcessStopReport>;
 
   constructor(input: {
     createSession(input: AnalystTurnInput): AnalystSession;
-    getAvailableToolNames(actor: ActorRole, surface: ControlActionSurface): string[];
+    getAvailableToolNames(): string[];
     terminateRoot(reason: string): Promise<import('../runtime/process-runner.js').ProcessStopReport>;
   }) {
     this.#createSession = input.createSession;
@@ -494,8 +485,8 @@ export class AnalystRuntime {
     return this.#session?.executingLlmSnapshot() ?? null;
   }
 
-  getAvailableToolNames(actor: ActorRole = 'analyst', surface: ControlActionSurface = 'web-chat'): string[] {
-    return this.#getAvailableToolNames(actor, surface);
+  getAvailableToolNames(): string[] {
+    return this.#getAvailableToolNames();
   }
 
   closeAdmission(): void {

@@ -14,11 +14,10 @@ function context(projectRoot: string, restartServerAvailable: boolean): ToolCont
 }
 
 describe('restart_server', () => {
-  it('is catalogued only for enabled-auth Analyst web chat', () => {
+  it('is catalogued only when operator authentication publishes restart capability', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-restart-tool-'));
     try {
       expect(createAnalystControlProvider(context(projectRoot, true)).tools.map((tool) => tool.name)).toContain('restart_server');
-      expect(createAnalystControlProvider({ ...context(projectRoot, true), surface: 'rest' }).tools.map((tool) => tool.name)).not.toContain('restart_server');
       expect(createAnalystControlProvider({ ...context(projectRoot, false) }).tools.map((tool) => tool.name)).not.toContain('restart_server');
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });

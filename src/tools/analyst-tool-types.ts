@@ -1,8 +1,6 @@
 import type { CardService } from '../cards/card-api.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
-import type { ControlActionSurface } from '../schemas/index.js';
-import type { ActorRole } from '../agents/authz.js';
 import type { ToolResult } from './invocation.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
@@ -33,8 +31,8 @@ export interface ToolContext {
   runtimeControl?: RuntimeControlApplicationPort;
   mcpToolInvocation: McpToolInvocationPort;
   restartServerAvailable: boolean;
-  actor: ActorRole;
-  surface: ControlActionSurface;
+  actor: 'analyst';
+  surface: 'web-chat';
   analystMutations?: AnalystMutationServices;
   analystPreparation?: AnalystPreparationReadServices;
   eventQueries: EventQueryService;

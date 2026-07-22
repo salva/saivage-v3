@@ -9,6 +9,6 @@ describe('agents module ownership boundary', () => {
     expect(configApi.saivageConfigSchema).toBeDefined();
     expect(analystApi.AnalystRuntime).toBeDefined();
     expect('resolveAnalystSessionId' in analystApi).toBe(false);
-    expect(toolApi.evaluateAuthz).toBeDefined();
+    expect(toolApi.create_card).toBeDefined();
   });
 });

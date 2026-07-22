@@ -1,6 +1,5 @@
-import { evaluateAuthz } from './authz.js';
-import type { SafetyClass } from './authz.js';
 import { recordControlAction, stableStringify } from '../persistence/index.js';
+import type { ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
 import type { AnalystMutationOutcome } from '../application/analyst-mutation-services.js';
@@ -22,7 +21,7 @@ export interface AnalystMutationContext {
 
 export interface MutatingSpec<P, Prepared = undefined> {
   readonly action: string;
-  readonly safety_class: SafetyClass;
+  readonly safety_class: NonNullable<ControlActionAuditEntry['safety_class']>;
   readonly target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
   readonly getTargetId: (params: P) => string | null;
   readonly lifecycle: 'intervention_ready' | 'runtime_cancellation';
@@ -55,33 +54,27 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
   };
   let result: ToolResult;
   try {
-    const verdict = evaluateAuthz({ actor: ctx.actor, surface: ctx.surface, safety_class: spec.safety_class });
-    if (verdict === 'deny') {
-      settle({ outcome: 'denied', outcome_summary: 'authz denied' });
-      result = toolFailure(`Denied by authorization policy for ${ctx.actor}/${ctx.surface}/${spec.safety_class}.`, { action: spec.action, safety_class: spec.safety_class });
+    const readServices = ctx.analystPreparation;
+    if (spec.prepare && !readServices) throw new Error('Analyst preparation services are required for prepared mutations.');
+    const readContext: AnalystMutationReadContext = { projectRoot: ctx.projectRoot, actor: ctx.actor, surface: ctx.surface, services: readServices!, ...(ctx.sessionId === undefined ? {} : { sessionId: ctx.sessionId }) };
+    const prepared = spec.prepare ? await spec.prepare(params, readContext) : undefined as Prepared;
+    signal?.throwIfAborted();
+    if (spec.lifecycle === 'intervention_ready') ctx.interventionReadiness.assertInterventionReady();
+    if (!ctx.analystMutations) throw new Error('Analyst mutation services are required for mutating tools.');
+    const mutationContext: AnalystMutationContext = { actor: ctx.actor, surface: ctx.surface, services: ctx.analystMutations };
+    const outcome = await spec.mutate(prepared, params, mutationContext);
+    if (outcome.kind === 'denied') {
+      settle({ outcome: 'denied', outcome_summary: `application admission denied: ${outcome.reason}` });
+      result = toolFailure(`Application denied ${spec.action}: ${outcome.reason}.`, { action: spec.action, reason: outcome.reason });
     } else {
-      const readServices = ctx.analystPreparation;
-      if (spec.prepare && !readServices) throw new Error('Analyst preparation services are required for prepared mutations.');
-      const readContext: AnalystMutationReadContext = { projectRoot: ctx.projectRoot, actor: ctx.actor, surface: ctx.surface, services: readServices!, ...(ctx.sessionId === undefined ? {} : { sessionId: ctx.sessionId }) };
-      const prepared = spec.prepare ? await spec.prepare(params, readContext) : undefined as Prepared;
-      signal?.throwIfAborted();
-      if (spec.lifecycle === 'intervention_ready') ctx.interventionReadiness.assertInterventionReady();
-      if (!ctx.analystMutations) throw new Error('Analyst mutation services are required for mutating tools.');
-      const mutationContext: AnalystMutationContext = { actor: ctx.actor, surface: ctx.surface, services: ctx.analystMutations };
-      const outcome = await spec.mutate(prepared, params, mutationContext);
-      if (outcome.kind === 'denied') {
-        settle({ outcome: 'denied', outcome_summary: `permission denied: ${outcome.reason}` });
-        result = toolFailure(`Denied by permission policy for ${spec.action}: ${outcome.reason}.`, { action: spec.action, reason: outcome.reason });
-      } else {
-        result = outcome.success
-          ? { success: true, ...(outcome.data === undefined ? {} : { data: outcome.data }) }
-          : { success: false, error: outcome.error, ...(outcome.data === undefined ? {} : { data: outcome.data }) };
-        settle({
-          outcome: result.success ? 'ok' : 'error',
-          outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,
-          ...(result.success ? {} : { error: result.error }),
-        });
-      }
+      result = outcome.success
+        ? { success: true, ...(outcome.data === undefined ? {} : { data: outcome.data }) }
+        : { success: false, error: outcome.error, ...(outcome.data === undefined ? {} : { data: outcome.data }) };
+      settle({
+        outcome: result.success ? 'ok' : 'error',
+        outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,
+        ...(result.success ? {} : { error: result.error }),
+      });
     }
   } catch (error) {
     rethrowAppLogPublicationError(error);

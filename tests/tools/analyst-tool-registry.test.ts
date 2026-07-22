@@ -40,10 +40,9 @@ describe('registered Analyst card mutation catalog', () => {
     }
   });
 
-  it('filters restart_server only when capability and destructive authorization both permit it', () => {
-    const names = (restartServerAvailable: boolean, surface: 'web-chat' | 'rest') => createAnalystControlProvider({ restartServerAvailable, actor: 'analyst', surface } as never).tools.map(({ name }) => name);
-    expect(names(false, 'web-chat')).not.toContain('restart_server');
-    expect(names(true, 'rest')).not.toContain('restart_server');
-    expect(names(true, 'web-chat')).toContain('restart_server');
+  it('filters restart_server by published authentication capability', () => {
+    const names = (restartServerAvailable: boolean) => createAnalystControlProvider({ restartServerAvailable, actor: 'analyst', surface: 'web-chat' } as never).tools.map(({ name }) => name);
+    expect(names(false)).not.toContain('restart_server');
+    expect(names(true)).toContain('restart_server');
   });
 });

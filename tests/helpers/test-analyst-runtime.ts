@@ -41,14 +41,12 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
   const directScopes: object[] = [];
   const sessionOperations: Function[] = [];
   const sessionConstructionInputs: object[] = [];
-  const createSession = (turn: AnalystTurnInput): AnalystSession => {
-    const actor = turn.actor ?? 'analyst';
-    const surface = turn.surface ?? 'web-chat';
+  const createSession = (_turn: AnalystTurnInput): AnalystSession => {
     const directScope = options.processes.processRunner.createDirectScope(options.processes.analystProcessRootScope, 'analyst-session:analyst:global', 'operator_session');
     directScopes.push(directScope);
     const createInvocationSurface = () => {
       const notifyCard = options.runtime.notifyCard.bind(options.runtime);
-      const analystMutations = createAnalystMutationServices({ projectRoot: options.projectRoot, store: options.cardStore, configAuthority: options.configAuthority, surface, notifyCard, cancelCard: options.runtime.cancelCard.bind(options.runtime) });
+      const analystMutations = createAnalystMutationServices({ projectRoot: options.projectRoot, store: options.cardStore, configAuthority: options.configAuthority, notifyCard, cancelCard: options.runtime.cancelCard.bind(options.runtime) });
       const context: ToolContext = {
         projectRoot: options.projectRoot,
         configAuthority: options.configAuthority,
@@ -61,8 +59,8 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         runtimeControl: options.runtimeControl,
         mcpToolInvocation: options.mcpToolInvocation,
         restartServerAvailable: options.restartServerAvailable ?? false,
-        actor,
-        surface,
+        actor: 'analyst',
+        surface: 'web-chat',
         eventQueries: options.eventQueries,
         captureExecutingLlmSnapshots: options.captureExecutingLlmSnapshots,
         analystMutations,
@@ -79,8 +77,6 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
       sessionId: 'analyst:global' as const,
       config: options.config,
       promptTemplates: options.promptTemplates,
-      actor,
-      surface,
       restartServerAvailable: options.restartServerAvailable ?? false,
       restartPort: options.restartPort,
       provider: options.provider,

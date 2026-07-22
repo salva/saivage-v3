@@ -1,7 +1,7 @@
 import { basename } from 'node:path';
 import type { CardService } from '../../cards/card-api.js';
 import { positiveSafeIntegerSchema, type CardHistoryEntry, type CardRecord } from '../../schemas/index.js';
-import { allowedActions } from '../../permissions/index.js';
+import { allowedOperatorCardActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type {
@@ -14,7 +14,7 @@ import type {
 import { toCardOperatorSummary } from './card-view.js';
 
 export function toOperatorCard(card: CardRecord): OperatorCard {
-  const actions = allowedActions('operator', card.lifecycle.status);
+  const actions = allowedOperatorCardActions(card.lifecycle.status);
   return {
     id: card.id, type: card.type, children: card.children, title: card.title, lifecycle: card.lifecycle,
     subtype: card.subtype, tags: card.tags, priority: card.priority, urgency: card.urgency, created_by: card.created_by,

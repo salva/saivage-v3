@@ -78,8 +78,6 @@ describe('operator chat route request contracts', () => {
     expect(submit).toHaveBeenCalledWith({
       userContent: 'hello',
       workspaceContext: undefined,
-      actor: 'analyst',
-      surface: 'web-chat',
     });
   });
 

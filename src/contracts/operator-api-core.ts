@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export type ContractAuthClass = 'public' | 'operator-session' | 'agent-session' | 'mcp-tool-token';
+export type ContractAuthClass = 'public' | 'operator-session';
 
 export const HttpMethodSchema = z.enum(['GET', 'POST', 'PATCH', 'DELETE']);
 export type HttpMethod = z.infer<typeof HttpMethodSchema>;

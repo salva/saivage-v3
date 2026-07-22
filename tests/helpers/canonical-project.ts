@@ -46,7 +46,6 @@ export function testAnalystMutationServices(projectRoot: string, store: Producti
     projectRoot,
     store,
     configAuthority: testConfigAuthority(projectRoot),
-    surface: 'web-chat',
     notifyCard,
     cancelCard: async (cardId, reason) => {
       const card = store.read(cardId);

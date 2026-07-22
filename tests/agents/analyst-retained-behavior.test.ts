@@ -11,12 +11,12 @@ import { listControlActions } from '../../src/persistence/index.js';
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-function harness(options: { actor?: 'analyst'; surface?: 'web-chat' | 'rest'; ready?: boolean } = {}) {
+function harness(options: { ready?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-audit-'));
   roots.push(root);
   const intervention = new RuntimeInterventionBinding();
   if (options.ready !== false) intervention.markStoppedReady();
-  const context = { projectRoot: root, actor: options.actor ?? 'analyst', surface: options.surface ?? 'web-chat', interventionReadiness: intervention, analystPreparation: {}, analystMutations: {} } as never;
+  const context = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: intervention, analystPreparation: {}, analystMutations: {} } as never;
   const spec = (mutate: (...args: any[]) => any, extra: Record<string, unknown> = {}) => ({ action: 'card.test', safety_class: 'low' as const, target_kind: 'card' as const, getTargetId: () => 'project', lifecycle: 'intervention_ready' as const, mutate, ...extra });
   return { root, context, spec };
 }
@@ -35,14 +35,13 @@ describe('Analyst retained navigation and capability behavior', () => {
 });
 
 describe('audited Analyst mutation settlement', () => {
-  it('audits authorization denial exactly once without mutation', async () => {
-    const test = harness({ surface: 'rest' });
-    const mutate = jest.fn();
-    const result = await runAuditedAnalystTool(test.context, {}, { ...test.spec(mutate), safety_class: 'destructive' });
-    expect(result.success).toBe(false);
-    expect(mutate).not.toHaveBeenCalled();
+  it('runs a supported destructive mutation once and preserves its audit classification', async () => {
+    const test = harness();
+    const mutate = jest.fn(() => ({ kind: 'returned' as const, success: true as const }));
+    await expect(runAuditedAnalystTool(test.context, {}, { ...test.spec(mutate), safety_class: 'destructive' })).resolves.toEqual({ success: true });
+    expect(mutate).toHaveBeenCalledTimes(1);
     expect(listControlActions(test.root)).toHaveLength(1);
-    expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'denied' });
+    expect(listControlActions(test.root)[0]).toMatchObject({ actor: 'analyst', surface: 'web-chat', safety_class: 'destructive', outcome: 'ok' });
   });
 
   it('audits application denial after preparation exactly once', async () => {
