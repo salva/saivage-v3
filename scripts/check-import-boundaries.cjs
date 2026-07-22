@@ -17,8 +17,8 @@ const DOMAIN_PACKAGES = new Set([
 const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const AGENT_RUNTIME_RESTRICTED = new Set(['runtime']);
 const SCHEMA_FORBIDDEN = new Set(['events', 'server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
-const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/analyst-stage6.js', 'agents/session-persistence.js', 'agents/config-schema.js']);
-const AGENT_RUNTIME_IMPORT_EXCEPTIONS = new Set(['src/agents/analyst-tools.ts', 'src/agents/analyst-stage6.ts', 'src/agents/analyst-handler.ts']);
+const RUNTIME_AGENT_IMPORT_EXCEPTIONS = new Set(['agents/session-persistence.js', 'agents/config-schema.js']);
+const AGENT_RUNTIME_IMPORT_EXCEPTIONS = new Set(['src/agents/analyst-tools.ts', 'src/agents/analyst-handler.ts']);
 const PREEXISTING_DEEP_IMPORT_EXCEPTIONS = new Set([
   'src/agents/analyst-secret-classifier.ts->workspace/secret-paths.js',
 ]);
@@ -112,7 +112,6 @@ function runSelfTest() {
     { fromPkg: 'schemas', parts: ['events', 'index.js'], ok: false, label: 'schemas must not import events' },
     { fromPkg: 'events', parts: ['schemas', 'event-catalog.js'], ok: true, label: 'events may import schema catalog owner' },
     { fromPkg: null, parts: ['agents', 'index.js'], ok: false, label: 'root entrypoint must not import central package root' },
-    { fromPkg: null, parts: ['agents', 'tool-api.js'], ok: true, label: 'root entrypoint may import explicit agents tool API' },
     { fromPkg: null, parts: ['agents', 'authz.js'], ok: false, label: 'root entrypoint must not deep-import agents authz' },
   ];
   const failures = [];
