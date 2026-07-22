@@ -1,33 +1,18 @@
 import { z } from 'zod';
 
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
+import { analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
 import {
   CARD_TYPE_VALUES,
   CREATE_CARD_TYPE_VALUES,
   URGENCY_VALUES,
-  cardIdArraySchema,
-  describe,
   emptyInput,
-  enumSchema,
-  urgencySchema,
 } from './tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { defaultParentForCreate, getStore, normalizeParentValue, preflightEnum, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolDefinition } from './invocation.js';
 
-const createCardInput = z.object({
-  type: enumSchema('The non-project card type.', CARD_TYPE_VALUES),
-  parent: describe(z.string().nullable().optional(), "The ID of the parent card. Use null only when creating the root project card; use 'project' for top-level goals."),
-  title: describe(z.string(), 'A short title.'),
-  brief: describe(z.string(), 'Full brief.md content including Goal, Instructions, and Acceptance Criteria headings.'),
-  tags: describe(z.array(describe(z.string(), 'A tag string')).optional(), 'Optional tags.'),
-  priority: describe(z.number().int().optional(), 'Optional priority value (0-100).'),
-  urgency: describe(urgencySchema.optional(), 'Optional urgency level.'),
-  depends_on: describe(cardIdArraySchema.optional(), 'Optional dependency list.'),
-  related: describe(cardIdArraySchema.optional(), 'Optional related-card list.'),
-}).strict();
-
-export async function create_card(ctx: ToolContext, params: z.infer<typeof createCardInput>, signal?: AbortSignal): Promise<ToolResult> {
+export async function create_card(ctx: ToolContext, params: z.infer<typeof analystCreateCardInputSchema>, signal?: AbortSignal): Promise<ToolResult> {
   const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
   const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
   const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(getStore(ctx), typeCheck.value!) ?? null;
@@ -54,9 +39,9 @@ export async function reorder_child(ctx: ToolContext, params: { parentId: string
 }
 
 export function analystCardTools(ctx: ToolContext): readonly ToolDefinition<any>[] { return [
-  defineTool({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Every created child receives backlog lifecycle.`, inputSchema: createCardInput, executor: (args, signal) => create_card(ctx, args, signal) }),
-  defineTool({ name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', inputSchema: z.object({ parentId: describe(z.string(), 'Parent whose children to reorder.'), orderedChildIds: describe(z.array(z.string()), 'New child id order; must be a permutation of the current child set.') }).strict(), executor: (args, signal) => reorder_child(ctx, args, signal) }),
+  defineTool({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Every created child receives backlog lifecycle.`, inputSchema: analystCreateCardInputSchema, executor: (args, signal) => create_card(ctx, args, signal) }),
+  defineTool({ name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', inputSchema: analystReorderChildInputSchema, executor: (args, signal) => reorder_child(ctx, args, signal) }),
   defineTool({ name: 'get_status', description: 'Get the overall project status.', inputSchema: emptyInput, executor: (args) => get_status(ctx, args) }),
-  defineTool({ name: 'cancel_card', description: 'Cancel non-completed work. Analyst cancellation allows every status except done and cancelled, rejects the root project card, and requires exact runtime ownership for running work.', inputSchema: z.object({ cardId: describe(z.string(), 'The ID of the card to cancel.'), reason: describe(z.string().optional(), 'Optional cancellation reason.') }).strict(), executor: (args, signal) => cancel_card(ctx, args, signal) }),
-  defineTool({ name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused. Deleted ids remain reserved; no card restore/archive content is produced. Denies the root project card and any running subtree member.', inputSchema: z.object({ ids: describe(z.array(z.string()).min(1), 'Card ids to delete.') }).strict(), executor: (args, signal) => delete_card(ctx, args, signal) }),
+  defineTool({ name: 'cancel_card', description: 'Cancel non-completed work. Analyst cancellation allows every status except done and cancelled, rejects the root project card, and requires exact runtime ownership for running work.', inputSchema: analystCancelCardInputSchema, executor: (args, signal) => cancel_card(ctx, args, signal) }),
+  defineTool({ name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused. Deleted ids remain reserved; no card restore/archive content is produced. Denies the root project card and any running subtree member.', inputSchema: analystDeleteCardInputSchema, executor: (args, signal) => delete_card(ctx, args, signal) }),
 ]; }

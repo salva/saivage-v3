@@ -10,7 +10,7 @@ import {
 describe('outbound redaction', () => {
   it('has the exact source inventory implemented in the first cutover phase', () => {
     expect(OUTBOUND_REDACTION_SOURCES).toEqual([
-      'provider-exchange', 'logged-event', 'control-action', 'operator-card', 'runtime-card-runs', 'card-history', 'card-diff', 'config', 'process-view', 'webfetch-invocation', 'webfetch-result', 'dynamic',
+      'provider-exchange', 'logged-event', 'control-action', 'operator-card', 'runtime-card-runs', 'card-history', 'card-diff', 'config', 'process-view', 'webfetch-invocation', 'webfetch-result', 'tool-invocation', 'dynamic',
     ]);
   });
   describe('structured values', () => {

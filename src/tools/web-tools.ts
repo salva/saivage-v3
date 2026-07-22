@@ -16,6 +16,7 @@ import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { prepareAnalystBriefWebfetch, type PreparedFetchedBrief } from '../application/analyst-prepare/webfetch.js';
 import { redactUrl } from '../redaction/text.js';
 import { WebfetchInvocationSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
+import { websearchInputSchema } from '../contracts/builtin-tool-inputs.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -30,8 +31,8 @@ export interface WebProviderContext extends WorkspaceContext {
   readonly analystToolContext?: ToolContext;
 }
 
-const websearchSchema = z.object({ query: z.string(), max_results: z.number().int().optional() }).strict();
-const webfetchSchema = WebfetchInvocationSchema.extend({ save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
+const websearchSchema = websearchInputSchema;
+export const webfetchSchema = WebfetchInvocationSchema.extend({ save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
 
 function parseHttpUrl(raw: string): URL {
   const url = new URL(raw);

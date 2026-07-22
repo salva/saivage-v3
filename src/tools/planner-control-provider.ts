@@ -9,7 +9,7 @@ import {
 } from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import { queueNotification } from '../notifications/index.js';
-import { cardIdSchema, cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
+import { cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
@@ -17,6 +17,7 @@ import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-s
 import type { PlannerChildControlPort } from '../runtime/actors/card-activation-owner.js';
 import { cardParentId } from '../schemas/card-id.js';
 import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import { plannerCancelCardInputSchema, plannerCreateCardInputSchema, plannerEditCardInputSchema, plannerQueueNotificationInputSchema, plannerReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
 
 interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
@@ -35,45 +36,21 @@ export interface PlannerControlProviderContext {
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
 }
 
-const createCardSchema = z.object({
-  type: z.string(),
-  title: z.string(),
-  brief: z.string(),
-  tags: z.array(z.string()).optional(),
-  priority: z.number().int().optional(),
-  urgency: z.string().optional(),
-  depends_on: z.array(z.string()).optional(),
-  related: z.array(z.string()).optional(),
-}).strict();
-
-const editCardSchema = z.object({
-  card_id: cardIdSchema,
-  title: z.string().optional(),
-  tags: z.array(z.string()).optional(),
-  priority: z.number().int().optional(),
-  urgency: z.string().optional(),
-  related: z.array(z.string()).optional(),
-}).strict();
-
-const cancelCardSchema = z.object({ card_id: cardIdSchema, reason: z.string().optional() }).strict();
-const reorderChildSchema = z.object({ orderedChildIds: z.array(z.string()) }).strict();
-const queueNotificationSchema = z.object({ card_id: cardIdSchema, kind: z.string().min(1), body: z.string().min(1) }).strict();
-
 export function createPlannerControlProvider(ctx: PlannerControlProviderContext): ToolProvider {
   return {
     providerName: 'planner-control',
     tools: [
-      defineTool({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: createCardSchema, executor: async (args) => createCard(ctx, args) }),
-      defineTool({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: editCardSchema, executor: async (args) => editCard(ctx, args) }),
-      defineTool({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: cancelCardSchema, executor: async (args) => cancelCard(ctx, args) }),
+      defineTool({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: plannerCreateCardInputSchema, executor: async (args) => createCard(ctx, args) }),
+      defineTool({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: plannerEditCardInputSchema, executor: async (args) => editCard(ctx, args) }),
+      defineTool({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: plannerCancelCardInputSchema, executor: async (args) => cancelCard(ctx, args) }),
       defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardArgumentsSchema, executor: async (args, _signal, invocation) => activateCard(ctx, args, invocation) }),
-      defineTool({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: reorderChildSchema, executor: async (args) => reorderChild(ctx, args) }),
-      defineTool({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: queueNotificationSchema, executor: async (args) => queueNotificationTool(ctx, args) }),
+      defineTool({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: plannerReorderChildInputSchema, executor: async (args) => reorderChild(ctx, args) }),
+      defineTool({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: plannerQueueNotificationInputSchema, executor: async (args) => queueNotificationTool(ctx, args) }),
     ],
   };
 }
 
-function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof createCardSchema>): ToolResult {
+function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolResult {
   const type = plannerCreatedType(record.type);
   if (!type.success) return type;
   const dependsOn = record.depends_on ?? [];
@@ -97,7 +74,7 @@ function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof c
   return { success: true, data: { card: compactPlannerToolCard(ctx.store.create(input)) } };
 }
 
-function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof editCardSchema>): ToolResult {
+function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerEditCardInputSchema>): ToolResult {
   if (record.card_id.length === 0) return failure('edit_card requires card_id.');
   const child = requireImmediateChild(ctx, record.card_id, 'edit_card');
   if (!child.success) return child;
@@ -111,21 +88,21 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof edi
   return { success: true, data: { card: compactPlannerToolCard(updated) } };
 }
 
-function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof reorderChildSchema>): ToolResult {
+function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerReorderChildInputSchema>): ToolResult {
   if (!ctx.store.reorderChildren) throw new Error('Planner reorder_child requires a mutable card store.');
   const result = ctx.store.reorderChildren(ctx.parentCardId, record.orderedChildIds);
   if (!result.ok) return { success: false, error: `reorder_child set mismatch: missing=${result.missing.join(',') || '(none)'} extra=${result.extra.join(',') || '(none)'}` };
   return { success: true, data: { parent_id: ctx.parentCardId, changed: result.changed } };
 }
 
-function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof queueNotificationSchema>): ToolResult {
+function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>): ToolResult {
   const queued = queueNotification(record.card_id, record.kind, record.body, { actor: 'planner', surface: 'runtime' }, ctx.notifyCard);
   if (!queued.ok && queued.reason === 'terminal_card') return { success: false, error: `Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status } };
   if (!queued.ok) return { success: false, error: `Card '${queued.cardId}' not found.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId } };
   return { success: true, data: { queued: true, card_id: record.card_id, notification_id: queued.notificationId } };
 }
 
-async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof cancelCardSchema>): Promise<ToolResult> {
+async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCancelCardInputSchema>): Promise<ToolResult> {
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');
   if (record.card_id === 'project' || cardParentId(record.card_id) !== ctx.parentCardId) return failure(`cancel_card can target only immediate children of '${ctx.parentCardId}'.`);
   try { return { success: true, data: await ctx.parentControl.cancelChild({ childCardId: record.card_id, reason: record.reason ?? 'planner_cancel_card' }) }; }
@@ -169,7 +146,7 @@ function plannerCreatedType(value: string): { success: true; type: Exclude<CardT
   return { success: true, type: value as Exclude<CardType, 'project'> };
 }
 
-function plannerEditablePatch(record: z.infer<typeof editCardSchema>): CardEditPatch {
+function plannerEditablePatch(record: z.infer<typeof plannerEditCardInputSchema>): CardEditPatch {
   const patch: CardEditPatch = {};
   if (record.title !== undefined) patch.title = requireNonEmptyString(record.title, 'title');
   if (record.tags !== undefined) patch.tags = record.tags;

@@ -11,6 +11,8 @@ import { createMcpToolInvocationInstallation, McpToolInvocationNotInstalledError
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { invokeToolForLlm, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { buildRoleSurface, type RoleSurfaceContext } from '../../src/tools/role-invocation-surfaces.js';
+import { TERMINAL_RESULT_TOOL_NAME } from '../../src/contracts/result-envelope.js';
+import { KNOWN_TOOL_INVOCATION_NAMES } from '../../src/tools/tool-invocation-outbound.js';
 import { initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
 import { testLlmToolInvocationContext, unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import { createTestDirectProcessScope, createTestProcessRunner } from '../helpers/test-process-runner.js';
@@ -39,6 +41,20 @@ describe('role invocation surfaces', () => {
     expect([...surface.tools.keys()]).toEqual(tools);
     expect(surfaceToolDefinitions(surface).map((tool) => tool.function.name)).toEqual(tools);
     expect(tools.filter((name) => name === 'mcp_tool_call')).toHaveLength(role === 'planner' ? 0 : 1);
+  });
+
+  it('keeps the outbound invocation switch equal to the source-derived role-plus-terminal inventory', () => {
+    const analyst = fixture('analyst');
+    if (analyst.role !== 'analyst') throw new Error('Expected Analyst fixture.');
+    const roleContexts: RoleSurfaceContext[] = [
+      fixture('planner'), fixture('reviewer'), fixture('executor'),
+      { ...analyst, toolContext: { ...analyst.toolContext, restartServerAvailable: true } },
+    ];
+    expect(buildRoleSurface(roleContexts[3]!).tools.size).toBe(41);
+    const sourceNames = new Set(roleContexts.flatMap((context) => [...buildRoleSurface(context).tools.keys()]));
+    sourceNames.add(TERMINAL_RESULT_TOOL_NAME);
+    expect([...sourceNames].sort()).toEqual([...KNOWN_TOOL_INVOCATION_NAMES].sort());
+    expect(sourceNames.size).toBe(44);
   });
 
   it.each(['planner', 'analyst'] as const)('%s create_card exposes no status property', (role) => {

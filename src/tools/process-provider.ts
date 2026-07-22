@@ -1,9 +1,8 @@
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { z } from 'zod';
-
 import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import type { ProcessToolResult } from '../contracts/operator-api-processes.js';
+import { killProcessInputSchema, runCommandInputSchema, waitProcessInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRunner } from '../runtime/process-runner.js';
@@ -121,22 +120,6 @@ function processResult(ctx: ProcessProviderContext, processId: string): ProcessT
   } });
 }
 
-const runCommandSchema = z.object({
-  command: z.string().min(1),
-  cwd: z.string().optional(),
-  timeout_ms: z.number().int().optional(),
-  wait: z.boolean().optional(),
-}).strict();
-
-const waitProcessSchema = z.object({
-  process_id: z.string().min(1),
-  timeout_ms: z.number().int().optional(),
-}).strict();
-
-const killProcessSchema = z.object({
-  process_id: z.string().min(1),
-}).strict();
-
 export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider {
   const launchReason = ctx.launchReason ?? `${ctx.agentRole ?? 'agent'} process provider run_command`;
   return {
@@ -154,7 +137,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
       defineTool({
         name: 'run_command',
         description: 'Run a Bash command. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
-        inputSchema: runCommandSchema,
+        inputSchema: runCommandInputSchema,
         executor: async (args, signal, invocation) => {
           try {
             throwIfAborted(signal);
@@ -190,7 +173,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
       defineTool({
         name: 'wait_process',
         description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
-        inputSchema: waitProcessSchema,
+        inputSchema: waitProcessInputSchema,
         executor: async (args, signal, invocation) => {
           try {
             throwIfAborted(signal);
@@ -210,7 +193,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
       defineTool({
         name: 'kill_process',
         description: 'Signal a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep.',
-        inputSchema: killProcessSchema,
+        inputSchema: killProcessInputSchema,
         executor: async (args) => {
           try {
             assertOwned(ctx, args.process_id);

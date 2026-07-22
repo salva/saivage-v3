@@ -1,17 +1,13 @@
 import { z } from 'zod';
-import { cardIdSchema, positiveSafeIntegerSchema } from '../schemas/index.js';
 
 import type { ToolContext } from './analyst-tool-types.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { redactForOutbound } from '../redaction/index.js';
+import { diffCardInputSchema, getCardHistoryEntryInputSchema, listCardHistoryInputSchema } from '../contracts/builtin-tool-inputs.js';
 
 export interface CardHistoryProviderContext {
   readonly store: ToolContext['store'];
 }
-
-const listCardHistorySchema = z.object({ cardId: cardIdSchema }).strict();
-const getCardHistoryEntrySchema = z.object({ cardId: cardIdSchema, version_seq: positiveSafeIntegerSchema }).strict();
-const diffCardSchema = z.object({ cardId: cardIdSchema, fromSeq: positiveSafeIntegerSchema.optional(), toSeq: positiveSafeIntegerSchema.optional() }).strict();
 
 export function createCardHistoryProvider(ctx: CardHistoryProviderContext): ToolProvider {
   return {
@@ -20,26 +16,26 @@ export function createCardHistoryProvider(ctx: CardHistoryProviderContext): Tool
       defineTool({
         name: 'list_card_history',
         description: 'List card history headers for a card.',
-        inputSchema: listCardHistorySchema,
+        inputSchema: listCardHistoryInputSchema,
         executor: async (args) => listCardHistory(ctx, args),
       }),
       defineTool({
         name: 'get_card_history_entry',
         description: 'Get a specific card history entry snapshot.',
-        inputSchema: getCardHistoryEntrySchema,
+        inputSchema: getCardHistoryEntryInputSchema,
         executor: async (args) => getCardHistoryEntry(ctx, args),
       }),
       defineTool({
         name: 'diff_card',
         description: 'Get a field-level diff between two card versions.',
-        inputSchema: diffCardSchema,
+        inputSchema: diffCardInputSchema,
         executor: async (args) => diffCard(ctx, args),
       }),
     ],
   };
 }
 
-async function listCardHistory(ctx: CardHistoryProviderContext, params: z.infer<typeof listCardHistorySchema>): Promise<ToolResult> {
+async function listCardHistory(ctx: CardHistoryProviderContext, params: z.infer<typeof listCardHistoryInputSchema>): Promise<ToolResult> {
   const result = ctx.store.listCardHistory(params.cardId);
   if (result.kind === 'card-not-found') return { success: false, error: `Card '${params.cardId}' not found.` };
   const entries = result.value.map((entry) => redactForOutbound({ source: 'card-history', value: {
@@ -57,14 +53,14 @@ async function listCardHistory(ctx: CardHistoryProviderContext, params: z.infer<
   return { success: true, data: entries };
 }
 
-async function getCardHistoryEntry(ctx: CardHistoryProviderContext, params: z.infer<typeof getCardHistoryEntrySchema>): Promise<ToolResult> {
+async function getCardHistoryEntry(ctx: CardHistoryProviderContext, params: z.infer<typeof getCardHistoryEntryInputSchema>): Promise<ToolResult> {
   const result = ctx.store.getCardHistoryEntry(params.cardId, params.version_seq);
   if (result.kind === 'card-not-found') return { success: false, error: `Card '${params.cardId}' not found.` };
   if (result.kind === 'history-entry-not-found') return { success: false, error: `Card '${params.cardId}' has no history entry for version ${params.version_seq}.` };
   return { success: true, data: redactForOutbound({ source: 'card-history', value: result.value }) };
 }
 
-async function diffCard(ctx: CardHistoryProviderContext, params: z.infer<typeof diffCardSchema>): Promise<ToolResult> {
+async function diffCard(ctx: CardHistoryProviderContext, params: z.infer<typeof diffCardInputSchema>): Promise<ToolResult> {
   const result = ctx.store.diffCardHistory(params.cardId, { fromSeq: params.fromSeq, toSeq: params.toSeq });
   if (result.kind === 'card-not-found') return { success: false, error: `Card '${params.cardId}' not found.` };
   if (result.kind === 'invalid-pivots') return { success: false, error: `Invalid diff pivots ${result.from}..${result.to}.` };

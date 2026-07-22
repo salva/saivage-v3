@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
-import { cardStatusValues, cardTypeValues, type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
+import { type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { recordSlotDefinitions } from '../runtime/records/record-slots.js';
@@ -9,6 +9,7 @@ import { AuthoredRecordNotFoundError } from '../persistence/authored-record-file
 import { cardParentId } from '../schemas/card-id.js';
 import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
 import { redactSnippetForOutbound, redactTextForOutbound } from '../redaction/index.js';
+import { getCardInputSchema, getTreeInputSchema, listCardsInputSchema } from '../contracts/builtin-tool-inputs.js';
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
@@ -20,16 +21,6 @@ export interface CardInspectionProviderContext {
   readonly store: CardInspectionStore;
 }
 
-const listCardsSchema = z.object({
-  status: z.union([z.enum(cardStatusValues), z.array(z.enum(cardStatusValues))]).optional(),
-  type: z.union([z.enum(cardTypeValues), z.array(z.enum(cardTypeValues))]).optional(),
-  parent: z.string().optional(),
-  tag: z.string().optional(),
-}).strict();
-
-const getCardSchema = z.object({ id: z.string() }).strict();
-const getTreeSchema = z.object({ rootId: z.string().optional() }).strict();
-
 export function createCardInspectionProvider(ctx: CardInspectionProviderContext): ToolProvider {
   const store = ctx.store;
   return {
@@ -38,26 +29,26 @@ export function createCardInspectionProvider(ctx: CardInspectionProviderContext)
       defineTool({
         name: 'list_cards',
         description: 'List and filter cards in the project.',
-        inputSchema: listCardsSchema,
+        inputSchema: listCardsInputSchema,
         executor: async (args) => listCards(store, args),
       }),
       defineTool({
         name: 'get_card',
         description: 'Get full details of a single card.',
-        inputSchema: getCardSchema,
+        inputSchema: getCardInputSchema,
         executor: async (args) => getCard(store, args.id),
       }),
       defineTool({
         name: 'get_tree',
         description: 'Show the card tree.',
-        inputSchema: getTreeSchema,
+        inputSchema: getTreeInputSchema,
         executor: async (args) => getTree(store, args.rootId ?? PROJECT_CARD_ID),
       }),
     ],
   };
 }
 
-function listCards(store: CardInspectionStore, params: z.infer<typeof listCardsSchema>): ToolResult {
+function listCards(store: CardInspectionStore, params: z.infer<typeof listCardsInputSchema>): ToolResult {
   let cards = orderedCardViews(store);
   if (params.status) {
     const statuses: CardStatus[] = Array.isArray(params.status) ? params.status : [params.status];

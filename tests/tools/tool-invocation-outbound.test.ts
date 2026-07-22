@@ -1,0 +1,169 @@
+import { describe, expect, it } from '@jest/globals';
+
+import type { ToolInvocationProjectionInput } from '../../src/contracts/tool-invocation-projection.js';
+import { parseConversationSessionId } from '../../src/schemas/index.js';
+import {
+  KNOWN_TOOL_INVOCATION_NAMES,
+  projectToolInvocation,
+  type KnownToolInvocationName,
+} from '../../src/tools/tool-invocation-outbound.js';
+
+const sessionId = parseConversationSessionId('planner:project');
+const sourceInputId = '11111111-1111-4111-8111-111111111111';
+const marker = 'Authorization: Bearer synthetic-secret-value';
+
+const validArguments: Record<KnownToolInvocationName, unknown> = {
+  create_card: { type: 'code', title: marker, brief: marker, tags: ['tok_primary'] },
+  cancel_card: { cardId: 'card-a', reason: marker },
+  delete_card: { ids: ['card-a'] },
+  reorder_child: { parentId: 'project', orderedChildIds: ['card-a'] },
+  queue_notification: { card_id: 'card-a', kind: 'tok_primary', body: marker },
+  get_status: {}, start_project: {}, pause_runtime: {}, resume_runtime: {}, stop_project: {}, restart_server: {}, mcp_reconcile: {},
+  navigate_workspace: { target: { kind: 'card', id: 'tok_primary', refinement: marker } },
+  navigate_back: {}, show_config: {},
+  reconfigure: { action: 'set_server_setting', key: 'host', value: 'tok_primary' },
+  read_runtime_events: { limit: 1, kind: 'runtime_diagnostic' },
+  read_runtime_errors: { limit: 1 },
+  read_control_actions: { limit: 1, since: '2026-07-22T10:00:00.000Z' },
+  list_processes_tool: { status: 'running', cardId: 'card-a' },
+  list_agent_sessions: {}, read_agent_session: { sessionId: 'planner:project', lastN: 1 },
+  list_cards: { tag: 'tok_primary' }, get_card: { id: 'card-a' }, get_tree: { rootId: 'card-a' },
+  list_card_history: { cardId: 'card-a' },
+  get_card_history_entry: { cardId: 'card-a', version_seq: 1 },
+  diff_card: { cardId: 'card-a', fromSeq: 1, toSeq: 2 },
+  read: { path: 'project:///tok_primary', offset: 0, limit: 1 },
+  write: { path: 'project:///tok_primary', content: marker },
+  edit: { path: 'project:///tok_primary', old_string: marker, new_string: marker, replace_all: false },
+  glob: { directory: 'project:///', pattern: marker, max_results: 1 },
+  grep: { path: 'project:///', pattern: marker, include: '*.ts', max_results: 1 },
+  apply_patch: { patch: marker },
+  run_command: { command: marker, cwd: 'project:///', timeout_ms: 1, wait: false },
+  wait_process: { process_id: 'tok_primary', timeout_ms: 1 },
+  kill_process: { process_id: 'tok_primary' },
+  websearch: { query: marker, max_results: 1 },
+  webfetch: { url: 'https://tok_primary.example/path?secret=synthetic-secret-value', read_mode: 'text' },
+  skill: { name: 'tok_primary' },
+  mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: 'synthetic-secret-value', identity: 'stable_value' } },
+  edit_card: { card_id: 'card-a', title: marker, tags: ['tok_primary'] },
+  activate_card: { card_id: 'card-a' },
+  emit_result: { outcome: 'tok_primary', summary: marker },
+};
+
+describe('projectToolInvocation exhaustive identity switch', () => {
+  it('contains the exact 44-name baseline and every name reaches complete, call-row, and result-row', () => {
+    expect(KNOWN_TOOL_INVOCATION_NAMES).toHaveLength(44);
+    expect(new Set(KNOWN_TOOL_INVOCATION_NAMES).size).toBe(44);
+    expect(Object.keys(validArguments).sort()).toEqual([...KNOWN_TOOL_INVOCATION_NAMES].sort());
+
+    for (const toolName of KNOWN_TOOL_INVOCATION_NAMES) {
+      const complete = projectToolInvocation({ shape: 'complete', identity: identity(toolName), arguments: validArguments[toolName], result: { success: false, error: marker } });
+      expect(complete).toMatchObject({ shape: 'complete', identity: identity(toolName), result: { success: false } });
+      expect(JSON.stringify(complete)).not.toContain('synthetic-secret-value');
+
+      const call = projectToolInvocation({ shape: 'call-row', identity: callIdentity(toolName), arguments: JSON.stringify(validArguments[toolName]) });
+      expect(call).toMatchObject({ shape: 'call-row', identity: callIdentity(toolName) });
+      expect(call).not.toHaveProperty('result');
+
+      const result = projectToolInvocation({ shape: 'result-row', identity: identity(toolName), result: { success: false, error: marker } });
+      expect(result).toMatchObject({ shape: 'result-row', identity: identity(toolName), result: { success: false } });
+      expect(result).not.toHaveProperty('arguments');
+      expect(JSON.stringify(result)).not.toContain('synthetic-secret-value');
+    }
+  });
+
+  it('preserves structural identities while classifying every valid argument group', () => {
+    expect(complete('list_cards').arguments).toEqual({ tag: 'tok_primary' });
+    expect(complete('reconfigure').arguments).toEqual({ action: 'set_server_setting', key: 'host', value: 'tok_primary' });
+    expect(JSON.stringify(complete('create_card').arguments)).not.toContain('synthetic-secret-value');
+    expect(JSON.stringify(complete('write').arguments)).not.toContain('synthetic-secret-value');
+    expect(JSON.stringify(complete('run_command').arguments)).not.toContain('synthetic-secret-value');
+    expect(complete('webfetch').arguments).toEqual({ url: 'https://tok_primary.example/path?[REDACTED]', read_mode: 'text' });
+    expect(complete('mcp_tool_call').arguments).toEqual({ serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: '[REDACTED]', identity: 'stable_value' } });
+    expect(complete('emit_result').arguments).toMatchObject({ outcome: 'tok_primary' });
+    expect(JSON.stringify(complete('emit_result').arguments)).not.toContain('synthetic-secret-value');
+  });
+
+  it('classifies every reconfigure action/key/value branch without rewriting identities', () => {
+    const cases = [
+      { action: 'set_role_routing', role: 'executor', model_candidate: 'sk-model' },
+      { action: 'set_failover_chain', for_model: 'sk-model', ordered_failover_models: ['tok_primary'] },
+      { action: 'mcp_add', name: 'ghu_server', command: marker, args: [marker], env: { UNUSUAL: 'synthetic-secret-value' } },
+      { action: 'mcp_edit', name: 'ghu_server', command: marker },
+      { action: 'mcp_remove', name: 'ghu_server' },
+      { action: 'set_runtime_setting', key: 'continuous_improvement', value: true },
+      { action: 'set_runtime_setting', key: 'process_timeouts', value: { planner_ms: 1, executor_ms: 2, reviewer_ms: 3 } },
+      { action: 'set_server_setting', key: 'port', value: 8080 },
+      { action: 'set_server_setting', key: 'host', value: 'tok_primary' },
+    ];
+    for (const argumentsValue of cases) {
+      const projected = projectToolInvocation({ shape: 'complete', identity: identity('reconfigure'), arguments: argumentsValue, result: { success: false, error: marker } });
+      expect(projected.shape).toBe('complete');
+      if (projected.shape !== 'complete') throw new Error('unexpected shape');
+      expect((projected.arguments as Record<string, unknown>)['action']).toBe(argumentsValue.action);
+    }
+    const mcp = (projectToolInvocation({ shape: 'complete', identity: identity('reconfigure'), arguments: cases[2], result: { success: false, error: marker } }) as Extract<ToolInvocationProjectionInput, { shape: 'complete' }>).arguments;
+    expect(mcp).toMatchObject({ name: 'ghu_server', env: { UNUSUAL: '[REDACTED]' } });
+    expect(JSON.stringify(mcp)).not.toContain('synthetic-secret-value');
+  });
+
+  it('keeps unsupported, malformed-JSON, and schema-invalid-known calls readable on distinct paths', () => {
+    const unsupported = projectToolInvocation({ shape: 'call-row', identity: callIdentity('future_tool'), arguments: JSON.stringify({ apiKey: 'synthetic-secret-value', id: 'stable_value' }) });
+    expect(JSON.parse((unsupported as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ apiKey: '[REDACTED]', id: 'stable_value' });
+
+    const malformed = projectToolInvocation({ shape: 'call-row', identity: callIdentity('webfetch'), arguments: `{${marker}` });
+    expect((malformed as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments).not.toContain('synthetic-secret-value');
+
+    const invalid = projectToolInvocation({ shape: 'call-row', identity: callIdentity('webfetch'), arguments: JSON.stringify({ apiKey: 'synthetic-secret-value', unexpected: 'stable_value' }) });
+    expect(JSON.parse((invalid as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ apiKey: '[REDACTED]', unexpected: 'stable_value' });
+    for (const projected of [unsupported, malformed, invalid]) expect(projected).not.toHaveProperty('result');
+  });
+
+  it('projects source-owned result leaves and invents neither calls nor arguments', () => {
+    const webfetch = projectToolInvocation({
+      shape: 'result-row', identity: identity('webfetch'),
+      result: { success: true, data: { redacted_url: 'https://tok_primary.example/path?[REDACTED]', status: 200, headers: { etag: 'tok_primary' }, text: marker, bytes: 42, truncated: false } },
+    });
+    expect(JSON.stringify(webfetch)).not.toContain('synthetic-secret-value');
+    expect(webfetch).not.toHaveProperty('arguments');
+
+    const mcp = projectToolInvocation({ shape: 'result-row', identity: identity('mcp_tool_call'), result: { success: true, data: { apiKey: 'synthetic-secret-value', id: 'stable_value' } } });
+    expect(mcp).toMatchObject({ result: { success: true, data: { apiKey: '[REDACTED]', id: 'stable_value' } } });
+
+    const terminalFailure = projectToolInvocation({ shape: 'result-row', identity: identity('emit_result'), result: { success: false, error: marker, data: { apiKey: 'synthetic-secret-value', reason: 'stable_value' } } });
+    expect(terminalFailure).toMatchObject({ result: { success: false, data: { apiKey: '[REDACTED]', reason: 'stable_value' } } });
+
+    const workspace = projectToolInvocation({ shape: 'result-row', identity: identity('read'), result: { success: true, data: { path: 'project:///tok_primary', content: marker, total_lines: 1, truncated: false } } });
+    expect(workspace).toMatchObject({ result: { success: true, data: { path: 'project:///tok_primary' } } });
+    expect(JSON.stringify(workspace)).not.toContain('synthetic-secret-value');
+  });
+
+  it('recursively supplies itself to the bounded read_agent_session result leaf', () => {
+    const projected = projectToolInvocation({
+      shape: 'result-row', identity: identity('read_agent_session'), result: { success: true, data: {
+        session: { id: 'planner:project', role: 'planner', goal_card_id: 'project', card_id: 'project', status: 'inactive', started_at: '2026-07-22T10:00:00.000Z', model: 'sk-model' },
+        activity_status: { status: 'inactive', pending_calls: [] }, total_messages: 1, returned: 1, parse_errors: 0,
+        messages: [{
+          id: `${sourceInputId}:tool-result:nested`, session_id: 'planner:project', role: 'tool', kind: 'tool_result', tool: 'mcp_tool_call', tool_call_id: 'nested',
+          content: JSON.stringify({ success: true, data: { apiKey: 'synthetic-secret-value', id: 'stable_value' } }), round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
+          message_index: 0, block_index: 0, timestamp: '2026-07-22T10:00:00.000Z',
+        }],
+      } },
+    });
+    expect(JSON.stringify(projected)).not.toContain('synthetic-secret-value');
+    expect(JSON.stringify(projected)).toContain('stable_value');
+  });
+});
+
+function identity(toolName: string) {
+  return { sessionId, sourceInputId, toolCallId: 'call-a', toolName };
+}
+
+function callIdentity(toolName: string) {
+  return { ...identity(toolName), startedAt: '2026-07-22T10:00:00.000Z' };
+}
+
+function complete(toolName: KnownToolInvocationName): Extract<ToolInvocationProjectionInput, { shape: 'complete' }> {
+  const projected = projectToolInvocation({ shape: 'complete', identity: identity(toolName), arguments: validArguments[toolName], result: { success: false, error: marker } });
+  if (projected.shape !== 'complete') throw new Error('unexpected shape');
+  return projected;
+}

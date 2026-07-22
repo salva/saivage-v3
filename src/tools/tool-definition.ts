@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { analystIssueSeverityValues, cardStatusValues, cardTypeValues, urgencyValues } from '../schemas/index.js';
+import { emptyToolInputSchema } from '../contracts/builtin-tool-inputs.js';
 
 export const CARD_STATUS_VALUES = cardStatusValues;
 export const RUNTIME_CARD_STATUS_VALUES = CARD_STATUS_VALUES;
@@ -27,4 +28,4 @@ export const cardTypeSchema = enumSchema('Card type.', CARD_TYPE_VALUES);
 export const plannerCreateCardTypeSchema = describe(z.enum([...PLANNER_CREATE_CARD_TYPE_VALUES] as [typeof PLANNER_CREATE_CARD_TYPE_VALUES[0], ...string[]]), 'The card type.');
 export const urgencySchema = enumSchema('Urgency level.', URGENCY_VALUES);
 export const analystIssueSeveritySchema = enumSchema('Optional issue severity.', ANALYST_ISSUE_SEVERITY_VALUES);
-export const emptyInput = z.object({}).strict();
+export const emptyInput = emptyToolInputSchema;

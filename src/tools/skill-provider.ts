@@ -1,6 +1,5 @@
-import { z } from 'zod';
-
 import type { SkillTargetRole } from '../schemas/index.js';
+import { skillInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { defineTool, type ToolProvider } from './invocation.js';
 import { SkillCatalog } from './skill-catalog.js';
 
@@ -8,8 +7,6 @@ export interface SkillProviderContext {
   readonly projectRoot: string;
   readonly agentRole: SkillTargetRole;
 }
-
-const skillSchema = z.object({ name: z.string().optional() }).strict();
 
 export function createSkillProvider(ctx: SkillProviderContext): ToolProvider {
   const catalog = new SkillCatalog(ctx.projectRoot);
@@ -19,7 +16,7 @@ export function createSkillProvider(ctx: SkillProviderContext): ToolProvider {
       defineTool({
         name: 'skill',
         description: 'List role-available skills or load one role-available skill on demand during an agent session. Omit name to list skill names; provide name to load exact skill content.',
-        inputSchema: skillSchema,
+        inputSchema: skillInputSchema,
         executor: async (args) => {
           try {
             if (args.name === undefined) {

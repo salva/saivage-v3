@@ -1,5 +1,3 @@
-import { z } from 'zod';
-
 import { listControlActions } from '../persistence/index.js';
 import { eventKindValues } from '../schemas/index.js';
 import { buildProcessView } from '../application/read-models/process-view.js';
@@ -8,6 +6,7 @@ import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineTool, type ToolDefinition } from './invocation.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../application/event-query-service.js';
+import { listProcessesInputSchema, readControlActionsInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema } from '../contracts/builtin-tool-inputs.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 
@@ -70,8 +69,8 @@ export function analystRuntimeTools(ctx: ToolContext): readonly ToolDefinition<a
   defineTool({ name: 'resume_runtime', description: 'Resume the runtime after a pause.', inputSchema: emptyInput, executor: (args) => resume_runtime(ctx, args) }),
   defineTool({ name: 'stop_project', description: 'Stop project execution without disposing or restarting the server.', inputSchema: emptyInput, executor: (args) => stop_project(ctx, args) }),
   defineTool({ name: 'restart_server', description: 'Request confirmed supervised server shutdown.', inputSchema: emptyInput, executor: (args) => restart_server(ctx, args) }),
-  defineTool({ name: 'read_runtime_events', description: 'Read the newest matching app-log-backed runtime events.', inputSchema: z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(), kind: z.enum(eventKindValues).optional() }).strict(), executor: (args) => read_runtime_events(ctx, args) }),
-  defineTool({ name: 'read_runtime_errors', description: 'Read the newest app-log-backed runtime error events.', inputSchema: z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional() }).strict(), executor: (args) => read_runtime_errors(ctx, args) }),
-  defineTool({ name: 'read_control_actions', description: 'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.', inputSchema: z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict(), executor: (args) => read_control_actions(ctx, args) }),
-  defineTool({ name: 'list_processes_tool', description: 'List runtime processes. Processes may be card-owned or non-card; card_id is null for Analyst/operator/runtime processes, and owner_kind/owner_id identify the owner. Optionally filter by status (running, finished, failed, killed) or cardId.', inputSchema: z.object({ status: z.string().optional(), cardId: z.string().optional() }).strict(), executor: (args) => list_processes_tool(ctx, args) }),
+  defineTool({ name: 'read_runtime_events', description: 'Read the newest matching app-log-backed runtime events.', inputSchema: readRuntimeEventsInputSchema, executor: (args) => read_runtime_events(ctx, args) }),
+  defineTool({ name: 'read_runtime_errors', description: 'Read the newest app-log-backed runtime error events.', inputSchema: readRuntimeErrorsInputSchema, executor: (args) => read_runtime_errors(ctx, args) }),
+  defineTool({ name: 'read_control_actions', description: 'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.', inputSchema: readControlActionsInputSchema, executor: (args) => read_control_actions(ctx, args) }),
+  defineTool({ name: 'list_processes_tool', description: 'List runtime processes. Processes may be card-owned or non-card; card_id is null for Analyst/operator/runtime processes, and owner_kind/owner_id identify the owner. Optionally filter by status (running, finished, failed, killed) or cardId.', inputSchema: listProcessesInputSchema, executor: (args) => list_processes_tool(ctx, args) }),
 ]; }

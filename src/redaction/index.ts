@@ -14,6 +14,8 @@ import type { ProcessOutboundValue } from '../application/read-models/process-ou
 import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';
 import type { WebfetchInvocation, WebfetchResult } from '../contracts/webfetch.js';
 import { projectWebfetchInvocationForOutbound, projectWebfetchResultForOutbound } from '../tools/webfetch-outbound.js';
+import type { ToolInvocationProjectionInput } from '../contracts/tool-invocation-projection.js';
+import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
 
 export {
   SECRET_REDACTION_PLACEHOLDER,
@@ -39,6 +41,7 @@ export type OutboundRedactionRequest =
   | { source: 'process-view'; value: ProcessOutboundValue }
   | { source: 'webfetch-invocation'; value: WebfetchInvocation }
   | { source: 'webfetch-result'; value: WebfetchResult }
+  | { source: 'tool-invocation'; value: ToolInvocationProjectionInput }
   | { source: 'dynamic'; value: unknown; options?: StructuredRedactionOptions };
 
 export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
@@ -52,8 +55,9 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> =
                 : Request extends { source: 'config' } ? SaivageConfig
                   : Request extends { source: 'process-view'; value: infer Value } ? Value
                     : Request extends { source: 'webfetch-invocation' } ? WebfetchInvocation
-                      : Request extends { source: 'webfetch-result' } ? WebfetchResult
-                        : unknown;
+                       : Request extends { source: 'webfetch-result' } ? WebfetchResult
+                        : Request extends { source: 'tool-invocation' } ? ToolInvocationProjectionInput
+                         : unknown;
 
 export const OUTBOUND_REDACTION_SOURCES = [
   'provider-exchange',
@@ -67,6 +71,7 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'process-view',
   'webfetch-invocation',
   'webfetch-result',
+  'tool-invocation',
   'dynamic',
 ] as const satisfies readonly OutboundRedactionRequest['source'][];
 const outboundSourceCompileGuard = {
@@ -81,6 +86,7 @@ const outboundSourceCompileGuard = {
   'process-view': true,
   'webfetch-invocation': true,
   'webfetch-result': true,
+  'tool-invocation': true,
   dynamic: true,
 } as const satisfies Record<OutboundRedactionRequest['source'], true>;
 void outboundSourceCompileGuard;
@@ -103,6 +109,7 @@ export function redactForOutbound(input: unknown, options: StructuredRedactionOp
     case 'process-view': return projectProcessForOutbound(input.value);
     case 'webfetch-invocation': return projectWebfetchInvocationForOutbound(input.value);
     case 'webfetch-result': return projectWebfetchResultForOutbound(input.value);
+    case 'tool-invocation': return projectToolInvocation(input.value);
     case 'dynamic': return projectDynamicForOutbound(input.value);
     default: return assertNever(input);
   }
