@@ -46,7 +46,7 @@ describe('card activation admission projection call graph', () => {
     expect(snapshot).not.toMatch(/waitChild|waitCallbacks/);
     expect(llm).toContain('toolInvocationContext(outcome');
     expect(llm).not.toContain('waitCallbacks');
-    expect(autonomous).toContain('llm.toolInvocationContext(toolOutcome)');
+    expect(autonomous).toContain('llm.toolInvocationContext(outcome)');
     expect(analyst).toContain('this.#llm.toolInvocationContext(outcome)');
     expect(analyst).toContain('invokeToolForLlm(surface, outcome.toolName, parsed.args');
     expect(analyst).not.toMatch(/childInvocation\s*:/);
