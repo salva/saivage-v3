@@ -1,7 +1,6 @@
-import { describe, expect, it, jest } from '@jest/globals';
+import { describe, expect, it } from '@jest/globals';
 
 import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
-import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 import { serializeOutboundEnvelope } from '../../src/server/websocket.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER, OUTBOUND_TEXT_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
@@ -36,36 +35,45 @@ describe('tool activity projection', () => {
 
   it.each([
     {
-      label: 'settled valid',
+      label: 'valid run_command',
       invocation: { tool: 'run_command', params: { command: `TOKEN=${OUTBOUND_RAW_MARKER} npm test` }, result: { success: true as const, data: { process_id: OUTBOUND_IDENTITY, exit_code: 0, status: 'exited', stdout_url: `work:///processes/${OUTBOUND_IDENTITY}/stdout.log`, stderr_url: `work:///processes/${OUTBOUND_IDENTITY}/stderr.log`, stdout_bytes: 1, stderr_bytes: 2 } }, ...IDENTITY },
+      expectedActivity: {
+        event: 'tool_invocation',
+        sessionId: 'agent:analyst:global',
+        tool: 'run_command',
+        params: { command: 'TOKEN=[REDACTED] npm test' },
+        result: { success: true, data: { process_id: OUTBOUND_IDENTITY, exit_code: 0, status: 'exited', stdout_url: `work:///processes/${OUTBOUND_IDENTITY}/stdout.log`, stderr_url: `work:///processes/${OUTBOUND_IDENTITY}/stderr.log`, stdout_bytes: 1, stderr_bytes: 2 } },
+      },
     },
     {
       label: 'unsupported tool',
-      invocation: { tool: 'unsupported_tok_primary', params: { apiKey: OUTBOUND_RAW_MARKER, identity: 'ordinary' }, result: { success: false as const, error: OUTBOUND_TEXT_MARKER, data: { token: OUTBOUND_RAW_MARKER, identity: 'ordinary' } }, ...IDENTITY },
+      invocation: { tool: 'unsupported_tok_primary', params: { apiKey: OUTBOUND_RAW_MARKER, identity: 'ordinary' }, result: { success: false as const, error: OUTBOUND_TEXT_MARKER, data: { status: 'unsupported', token: OUTBOUND_RAW_MARKER, identity: 'ordinary' } }, ...IDENTITY },
+      expectedActivity: {
+        event: 'tool_invocation',
+        sessionId: 'agent:analyst:global',
+        tool: 'unsupported_tok_primary',
+        params: { apiKey: '[REDACTED]', identity: 'ordinary' },
+        result: { success: false, error: 'token=[REDACTED]', data: { status: 'unsupported' } },
+      },
     },
     {
       label: 'schema-invalid known tool',
       invocation: { tool: 'webfetch', params: { url: 7, apiKey: OUTBOUND_RAW_MARKER }, result: { success: false as const, error: OUTBOUND_TEXT_MARKER }, ...IDENTITY },
+      expectedActivity: {
+        event: 'tool_invocation',
+        sessionId: 'agent:analyst:global',
+        tool: 'webfetch',
+        params: { url: 7, apiKey: '[REDACTED]' },
+        result: { success: false, error: 'token=[REDACTED]' },
+      },
     },
-  ])('projects $label once and final WebSocket serialization copies identical classified activity', ({ invocation }) => {
-    const projector = jest.fn(projectToolInvocation);
-    const activity = projectAnalystToolInvocationActivity(invocation, 'agent:analyst:global', projector);
-    expect(projector).toHaveBeenCalledTimes(1);
-
-    const complete = projectToolInvocation({
-      shape: 'complete',
-      identity: { sessionId: 'agent:analyst:global', sourceInputId: invocation.sourceInputId, toolCallId: invocation.toolCallId, toolName: invocation.tool },
-      arguments: invocation.params,
-      result: invocation.result,
-    });
-    if (complete.shape !== 'complete') throw new Error('Expected complete fixture projection.');
-    expect(activity.params).toEqual(complete.arguments);
-    expect(activity.result).toEqual(expect.objectContaining({ success: complete.result.success }));
+  ])('projects exact $label activity and WebSocket envelope without raw secrets', ({ invocation, expectedActivity }) => {
+    const activity = projectAnalystToolInvocationActivity(invocation, 'agent:analyst:global');
+    expect(activity).toEqual(expectedActivity);
 
     const serialized = serializeOutboundEnvelope({ type: 'activity', content: activity });
-    expect(JSON.parse(serialized)).toEqual({ type: 'activity', content: activity });
-    expect(projector).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(serialized)).toEqual({ type: 'activity', content: expectedActivity });
+    expect(JSON.stringify(activity)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(serialized).not.toContain(OUTBOUND_RAW_MARKER);
-    expect(activity.tool).toBe(invocation.tool);
   });
 });

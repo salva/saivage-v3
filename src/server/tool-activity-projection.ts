@@ -1,6 +1,6 @@
 import type { ConversationSessionId } from '../schemas/index.js';
 import { ClassifiedToolInvocationActivityContentSchema, type ClassifiedToolInvocationActivityContent } from '../contracts/operator-events.js';
-import type { ToolInvocationProjector, ToolInvocationResult } from '../contracts/tool-invocation-projection.js';
+import type { ToolInvocationResult } from '../contracts/tool-invocation-projection.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
 
 export interface AnalystToolInvocationActivityInput {
@@ -14,9 +14,8 @@ export interface AnalystToolInvocationActivityInput {
 export function projectAnalystToolInvocationActivity(
   invocation: AnalystToolInvocationActivityInput,
   sessionId:ConversationSessionId,
-  invocationProjector: ToolInvocationProjector = projectToolInvocation,
 ): ClassifiedToolInvocationActivityContent {
-  const projected = invocationProjector({
+  const projected = projectToolInvocation({
     shape: 'complete',
     identity: {
       sessionId,
