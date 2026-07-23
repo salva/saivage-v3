@@ -1,5 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { buildInvocationSurface, invokeTool, invokeToolForLlm } from '../../src/tools/invocation.js';
+import { invokeTool, invokeToolForLlm } from '../../src/tools/invocation.js';
+import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { createMcpProvider } from '../../src/tools/mcp-provider.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { createMcpToolInvocationInstallation, McpToolInvocationNotInstalledError } from '../../src/mcp/tool-invocation-installation.js';
@@ -17,14 +18,14 @@ describe('MCP activity segmentation', () => {
       },
     };
     const manager = { invokeTool: jest.fn(async () => ({ value: 1 })), findToolCapability: jest.fn(() => null), getServerTools: jest.fn(() => undefined) };
-    const surface = buildInvocationSurface('executor', [createMcpProvider({ mcpToolInvocation: manager })]);
+    const surface = buildInvocationSurfaceFixture('executor', [createMcpProvider({ mcpToolInvocation: manager })]);
     await expect(invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, new AbortController().signal, context)).resolves.toEqual({ success: true, data: { value: 1 } });
     expect(waits).toEqual({ external: 0, process: 0 });
   });
 
   it('preserves the fatal pre-install invariant through every tool boundary', async () => {
     const installation = createMcpToolInvocationInstallation();
-    const surface = buildInvocationSurface('executor', [createMcpProvider({ mcpToolInvocation: installation.port })]);
+    const surface = buildInvocationSurfaceFixture('executor', [createMcpProvider({ mcpToolInvocation: installation.port })]);
     const args = { serverName: 'server', toolName: 'tool' };
     for (const invoke of [
       () => invokeTool(surface, 'mcp_tool_call', args),
@@ -37,17 +38,17 @@ describe('MCP activity segmentation', () => {
   });
 
   it('keeps invocation failures as failed results and never derives authority from annotations or agent names', async () => {
-    const invocationFailure = buildInvocationSurface('executor', [createMcpProvider({
+    const invocationFailure = buildInvocationSurfaceFixture('executor', [createMcpProvider({
       mcpToolInvocation: { getServerTools: () => [], findToolCapability: () => null, invokeTool: async () => { throw new Error('transport failed'); } },
     })]);
     await expect(invokeToolForLlm(invocationFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ success: false, error: 'transport failed' });
 
-    const reviewerFailure = buildInvocationSurface('reviewer', [createMcpProvider({
+    const reviewerFailure = buildInvocationSurfaceFixture('reviewer', [createMcpProvider({
       mcpToolInvocation: { getServerTools: () => [], findToolCapability: () => null, invokeTool: async () => 'unused' },
     })]);
     await expect(invokeToolForLlm(reviewerFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ success: true, data:'unused' });
 
-    const reviewerDestructive = buildInvocationSurface('reviewer', [createMcpProvider({
+    const reviewerDestructive = buildInvocationSurfaceFixture('reviewer', [createMcpProvider({
       mcpToolInvocation: {
         getServerTools: () => [],
         findToolCapability: () => ({ serverName: 'server', name: 'tool', description: 'tool', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true, destructiveHint: true } }),
@@ -56,7 +57,7 @@ describe('MCP activity segmentation', () => {
     })]);
     await expect(invokeToolForLlm(reviewerDestructive, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ success: true, data:'unused' });
 
-    const reviewerWritable = buildInvocationSurface('reviewer', [createMcpProvider({
+    const reviewerWritable = buildInvocationSurfaceFixture('reviewer', [createMcpProvider({
       mcpToolInvocation: {
         getServerTools: () => [],
         findToolCapability: () => ({ serverName: 'server', name: 'tool', description: 'tool', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } }),

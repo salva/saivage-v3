@@ -5,7 +5,8 @@ import { join } from 'node:path';
 
 import { CardService } from '../helpers/canonical-project.js';
 import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
-import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
+import { invokeTool } from '../../src/tools/invocation.js';
+import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -22,7 +23,7 @@ describe('card history provider', () => {
     const diff = jest.spyOn(cards, 'diffCardHistory');
     const read = jest.spyOn(cards, 'read');
     const provider = createCardHistoryProvider({ store: cards });
-    const surface = buildInvocationSurface('analyst', [provider]);
+    const surface = buildInvocationSurfaceFixture('analyst', [provider]);
 
     for (const invalid of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, Number.MAX_SAFE_INTEGER + 1]) {
       expect((await invokeTool(surface, 'get_card_history_entry', { cardId: card.id, version_seq: invalid })).success).toBe(false);

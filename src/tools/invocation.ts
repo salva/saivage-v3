@@ -46,17 +46,6 @@ export function defineTool<Schema extends z.ZodTypeAny>(definition: {
   return definition;
 }
 
-export function buildInvocationSurface(agentName: AgentName, providers: readonly ToolProvider[]): InvocationSurface {
-  const tools = new Map<string, ToolDefinition<any>>();
-  for (const provider of providers) {
-    for (const tool of provider.tools) {
-      if (tools.has(tool.name)) throw new Error(`Duplicate tool '${tool.name}' from provider '${provider.providerName}'.`);
-      tools.set(tool.name, tool);
-    }
-  }
-  return { agentName, tools, providers };
-}
-
 export function composeInvocationSurface(agentName: AgentName, toolNames: readonly string[], providers: readonly ToolProvider[]): InvocationSurface {
   const definitions = new Map<string, { definition: ToolDefinition<any>; provider: ToolProvider }>();
   for (const provider of providers) {

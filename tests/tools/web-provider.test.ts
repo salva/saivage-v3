@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
+import { invokeTool } from '../../src/tools/invocation.js';
+import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { createWebProvider } from '../../src/tools/web-tools.js';
 import { createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
@@ -17,7 +18,7 @@ describe('WebProvider', () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockReturnValue(fetched);
     const events: string[] = [];
     try {
-      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
+      const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
       const context = {
         ...testLlmToolInvocationContext({ toolCallId: 'call-web', toolName: 'webfetch' }),
         waits: {
@@ -41,12 +42,12 @@ describe('WebProvider', () => {
   });
 
   it('exposes websearch and webfetch through an invocation surface', () => {
-    const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: '/project', agentName: 'executor' })]);
+    const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: '/project', agentName: 'executor' })]);
     expect([...surface.tools.keys()]).toEqual(['websearch', 'webfetch']);
   });
 
   it('validates webfetch arguments before execution', async () => {
-    const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: '/project', agentName: 'executor' })]);
+    const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: '/project', agentName: 'executor' })]);
     const result = await invokeTool(surface, 'webfetch', { url: 123 });
     expect(result).toEqual(expect.objectContaining({ success: false }));
     if (!result.success) expect(result.error).toContain('Expected string');
@@ -56,7 +57,7 @@ describe('WebProvider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     try {
-      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
+      const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
       const rejected = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34', read_mode: 'multimodal' });
       expect(rejected.success).toBe(false);
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -80,7 +81,7 @@ describe('WebProvider', () => {
     const cancelSpy = jest.spyOn(body, 'cancel');
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(response);
     try {
-      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentName: 'executor' })]);
+      const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: root, agentName: 'executor' })]);
       const result = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/final', metadata_only: true });
 
       expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/final', status: 404, headers: { 'content-type': 'text/plain', etag: 'final' }, metadata_only: true } });
@@ -107,7 +108,7 @@ describe('WebProvider', () => {
     const finalCancel = jest.spyOn(final.body!, 'cancel').mockImplementation(() => finalCancellation);
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValueOnce(redirect).mockResolvedValueOnce(final);
     try {
-      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentName: 'executor' })]);
+      const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: root, agentName: 'executor' })]);
       let settled = false;
       const pending = invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/start?raw-query-marker=yes', metadata_only: true }).finally(() => { settled = true; });
       for (let attempt = 0; attempt < 200 && redirectCancel.mock.calls.length === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 5));
@@ -138,7 +139,7 @@ describe('WebProvider', () => {
   it('returns model-visible provider errors for blocked private targets', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     try {
-      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentName: 'executor' })]);
+      const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: root, agentName: 'executor' })]);
       const result = await invokeTool(surface, 'webfetch', { url: 'http://127.0.0.1:1', metadata_only: true });
       expect(result).toEqual(expect.objectContaining({ success: false }));
       if (!result.success) expect(result.error).toContain('private/internal');
@@ -151,7 +152,7 @@ describe('WebProvider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     try {
-      const surface = buildInvocationSurface('reviewer', [createWebProvider({ projectRoot: root, agentName: 'reviewer' })]);
+      const surface = buildInvocationSurfaceFixture('reviewer', [createWebProvider({ projectRoot: root, agentName: 'reviewer' })]);
       const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'fetched.txt' });
       expect(result).toEqual({ success: false, error: 'reviewer cannot write project files.' });
       expect(fetchSpy).not.toHaveBeenCalled();
@@ -169,7 +170,7 @@ describe('WebProvider', () => {
     const readiness = new RuntimeInterventionBinding(); readiness.markStoppedReady();
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { recordMutations: { write } } } as never;
-      const surface = buildInvocationSurface('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
+      const surface = buildInvocationSurfaceFixture('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
       const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/path?raw-query-marker=yes', save_as: 'record:///brief.md?card=project&v=next' });
       expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://example.com/path?[REDACTED]', saved_as: 'record:///brief.md?card=project&v=2' } });
       expect(JSON.stringify(result)).not.toContain('raw-query-marker');
@@ -187,7 +188,7 @@ describe('WebProvider', () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     try {
       fetchSpy.mockResolvedValue(new Response('0123456789abcdef', { status: 200, headers: { 'content-type': 'text/plain' } }));
-      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentName: 'executor' }), createWorkspaceProvider({ projectRoot: root, agentName: 'executor', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',filesystemWrite:false })]);
+      const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: root, agentName: 'executor' }), createWorkspaceProvider({ projectRoot: root, agentName: 'executor', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',filesystemWrite:false })]);
 
       const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com', max_inline_bytes: 4 });
 
@@ -211,7 +212,7 @@ describe('WebProvider', () => {
       .mockResolvedValueOnce(new Response('binary', { status: 200, headers: { 'content-type': 'application/octet-stream' } }))
       .mockResolvedValueOnce(new Response('saved', { status: 200, headers: { 'content-type': 'text/plain' } }));
     try {
-      const surface = buildInvocationSurface('executor', [createWebProvider({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
+      const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
       const inline = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/inline?raw-query-marker=yes' });
       const binary = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/binary?raw-query-marker=yes' });
       const saved = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/saved?raw-query-marker=yes', save_as: 'saved.txt' });

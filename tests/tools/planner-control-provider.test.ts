@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { CardService } from '../helpers/canonical-project.js';
-import { buildInvocationSurface, invokeToolForLlm } from '../../src/tools/invocation.js';
+import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { createPlannerControlProvider } from '../../src/tools/planner-control-provider.js';
 import { ChildInvocationLease } from '../../src/runtime/actors/child-invocation-wait.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
@@ -17,7 +18,7 @@ describe('planner control provider ownership delegation', () => {
     } as unknown as CardService;
     const activateChild = jest.fn(async ({ childCardId }: { childCardId: string; invocation: ChildInvocationLease }) => ({ status: 'done' as const, summary: childCardId, result: workflowResult('DONE',childCardId) }));
     const cancelChild = jest.fn(async ({ childCardId }: { childCardId: string; reason: string }) => ({ card_id: childCardId, status: 'cancelled' as const, cancelled_card_ids: [childCardId] }));
-    const surface = buildInvocationSurface('planner', [createPlannerControlProvider({ agentName:'planner',projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store, parentControl: { activateChild, cancelChild }, notifyCard: () => ({ ok: true, notificationId: 'unused' }),childCreationTypes:new Set(),childActivationTypes:new Set(['code']) })]);
+    const surface = buildInvocationSurfaceFixture('planner', [createPlannerControlProvider({ agentName:'planner',projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store, parentControl: { activateChild, cancelChild }, notifyCard: () => ({ ok: true, notificationId: 'unused' }),childCreationTypes:new Set(),childActivationTypes:new Set(['code']) })]);
     return { store, activateChild, cancelChild, surface };
   }
 

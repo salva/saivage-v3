@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
+import { invokeTool } from '../../src/tools/invocation.js';
+import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { createProcessProvider } from '../../src/tools/process-provider.js';
 import { createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
@@ -40,7 +41,7 @@ function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
 describe('process provider', () => {
   it('segments only unfinished process waits and keeps background, inspection, terminal, and kill work active', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const waitProcessCalls: string[] = [];
     const waitProcess = async <T>(processId: string, promise: Promise<T>): Promise<T> => {
       waitProcessCalls.push(processId);
@@ -73,7 +74,7 @@ describe('process provider', () => {
 
   it('runs foreground commands with canonical run_command', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'printf hello', timeout_ms: 1000 });
 
@@ -90,7 +91,7 @@ describe('process provider', () => {
 
   it('rejects the removed inactivity timeout before launching a process', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'printf never', inactivity_timeout_ms: 1000 });
 
@@ -102,7 +103,7 @@ describe('process provider', () => {
   it('runs commands in canonical project and system cwd URLs', async () => withRoot(async (root) => {
     mkdirSync(join(root, 'packages', 'api'), { recursive: true });
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const cases = [
       ['project:///', root],
       ['project:///packages/api', join(root, 'packages', 'api')],
@@ -123,7 +124,7 @@ describe('process provider', () => {
 
   it('rejects malformed and unsupported scoped cwd values before launch', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const cases = [
       ['record:///', 'not supported for cwd'],
       ['tmp:///', 'not supported for cwd'],
@@ -146,7 +147,7 @@ describe('process provider', () => {
 
   it('executes run_command with Bash semantics', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'set -o pipefail; [[ value == v* ]]', timeout_ms: 1000 });
 
@@ -155,7 +156,7 @@ describe('process provider', () => {
 
   it('starts and inspects background commands', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const started = await invokeTool(surface, 'run_command', { command: 'sleep 1 && printf done', wait: false });
     expect(started.success).toBe(true);
     if (!started.success) return;
@@ -173,7 +174,7 @@ describe('process provider', () => {
 
   it('returns a killed partial result when a foreground command is aborted', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const controller = new AbortController();
     const pending = invokeTool(surface, 'run_command', { command: `exec ${process.execPath} -e 'process.stdout.write("before"); setInterval(() => {}, 1000)'`, timeout_ms: 10_000 }, controller.signal);
     setTimeout(() => controller.abort(new Error('stop')), 50);
@@ -189,8 +190,8 @@ describe('process provider', () => {
 
   it('rejects process control from a same-owner sibling scope', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const owner = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
-    const stranger = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const owner = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
+    const stranger = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const started = await invokeTool(owner, 'run_command', { command: 'sleep 1', wait: false });
     expect(started.success).toBe(true);
     if (!started.success) return;
@@ -205,7 +206,7 @@ describe('process provider', () => {
 
   it('records Analyst command provenance as operator-owned session work', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('analyst', [analystProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processRunner)]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'printf analyst', timeout_ms: 1000 });
 
@@ -222,7 +223,7 @@ describe('process provider', () => {
 
   it('records executor command provenance as agent-owned card work', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'printf executor', timeout_ms: 1000 });
 
@@ -239,7 +240,7 @@ describe('process provider', () => {
 
   it('proceeds with runtime-owned command spawn even when the gate is closed', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('executor', [executorProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'printf gated', timeout_ms: 1000 });
 
@@ -249,7 +250,7 @@ describe('process provider', () => {
 
   it('does not gate operator-owned Analyst command spawn', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
-    const surface = buildInvocationSurface('analyst', [analystProvider(root, processRunner)]);
+    const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processRunner)]);
 
     const result = await invokeTool(surface, 'run_command', { command: 'printf operator', timeout_ms: 1000 });
 

@@ -9,7 +9,8 @@ import { appendConversationBatch } from '../../src/persistence/conversation-file
 import type { CardHistoryEntry, CardRecord, RuntimeState } from '../../src/schemas/index.js';
 import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
 import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
-import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
+import { invokeTool } from '../../src/tools/invocation.js';
+import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER, OUTBOUND_TEXT_MARKER } from '../helpers/outbound-identity-fixtures.js';
 import { workflowResult } from '../helpers/workflow-result.js';
@@ -88,7 +89,7 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
       dormant_agents: [{ card_id: 'project', agent_name: 'planner', session_id: 'agent:planner:project' }],
     });
 
-    const cardSurface = buildInvocationSurface('analyst', [createCardInspectionProvider({ store })]);
+    const cardSurface = buildInvocationSurfaceFixture('analyst', [createCardInspectionProvider({ store })]);
     const listed = await invokeTool(cardSurface, 'list_cards', { tag: OUTBOUND_IDENTITY });
     expect(listed).toMatchObject({ success: true, data: [
       { id: 'card-token', tags: ['tok_primary'], title: 'title token=[REDACTED]', logical_path: 'Project / title token=[REDACTED]' },
@@ -98,7 +99,7 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
     expect(got.success).toBe(true);
     assertProjectedCard((got.data as { card: CardRecord }).card);
 
-    const historySurface = buildInvocationSurface('analyst', [createCardHistoryProvider({ store: store as never })]);
+    const historySurface = buildInvocationSurfaceFixture('analyst', [createCardHistoryProvider({ store: store as never })]);
     const toolList = await invokeTool(historySurface, 'list_card_history', { cardId: 'card-token' });
     expect(toolList).toMatchObject({ success: true, data: [expect.objectContaining({ card_id: 'card-token', change_reason: 'token=[REDACTED]', changed_fields: ['title', 'tags'] })] });
     const toolEntry = await invokeTool(historySurface, 'get_card_history_entry', { cardId: 'card-token', version_seq: 7 });

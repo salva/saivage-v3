@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { buildInvocationSurface, invokeTool } from '../../src/tools/invocation.js';
+import { invokeTool } from '../../src/tools/invocation.js';
+import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { createSkillProvider } from '../../src/tools/skill-provider.js';
 
 function temporaryProject(test: (root: string, skillsDir: string) => Promise<void>): Promise<void> {
@@ -28,7 +29,7 @@ function writeCatalog(skillsDir: string): void {
 describe('SkillProvider', () => {
   it('returns only ordered role-filtered name projections', async () => temporaryProject(async (root, skillsDir) => {
     writeCatalog(skillsDir);
-    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
+    const surface = buildInvocationSurfaceFixture('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
 
     expect(await invokeTool(surface, 'skill', {})).toEqual({
       success: true,
@@ -38,7 +39,7 @@ describe('SkillProvider', () => {
 
   it('returns the exact named skill projection without delimiters or metadata', async () => temporaryProject(async (root, skillsDir) => {
     writeCatalog(skillsDir);
-    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
+    const surface = buildInvocationSurfaceFixture('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
 
     expect(await invokeTool(surface, 'skill', { name: 'executor-skill' })).toEqual({
       success: true,
@@ -48,7 +49,7 @@ describe('SkillProvider', () => {
 
   it('returns generic model-visible errors for missing, cross-role, and file-read failures', async () => temporaryProject(async (root, skillsDir) => {
     writeCatalog(skillsDir);
-    const surface = buildInvocationSurface('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
+    const surface = buildInvocationSurfaceFixture('executor', [createSkillProvider({ projectRoot: root, agentName: 'executor' })]);
 
     expect(await invokeTool(surface, 'skill', { name: 'missing' })).toEqual({
       success: false,
