@@ -10,6 +10,7 @@ import {
   AgentListResponseSchema,
   AgentLlmExchangeResponseSchema,
   agentOperatorApiContracts,
+  AgentSessionSummarySchema,
 } from '../../src/contracts/operator-api-agents.js';
 import { buildAgentOperatorContractHandlers } from '../../src/server/routes/operator-agent-handlers.js';
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
@@ -37,6 +38,12 @@ describe('operator Agent exact identity contracts and handlers', () => {
     ['agent:reviewer:project', 'reviewer', 'project'],
     ['agent:executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'executor', 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
   ];
+  it('keeps the checked-in agent session fixture on the strict current public vocabulary', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../../fixtures/valid/agent-session.json', import.meta.url), 'utf8'));
+    expect(AgentSessionSummarySchema.parse(fixture)).toEqual(fixture);
+    expect(fixture).not.toHaveProperty('completed_at');
+  });
+
   it.each(variants)('parses correlated success variants for %s', (id, agentName, cardId) => {
     const session = { id, agent_name: agentName, session_scope: cardId === null ? 'global' : 'card', card_id: cardId, status: 'inactive', started_at: timestamp };
     expect(AgentListResponseSchema.parse({ sessions: [session] }).sessions[0]!.id).toBe(id);

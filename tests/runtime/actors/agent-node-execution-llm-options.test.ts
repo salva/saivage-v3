@@ -2,13 +2,15 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { z } from 'zod';
 
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/llm-contracts.js';
 import { appendConversationBatch } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {
-  buildLlmInput(node: unknown, input: unknown, sessionId: string, inputId: string, contract: unknown, surface: unknown): PreparedLlmInvocationInput;
+  buildLlmInput(node: unknown, input: unknown, sessionId: string, inputId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition): PreparedLlmInvocationInput;
 };
 
 const roots: string[] = [];
@@ -31,12 +33,13 @@ describe('AgentNodeExecution LLM options', () => {
       readRecord: () => ({ artifact: { content: 'brief' } }),
       listChildren: () => [],
     };
+    let renderedVariables: Record<string, unknown> | undefined;
     const runner = new AgentNodeExecution({
       projectRoot,
       cardId: 'project',
       store,
       conversations: { projectRoot },
-      promptTemplates: { render: () => 'system' },
+      promptTemplates: { render: (_cardType: string, _agentName: string, variables: Record<string, unknown>) => { renderedVariables = variables; return 'system'; } },
       compactionConfig: {
         input_budget_tokens: 1_000,
         trigger_fraction: 0.7,
@@ -50,18 +53,27 @@ describe('AgentNodeExecution LLM options', () => {
       candidateChains: new Map([['planner', [{ provider: 'test', account: null, model: 'planner-model' }]]]),
     } as never, {} as never) as unknown as LlmInputBuilder;
 
+    const operationalTool = { name: 'lookup', description: 'Lookup', inputSchema: z.object({ query: z.string() }).strict(), executor: async () => ({ success: true as const }) };
+    const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'Emit result', parameters: { type: 'object' } } };
     const prepared = runner.buildLlmInput(
       { agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
       { card: { id: 'project', type: 'project', title: 'Project' }, caller: 'runtime' },
       sessionId,
       'input',
-      { describe: () => 'contract', terminals: [] },
-      { agentName: 'planner', tools: new Map(), providers: [] },
+      'direct result contract',
+      { agentName: 'planner', tools: new Map([['lookup', operationalTool]]), providers: [] },
+      terminalToolDefinition,
     );
 
     expect(prepared.preparedCompaction).toMatchObject({
       reservedCompletionTokens: 200,
       requestedCompletionTokens: 73,
     });
+    expect(prepared.tools.map((tool) => tool.function.name)).toEqual(['lookup', 'emit_result']);
+    expect(prepared.tools.filter((tool) => tool.function.name === 'emit_result')).toEqual([terminalToolDefinition]);
+    expect(prepared.terminalToolNames).toEqual(['emit_result']);
+    expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
+    expect(String(renderedVariables?.toolList)).toContain('lookup');
+    expect(String(renderedVariables?.toolList)).not.toContain('emit_result');
   });
 });

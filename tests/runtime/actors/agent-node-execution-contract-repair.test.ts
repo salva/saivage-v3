@@ -14,7 +14,8 @@ const resultOutcome: Extract<LLMActorOutcome, { type: 'result' }> = {
   result: { kind: 'message', content: 'plain text' },
 };
 
-function terminal(id: string, args: unknown = { outcome: 'complete', summary: 'finished' }): ToolOutcome {
+function terminal(id: string, ...provided: [unknown?]): ToolOutcome {
+  const args = provided.length === 0 ? { outcome: 'complete', summary: 'finished' } : provided[0];
   return { type: 'tool_call', agentId: 'agent:planner:project', inputId: id, toolCallId: id, toolName: 'emit_result', args };
 }
 
@@ -31,6 +32,8 @@ function harness(args: {
   const events: string[] = [];
   const handoffs: unknown[] = [];
   const cleanupReasons: ToolProviderCleanupReason[] = [];
+  const appendedToolResults: Array<{ toolCallId: string; result: unknown }> = [];
+  const llmInputArguments: unknown[][] = [];
   const continuations = [...(args.continuations ?? [])];
   const next = (): LLMActorOutcome => {
     const outcome = continuations.shift();
@@ -40,7 +43,7 @@ function harness(args: {
   const llm = {
     turn: async (_input: unknown, _signal: AbortSignal, handoff: unknown) => { events.push('turn'); handoffs.push(handoff); return args.initial; },
     continueAfterPlainText: async (_correction: string, _signal: AbortSignal, handoff: unknown) => { events.push('continue-plain-text'); handoffs.push(handoff); return next(); },
-    appendToolResult: async (toolCallId: string) => { events.push(`append:${toolCallId}`); return next(); },
+    appendToolResult: async (toolCallId: string, result: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); return next(); },
     toolInvocationContext: () => { events.push('tool-context'); return {}; },
     claimResultAndCloseContinuation: (_outcome: ToolOutcome, _reason: Error, claim: () => void) => { events.push('claim-continuation'); claim(); },
     settleToolResultWithoutContinuation: async () => { events.push('settle-terminal'); },
@@ -102,13 +105,13 @@ function harness(args: {
   } as never);
   const internals = execution as unknown as {
     prepareNodeEntry: () => void;
-    buildLlmInput: () => object;
+    buildLlmInput: (...args: unknown[]) => object;
     buildSurface: () => InvocationSurface;
     correction: (_node: unknown, violations: readonly string[]) => string;
     closeAcceptedRecords: () => Array<{ name: string; url: string; version: number }>;
   };
   internals.prepareNodeEntry = () => undefined;
-  internals.buildLlmInput = () => ({});
+  internals.buildLlmInput = (...values) => { llmInputArguments.push(values); return {}; };
   internals.buildSurface = () => surface;
   internals.correction = (_node, violations) => `correction: ${violations.join('; ')}`;
   internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
@@ -117,20 +120,126 @@ function harness(args: {
     events,
     handoffs,
     cleanupReasons,
+    appendedToolResults,
+    llmInputArguments,
     run: () => execution.execute({ process, stateId, node, transition: {}, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
   };
 }
 
+const objectGuardCorrection = "correction: Terminal tool 'emit_result' arguments must be a JSON object.";
+const missingSummaryCorrection = `correction: [
+  {
+    "code": "invalid_type",
+    "expected": "string",
+    "received": "undefined",
+    "path": [
+      "summary"
+    ],
+    "message": "Required"
+  }
+]`;
+const extraFieldCorrection = `correction: [
+  {
+    "code": "unrecognized_keys",
+    "keys": [
+      "extra"
+    ],
+    "path": [],
+    "message": "Unrecognized key(s) in object: 'extra'"
+  }
+]`;
+const unknownOutcomeCorrection = `correction: [
+  {
+    "received": "unknown",
+    "code": "invalid_enum_value",
+    "options": [
+      "complete"
+    ],
+    "path": [
+      "outcome"
+    ],
+    "message": "Invalid enum value. Expected 'complete', received 'unknown'"
+  }
+]`;
+const nonStringSummaryCorrection = `correction: [
+  {
+    "code": "invalid_type",
+    "expected": "string",
+    "received": "number",
+    "path": [
+      "summary"
+    ],
+    "message": "Expected string, received number"
+  }
+]`;
+const whitespaceSummaryCorrection = `correction: [
+  {
+    "code": "too_small",
+    "minimum": 1,
+    "type": "string",
+    "inclusive": true,
+    "exact": false,
+    "message": "String must contain at least 1 character(s)",
+    "path": [
+      "summary"
+    ]
+  }
+]`;
+const overLimitSummaryCorrection = `correction: [
+  {
+    "code": "too_big",
+    "maximum": 2000,
+    "type": "string",
+    "inclusive": true,
+    "exact": false,
+    "message": "String must contain at most 2000 character(s)",
+    "path": [
+      "summary"
+    ]
+  }
+]`;
+
 describe('AgentNodeExecution contract repair behavior', () => {
+  it.each([
+    ['null', null],
+    ['array', []],
+    ['non-object scalar', 42],
+    ['undefined', undefined],
+    ['false', false],
+    ['zero', 0],
+    ['empty string', ''],
+  ])('preserves the exact pre-schema object-guard correction for %s arguments', async (_label, args) => {
+    const test = harness({ initial: terminal('invalid', args), continuations: [terminal('accepted')] });
+
+    await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: { success: false, error: objectGuardCorrection } });
+  });
+
+  it.each([
+    ['missing summary', { outcome: 'complete' }, missingSummaryCorrection],
+    ['extra field', { outcome: 'complete', summary: 'ok', extra: true }, extraFieldCorrection],
+    ['unknown outcome', { outcome: 'unknown', summary: 'ok' }, unknownOutcomeCorrection],
+    ['non-string summary', { outcome: 'complete', summary: 42 }, nonStringSummaryCorrection],
+    ['whitespace-only summary', { outcome: 'complete', summary: '   ' }, whitespaceSummaryCorrection],
+    ['over-limit summary', { outcome: 'complete', summary: 'x'.repeat(2001) }, overLimitSummaryCorrection],
+  ])('preserves the exact strict-schema correction for an object with %s', async (_label, args, expected) => {
+    const test = harness({ initial: terminal('invalid', args), continuations: [terminal('accepted')] });
+
+    await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: { success: false, error: expected } });
+    expect(expected).not.toContain("Terminal tool 'emit_result' arguments must be a JSON object.");
+  });
+
   it('continues terminal-contract repairs beyond five attempts', async () => {
     const invalid = (id: string) => terminal(id, { outcome: 'complete' });
     const test = harness({
       initial: invalid('invalid-0'),
-      continuations: [invalid('invalid-1'), invalid('invalid-2'), invalid('invalid-3'), invalid('invalid-4'), invalid('invalid-5'), terminal('accepted')],
+      continuations: [invalid('invalid-1'), invalid('invalid-2'), invalid('invalid-3'), invalid('invalid-4'), invalid('invalid-5'), terminal('accepted', { outcome: 'complete', summary: '  finished  ' })],
     });
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete', summary: 'finished' });
     expect(test.events.filter((event) => event.startsWith('append:'))).toHaveLength(6);
+    expect(test.appendedToolResults).toEqual(Array.from({ length: 6 }, (_, index) => ({ toolCallId: `invalid-${index}`, result: { success: false, error: missingSummaryCorrection } })));
   });
 
   it('throws an actor provider error and still cleans up the failed activation', async () => {
@@ -157,6 +266,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.events.indexOf('tool-execute')).toBeLessThan(test.events.indexOf('append:lookup-1'));
     expect(test.events.indexOf('append:lookup-1')).toBeLessThan(test.events.indexOf('claim-continuation'));
     expect(test.events[test.events.indexOf('append:lookup-1') - 1]).toBe('current');
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'lookup-1', result: { success: true, data: 'found' } });
   });
 
   it('accepts an immutable terminal result before successful cleanup', async () => {
@@ -165,6 +275,23 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const accepted = await test.run();
     expect(Object.isFrozen(accepted)).toBe(true);
     expect(Object.isFrozen(accepted.acceptedRecords)).toBe(true);
+    expect(test.llmInputArguments[0]?.[4]).toBe('Call emit_result with exactly two fields: outcome (one of: complete) and summary (a trimmed non-empty string of at most 2000 characters).');
+    expect(test.llmInputArguments[0]?.[6]).toEqual({
+      type: 'function',
+      function: {
+        name: 'emit_result',
+        description: 'Emit the configured process-node result as the final action of this turn.',
+        parameters: {
+          type: 'object',
+          properties: {
+            outcome: { type: 'string', enum: ['complete'] },
+            summary: { type: 'string', minLength: 1 },
+          },
+          additionalProperties: false,
+          required: ['outcome', 'summary'],
+        },
+      },
+    });
     expect(test.events.slice(-9)).toEqual([
       'promotion',
       'claim-continuation',

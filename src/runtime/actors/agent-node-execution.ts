@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import { cardParentId } from '../../schemas/card-id.js';
 import { z } from 'zod';
-import type { Contract, ContractTerminalDescriptor } from '../../contracts/contract.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
+import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
 import { cardAgentSessionId, type AgentName, type CardRecord, type ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
-import { processNodeOutcomes, processNodeTransition, processTransitionPromptKey, type CompiledCardTypeWorkflow, type ProcessNodeMetadata } from '../card-process/card-process-config.js';
+import { describeNodeResultContract, processNodeOutcomes, processNodeTransition, processTransitionPromptKey, type CompiledCardTypeWorkflow, type ProcessNodeMetadata } from '../card-process/card-process-config.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import type { ConversationLLMActor } from './llm-actor.js';
@@ -23,7 +23,6 @@ import { buildAgentSurface } from '../../tools/agent-invocation-surface.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
-import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
 import { AppLogPublicationError, rethrowAppLogPublicationError } from '../../persistence/app-log.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
@@ -39,8 +38,6 @@ export interface AcceptedNodeResult {
 export type NodeTransition = Readonly<{ context: ActorTransitionContext; acceptedResult: AcceptedNodeResult | null }>;
 
 type NodeResult = { outcome: string; summary: string };
-type NodeEnvelope = { kind: 'result'; payload: NodeResult };
-type NodeTypedResult = { kind: 'result'; result: NodeResult };
 type RecordEvidence = { version: number; revisionSeq: number; state: string; recordUrl: string } | null;
 type ReviewerSnapshot = { cards: Array<{ id: string; fingerprint: string }>; includedRecordVersions: Array<{ cardId: string; filename: string; latest: number | null; contentHash: string | null }> };
 type ReviewerContextPair = { exactContext: ProviderVisibleUserContextMessage; snapshot: ReviewerSnapshot };
@@ -77,7 +74,10 @@ export class AgentNodeExecution {
 
   async execute(args: { process: CompiledCardTypeWorkflow; stateId: string; node: ProcessNodeMetadata; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<AcceptedNodeResult> {
     const { process, stateId, node, input, signal } = args;
-    const contract = createNodeContract(process, stateId);
+    const outcomes = processNodeOutcomes(process, stateId) as [string, ...string[]];
+    const nodeResultSchema = z.object({ outcome: z.enum(outcomes), summary: z.string().trim().min(1).max(2000) }).strict();
+    const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', parameters: zodToJsonSchemaMini(nodeResultSchema) as Record<string, unknown> } };
+    const contractDescription = describeNodeResultContract(process, stateId);
     const sessionId = cardAgentSessionId(node.agent.name, this.deps.cardId);
     const llm = this.host.createLlm(sessionId);
     this.host.selectLlm(llm);
@@ -90,9 +90,9 @@ export class AgentNodeExecution {
     let primaryCompletion: { kind: 'success'; value: AcceptedNodeResult } | { kind: 'failure'; reason: unknown };
     try {
       const inputId = this.host.freshInputId();
-      this.prepareNodeEntry(process, node, args.transition, input, sessionId, inputId, contract, surface, reviewerPair);
+      this.prepareNodeEntry(process, node, args.transition, input, sessionId, inputId, reviewerPair);
       const baseline = new Map(node.requirements.map((record) => [record.definition.name, this.captureRecord(record.definition.name)]));
-      const prepared = this.buildLlmInput(node, input, sessionId, inputId, contract, surface);
+      const prepared = this.buildLlmInput(node, input, sessionId, inputId, contractDescription, surface, terminalToolDefinition);
       const terminalHandoff = () => this.host.assertCurrentActivation(input);
       let outcome = await llm.turn(prepared, signal, terminalHandoff);
       this.host.assertCurrentActivation(input);
@@ -104,12 +104,19 @@ export class AgentNodeExecution {
           continue;
         }
         if (outcome.type === 'error') throw new Error(outcome.error);
-        if (contract.isTerminalToolName(outcome.toolName)) {
+        if (outcome.toolName === TERMINAL_RESULT_TOOL_NAME) {
           const terminalOutcome = outcome;
-          let parsed: NodeResult;
-          try { parsed = verifyTerminalToolOutcome(contract, terminalOutcome).result.result; }
+          let nodeResult: NodeResult;
+          try {
+            if (!outcome.args || typeof outcome.args !== 'object' || Array.isArray(outcome.args)) {
+              throw new Error(`Terminal tool '${outcome.toolName}' arguments must be a JSON object.`);
+            }
+            const parsed = nodeResultSchema.safeParse(outcome.args);
+            if (!parsed.success) throw new Error(parsed.error.message);
+            nodeResult = parsed.data;
+          }
           catch (error) { rethrowAppLogPublicationError(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal); continue; }
-          const route = processNodeTransition(process, stateId, parsed.outcome);
+          const route = processNodeTransition(process, stateId, nodeResult.outcome);
           const target = process.states.get(route.target);
           if (!target || (target.kind !== 'node' && target.kind !== 'terminal')) throw new Error(`Compiled node '${node.nodeId}' has invalid target '${route.target}'.`);
           const selected = input.notificationDelivery.selectNotifications();
@@ -137,13 +144,13 @@ export class AgentNodeExecution {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
             if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }, signal); continue; }
           }
-           if (target.kind === 'terminal') { this.host.assertPromotionAvailable(process,stateId,parsed.outcome);llm.claimResultAndCloseContinuation(terminalOutcome, new Error('Terminal result accepted.'), () => input.claimResult()); }
+           if (target.kind === 'terminal') { this.host.assertPromotionAvailable(process,stateId,nodeResult.outcome);llm.claimResultAndCloseContinuation(terminalOutcome, new Error('Terminal result accepted.'), () => input.claimResult()); }
            this.host.assertCurrentActivation(input);
            const acceptedRecords = this.closeAcceptedRecords(node, records.candidates);
            await llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
            this.host.assertCurrentActivation(input);
            cleanupStatus = target.kind === 'terminal' ? terminalCleanupStatus(target.terminal) : 'done';
-           const accepted = Object.freeze({ nodeId:node.nodeId,agentName:node.agent.name,outcome: parsed.outcome, summary: parsed.summary, acceptedRecords: Object.freeze(acceptedRecords) });
+           const accepted = Object.freeze({ nodeId:node.nodeId,agentName:node.agent.name,outcome: nodeResult.outcome, summary: nodeResult.summary, acceptedRecords: Object.freeze(acceptedRecords) });
            this.host.assertCurrentActivation(input);
            primaryCompletion = { kind: 'success', value: accepted };
            break;
@@ -174,7 +181,7 @@ export class AgentNodeExecution {
     return primaryCompletion.value;
   }
 
-  private prepareNodeEntry(process: CompiledCardTypeWorkflow, node: ProcessNodeMetadata, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface, reviewerPair: ReviewerContextPair | null): void {
+  private prepareNodeEntry(process: CompiledCardTypeWorkflow, node: ProcessNodeMetadata, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, reviewerPair: ReviewerContextPair | null): void {
     if (!this.#stabilizedAgents.has(node.agent.name)) {
       if (!input.alreadyStabilizedAgents.has(node.agent.name)) stabilizeAgentSession({ sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
       this.#stabilizedAgents.add(node.agent.name);
@@ -191,7 +198,6 @@ export class AgentNodeExecution {
     const transitionMessage = this.transitionContext(process, input.card, transition);
     if (transitionMessage) appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_transition', 0, transitionMessage);
     appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_node', 0, { role: 'user', content: this.deps.processPrompts.get(input.card.type, node.promptId) });
-    void contract; void surface;
   }
 
   private transitionContext(process: CompiledCardTypeWorkflow, card: CardRecord, transition: NodeTransition): ProviderVisibleUserContextMessage | null {
@@ -210,12 +216,12 @@ export class AgentNodeExecution {
     return { role: 'user', content: `Previous process node: ${context.source.slice('node:'.length)}\nAccepted outcome: ${acceptedResult.outcome}\nSummary: ${acceptedResult.summary}\nRecords:\n${acceptedResult.acceptedRecords.map((record) => `- ${record.url}`).join('\n') || '(none)'}${edgePrompt}` };
   }
 
-  private buildLlmInput(node: ProcessNodeMetadata, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contract: Contract<NodeEnvelope, NodeTypedResult>, surface: InvocationSurface): PreparedLlmInvocationInput {
+  private buildLlmInput(node: ProcessNodeMetadata, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition): PreparedLlmInvocationInput {
     const systemPrompt = this.deps.promptTemplates.render(input.card.type, node.agent.name, {
-      cardId: input.card.id, cardTitle: input.card.title, cardBrief: cardBootstrapForPrompt(this.deps.store, input.card), contractDescription: contract.describe(),
+      cardId: input.card.id, cardTitle: input.card.title, cardBrief: cardBootstrapForPrompt(this.deps.store, input.card), contractDescription,
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
     });
-    const tools = [...surfaceToolDefinitions(surface), ...contract.terminals.map((terminal) => terminal.toolDefinition)];
+    const tools = [...surfaceToolDefinitions(surface), terminalToolDefinition];
     const candidateChain=this.deps.candidateChains.get(node.agent.name);if(!candidateChain)throw new Error(`Bound candidate chain for agent '${node.agent.name}' is missing.`);return { inputId, agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:node.agent.model.temperature}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools,node.agent.model.maxTokens), capabilityRequest: { requiresTools: true },candidateChain, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
   }
 
@@ -259,15 +265,6 @@ export class AgentNodeExecution {
   private reviewerStaleReason(cardId: string, before: ReviewerSnapshot,records:readonly string[]): string | null { const after = this.captureReviewerSnapshot(cardId,records); return JSON.stringify(before) === JSON.stringify(after) ? null : 'reviewed subtree or included records changed during review'; }
 }
 
-function createNodeContract(process: CompiledCardTypeWorkflow, stateId: string): Contract<NodeEnvelope, NodeTypedResult> {
-  const node = process.states.get(stateId);
-  if (!node || node.kind !== 'node') throw new Error(`Workflow '${process.cardType}' has no node state '${stateId}'.`);
-  const nodeOutcomes = processNodeOutcomes(process, stateId);
-  const outcomes = nodeOutcomes as [string, ...string[]];
-  const schema = z.object({ outcome: z.enum(outcomes), summary: z.string().trim().min(1).max(2000) }).strict();
-  const terminal: ContractTerminalDescriptor = { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', schema, toolDefinition: { type: 'function', function: { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', parameters: zodToJsonSchemaMini(schema) as Record<string, unknown> } } };
-  return { name: `card-process:${node.nodeId}`, terminals: [terminal], describe: () => `Call emit_result with exactly two fields: outcome (one of: ${nodeOutcomes.join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).`, isTerminalToolName: (name) => name === TERMINAL_RESULT_TOOL_NAME, verify: (call) => { if (call.name !== TERMINAL_RESULT_TOOL_NAME) return { ok: false, violation: { code: 'terminal_tool_unexpected', message: `Unexpected terminal tool '${call.name}'.`, locator: call.id } }; const parsed = schema.safeParse(call.args); return parsed.success ? { ok: true, terminalName: TERMINAL_RESULT_TOOL_NAME, envelope: { kind: 'result', payload: parsed.data } } : { ok: false, violation: { code: 'terminal_tool_invalid_envelope', message: parsed.error.message, locator: call.id } }; }, project: (envelope) => ({ kind: 'result', result: envelope.payload }) };
-}
 function terminalCleanupStatus(port: 'DONE' | 'BLOCKED' | 'FAILED'): 'done' | 'blocked' | 'failed' { return port === 'DONE' ? 'done' : port === 'BLOCKED' ? 'blocked' : 'failed'; }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
 function readCandidate(store: CardService, cardId: string, filename: string, requireNonEmpty: boolean): RecordProjection | null { let open: RecordProjection | null = null; try { open = store.readRecord(cardId, filename, 'open'); } catch (error) { if (!(error instanceof AuthoredRecordNotFoundError)) throw error; } if (open && (!requireNonEmpty || open.artifact.content.trim())) return open; try { const closed = store.readRecord(cardId, filename, 'latest'); return !requireNonEmpty || closed.artifact.content.trim() ? closed : null; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return null; throw error; } }

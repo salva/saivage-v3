@@ -265,20 +265,6 @@ export type {
   WsEventType,
 } from './operator-events.js';
 
-export type {
-  Contract,
-  ContractTerminalDescriptor,
-  ContractToolDefinition,
-  ContractViolation,
-  ContractVerifyOk,
-  ContractVerifyFail,
-  ContractVerifyResult,
-} from './contract.js';
-
-export { verifyAgainstTerminals } from './verify-against-terminals.js';
-export { describeTerminals } from './describe-terminals.js';
-export { jsonSchemaToProse } from './json-schema-to-prose.js';
-
 export {
   TERMINAL_RESULT_TOOL_NAME,
 } from './result-envelope.js';
