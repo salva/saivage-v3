@@ -76,7 +76,7 @@ function harness(args: {
   const stateId = 'node:work';
   const process = {
     cardType: 'project',
-    states: new Map([
+    states: new Map<string, unknown>([
       [stateId, node],
       ['terminal:DONE', { kind: 'terminal', terminal: 'DONE' }],
     ]),
@@ -180,7 +180,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
   });
 
   it('rethrows app-log publication failure after cleanup and ahead of cleanup failure', async () => {
-    const publication = new AppLogPublicationError('runtime_error', new Error('write failed'));
+    const publication = new AppLogPublicationError('event', new Error('write failed'));
     const cleanup = new Error('cleanup failed');
     const test = harness({ initial: nonterminal('lookup-1'), toolExecutor: async () => { throw publication; }, cleanupError: cleanup });
 
