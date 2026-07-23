@@ -31,15 +31,12 @@ describe('runtime-control route request contracts', () => {
       done();
     });
     const runtimeApplication = {
-      runtimeControl: {
+      runtimeApi: {
         pause,
         resume,
         stopProject,
         startProject: jest.fn(),
         cancelCard: jest.fn(),
-        getStatus: jest.fn(() => ({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
-      },
-      runtimeApi: {
         getStatus: jest.fn(() => ({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
         getActorRuntimeReadModel: jest.fn(() => ({ pauseMode: 'running', cards: [] })),
       },

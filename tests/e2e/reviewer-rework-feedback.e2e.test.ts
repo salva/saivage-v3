@@ -96,9 +96,8 @@ describe('reviewer rework completion E2E', () => {
       promptTemplates: { render: () => 'test prompt' },
     });
 
-    const prepared = await runtime.beginStartProject();
-    if (!prepared.accepted) throw new Error('Run was not accepted.');
-    runtime.launchStartedProject(prepared.launch);
+    const started = await runtime.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
     await waitUntil(() => runtime.getStatus().status === 'stopped');
 
     expect(runtime.getStatus()).toMatchObject({ status: 'stopped', currentCardId: null });

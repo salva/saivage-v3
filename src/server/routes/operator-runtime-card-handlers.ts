@@ -61,21 +61,21 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime pause.');
-      options.runtimeApplication.runtimeControl.pause();
+      options.runtimeApplication.runtimeApi.pause();
       return { body: { ...buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
     },
     'runtime.resume': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime resume.');
-      options.runtimeApplication.runtimeControl.resume();
+      options.runtimeApplication.runtimeApi.resume();
       return { body: { ...buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider?.() }), restart_server_available: options.restartServerAvailable === true } };
     },
     stop_project: async ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for project stop.');
-      return { body: await options.runtimeApplication.runtimeControl.stopProject() };
+      return { body: await options.runtimeApplication.runtimeApi.stopProject() };
     },
     restart_server: ({ reply }) => {
       if (!options.restartServerAvailable) return { statusCode: 403, body: { code: 'restart_unavailable', message: 'restart unavailable: operator authentication disabled' } };

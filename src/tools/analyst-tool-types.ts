@@ -5,7 +5,6 @@ import type { ToolResult } from './invocation.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { InterventionReadinessFacet } from '../application/intervention-readiness.js';
-import type { RuntimeControlApplicationPort } from '../application/runtime-control-service.js';
 import type { AnalystMutationServices } from '../application/analyst-mutation-services.js';
 import type { AnalystPreparationReadServices } from '../application/analyst-prepare/webfetch.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
@@ -27,8 +26,7 @@ export interface ToolContext {
   processScope: ManagedProcessScope;
   store: CardService;
   sessionId?: string;
-  runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'notifyCard' | 'getStatus'>;
-  runtimeControl?: RuntimeControlApplicationPort;
+  runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'getStatus'>;
   mcpToolInvocation: McpToolInvocationPort;
   restartServerAvailable: boolean;
   actor: import('../schemas/index.js').AgentName;

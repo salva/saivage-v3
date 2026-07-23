@@ -92,7 +92,7 @@ function harness(withChild = false) {
     ...testAutonomousCompaction,
     projectRoot,
     actorStore: store, interventionBinding: intervention,
-    provider: { completeTurn: async () => new Promise<never>(() => undefined) },
+    provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
     conversations: { projectRoot },
     freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
     processRunner: { terminateScopeTree }, runtimeProcessRootScope: {}, processIdentity: { pid: 1, startedAt: 'now' },
@@ -158,16 +158,15 @@ describe('Supervisor singular runtime halt concurrency', () => {
       throw failure;
     });
 
-    await expect(supervisor.beginStartProject()).rejects.toBe(failure);
+    await expect(supervisor.startProject()).rejects.toBe(failure);
     expect(write).toHaveBeenCalledTimes(1);
     expect(cards.read('project')!.lifecycle.status).toBe(canonical ? 'running' : 'backlog');
     while (supervisor.getStatus().status === 'closing') await nextTurn();
     expect(supervisor.getStatus().status).toBe('stopped');
     write.mockRestore();
 
-    const recovered = await supervisor.beginStartProject();
-    if (!recovered.accepted) throw new Error('Recovery Run was rejected.');
-    supervisor.launchStartedProject(recovered.launch);
+    const recovered = await supervisor.startProject();
+    if (!recovered.started) throw new Error('Recovery Run was rejected.');
     expect(cards.read('project')!.lifecycle.status).toBe('running');
     await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
@@ -212,13 +211,14 @@ describe('Supervisor singular runtime halt concurrency', () => {
     await expect(h.internals.halt!.promise).resolves.toBeUndefined();
     expect(h.supervisor.getStatus().status).toBe('stopped');
 
-    const recovered = await h.supervisor.beginStartProject();
-    expect(recovered.accepted).toBe(true);
+    const recovered = await h.supervisor.startProject();
+    expect(recovered.started).toBe(true);
     expect(h.store.stopRunningForRecovery.mock.calls.map(([id]) => id)).toEqual(['card-a', 'project']);
     expect(h.store.activateStopped).toHaveBeenCalledTimes(1);
     expect(h.store.activateStopped).toHaveBeenCalledWith('project');
     expect(h.store.read('project').lifecycle.status).toBe('running');
     expect(h.store.read('card-a').lifecycle.status).toBe('stopped');
+    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
   });
 
   it('shares one freeze, interruption, joins, and process termination across Stop and application close', async () => {
@@ -294,8 +294,8 @@ describe('Supervisor singular runtime halt concurrency', () => {
     await expect(h.supervisor.stopProject()).rejects.toBe(joinFailure);
     h.supervisor.closeApplicationAdmission();
     await expect(h.supervisor.cleanupForApplicationStop()).rejects.toMatchObject({ cause: joinFailure });
-    const run = await within(h.supervisor.beginStartProject());
-    expect(run).toMatchObject({ accepted: false, result: { status: 'error', started: false } });
+    const run = await within(h.supervisor.startProject());
+    expect(run).toMatchObject({ status: 'error', started: false });
     expect(h.rootProcessor.actor.joinActivation).toHaveBeenCalledTimes(1);
     expect(h.terminateScopeTree).toHaveBeenCalledTimes(1);
     await nextTurn();

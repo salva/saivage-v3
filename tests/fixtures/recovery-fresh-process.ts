@@ -23,9 +23,8 @@ const runtime = new SupervisorRuntimeApi({
   runtimeProcessRootScope,
   promptTemplates: { render: () => 'test prompt' },
 });
-const prepared = await runtime.beginStartProject();
-if (!prepared.accepted) throw new Error('fresh process Run was rejected');
-runtime.launchStartedProject(prepared.launch);
+const started = await runtime.startProject();
+if (!started.started) throw new Error('fresh process Run was rejected');
 for (let count = 0; count < 500 && readConversation(projectRoot, 'agent:planner:project').sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open')).length < 2; count += 1) await new Promise((resolve) => setTimeout(resolve, 2));
 await runtime.stopProject();
 process.stdout.write(JSON.stringify({ cards: cards.list().map(({ id, lifecycle }) => ({ id, status: lifecycle.status })), markerCount: readConversation(projectRoot, 'agent:planner:project').sourceRows.filter((row) => row.kind === 'activity' && row.content.includes('activation_open')).length, noticeCount: readConversation(projectRoot, 'agent:planner:project').sourceRows.filter((row) => row.kind === 'model_recovered').length }));

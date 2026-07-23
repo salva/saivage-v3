@@ -14,7 +14,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 describe('analyst runtime tools', () => {
   function controlContext(overrides: Record<string, unknown> = {}): ToolContext {
     return {
-      runtimeControl: {
+      runtime: {
         startProject: jest.fn(async () => ({ runtime: null, status: 'stopped', started: true, stopped: false })),
         pause: jest.fn(),
         resume: jest.fn(),
@@ -29,11 +29,11 @@ describe('analyst runtime tools', () => {
   it('delegates Start without arguments and preserves success and failure mappings', async () => {
     const success = controlContext();
     await expect(start_project(success, {})).resolves.toEqual({ success: true, data: { runtime: null, status: 'stopped', started: true, stopped: false } });
-    expect(success.runtimeControl!.startProject).toHaveBeenCalledWith();
+    expect(success.runtime!.startProject).toHaveBeenCalledWith();
 
     const failure = controlContext({ startProject: jest.fn(async () => ({ runtime: null, status: 'stopped', started: false, stopped: true, error: 'start failed' })) });
     await expect(start_project(failure, {})).resolves.toEqual({ success: false, error: 'start failed', data: { status: 'stopped', started: false, stopped: true } });
-    expect(failure.runtimeControl!.startProject).toHaveBeenCalledWith();
+    expect(failure.runtime!.startProject).toHaveBeenCalledWith();
   });
 
   it('propagates launch failure without manufacturing successful Analyst data', async () => {
@@ -44,19 +44,19 @@ describe('analyst runtime tools', () => {
   it('delegates Pause, Resume, and Stop without arguments and preserves status results', async () => {
     const paused = controlContext({ getStatus: jest.fn(() => ({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })) });
     await expect(pause_runtime(paused, {})).resolves.toEqual({ success: true, data: { status: 'paused' } });
-    expect(paused.runtimeControl!.pause).toHaveBeenCalledWith();
+    expect(paused.runtime!.pause).toHaveBeenCalledWith();
 
     const getStatus = jest.fn()
       .mockReturnValueOnce({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })
       .mockReturnValueOnce({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' });
     const resumed = controlContext({ getStatus });
     await expect(resume_runtime(resumed, {})).resolves.toEqual({ success: true, data: { status: 'running' } });
-    expect(resumed.runtimeControl!.resume).toHaveBeenCalledWith();
+    expect(resumed.runtime!.resume).toHaveBeenCalledWith();
     expect(getStatus).toHaveBeenCalledTimes(2);
 
     const stopped = controlContext();
     await expect(stop_project(stopped, {})).resolves.toEqual({ success: true, data: { status: 'stopped', contained: true } });
-    expect(stopped.runtimeControl!.stopProject).toHaveBeenCalledWith();
+    expect(stopped.runtime!.stopProject).toHaveBeenCalledWith();
   });
 
   it('does not delegate Resume while runtime status is error', async () => {
@@ -67,7 +67,7 @@ describe('analyst runtime tools', () => {
       error: 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.',
       data: { runtime_status: 'error' },
     });
-    expect(context.runtimeControl!.resume).not.toHaveBeenCalled();
+    expect(context.runtime!.resume).not.toHaveBeenCalled();
     expect(getStatus).toHaveBeenCalledTimes(1);
   });
 

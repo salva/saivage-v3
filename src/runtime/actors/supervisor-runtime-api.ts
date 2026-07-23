@@ -8,8 +8,7 @@ import { toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import type { ChildInvocationLease } from './child-invocation-wait.js';
 import type { ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
-import type { RuntimeControlMechanics, RuntimeLaunchPlan } from '../../application/runtime-control-service.js';
-import type { NotifyCardResult, StartProjectResult, StopProjectResult } from '../runtime-api.js';
+import type { NotifyCardResult, RuntimeApi, StartProjectResult, StopProjectResult } from '../runtime-api.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { selectLinkedRunningChain } from '../running-card-chain.js';
 import type { LLMProviderPort, CompactorPort } from './llm-actor.js';
@@ -45,14 +44,15 @@ export interface SupervisorRuntimeApiOptions {
   processIdentity: RuntimeProcessIdentity;
 }
 
-interface SupervisorLaunchPlan extends RuntimeLaunchPlan { readonly owner: CardActivationOwner; readonly runIdentity: object }
+declare const supervisorLaunchPlanBrand: unique symbol;
+interface SupervisorLaunchPlan { readonly [supervisorLaunchPlanBrand]: never; readonly owner: CardActivationOwner; readonly runIdentity: object }
 interface RuntimeHalt {
   readonly interruption: RuntimeStoppedInterruption;
   readonly owners: readonly CardActivationOwner[];
   readonly promise: Promise<void>;
 }
 
-export class SupervisorRuntimeApi implements RuntimeControlMechanics {
+export class SupervisorRuntimeApi implements RuntimeApi {
   private readonly behavior: Omit<SupervisorRuntimeApiOptions, 'processRunner' | 'runtimeProcessRootScope'>;
   readonly #processRunner: ProcessRunner;
   readonly #runtimeProcessRootScope: ManagedProcessScope;
@@ -109,7 +109,14 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     return this.beginHalt('stop').then<StopProjectResult>(() => ({ status: 'stopped', contained: true }));
   }
 
-  async beginStartProject(): Promise<{ accepted: false; result: StartProjectResult } | { accepted: true; launch: RuntimeLaunchPlan }> {
+  async startProject(): Promise<StartProjectResult> {
+    const prepared = await this.beginStartProject();
+    if (!prepared.accepted) return prepared.result;
+    const runtime = this.launchStartedProject(prepared.launch);
+    return { runtime, status: runtime.status, started: true, stopped: false };
+  }
+
+  private async beginStartProject(): Promise<{ accepted: false; result: StartProjectResult } | { accepted: true; launch: SupervisorLaunchPlan }> {
     await this.start();
     if (!this.applicationAdmissionOpen) return { accepted: false, result: this.startRejected('Application is closing.') };
     if (this.status !== 'stopped' || this.runIdentity || this.preparedLaunch) return { accepted: false, result: this.startRejected(`Cannot start runtime from '${this.status}'.`) };
@@ -153,8 +160,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     return { accepted: true, launch };
   }
 
-  launchStartedProject(launchBase: RuntimeLaunchPlan): RuntimeState {
-    const launch = launchBase as SupervisorLaunchPlan;
+  private launchStartedProject(launch: SupervisorLaunchPlan): RuntimeState {
     if (launch !== this.preparedLaunch) throw new Error('Runtime launch plan is foreign, stale, or already consumed.');
     const owner = launch.owner;
     this.requireOwner(owner);
@@ -548,5 +554,5 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   private async cancelNonrunningSubtree(cardId: string, cancelled: string[], authority?: CardActivationOwner): Promise<void> { if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; const owner = this.activationOwners.get(cardId); if (owner) { const result = await this.cancelOwnedOrStored(cardId, 'ancestor cancelled', null); if (authority) this.requireOwnerAuthority(authority); cancelled.push(...result.cancelled_card_ids); return; } const card = this.behavior.actorStore.read(cardId); if (!card || !canCancelCardStatus(card.lifecycle.status)) return; if (card.lifecycle.status === 'running') throw new Error(`Running card '${cardId}' has no activation owner.`); for (const childId of this.behavior.actorStore.listChildren(cardId)) { await this.cancelNonrunningSubtree(childId, cancelled, authority); if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; } if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; this.behavior.actorStore.setStatus(cardId, 'cancelled'); cancelled.push(cardId); }
 }
 
-export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): RuntimeControlMechanics { return new SupervisorRuntimeApi(options); }
+export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): SupervisorRuntimeApi { return new SupervisorRuntimeApi(options); }
 function eligibleAgents(workflows: CompiledRuntimeWorkflows, card: CardRecord): readonly import('../../schemas/index.js').AgentName[] { const workflow=workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow for '${card.type}'.`);return [...new Set([...workflow.nodes.values()].map((node)=>node.agent.name))]; }

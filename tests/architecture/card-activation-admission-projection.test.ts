@@ -22,15 +22,13 @@ describe('card activation admission projection call graph', () => {
     const supervisor = readFileSync(join(root, 'src/runtime/actors/supervisor-runtime-api.ts'), 'utf8');
     const owner = readFileSync(join(root, 'src/runtime/actors/card-activation-owner.ts'), 'utf8');
     const provider = readFileSync(join(root, 'src/tools/planner-control-provider.ts'), 'utf8');
-    const control = readFileSync(join(root, 'src/application/runtime-control-service.ts'), 'utf8');
     const composition = readFileSync(join(root, 'src/application/runtime-composition.ts'), 'utf8');
     expect(supervisor).toContain('activationOwners = new Map<string, CardActivationOwner>()');
     expect(supervisor).not.toMatch(/cardActors|liveCardActors/);
     expect(owner).not.toContain('BaseActor');
     expect(provider).not.toMatch(/readActivationAdmission|beginStructuralWait|endStructuralWait|children\.get/);
     expect(provider).toContain('parentControl.activateChild'); expect(provider).toContain('parentControl.cancelChild');
-    for (const source of [control, composition]) expect(source).not.toMatch(/markNotReady|markPausedReady|markStoppedReady/);
-    expect(control).not.toContain('RuntimeInterventionBinding');
+    expect(composition).not.toMatch(/markNotReady|markPausedReady|markStoppedReady/);
   });
 
   it('keeps one required actor-built LLM invocation context contract', () => {

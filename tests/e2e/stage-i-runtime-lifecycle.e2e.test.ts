@@ -57,9 +57,8 @@ describe('Stage-I runtime lifecycle E2E', () => {
     }) };
     const runtime = supervisor(projectRoot, cards, provider);
 
-    const prepared = await runtime.beginStartProject();
-    if (!prepared.accepted) throw new Error('Run was not accepted.');
-    runtime.launchStartedProject(prepared.launch);
+    const started = await runtime.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
     await waitUntil(() => inputs.length === 1);
     expect(runtime.getActorRuntimeReadModel().cards.map((entry) => entry.cardId)).toEqual(['project']);
     expect(runtime.getActorRuntimeReadModel()).not.toHaveProperty('agents');
@@ -78,9 +77,8 @@ describe('Stage-I runtime lifecycle E2E', () => {
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
     expect(cards.list().map((card) => ({ id: card.id, status: card.lifecycle.status, version: card.version_seq }))).toEqual(durableBeforeStop);
 
-    const restarted = await runtime.beginStartProject();
-    if (!restarted.accepted) throw new Error('Restart Run was not accepted.');
-    runtime.launchStartedProject(restarted.launch);
+    const restarted = await runtime.startProject();
+    if (!restarted.started) throw new Error('Restart Run was not accepted.');
     await waitUntil(() => inputs.length === 3);
     expect(inputs[2]!.sessionId).toBe('agent:planner:project');
     expect(inputs[2]!.inputId).not.toBe(inputs[1]!.inputId);
@@ -112,9 +110,8 @@ describe('Stage-I runtime lifecycle E2E', () => {
       });
     }) };
     const runtime = supervisor(projectRoot, cards, provider);
-    const prepared = await runtime.beginStartProject();
-    if (!prepared.accepted) throw new Error('Run was not accepted.');
-    runtime.launchStartedProject(prepared.launch);
+    const started = await runtime.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
     await waitUntil(() => typeof releaseTerminal === 'function');
 
     const cancellation = runtime.cancelCard('project', 'operator cancelled subtree');

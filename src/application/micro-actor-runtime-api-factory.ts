@@ -1,5 +1,4 @@
-import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
-import type { RuntimeControlMechanics } from './runtime-control-service.js';
+import { createSupervisorRuntimeApi, type SupervisorRuntimeApi } from '../runtime/actors/index.js';
 import type { LLMProviderPort } from '../runtime/actors/index.js';
 import type { CardService } from '../cards/card-service.js';
 import type { InvocationService } from '../agents/invocation-service.js';
@@ -40,7 +39,7 @@ export interface MicroActorRuntimeApiFactoryDeps {
   freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentsChanged' | 'conversationChanged'>;
 }
 
-export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps): RuntimeControlMechanics {
+export function createMicroActorRuntimeApi(deps: MicroActorRuntimeApiFactoryDeps): SupervisorRuntimeApi {
   return createSupervisorRuntimeApi({
     projectRoot: deps.projectRoot,
     processIdentity: deps.processIdentity,

@@ -136,9 +136,8 @@ describe('failed child activation lifecycle E2E', () => {
       }),
     };
     const supervisor = runtime(projectRoot, cards, provider);
-    const prepared = await supervisor.beginStartProject();
-    if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.launch);
+    const started = await supervisor.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
     await parentAfterRejectedRetry.promise;
     expect(supervisor.getStatus().currentCardId).toBe(parent.id);
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
@@ -221,9 +220,8 @@ describe('failed child activation lifecycle E2E', () => {
     };
     const supervisor = runtime(projectRoot, cards, provider);
     const ownership = supervisor as unknown as RuntimeOwnership;
-    const prepared = await supervisor.beginStartProject();
-    if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.launch);
+    const started = await supervisor.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
 
     await retryAdmitted.promise;
     expect(firstActivationResult).toEqual({ success: true, data: { card_id: child.id, outcome: 'failed', summary: expect.stringContaining('authentication failed permanently'), result: { kind: 'runtime-failure', summary: expect.stringContaining('authentication failed permanently') } } });
@@ -266,9 +264,8 @@ describe('failed child activation lifecycle E2E', () => {
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     }) };
     const supervisor = runtime(projectRoot, cards, provider, { processRunner, runtimeProcessRootScope });
-    const prepared = await supervisor.beginStartProject();
-    if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.launch);
+    const started = await supervisor.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
     await waitUntil(() => cards.read(child.id)?.lifecycle.status === 'failed');
     await waitUntil(() => !(supervisor as unknown as RuntimeOwnership).activationOwners.has(child.id));
 
@@ -291,9 +288,8 @@ describe('failed child activation lifecycle E2E', () => {
     const runningVersion = cards.read('project')!.version_seq;
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const supervisor = runtime(projectRoot, cards, { completeTurn: async () => { throw new Error('malformed provider envelope'); } });
-    const prepared = await supervisor.beginStartProject();
-    if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.launch);
+    const started = await supervisor.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
 
     expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'failed', result: { kind: 'runtime-failure', summary: 'malformed provider envelope' }, error: 'malformed provider envelope' } });

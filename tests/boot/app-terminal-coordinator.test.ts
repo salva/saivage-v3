@@ -16,26 +16,26 @@ describe('App terminal coordinator', () => {
 
   it('joins real supervisor application halt from concurrent Stop', async () => {
     const { supervisor, terminal } = realHarness();
-    const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); supervisor.launchStartedProject(prepared.launch);
+    const started = await supervisor.startProject(); if (!started.started) throw new Error('rejected');
     const closing = terminal.stop(); await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true }); await expect(closing).resolves.toEqual({ warnings: [] }); expect(supervisor.getStatus().status).toBe('stopped');
   });
 
   it('joins Stop-first through actual terminal cleanup without a second termination', async () => {
-    const { supervisor, terminal, runner } = realHarness(); const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); supervisor.launchStartedProject(prepared.launch);
+    const { supervisor, terminal, runner } = realHarness(); const started = await supervisor.startProject(); if (!started.started) throw new Error('rejected');
     const terminate = jest.spyOn(runner, 'terminateScopeTree'); const stop = supervisor.stopProject();
     await expect(terminal.stop()).resolves.toEqual({ warnings: [] }); await expect(stop).resolves.toMatchObject({ contained: true }); expect(terminate).toHaveBeenCalledTimes(1); expect(supervisor.getStatus().status).toBe('stopped');
   });
 
   it.each(['result', 'cancel'] as const)('contains an actual already-settled %s runtime without reviving ownership', async (winner) => {
     let calls = 0; const provider = { completeTurn: async () => { calls += 1; return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: String(calls), type: 'function' as const, function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?v=next', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] }; } };
-    const h = realHarness(provider); const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch);
+    const h = realHarness(provider); const started = await h.supervisor.startProject(); if (!started.started) throw new Error('rejected');
     if (winner === 'cancel') await h.supervisor.cancelCard('project', 'terminal shutdown');
     else for (let i = 0; i < 200 && h.supervisor.getStatus().status !== 'stopped'; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
     expect(h.supervisor.getStatus().status).toBe('stopped'); const first = h.terminal.stop(); expect(h.terminal.stop()).toBe(first); await expect(first).resolves.toEqual({ warnings: [] }); expect(h.supervisor.getStatus().status).toBe('stopped');
   });
 
   it('reports an actual supervisor cleanup failure once and retains closing ownership', async () => {
-    const h = realHarness(); const prepared = await h.supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); h.supervisor.launchStartedProject(prepared.launch);
+    const h = realHarness(); const started = await h.supervisor.startProject(); if (!started.started) throw new Error('rejected');
     jest.spyOn(h.runner, 'terminateScopeTree').mockRejectedValueOnce(new Error('termination failed')); const report = await h.terminal.stop();
     expect(report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_failed' }] }); expect(h.supervisor.getStatus().status).toBe('error');
   });

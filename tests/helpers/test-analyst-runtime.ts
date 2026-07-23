@@ -19,7 +19,6 @@ export interface TestAnalystRuntimeOptions {
   processes: TestProcessRunnerComposition;
   cardStore: CardService;
   runtime: any;
-  runtimeControl?: ToolContext['runtimeControl'];
   configAuthority: ToolContext['configAuthority'];
   interventionReadiness: ToolContext['interventionReadiness'];
   mcpToolInvocation: ToolContext['mcpToolInvocation'];
@@ -56,7 +55,6 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         store: options.cardStore,
         sessionId: 'agent:analyst:global',
         runtime: options.runtime,
-        runtimeControl: options.runtimeControl,
         mcpToolInvocation: options.mcpToolInvocation,
         restartServerAvailable: options.restartServerAvailable ?? false,
         actor: 'analyst',

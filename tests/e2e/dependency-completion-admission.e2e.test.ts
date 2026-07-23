@@ -126,9 +126,8 @@ describe('dependency-completion activation admission E2E', () => {
     const processRunner = new ProcessRunner(projectRoot, registry);
     const supervisor = runtime(projectRoot, cards, processRunner, runtimeProcessRootScope, provider);
     const ownership = supervisor as unknown as RuntimeOwnership;
-    const prepared = await supervisor.beginStartProject();
-    if (!prepared.accepted) throw new Error('Run was not accepted.');
-    supervisor.launchStartedProject(prepared.launch);
+    const started = await supervisor.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
 
     await settleWithin(bRejected.promise, 'initial B rejection');
     expect(firstDependentToolResult).toEqual({
