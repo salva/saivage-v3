@@ -183,11 +183,6 @@ export function isLocked(projectRoot: string, config?: RuntimeLockConfig): boole
   throw blockerError(status);
 }
 
-export function readLiveLockHolder(projectRoot: string, config?: RuntimeLockConfig): { pid: number; started_at: string } | null {
-  const status = readRuntimeLockStatus(projectRoot, config);
-  return status.kind === 'live' ? { pid: status.record.pid, started_at: status.record.started_at } : null;
-}
-
 function blockerError(status: RuntimeLockBlocker): Error {
   if (status.kind === 'live') return new Error(`Runtime lock is held by live PID ${status.record.pid}; stop and verify the current owner before retrying.`);
   if (status.kind === 'dead') return new Error(`Runtime lock owner is positively dead. ${status.repairInstruction}`);

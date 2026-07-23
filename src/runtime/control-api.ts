@@ -1,2 +1,2 @@
 export type { RuntimeApi, StartProjectResult, StopProjectResult } from './runtime-api.js';
-export { isLocked, readLiveLockHolder } from './lock.js';
+export { isLocked } from './lock.js';
