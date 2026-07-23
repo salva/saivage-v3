@@ -36,6 +36,7 @@ export interface OperatorContractRouteRegistrationOptions extends
   mcpManager?: McpManager;
   runtimeApplication: import('../../application/runtime-composition.js').RuntimeApplication;
   saivageConfig: import('../../schemas/saivage-config.js').SaivageConfig;
+  workflows: import('../../runtime/card-process/card-process-config.js').CompiledRuntimeWorkflows;
 }
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
@@ -49,7 +50,7 @@ export function registerOperatorContractRoutes(options: OperatorContractRouteReg
     ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
     ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication }),
     ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
-    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.runtimeApplication.cardStore, configAuthority: options.configAuthority }),
+    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.runtimeApplication.cardStore, configAuthority: options.configAuthority, workflows: options.workflows }),
     ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication.processRunner }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
     ...buildConfigOperatorContractHandlers({

@@ -29,6 +29,7 @@ export interface ServerServices {
   liveSyncSocket: LiveSyncSocket;
   syncHub: SyncHub;
   authPolicy: AuthPolicy;
+  workflows: import('../../runtime/card-process/card-process-config.js').CompiledRuntimeWorkflows;
 }
 
 export async function createServerServices(input: {
@@ -85,5 +86,5 @@ export async function createServerServices(input: {
   terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
   terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
-  return { projectRoot, config, fastify, eventLogger, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, authPolicy };
+  return { projectRoot, config, fastify, eventLogger, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, authPolicy, workflows };
 }

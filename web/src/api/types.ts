@@ -105,6 +105,8 @@ export interface FileEntry {
 export type FileContent = OperatorApiSuccess<'files.content'>;
 
 export type DebugErrorRecord = OperatorApiSuccess<'debug.errors'>['errors'][number];
+export type DebugGraph = OperatorApiSuccess<'debug.graphs'>['graphs'][number];
+export type DebugGraphsResponse = OperatorApiSuccess<'debug.graphs'>;
 export type DebugTimelineEvent = OperatorApiSuccess<'events.list'>['events'][number];
 
 

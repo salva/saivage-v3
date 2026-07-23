@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 
-import { CardService } from '../helpers/canonical-project.js';
+import { CardService, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
@@ -32,7 +32,7 @@ describe('operator files and debug contract handlers', () => {
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot) }).mount(
       fastify,
       filesDebugOperatorApiContracts,
-      buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider, configAuthority: createTestConfigAuthority(projectRoot) }),
+      buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider, configAuthority: createTestConfigAuthority(projectRoot), workflows: TEST_RUNTIME_WORKFLOWS }),
     );
     await fastify.ready();
   });
@@ -56,6 +56,21 @@ describe('operator files and debug contract handlers', () => {
     const errors = await fastify.inject({ method: 'GET', url: '/api/debug/errors', headers: authHeaders });
     expect(errors.statusCode).toBe(200);
     expect(errors.json()).toEqual({ errors: [], total: 0 });
+  });
+
+  it('authenticates and returns the strict non-disclosing startup graph projection', async () => {
+    const unauthorized = await fastify.inject({ method: 'GET', url: '/api/debug/graphs' });
+    expect(unauthorized.statusCode).toBe(401);
+    const response = await fastify.inject({ method: 'GET', url: '/api/debug/graphs', headers: authHeaders });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.graphs).toHaveLength(9);
+    expect(body.graphs.map((graph: { card_type: string }) => graph.card_type)).toEqual(['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']);
+    expect(body.graphs[0]).toEqual(expect.objectContaining({ entries: expect.arrayContaining([expect.objectContaining({ entry: 'STOPPED', node_id: 'recover' })]), terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }] }));
+    expect(body.graphs[0].nodes[0].model.candidates[0]).toEqual({ provider: 'test', model: 'test-model' });
+    const keys = (value: unknown): string[] => value && typeof value === 'object' ? Object.entries(value).flatMap(([key, child]) => [key, ...keys(child)]) : [];
+    expect(keys(body)).not.toEqual(expect.arrayContaining(['account', 'text', 'path']));
+    expect(JSON.stringify(body)).not.toMatch(/\.saivage|contractDescription/i);
   });
 
   it('returns exact canonical error events in physical order', async () => {

@@ -99,6 +99,17 @@ const debugTimeline = parseOperatorResponse('events.list', {
   ],
   total: 2,
 });
+const codeDebugGraph = {
+    card_type: 'code', permitted_child_types: [],
+    records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['executor'], bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', writers: ['executor'], bootstrap: false }],
+    entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt_reference: entry === 'STOPPED' ? 'stopped-recovery' : null })),
+    nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled', reference: 'executor', process_reference: 'execute', correction_reference: 'correct-execute-result' }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], writable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', kind: 'updated' }], descendant_context: null, outcomes: ['done'] }],
+    edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, prompt_reference: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }],
+    terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
+};
+const debugGraphs = parseOperatorResponse('debug.graphs', {
+  graphs: [codeDebugGraph, { ...codeDebugGraph, card_type: 'goal', permitted_child_types: ['code'] }],
+});
 
 const sessions = [
   { id: 'agent:analyst:global', agent_name: 'analyst', session_scope: 'global', card_id: null, status: 'inactive', started_at: now, model: 'synthetic-model' },
@@ -289,6 +300,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/debug/errors') {
       return json(route, debugErrors);
     }
+    if (request.method() === 'GET' && url.pathname === '/api/debug/graphs') return json(route, debugGraphs);
     if (request.method() === 'GET' && url.pathname === '/api/events') {
       return json(route, debugTimeline);
     }

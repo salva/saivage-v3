@@ -70,6 +70,16 @@ test('production browser direct loads initialize router and render route-owned b
   expect(rest.unknown).toEqual([]);
   expect(rest.counts.get('GET /api/debug/errors')).toBeGreaterThan(0);
   expect(rest.counts.get('GET /api/events')).toBeGreaterThan(0);
+
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug?tab=graphs', { waitUntil: 'networkidle' })));
+  await expect(page.getByTestId('debug-graphs-tab')).toContainText('Compiled Workflow Graphs');
+  await expect(page.getByTestId('debug-graph-svg').locator('svg')).toHaveCount(1);
+  await expect(page.getByLabel('Card type')).toHaveValue('code');
+  await expect(page.getByText('status.md · work-status.v1')).toBeVisible();
+  await page.getByLabel('Card type').selectOption('goal');
+  await expect(page.getByTestId('debug-graph-svg').locator('title')).toHaveText('goal compiled workflow');
+  await expect(page.getByText('Permitted children').locator('..')).toContainText('code');
+  expect(rest.counts.get('GET /api/debug/graphs')).toBe(1);
   assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);

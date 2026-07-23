@@ -19,6 +19,7 @@ import type {
   DoctorResponse,
   ProcessView,
   ProcessListResponse,
+  DebugGraph,
 } from '../api/types';
 import {
   getDebugErrors,
@@ -26,6 +27,7 @@ import {
   getDoctor,
   listProcesses,
   ApiError,
+  getDebugGraphs,
 } from '../api/client';
 import { createLogger } from '../utils/logger';
 import {
@@ -52,6 +54,13 @@ export const useDebugStore = defineStore('debug', () => {
   const doctorIssues = ref<DoctorIssue[]>([]);
   const doctorLoading = ref(false);
   const doctorError = ref<string | null>(null);
+
+  const graphs = ref<DebugGraph[] | null>(null);
+  const graphsLoading = ref(false);
+  const graphsRefreshing = ref(false);
+  const graphsError = ref<string | null>(null);
+  const graphsRefreshError = ref<string | null>(null);
+  let graphsRequest: { controller: AbortController } | null = null;
 
   const loading = ref(false);
   const error = ref<string | null>(null);
@@ -128,6 +137,39 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
+  async function fetchGraphs(): Promise<void> {
+    graphsRequest?.controller.abort();
+    const request = { controller: new AbortController() };
+    graphsRequest = request;
+    const refreshing = graphs.value !== null;
+    if (refreshing) {
+      graphsRefreshing.value = true;
+      graphsRefreshError.value = null;
+    } else {
+      graphsLoading.value = true;
+      graphsError.value = null;
+    }
+    try {
+      const response = await getDebugGraphs(request.controller.signal);
+      if (graphsRequest !== request) return;
+      graphs.value = response.graphs;
+      graphsError.value = null;
+      graphsRefreshError.value = null;
+    } catch (err) {
+      if (graphsRequest !== request) return;
+      const msg = err instanceof ApiError ? err.message : 'Failed to fetch compiled graphs';
+      if (refreshing) graphsRefreshError.value = msg;
+      else graphsError.value = msg;
+      log.error('fetchGraphs', msg);
+    } finally {
+      if (graphsRequest === request) {
+        graphsRequest = null;
+        graphsLoading.value = false;
+        graphsRefreshing.value = false;
+      }
+    }
+  }
+
   async function refreshObservability(): Promise<void> {
     loading.value = true;
     error.value = null;
@@ -166,6 +208,11 @@ export const useDebugStore = defineStore('debug', () => {
     doctorIssues: readonly(doctorIssues),
     doctorLoading: readonly(doctorLoading),
     doctorError: readonly(doctorError),
+    graphs: readonly(graphs),
+    graphsLoading: readonly(graphsLoading),
+    graphsRefreshing: readonly(graphsRefreshing),
+    graphsError: readonly(graphsError),
+    graphsRefreshError: readonly(graphsRefreshError),
     loading: readonly(loading),
     error: readonly(error),
     errorsBySource,
@@ -176,6 +223,7 @@ export const useDebugStore = defineStore('debug', () => {
     refetchTimeline,
     refetchProcesses,
     fetchDoctor,
+    fetchGraphs,
     refreshObservability,
   };
 });

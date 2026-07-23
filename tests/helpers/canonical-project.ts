@@ -11,9 +11,13 @@ import { publishInitialProjectCard } from '../../src/persistence/card-files.js';
 import { createProjectIdentity, readProjectIdentity } from '../../src/persistence/project-identity.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
-import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { bindRuntimeWorkflows, compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { TEST_SAIVAGE_CONFIG } from './test-saivage-config.js';
+import { ModelRouter } from '../../src/agents/model-router.js';
+import { ProviderRegistry } from '../../src/agents/provider.js';
 
 export const TEST_WORKFLOWS=compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never);
+export const TEST_RUNTIME_WORKFLOWS=bindRuntimeWorkflows(compileProjectWorkflows(TEST_SAIVAGE_CONFIG),new ModelRouter(TEST_SAIVAGE_CONFIG,new ProviderRegistry(TEST_SAIVAGE_CONFIG)));
 
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });

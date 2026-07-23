@@ -12,7 +12,7 @@ import {
 import { selectCurrentCardId } from '../stores/runtime-read-model';
 
 export interface ErrorSourceEntry { source: string; errors: DebugErrorItem[] }
-export type DebugTabId = 'state' | 'operator' | 'errors' | 'timeline' | 'agents' | 'mcp' | 'processes' | 'doctor';
+export type DebugTabId = 'state' | 'operator' | 'errors' | 'timeline' | 'agents' | 'graphs' | 'mcp' | 'processes' | 'doctor';
 
 export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, runtimeStore: ReturnType<typeof useRuntimeStore>) {
   const localActiveTab = ref<DebugTabId>('state');
@@ -23,6 +23,7 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     { id: 'errors' as const, label: 'Errors' },
     { id: 'timeline' as const, label: 'Timeline' },
     { id: 'agents' as const, label: 'Agents' },
+    { id: 'graphs' as const, label: 'Graphs' },
     { id: 'processes' as const, label: 'Processes' },
     { id: 'doctor' as const, label: 'Doctor' },
     { id: 'mcp' as const, label: 'MCP' },

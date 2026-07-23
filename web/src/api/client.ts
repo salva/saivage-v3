@@ -257,6 +257,10 @@ export function getDebugErrors(): Promise<DebugErrorsResponse> {
   return operatorRequest('debug.errors');
 }
 
+export function getDebugGraphs(signal?: AbortSignal): Promise<import('./types').DebugGraphsResponse> {
+  return operatorRequest('debug.graphs', { signal });
+}
+
 export function getNewestEvents(): Promise<EventsResponse> {
   return operatorRequest('events.list', { query: { selection: 'newest_tail', limit: '1000' } });
 }

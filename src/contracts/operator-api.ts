@@ -46,6 +46,7 @@ export {
 export type { ChatEntriesResponse, ChatSendRequest, ChatSendResponse, ChatWorkspaceContext, RestartChatAcknowledgement } from './operator-api-chats.js';
 export {
   DebugErrorsResponseSchema,
+  DebugGraphsResponseSchema,
   WorkspaceFileContentQuerySchema,
   WorkspaceFileContentResponseSchema,
   WorkspaceFilesListResponseSchema,
@@ -53,6 +54,8 @@ export {
 } from './operator-api-files-debug.js';
 export type {
   DebugErrorsResponse,
+  DebugGraph,
+  DebugGraphsResponse,
   WorkspaceFileContentResponse,
   WorkspaceFilesListResponse,
 } from './operator-api-files-debug.js';

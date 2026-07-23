@@ -2,9 +2,11 @@ import { WorkspaceFileReadModelService } from '../../application/read-models/ind
 import { EventQueryService } from '../../application/event-query-service.js';
 import type { CardService } from '../../cards/card-api.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
+import { projectCompiledGraphs } from '../../runtime/card-process/compiled-graphs-projection.js';
+import type { CompiledRuntimeWorkflows } from '../../runtime/card-process/card-process-config.js';
 import { defineOperatorContractHandlers, type OperatorProjectContext } from './operator-handler-context.js';
 
-export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardServiceProvider: () => CardService; configAuthority: ResolvedConfigAuthority }) {
+export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardServiceProvider: () => CardService; configAuthority: ResolvedConfigAuthority; workflows: CompiledRuntimeWorkflows }) {
   const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, () => {
     const cards = options.cardServiceProvider();
     return {
@@ -23,5 +25,6 @@ export function buildFilesDebugOperatorContractHandlers(options: OperatorProject
     'files.list': ({ query }) => fileReadModel.listFiles(query.path || '.'),
     'files.content': ({ query }) => fileReadModel.readFileContent(query.path),
     'debug.errors': () => ({ body: eventQueries.queryErrors() }),
+    'debug.graphs': () => ({ body: projectCompiledGraphs(options.workflows) }),
   });
 }

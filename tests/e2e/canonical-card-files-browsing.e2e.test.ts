@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify';
 
-import { CardService } from '../helpers/canonical-project.js';
+import { CardService, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
 import { cardNamespace, cardStreamFile } from '../../src/persistence/layout.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
@@ -66,7 +66,7 @@ async function harness(): Promise<Harness> {
   new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventLogger: createEventLog(root) }).mount(
     app,
     filesDebugOperatorApiContracts,
-    buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider, configAuthority: createTestConfigAuthority(root) }),
+    buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider, configAuthority: createTestConfigAuthority(root), workflows: TEST_RUNTIME_WORKFLOWS }),
   );
   await app.ready();
   apps.push(app);
@@ -110,7 +110,7 @@ describe('canonical card Files browsing through real routes and CardService stat
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'e2e-files-token' }), eventLogger: createEventLog(root) }).mount(
       reconstructedApp,
       filesDebugOperatorApiContracts,
-      buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider, configAuthority: createTestConfigAuthority(root) }),
+      buildFilesDebugOperatorContractHandlers({ projectRoot: root, cardServiceProvider: provider, configAuthority: createTestConfigAuthority(root), workflows: TEST_RUNTIME_WORKFLOWS }),
     );
     await reconstructedApp.ready();
     apps.push(reconstructedApp);

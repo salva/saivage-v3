@@ -15,9 +15,13 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
     expect(readModelSource).toContain("label: 'Errors'");
     expect(readModelSource).toContain("label: 'Timeline'");
     expect(readModelSource).toContain("label: 'Processes'");
+    expect(readModelSource).toContain("label: 'Graphs'");
     expect(source).toContain('useDebugReadModel');
     expect(source).toContain('@click="refreshOperatorControl"');
     expect(source).toContain('@click="debugStore.fetchProcesses()"');
+    expect(source).toContain('DebugGraphDiagram');
+    expect(source).toContain('Configuration changes appear only after server restart.');
+    expect(source).not.toMatch(/graph.*(?:edit|reload|save)/i);
 
     expect(source).not.toMatch(/terminateProcess|@click="[^"]*terminate/i);
     expect(source).not.toMatch(/acknowledgeNote|acknowledgeNotification|clearAllNotes|deleteNote|pauseRuntime|resumeRuntime/);

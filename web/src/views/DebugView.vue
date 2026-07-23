@@ -287,6 +287,30 @@
         </div>
       </div>
 
+      <div v-if="localActiveTab === 'graphs'" class="debug-tab-content" data-testid="debug-graphs-tab">
+        <section class="debug-section">
+          <div class="debug-section-header operator-header">
+            <div>
+              <h4 class="debug-section-title">Compiled Workflow Graphs</h4>
+              <p class="operator-subtitle">Read-only startup artifacts. Configuration changes appear only after server restart.</p>
+            </div>
+            <button class="sv-fetch-btn" :disabled="graphsLoading || graphsRefreshing" @click="debugStore.fetchGraphs()">Refresh</button>
+          </div>
+          <StatusBanner v-if="graphsRefreshing" tone="stale" message="Refreshing compiled graphs…" />
+          <StatusBanner v-else-if="graphsRefreshError" tone="warning" :message="graphsRefreshError" />
+          <ViewState v-if="graphsLoading" state="loading" title="Loading compiled graphs..." />
+          <ViewState v-else-if="graphsError" state="error" title="Failed to load compiled graphs" :message="graphsError" />
+          <ViewState v-else-if="graphs && graphs.length === 0" state="error" title="No compiled graphs returned" message="A running server must have one compiled graph for every card type." />
+          <template v-else-if="graphs && selectedGraph">
+            <label class="graph-selector-label" for="debug-graph-card-type">Card type</label>
+            <select id="debug-graph-card-type" v-model="selectedGraphCardType" class="graph-selector">
+              <option v-for="graph in graphs" :key="graph.card_type" :value="graph.card_type">{{ graph.card_type }}</option>
+            </select>
+            <DebugGraphDiagram :graph="selectedGraph" />
+          </template>
+        </section>
+      </div>
+
       <div v-if="localActiveTab === 'doctor'" class="debug-tab-content">
         <section class="debug-section">
           <div class="debug-section-header"><h4 class="debug-section-title">Doctor Diagnostics</h4><button class="sv-fetch-btn" :disabled="doctorLoading" @click="debugStore.fetchDoctor()">Fetch</button></div>
@@ -320,6 +344,7 @@ import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
 import DebugAgentDetail from '../components/agents/DebugAgentDetail.vue';
+import DebugGraphDiagram from '../components/debug/DebugGraphDiagram.vue';
 import ViewState from '../components/ui/ViewState.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import StatusBadge from '../components/ui/StatusBadge.vue';
@@ -340,6 +365,7 @@ const {
   loading, error,
   processes, processesLoading, processesError,
   doctorStatus, doctorChecks, doctorIssues, doctorLoading, doctorError,
+  graphs, graphsLoading, graphsRefreshing, graphsError, graphsRefreshError,
 } = storeToRefs(debugStore);
 const {
   runtime, loading: runtimeLoading, refreshing: runtimeRefreshing,
@@ -379,6 +405,11 @@ const validExplicitAgentSessionId = computed(() =>
     : null,
 );
 const effectiveAgentSessionId = computed(() => validExplicitAgentSessionId.value ?? sessions.value[0]?.id ?? null);
+const selectedGraphCardType = ref<string | null>(null);
+const selectedGraph = computed(() => graphs.value?.find((graph) => graph.card_type === selectedGraphCardType.value) ?? graphs.value?.[0] ?? null);
+watch(graphs, (value) => {
+  if (value?.length && !value.some((graph) => graph.card_type === selectedGraphCardType.value)) selectedGraphCardType.value = value[0]!.card_type;
+});
 
 const selectedProcessId = computed(() => {
   if (route.name === 'process-detail' && typeof route.params.id === 'string') return route.params.id;
@@ -396,6 +427,7 @@ function setTabLocal(tab: typeof localActiveTab.value): void {
   else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
   else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
   else if (tab === 'doctor') debugStore.fetchDoctor().catch(() => {});
+  else if (tab === 'graphs' && graphs.value === null) debugStore.fetchGraphs().catch(() => {});
   else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
 }
 
@@ -522,4 +554,6 @@ onUnmounted(() => {
 .wrap { word-break:break-word; white-space:pre-wrap; }
 .process-link-button, .sv-fetch-btn { margin-left:8px; padding:4px 8px; font-size:11px; color:var(--accent-2); background:var(--bg); border:1px solid var(--border); border-radius:4px; cursor:pointer; }
 .process-empty-note { font-size:12px; color:var(--text-muted); line-height:1.5; }
+.graph-selector-label { display:block; margin:4px 0; color:var(--text-muted); font-size:11px; font-weight:600; }
+.graph-selector { margin-bottom:12px; min-width:220px; background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:7px 9px; }
 </style>

@@ -33,6 +33,7 @@ export async function createServer(options: CreateServerOptions): Promise<Server
     restartPort: options.restartPort,
     authPolicy: services.authPolicy,
     eventLogger: services.eventLogger,
+    workflows: services.workflows,
   });
 
   return { fastify: services.fastify, config: serverConfig, saivageConfig: services.config, mcpManager: services.mcpManager, runtimeApplication: services.runtimeApplication };
