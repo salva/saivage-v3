@@ -37,9 +37,8 @@ export interface CardProcessorActor {
   executingLlmSnapshot(): ExecutingLlmSnapshot | null;
 }
 
-export type CardActivationOwnerPhase = 'prepared_root' | 'child_admission' | 'active' | 'settling' | 'publication_unknown' | 'settled_contained';
+export type CardActivationOwnerPhase = 'prepared_root' | 'child_admission' | 'active' | 'settling';
 export type TerminalWinner = 'open' | 'result' | 'cancel';
-export type ContainmentOwner = 'none' | 'stop' | 'application_close';
 
 export interface ParentActivationRelationship {
   readonly parentCardId: string;
@@ -57,16 +56,12 @@ export class CardActivationOwner {
   readonly abortController = new AbortController();
   phase: CardActivationOwnerPhase;
   terminalWinner: TerminalWinner = 'open';
-  containmentOwner: ContainmentOwner = 'none';
   cachedStatus: CardStatus;
   parentRelationship: ParentActivationRelationship | null;
   childCardId: string | null = null;
   cancellationReason: CardCancelReason | null = null;
   cancellationSettlement: Promise<CardCancellationResult> | null = null;
-  publicationTask: Promise<void> = Promise.resolve();
   processorJoin: Promise<readonly InvocationJoinOutcome[]> | null = null;
-  retainedPublicationFailure: unknown = null;
-  retainedLocalFailure: unknown = null;
   processorActivated = false;
   readonly alreadyStabilizedAgents: ReadonlySet<AgentName>;
 

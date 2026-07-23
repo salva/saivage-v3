@@ -90,7 +90,6 @@ export const RuntimeStatusResponseSchema = z.object({
 }).strict();
 
 export const StopProjectResponseSchema = z.object({ status: z.literal('stopped'), contained: z.boolean() }).strict();
-export const RuntimeControlConflictSchema = z.object({ code: z.literal('runtime_control_conflict'), message: z.literal('Runtime control conflicts with an in-flight project stop.') }).strict();
 export const RestartServerRequestSchema = z.object({ confirmation: z.literal('RESTART SERVER') }).strict();
 export const RestartServerResponseSchema = z.object({ status: z.literal('restart_scheduled') }).strict();
 export const RestartUnavailableErrorSchema = z.object({ code: z.literal('restart_unavailable'), message: z.literal('restart unavailable: operator authentication disabled') }).strict();
@@ -255,7 +254,7 @@ export const runtimeCardsOperatorApiContracts = {
     path: '/api/runtime/stop-project',
     success: StopProjectResponseSchema,
     error: ApiErrorSchema,
-    response: { 200: StopProjectResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 409: RuntimeControlConflictSchema, 500: UnexpectedInternalServerErrorSchema },
+    response: { 200: StopProjectResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'StopProjectResponse',
   },

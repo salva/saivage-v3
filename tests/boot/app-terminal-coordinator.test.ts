@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { APP_CLEANUP_LEAF_TIMEOUT_MS, createAppTerminalCoordinator } from '../../src/boot/app.js';
 import { mkdtempSync, rmSync } from 'node:fs'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
-import { CardService } from '../helpers/canonical-project.js'; import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js'; import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js'; import { SupervisorRuntimeApi, RuntimeControlConflictError } from '../../src/runtime/actors/supervisor-runtime-api.js'; import { initProjectTree } from '../helpers/canonical-project.js'; import { createTestProcessRunner } from '../helpers/test-process-runner.js'; import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js'; import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { CardService } from '../helpers/canonical-project.js'; import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js'; import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js'; import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js'; import { initProjectTree } from '../helpers/canonical-project.js'; import { createTestProcessRunner } from '../helpers/test-process-runner.js'; import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js'; import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 
 const roots: string[] = [];
@@ -14,10 +14,10 @@ function realHarness(provider: LLMProviderPort = { completeTurn: async (_input: 
 describe('App terminal coordinator', () => {
   afterEach(() => { jest.useRealTimers(); jest.restoreAllMocks(); while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-  it('drives real supervisor application containment before a losing Stop', async () => {
+  it('joins real supervisor application halt from concurrent Stop', async () => {
     const { supervisor, terminal } = realHarness();
     const prepared = await supervisor.beginStartProject(); if (!prepared.accepted) throw new Error('rejected'); supervisor.launchStartedProject(prepared.launch);
-    const closing = terminal.stop(); await expect(supervisor.stopProject()).rejects.toBeInstanceOf(RuntimeControlConflictError); await expect(closing).resolves.toEqual({ warnings: [] }); expect(supervisor.getStatus().status).toBe('closing');
+    const closing = terminal.stop(); await expect(supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true }); await expect(closing).resolves.toEqual({ warnings: [] }); expect(supervisor.getStatus().status).toBe('stopped');
   });
 
   it('joins Stop-first through actual terminal cleanup without a second termination', async () => {

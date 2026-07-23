@@ -109,6 +109,13 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect([pauseBody, resumeBody, stopBody, invalidPauseBody]).toEqual([undefined, undefined, undefined, {}]);
   });
 
+  it('keeps Stop contained success and removes the application-close conflict response', () => {
+    expect(operatorApiContracts.stop_project.success.parse({ status: 'stopped', contained: true })).toEqual({ status: 'stopped', contained: true });
+    expect(operatorApiContracts.stop_project.success.parse({ status: 'stopped', contained: false })).toEqual({ status: 'stopped', contained: false });
+    expect(operatorApiContracts.stop_project.response).not.toHaveProperty('409');
+    expect(operatorApiModule).not.toHaveProperty('RuntimeControlConflictSchema');
+  });
+
   it('parses runtime state/status without command/run/activation projections', () => {
     expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState }).runtime).toEqual(runtimeState);
     const status = parseOperatorResponse('runtime.status', {

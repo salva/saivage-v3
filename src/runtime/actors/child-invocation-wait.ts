@@ -5,9 +5,8 @@ import { deferred, type Deferred } from './deferred.js';
 export type ChildInvocationLeasePhase =
   | 'reserved'
   | 'admitted'
-  | 'publication_unknown'
   | 'settling'
-  | 'contained'
+  | 'interrupted'
   | 'released'
   | 'rejected';
 
@@ -33,17 +32,15 @@ export class ChildInvocationLease {
   phase(): ChildInvocationLeasePhase { return this.#phase; }
 
   markAdmitted(): void { this.transition('reserved', 'admitted'); }
-  markPublicationUnknown(): void {
-    if (this.#phase !== 'admitted' && this.#phase !== 'settling') throw this.invalidTransition('publication_unknown');
-    this.#phase = 'publication_unknown';
-  }
   markSettling(): void { this.transition('admitted', 'settling'); }
-  markContained(): void {
-    if (this.#phase !== 'admitted' && this.#phase !== 'publication_unknown' && this.#phase !== 'settling') throw this.invalidTransition('contained');
-    this.#phase = 'contained';
+  interrupt(reason: Error): void {
+    if ((this.#phase !== 'admitted' && this.#phase !== 'settling') || this.#delivered) throw this.invalidTransition('interrupted');
+    this.#phase = 'interrupted';
+    this.#delivered = true;
+    this.#activation.reject(reason);
   }
   markReleased(): void {
-    if (this.#phase !== 'settling' && this.#phase !== 'contained') throw this.invalidTransition('released');
+    if (this.#phase !== 'settling') throw this.invalidTransition('released');
     this.#phase = 'released';
   }
   markRejected(): void { this.transition('reserved', 'rejected'); }
@@ -55,7 +52,7 @@ export class ChildInvocationLease {
   }
 
   deliverInterruption(reason: Error): void {
-    if ((this.#phase !== 'contained' && this.#phase !== 'rejected') || this.#delivered) throw new Error(`Child invocation lease for '${this.childCardId}' cannot deliver an interruption from '${this.#phase}'.`);
+    if (this.#phase !== 'rejected' || this.#delivered) throw new Error(`Child invocation lease for '${this.childCardId}' cannot deliver an interruption from '${this.#phase}'.`);
     this.#delivered = true;
     this.#activation.reject(reason);
   }
@@ -65,10 +62,10 @@ export class ChildInvocationLease {
   }
 
   isWaitingBarrier(): boolean {
-    return this.#phase === 'admitted' || this.#phase === 'publication_unknown' || this.#phase === 'settling' || this.#phase === 'contained';
+    return this.#phase === 'admitted' || this.#phase === 'settling';
   }
 
-  isConsumable(): boolean { return this.#phase === 'released' || this.#phase === 'rejected'; }
+  isConsumable(): boolean { return this.#phase === 'released' || this.#phase === 'rejected' || this.#phase === 'interrupted'; }
 
   private transition(from: ChildInvocationLeasePhase, to: ChildInvocationLeasePhase): void {
     if (this.#phase !== from) throw this.invalidTransition(to);

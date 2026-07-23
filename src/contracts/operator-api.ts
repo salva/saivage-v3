@@ -153,7 +153,6 @@ export {
   RuntimeGetStateResponseSchema,
   RuntimeStatusResponseSchema,
   StopProjectResponseSchema,
-  RuntimeControlConflictSchema,
   RestartServerRequestSchema,
   RestartServerResponseSchema,
   RestartUnavailableErrorSchema,

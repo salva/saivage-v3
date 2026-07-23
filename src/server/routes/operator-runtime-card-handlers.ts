@@ -11,7 +11,6 @@ import type {
   OperatorRuntimeProviderContext,
 } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
-import { RuntimeControlConflictError } from '../../runtime/actors/supervisor-runtime-api.js';
 
 type RuntimeCardOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorAvailabilityContext & OperatorCardServiceContext;
 
@@ -76,11 +75,7 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       if (!options.runtimeApplication) throw new Error('Runtime application is required for project stop.');
-      try { return { body: await options.runtimeApplication.runtimeControl.stopProject() }; }
-      catch (error) {
-        if (error instanceof RuntimeControlConflictError) return { statusCode: 409, body: { code: 'runtime_control_conflict', message: 'Runtime control conflicts with an in-flight project stop.' } };
-        throw error;
-      }
+      return { body: await options.runtimeApplication.runtimeControl.stopProject() };
     },
     restart_server: ({ reply }) => {
       if (!options.restartServerAvailable) return { statusCode: 403, body: { code: 'restart_unavailable', message: 'restart unavailable: operator authentication disabled' } };

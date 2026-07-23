@@ -44,9 +44,9 @@ describe('terminal cleanup call graph', () => {
       expect(method).toContain('.failed.length !== 0');
     }
     const supervisor = readFileSync(join(root, 'src/runtime/actors/supervisor-runtime-api.ts'), 'utf8');
-    const containment = supervisor.slice(supervisor.indexOf('private async performContainment'), supervisor.indexOf('private publish'));
-    expect(containment.indexOf('terminateScopeTree')).toBeGreaterThan(0);
-    expect(containment.indexOf('terminateScopeTree')).toBeLessThan(containment.indexOf('await Promise.all'));
-    expect(containment).toContain('report.failed.length');
+    const halt = supervisor.slice(supervisor.indexOf('private beginHalt'), supervisor.indexOf('private publish'));
+    expect(halt.indexOf('terminateScopeTree')).toBeGreaterThan(0);
+    expect(halt.indexOf('terminateScopeTree')).toBeLessThan(halt.indexOf('Promise.allSettled'));
+    expect(halt).toContain('report.failed.length');
   });
 });

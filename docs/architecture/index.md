@@ -7,6 +7,5 @@ The canonical main documentation set is `docs/spec/system-specification.md`, `do
 ## Current architecture authority
 
 - [System architecture](./system-architecture.md) — current design summary and canonical architecture entry point.
-- [Micro-actor runtime implementation status](./micro-actor-runtime-implementation-plan.md) — current actor ownership and removed-recovery status.
 
 Activation ownership is plain callback-free supervisor state in one map. `CardProcessActor` remains the micro-actor, while `ConversationLLMActor` is the direct provider/tool phase owner; they remain connected to supervisor structure through one concrete invocation-bound child lease and one exact parent-bound planner port. [System architecture](./system-architecture.md) is authoritative for those ownership boundaries.
