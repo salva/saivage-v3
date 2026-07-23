@@ -23,7 +23,6 @@ import { buildAgentSurface } from '../../tools/agent-invocation-surface.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
-import { runContractRepairLoop } from './contract-repair-loop.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
 import { AppLogPublicationError, rethrowAppLogPublicationError } from '../../persistence/app-log.js';
@@ -95,22 +94,21 @@ export class AgentNodeExecution {
       const baseline = new Map(node.requirements.map((record) => [record.definition.name, this.captureRecord(record.definition.name)]));
       const prepared = this.buildLlmInput(node, input, sessionId, inputId, contract, surface);
       const terminalHandoff = () => this.host.assertCurrentActivation(input);
-      const initialOutcome = await llm.turn(prepared, signal, terminalHandoff);
+      let outcome = await llm.turn(prepared, signal, terminalHandoff);
       this.host.assertCurrentActivation(input);
-      const accepted = await runContractRepairLoop<AcceptedNodeResult>({
-        initialOutcome,
-        isTerminalToolName: (name) => contract.isTerminalToolName(name),
-        fail: (message) => { throw new Error(message); },
-        onPlainText: async (_outcome, control) => control.repair(async () => {
+      for (;;) {
+        if (outcome.type === 'result') {
           this.host.assertCurrentActivation(input);
-          const repaired = await llm.continueAfterPlainText(this.correction(node, ['emit_result is required.']), signal, terminalHandoff);
+          outcome = await llm.continueAfterPlainText(this.correction(node, ['emit_result is required.']), signal, terminalHandoff);
           this.host.assertCurrentActivation(input);
-          return repaired;
-        }),
-        onTerminalTool: async (terminalOutcome, control) => {
+          continue;
+        }
+        if (outcome.type === 'error') throw new Error(outcome.error);
+        if (contract.isTerminalToolName(outcome.toolName)) {
+          const terminalOutcome = outcome;
           let parsed: NodeResult;
           try { parsed = verifyTerminalToolOutcome(contract, terminalOutcome).result.result; }
-          catch (error) { rethrowAppLogPublicationError(error); return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal)); }
+          catch (error) { rethrowAppLogPublicationError(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal); continue; }
           const route = processNodeTransition(process, stateId, parsed.outcome);
           const target = process.states.get(route.target);
           if (!target || (target.kind !== 'node' && target.kind !== 'terminal')) throw new Error(`Compiled node '${node.nodeId}' has invalid target '${route.target}'.`);
@@ -120,22 +118,24 @@ export class AgentNodeExecution {
               ...selected.map((notification) => ({ role: 'user' as const, content: notification.content })),
               { role: 'user', content: this.correction(node, ['pending_notifications: reconsider the appended context, update required records if needed, and call emit_result again.']) },
             ];
-            return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }, signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) })));
+            outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }, signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }));
+            continue;
           }
           const records = this.validateRecords(node, baseline);
-          if ('violations' in records) return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, records.violations) }, signal));
+          if ('violations' in records) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, records.violations) }, signal); continue; }
           if (reviewerPair) {
             const stale = this.reviewerStaleReason(input.card.id, reviewerPair.snapshot, node.descendantContext!.records.map((record)=>record.name));
             if (stale) {
               for(const requirement of node.requirements)if(requirement.kind==='updated')this.discardOpenRecord(requirement.definition.name, 'stale_descendant_context');
               const refreshed = this.captureReviewerPair(input.card.id,node.descendantContext!.records.map((record)=>record.name));
               const messages = [refreshed.exactContext, { role: 'user' as const, content: this.correction(node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) }];
-              return control.continue(await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `Review context is stale: ${stale}.` }, signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } })));
+              outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `Review context is stale: ${stale}.` }, signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }));
+              continue;
             }
           }
            if (target.kind === 'terminal' && target.terminal === 'DONE') {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
-            if (blocker) return control.repair(() => llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }, signal));
+            if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }, signal); continue; }
           }
            if (target.kind === 'terminal') { this.host.assertPromotionAvailable(process,stateId,parsed.outcome);llm.claimResultAndCloseContinuation(terminalOutcome, new Error('Terminal result accepted.'), () => input.claimResult()); }
            this.host.assertCurrentActivation(input);
@@ -143,19 +143,18 @@ export class AgentNodeExecution {
            await llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
            this.host.assertCurrentActivation(input);
            cleanupStatus = target.kind === 'terminal' ? terminalCleanupStatus(target.terminal) : 'done';
-           return control.done(Object.freeze({ nodeId:node.nodeId,agentName:node.agent.name,outcome: parsed.outcome, summary: parsed.summary, acceptedRecords: Object.freeze(acceptedRecords) }));
-        },
-        onNonTerminalTool: async (toolOutcome) => {
-          const toolResult = surface.tools.has(toolOutcome.toolName)
-            ? await invokeToolForLlm(surface, toolOutcome.toolName, toolOutcome.args, llm.toolInvocationContext(toolOutcome), signal)
-            : { success: false as const, error: `Unsupported ${node.agent.name} tool call '${toolOutcome.toolName}'.` };
-          signal.throwIfAborted();
-          this.host.assertCurrentActivation(input);
-          return llm.appendToolResult(toolOutcome.toolCallId, toolResult, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId));
-        },
-      });
-      this.host.assertCurrentActivation(input);
-      primaryCompletion = { kind: 'success', value: accepted };
+           const accepted = Object.freeze({ nodeId:node.nodeId,agentName:node.agent.name,outcome: parsed.outcome, summary: parsed.summary, acceptedRecords: Object.freeze(acceptedRecords) });
+           this.host.assertCurrentActivation(input);
+           primaryCompletion = { kind: 'success', value: accepted };
+           break;
+        }
+        const toolResult = surface.tools.has(outcome.toolName)
+          ? await invokeToolForLlm(surface, outcome.toolName, outcome.args, llm.toolInvocationContext(outcome), signal)
+          : { success: false as const, error: `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.` };
+        signal.throwIfAborted();
+        this.host.assertCurrentActivation(input);
+        outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId));
+      }
     } catch (error) {
       if (error instanceof AppLogPublicationError) publicationFailure = error;
       primaryCompletion = { kind: 'failure', reason: error };
