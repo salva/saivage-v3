@@ -3,7 +3,6 @@ import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardService } from '../../cards/card-service.js';
 import type { ProcessPosition, CardProcessEntry } from '../card-process/card-process-config.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
-import type { InvocationJoinOutcome } from './invocation-lifecycle.js';
 import type { ChildInvocationLease } from './child-invocation-wait.js';
 import { deferred, type Deferred } from './deferred.js';
 
@@ -32,7 +31,7 @@ export interface CardProcessorActor {
   activate(input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
   disposeActivation(reason: unknown): void;
   suppressContinuationAndPrepareJoin(reason: unknown): void;
-  joinActivation(): Promise<readonly InvocationJoinOutcome[]>;
+  joinActivation(): Promise<readonly import('./invocation-lifecycle.js').InvocationJoinOutcome[]>;
   processPosition(): ProcessPosition;
   executingLlmSnapshot(): ExecutingLlmSnapshot | null;
 }
@@ -61,8 +60,6 @@ export class CardActivationOwner {
   childCardId: string | null = null;
   cancellationReason: CardCancelReason | null = null;
   cancellationSettlement: Promise<CardCancellationResult> | null = null;
-  processorJoin: Promise<readonly InvocationJoinOutcome[]> | null = null;
-  processorActivated = false;
   readonly alreadyStabilizedAgents: ReadonlySet<AgentName>;
 
   constructor(args: {
@@ -88,6 +85,4 @@ export class CardActivationOwner {
     this.alreadyStabilizedAgents = args.alreadyStabilizedAgents ?? new Set();
     void this.settlement.promise.catch(() => undefined);
   }
-
-  processPosition(): ProcessPosition { return this.processor.processPosition(); }
 }

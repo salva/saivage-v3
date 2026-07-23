@@ -43,6 +43,7 @@ interface ProcessorHarness {
 function processor(): ProcessorHarness {
   const join = barrier<readonly []>();
   const dispose = jest.fn();
+  let activationJoin: Promise<readonly []> | null = null;
   return {
     join,
     dispose,
@@ -51,7 +52,7 @@ function processor(): ProcessorHarness {
       activate: async () => new Promise<never>(() => undefined),
       disposeActivation: dispose,
       suppressContinuationAndPrepareJoin: jest.fn(),
-      joinActivation: jest.fn(() => join.promise),
+      joinActivation: jest.fn(() => activationJoin ??= join.promise),
       processPosition: () => ({ cardType: 'project', stateId: 'ready', kind: 'ready' }),
       executingLlmSnapshot: () => null,
     },

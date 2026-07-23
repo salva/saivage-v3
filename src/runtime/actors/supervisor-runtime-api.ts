@@ -162,8 +162,8 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (this.halt) throw this.halt.interruption;
     if (owner.phase !== 'active' || owner.terminalWinner !== 'open' || this.status !== 'starting' || !this.applicationAdmissionOpen) throw new Error('Prepared runtime launch is no longer admissible.');
     this.ownershipTransition(true, () => { this.preparedLaunch = null; this.status = 'running'; });
-    const postTransitionHalt = this.haltForOwner(owner);
-    if (postTransitionHalt) throw postTransitionHalt.interruption;
+    const postTransitionHalt = this.halt as RuntimeHalt | null;
+    if (postTransitionHalt?.owners.includes(owner)) throw postTransitionHalt.interruption;
     if (this.getStatus().status !== 'running' || !this.applicationAdmissionOpen) throw new Error('Prepared runtime launch lost admission during invalidation.');
     this.runtimeGate.open();
     this.activateProcessor(owner);
@@ -207,7 +207,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
   getStatus() { return { status: this.status, currentCardId: this.currentCardId, pid: this.behavior.processIdentity.pid, startedAt: this.behavior.processIdentity.startedAt }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
-    const cards = [...this.activationOwners.values()].map((owner) => ({ cardId: owner.cardId, actorState: toPublicCardActorState(owner.cachedStatus), processState: owner.processPosition() }));
+    const cards = [...this.activationOwners.values()].map((owner) => ({ cardId: owner.cardId, actorState: toPublicCardActorState(owner.cachedStatus), processState: owner.processor.processPosition() }));
     return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards };
   }
   captureAutonomousExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[] { return [...this.activationOwners.values()].flatMap((owner) => { const value = owner.processor.executingLlmSnapshot(); return value ? [value] : []; }); }
@@ -223,7 +223,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       activateChild: ({ childCardId, invocation }: { childCardId: string; invocation: ChildInvocationLease }) => {
         try { return this.activateChild(requireParent(), childCardId, invocation); }
         catch (error) {
-          const halt = this.installedHalt();
+          const halt = this.halt;
           if (halt && error === halt.interruption) return this.rejectLease(invocation, halt.interruption);
           throw error;
         }
@@ -289,8 +289,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
 
   private activateProcessor(owner: CardActivationOwner): void {
     this.requireOwnerAuthority(owner);
-    if (owner.processorActivated || owner.phase !== 'active') return;
-    owner.processorActivated = true;
+    if (owner.phase !== 'active') return;
     const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller: owner.caller, entry: owner.entry, alreadyStabilizedAgents: owner.alreadyStabilizedAgents, notificationDelivery: { selectNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications; }, removeNotifications: (ids: readonly string[]) => { this.requireOwnerAuthority(owner); owner.store.removeNotifications(owner.cardId, [...ids]); } }, claimResult: () => this.claimResult(owner) };
     void owner.processor.activate(input, owner.abortController.signal).then((outcome) => this.settleResult(owner, outcome), (error) => {
       if (this.halt?.owners.includes(owner) || owner.terminalWinner === 'cancel') return;
@@ -327,7 +326,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.requireOwnerAuthority(owner);
     owner.cachedStatus = committed.lifecycle.status;
     owner.processor.suppressContinuationAndPrepareJoin(new Error('Activation settled.'));
-    try { await this.joinProcessor(owner); } catch { void this.beginHalt('runtime_failure').catch(() => undefined); return; }
+    try { await owner.processor.joinActivation(); } catch { void this.beginHalt('runtime_failure').catch(() => undefined); return; }
     if (this.halt?.owners.includes(owner)) return;
     this.requireOwnerAuthority(owner);
     if (owner.cardId === PROJECT_CARD_ID) {
@@ -380,14 +379,14 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     if (!card) throw new Error(`Card '${cardId}' not found.`);
     if (!canCancelCardStatus(card.lifecycle.status)) throw new Error(`Card '${cardId}' in status '${card.lifecycle.status}' cannot be cancelled.`);
     if (card.lifecycle.status === 'running') throw new Error(`Running card '${cardId}' has no activation owner.`);
-    const cancelled: string[] = []; await this.cancelNonrunningSubtree(cardId, cancelled); const halt = this.installedHalt(); if (halt) throw halt.interruption; return { card_id: cardId, status: 'cancelled', cancelled_card_ids: cancelled };
+    const cancelled: string[] = []; await this.cancelNonrunningSubtree(cardId, cancelled); const halt = this.halt as RuntimeHalt | null; if (halt) throw halt.interruption; return { card_id: cardId, status: 'cancelled', cancelled_card_ids: cancelled };
   }
 
   private settleCancellation(owner: CardActivationOwner): Promise<CardCancellationResult> {
     if (owner.cancellationSettlement) return owner.cancellationSettlement;
     owner.cancellationSettlement = (async () => {
       this.requireOwnerAuthority(owner);
-      try { await this.joinProcessor(owner); } catch (error) { void this.beginHalt('runtime_failure').catch(() => undefined); throw error; }
+      try { await owner.processor.joinActivation(); } catch (error) { void this.beginHalt('runtime_failure').catch(() => undefined); throw error; }
       this.requireOwnerAuthority(owner);
       const cancelledDescendants: string[] = [];
       for (const childId of this.behavior.actorStore.listChildren(owner.cardId)) {
@@ -445,7 +444,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     }
 
     const joins = owners.map((owner) => {
-      try { return this.joinProcessor(owner); }
+      try { return owner.processor.joinActivation(); }
       catch (error) { return Promise.reject(error); }
     });
     let processTermination: Promise<void>;
@@ -508,7 +507,6 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     }
   }
 
-  private joinProcessor(owner: CardActivationOwner): Promise<readonly import('./invocation-lifecycle.js').InvocationJoinOutcome[]> { owner.processorJoin ??= owner.processor.joinActivation(); return owner.processorJoin; }
   private requirePreparation(owner: CardActivationOwner, identity: object): void { if (this.halt?.owners.includes(owner)) throw this.halt.interruption; if (this.runIdentity !== identity || this.activationOwners.get(PROJECT_CARD_ID) !== owner || owner.phase !== 'prepared_root' || owner.terminalWinner !== 'open' || this.halt || !this.applicationAdmissionOpen) throw new Error('Root preparation authority is no longer current.'); }
   private requireOwner(owner: CardActivationOwner): void { if (this.activationOwners.get(owner.cardId) !== owner) throw new Error(`Card '${owner.cardId}' activation owner is no longer current.`); }
   private requireOwnerAuthority(owner: CardActivationOwner): void {
@@ -516,8 +514,6 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
     this.requireOwner(owner);
     if (this.halt) throw new Error(`Card '${owner.cardId}' is outside the frozen runtime halt graph.`);
   }
-  private installedHalt(): RuntimeHalt | null { return this.halt; }
-  private haltForOwner(owner: CardActivationOwner): RuntimeHalt | null { const halt = this.halt; return halt?.owners.includes(owner) ? halt : null; }
   private requireKnownCard(owner: CardActivationOwner): CardRecord { const card = owner.store.read(owner.cardId); if (!card) throw new Error(`Card '${owner.cardId}' not found.`); return card; }
   private startRejected(error: string): StartProjectResult { return { runtime: this.runtimeState(), status: this.status, started: false, stopped: this.status === 'stopped', error }; }
   private runtimeState(): RuntimeState | null { if (!this.runIdentity) return null; if (!this.currentCardId) throw new Error('Active runtime has no current card.'); return { status: this.status, project_id: 'project', pid: this.behavior.processIdentity.pid, started_at: this.behavior.processIdentity.startedAt, current_card_id: this.currentCardId, updated_at: this.now() }; }
