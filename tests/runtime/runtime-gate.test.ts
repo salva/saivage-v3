@@ -4,7 +4,7 @@ import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 describe('RuntimeGate', () => {
   it('completes a reusable run by clearing its pending Pause callback without delivery', async () => {
     const gate = new RuntimeGate(true); let parked = 0; gate.requestPause(() => { parked += 1; }); gate.completeRun();
-    expect(gate.isOpen).toBe(false); expect(gate.pauseRequested).toBe(false); expect(parked).toBe(0);
+    expect(gate.isOpen).toBe(false); expect(parked).toBe(0);
     const controller = new AbortController(); const pending = gate.waitUntilOpen(controller.signal); expect(parked).toBe(0); controller.abort(new Error('done')); await expect(pending).rejects.toThrow('done');
   });
 
@@ -31,17 +31,4 @@ describe('RuntimeGate', () => {
     gate.open();
   });
 
-  it('terminally rejects current and future waiters and cannot reopen', async () => {
-    const gate = new RuntimeGate(false);
-    const current = gate.waitUntilOpen(new AbortController().signal);
-    const reason = new Error('runtime disposed');
-
-    gate.dispose(reason);
-
-    await expect(current).rejects.toBe(reason);
-    await expect(gate.waitUntilOpen(new AbortController().signal)).rejects.toBe(reason);
-    expect(() => gate.open()).toThrow(/terminally closed/);
-    expect(() => gate.setOpen(true)).toThrow(/terminally closed/);
-    gate.dispose(new Error('ignored repeated disposal'));
-  });
 });

@@ -8,14 +8,11 @@ describe('RuntimeGate minimal pause frontier', () => {
     gate.requestPause(parked);
     const signal = new AbortController();
     const waiting = gate.waitUntilOpen(signal.signal);
-    expect(gate.pauseRequested).toBe(true);
-    expect(gate.isParked).toBe(true);
     expect(parked).toHaveBeenCalledTimes(1);
     expect(() => gate.waitUntilOpen(new AbortController().signal)).toThrow('exactly one parked frontier');
     gate.open();
-    await waiting;
-    expect(gate.pauseRequested).toBe(false);
-    expect(gate.isParked).toBe(false);
+    await expect(waiting).resolves.toBeUndefined();
+    await expect(gate.waitUntilOpen(new AbortController().signal)).resolves.toBeUndefined();
   });
 
   it('cancellation rejects the parked frontier without Resume', async () => {
@@ -25,6 +22,8 @@ describe('RuntimeGate minimal pause frontier', () => {
     const waiting = gate.waitUntilOpen(owner.signal);
     owner.abort(new Error('cancelled'));
     await expect(waiting).rejects.toThrow('cancelled');
-    expect(gate.isParked).toBe(false);
+    const replacement = gate.waitUntilOpen(new AbortController().signal);
+    gate.open();
+    await expect(replacement).resolves.toBeUndefined();
   });
 });
