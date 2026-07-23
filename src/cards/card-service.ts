@@ -78,10 +78,6 @@ export type CardActivationAdmissionProjection = {
 
 export interface CardDiffEntry { field: string; before: unknown; after: unknown }
 export type CardHistoryListResult = CardTargetRead<CardHistoryEntry[]>;
-export type CardServiceTargetRead<T> = CardTargetRead<T>;
-export type CanonicalCardReadProjection = CanonicalCardProjection;
-export type CanonicalCardChildrenReadProjection = CanonicalLinkedChildrenProjection;
-export type CanonicalCardFilesMetadataReadProjection = CanonicalCardFilesMetadataProjection;
 export type { CanonicalCardFileContentRead, CanonicalCardFileSlot };
 export type CardHistoryEntryResult = CardTargetRead<CardHistoryEntry> | { readonly kind: 'history-entry-not-found'; readonly versionSeq: number };
 export type CardHistoryDiffResult =
@@ -187,13 +183,13 @@ export class CardService {
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
     return clone(readCardDetail(this.projectRoot, id, instrumentation));
   }
-  getCanonicalCard(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalCardReadProjection> {
+  getCanonicalCard(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalCardProjection> {
     return readCanonicalCard(this.projectRoot, id, instrumentation);
   }
-  getCanonicalCardChildren(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalCardChildrenReadProjection> {
+  getCanonicalCardChildren(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalLinkedChildrenProjection> {
     return readCanonicalCardHierarchy(this.projectRoot, id, instrumentation);
   }
-  getCanonicalCardFilesMetadata(id: string): CardTargetRead<CanonicalCardFilesMetadataReadProjection> {
+  getCanonicalCardFilesMetadata(id: string): CardTargetRead<CanonicalCardFilesMetadataProjection> {
     if(!this.read(id))return {kind:'card-not-found'};
     return readCanonicalCardFilesMetadata(this.projectRoot, id,this.recordDefinitions(id));
   }

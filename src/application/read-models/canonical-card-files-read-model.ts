@@ -1,11 +1,7 @@
 import type { WorkspaceFilesListResponse } from '../../contracts/index.js';
 import type {
-  CanonicalCardChildrenReadProjection,
-  CanonicalCardFileContentRead,
+  CardService,
   CanonicalCardFileSlot,
-  CanonicalCardFilesMetadataReadProjection,
-  CanonicalCardReadProjection,
-  CardServiceTargetRead,
 } from '../../cards/card-api.js';
 import { cardIdSchema, childCardId } from '../../schemas/card-id.js';
 import { isRedacted } from '../../workspace/index.js';
@@ -17,18 +13,14 @@ const CARDS_ROOT = '.saivage/cards';
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
 
-export interface CanonicalCardFilesReader {
+export type CanonicalCardFilesReader = {
   record(cardId: string, filename: string, version: number | 'latest' | 'open'): {
     recordUrl: string;
     version: number;
     artifact: { state: string; content: string; committed_at?: string | null };
   };
   definition(cardId:string,filename:string):unknown;
-  getCanonicalCard(id: string): CardServiceTargetRead<CanonicalCardReadProjection>;
-  getCanonicalCardChildren(id: string): CardServiceTargetRead<CanonicalCardChildrenReadProjection>;
-  getCanonicalCardFilesMetadata(id: string): CardServiceTargetRead<CanonicalCardFilesMetadataReadProjection>;
-  getCanonicalCardFileContent(id: string, slot: CanonicalCardFileSlot, maximumBytes: number): CanonicalCardFileContentRead;
-}
+} & Pick<CardService, 'getCanonicalCard' | 'getCanonicalCardChildren' | 'getCanonicalCardFilesMetadata' | 'getCanonicalCardFileContent'>;
 
 type ParsedCardPath =
   | { readonly kind: 'cards-root' }
