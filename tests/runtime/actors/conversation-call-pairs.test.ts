@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { inspectCanonicalCallSettlementPairs, inspectConversationCallPairs } from '../../../src/runtime/actors/conversation-call-pairs.js';
+import { inspectCanonicalCallSettlementPairs } from '../../../src/runtime/actors/conversation-call-pairs.js';
 import type { AgentMessage, ConversationSessionId } from '../../../src/schemas/index.js';
 
 const timestamp = '2026-07-18T00:00:00.000Z';
@@ -19,24 +19,19 @@ function result(overrides: Partial<AgentMessage> = {}): AgentMessage {
 }
 
 describe('canonical conversation call-pair inspection', () => {
-  it('shares structural pairing while the projection inspector returns exact canonical call data', () => {
+  it('projects exact canonical calls and unmatched calls', () => {
     const row = call();
     expect(inspectCanonicalCallSettlementPairs([row])).toMatchObject({ calls: [{ message: row, index: 0 }], unmatched: [{ toolCallId: 'call-1' }] });
-    expect(inspectConversationCallPairs([row])).toMatchObject({ sessionId: 'agent:planner:project', sourceInputId: source, toolCallId: 'call-1', toolName: 'webfetch', startedAt: timestamp, args: { url: 'https://example.com' } });
     expect(inspectCanonicalCallSettlementPairs([row, result()]).unmatched).toEqual([]);
   });
 
-  it('rejects duplicate calls, result-before-call, duplicate results, and multiple unmatched calls', () => {
+  it('rejects duplicate calls, result-before-call, and duplicate results', () => {
     expect(() => inspectCanonicalCallSettlementPairs([call(), call()])).toThrow('Duplicate tool call identity');
     expect(() => inspectCanonicalCallSettlementPairs([result(), call()])).toThrow('has no prior matching call');
     expect(() => inspectCanonicalCallSettlementPairs([call(), result(), result()])).toThrow('duplicate settlements');
-    expect(() => inspectConversationCallPairs([call(), call({ id: `${source}:tool-call:call-2`, tool_call_id: 'call-2', message_index: 1, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-2', type: 'function', function: { name: 'webfetch', arguments: '{}' } }] }) })])).toThrow('more than one unmatched');
   });
 
-  it('rejects malformed and mismatched row, source, session, embedded id, and embedded tool identities', () => {
-    expect(() => inspectConversationCallPairs([call({ content: '{' })])).toThrow('malformed embedded content');
-    expect(() => inspectConversationCallPairs([call({ content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'other', type: 'function', function: { name: 'webfetch', arguments: '{}' } }] }) })])).toThrow('embedded identity');
-    expect(() => inspectConversationCallPairs([call({ content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'websearch', arguments: '{}' } }] }) })])).toThrow('embedded identity');
+  it('rejects source and session identity mismatches', () => {
     expect(() => inspectCanonicalCallSettlementPairs([call(), result({ id: `22222222-2222-4222-8222-222222222222:tool-result:call-1` })])).toThrow('has no prior matching call');
     expect(() => inspectCanonicalCallSettlementPairs([call(), result({ session_id: 'agent:reviewer:project' })])).toThrow('has no prior matching call');
   });

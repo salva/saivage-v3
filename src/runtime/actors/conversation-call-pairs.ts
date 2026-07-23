@@ -1,4 +1,3 @@
-import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import { loggedToolCallIdentity, loggedToolCallKey, loggedToolResultIdentity } from '../../schemas/message-identity.js';
 import type { AgentMessage, ConversationSessionId } from '../../schemas/index.js';
 
@@ -10,10 +9,6 @@ export interface CanonicalConversationCall {
   readonly startedAt: string;
   readonly message: AgentMessage;
   readonly index: number;
-}
-
-export interface ParsedCanonicalConversationCall extends CanonicalConversationCall {
-  readonly args: unknown;
 }
 
 export interface CanonicalCallPairInspection {
@@ -59,24 +54,4 @@ export function inspectCanonicalCallSettlementPairs(messages: readonly AgentMess
     calls: Object.freeze(allCalls.map(([, call]) => call)),
     unmatched: Object.freeze(allCalls.filter(([key]) => !settled.has(key)).map(([, call]) => call)),
   });
-}
-
-export function inspectConversationCallPairs(messages: readonly AgentMessage[]): ParsedCanonicalConversationCall | null {
-  const inspection = inspectCanonicalCallSettlementPairs(messages);
-  const parsedCalls = new Map<string, ParsedCanonicalConversationCall>();
-  for (const call of inspection.calls) {
-    if (!call.message.tool) throw new Error(`Tool call '${call.message.id}' is missing canonical identity metadata.`);
-    let embedded: ReturnType<typeof parseToolCallMessage>;
-    try { embedded = parseToolCallMessage(JSON.parse(call.message.content)); }
-    catch (error) { throw new Error(`Tool call '${call.message.id}' has malformed embedded content: ${error instanceof Error ? error.message : String(error)}`); }
-    if (embedded.id !== call.toolCallId || embedded.name !== call.message.tool) throw new Error(`Tool call '${call.message.id}' embedded identity does not match row metadata.`);
-    parsedCalls.set(canonicalCallKey(call), Object.freeze({ ...call, toolName: call.message.tool, args: embedded.args }));
-  }
-  if (inspection.unmatched.length > 1) throw new Error('Conversation contains more than one unmatched tool call.');
-  const unmatched = inspection.unmatched[0];
-  return unmatched ? parsedCalls.get(canonicalCallKey(unmatched))! : null;
-}
-
-function canonicalCallKey(call: Pick<CanonicalConversationCall, 'sessionId' | 'sourceInputId' | 'toolCallId'>): string {
-  return loggedToolCallKey({ session_id: call.sessionId, source_input_id: call.sourceInputId, tool_call_id: call.toolCallId });
 }
