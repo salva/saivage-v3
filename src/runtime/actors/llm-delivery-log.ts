@@ -21,10 +21,6 @@ interface SyntheticFailedToolResultPayload {
   data?: unknown;
 }
 
-type ProviderVisibleToolResult =
-  | { success: true; data: unknown }
-  | { success: false; error: string; data?: unknown };
-
 interface LoggedToolCall {
   agent_id: string;
   source_input_id: string;
@@ -191,13 +187,15 @@ export function buildToolResultMessage(record: Omit<ToolSettlementRecord, 'creat
   });
 }
 
-function appendSyntheticToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; result: unknown }): AgentMessage {
+export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage {
+  const payload: SyntheticFailedToolResultPayload = { success: false, error: record.error };
+  if (record.data !== undefined) payload.data = record.data;
   const message = agentMessageSchema.parse({
     id: `${record.sourceInputId}:tool-result:${record.toolCallId}`,
     session_id: record.sessionId,
     role: 'tool',
     kind: 'tool_result',
-    content: JSON.stringify(record.result),
+    content: JSON.stringify(payload),
     tool: record.toolName,
     tool_call_id: record.toolCallId,
     round_id: roundId('user', record.sourceInputId),
@@ -207,16 +205,6 @@ function appendSyntheticToolResult(conversations: ConversationFileContext, recor
   });
   appendOne(conversations, message);
   return message;
-}
-
-export function appendProviderVisibleSyntheticToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; result: ProviderVisibleToolResult }): AgentMessage {
-  return appendSyntheticToolResult(conversations, record);
-}
-
-export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage {
-  const payload: SyntheticFailedToolResultPayload = { success: false, error: record.error };
-  if (record.data !== undefined) payload.data = record.data;
-  return appendProviderVisibleSyntheticToolResult(conversations, { ...record, result: payload });
 }
 
 function appendLlmTurnToolCall(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall): AgentMessage {
