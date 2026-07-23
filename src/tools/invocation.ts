@@ -110,17 +110,6 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
   }
 }
 
-export async function invokeToolCall(surface: InvocationSurface, name: string, rawArgs: string, context: LlmToolInvocationContext, signal?: AbortSignal): Promise<ToolResult> {
-  let args: unknown;
-  try {
-    args = JSON.parse(rawArgs) as unknown;
-  } catch (error) {
-    rethrowAppLogPublicationError(error);
-    return { success: false, error: 'Tool arguments must be valid JSON.' };
-  }
-  return invokeToolForLlm(surface, name, args, context, signal);
-}
-
 export async function cleanupInvocationSurface(surface: InvocationSurface, reason: ToolProviderCleanupReason): Promise<void> {
   await Promise.all(surface.providers.map((provider) => provider.cleanup?.(reason)));
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { buildInvocationSurface, invokeTool, invokeToolCall, invokeToolForLlm } from '../../src/tools/invocation.js';
+import { buildInvocationSurface, invokeTool, invokeToolForLlm } from '../../src/tools/invocation.js';
 import { createMcpProvider } from '../../src/tools/mcp-provider.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { createMcpToolInvocationInstallation, McpToolInvocationNotInstalledError } from '../../src/mcp/tool-invocation-installation.js';
@@ -29,7 +29,6 @@ describe('MCP activity segmentation', () => {
     for (const invoke of [
       () => invokeTool(surface, 'mcp_tool_call', args),
       () => invokeToolForLlm(surface, 'mcp_tool_call', args, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })),
-      () => invokeToolCall(surface, 'mcp_tool_call', JSON.stringify(args), testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })),
     ]) {
       const invocation = invoke();
       await expect(invocation).rejects.toBeInstanceOf(McpToolInvocationNotInstalledError);

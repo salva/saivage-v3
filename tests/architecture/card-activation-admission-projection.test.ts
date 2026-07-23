@@ -41,14 +41,14 @@ describe('card activation admission projection call graph', () => {
     const analyst = readFileSync(join(root, 'src/agents/analyst-handler.ts'), 'utf8');
 
     expect(invocation).toMatch(/invokeToolForLlm\(surface: InvocationSurface, name: string, args: unknown, context: LlmToolInvocationContext, signal\?: AbortSignal\)/);
-    expect(invocation).toMatch(/invokeToolCall\(surface: InvocationSurface, name: string, rawArgs: string, context: LlmToolInvocationContext, signal\?: AbortSignal\)/);
-    expect(invocation).not.toMatch(/invokeTool(?:ForLlm|Call)\([^\n]*context\?: LlmToolInvocationContext/);
+    expect(invocation).not.toMatch(/invokeToolForLlm\([^\n]*context\?: LlmToolInvocationContext/);
     expect(snapshot).toMatch(/readonly childInvocation: ChildInvocationReservation/);
     expect(snapshot).not.toMatch(/waitChild|waitCallbacks/);
     expect(llm).toContain('toolInvocationContext(outcome');
     expect(llm).not.toContain('waitCallbacks');
     expect(autonomous).toContain('llm.toolInvocationContext(toolOutcome)');
     expect(analyst).toContain('this.#llm.toolInvocationContext(outcome)');
+    expect(analyst).toContain('invokeToolForLlm(surface, outcome.toolName, parsed.args');
     expect(analyst).not.toMatch(/childInvocation\s*:/);
   });
 

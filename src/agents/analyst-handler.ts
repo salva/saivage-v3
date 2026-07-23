@@ -18,7 +18,7 @@ import { ConversationLLMActor, type AnalystCancellationPublication, type LLMActo
 import { buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../persistence/conversation-file.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
-import { invokeToolCall, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
+import { invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult } from '../tools/invocation.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
@@ -270,7 +270,7 @@ export class AnalystSession {
       } else {
         params = parsed.args;
         operation.toolInFlight = outcome.toolName;
-        result = await invokeToolCall(surface, outcome.toolName, rawArguments, this.#llm.toolInvocationContext(outcome), signal);
+        result = await invokeToolForLlm(surface, outcome.toolName, parsed.args, this.#llm.toolInvocationContext(outcome), signal);
         operation.toolInFlight = null; this.assertCurrent(operation, signal);
       }
       operation.toolInvocations.push({

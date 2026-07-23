@@ -1,8 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { buildInvocationSurface, composeInvocationSurface, defineTool, invokeTool, invokeToolCall, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
+import { buildInvocationSurface, composeInvocationSurface, defineTool, invokeTool, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
+import { AppLogPublicationError } from '../../src/persistence/app-log.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
 describe('tool invocation surface', () => {
@@ -45,18 +46,6 @@ describe('tool invocation surface', () => {
     if (!result.success) expect(result.error).toContain('Expected string');
   });
 
-  it('parses raw JSON tool-call arguments in invokeToolCall', async () => {
-    const surface = buildInvocationSurface('executor', [provider('a')]);
-
-    await expect(invokeToolCall(surface, 'demo', JSON.stringify({ value: 'ok' }), testLlmToolInvocationContext({ toolName: 'demo' }))).resolves.toEqual({ success: true, data: { value: 'ok' } });
-  });
-
-  it('returns model-visible errors for malformed raw JSON arguments', async () => {
-    const surface = buildInvocationSurface('executor', [provider('a')]);
-
-    await expect(invokeToolCall(surface, 'demo', '{', testLlmToolInvocationContext({ toolName: 'demo' }))).resolves.toEqual({ success: false, error: 'Tool arguments must be valid JSON.' });
-  });
-
   it('does not catch executor exceptions', async () => {
     const surface = buildInvocationSurface('executor', [{
       providerName: 'buggy',
@@ -73,7 +62,7 @@ describe('tool invocation surface', () => {
     await expect(invokeTool(surface, 'buggy', {})).rejects.toThrow('programmer bug');
   });
 
-  it('returns model-visible errors from invokeToolCall for non-abort executor exceptions', async () => {
+  it('returns model-visible errors from the LLM boundary for non-abort executor exceptions', async () => {
     const surface = buildInvocationSurface('analyst', [{
       providerName: 'buggy',
       tools: [
@@ -86,16 +75,26 @@ describe('tool invocation surface', () => {
       ],
     }]);
 
-    await expect(invokeToolCall(surface, 'buggy', '{}', testLlmToolInvocationContext({ toolName: 'buggy' }))).resolves.toEqual({ success: false, error: 'programmer bug' });
+    await expect(invokeToolForLlm(surface, 'buggy', {}, testLlmToolInvocationContext({ toolName: 'buggy' }))).resolves.toEqual({ success: false, error: 'programmer bug' });
   });
 
-  it('rethrows from invokeToolCall when the signal is already aborted', async () => {
+  it('rethrows from the LLM boundary when the signal is already aborted', async () => {
     const surface = buildInvocationSurface('analyst', [provider('a')]);
     const controller = new AbortController();
     const reason = new Error('cancelled');
     controller.abort(reason);
 
-    await expect(invokeToolCall(surface, 'demo', JSON.stringify({ value: 'ok' }), testLlmToolInvocationContext({ toolName: 'demo' }), controller.signal)).rejects.toThrow('cancelled');
+    await expect(invokeToolForLlm(surface, 'demo', { value: 'ok' }, testLlmToolInvocationContext({ toolName: 'demo' }), controller.signal)).rejects.toThrow('cancelled');
+  });
+
+  it('rethrows app-log publication failures unchanged from the LLM boundary', async () => {
+    const publicationError = new AppLogPublicationError('event', new Error('append failed'));
+    const surface = buildInvocationSurface('analyst', [{
+      providerName: 'publication',
+      tools: [defineTool({ name: 'publish', description: 'Publish.', inputSchema: z.object({}).strict(), executor: async () => { throw publicationError; } })],
+    }]);
+
+    await expect(invokeToolForLlm(surface, 'publish', {}, testLlmToolInvocationContext({ toolName: 'publish' }))).rejects.toBe(publicationError);
   });
 
   it.each(['fulfill', 'same-reject', 'different-reject'] as const)('gives exact Stop identity priority after abort-ignoring tool %s', async (mode) => {
