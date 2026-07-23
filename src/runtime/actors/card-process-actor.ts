@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { BaseActor, type ActorLifecycleContext, type ActorTransitionContext } from '../micro-actor/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
-import type { CardActivationInput, CardProcessorActor, PlannerChildControlPort } from './card-activation-owner.js';
+import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from './llm-actor.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -25,7 +25,7 @@ import { AppLogPublicationError } from '../../persistence/app-log.js';
 
 type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 
-export class CardProcessActor extends BaseActor implements CardProcessorActor {
+export class CardProcessActor extends BaseActor {
   readonly cardId: string;
   readonly process: CompiledCardTypeWorkflow;
   readonly #provider: LLMProviderPort;

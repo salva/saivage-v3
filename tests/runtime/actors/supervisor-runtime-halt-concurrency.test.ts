@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { CardActivationOwner, type CardProcessorActor } from '../../../src/runtime/actors/card-activation-owner.js';
+import { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
+import type { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
 import { ChildInvocationLease } from '../../../src/runtime/actors/child-invocation-wait.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
@@ -35,7 +36,7 @@ function card(id: 'project' | 'card-a', type: 'project' | 'code' = id === 'proje
 }
 
 interface ProcessorHarness {
-  actor: CardProcessorActor;
+  actor: CardProcessActor;
   join: ReturnType<typeof barrier<readonly []>>;
   dispose: ReturnType<typeof jest.fn>;
 }
@@ -55,7 +56,7 @@ function processor(): ProcessorHarness {
       joinActivation: jest.fn(() => activationJoin ??= join.promise),
       processPosition: () => ({ cardType: 'project', stateId: 'ready', kind: 'ready' }),
       executingLlmSnapshot: () => null,
-    },
+    } as unknown as CardProcessActor,
   };
 }
 

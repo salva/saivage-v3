@@ -1,9 +1,9 @@
 import type { AgentName, CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardService } from '../../cards/card-service.js';
-import type { ProcessPosition, CardProcessEntry } from '../card-process/card-process-config.js';
-import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
+import type { CardProcessEntry } from '../card-process/card-process-config.js';
 import type { ChildInvocationLease } from './child-invocation-wait.js';
+import type { CardProcessActor } from './card-process-actor.js';
 import { deferred, type Deferred } from './deferred.js';
 
 export interface CardActivationInput {
@@ -26,16 +26,6 @@ export interface PlannerChildControlPort {
   cancelChild(request: { childCardId: string; reason: string }): Promise<CardCancellationResult>;
 }
 
-export interface CardProcessorActor {
-  start(): void;
-  activate(input: CardActivationInput, signal: AbortSignal): Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
-  disposeActivation(reason: unknown): void;
-  suppressContinuationAndPrepareJoin(reason: unknown): void;
-  joinActivation(): Promise<readonly import('./invocation-lifecycle.js').InvocationJoinOutcome[]>;
-  processPosition(): ProcessPosition;
-  executingLlmSnapshot(): ExecutingLlmSnapshot | null;
-}
-
 export type CardActivationOwnerPhase = 'prepared_root' | 'child_admission' | 'active' | 'settling';
 export type TerminalWinner = 'open' | 'result' | 'cancel';
 
@@ -47,7 +37,7 @@ export interface ParentActivationRelationship {
 export class CardActivationOwner {
   readonly cardId: string;
   readonly store: CardService;
-  readonly processor: CardProcessorActor;
+  readonly processor: CardProcessActor;
   readonly activationId: string;
   readonly entry: CardProcessEntry;
   readonly caller: CardActivationCaller;
@@ -65,7 +55,7 @@ export class CardActivationOwner {
   constructor(args: {
     card: CardRecord;
     store: CardService;
-    processor: CardProcessorActor;
+    processor: CardProcessActor;
     activationId: string;
     entry: CardProcessEntry;
     caller: CardActivationCaller;
