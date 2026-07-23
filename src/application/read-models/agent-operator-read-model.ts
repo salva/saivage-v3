@@ -95,20 +95,7 @@ export function captureExecutingLlmSnapshotMap(snapshots: readonly ExecutingLlmS
     const activity = raw.activity.mode === 'active' ? Object.freeze({ mode: 'active' as const, barrier: null }) : Object.freeze({ mode: 'waiting' as const, barrier: freezeBarrier(raw.activity.barrier) });
     map.set(sessionId, Object.freeze({ ...raw, sessionId, activity }));
   }
-  return immutableReadonlyMap(map);
+  return map;
 }
 
 function freezeBarrier(barrier: ExactWaitBarrier): ExactWaitBarrier { return barrier.kind === 'child' ? Object.freeze({ kind: 'child', relationship: Object.freeze({ ...barrier.relationship }) }) : Object.freeze({ ...barrier }); }
-function immutableReadonlyMap<K, V>(source: Map<K, V>): ReadonlyMap<K, V> {
-  const readonlyMap: ReadonlyMap<K, V> = Object.freeze({
-    get size() { return source.size; },
-    get: (key: K) => source.get(key),
-    has: (key: K) => source.has(key),
-    entries: () => source.entries(),
-    keys: () => source.keys(),
-    values: () => source.values(),
-    forEach: (callback: (value: V, key: K, map: ReadonlyMap<K, V>) => void, thisArg?: unknown) => source.forEach((value, key) => callback.call(thisArg, value, key, readonlyMap), thisArg),
-    [Symbol.iterator]: () => source[Symbol.iterator](),
-  } satisfies ReadonlyMap<K, V>);
-  return readonlyMap;
-}

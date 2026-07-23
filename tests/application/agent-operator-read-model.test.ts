@@ -164,19 +164,17 @@ describe('AgentOperatorReadModelService snapshot-first exact projection', () => 
     expect(readModel(root, () => []).listSessions().sessions.map(({ id }) => id)).toEqual([...sessionIds].sort());
   });
 
-  it('freezes one captured activity and rejects exact call identity mismatches', () => {
+  it('captures one frozen activity and rejects exact call identity mismatches', () => {
     const root = project();
     appendConversationBatch({ projectRoot: root }, [call('agent:planner:project')]);
     const owner = { value: snapshot('agent:planner:project', { mode: 'active', barrier: null }) };
-    const frozen = captureExecutingLlmSnapshotMap([owner.value]);
-    expect(Object.isFrozen(frozen.get('agent:planner:project'))).toBe(true);
-    expect(Object.isFrozen(frozen.get('agent:planner:project')!.activity)).toBe(true);
+    const captured = captureExecutingLlmSnapshotMap([owner.value]);
+    expect(Object.isFrozen(captured.get('agent:planner:project'))).toBe(true);
+    expect(Object.isFrozen(captured.get('agent:planner:project')!.activity)).toBe(true);
     owner.value = snapshot('agent:planner:project', { mode: 'waiting', barrier: { kind: 'external', sessionId: 'agent:planner:project', sourceInputId: inputId, toolCallId: 'wrong', toolName: 'webfetch' } });
-    expect(projectAgentConversationForOutbound({ sessionId: 'agent:planner:project', messages: [call('agent:planner:project')], model: null, snapshot: frozen.get('agent:planner:project') })).toMatchObject({ activity_status: { status: 'active' } });
+    expect(projectAgentConversationForOutbound({ sessionId: 'agent:planner:project', messages: [call('agent:planner:project')], model: null, snapshot: captured.get('agent:planner:project') })).toMatchObject({ activity_status: { status: 'active' } });
     const mismatch = snapshot('agent:planner:project', { mode: 'waiting', barrier: { kind: 'external', sessionId: 'agent:planner:project', sourceInputId: inputId, toolCallId: 'wrong', toolName: 'webfetch' } });
     expect(() => readModel(root, () => [mismatch]).getConversation('agent:planner:project')).toThrow('does not match its exact barrier');
-    expect((frozen as unknown as { set?: unknown }).set).toBeUndefined();
-    expect(Object.isFrozen(frozen)).toBe(true);
   });
 
   it.each(['agent:analyst:global', 'agent:planner:project'] as const)('captures active %s once before acquisition and projects zero or one acquired call', (sessionId) => {
