@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Contract, ContractTerminalDescriptor } from '../../contracts/contract.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
-import type { AgentName, CardRecord, ConversationSessionId } from '../../schemas/index.js';
+import { cardAgentSessionId, type AgentName, type CardRecord, type ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
 import { processNodeOutcomes, processNodeTransition, processTransitionPromptKey, type CompiledCardTypeWorkflow, type ProcessNodeMetadata } from '../card-process/card-process-config.js';
@@ -23,7 +23,6 @@ import { buildAgentSurface } from '../../tools/agent-invocation-surface.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
-import { namedCardActorId } from './ids.js';
 import { runContractRepairLoop } from './contract-repair-loop.js';
 import { verifyTerminalToolOutcome } from './contract-terminal-tools.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
@@ -80,7 +79,7 @@ export class AgentNodeExecution {
   async execute(args: { process: CompiledCardTypeWorkflow; stateId: string; node: ProcessNodeMetadata; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<AcceptedNodeResult> {
     const { process, stateId, node, input, signal } = args;
     const contract = createNodeContract(process, stateId);
-    const sessionId = namedCardActorId(node.agent.name, this.deps.cardId);
+    const sessionId = cardAgentSessionId(node.agent.name, this.deps.cardId);
     const llm = this.host.createLlm(sessionId);
     this.host.selectLlm(llm);
     const needsProcessScope = node.agent.tools.some((name) => name === 'run_command' || name === 'wait_process' || name === 'kill_process');

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { cardRecordSchema, type CardNotification, type CardRecord, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
+import { cardAgentSessionId, cardRecordSchema, type CardNotification, type CardRecord, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/status-api.js';
 import { CardActivationOwner, type CardActivationCaller, type CardCancellationResult, type PlannerChildControlPort } from './card-activation-owner.js';
@@ -29,7 +29,6 @@ import { cardProcessEntryForStatus, type CompiledRuntimeWorkflows, type CardProc
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import { stabilizeAgentSession } from './conversation-recovery.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
-import { namedCardActorId } from './ids.js';
 import { cardParentId } from '../../schemas/card-id.js';
 import { deferred } from './deferred.js';
 import { AppLogPublicationError } from '../../persistence/app-log.js';
@@ -137,7 +136,7 @@ export class SupervisorRuntimeApi implements RuntimeControlMechanics {
       for (const card of [...runningChain].reverse()) {
         this.requirePreparation(owner, runIdentity);
         for (const agentName of eligibleAgents(this.behavior.workflows, card)) {
-          if (!this.publish(owner, () => { stabilizeAgentSession({ sessionId: namedCardActorId(agentName, card.id), conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); return true; })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
+          if (!this.publish(owner, () => { stabilizeAgentSession({ sessionId: cardAgentSessionId(agentName, card.id), conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); return true; })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
         }
       }
       for (const card of [...runningChain].reverse()) {

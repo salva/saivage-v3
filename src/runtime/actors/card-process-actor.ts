@@ -19,8 +19,7 @@ import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import { deferred, type Deferred } from './deferred.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome } from './invocation-lifecycle.js';
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
-import { parseLlmActorId } from './ids.js';
-import { parseConversationSessionId } from '../../schemas/index.js';
+import { conversationSessionIdentity, parseConversationSessionId } from '../../schemas/index.js';
 import { AppLogPublicationError } from '../../persistence/app-log.js';
 
 type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
@@ -134,7 +133,7 @@ export class CardProcessActor extends BaseActor {
     if (!this.#result || this.process.states.get(this.state())?.kind !== 'node') return null;
     const llm = this.#currentExecutingLlm;
     if (!llm) return null;
-    const identity = parseLlmActorId(llm.agentId);
+    const identity = conversationSessionIdentity(parseConversationSessionId(llm.agentId));
     if (identity.cardId !== this.cardId) throw new Error(`Current LLM actor '${llm.agentId}' does not belong to processor '${this.cardId}'.`);
     return Object.freeze({ sessionId: parseConversationSessionId(llm.agentId), agentId: llm.agentId, agentName: identity.agentName, cardId: identity.cardId, activity: llm.executingActivity() });
   }
