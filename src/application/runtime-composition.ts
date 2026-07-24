@@ -10,7 +10,8 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 
 import { CardService } from '../cards/card-service.js';
 import { InvocationService } from '../agents/invocation-service.js';
-import { createInvocationServiceProvider, createMicroActorRuntimeApi, invocationRequest } from './micro-actor-runtime-api-factory.js';
+import { createInvocationServiceProvider, invocationRequest } from './invocation-service-provider.js';
+import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
 import type { ManagedProcessScope } from '../runtime/managed-process-group-registry.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
@@ -120,7 +121,25 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       }
   }
 
-  const runtimeSupervisor = createMicroActorRuntimeApi({ projectRoot, processIdentity: services.processIdentity, cardStore, interventionBinding, invocationService, promptTemplates, workflows, processPrompts, compactionPolicy, compactor, summarizerProvider, processRunner, runtimeProcessRootScope: services.runtimeProcessRootScope, runtimeGate, mcpToolInvocation: services.mcpToolInvocation, conversations, freshness: services.freshness });
+  const runtimeSupervisor = createSupervisorRuntimeApi({
+    projectRoot,
+    processIdentity: services.processIdentity,
+    actorStore: cardStore,
+    interventionBinding,
+    provider: createInvocationServiceProvider(invocationService),
+    promptTemplates,
+    workflows,
+    processPrompts,
+    compactionConfig: compactionPolicy,
+    compactor,
+    summarizerProvider,
+    processRunner,
+    runtimeProcessRootScope: services.runtimeProcessRootScope,
+    runtimeGate,
+    mcpToolInvocation: services.mcpToolInvocation,
+    conversations,
+    freshness: services.freshness,
+  });
   const runtimeApi: RuntimeApi = runtimeSupervisor;
   const analystSessionId=globalAgentSessionId(workflows.analyst.name);
   let analystRuntimeCache: AnalystRuntime | null = null;

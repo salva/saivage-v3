@@ -173,15 +173,7 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
     let target;
     try { target = this.resolve(path); this.validateBriefContent(content); }
     catch (error) { return denialFrom(error); }
-    const open = this.store.openRecord(target.cardId, target.filename);
-    this.store.editRecord(target.cardId, target.filename, open.version, content);
-    const closed = this.store.closeRecord(target.cardId, target.filename, open.version, this.store.workflows.analyst.name, target.card.version_seq);
-    try {
-      propagateAnalystRecordEdit(this.store, target.cardId, { kind: 'analyst_edit', summary: `Analyst updated ${target.filename}` }, this.notifyCard);
-      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: true } });
-    } catch (error) {
-      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } });
-    }
+    return this.commit(target, content);
   }
 
   edit(path: string, oldString: string, newString: string, replaceAll: boolean): AnalystMutationOutcome {
@@ -195,14 +187,18 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
     const next = replaceAll ? content.split(oldString).join(newString) : content.replace(oldString, newString);
     try { this.validateBriefContent(next); }
     catch (error) { return denialFrom(error); }
+    return this.commit(target, next);
+  }
+
+  private commit(target: { cardId: string; filename: string; recordUrl: string; card: CardRecord }, content: string): AnalystMutationOutcome {
     const open = this.store.openRecord(target.cardId, target.filename);
-    this.store.editRecord(target.cardId, target.filename, open.version, next);
+    this.store.editRecord(target.cardId, target.filename, open.version, content);
     const closed = this.store.closeRecord(target.cardId, target.filename, open.version, this.store.workflows.analyst.name, target.card.version_seq);
     try {
       propagateAnalystRecordEdit(this.store, target.cardId, { kind: 'analyst_edit', summary: `Analyst updated ${target.filename}` }, this.notifyCard);
-      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(next), written: true, propagation: { ok: true } });
+      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: true } });
     } catch (error) {
-      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(next), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } });
+      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } });
     }
   }
 

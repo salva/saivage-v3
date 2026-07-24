@@ -148,6 +148,71 @@ describe('analyst child reorder propagation', () => {
   });
 });
 
+describe('Analyst record publication', () => {
+  const path = `record:///brief.md?card=${FIRST}&v=next`;
+  const initialContent = '# Goal\nOriginal\n# Instructions\nOriginal\n# Acceptance Criteria\nOriginal';
+  const finalContent = '# Goal\nFinal\n# Instructions\nFinal\n# Acceptance Criteria\nFinal';
+  const recordUrl = `record:///brief.md?card=${FIRST}&v=2`;
+
+  function publicationHarness(propagationFails: boolean) {
+    const effects: string[] = [];
+    const targetCard = card('running');
+    const openRecord = jest.fn(() => { effects.push('open'); return { version: 2 }; });
+    const editRecord = jest.fn(() => { effects.push('edit'); });
+    const closeRecord = jest.fn(() => { effects.push('close'); return { recordUrl }; });
+    const readRecord = jest.fn((_cardId: string, _filename: string, version: string) => {
+      if (version === 'open') throw new AuthoredRecordNotFoundError();
+      return { artifact: { content: initialContent } };
+    });
+    const store = {
+      workflows: TEST_WORKFLOWS,
+      recordReader: { definition: () => ({ filename: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, writers: ['analyst'] }) },
+      read: () => targetCard,
+      readRecord,
+      openRecord,
+      editRecord,
+      closeRecord,
+    } as unknown as CardService;
+    const notifyCard = jest.fn(() => {
+      effects.push('propagate');
+      if (propagationFails) throw new Error('propagation failed');
+      return { ok: true as const, notificationId: 'notification' };
+    });
+    return { service: services(store, notifyCard).recordMutations, effects, openRecord, editRecord, closeRecord };
+  }
+
+  it.each([
+    { method: 'write', propagationFails: false },
+    { method: 'edit', propagationFails: false },
+    { method: 'write', propagationFails: true },
+    { method: 'edit', propagationFails: true },
+  ] as const)('keeps $method publication and propagation-failure results equivalent when failure=$propagationFails', ({ method, propagationFails }) => {
+    const test = publicationHarness(propagationFails);
+    const result = method === 'write'
+      ? test.service.write(path, finalContent)
+      : test.service.edit(path, 'Original', 'Final', true);
+
+    expect(test.effects).toEqual(['open', 'edit', 'close', 'propagate']);
+    expect(test.openRecord).toHaveBeenCalledWith(FIRST, 'brief.md');
+    expect(test.editRecord).toHaveBeenCalledWith(FIRST, 'brief.md', 2, finalContent);
+    expect(test.closeRecord).toHaveBeenCalledWith(FIRST, 'brief.md', 2, 'analyst', 1);
+    expect(result).toEqual({
+      kind: 'returned',
+      success: true,
+      data: {
+        card_id: FIRST,
+        path: recordUrl,
+        record_url: recordUrl,
+        bytes: Buffer.byteLength(finalContent),
+        written: true,
+        propagation: propagationFails
+          ? { ok: false, partial: true, error: 'propagation failed' }
+          : { ok: true },
+      },
+    });
+  });
+});
+
 describe('other Analyst mutation facets', () => {
   it('calls the configuration authority exactly once through apply', () => {
     const applyChange = jest.fn(() => ({ success: true, requires_restart: true }));
