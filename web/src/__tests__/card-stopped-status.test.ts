@@ -2,15 +2,17 @@ import { cardStatusValues } from '@saivage/schemas';
 import { describe, expect, it } from 'vitest';
 
 import { deriveCardLifecycleSummary } from '../stores/cards';
-import { cardStatusTone } from '../utils/status';
+import { cardStatusTone, statusForCard } from '../utils/status';
 import treeSource from '../components/cards/CardsTreeView.vue?raw';
 import { cardView } from './card-view-fixtures';
 
 describe('stopped card status projection', () => {
-  it('keeps the tone table exhaustive and presents stopped neutrally', () => {
+  it('keeps the tone table exhaustive and distinguishes stopped from cancelled', () => {
     expect(Object.keys(cardStatusTone).sort()).toEqual([...cardStatusValues].sort());
-    expect(cardStatusTone.stopped).toBe('neutral');
+    expect(statusForCard('stopped')).toEqual({ label: 'stopped', tone: 'success', indicator: 'ringed-dot', description: undefined });
+    expect(statusForCard('cancelled')).toEqual({ label: 'cancelled', tone: 'neutral', description: undefined });
     expect(treeSource).toContain('.state-ball.card-status-stopped');
+    expect(treeSource).toContain('var(--card-status-stopped-ring)');
   });
 
   it('projects stopped as inactive, nonblocking, and separately counted', () => {

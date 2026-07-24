@@ -84,7 +84,7 @@ const renderedTree = computed<RenderedNode[]>(() => {
 .state-ball.card-status-running { background:var(--card-status-running); }
 .state-ball.card-status-blocked { background:var(--card-status-blocked); }
 .state-ball.card-status-changed { background:var(--card-status-changed); }
-.state-ball.card-status-stopped { background:var(--card-status-stopped); }
+.state-ball.card-status-stopped { background:var(--card-status-stopped); box-shadow:0 0 0 1px var(--card-status-stopped-ring); }
 .state-ball.card-status-done { background:var(--card-status-done); }
 .state-ball.card-status-failed { background:var(--card-status-failed); }
 .state-ball.card-status-cancelled { background:var(--card-status-cancelled); }

@@ -70,7 +70,7 @@
             <ul data-testid="child-of-goal-list" class="child-of-goal-list">
               <li v-for="child in goalChildren" :key="child.id" data-testid="child-of-goal-item" class="child-of-goal-item">
                 <span class="title">{{ child.title }}</span>
-                <span class="status">{{ child.lifecycle.status }}</span>
+                <StatusBadge :status="statusForCard(child.lifecycle.status)" />
               </li>
             </ul>
             <div v-if="goalChildren.length === 0" class="status-value dim list-empty">none</div>
@@ -90,10 +90,11 @@ import { useRuntimeStore } from '../stores/runtime';
 import { useCardStore } from '../stores/cards';
 import { useDashboardReadModel } from '../composables/useDashboardReadModel';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
-import type { Tone } from '../utils/status';
+import { statusForCard, type Tone } from '../utils/status';
 import Panel from '../components/ui/Panel.vue';
 import PanelHeader from '../components/ui/PanelHeader.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
+import StatusBadge from '../components/ui/StatusBadge.vue';
 import ViewState from '../components/ui/ViewState.vue';
 
 const runtimeStore = useRuntimeStore();

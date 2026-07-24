@@ -807,7 +807,7 @@ function validatePlaywrightDocumentation({ root }) {
   const requirements = [
     ['root/web clean-install build order', /npm ci\s*\n\(cd web && npm ci\)\s*\nnpm run build/],
     ['backend dual clean install', /backend-jest-build[\s\S]{0,300}root `npm ci`[\s\S]{0,160}web `cd web && npm ci`/i],
-    ['30-test self-contained smoke ownership', /web:test:e2e:smoke[\s\S]{0,300}30[\s\S]{0,200}self-contained/i],
+    ['complete self-contained smoke ownership', /web:test:e2e:smoke[\s\S]{0,200}complete self-contained browser profile[\s\S]{0,200}every production-preview smoke test[\s\S]{0,120}one source browser-client test/i],
     ['preview and dev-server prerequisites', /preview[\s\S]{0,200}dev server/i],
     ['live command and reachable deployment prerequisite', /npm run web:test:live-getrich-v2[\s\S]{0,260}reachable deployment/i],
     ['live base URL override', /SAIVAGE_LIVE_BASE_URL/],

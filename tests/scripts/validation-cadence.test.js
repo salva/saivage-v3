@@ -86,7 +86,7 @@ npm run build
 npm run web:test:live-getrich-v2
 \`\`\`
 The backend-jest-build job runs root \`npm ci\`, then web \`cd web && npm ci\`.
-\`web:test:e2e:smoke\` runs 30 tests as a self-contained suite with a preview server and a dev server prerequisite.
+\`web:test:e2e:smoke\` runs the complete self-contained browser profile: every production-preview smoke test plus the one source browser-client test. It has a preview server and a dev server prerequisite.
 The live command \`npm run web:test:live-getrich-v2\` has a reachable deployment prerequisite; override it with \`SAIVAGE_LIVE_BASE_URL\`.
 After a failed or cancelled run, best-effort artifacts preserve \`tmp/playwright-report\` and \`tmp/playwright-results\`.
 See \`tests/playwright/smoke/preview.spec.ts\`.
@@ -523,10 +523,10 @@ describe('validation cadence guard', () => {
     });
 
     it('rejects stale README profile semantics', () => {
-      const readme = validFiles()['README.md'].replace('30 tests as a self-contained suite', 'some browser tests');
+      const readme = validFiles()['README.md'].replace('complete self-contained browser profile', 'some browser tests');
       withFixture(validFiles({ 'README.md': readme }), (root) => {
         const result = verifyValidationCadence({ root });
-        expect(result.failures).toContain('README.md must document 30-test self-contained smoke ownership');
+        expect(result.failures).toContain('README.md must document complete self-contained smoke ownership');
       });
     });
 

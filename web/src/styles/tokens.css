@@ -6,6 +6,7 @@
 :root {
   /* Neutrals (Saivage v2 light scale) */
   --c-white: #ffffff;
+  --c-black: #000000;
   --c-gray-50: #f6f6f7;
   --c-gray-100: #f1f1f2;
   --c-gray-150: #ebebef;

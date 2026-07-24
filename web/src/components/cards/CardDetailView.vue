@@ -16,7 +16,7 @@
         :title="currentCard.title"
         :subtitle="hierarchyPath"
         :type="labelForCardType(currentCard.type)"
-        :status="cardUiStatus(currentCard.lifecycle.status, reason)"
+        :status="statusForCard(currentCard.lifecycle.status, reason)"
       >
         <template #meta>
           <span class="ori-item"><span class="ori-key">v{{ currentCard.version_seq ?? '?' }}</span></span>
@@ -25,7 +25,7 @@
           <span v-if="lifecycle?.durationMs != null" class="ori-item"><span class="ori-key">duration</span> {{ lifecycle.durationMs }} ms</span>
         </template>
 
-        <div v-if="reasonLine" class="card-entity__reason" :class="`tone-text-${toneForCardStatus(currentCard.lifecycle.status)}`">{{ reasonLine }}</div>
+        <div v-if="reasonLine" class="card-entity__reason">{{ reasonLine }}</div>
 
         <StatusBanner v-if="bannerSeverity" :tone="bannerSeverity" :message="bannerMessage">
           <template v-if="bannerSeverity === 'warning'" #action><button type="button" class="banner-action" @click="reloadDetail">Refresh card</button></template>
@@ -85,7 +85,7 @@ import { storeToRefs } from 'pinia';
 import type { DetailErrorState, CardStatus } from '../../types/view-models';
 import { createLogger } from '../../utils/logger';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
-import { toneForCardStatus, labelForCardType, type UiStatus } from '../../utils/status';
+import { labelForCardType, statusForCard } from '../../utils/status';
 import CardHistoryPanel from './CardHistoryPanel.vue';
 import CardRecordsSection from './CardRecordsSection.vue';
 import CardConversationsSection from './CardConversationsSection.vue';
@@ -137,11 +137,6 @@ function statusExplainer(status: CardStatus): string {
   };
   return map[status];
 }
-
-function cardUiStatus(status: CardStatus, description?: string): UiStatus {
-  return { label: status, tone: toneForCardStatus(status), description };
-}
-
 
 const reason = computed(() => lifecycle.value?.explanation || statusExplainer(currentCard.value?.lifecycle.status ?? 'backlog'));
 const PROBLEMATIC: ReadonlySet<CardStatus> = new Set(['failed', 'blocked', 'cancelled']);

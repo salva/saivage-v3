@@ -59,7 +59,7 @@ describe('CardDetailView S06 read-only detail contract', () => {
     store.selectedDetail = null; store.selectedDetailError = { kind: 'network', status: null, message: 'temporary outage' }; await nextTick(); expect(wrapper.text()).toContain('Network error'); expect(wrapper.text()).toContain('temporary outage'); expect(wrapper.get('button').text()).toBe('Retry');
   });
 
-  it('presents stopped as inactive recovery history without problematic styling or controls', async () => {
+  it('presents stopped as ringed success recovery history without mutation controls', async () => {
     const pinia = createPinia(); setActivePinia(pinia); const store = useCardStore(); vi.spyOn(store, 'fetchCardDetail').mockResolvedValue();
     const wrapper = mount(CardDetailView, { props: { cardId: 'card-a' }, global: { plugins: [pinia], stubs: { CardRecordsSection: true, CardConversationsSection: true } } });
     store.selectedCardId = 'card-a';
@@ -68,7 +68,9 @@ describe('CardDetailView S06 read-only detail contract', () => {
     expect(wrapper.text()).toContain('stopped');
     expect(wrapper.text()).toContain('prior live process was discarded');
     expect(wrapper.text()).not.toContain('Restart');
-    expect(wrapper.get('.card-entity__reason').classes()).toContain('tone-text-neutral');
+    expect(wrapper.get('.status-badge').classes()).toContain('tone-success');
+    expect(wrapper.get('.status-badge__dot').classes()).toContain('status-badge__dot--ringed');
+    expect(wrapper.get('.card-entity__reason').classes()).toEqual(['card-entity__reason']);
   });
 
   it('surfaces record outputs through the dedicated records section', () => {

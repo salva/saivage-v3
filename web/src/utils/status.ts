@@ -15,6 +15,7 @@ export interface UiStatus {
   label: string;
   tone: Tone;
   description?: string;
+  indicator?: 'ringed-dot';
 }
 
 export const cardStatusTone: Record<CardStatus, Tone> = {
@@ -22,7 +23,7 @@ export const cardStatusTone: Record<CardStatus, Tone> = {
   running: 'active',
   blocked: 'warning',
   changed: 'warning',
-  stopped: 'neutral',
+  stopped: 'success',
   done: 'success',
   failed: 'danger',
   cancelled: 'neutral',
@@ -63,7 +64,12 @@ export function toneForCardStatus(status: CardStatus): Tone {
 }
 
 export function statusForCard(status: CardStatus, description?: string): UiStatus {
-  return { label: status, tone: toneForCardStatus(status), description };
+  return {
+    label: status,
+    tone: toneForCardStatus(status),
+    description,
+    ...(status === 'stopped' ? { indicator: 'ringed-dot' as const } : {}),
+  };
 }
 
 export function toneForAgentSessionStatus(status: SessionStatus): Tone {
