@@ -204,8 +204,8 @@ function processToolsCallResponse(response: Record<string, unknown>, serverName:
   return result.content !== undefined ? result.content : result;
 }
 
-export async function probeStreamableHttpStartup(input: { serverName: string; config: StreamableHttpMcpServerConfig; signal: AbortSignal }): Promise<{ ok: true } | { ok: false; error: string; aborted: boolean }> {
-  const { serverName, config: cfg, signal } = input;
+export async function probeStreamableHttpStartup(input: { config: StreamableHttpMcpServerConfig; signal: AbortSignal }): Promise<{ ok: true } | { ok: false; error: string; aborted: boolean }> {
+  const { config: cfg, signal } = input;
   try {
     const resp = await fetch(cfg.url, { method: 'HEAD', signal });
     if (!resp.ok) return { ok: false, error: `Streamable HTTP health check returned status ${resp.status}`, aborted: false };

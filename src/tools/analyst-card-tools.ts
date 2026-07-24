@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
 import {
-  CARD_TYPE_VALUES,
   CREATE_CARD_TYPE_VALUES,
   URGENCY_VALUES,
   emptyInput,

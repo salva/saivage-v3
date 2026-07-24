@@ -27,7 +27,6 @@ export interface AgentConversationProjectionInput {
 
 export function projectAgentConversationForOutbound(input: AgentConversationProjectionInput): AgentConversationResponse {
   const { sessionId, snapshot } = input;
-  const identity = conversationSessionIdentity(sessionId);
   const status = snapshot?.activity.mode ?? 'inactive';
   const rows = input.messages.map(stripPrivateProjectionMarker);
   const unmatched = inspectCompleteCanonicalConversation(rows);

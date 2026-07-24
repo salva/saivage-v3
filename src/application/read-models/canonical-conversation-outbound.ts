@@ -18,7 +18,6 @@ import {
   agentMessageSchema,
   ConversationSessionIdSchema,
   type AgentMessage,
-  type ConversationSessionId,
 } from '../../schemas/index.js';
 import {
   loggedToolCallKey,

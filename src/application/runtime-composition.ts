@@ -14,7 +14,7 @@ import { createInvocationServiceProvider, createMicroActorRuntimeApi, invocation
 import { ProcessRunner } from '../runtime/process-runner.js';
 import type { ManagedProcessScope } from '../runtime/managed-process-group-registry.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
-import { createPromptTemplateRegistry, type PromptTemplateRegistry } from '../utils/prompt-api.js';
+import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { FreshnessEffects } from './freshness-effects.js';

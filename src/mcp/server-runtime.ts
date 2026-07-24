@@ -224,7 +224,7 @@ export class McpServerRuntime {
     signal.addEventListener('abort', () => abortController.abort(), { once: true });
     this.handle = { abortController };
     this.startedAt = new Date().toISOString();
-    const startupProbe = await probeStreamableHttpStartup({ serverName: this.name, config: cfg, signal: abortController.signal });
+    const startupProbe = await probeStreamableHttpStartup({ config: cfg, signal: abortController.signal });
     this.assertCurrent(generation, signal);
     if (!startupProbe.ok) throw new Error(`Streamable HTTP MCP server '${this.name}' failed its startup probe.`);
   }

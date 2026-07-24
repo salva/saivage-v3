@@ -4,7 +4,7 @@ import { cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegmen
 import { cardRecordSchema, type CardHistoryEntry, type CardRecord } from '../schemas/index.js';
 import { cardStreamRowSchema, validateCardStream, type CardTombstone, type CardVersionArtifact } from './canonical-card-artifacts.js';
 import { recordVersionArtifactSchema, validateRecordStream } from './canonical-record-artifacts.js';
-import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, readCanonicalGrowingFileSnapshot, serializeGrowingEnvelope, type CanonicalGrowingFileSnapshot, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
+import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFileSnapshot, serializeGrowingEnvelope, type CanonicalGrowingFileSnapshot, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
 import { cardNamespace, cardRecordStreamFile, cardStreamFile, saivageCardsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { validateParsedCards } from '../cards/validator.js';
