@@ -43,12 +43,13 @@ export abstract class BaseActor {
   #nextEvent: { name: string; sequence: number } | undefined;
   #queuedEventSequence = 0;
   #settledEventSequence = 0;
-  #eventSettlementFailure: { sequence: number; error: unknown } | undefined;
   #eventSettlementWaiters = new Set<{ sequence: number; resolve: () => void; reject: (error: unknown) => void }>();
   #task: Task | null = null;
   #actorMainRunning = false;
   #deliveringTaskResult = false;
   #currentTaskStateHalted = false;
+  #mainLoopFailed = false;
+  #mainLoopFailure: unknown;
 
   protected constructor(definition: CompiledActorDefinition) {
     this.#definition = definition;
@@ -56,6 +57,7 @@ export abstract class BaseActor {
 
   protected abstract onStateEntered(context: ActorLifecycleContext): void;
   protected abstract onTransition(context: ActorTransitionContext): void;
+  protected abstract onActorMainFailure(error: unknown): void;
 
   state(): string {
     return this.#currentState!;
@@ -110,9 +112,8 @@ export abstract class BaseActor {
   }
 
   protected awaitLifecycleSettlement(): Promise<void> {
+    if (this.#mainLoopFailed) return Promise.reject(this.#mainLoopFailure);
     const sequence = this.#queuedEventSequence;
-    const failure = this.#eventSettlementFailure;
-    if (failure && failure.sequence <= sequence) return Promise.reject(failure.error);
     if (this.#settledEventSequence >= sequence) return Promise.resolve();
     return new Promise<void>((resolve, reject) => {
       this.#eventSettlementWaiters.add({ sequence, resolve, reject });
@@ -155,10 +156,6 @@ export abstract class BaseActor {
           try {
             this.#dispatchEvent(event.name);
             this.#settledEventSequence = event.sequence;
-          } catch (error) {
-            this.#settledEventSequence = event.sequence;
-            this.#eventSettlementFailure = { sequence: event.sequence, error };
-            throw error;
           } finally {
             this.#settleLifecycleWaiters();
           }
@@ -190,24 +187,33 @@ export abstract class BaseActor {
         if (this.#currentTaskStateHalted) return;
       }
     } catch (error) {
+      this.#mainLoopFailed = true;
+      this.#mainLoopFailure = error;
+      for (const waiter of this.#eventSettlementWaiters) {
+        this.#eventSettlementWaiters.delete(waiter);
+        waiter.reject(error);
+      }
       console.error('BaseActor main loop failed', error);
+      try {
+        this.onActorMainFailure(error);
+      } catch (hookError) {
+        console.error('BaseActor main-loop failure hook failed', hookError);
+      }
     } finally {
       this.#actorMainRunning = false;
     }
   }
 
   #settleLifecycleWaiters(): void {
-    const failure = this.#eventSettlementFailure;
     for (const waiter of this.#eventSettlementWaiters) {
       if (waiter.sequence > this.#settledEventSequence) continue;
       this.#eventSettlementWaiters.delete(waiter);
-      if (failure && failure.sequence <= waiter.sequence) waiter.reject(failure.error);
-      else waiter.resolve();
+      waiter.resolve();
     }
   }
 
   #ensureActorMain(): void {
-    if (this.#actorMainRunning) return;
+    if (this.#actorMainRunning || this.#mainLoopFailed) return;
     this.#actorMainRunning = true;
     void this.#actorMain();
   }

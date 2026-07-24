@@ -72,6 +72,7 @@ interface SupervisorInternals {
   publish<T>(owner: CardActivationOwner, write: () => T): T | null;
   activateChild(parent: CardActivationOwner, childCardId: string, lease: ChildInvocationLease): Promise<CardActivationOutcome>;
   settleResult(owner: CardActivationOwner, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): Promise<void>;
+  onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void;
 }
 
 function harness(withChild = false) {
@@ -299,5 +300,52 @@ describe('Supervisor singular runtime halt concurrency', () => {
     expect(h.rootProcessor.actor.joinActivation).toHaveBeenCalledTimes(1);
     expect(h.terminateScopeTree).toHaveBeenCalledTimes(1);
     await nextTurn();
+  });
+
+  it('routes an exact child actor-main notification through the singular frozen halt with every join observed', async () => {
+    const h = harness(true);
+    const failure = new Error('child actor-main failure');
+    const rootSettlement = h.root.settlement.promise.catch((error) => error);
+    const childSettlement = h.child!.settlement.promise.catch((error) => error);
+    const leaseSettlement = h.lease!.activation.catch((error) => error);
+
+    h.internals.onProcessorActorMainFailure(h.child!.cardId, h.child!.activationId, failure);
+    h.rootProcessor.join.resolve([]);
+    h.childProcessor!.join.reject(failure);
+    h.processTermination.resolve(processReport);
+
+    await expect(within(rootSettlement)).resolves.toBe(h.internals.halt!.interruption);
+    await expect(within(childSettlement)).resolves.toBe(h.internals.halt!.interruption);
+    await expect(within(leaseSettlement)).resolves.toBe(h.internals.halt!.interruption);
+    await expect(within(h.internals.halt!.promise)).rejects.toBe(failure);
+    expect(h.rootProcessor.actor.joinActivation).toHaveBeenCalledTimes(1);
+    expect(h.childProcessor!.actor.joinActivation).toHaveBeenCalledTimes(1);
+    expect(h.terminateScopeTree).toHaveBeenCalledTimes(1);
+    expect(h.store.commitActivationOutcome).not.toHaveBeenCalled();
+    expect(h.supervisor.getStatus().status).toBe('error');
+  });
+
+  it('retains structurally earlier synchronous containment failure while joining later actor and process failures', async () => {
+    const h = harness(true);
+    const actorFailure = new Error('actor failure A');
+    const cleanupFailure = new Error('cleanup failure B');
+    const laterJoinFailure = new Error('later child join failure');
+    const terminationFailure = new Error('later termination failure');
+    h.rootProcessor.dispose.mockImplementationOnce(() => { throw cleanupFailure; });
+    void h.root.settlement.promise.catch(() => undefined);
+    void h.child!.settlement.promise.catch(() => undefined);
+
+    h.internals.onProcessorActorMainFailure(h.root.cardId, h.root.activationId, actorFailure);
+    h.rootProcessor.join.reject(actorFailure);
+    h.childProcessor!.join.reject(laterJoinFailure);
+    h.processTermination.reject(terminationFailure);
+
+    await expect(within(h.internals.halt!.promise)).rejects.toBe(cleanupFailure);
+    expect(h.rootProcessor.dispose).toHaveBeenCalledTimes(1);
+    expect(h.childProcessor!.dispose).toHaveBeenCalledTimes(1);
+    expect(h.rootProcessor.actor.joinActivation).toHaveBeenCalledTimes(1);
+    expect(h.childProcessor!.actor.joinActivation).toHaveBeenCalledTimes(1);
+    expect(h.terminateScopeTree).toHaveBeenCalledTimes(1);
+    expect(h.supervisor.getStatus().status).toBe('error');
   });
 });

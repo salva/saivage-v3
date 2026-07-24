@@ -287,7 +287,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const parentControl = this.boundParentControl(card.id, activationId);
     const process = this.behavior.workflows.cardTypes.get(card.type);
     if (!process) throw new Error(`No compiled workflow for card type '${card.type}'.`);
-    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, candidateChains:this.behavior.workflows.candidateChains,processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => this.ownershipInvalidated(), gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
+    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, candidateChains:this.behavior.workflows.candidateChains,processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => this.ownershipInvalidated(), onActorMainFailure: (error) => this.onProcessorActorMainFailure(card.id, activationId, error), gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
     processor.start();
     return new CardActivationOwner({ card, store: this.behavior.actorStore, processor, activationId, entry, caller, phase, parentRelationship: relationship ?? undefined, alreadyStabilizedAgents: stabilized });
   }
@@ -305,6 +305,18 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       const message = error instanceof Error ? error.message : String(error);
       void this.settleResult(owner, { status: 'failed', summary: message, result: { kind: 'runtime-failure', summary: message } });
     });
+  }
+
+  private onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void {
+    const owner = this.activationOwners.get(cardId);
+    const halt = this.halt;
+    if (halt) {
+      if (!owner || owner.activationId !== activationId || !halt.owners.includes(owner)) throw new Error(`Card '${cardId}' actor-main failure has no owner in the current runtime halt.`);
+      void halt.promise.catch(() => undefined);
+      return;
+    }
+    if (!owner || owner.activationId !== activationId) throw new Error(`Card '${cardId}' actor-main failure owner is no longer current.`);
+    void this.beginHalt('runtime_failure').catch(() => undefined);
   }
 
   private claimResult(owner: CardActivationOwner): void {
@@ -423,9 +435,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const interruption = new RuntimeStoppedInterruption();
     const settlement = deferred<void>();
     const halt: RuntimeHalt = Object.freeze({ interruption, owners, promise: settlement.promise });
-    let firstFailure!: Error;
+    let firstFailure: unknown;
     let hasFailure = false;
-    const retainFirst = (error: unknown): void => { if (!hasFailure) { hasFailure = true; firstFailure = error as Error; } };
+    const retainFirst = (error: unknown): void => { if (!hasFailure) { hasFailure = true; firstFailure = error; } };
 
     this.ownershipTransition(true, () => {
       if (trigger === 'application_close') this.applicationAdmissionOpen = false;
@@ -465,11 +477,19 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     void Promise.allSettled([...joins, processTermination]).then((results) => {
       for (const result of results) if (result.status === 'rejected') retainFirst(result.reason);
       if (hasFailure) {
-        this.ownershipTransition(true, () => {
-          if (this.halt !== halt) throw new Error('Runtime halt identity changed during failed settlement.');
-          this.status = 'error';
-          this.behavior.interventionBinding.markNotReady();
-        });
+        try {
+          this.ownershipTransition(true, () => {
+            if (this.halt !== halt) throw new Error('Runtime halt identity changed during failed settlement.');
+            this.status = 'error';
+            this.behavior.interventionBinding.markNotReady();
+          });
+        } catch (error) {
+          if (this.halt === halt) {
+            this.status = 'error';
+            this.behavior.interventionBinding.markNotReady();
+          }
+          retainFirst(error);
+        }
         settlement.reject(firstFailure);
         return;
       }
@@ -493,7 +513,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
           this.status = 'error';
           this.behavior.interventionBinding.markNotReady();
         }
-        settlement.reject(error as Error);
+        settlement.reject(error);
       }
     });
     return halt.promise;

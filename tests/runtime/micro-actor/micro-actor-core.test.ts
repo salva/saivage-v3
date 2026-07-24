@@ -20,17 +20,20 @@ type TaskCallbacks<Result> = Readonly<{
 class TestActor extends BaseActor {
   readonly #entered: (context: ActorLifecycleContext) => void;
   readonly #transitioned: (context: ActorTransitionContext) => void;
+  readonly #mainFailed: (error: unknown) => void;
 
   constructor(
     definition: CompiledActorDefinition,
     hooks: Readonly<{
       entered?(context: ActorLifecycleContext): void;
       transitioned?(context: ActorTransitionContext): void;
+      mainFailed?(error: unknown): void;
     }> = {},
   ) {
     super(definition);
     this.#entered = hooks.entered ?? (() => undefined);
     this.#transitioned = hooks.transitioned ?? (() => undefined);
+    this.#mainFailed = hooks.mainFailed ?? (() => undefined);
   }
 
   event(name: string): void { this.sendEvent(name); }
@@ -41,6 +44,7 @@ class TestActor extends BaseActor {
 
   protected onStateEntered(context: ActorLifecycleContext): void { this.#entered(context); }
   protected onTransition(context: ActorTransitionContext): void { this.#transitioned(context); }
+  protected onActorMainFailure(error: unknown): void { this.#mainFailed(error); }
 }
 
 const unexpectedFailure = (error: Error): never => { throw error; };
@@ -243,29 +247,84 @@ describe('configured actor lifecycle', () => {
     expect(log).toEqual(['entry:node', 'transition:true', 'entry:node']);
   });
 
-  it.each(['transition', 'entry'] as const)('10. rejects matching lifecycle settlement when the %s hook fails with no fallback', async (phase) => {
+  it.each(['transition', 'entry'] as const)('10. terminally rejects current and future lifecycle settlement when the %s hook fails', async (phase) => {
     const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       const calls: string[] = [];
+      const failure = new Error(`${phase} failed`);
+      const mainFailed = jest.fn<(error: unknown) => void>();
       let actor!: TestActor;
       actor = new TestActor(
-        compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { go: 'done' } }, done: { terminal: true } } }),
+        compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { go: { target: 'ready', reenter: true } } } } }),
         {
-          transitioned: () => { calls.push('transition'); if (phase === 'transition') throw new Error('transition failed'); },
-          entered: ({ source }) => { if (source !== null) { calls.push('entry'); if (phase === 'entry') throw new Error('entry failed'); } },
+          transitioned: () => { calls.push('transition'); if (phase === 'transition') throw failure; },
+          entered: ({ source }) => { if (source !== null) { calls.push('entry'); if (phase === 'entry') throw failure; } },
+          mainFailed,
         },
       );
       actor.start();
       actor.parkedEvent('go');
-      await expect(actor.settlement()).rejects.toThrow(`${phase} failed`);
-      expect(actor.state()).toBe('done');
+      const current = actor.settlement();
+      await expect(current).rejects.toBe(failure);
+      await expect(actor.settlement()).rejects.toBe(failure);
+      actor.parkedEvent('go');
+      await expect(actor.settlement()).rejects.toBe(failure);
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(mainFailed).toHaveBeenCalledTimes(1);
+      expect(mainFailed).toHaveBeenCalledWith(failure);
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      expect(errorSpy).toHaveBeenCalledWith('BaseActor main loop failed', failure);
+      expect(actor.state()).toBe('ready');
       expect(calls).toEqual(phase === 'transition' ? ['transition'] : ['transition', 'entry']);
     } finally {
       errorSpy.mockRestore();
     }
   });
 
-  it('11. permits halt only during callback delivery after slot clear and before an event is queued', async () => {
+  it('11. terminally reports task-result callback and framework-loop failures exactly once', async () => {
+    for (const phase of ['task-result', 'framework-loop'] as const) {
+      const primary = new Error(`${phase} failed`);
+      const hook = jest.fn<(error: unknown) => void>();
+      const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      let actor!: TestActor;
+      actor = new TestActor(
+        compileActorDefinition({ initial: 'running', states: { running: {} } }),
+        phase === 'task-result'
+          ? { entered: () => actor.task(() => Promise.resolve(), { onDone: () => { throw primary; }, onFailed: unexpectedFailure }), mainFailed: hook }
+          : { mainFailed: hook },
+      );
+      actor.start();
+      await eventually(() => expect(hook).toHaveBeenCalledTimes(1));
+      expect(hook).toHaveBeenCalledWith(phase === 'task-result' ? primary : expect.any(InternalActorError));
+      const caught = hook.mock.calls[0]![0];
+      await expect(actor.settlement()).rejects.toBe(caught);
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log).toHaveBeenCalledWith('BaseActor main loop failed', caught);
+      log.mockRestore();
+    }
+  });
+
+  it('12. logs a secondary hook failure without replacing or retrying the primary failure', async () => {
+    const primary = new Error('primary');
+    const secondary = new Error('secondary');
+    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const hook = jest.fn<(error: unknown) => void>(() => { throw secondary; });
+    const actor = new TestActor(
+      compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { go: 'done' } }, done: { terminal: true } } }),
+      { transitioned: () => { throw primary; }, mainFailed: hook },
+    );
+    actor.start(); actor.parkedEvent('go');
+    await expect(actor.settlement()).rejects.toBe(primary);
+    await expect(actor.settlement()).rejects.toBe(primary);
+    expect(hook).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls).toEqual([
+      ['BaseActor main loop failed', primary],
+      ['BaseActor main-loop failure hook failed', secondary],
+    ]);
+    log.mockRestore();
+  });
+
+  it('13. permits halt only during callback delivery after slot clear and before an event is queued', async () => {
     const outside = new TestActor(compileActorDefinition({ initial: 'ready', states: { ready: { parked: true } } }));
     outside.start();
     expect(() => outside.halt()).toThrow(InternalActorError);
@@ -290,7 +349,7 @@ describe('configured actor lifecycle', () => {
     expect(checkedQueuedEvent).toBe(true);
   });
 
-  it('12. chains configured execution because each next node entry sees a null task slot', async () => {
+  it('14. chains configured execution because each next node entry sees a null task slot', async () => {
     const entries: string[] = [];
     let actor!: TestActor;
     actor = new TestActor(
