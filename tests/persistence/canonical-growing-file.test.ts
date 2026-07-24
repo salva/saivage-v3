@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { closeSync, constants, fstatSync, fsyncSync, ftruncateSync, mkdtempSync, openSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, fstatSync, fsyncSync, ftruncateSync, mkdtempSync, openSync, readFileSync, readSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -49,7 +49,7 @@ describe('canonical growing-file interrupted suffix handling', () => {
         return descriptor;
       },
       stat(descriptor) { operations.push('fstat'); return fstatSync(descriptor); },
-      read(descriptor) { operations.push('read'); return readFileSync(descriptor); },
+      read(descriptor, buffer, offset, length, position) { operations.push('read'); return readSync(descriptor, buffer, offset, length, position); },
       truncate(descriptor, length) { operations.push(`truncate:${length}`); ftruncateSync(descriptor, length); },
       fsync(descriptor) { operations.push('fsync'); fsyncSync(descriptor); },
       close(descriptor) { operations.push('close'); closeSync(descriptor); },
@@ -63,7 +63,7 @@ describe('canonical growing-file interrupted suffix handling', () => {
     expect(Number.isNaN(Date.parse(snapshot.modifiedAt))).toBe(false);
     expect(readFileSync(openedPath, 'utf8')).toBe(complete);
     expect(readFileSync(path, 'utf8')).toBe(replacement);
-    expect(operations).toEqual(['open-and-replace', 'fstat', 'read', `truncate:${Buffer.byteLength(complete)}`, 'fsync', 'fstat', 'close']);
+    expect(operations).toEqual(['open-and-replace', 'fstat', 'read', 'read', `truncate:${Buffer.byteLength(complete)}`, 'fsync', 'fstat', 'close']);
   });
 
   it('rejects final symlinks and non-regular objects without a read-only fallback', () => {

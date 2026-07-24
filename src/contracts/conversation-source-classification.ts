@@ -11,7 +11,7 @@ export function classifyConversationSourceRows(sourceSessionId: ConversationSess
 
   for (const row of rows) {
     if (row.kind === 'context_compaction') throw new Error('Source classification does not accept context_compaction rows.');
-    if (isActivationOpenMarker(sourceSessionId, row)) {
+    if (validateActivationOpenMarker(sourceSessionId, row)) {
       if (current) rounds.push(buildSourceRound(current));
       current = [row];
     } else if (current) {
@@ -33,7 +33,7 @@ function buildSourceRound(rows: AgentMessage[]): SourceRound {
 }
 
 export function classifySourceSegments(rows: readonly AgentMessage[]): SourceSegment[] {
-  const repairIndexes = rows.flatMap((row, index) => isRepairAnchor(row) ? [index] : []);
+  const repairIndexes = rows.flatMap((row, index) => isConversationRepairAnchor(row) ? [index] : []);
   const segments: SourceSegment[] = [];
   const firstRepair = repairIndexes[0] ?? rows.length;
   if (firstRepair > 0) segments.push({ kind: 'initial', rows: rows.slice(0, firstRepair) });
@@ -41,7 +41,7 @@ export function classifySourceSegments(rows: readonly AgentMessage[]): SourceSeg
   return segments;
 }
 
-function isActivationOpenMarker(sourceSessionId: ConversationSessionId, message: AgentMessage): boolean {
+export function validateActivationOpenMarker(sourceSessionId: ConversationSessionId, message: AgentMessage): boolean {
   if (message.kind !== 'activity') return false;
   const payload = parseJsonObject(message.content);
   if (payload.event !== 'activation_open') return false;
@@ -66,7 +66,7 @@ function isCanonicalUuid(value: unknown): boolean {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value);
 }
 
-function isRepairAnchor(message: AgentMessage): boolean {
+export function isConversationRepairAnchor(message: AgentMessage): boolean {
   return message.kind === 'model_repair' || (message.kind === 'tool_result' && parseJsonObject(message.content).success === false);
 }
 

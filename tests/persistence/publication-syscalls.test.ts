@@ -150,21 +150,23 @@ describe('publication syscall boundaries', () => {
 
   it.each(['stat', 'read', 'instrumentation'] as const)('closes the growing-file descriptor once while preserving pre-truncate %s failure', (stage) => {
     const trace: string[] = [];
-    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { trace.push('stat'); if (stage === 'stat') throw failure; return regular; }, read() { trace.push('read'); if (stage === 'read') throw failure; return Buffer.from('{}\n'); }, truncate() {}, fsync() {}, close() { trace.push('close'); } };
+    const content = Buffer.from('{}\n');
+    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { trace.push('stat'); if (stage === 'stat') throw failure; return regular; }, read(_fd, buffer, offset, length, position) { trace.push('read'); if (stage === 'read') throw failure; return content.copy(buffer, offset, position, Math.min(content.length, position + length)); }, truncate() {}, fsync() {}, close() { trace.push('close'); } };
     expect(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io, stage === 'instrumentation' ? { onRead() { trace.push('instrumentation'); throw failure; } } : undefined)).toThrow(failure);
     expect(trace.filter((entry) => entry === 'close')).toHaveLength(1);
   });
 
   it('preserves the growing-file pre-truncate error when its sole close also fails', () => {
     let closes = 0;
-    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { throw failure; }, read() { return Buffer.alloc(0); }, truncate() {}, fsync() {}, close() { closes += 1; throw new Error('close failed'); } };
+    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { throw failure; }, read() { return 0; }, truncate() {}, fsync() {}, close() { closes += 1; throw new Error('close failed'); } };
     expect(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io)).toThrow(failure);
     expect(closes).toBe(1);
   });
 
   it('does not repeat the ordinary non-truncating success-path close', () => {
     const closeFailure = new Error('close failed'); let closes = 0;
-    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { return { isFile: () => true, size: 40, mtime: new Date(0) } as never; }, read() { return Buffer.from('{"version":1,"type":"rows","rows":[{}]}\n'); }, truncate() {}, fsync() {}, close() { closes += 1; throw closeFailure; } };
+    const content = Buffer.from('{"version":1,"type":"rows","rows":[{}]}\n');
+    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { return { isFile: () => true, size: 40, mtime: new Date(0) } as never; }, read(_fd, buffer, offset, length, position) { return content.copy(buffer, offset, position, Math.min(content.length, position + length)); }, truncate() {}, fsync() {}, close() { closes += 1; throw closeFailure; } };
     expect(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io)).toThrow(closeFailure);
     expect(closes).toBe(1);
   });
@@ -172,7 +174,8 @@ describe('publication syscall boundaries', () => {
   it.each(['truncate', 'fsync', 'final-stat', 'close'] as const)('types growing-file %s truncation uncertainty and stops', (stage) => {
     const trace: string[] = []; let stats = 0;
     const operation = (name: string): void => { trace.push(name); if (name === stage) throw failure; };
-    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { stats += 1; operation(stats === 1 ? 'initial-stat' : 'final-stat'); return { isFile: () => true, size: 3, mtime: new Date(0) } as never; }, read() { return Buffer.from('{}\nX'); }, truncate() { operation('truncate'); }, fsync() { operation('fsync'); }, close() { operation('close'); } };
+    const content = Buffer.from('{}\nX');
+    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { stats += 1; operation(stats === 1 ? 'initial-stat' : 'final-stat'); return { isFile: () => true, size: 3, mtime: new Date(0) } as never; }, read(_fd, buffer, offset, length, position) { return content.copy(buffer, offset, position, Math.min(content.length, position + length)); }, truncate() { operation('truncate'); }, fsync() { operation('fsync'); }, close() { operation('close'); } };
     expect(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io)).toThrow(PublicationOutcomeUnknownError);
     expect(trace.at(-1)).toBe(stage);
   });

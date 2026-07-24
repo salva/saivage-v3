@@ -149,8 +149,12 @@ function renderEvidence(evidence: readonly unknown[]): string {
 }
 
 export function hashConversationRows(rows: readonly AgentMessage[]): string {
-  const text = rows.map((row) => JSON.stringify({ id: row.id, role: row.role, kind: row.kind, content: row.content, tool: row.tool, tool_call_id: row.tool_call_id, source_input_id: undefined })).join('\n');
+  const text = rows.map(conversationRowHashText).join('\n');
   return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+export function conversationRowHashText(row: AgentMessage): string {
+  return JSON.stringify({ id: row.id, role: row.role, kind: row.kind, content: row.content, tool: row.tool, tool_call_id: row.tool_call_id, source_input_id: undefined });
 }
 
 function fallbackBoundary(row: AgentMessage): 'repair' | 'exchange' | 'message' {
