@@ -73,6 +73,7 @@ Current high-value skills include:
 - `saivage-project-reset`: reset target projects managed by Saivage v3 deployments, such as GetRich v2 or Pueblicos.
 - `opencode-skill-authoring`: create or revise project OpenCode skills under `.github/skills/`.
 - `saivage-issue-fix-adversarial-review`: mandatory issue-fixing workflow that iterates design/plan adversarial review before implementation.
+- `saivage-todo-protocol`: track work items through their lifecycle using `docs/working/todo.md` and `docs/working/done.md`.
 - `saivage-v3-mailbox-submit`: submit proposals to the v2-on-v3 harness mailbox.
 - `iterative-dual-llm-review`: heavyweight systematic review workflow when explicitly requested.
 
