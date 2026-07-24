@@ -42,6 +42,18 @@ type RecordEvidence = { version: number; revisionSeq: number; state: string; rec
 type ReviewerSnapshot = { cards: Array<{ id: string; fingerprint: string }>; includedRecordVersions: Array<{ cardId: string; filename: string; latest: number | null; contentHash: string | null }> };
 type ReviewerContextPair = { exactContext: ProviderVisibleUserContextMessage; snapshot: ReviewerSnapshot };
 
+export const EmitResultSettlementSchema = z.union([
+  z.object({ success: z.literal(true), data: z.object({ accepted: z.literal(true) }).strict() }).strict(),
+  z.object({ success: z.literal(false), error: z.string().min(1) }).strict(),
+  z.object({ success: z.literal(false), error: z.string().min(1), data: z.object({ reason: z.literal('pending_notifications') }).strict() }).strict(),
+]);
+
+export type EmitResultSettlement = z.infer<typeof EmitResultSettlementSchema>;
+
+export function parseEmitResultSettlement(value: unknown): EmitResultSettlement {
+  return EmitResultSettlementSchema.parse(value);
+}
+
 export interface AgentNodeExecutionHost {
   createLlm(agentId: string): ConversationLLMActor;
   selectLlm(llm: ConversationLLMActor): void;
@@ -114,7 +126,7 @@ export class AgentNodeExecution {
             if (!parsed.success) throw new Error(parsed.error.message);
             nodeResult = parsed.data;
           }
-          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal); continue; }
+          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(node, [errorMessage(error)]) }), signal); continue; }
           const route = processNodeTransition(process, stateId, nodeResult.outcome);
           const target = process.states.get(route.target);
           if (!target || (target.kind !== 'node' && target.kind !== 'terminal')) throw new Error(`Compiled node '${node.nodeId}' has invalid target '${route.target}'.`);
@@ -124,29 +136,29 @@ export class AgentNodeExecution {
               ...selected.map((notification) => ({ role: 'user' as const, content: notification.content })),
               { role: 'user', content: this.correction(node, ['pending_notifications: reconsider the appended context, update required records if needed, and call emit_result again.']) },
             ];
-            outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }, signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }));
+            outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }), signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }));
             continue;
           }
           const records = this.validateRecords(node, baseline);
-          if ('violations' in records) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, records.violations) }, signal); continue; }
+          if ('violations' in records) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(node, records.violations) }), signal); continue; }
           if (reviewerPair) {
             const stale = this.reviewerStaleReason(input.card.id, reviewerPair.snapshot, node.descendantContext!.records.map((record)=>record.name));
             if (stale) {
               for(const requirement of node.requirements)if(requirement.kind==='updated')this.discardOpenRecord(requirement.definition.name, 'stale_descendant_context');
               const refreshed = this.captureReviewerPair(input.card.id,node.descendantContext!.records.map((record)=>record.name));
               const messages = [refreshed.exactContext, { role: 'user' as const, content: this.correction(node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) }];
-              outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: `Review context is stale: ${stale}.` }, signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }));
+              outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: `Review context is stale: ${stale}.` }), signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }));
               continue;
             }
           }
            if (target.kind === 'terminal' && target.terminal === 'DONE') {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
-            if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }, signal); continue; }
+            if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }), signal); continue; }
           }
            if (target.kind === 'terminal') { this.host.assertPromotionAvailable(process,stateId,nodeResult.outcome);llm.claimResultAndCloseContinuation(terminalOutcome, new Error('Terminal result accepted.'), () => input.claimResult()); }
            this.host.assertCurrentActivation(input);
            const acceptedRecords = this.closeAcceptedRecords(node, records.candidates);
-           await llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, { success: true, data: { accepted: true } });
+           await llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: true, data: { accepted: true } }));
            this.host.assertCurrentActivation(input);
            cleanupStatus = target.kind === 'terminal' ? terminalCleanupStatus(target.terminal) : 'done';
            const accepted = Object.freeze({ nodeId:node.nodeId,agentName:node.agent.name,outcome: nodeResult.outcome, summary: nodeResult.summary, acceptedRecords: Object.freeze(acceptedRecords) });

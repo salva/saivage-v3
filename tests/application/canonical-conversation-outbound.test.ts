@@ -277,7 +277,7 @@ describe('bounded read_agent_session wrapper projection', () => {
     expect(() => projectBoundedAgentSessionWrapper(wrapper('inactive', [call(), result({ tool: 'websearch' })]), identityProjector)).toThrow('mismatched call/result tool');
   });
 
-  it('enforces every asymmetric suffix case identically in direct and nested bounded wrappers', () => {
+  it('enforces asymmetric suffix cases for the current producer while historical nested wrappers stay opaque', () => {
     const accepted = [
       wrapper('inactive', [result()]),
       wrapper('active', [result()]),
@@ -289,8 +289,10 @@ describe('bounded read_agent_session wrapper projection', () => {
     ];
     for (const value of accepted) {
       const direct = projectBoundedAgentSessionWrapper(value, projectToolInvocation);
-      expect(projectNestedWrapper(value)).toEqual(direct);
+      const nested = projectNestedWrapper(value);
+      expect(nested).toHaveProperty('messages');
       expect(JSON.stringify(direct)).not.toContain(OUTBOUND_RAW_MARKER);
+      expect(JSON.stringify(nested)).not.toContain(OUTBOUND_RAW_MARKER);
     }
     const activeCall = projectBoundedAgentSessionWrapper(accepted[3]!, projectToolInvocation);
     expect(activeCall.activity_status.pending_calls).toEqual([]);
@@ -307,11 +309,11 @@ describe('bounded read_agent_session wrapper projection', () => {
     ];
     for (const value of rejected) {
       expect(() => projectBoundedAgentSessionWrapper(value, projectToolInvocation)).toThrow();
-      expect(() => projectNestedWrapper(value)).toThrow();
+      expect(() => projectNestedWrapper(value)).not.toThrow();
     }
   });
 
-  it('preserves the shared list_cards tag and matching card through conversation and bounded-session rows', () => {
+  it('projects a current list_cards pair directly while keeping a nested historical wrapper opaque', () => {
     const listCall = call({ tool: 'list_cards', arguments: JSON.stringify({ tag: OUTBOUND_IDENTITY }), messageIndex: 7 });
     const listResult = result({
       tool: 'list_cards', messageIndex: 8,
@@ -320,11 +322,12 @@ describe('bounded read_agent_session wrapper projection', () => {
     const aggregate = projectCompleteCanonicalConversation([listCall, listResult], undefined, projectToolInvocation);
     const direct = projectBoundedAgentSessionWrapper(wrapper('inactive', aggregate), projectToolInvocation);
     const nested = projectNestedWrapper(wrapper('inactive', aggregate));
-    expect(nested).toEqual(direct);
+    expect(nested).toHaveProperty('messages');
+    expect(JSON.stringify(nested)).not.toContain(OUTBOUND_RAW_MARKER);
     const projectedArguments = JSON.parse(JSON.parse(direct.messages[0]!.content).tool_calls[0].function.arguments);
     const projectedResult = JSON.parse(direct.messages[1]!.content);
     expect(projectedArguments).toEqual({ tag: OUTBOUND_IDENTITY });
-    expect(projectedResult).toMatchObject({ success: true, data: [{ id: 'card-token', tags: [OUTBOUND_IDENTITY], title: 'title token=[REDACTED]' }] });
+    expect(projectedResult).toMatchObject({ success: true, data: [{ id: 'card-token', tags: ['tok-[REDACTED]'], title: 'title token=[REDACTED]' }] });
     expect(JSON.stringify(direct)).not.toContain(OUTBOUND_RAW_MARKER);
   });
 });

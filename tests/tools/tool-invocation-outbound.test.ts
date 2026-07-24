@@ -15,6 +15,7 @@ import {
   OUTBOUND_TEXT_MARKER,
   OUTBOUND_URL,
 } from '../helpers/outbound-identity-fixtures.js';
+import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 
 const sessionId = parseConversationSessionId('agent:planner:project');
 const sourceInputId = '11111111-1111-4111-8111-111111111111';
@@ -119,7 +120,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     for (const projected of [unsupported, malformed, invalid]) expect(projected).not.toHaveProperty('result');
   });
 
-  it('projects source-owned result leaves and invents neither calls nor arguments', () => {
+  it('projects every result as opaque data and invents neither calls nor arguments', () => {
     const webfetch = projectToolInvocation({
       shape: 'result-row', identity: identity('webfetch'),
       result: { success: true, data: { redacted_url: 'https://tok_primary.example/path?[REDACTED]', status: 200, headers: { etag: 'tok_primary' }, text: marker, bytes: 42, truncated: false } },
@@ -134,8 +135,30 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     expect(terminalFailure).toMatchObject({ result: { success: false, data: { apiKey: '[REDACTED]', reason: 'stable_value' } } });
 
     const workspace = projectToolInvocation({ shape: 'result-row', identity: identity('read'), result: { success: true, data: { path: 'project:///tok_primary', content: marker, total_lines: 1, truncated: false } } });
-    expect(workspace).toMatchObject({ result: { success: true, data: { path: 'project:///tok_primary' } } });
+    expect(workspace).toMatchObject({ result: { success: true, data: { path: 'project:///tok-[REDACTED]' } } });
     expect(JSON.stringify(workspace)).not.toContain('synthetic-secret-value');
+  });
+
+  it('accepts historical Analyst arrays, bounded wrappers, and emit_result payloads without named-shape interpretation', () => {
+    for (const fixture of historicalOpaqueToolResults) {
+      const projected = projectToolInvocation({
+        shape: 'result-row',
+        identity: identity(fixture.toolName),
+        result: fixture.result,
+      });
+      expect(projected.shape).toBe('result-row');
+      expect(projected).not.toHaveProperty('arguments');
+      expect(JSON.stringify(projected)).not.toContain('historical-secret');
+      expect(Array.isArray((projected as Extract<ToolInvocationProjectionInput, { shape: 'result-row' }>).result.data)).toBe(Array.isArray(fixture.result.data));
+    }
+  });
+
+  it('uses the same recursive redaction for known and unknown result identities', () => {
+    const data = { apiKey: OUTBOUND_RAW_MARKER, nested: [{ prose: marker, stable: 7 }] };
+    const known = projectToolInvocation({ shape: 'result-row', identity: identity('emit_result'), result: { success: false, error: marker, data } });
+    const unknown = projectToolInvocation({ shape: 'result-row', identity: identity('future_tool'), result: { success: false, error: marker, data } });
+    expect(known).toMatchObject({ result: { success: false, data: { apiKey: '[REDACTED]', nested: [{ stable: 7 }] } } });
+    expect(known.result).toEqual(unknown.result);
   });
 
   it('keeps the shared tag filter and matching card result exact in every invocation shape', () => {
@@ -146,7 +169,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     });
     expect(completeProjection).toMatchObject({
       arguments: { tag: OUTBOUND_IDENTITY },
-      result: { success: true, data: [{ id: 'card-token', tags: [OUTBOUND_IDENTITY], title: 'title token=[REDACTED]' }] },
+      result: { success: true, data: [{ id: 'card-token', tags: ['tok-[REDACTED]'], title: 'title token=[REDACTED]' }] },
     });
     expect(JSON.stringify(completeProjection)).not.toContain(OUTBOUND_RAW_MARKER);
 
@@ -159,7 +182,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     const resultProjection = projectToolInvocation({
       shape: 'result-row', identity: identity('list_cards'), result: { success: true, data: [card] },
     });
-    expect(resultProjection).toMatchObject({ result: { data: [{ tags: [OUTBOUND_IDENTITY] }] } });
+    expect(resultProjection).toMatchObject({ result: { data: [{ tags: ['tok-[REDACTED]'] }] } });
     expect(resultProjection).not.toHaveProperty('arguments');
     expect(JSON.stringify(resultProjection)).not.toContain(OUTBOUND_RAW_MARKER);
   });
@@ -197,7 +220,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     expect(JSON.stringify(malformed)).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
-  it('recursively supplies itself to the bounded read_agent_session result leaf', () => {
+  it('keeps a historical bounded read_agent_session wrapper opaque while recursively redacting it', () => {
     const projected = projectToolInvocation({
       shape: 'result-row', identity: identity('read_agent_session'), result: { success: true, data: {
         session: { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', status: 'inactive', started_at: '2026-07-22T10:00:00.000Z', model: 'sk-model' },

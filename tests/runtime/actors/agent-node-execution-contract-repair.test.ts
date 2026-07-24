@@ -1,7 +1,7 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
 
-import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { AgentNodeExecution, parseEmitResultSettlement } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/llm-actor.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import type { InvocationSurface, ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
@@ -28,11 +28,13 @@ function harness(args: {
   continuations?: LLMActorOutcome[];
   toolExecutor?: () => Promise<{ success: true; data: string }>;
   cleanupError?: Error;
+  terminalVariant?: 'pending' | 'records' | 'stale' | 'incomplete';
 }) {
   const events: string[] = [];
   const handoffs: unknown[] = [];
   const cleanupReasons: ToolProviderCleanupReason[] = [];
   const appendedToolResults: Array<{ toolCallId: string; result: unknown }> = [];
+  const settledToolResults: Array<{ toolCallId: string; result: unknown }> = [];
   const llmInputArguments: unknown[][] = [];
   const continuations = [...(args.continuations ?? [])];
   const next = (): LLMActorOutcome => {
@@ -46,7 +48,7 @@ function harness(args: {
     appendToolResult: async (toolCallId: string, result: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); return next(); },
     toolInvocationContext: () => { events.push('tool-context'); return {}; },
     claimResultAndCloseContinuation: (_outcome: ToolOutcome, _reason: Error, claim: () => void) => { events.push('claim-continuation'); claim(); },
-    settleToolResultWithoutContinuation: async () => { events.push('settle-terminal'); },
+    settleToolResultWithoutContinuation: async (toolCallId: string, result: unknown) => { events.push('settle-terminal'); settledToolResults.push({ toolCallId, result }); },
   };
   const provider = {
     providerName: 'node-test',
@@ -70,8 +72,8 @@ function harness(args: {
     kind: 'node',
     nodeId: 'work',
     agent: { name: 'planner', tools: [], model: { temperature: 0, maxTokens: 100 } },
-    requirements: [],
-    descendantContext: null,
+    requirements: args.terminalVariant === 'records' ? [{ kind: 'updated', definition: { name: 'status.md' } }] : [],
+    descendantContext: args.terminalVariant === 'stale' ? { records: [] } : null,
     outcomes: ['complete'],
     childCreationTypes: new Set(),
     childActivationTypes: new Set(),
@@ -85,16 +87,23 @@ function harness(args: {
     ]),
     definition: { states: new Map([[stateId, { on: new Map([['result:complete', { target: 'terminal:DONE' }]]) }]]) },
   };
+  const selectNotifications = args.terminalVariant === 'pending'
+    ? jest.fn().mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])
+    : () => [];
   const input = {
     card,
     activationId: 'activation-1',
     alreadyStabilizedAgents: new Set(),
-    notificationDelivery: { selectNotifications: () => [], removeNotifications: () => undefined },
+    notificationDelivery: { selectNotifications, removeNotifications: () => undefined },
     claimResult: () => { events.push('claim-result'); },
   };
   const execution = new AgentNodeExecution({
     cardId: 'project',
-    store: { read: () => card, listChildren: () => [] },
+    store: {
+      read: (id: string) => id === 'card-a' ? { id, lifecycle: { status: 'running' } } : card,
+      readRecord: () => ({ version: 1, recordUrl: 'record:///status.md?card=project&v=1', artifact: { state: 'closed', revision_seq: 1, content: 'status' } }),
+      listChildren: args.terminalVariant === 'incomplete' ? jest.fn().mockReturnValueOnce(['card-a']).mockReturnValue([]) : () => [],
+    },
     processPrompts: { get: () => 'correct the result' },
   } as never, {
     createLlm: () => llm,
@@ -109,18 +118,33 @@ function harness(args: {
     buildSurface: () => InvocationSurface;
     correction: (_node: unknown, violations: readonly string[]) => string;
     closeAcceptedRecords: () => Array<{ name: string; url: string; version: number }>;
+    validateRecords: () => { candidates: Map<string, unknown> } | { violations: string[] };
+    captureReviewerPair: () => unknown;
+    reviewerStaleReason: () => string | null;
   };
   internals.prepareNodeEntry = () => undefined;
   internals.buildLlmInput = (...values) => { llmInputArguments.push(values); return {}; };
   internals.buildSurface = () => surface;
   internals.correction = (_node, violations) => `correction: ${violations.join('; ')}`;
   internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
+  if (args.terminalVariant === 'records') {
+    let validationCount = 0;
+    internals.validateRecords = () => validationCount++ === 0
+      ? { violations: ['required record is invalid'] }
+      : { candidates: new Map() };
+  }
+  if (args.terminalVariant === 'stale') {
+    internals.captureReviewerPair = () => ({ exactContext: { role: 'user', content: 'context' }, snapshot: {} });
+    let staleCount = 0;
+    internals.reviewerStaleReason = () => staleCount++ === 0 ? 'changed' : null;
+  }
 
   return {
     events,
     handoffs,
     cleanupReasons,
     appendedToolResults,
+    settledToolResults,
     llmInputArguments,
     run: () => execution.execute({ process, stateId, node, transition: {}, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
   };
@@ -213,6 +237,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
     expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: { success: false, error: objectGuardCorrection } });
+    expect(parseEmitResultSettlement(test.appendedToolResults[0]!.result)).toEqual(test.appendedToolResults[0]!.result);
   });
 
   it.each([
@@ -304,6 +329,34 @@ describe('AgentNodeExecution contract repair behavior', () => {
       'cleanup',
     ]);
     expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'done' }]);
+    expect(test.settledToolResults).toEqual([{ toolCallId: 'accepted', result: { success: true, data: { accepted: true } } }]);
+    expect(parseEmitResultSettlement(test.settledToolResults[0]!.result)).toEqual(test.settledToolResults[0]!.result);
+  });
+
+  const settlementCases: Array<[string, NonNullable<Parameters<typeof harness>[0]['terminalVariant']>, unknown]> = [
+    ['pending notifications', 'pending', { success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }],
+    ['record violations', 'records', { success: false, error: 'correction: required record is invalid' }],
+    ['stale descendant context', 'stale', { success: false, error: 'Review context is stale: changed.' }],
+    ['incomplete descendant completion', 'incomplete', { success: false, error: "correction: Completion gate failed: descendant 'card-a' is 'running'." }],
+  ];
+  it.each(settlementCases)('validates the %s settlement before append', async (_label, terminalVariant, expected) => {
+    const test = harness({ initial: terminal('rejected'), continuations: [terminal('accepted')], terminalVariant });
+    await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'rejected', result: expected });
+    expect(parseEmitResultSettlement(test.appendedToolResults[0]!.result)).toEqual(expected);
+  });
+
+  it('rejects owner protocol violations before an append or settlement call', () => {
+    const append = jest.fn();
+    const invalid = [
+      { success: true, data: { accepted: false } },
+      { success: true, data: { accepted: true }, extra: true },
+      { success: false, error: '' },
+      { success: false, error: 'failed', data: { reason: 'other' } },
+      { success: false, error: 'failed', data: { reason: 'pending_notifications', extra: true } },
+    ];
+    for (const value of invalid) expect(() => append(parseEmitResultSettlement(value))).toThrow();
+    expect(append).not.toHaveBeenCalled();
   });
 
   it('rethrows publication uncertainty before cleanup', async () => {
