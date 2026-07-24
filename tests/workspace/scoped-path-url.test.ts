@@ -17,6 +17,15 @@ describe('scoped path URL helper', () => {
     }
   });
 
+  it('admits adjacent dots and rejects raw or encoded exact parent segments for filesystem schemes', () => {
+    for (const scheme of ['project', 'tmp', 'work', 'system']) {
+      const raw = `${scheme}:///path/v1..v2`;
+      expect(parseScopedPathUrl(raw, scheme).segments).toEqual(['path', 'v1..v2']);
+      expect(() => parseScopedPathUrl(`${scheme}:///path/../file`, scheme)).toThrow();
+      expect(() => parseScopedPathUrl(`${scheme}:///path/%2E%2E/file`, scheme)).toThrow();
+    }
+  });
+
   it('rejects non-canonical and structurally unsafe paths', () => {
     for (const raw of ['work://processes/x', 'work:///a//b', 'work:///a/', 'work:///./b', 'work:///../b', 'work:///a%2Fb', 'work:///a%5Cb', 'work:///a%3Fb', 'work:///a%23b', 'work:///%E0%A4%A']) {
       expect(() => parseScopedPathUrl(raw, 'work')).toThrow();

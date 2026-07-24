@@ -1,9 +1,47 @@
 import { describe, expect, it } from '@jest/globals';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 import {
   isWriteBlocked,
   redactOperatorErrorMessage,
+  resolveContainedProjectPath,
 } from '../../src/workspace/file-access-security.js';
+
+describe('resolveContainedProjectPath', () => {
+  it('admits adjacent dots while preserving traversal and containment boundaries', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-contained-path-root-'));
+    const outside = mkdtempSync(join(tmpdir(), 'saivage-contained-path-outside-'));
+    try {
+      const outsideFile = join(outside, 'outside.txt');
+      writeFileSync(outsideFile, 'outside', 'utf8');
+      symlinkSync(outsideFile, join(root, 'escaping-link'));
+
+      expect(resolveContainedProjectPath(root, 'docs/v1..v2.md')).toMatchObject({
+        safe: true,
+        relativePath: 'docs/v1..v2.md',
+      });
+      for (const path of ['..', '../x', 'a/../b']) {
+        expect(resolveContainedProjectPath(root, path)).toMatchObject({
+          safe: false,
+          reason: 'Path traversal detected. Use of ".." is not allowed.',
+        });
+      }
+      expect(resolveContainedProjectPath(root, outsideFile)).toMatchObject({
+        safe: false,
+        reason: 'Path is outside the project root.',
+      });
+      expect(resolveContainedProjectPath(root, 'escaping-link')).toMatchObject({
+        safe: false,
+        reason: 'Symlink target is outside the project root.',
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(outside, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('isWriteBlocked', () => {
   it('preserves secret and lock descendant blocking boundaries', () => {

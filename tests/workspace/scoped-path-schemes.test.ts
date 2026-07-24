@@ -62,6 +62,31 @@ describe('scoped path resolvers', () => {
     await expectWorkspaceToolInputError(() => scopedPathResolvers.tmp(ctx(), 'tmp:///', 'read'));
   });
 
+  it('resolves adjacent-dot segments and rejects exact parent segments for filesystem schemes', () => {
+    const context = ctx();
+    const adjacentPaths = [
+      ['project', () => scopedPathResolvers.project(context, 'project:///docs/v1..v2')],
+      ['tmp', () => scopedPathResolvers.tmp(context, 'tmp:///card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/v1..v2', 'read')],
+      ['work', () => scopedPathResolvers.work(context, 'work:///logs/v1..v2', 'read')],
+      ['system', () => scopedPathResolvers.system(context, 'system:///opt/v1..v2')],
+    ] as const;
+    for (const [kind, resolvePath] of adjacentPaths) {
+      expect(resolvePath()).toMatchObject({ kind });
+    }
+
+    const rejectedPaths = [
+      () => scopedPathResolvers.project(context, 'project:///docs/../file'),
+      () => scopedPathResolvers.project(context, 'project:///docs/%2E%2E/file'),
+      () => scopedPathResolvers.tmp(context, 'tmp:///card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/../file', 'read'),
+      () => scopedPathResolvers.tmp(context, 'tmp:///card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/%2E%2E/file', 'read'),
+      () => scopedPathResolvers.work(context, 'work:///logs/../file', 'read'),
+      () => scopedPathResolvers.work(context, 'work:///logs/%2E%2E/file', 'read'),
+      () => scopedPathResolvers.system(context, 'system:///opt/../file'),
+      () => scopedPathResolvers.system(context, 'system:///opt/%2E%2E/file'),
+    ];
+    for (const resolvePath of rejectedPaths) expect(resolvePath).toThrow();
+  });
+
   it('uses the selected card type compiled record definitions', () => {
     expect(testRecordDefinitions().map(({filename})=>filename)).toEqual(['brief.md','status.md','review.md']);
     for (const filename of ['brief.md', 'status.md', 'review.md']) expect(testRecordDefinition(filename).filename).toBe(filename);

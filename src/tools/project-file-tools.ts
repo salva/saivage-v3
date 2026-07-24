@@ -6,7 +6,7 @@ import { StringDecoder } from 'node:string_decoder';
 import type { AgentName } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
+import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, hasParentPathSegment, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
 import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
@@ -197,7 +197,7 @@ function patchPaths(patch: string): string[] {
     const raw = match[1];
     if (raw === '/dev/null') continue;
     const clean = raw.replace(/^[ab]\//, '');
-    if (!clean || isAbsolute(clean) || clean.includes('..') || /^[a-z][a-z0-9+.-]*:\/\/\//i.test(clean)) throw toolInputError(`Unsafe patch path '${raw}'.`);
+    if (!clean || isAbsolute(clean) || hasParentPathSegment(clean) || /^[a-z][a-z0-9+.-]*:\/\/\//i.test(clean)) throw toolInputError(`Unsafe patch path '${raw}'.`);
     paths.add(clean);
   }
   return [...paths];

@@ -4,6 +4,7 @@ export {
   looksLikeSecretPath,
 } from './secret-paths.js';
 export {
+  hasParentPathSegment,
   isReadBlocked,
   isRedacted,
   isWriteBlocked,

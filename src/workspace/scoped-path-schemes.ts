@@ -134,7 +134,6 @@ export const scopedPathResolvers = {
   system(ctx: ResolveScopedPathContext, raw: string): ResolvedScopedPath {
     const parsed = parseScopedPathUrl(raw, 'system');
     rejectQueryAndFragment(raw, 'system', parsed, ctx.fail);
-    for (const segment of parsed.segments) if (segment.toLowerCase().includes('..')) throw ctx.fail(`Invalid system URL '${raw}'.`);
     return { kind: 'system', absolutePath: resolve(`/${parsed.segments.join('/')}`), relativePath: buildScopedPathUrl('system', parsed.segments) };
   },
   tmp(ctx: ResolveScopedPathContext, raw: string, mode: ScopedPathMode): ResolvedScopedPath {

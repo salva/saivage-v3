@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
@@ -132,6 +132,27 @@ describe('operator files and debug contract handlers', () => {
     expect(malformedLayout.json()).toEqual({ error: 'Path not found', path: '.saivage/cards/project/conversations' });
     expect(aliasSpelling.statusCode).toBe(404);
     expect(aliasSpelling.json()).toEqual({ error: 'Path not found', path: './.saivage/cards' });
+  });
+
+  it('lists and reads adjacent-dot filenames while rejecting exact parent segments', async () => {
+    mkdirSync(join(projectRoot, 'docs'));
+    writeFileSync(join(projectRoot, 'docs', 'v1..v2.md'), 'adjacent dots\n', 'utf8');
+
+    const listing = await fastify.inject({ method: 'GET', url: `/api/files?path=${encodeURIComponent('docs')}`, headers: authHeaders });
+    const content = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent('docs/v1..v2.md')}`, headers: authHeaders });
+    expect(listing.statusCode).toBe(200);
+    expect(listing.json().files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'v1..v2.md', path: 'docs/v1..v2.md', type: 'file' }),
+    ]));
+    expect(content.statusCode).toBe(200);
+    expect(content.json()).toEqual(expect.objectContaining({ path: 'docs/v1..v2.md', content: 'adjacent dots\n' }));
+
+    for (const path of ['..', '../x', 'a/../b']) {
+      for (const endpoint of ['/api/files', '/api/files/content']) {
+        const response = await fastify.inject({ method: 'GET', url: `${endpoint}?path=${encodeURIComponent(path)}`, headers: authHeaders });
+        expect(response.statusCode).toBe(403);
+      }
+    }
   });
 
   it('lists malformed optional stream metadata but returns 500 for its explicit strict read', async () => {

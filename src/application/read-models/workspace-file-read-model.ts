@@ -2,7 +2,7 @@ import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpat
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import type { OperatorApiHandlerResult, WorkspaceFilesListResponse } from '../../contracts/index.js';
-import { isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
+import { hasParentPathSegment, isReadBlocked, isRedacted, resolveContainedProjectPath, workUrlFromAbsolutePath } from '../../workspace/index.js';
 import { redactForOutbound, redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
@@ -215,7 +215,7 @@ export class WorkspaceFileReadModelService {
     allowCanonicalCardDispatch: boolean,
   ): FilesAdmission {
     if (!requestedLexicalPath) return { kind: 'rejected', reason: 'Path is required.', responsePath };
-    if (requestedLexicalPath.includes('..')) {
+    if (hasParentPathSegment(requestedLexicalPath)) {
       return { kind: 'rejected', reason: 'Path traversal detected. Use of ".." is not allowed.', responsePath };
     }
 

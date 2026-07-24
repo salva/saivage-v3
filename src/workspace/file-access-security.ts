@@ -84,6 +84,10 @@ interface SafeProjectPathResult {
   reason?: string;
 }
 
+export function hasParentPathSegment(path: string): boolean {
+  return path.split('/').some((segment) => segment === '..');
+}
+
 export function resolveContainedProjectPath(
   projectRoot: string,
   requestedPath: string,
@@ -92,7 +96,7 @@ export function resolveContainedProjectPath(
     return { safe: false, absolutePath: '', reason: 'Path is required.' };
   }
 
-  if (requestedPath.includes('..')) {
+  if (hasParentPathSegment(requestedPath)) {
     return {
       safe: false,
       absolutePath: '',
