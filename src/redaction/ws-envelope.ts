@@ -38,6 +38,7 @@ export function projectWsEnvelopeForOutbound(
         case 'analyst_turn_acknowledged':
           return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({ type: 'status', content: { ...envelope.content } });
       }
+      return assertNever(envelope.content);
     case 'activity':
       return projectActivityEnvelope(envelope);
   }
@@ -111,4 +112,8 @@ function projectPassthrough(value: Record<string, unknown>, ownedKeys: readonly 
 
 function copyOptional(value: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
   return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled WebSocket envelope content: ${JSON.stringify(value)}`);
 }

@@ -13,6 +13,51 @@ describe('outbound redaction', () => {
       'provider-exchange', 'logged-event', 'control-action', 'operator-card', 'runtime-card-runs', 'card-history', 'card-diff', 'config', 'process-view', 'webfetch-invocation', 'webfetch-result', 'tool-invocation', 'agent-conversation', 'ws-envelope', 'mcp-status', 'mcp-tools', 'dynamic',
     ]);
   });
+
+  describe('WebSocket status envelopes', () => {
+    it('preserves admitted connected passthrough keys while redacting secret-bearing values', () => {
+      const projected = redactForOutbound({
+        source: 'ws-envelope',
+        value: {
+          type: 'status',
+          content: {
+            event: 'connected',
+            sessionId: 'agent:analyst:global',
+            timestamp: '2026-07-24T12:00:00.000Z',
+            clientCount: 1,
+            safeExtension: 'visible',
+            apiKey: 'synthetic-connected-secret',
+          },
+        },
+      });
+
+      expect(projected).toEqual({
+        type: 'status',
+        content: {
+          event: 'connected',
+          sessionId: 'agent:analyst:global',
+          timestamp: '2026-07-24T12:00:00.000Z',
+          clientCount: 1,
+          safeExtension: 'visible',
+          apiKey: SECRET_REDACTION_PLACEHOLDER,
+        },
+      });
+    });
+
+    it('preserves acknowledged status exactly', () => {
+      const acknowledged = {
+        type: 'status' as const,
+        content: {
+          event: 'analyst_turn_acknowledged' as const,
+          sessionId: 'agent:analyst:global' as const,
+          restart: null,
+        },
+      };
+
+      expect(redactForOutbound({ source: 'ws-envelope', value: acknowledged })).toEqual(acknowledged);
+    });
+  });
+
   describe('structured values', () => {
     it('masks nested secret keys, handles arrays and cycles, and preserves non-secret values', () => {
       const circular: Record<string, unknown> = { safe: 'kept' };

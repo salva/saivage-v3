@@ -92,26 +92,6 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'mcp-tools',
   'dynamic',
 ] as const satisfies readonly OutboundRedactionRequest['source'][];
-const outboundSourceCompileGuard = {
-  'provider-exchange': true,
-  'logged-event': true,
-  'control-action': true,
-  'operator-card': true,
-  'runtime-card-runs': true,
-  'card-history': true,
-  'card-diff': true,
-  config: true,
-  'process-view': true,
-  'webfetch-invocation': true,
-  'webfetch-result': true,
-  'tool-invocation': true,
-  'agent-conversation': true,
-  'ws-envelope': true,
-  'mcp-status': true,
-  'mcp-tools': true,
-  dynamic: true,
-} as const satisfies Record<OutboundRedactionRequest['source'], true>;
-void outboundSourceCompileGuard;
 
 export function redactForOutbound<Request extends OutboundRedactionRequest>(request: ExactOutboundRedactionRequest<Request>): OutboundRedactionResult<Request>;
 export function redactForOutbound(input: OutboundRedactionRequest): unknown {
