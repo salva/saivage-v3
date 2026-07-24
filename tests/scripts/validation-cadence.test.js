@@ -171,6 +171,9 @@ describe('validation cadence guard', () => {
       expect(result.requiredValidationScriptsChecked).toContain('package.json script deps:review');
       expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml path-aware production dependency audit gate');
       expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml aggregate dependency-hygiene require_applicable call');
+      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml classifier shared contracts/schemas browser assignment');
+      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml classifier web/Playwright recognition mark');
+      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml classifier unknown non-doc path fail-closed handling');
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run validate:routine'));
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run audit:security'));
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
@@ -373,15 +376,29 @@ describe('validation cadence guard', () => {
       ['fail-closed docs_only', '            run_all=true\n            docs_only=false\n            summary="fail-closed: $1"', '            run_all=true\n            summary="fail-closed: $1"', 'fail-closed docs_only assignment'],
       ['docs-like class', 'docs/*|architecture-audit/*|audit-findings/*|ui-findings/*|*.md|README.md|EADME.md', 'docs/*', 'docs-like path class'],
       ['package/workflow class', 'package.json|package-lock.json|web/package.json|web/package-lock.json|.github/workflows/*', 'package.json', 'package/workflow path class'],
-      ['workflow run-all class', '              .github/workflows/*)\n                run_all=true', '              .github/workflows/*)\n                package_or_workflow=true', 'workflow run-all path class'],
-      ['contracts class', '              src/contracts/*)', '              src/contract-files/*)', 'contracts backend/UI/browser'],
-      ['backend class', 'src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)', 'src/*)', 'backend path class with Playwright exclusion'],
-      ['Playwright exclusion', 'if [[ "$file" != tests/playwright/* ]]; then', 'if [[ true ]]; then', 'backend path class with Playwright exclusion'],
-      ['web/Playwright class', 'web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)', 'web/*)', 'web/Playwright UI and browser'],
+      ['workflow run-all class', '              .github/workflows/*)\n                run_all=true', '              .github/workflows/*)\n                package_or_workflow=true', 'workflow run-all assignment'],
+      ['schemas in shared class', 'src/contracts/*|src/schemas/*)', 'src/contracts/*)', 'shared contracts/schemas path class'],
+      ['shared backend assignment', '              src/contracts/*|src/schemas/*)\n                recognized=true\n                backend=true', '              src/contracts/*|src/schemas/*)\n                recognized=true', 'shared contracts/schemas backend assignment'],
+      ['shared UI assignment', '                backend=true\n                ui=true\n                browser=true\n                ;;\n              src/*', '                backend=true\n                browser=true\n                ;;\n              src/*', 'shared contracts/schemas ui assignment'],
+      ['shared browser assignment', '                backend=true\n                ui=true\n                browser=true\n                ;;\n              src/*', '                backend=true\n                ui=true\n                ;;\n              src/*', 'shared contracts/schemas browser assignment'],
+      ['backend class', 'src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)', 'src/*)', 'backend path class'],
+      ['Playwright exclusion', 'if [[ "$file" != tests/playwright/* ]]; then', 'if [[ true ]]; then', 'backend Playwright exclusion'],
+      ['web/Playwright class', 'web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)', 'web/*)', 'web/Playwright path class'],
+      ['recognition initialization', '            local recognized=false\n', '', 'recognition initialization'],
+      ['docs-like recognition mark', '                docs_like=true\n                recognized=true', '                docs_like=true', 'docs-like recognition mark'],
+      ['package/workflow recognition mark', '                package_or_workflow=true\n                recognized=true', '                package_or_workflow=true', 'package/workflow recognition mark'],
+      ['workflow run-all recognition mark', '                run_all=true\n                recognized=true', '                run_all=true', 'workflow run-all recognition mark'],
+      ['shared recognition mark', '              src/contracts/*|src/schemas/*)\n                recognized=true', '              src/contracts/*|src/schemas/*)', 'shared contracts/schemas recognition mark'],
+      ['backend recognition mark', 'src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)\n                recognized=true', 'src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)', 'backend recognition mark'],
+      ['web/Playwright recognition mark', 'web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)\n                recognized=true', 'web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)', 'web/Playwright recognition mark'],
+      ['unknown fail-closed call', '              fail_closed "unknown changed non-doc path: $file"', '              docs_only=false', 'unknown non-doc path fail-closed handling'],
       ['non-doc clearing', 'if [[ "$docs_like" != true ]]; then', 'if [[ "$docs_like" == true ]]; then', 'non-doc clearing'],
       ['empty-list handling', 'if [[ ! -s changed-files.txt ]]; then', 'if [[ -s changed-files.txt ]]; then', 'empty-list routine/docs-only'],
       ['initial docs-only', '              else\n                docs_only=true\n                while IFS= read -r changed_file;', '              else\n                while IFS= read -r changed_file;', 'normal-list initial docs-only'],
-      ['run-all promotion', '          if [[ "$run_all" == true ]]; then', '          if [[ "$run_all" == false ]]; then', 'run-all promotion'],
+      ['loop termination', '                  if [[ "$run_all" == true ]]; then\n                    break\n                  fi\n', '', 'changed-file loop termination after run-all'],
+      ['ordinary summary guard removal', '                if [[ "$run_all" != true ]]; then\n                  summary="classified $(wc -l < changed-files.txt | tr -d \' \') changed file(s)"\n                fi', '                summary="classified $(wc -l < changed-files.txt | tr -d \' \') changed file(s)"', 'ordinary classified-count summary guard'],
+      ['ordinary summary guard inversion', '                if [[ "$run_all" != true ]]; then\n                  summary="classified $(wc -l < changed-files.txt | tr -d \' \') changed file(s)"\n                fi', '                if [[ "$run_all" == true ]]; then\n                  summary="classified $(wc -l < changed-files.txt | tr -d \' \') changed file(s)"\n                fi', 'ordinary classified-count summary guard'],
+      ['run-all promotion', '          if [[ "$run_all" == true ]]; then\n            backend=true', '          if [[ "$run_all" == false ]]; then\n            backend=true', 'run-all promotion'],
       ['package promotion', '          elif [[ "$package_or_workflow" == true ]]; then', '          elif [[ "$package_or_workflow" == false ]]; then', 'package/workflow promotion'],
       ['event dispatch remnant', '          base=', '          echo pull_request\n          base=', 'obsolete event/backstop token pull_request'],
       ['push event-selection dispatch', '          base=', "          if [[ \"\${{ github.event_name }}\" == push ]]; then :; fi\n          base=", 'must not contain event-selection dispatch'],

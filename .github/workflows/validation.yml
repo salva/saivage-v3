@@ -53,32 +53,38 @@ jobs:
           classify_file() {
             local file="$1"
             local docs_like=false
+            local recognized=false
 
             case "$file" in
               docs/*|architecture-audit/*|audit-findings/*|ui-findings/*|*.md|README.md|EADME.md)
                 docs_like=true
+                recognized=true
                 ;;
             esac
 
             case "$file" in
               package.json|package-lock.json|web/package.json|web/package-lock.json|.github/workflows/*)
                 package_or_workflow=true
+                recognized=true
                 ;;
             esac
 
             case "$file" in
               .github/workflows/*)
                 run_all=true
+                recognized=true
                 ;;
             esac
 
             case "$file" in
-              src/contracts/*)
+              src/contracts/*|src/schemas/*)
+                recognized=true
                 backend=true
                 ui=true
                 browser=true
                 ;;
               src/*|src/**/*|bin/*|bin/**/*|scripts/*|scripts/**/*|tests/*|tests/**/*|jest.config.*|tsconfig*.json)
+                recognized=true
                 if [[ "$file" != tests/playwright/* ]]; then
                   backend=true
                 fi
@@ -87,10 +93,16 @@ jobs:
 
             case "$file" in
               web/*|web/**/*|tests/playwright/*|tests/playwright/**/*)
+                recognized=true
                 ui=true
                 browser=true
                 ;;
             esac
+
+            if [[ "$recognized" != true ]]; then
+              fail_closed "unknown changed non-doc path: $file"
+              return 0
+            fi
 
             if [[ "$docs_like" != true ]]; then
               docs_only=false
@@ -120,8 +132,13 @@ jobs:
                 while IFS= read -r changed_file; do
                   [[ -z "$changed_file" ]] && continue
                   classify_file "$changed_file"
+                  if [[ "$run_all" == true ]]; then
+                    break
+                  fi
                 done < changed-files.txt
-                summary="classified $(wc -l < changed-files.txt | tr -d ' ') changed file(s)"
+                if [[ "$run_all" != true ]]; then
+                  summary="classified $(wc -l < changed-files.txt | tr -d ' ') changed file(s)"
+                fi
               fi
             fi
           fi

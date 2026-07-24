@@ -588,19 +588,40 @@ function validateClassifier({ file, jobs, failures, checked }) {
     ['git diff failure fail-closed check', /! git diff --name-only "\$base" "\$head" > changed-files\.txt[\s\S]*fail_closed 'git diff failed'/],
     ['docs-like path class', /docs\/\*\|architecture-audit\/\*\|audit-findings\/\*\|ui-findings\/\*\|\*\.md\|README\.md\|EADME\.md/],
     ['package/workflow path class', /package\.json\|package-lock\.json\|web\/package\.json\|web\/package-lock\.json\|\.github\/workflows\/\*/],
-    ['workflow run-all path class', /\.github\/workflows\/\*\)[\s\S]*?run_all=true/],
-    ['contracts backend/UI/browser path class', /src\/contracts\/\*\)[\s\S]*?backend=true[\s\S]*?ui=true[\s\S]*?browser=true/],
-    ['backend path class with Playwright exclusion', /src\/\*\|src\/\*\*\/\*\|bin\/\*\|bin\/\*\*\/\*\|scripts\/\*\|scripts\/\*\*\/\*\|tests\/\*\|tests\/\*\*\/\*\|jest\.config\.\*\|tsconfig\*\.json\)[\s\S]*?"\$file" != tests\/playwright\/\*/],
-    ['web/Playwright UI and browser path class', /web\/\*\|web\/\*\*\/\*\|tests\/playwright\/\*\|tests\/playwright\/\*\*\/\*\)[\s\S]*?ui=true[\s\S]*?browser=true/],
+    ['shared contracts/schemas path class', /src\/contracts\/\*\|src\/schemas\/\*\)/],
+    ['backend path class', /src\/\*\|src\/\*\*\/\*\|bin\/\*\|bin\/\*\*\/\*\|scripts\/\*\|scripts\/\*\*\/\*\|tests\/\*\|tests\/\*\*\/\*\|jest\.config\.\*\|tsconfig\*\.json\)/],
+    ['web/Playwright path class', /web\/\*\|web\/\*\*\/\*\|tests\/playwright\/\*\|tests\/playwright\/\*\*\/\*\)/],
+    ['recognition initialization', /local recognized=false/],
+    ['unknown non-doc path fail-closed handling', /if \[\[ "\$recognized" != true \]\]; then\s+fail_closed "unknown changed non-doc path: \$file"\s+return 0\s+fi/],
     ['non-doc clearing', /if \[\[ "\$docs_like" != true \]\]; then[\s\S]*?docs_only=false/],
     ['empty-list routine/docs-only handling', /if \[\[ ! -s changed-files\.txt \]\]; then[\s\S]*?docs_only=true[\s\S]*?routine\/docs only/],
     ['normal-list initial docs-only classification', /else\s+docs_only=true\s+while IFS= read -r changed_file/],
+    ['changed-file loop termination after run-all', /classify_file "\$changed_file"\s+if \[\[ "\$run_all" == true \]\]; then\s+break\s+fi/],
+    ['ordinary classified-count summary guard', /if \[\[ "\$run_all" != true \]\]; then\s+summary="classified \$\(wc -l < changed-files\.txt \| tr -d ' '\) changed file\(s\)"\s+fi/],
     ['run-all promotion', /if \[\[ "\$run_all" == true \]\]; then\s+backend=true\s+ui=true\s+browser=true\s+package_or_workflow=true\s+docs_only=false/],
     ['package/workflow promotion', /elif \[\[ "\$package_or_workflow" == true \]\]; then\s+backend=true\s+ui=true\s+browser=true/],
   ];
   for (const [label, pattern] of requirements) {
     requirePattern({ file, text: shell, label: `classifier ${label}`, pattern, failures, checked });
   }
+  const armBodies = {
+    'docs-like': shell.match(/docs\/\*\|architecture-audit\/\*\|audit-findings\/\*\|ui-findings\/\*\|\*\.md\|README\.md\|EADME\.md\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
+    'package/workflow': shell.match(/package\.json\|package-lock\.json\|web\/package\.json\|web\/package-lock\.json\|\.github\/workflows\/\*\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
+    'workflow run-all': shell.match(/^\s*\.github\/workflows\/\*\)([\s\S]*?)\n\s*;;/m)?.[1] ?? '',
+    'shared contracts/schemas': shell.match(/src\/contracts\/\*\|src\/schemas\/\*\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
+    backend: shell.match(/src\/\*\|src\/\*\*\/\*\|bin\/\*\|bin\/\*\*\/\*\|scripts\/\*\|scripts\/\*\*\/\*\|tests\/\*\|tests\/\*\*\/\*\|jest\.config\.\*\|tsconfig\*\.json\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
+    'web/Playwright': shell.match(/web\/\*\|web\/\*\*\/\*\|tests\/playwright\/\*\|tests\/playwright\/\*\*\/\*\)([\s\S]*?)\n\s*;;/)?.[1] ?? '',
+  };
+  for (const [name, body] of Object.entries(armBodies)) {
+    requirePattern({ file, text: body, label: `classifier ${name} recognition mark`, pattern: /recognized=true/, failures, checked });
+  }
+  requirePattern({ file, text: armBodies['workflow run-all'], label: 'classifier workflow run-all assignment', pattern: /run_all=true/, failures, checked });
+  for (const profile of ['backend', 'ui', 'browser']) {
+    requirePattern({ file, text: armBodies['shared contracts/schemas'], label: `classifier shared contracts/schemas ${profile} assignment`, pattern: new RegExp(`${profile}=true`), failures, checked });
+  }
+  requirePattern({ file, text: armBodies.backend, label: 'classifier backend Playwright exclusion', pattern: /"\$file" != tests\/playwright\/\*/, failures, checked });
+  requirePattern({ file, text: armBodies['web/Playwright'], label: 'classifier web/Playwright UI assignment', pattern: /ui=true/, failures, checked });
+  requirePattern({ file, text: armBodies['web/Playwright'], label: 'classifier web/Playwright browser assignment', pattern: /browser=true/, failures, checked });
   const failClosedBody = shell.match(/fail_closed\(\) \{([\s\S]*?)\n\s*\}/)?.[1] ?? '';
   requirePattern({ file, text: failClosedBody, label: 'classifier fail-closed run_all assignment', pattern: /run_all=true/, failures, checked });
   requirePattern({ file, text: failClosedBody, label: 'classifier fail-closed docs_only assignment', pattern: /docs_only=false/, failures, checked });
