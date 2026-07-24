@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService } from '../helpers/canonical-project.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
@@ -60,10 +61,10 @@ describe('complete-union deletion admission and order', () => {
     const deleting = new CardService(root, { cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects }, failingIo);
     let thrown: unknown;
     try { deleting.deleteSubtrees([left.id, right.id], () => true); } catch (error) { thrown = error; }
-    expect(thrown).toBe(failure);
+    expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
     expect(operations).toEqual([
       `open:${cardStreamFile(root, left.id)}`, 'stat', 'write', 'fsync', 'close',
-      `open:${cardStreamFile(root, right.id)}`, 'stat', 'write', 'close',
+      `open:${cardStreamFile(root, right.id)}`, 'stat', 'write',
     ]);
     expect(cardEffects).toHaveBeenCalledTimes(7);
     expect(cardEffects.mock.calls.map(([target]) => target)).toEqual([
@@ -93,8 +94,8 @@ describe('complete-union deletion admission and order', () => {
     const deleting = new CardService(root, { cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects }, failingIo);
     let thrown: unknown;
     try { deleting.deleteSubtrees([left.id, right.id], () => true); } catch (error) { thrown = error; }
-    expect(thrown).toBe(failure);
-    expect(operations).toEqual([`open:${cardStreamFile(root, left.id)}`, 'stat', 'write', 'fsync', 'close']);
+    expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+    expect(operations).toEqual([`open:${cardStreamFile(root, left.id)}`, 'stat', 'write', 'fsync']);
     expect(cardEffects).not.toHaveBeenCalled();
     expect(runtimeEffects).not.toHaveBeenCalled();
   });

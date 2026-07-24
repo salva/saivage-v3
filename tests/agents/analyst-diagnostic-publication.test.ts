@@ -5,12 +5,15 @@ import { join } from 'node:path';
 
 import { AnalystSession } from '../../src/agents/analyst-handler.js';
 import { createEventLog } from '../../src/observability/index.js';
-import { AppLogPublicationError, readAppLogEntries } from '../../src/persistence/app-log.js';
+import { readAppLogEntries } from '../../src/persistence/app-log.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 function session(projectRoot: string, eventLogger: ReturnType<typeof createEventLog>): AnalystSession {
   return new AnalystSession({
+    fatalPort: testApplicationFatalPort,
     projectRoot, sessionId: 'agent:analyst:global', config: {}, candidateChain: [], promptTemplates: {}, restartServerAvailable: false,
     provider: {}, conversations: { projectRoot }, compactionPolicy: {}, compactor: {}, summarizerProvider: {}, eventLogger, cardStore: {},
     runtimeProjectionChanged() {}, createInvocationSurface() { throw new Error('unused'); }, async shutdownProcesses() {},
@@ -41,8 +44,8 @@ describe('Analyst boundary diagnostics', () => {
     const value = session(projectRoot, createEventLog(projectRoot, () => hints.push('hint')));
     let thrown: unknown;
     try { publishDiagnostic(value, 'protocol_failed', diagnosed); } catch (error) { thrown = error; }
-    expect(thrown).toBeInstanceOf(AppLogPublicationError);
-    expect(thrown).toMatchObject({ entryType: 'event', operationError: diagnosed });
+    expect(thrown).toEqual(expect.objectContaining({ message: expect.any(String) }));
+    expect(thrown).not.toBeInstanceOf(PublicationOutcomeUnknownError);
     expect(hints).toEqual([]);
   });
 });

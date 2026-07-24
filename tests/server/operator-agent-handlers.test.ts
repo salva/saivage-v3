@@ -19,6 +19,7 @@ import { appLogFile } from '../../src/persistence/layout.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
 import type { ProviderExchangePayload } from '../../src/contracts/provider-exchange.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { createEventLog } from '../../src/observability/index.js';
@@ -63,7 +64,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const snapshots = jest.fn(() => { throw new Error('must not capture'); });
     const fastify = Fastify({ logger: false });
     const handlers = buildAgentOperatorContractHandlers({ projectRoot: '/nonexistent', runtimeApplication: { captureExecutingLlmSnapshots: snapshots } as unknown as RuntimeApplication });
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog('/nonexistent') }).mount(fastify, agentOperatorApiContracts, handlers);
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog('/nonexistent'), fatalPort: testApplicationFatalPort }).mount(fastify, agentOperatorApiContracts, handlers);
     try {
       for (const path of [`/api/agents/${encodeURIComponent(id)}`, `/api/agents/${encodeURIComponent(id)}/conversation`, `/api/agents/${encodeURIComponent(id)}/llm-exchange`]) {
         const response = await fastify.inject({ method: 'GET', url: path });
@@ -135,7 +136,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     writeFileSync(appLogFile(root), Buffer.concat([line, line]));
     const handlers = buildAgentOperatorContractHandlers({ projectRoot: root });
     const fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(root) }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(root), fatalPort: testApplicationFatalPort }).mount(
       fastify,
       { 'agents.llmExchange': agentOperatorApiContracts['agents.llmExchange'] },
       { 'agents.llmExchange': handlers['agents.llmExchange']! },

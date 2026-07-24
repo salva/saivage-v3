@@ -7,6 +7,7 @@ import type { WebSocket } from 'ws';
 import { CardService } from '../helpers/canonical-project.js';
 import type { LiveSyncInvalidateFrame } from '../../src/contracts/index.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { SyncHub } from '../../src/server/sync-hub.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -130,7 +131,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
       close: closeSync,
     };
     const failingCards = new CardService(root, hub, failingIo);
-    expect(() => failingCards.editCard(child.id, { title: 'outcome unknown' })).toThrow(failure);
+    expect(() => failingCards.editCard(child.id, { title: 'outcome unknown' })).toThrow(PublicationOutcomeUnknownError);
     expect(flush()).toEqual([]);
   });
 
@@ -150,7 +151,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     };
     const failingCards = new CardService(root, hub, failingIo);
 
-    expect(() => failingCards.closeRecord(child.id, 'status.md', draft.version, 'executor', cards.read(child.id)!.version_seq)).toThrow(failure);
+    expect(() => failingCards.closeRecord(child.id, 'status.md', draft.version, 'executor', cards.read(child.id)!.version_seq)).toThrow(PublicationOutcomeUnknownError);
     expect(flush()).toEqual([]);
   });
 

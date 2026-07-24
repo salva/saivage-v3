@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { invokeTool } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { createProcessProvider } from '../../src/tools/process-provider.js';
-import { createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
+import { cleanupTestProcessRunners, createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
@@ -35,7 +35,7 @@ function expectUnifiedProcessResult(data: unknown, processId?: string): void {
 
 function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
   const root = mkdtempSync(join(tmpdir(), 'saivage-process-provider-'));
-  return fn(root).finally(() => rmSync(root, { recursive: true, force: true }));
+  return fn(root).finally(async () => { await cleanupTestProcessRunners(root); rmSync(root, { recursive: true, force: true }); });
 }
 
 describe('process provider', () => {

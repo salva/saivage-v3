@@ -8,6 +8,7 @@ import {
   releaseRuntimeLifecycleLock,
   type RuntimeLifecycleLockHandle,
 } from '../runtime/lock.js';
+import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
 export interface DirectMutationComposition {
   readonly projectRoot: string;
@@ -18,10 +19,13 @@ export interface DirectMutationComposition {
 export function withDirectMutationComposition<T>(
   projectRoot: string,
   mode: 'init' | 'bound',
+  fatalPort: ApplicationFatalPort,
   operation: (composition: DirectMutationComposition) => T,
 ): T {
   const canonicalProjectRoot = realpathSync(projectRoot);
-  const lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: canonicalProjectRoot, mode });
+  let lifecycleLock: RuntimeLifecycleLockHandle;
+  try { lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: canonicalProjectRoot, mode }); }
+  catch (error) { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); throw error; }
   const composition: DirectMutationComposition = Object.freeze({
     projectRoot: canonicalProjectRoot,
     lifecycleLock,
@@ -31,9 +35,7 @@ export function withDirectMutationComposition<T>(
       return project;
     },
   });
-  try {
-    return operation(composition);
-  } finally {
-    releaseRuntimeLifecycleLock(lifecycleLock);
-  }
+  try { return operation(composition); }
+  catch (error) { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); throw error; }
+  finally { releaseRuntimeLifecycleLock(lifecycleLock); }
 }

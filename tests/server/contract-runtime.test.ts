@@ -8,8 +8,10 @@ import { z } from 'zod';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { createEventLog } from '../../src/observability/index.js';
-import { AppLogPublicationError, readAppLogEntries } from '../../src/persistence/app-log.js';
+import { readAppLogEntries } from '../../src/persistence/app-log.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { UnauthorizedErrorSchema } from '../../src/contracts/operator-api-core.js';
+import { testApplicationFatalDelivery, testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -25,7 +27,7 @@ describe('ContractRuntime app-log ownership', () => {
     const fastify = Fastify({ logger: false });
     const authPolicy = new AuthPolicy({ apiToken: 'required-token' });
     const validate = jest.spyOn(authPolicy, 'validateHttpRequest');
-    new ContractRuntime({ authPolicy, eventLogger: { appendEventPrepared: jest.fn() } as never }).mount(fastify, { operation: contract }, {
+    new ContractRuntime({ authPolicy, eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: contract }, {
       operation: () => ({ body: { ok: true } }),
     });
 
@@ -42,7 +44,7 @@ describe('ContractRuntime app-log ownership', () => {
     const validate = jest.spyOn(authPolicy, 'validateHttpRequest');
     const handler = jest.fn(() => ({ body: { ok: true } }));
     const operatorContract = { ...contract, auth: 'operator-session' as const, response: { ...contract.response, 401: UnauthorizedErrorSchema } };
-    new ContractRuntime({ authPolicy, eventLogger: { appendEventPrepared: jest.fn() } as never }).mount(fastify, { operation: operatorContract }, { operation: handler });
+    new ContractRuntime({ authPolicy, eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: operatorContract }, { operation: handler });
 
     const response = await fastify.inject({ method: 'GET', url: '/test' });
     await fastify.close();
@@ -58,7 +60,7 @@ describe('ContractRuntime app-log ownership', () => {
     const trace: string[] = [];
     const eventLogger = createEventLog(projectRoot, () => { trace.push('hint'); });
     const fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger }).mount(fastify, { operation: contract }, {
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: contract }, {
       operation: () => ({ body: { ok: false } }),
     });
     const response = await fastify.inject({ method: 'GET', url: '/test' });
@@ -74,14 +76,14 @@ describe('ContractRuntime app-log ownership', () => {
     let mounted: ((request: unknown, reply: unknown) => Promise<unknown>) | undefined;
     const fastify = { route: (route: { handler: typeof mounted }) => { mounted = route.handler; } } as unknown as FastifyInstance;
     const publicationCause = new Error('disk failed');
-    const publicationError = new AppLogPublicationError('event', publicationCause);
+    const publicationError = new PublicationOutcomeUnknownError();
     const eventLogger = { appendEventPrepared: jest.fn(() => { throw publicationError; }) } as never;
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger }).mount(fastify, { operation: contract }, {
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: contract }, {
       operation: () => ({ body: { ok: false } }),
     });
     const request = { params: {}, query: {}, headers: {}, log: { error: jest.fn() } };
     const reply = { status: jest.fn(() => ({ send: jest.fn() })), raw: { once: jest.fn() }, header: jest.fn() };
-    await expect(mounted!(request, reply)).rejects.toBe(publicationError);
+    await expect(mounted!(request, reply)).rejects.toBe(testApplicationFatalDelivery);
     expect(request.log.error).not.toHaveBeenCalled();
     expect(reply.status).not.toHaveBeenCalled();
   });
@@ -89,7 +91,7 @@ describe('ContractRuntime app-log ownership', () => {
   it('still normalizes unrelated handler failure to the fixed 500 response', async () => {
     const fastify = Fastify({ logger: false });
     const eventLogger = { appendEventPrepared: jest.fn() } as never;
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger }).mount(fastify, { operation: contract }, {
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: contract }, {
       operation: () => { throw new Error('ordinary failure'); },
     });
     const response = await fastify.inject({ method: 'GET', url: '/test' });

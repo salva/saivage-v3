@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { withDirectMutationComposition } from '../../src/boot/direct-mutation-composition.js';
 import { readProjectIdentity } from '../../src/persistence/project-identity.js';
 import { runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -14,7 +15,7 @@ describe('direct mutation composition', () => {
   it('holds the lifecycle lock through init identity publication and releases it afterward', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-mutation-'));
     roots.push(root);
-    const project = withDirectMutationComposition(root, 'init', (composition) => {
+    const project = withDirectMutationComposition(root, 'init', testApplicationFatalPort, (composition) => {
       expect(existsSync(runtimeProcessLockFile(root))).toBe(true);
       return composition.createAndBindProjectIdentity();
     });
@@ -25,7 +26,7 @@ describe('direct mutation composition', () => {
   it('releases the exact lock when the direct mutation fails', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-mutation-failure-'));
     roots.push(root);
-    expect(() => withDirectMutationComposition(root, 'init', () => { throw new Error('mutation failed'); })).toThrow('mutation failed');
+    expect(() => withDirectMutationComposition(root, 'init', testApplicationFatalPort, () => { throw new Error('mutation failed'); })).toThrow('mutation failed');
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });
 });

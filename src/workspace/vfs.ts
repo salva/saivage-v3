@@ -11,6 +11,7 @@ import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export type VfsMode = 'read' | 'write' | 'search';
 
@@ -228,7 +229,7 @@ function recordSummaries(reader: AuthoredRecordReader, cardId: string): RecordSu
 type LatestClosedRecordEntry = RecordProjection;
 
 function latestClosedRecordEntry(reader: AuthoredRecordReader, cardId: string, definition: RecordDefinition): LatestClosedRecordEntry | null {
-  try { return reader.record(cardId, definition.filename, 'latest'); } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return null; throw error; }
+  try { return reader.record(cardId, definition.filename, 'latest'); } catch (error) { throwIfPublicationOutcomeUnknown(error); if (error instanceof AuthoredRecordNotFoundError) return null; throw error; }
 }
 
 export async function listScopedPath(ctx: VfsContext, raw: string): Promise<VfsListing> {

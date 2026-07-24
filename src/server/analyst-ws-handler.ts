@@ -8,7 +8,7 @@ import type { RestartPort } from '../boot/restart-port.js';
 import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { projectAnalystToolInvocationActivity } from './tool-activity-projection.js';
-import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 import type { GlobalConversationSessionId } from '../schemas/index.js';
 
 export interface AnalystWsHandlerOptions {
@@ -18,6 +18,7 @@ export interface AnalystWsHandlerOptions {
   runtimeApplication: RuntimeApplication;
   restartPort?: RestartPort;
   sendToClient: (ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void) => void;
+  fatalPort: ApplicationFatalPort;
 }
 
 export class AnalystWsHandler {
@@ -55,7 +56,7 @@ export class AnalystWsHandler {
           void restartPort!.acknowledge();
         });
       } catch (err) {
-        rethrowAppLogPublicationError(err);
+        this.deliverPublicationFatal(err);
         this.options.sendToClient(ws, {
           type: 'error',
           content: {
@@ -73,15 +74,20 @@ export class AnalystWsHandler {
 
   private queueTurn(ws: WebSocket, turn: () => Promise<void>): Promise<void> {
     const previous = this.turnQueues.get(ws) ?? Promise.resolve();
-    const next = previous.catch(() => undefined).then(async () => {
+    const next = previous.catch((error) => { this.deliverPublicationFatal(error); }).then(async () => {
       if (ws.readyState !== ws.OPEN) return;
       await turn();
     });
     this.turnQueues.set(ws, next);
-    next.finally(() => {
-      if (this.turnQueues.get(ws) === next) this.turnQueues.delete(ws);
-    }).catch(() => undefined);
+    void next.then(
+      () => { if (this.turnQueues.get(ws) === next) this.turnQueues.delete(ws); },
+      (error) => { this.deliverPublicationFatal(error); if (this.turnQueues.get(ws) === next) this.turnQueues.delete(ws); },
+    );
     return next;
+  }
+
+  private deliverPublicationFatal(error: unknown): void {
+    if (error instanceof PublicationOutcomeUnknownError) this.options.fatalPort.publicationOutcomeUnknown(error);
   }
 
   private rawToString(raw: Buffer | ArrayBuffer | Buffer[]): string {

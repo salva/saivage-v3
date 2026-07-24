@@ -3,7 +3,7 @@ import type { ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
 import type { AnalystMutationOutcome } from '../application/analyst-mutation-services.js';
-import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface AnalystMutationReadContext {
   readonly projectRoot: string;
@@ -38,7 +38,7 @@ function paramsSummary(params: unknown): string {
 
 export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>, signal?: AbortSignal): Promise<ToolResult> {
   let settled = false;
-  const settle = (entry: { outcome: 'denied' | 'error' | 'ok'; outcome_summary: string; error?: string }, operationError?: unknown): void => {
+  const settle = (entry: { outcome: 'denied' | 'error' | 'ok'; outcome_summary: string; error?: string }): void => {
     if (settled) throw new Error(`Analyst control action '${spec.action}' was settled more than once.`);
     settled = true;
     recordControlAction(ctx.projectRoot, () => ({
@@ -50,7 +50,7 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       params_summary: paramsSummary(params),
       safety_class: spec.safety_class,
       ...entry,
-    }), operationError);
+    }));
   };
   let result: ToolResult;
   try {
@@ -77,10 +77,10 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       });
     }
   } catch (error) {
-    rethrowAppLogPublicationError(error);
+    throwIfPublicationOutcomeUnknown(error);
     if (settled) throw error;
     const summary = error instanceof Error ? error.message : String(error);
-    settle({ outcome: 'error', outcome_summary: summary, error: summary }, error);
+    settle({ outcome: 'error', outcome_summary: summary, error: summary });
     throw error;
   }
   signal?.throwIfAborted();

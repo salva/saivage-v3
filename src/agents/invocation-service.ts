@@ -23,6 +23,7 @@ import {
 } from './candidate-request.js';
 import type { PreparedCompaction } from '../runtime/actors/llm-invocation.js';
 import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
 import { executeLlmProviderAttempt } from './llm-provider-attempt.js';
 
@@ -231,6 +232,7 @@ export class InvocationService {
           provider_private_context: result.provider_private_context,
         };
       } catch (err) {
+        throwIfPublicationOutcomeUnknown(err);
         if (err instanceof CandidateRequestPlanIntegrityError) throw err;
         if (err instanceof CandidateAdmissionError) {
           record.state = 'EXHAUSTED';
@@ -311,7 +313,6 @@ export class InvocationService {
     sourceInputId: string,
     attempts: ProviderExchangeAttempt[],
     assistantOutputIds: string[],
-    operationError?: unknown,
   ): void {
     for (const attempt of attempts) {
       appendAppLogEntry(
@@ -339,7 +340,6 @@ export class InvocationService {
             },
           };
         },
-        { operationError: operationError ?? (attempt.status === 'error' ? attempt.error : undefined) },
       );
       if (ConversationSessionIdSchema.safeParse(sessionId).success)
         this.freshness.agentsChanged();

@@ -5,7 +5,7 @@ import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
-    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds, operationError) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds, operationError),
+    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
   };
 }
 

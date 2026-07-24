@@ -13,6 +13,7 @@ import type { AuthPolicy } from '../auth-policy.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 import type { EventLog } from '../../observability/index.js';
 import type { CompiledRuntimeWorkflows } from '../../runtime/card-process/card-process-config.js';
+import type { ApplicationFatalPort } from '../../contracts/index.js';
 
 export function registerServerRoutes(options: {
   fastify: FastifyInstance;
@@ -27,6 +28,7 @@ export function registerServerRoutes(options: {
   authPolicy: AuthPolicy;
   eventLogger: EventLog;
   workflows: CompiledRuntimeWorkflows;
+  fatalPort: ApplicationFatalPort;
 }): void {
   const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager });
 
@@ -44,6 +46,7 @@ export function registerServerRoutes(options: {
     authPolicy: options.authPolicy,
     eventLogger: options.eventLogger,
     workflows: options.workflows,
+    fatalPort: options.fatalPort,
   });
   registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.authPolicy);
   registerWebSocket(options.fastify, options.projectRoot, {
@@ -52,5 +55,6 @@ export function registerServerRoutes(options: {
     saivageConfig: options.saivageConfig,
     runtimeApplication: options.runtimeApplication,
     restartPort: options.restartPort,
+    fatalPort: options.fatalPort,
   });
 }

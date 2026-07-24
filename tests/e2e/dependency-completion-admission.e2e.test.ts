@@ -11,6 +11,7 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
@@ -34,6 +35,7 @@ type RuntimeOwnership = {
 
 function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> }): SupervisorRuntimeApi {
   return new SupervisorRuntimeApi({
+    fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     projectRoot,
     actorStore: cards,
@@ -123,7 +125,7 @@ describe('dependency-completion activation admission E2E', () => {
     };
     const registry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
-    const processRunner = new ProcessRunner(projectRoot, registry);
+    const processRunner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
     const supervisor = runtime(projectRoot, cards, processRunner, runtimeProcessRootScope, provider);
     const ownership = supervisor as unknown as RuntimeOwnership;
     const started = await supervisor.startProject();

@@ -14,6 +14,7 @@ import { LlmRequestError } from './llm-errors.js';
 import { classifyTransportFailure } from './llm-failure-classifiers.js';
 import { createProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export async function executeLlmProviderAttempt(args: {
   projectRoot: string;
@@ -101,6 +102,7 @@ export async function executeLlmProviderAttempt(args: {
       ...(parsed.privateContext ? { provider_private_context: parsed.privateContext } : {}),
     };
   } catch (caught) {
+    throwIfPublicationOutcomeUnknown(caught);
     if (exchangeRecorded) throw caught;
     exchangeRecorded = true;
     const evidence = rawErrorEvidence(caught);

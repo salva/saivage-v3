@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import Fastify from 'fastify';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operator-mcp-handlers.js';
 import { mcpOperatorApiContracts } from '../../src/contracts/operator-api-mcp.js';
 import type { McpToolsReadModelProvider, McpStatusProvider } from '../../src/mcp/manager-api.js';
@@ -15,7 +16,7 @@ afterEach(async () => {
 function mountRoutes(options: { mcpStatusProvider?: McpStatusProvider; mcpToolsProvider?: McpToolsReadModelProvider }) {
   const fastify = Fastify({ logger: false });
   fastifies.push(fastify);
-  const runtime = new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: {} as never });
+  const runtime = new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: {} as never, fatalPort: testApplicationFatalPort });
   runtime.mount(fastify, mcpOperatorApiContracts, buildMcpOperatorContractHandlers(options));
   return fastify;
 }

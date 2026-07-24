@@ -5,11 +5,11 @@ import { conversationSessionIdentity,globalAgentSessionId,type AgentMessage, typ
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import { validateConversationRows } from '../../../contracts/conversation-compaction.js';
 import { providerConversationProjection } from '../conversation-session.js';
-import { rethrowAppLogPublicationError } from '../../../persistence/app-log.js';
+import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 
 export interface SummarizerProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
-  projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[], operationError?: unknown): void;
+  projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void;
 }
 export type MergeSummaryInput = { round_id: string; summary_text: string };
 
@@ -32,12 +32,12 @@ export async function summarizeMerge(args: { entries: MergeSummaryInput[]; summa
 async function invokeSummaryTurn(input: LlmInvocationInput, provider: SummarizerProviderPort, signal: AbortSignal): Promise<ProviderTurnCompletion> {
   try {
     const completion = await provider.completeTurn(input, signal);
-    projectSummaryExchanges(provider, input, completion.provider_exchanges, completion);
+    projectSummaryExchanges(provider, input, completion.provider_exchanges);
     return completion;
   } catch (error) {
-    rethrowAppLogPublicationError(error);
+    throwIfPublicationOutcomeUnknown(error);
     if (!(error instanceof ProviderTurnFailure)) throw error;
-    projectSummaryExchanges(provider, input, error.provider_exchanges, error);
+    projectSummaryExchanges(provider, input, error.provider_exchanges);
     throw error;
   }
 }
@@ -46,9 +46,8 @@ function projectSummaryExchanges(
   provider: SummarizerProviderPort,
   input: LlmInvocationInput,
   attempts: ProviderExchangeAttempt[],
-  providerOutcome: ProviderTurnCompletion | ProviderTurnFailure,
 ): void {
-  provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, [], providerOutcome instanceof ProviderTurnFailure ? providerOutcome.originalFailure : undefined);
+  provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, []);
 }
 
 function buildSummaryInput(inputId: string, sessionId: ConversationSessionId, systemPrompt: string, providerConversation: LlmInvocationInput['providerConversation']): LlmInvocationInput {

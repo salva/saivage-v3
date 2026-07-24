@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createAppTerminalCoordinator } from '../../../src/boot/app.js';
 import { RuntimeInterventionBinding } from '../../../src/application/intervention-readiness.js';
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
+import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
 import { ConversationLLMActor, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
@@ -41,6 +42,7 @@ function harness(provider: LLMProviderPort = { completeTurn: async (_input: unkn
   let armed = false;
   let failureDelivered = false;
   const supervisor = new SupervisorRuntimeApi({
+    fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     projectRoot,
     actorStore: cards,

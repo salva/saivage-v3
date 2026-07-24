@@ -19,7 +19,7 @@ import { redactForOutbound } from '../redaction/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { AnalystWsHandler } from './analyst-ws-handler.js';
 import type { RestartPort } from '../boot/restart-port.js';
-import { AppLogPublicationError } from '../persistence/app-log.js';
+import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
 export type { WsEnvelope, WsEventType };
 
@@ -62,6 +62,7 @@ export interface RegisterWebSocketOptions {
   saivageConfig: SaivageConfig;
   runtimeApplication: RuntimeApplication;
   restartPort?: RestartPort;
+  fatalPort: ApplicationFatalPort;
 }
 
 export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, options: RegisterWebSocketOptions): void {
@@ -73,6 +74,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
     runtimeApplication: options.runtimeApplication,
     restartPort: options.restartPort,
     sendToClient,
+    fatalPort: options.fatalPort,
   });
   fastify.get(
     '/ws',
@@ -96,10 +98,7 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
         if (!liveSyncSocket.isAdmissionOpen()) return;
         void analystWsHandler.handleRawMessage(ws, raw).catch((error) => {
-          if (error instanceof AppLogPublicationError) {
-            request.log.error({ code: 'app_log_publication_failed', entryType: error.entryType, transport: 'websocket' }, 'Required app-log publication failed');
-            return;
-          }
+          if (error instanceof PublicationOutcomeUnknownError) options.fatalPort.publicationOutcomeUnknown(error);
           request.log.error({ code: 'analyst_websocket_message_failed', transport: 'websocket' }, 'Analyst WebSocket message failed');
         });
       });

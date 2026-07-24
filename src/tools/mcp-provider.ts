@@ -1,7 +1,7 @@
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
 import { defineTool, type ToolProvider } from './invocation.js';
-import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
 
 export interface McpProviderContext {
@@ -21,7 +21,7 @@ export function createMcpProvider(ctx: McpProviderContext): ToolProvider {
             const data = await ctx.mcpToolInvocation.invokeTool(args.serverName, args.toolName, args.args ?? {});
             return { success: true, data };
           } catch (error) {
-            rethrowAppLogPublicationError(error);
+            throwIfPublicationOutcomeUnknown(error);
             if (error instanceof McpToolInvocationNotInstalledError) throw error;
             return { success: false, error: error instanceof Error ? error.message : String(error) };
           }

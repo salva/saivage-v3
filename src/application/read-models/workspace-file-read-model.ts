@@ -9,6 +9,7 @@ import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './ca
 import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
 import { cardIdSchema } from '../../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
+import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
@@ -75,6 +76,7 @@ function parseRecordContentRequest(requestedPath: string,records:CanonicalCardFi
   if (!parsedCardId.success) return { kind: 'invalid', error: 'Invalid record URL.' };
   try { records.definition(parsedCardId.data, filename); }
   catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
     if (error instanceof AuthoredRecordDefinitionNotFoundError) return { kind: 'invalid', error: 'Invalid record URL.' };
     if (!(error instanceof AuthoredRecordNotFoundError)) throw error;
   }
@@ -311,6 +313,7 @@ export class WorkspaceFileReadModelService {
         if (record.artifact.state !== 'closed') return { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } };
         return { body: { path: record.recordUrl, size: Buffer.byteLength(record.artifact.content), contentType: 'text/markdown', content: record.artifact.content, redacted: false, sensitivity: 'normal', version: record.version, modifiedAt: record.artifact.committed_at } };
       } catch (error) {
+        throwIfPublicationOutcomeUnknown(error);
         if (error instanceof AuthoredRecordNotFoundError) return { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } };
         throw error;
       }

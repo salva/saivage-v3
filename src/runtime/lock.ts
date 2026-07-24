@@ -15,6 +15,7 @@ import { dirname, join } from 'node:path';
 import { runtimeProcessLockFile } from '../persistence/layout.js';
 import { replaceFile } from '../persistence/replace-file.js';
 import { parseProjectIdentity, projectIdentityDigest, readProjectIdentity } from '../persistence/project-identity.js';
+import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 
 export interface RuntimeControlEndpoint {
   readonly origin: string;
@@ -47,7 +48,10 @@ export interface RuntimeLockConfig {
   readonly lockFilePath?: string;
   readonly readProcessStartIdentity?: (pid: number) => string;
   readonly probeProcess?: (pid: number) => 'live' | 'dead' | 'indeterminate';
+  readonly publicationIo?: RuntimeLockPublicationIo;
 }
+export interface RuntimeLockPublicationIo { open: typeof openSync; write: typeof writeSync; fsync: typeof fsyncSync; close: typeof closeSync }
+const runtimeLockPublicationIo: RuntimeLockPublicationIo = { open: openSync, write: writeSync, fsync: fsyncSync, close: closeSync };
 
 declare const runtimeLifecycleLockHandleBrand: unique symbol;
 export interface RuntimeLifecycleLockHandle { readonly [runtimeLifecycleLockHandleBrand]: never }
@@ -219,9 +223,11 @@ export function acquireRuntimeLifecycleLock(input: {
   const record: RuntimeLockOwnerRecord = project === null
     ? { ...base, lock_state: 'bootstrap_unbound', project_identity: null, control_endpoint: null }
     : { ...base, lock_state: 'bound', project_identity: projectIdentityDigest(project), control_endpoint: null };
+  const bytes = Buffer.from(`${JSON.stringify(record, null, 2)}\n`);
+  const io = input.config?.publicationIo ?? runtimeLockPublicationIo;
   let fd: number;
   try {
-    fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
+    fd = io.open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
   } catch (error) {
     if (isErrno(error, 'EEXIST')) {
       const status = readRuntimeLockStatus(canonicalProjectRoot, input.config);
@@ -230,18 +236,24 @@ export function acquireRuntimeLifecycleLock(input: {
     }
     throw error;
   }
+  let offset = 0;
   try {
-    const bytes = Buffer.from(`${JSON.stringify(record, null, 2)}\n`);
-    let offset = 0;
-    while (offset < bytes.byteLength) offset += writeSync(fd, bytes, offset, bytes.byteLength - offset);
-    fsyncSync(fd);
-  } catch (error) {
-    closeSync(fd);
-    unlinkSync(path);
-    throw error;
-  }
-  closeSync(fd);
-  syncDirectory(dirname(path));
+    while (offset < bytes.byteLength) {
+      let written: number;
+      try { written = io.write(fd, bytes, offset, bytes.byteLength - offset); }
+      catch (error) {
+        if (offset === 0 && (error as NodeJS.ErrnoException & { bytesWritten?: number }).code === 'EINTR' && (error as { bytesWritten?: number }).bytesWritten === 0) continue;
+        throw error;
+      }
+      if (written === 0) throw new Error('zero progress');
+      offset += written;
+    }
+    io.fsync(fd);
+    io.close(fd);
+    const parentFd = io.open(dirname(path), constants.O_RDONLY);
+    io.fsync(parentFd);
+    io.close(parentFd);
+  } catch { throw new PublicationOutcomeUnknownError(); }
   const handle = {} as RuntimeLifecycleLockHandle;
   ownershipByHandle.set(handle, { active: true, canonicalProjectRoot, canonicalRootHash: base.canonical_root_hash, lockFilePath: path, record });
   return handle;

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { appLogEntrySchema, type AppLogEntry } from '../../src/contracts/app-log.js';
-import { AppLogPublicationError, appendAppLogEntry, readAppLogEntries } from '../../src/persistence/app-log.js';
+import { appendAppLogEntry, readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
 
@@ -26,21 +26,19 @@ describe('strict app-log publication', () => {
     expect(appLogEntrySchema.safeParse({ type: 'content_review', data: { id: 'review' } }).success).toBe(false);
   });
 
-  it('wraps preparation and validation once with exact operation context before filesystem work', () => {
+  it('preserves preparation and validation failures before filesystem work', () => {
     const projectRoot = root();
     const preparationFailure = new Error('prepare failed');
-    const operationError = new Error('operation failed');
     let thrown: unknown;
-    try { appendAppLogEntry(projectRoot, 'event', () => { throw preparationFailure; }, { operationError }); }
+    try { appendAppLogEntry(projectRoot, 'event', () => { throw preparationFailure; }); }
     catch (error) { thrown = error; }
-    expect(thrown).toBeInstanceOf(AppLogPublicationError);
-    expect(thrown).toMatchObject({ entryType: 'event', publicationCause: preparationFailure, operationError });
+    expect(thrown).toBe(preparationFailure);
     expect(existsSync(join(projectRoot, '.saivage'))).toBe(false);
 
-    expect(() => appendAppLogEntry(projectRoot, 'event', () => ({ type: 'control_action' } as never))).toThrow(AppLogPublicationError);
-    expect(() => appendAppLogEntry(projectRoot, 'event', () => ({ type: 'event', data: { kind: 'runtime_diagnostic' } } as never))).toThrow(AppLogPublicationError);
+    expect(() => appendAppLogEntry(projectRoot, 'event', () => ({ type: 'control_action' } as never))).toThrow(/returned/);
+    expect(() => appendAppLogEntry(projectRoot, 'event', () => ({ type: 'event', data: { kind: 'runtime_diagnostic' } } as never))).toThrow();
 
-    const existing = new AppLogPublicationError('event', new Error('already wrapped'));
+    const existing = new Error('ordinary preparation failure');
     expect(() => appendAppLogEntry(projectRoot, 'event', () => { throw existing; })).toThrow(existing);
   });
 

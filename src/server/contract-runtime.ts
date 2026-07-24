@@ -2,12 +2,13 @@ import type { FastifyInstance, FastifyRequest, RouteOptions } from 'fastify';
 import type { z } from 'zod';
 import type { AuthPolicy } from './auth-policy.js';
 import type { EventLog } from '../observability/index.js';
-import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import {
   UNEXPECTED_INTERNAL_SERVER_ERROR,
   type OperatorRouteContract,
 } from '../contracts/index.js';
 import { ConversationSessionIdSchema, cardIdSchema } from '../schemas/index.js';
+import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
 function assertNever(value: never): never {
   throw new Error(`Unsupported contract authentication class: ${String(value)}`);
@@ -57,6 +58,7 @@ export interface ContractHandlerResult {
 export interface ContractRuntimeOptions {
   eventLogger: EventLog;
   authPolicy: AuthPolicy;
+  fatalPort: ApplicationFatalPort;
 }
 
 type FailureCode =
@@ -103,10 +105,12 @@ function isPermissionAllowed(result: Awaited<ReturnType<ContractPermissionPredic
 export class ContractRuntime {
   private readonly eventLogger: EventLog;
   private readonly authPolicy: AuthPolicy;
+  private readonly fatalPort: ApplicationFatalPort;
 
   constructor(options: ContractRuntimeOptions) {
     this.eventLogger = options.eventLogger;
     this.authPolicy = options.authPolicy;
+    this.fatalPort = options.fatalPort;
   }
 
   mount<TContracts extends Record<string, OperatorRouteContract>>(
@@ -198,7 +202,8 @@ export class ContractRuntime {
           final = { statusCode: candidate.statusCode, body: parsedResponse?.success ? parsedResponse.data : candidate.body };
 
         } catch (error) {
-          rethrowAppLogPublicationError(error);
+          if (error instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(error);
+          throwIfPublicationOutcomeUnknown(error);
           request.log.error(
             { operation: contract.operationId, failureCode, ...safeIdentity },
             'Operator contract operation failed',

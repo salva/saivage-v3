@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, readRuntimeLockStatus, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
 describe('five-way runtime lifecycle lock classification', () => {
   let root: string;
@@ -56,5 +57,29 @@ describe('five-way runtime lifecycle lock classification', () => {
     const unreadablePath = join(root, '.saivage', 'locks');
     mkdirSync(unreadablePath, { recursive: true });
     expect(readRuntimeLockStatus(root, { lockFilePath: unreadablePath }).kind).toBe('indeterminate');
+  });
+
+  it('repeats only a proven-zero first-write EINTR after known empty creation', () => {
+    let writes = 0;
+    handle = acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound', config: { publicationIo: {
+      open: openSync,
+      write: ((...args: Parameters<typeof writeSync>) => { writes += 1; if (writes === 1) throw Object.assign(new Error('interrupted'), { code: 'EINTR', bytesWritten: 0 }); return Reflect.apply(writeSync, undefined, args); }) as typeof writeSync,
+      fsync: fsyncSync,
+      close: closeSync,
+    } } });
+    expect(writes).toBe(2);
+    expect(readRuntimeLockStatus(root).kind).toBe('live');
+  });
+
+  it('leaves the known empty lock namespace and types unknown first-write failure', () => {
+    const lockPath = join(root, '.saivage', 'locks', 'runtime.lock');
+    expect(() => acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound', config: { publicationIo: {
+      open: openSync,
+      write: (() => { throw Object.assign(new Error('interrupted'), { code: 'EINTR' }); }) as typeof writeSync,
+      fsync: fsyncSync,
+      close: closeSync,
+    } } })).toThrow(PublicationOutcomeUnknownError);
+    expect(readFileSync(lockPath)).toHaveLength(0);
+    expect(readRuntimeLockStatus(root).kind).toBe('malformed');
   });
 });

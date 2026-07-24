@@ -30,8 +30,7 @@ import { stabilizeAgentSession } from './conversation-recovery.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { cardParentId } from '../../schemas/card-id.js';
 import { deferred } from './deferred.js';
-import { AppLogPublicationError } from '../../persistence/app-log.js';
-import { RecordAcceptanceOutcomeUnknown } from './agent-node-execution.js';
+import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
 
 export interface SupervisorRuntimeApiOptions {
   projectRoot: string; now?: () => string;
@@ -42,6 +41,7 @@ export interface SupervisorRuntimeApiOptions {
   workflows: CompiledRuntimeWorkflows; processPrompts: ProcessPromptRegistry;
   runtimeGate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort;
   processIdentity: RuntimeProcessIdentity;
+  fatalPort: ApplicationFatalPort;
 }
 
 declare const supervisorLaunchPlanBrand: unique symbol;
@@ -287,7 +287,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const parentControl = this.boundParentControl(card.id, activationId);
     const process = this.behavior.workflows.cardTypes.get(card.type);
     if (!process) throw new Error(`No compiled workflow for card type '${card.type}'.`);
-    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, candidateChains:this.behavior.workflows.candidateChains,processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => this.ownershipInvalidated(), onActorMainFailure: (error) => this.onProcessorActorMainFailure(card.id, activationId, error), gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
+    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, candidateChains:this.behavior.workflows.candidateChains,processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => this.ownershipInvalidated(), onActorMainFailure: (error) => this.onProcessorActorMainFailure(card.id, activationId, error), fatalPort: this.behavior.fatalPort, gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
     processor.start();
     return new CardActivationOwner({ card, store: this.behavior.actorStore, processor, activationId, entry, caller, phase, parentRelationship: relationship ?? undefined, alreadyStabilizedAgents: stabilized });
   }
@@ -298,16 +298,15 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller: owner.caller, entry: owner.entry, alreadyStabilizedAgents: owner.alreadyStabilizedAgents, notificationDelivery: { selectNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications; }, removeNotifications: (ids: readonly string[]) => { this.requireOwnerAuthority(owner); owner.store.removeNotifications(owner.cardId, [...ids]); } }, claimResult: () => this.claimResult(owner) };
     void owner.processor.activate(input, owner.abortController.signal).then((outcome) => this.settleResult(owner, outcome), (error) => {
       if (this.halt?.owners.includes(owner) || owner.terminalWinner === 'cancel') return;
-      if (error instanceof AppLogPublicationError || error instanceof RecordAcceptanceOutcomeUnknown) {
-        void this.beginHalt('publication_failure', owner, error).catch(() => undefined);
-        return;
+      if (error instanceof PublicationOutcomeUnknownError) {
+        this.behavior.fatalPort.publicationOutcomeUnknown(error);
       }
       const message = error instanceof Error ? error.message : String(error);
       void this.settleResult(owner, { status: 'failed', summary: message, result: { kind: 'runtime-failure', summary: message } });
     });
   }
 
-  private onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void {
+  private onProcessorActorMainFailure(cardId: string, activationId: string, _error: unknown): void {
     const owner = this.activationOwners.get(cardId);
     const halt = this.halt;
     if (halt) {
@@ -527,6 +526,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       this.requireOwnerAuthority(owner);
       return result;
     } catch (error) {
+      if (error instanceof PublicationOutcomeUnknownError) this.behavior.fatalPort.publicationOutcomeUnknown(error);
       void this.beginHalt('publication_failure', owner, error as Error).catch(() => undefined);
       return null;
     }

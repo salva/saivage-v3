@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { providerExchangeLogId } from '../../src/contracts/provider-exchange-log.js';
-import { AppLogPublicationError, readAppLogEntries } from '../../src/persistence/app-log.js';
+import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import type { FreshnessEffects } from '../../src/application/freshness-effects.js';
 import { projectProviderExchangeForPublication } from '../../src/agents/provider-exchange-projection.js';
@@ -192,8 +192,7 @@ describe('provider exchange publication security projection', () => {
 
     let thrown: unknown;
     try { service.projectProviderExchanges(sessionId, sourceInputId, [attempt], []); } catch (error) { thrown = error; }
-    expect(thrown).toBeInstanceOf(AppLogPublicationError);
-    expect((thrown as AppLogPublicationError).publicationCause).toEqual(expect.objectContaining({ message: expect.stringMatching(/does not match/) }));
+    expect(thrown).toEqual(expect.objectContaining({ message: expect.stringMatching(/does not match/) }));
     expect(readAppLogEntries(root)).toEqual([]);
   });
 });

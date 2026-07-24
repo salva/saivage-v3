@@ -16,7 +16,7 @@ import { defineTool, type ToolProvider, type ToolResult } from './invocation.js'
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import type { PlannerChildControlPort } from '../runtime/actors/card-activation-owner.js';
 import { cardParentId } from '../schemas/card-id.js';
-import { rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { plannerCancelCardInputSchema, plannerCreateCardInputSchema, plannerEditCardInputSchema, plannerQueueNotificationInputSchema, plannerReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { parseAgentName } from '../schemas/agent-name.js';
 
@@ -111,7 +111,7 @@ async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<ty
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');
   if (record.card_id === 'project' || cardParentId(record.card_id) !== ctx.parentCardId) return failure(`cancel_card can target only immediate children of '${ctx.parentCardId}'.`);
   try { return { success: true, data: await ctx.parentControl.cancelChild({ childCardId: record.card_id, reason: record.reason ?? 'planner_cancel_card' }) }; }
-  catch (error) { rethrowAppLogPublicationError(error); if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
+  catch (error) { throwIfPublicationOutcomeUnknown(error); if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
 }
 
 async function activateCard(ctx: PlannerControlProviderContext, record: ActivateCardArguments, invocation?: LlmToolInvocationContext): Promise<ToolResult> {
@@ -123,7 +123,7 @@ async function activateCard(ctx: PlannerControlProviderContext, record: Activate
     const activation = await ctx.parentControl.activateChild({ childCardId: record.card_id, invocation: lease });
     return formatActivateCardResult(record.card_id, activation);
   } catch (error) {
-    rethrowAppLogPublicationError(error);
+    throwIfPublicationOutcomeUnknown(error);
     if (isRuntimeStoppedInterruption(error)) throw error;
     return { success: false, error: error instanceof Error ? error.message : String(error) };
   }

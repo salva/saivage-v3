@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { createAppTerminalCoordinator } from '../../src/boot/app.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 describe('App real managed-process cleanup', () => {
   it('allows production TERM grace, KILL escalation, and absence verification inside the App bound', async () => {
@@ -12,7 +13,7 @@ describe('App real managed-process cleanup', () => {
     try {
       const registry = new ManagedProcessGroupRegistry();
       const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
-      const runner = new ProcessRunner(projectRoot, registry);
+      const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
       const scope = runner.createDirectScope(runtimeProcessRootScope, 'resistant-runtime', 'runtime_card');
       const processRecord = runner.spawn({
         command: "trap '' TERM; while true; do sleep 1; done",

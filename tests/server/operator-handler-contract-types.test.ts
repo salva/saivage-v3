@@ -19,6 +19,7 @@ import { buildChatOperatorContractHandlers } from '../../src/server/routes/opera
 import { buildProcessOperatorContractHandlers } from '../../src/server/routes/operator-process-handlers.js';
 import type { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ContractRuntime, type ContractPreSendReply } from '../../src/server/contract-runtime.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 
 declare const runtimeApplication: RuntimeApplication;
@@ -40,7 +41,7 @@ function processFactoryDependencyTypeFixtures(): void {
 }
 
 function contractRuntimeDependencyTypeFixtures(): void {
-  new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: null as never });
+  new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: null as never, fatalPort: testApplicationFatalPort });
 }
 
 const handlers = defineOperatorContractHandlers({

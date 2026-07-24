@@ -11,6 +11,7 @@ import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
@@ -34,9 +35,10 @@ type RuntimeOwnership = {
 
 function runtime(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>; projectProviderExchanges?: (sessionId: string, inputId: string, attempts: ProviderExchangeAttempt[], outputIds: string[]) => void }, processes?: { processRunner: ProcessRunner; runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope }): SupervisorRuntimeApi {
   const registry = processes ? null : new ManagedProcessGroupRegistry();
-  const processRunner = processes?.processRunner ?? new ProcessRunner(projectRoot, registry!);
+  const processRunner = processes?.processRunner ?? new ProcessRunner(projectRoot, registry!, testApplicationFatalPort);
   const runtimeProcessRootScope = processes?.runtimeProcessRootScope ?? registry!.createContainerScope(registry!.rootScope, 'runtime-cards');
   return new SupervisorRuntimeApi({
+    fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
     conversations: { projectRoot },
@@ -247,7 +249,7 @@ describe('failed child activation lifecycle E2E', () => {
     const initialVersion = cards.read(child.id)!.version_seq;
     const registry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
-    const processRunner = new ProcessRunner(projectRoot, registry);
+    const processRunner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
     jest.spyOn(processRunner, 'closeAndTerminateDirectScope').mockResolvedValue({ selected: ['cleanup'], stopped: [], failed: [{ groupId: 'cleanup', state: 'unconfirmed', diagnostic: 'cleanup exploded' }] });
     let executorCalls = 0;
     let plannerCalls = 0;

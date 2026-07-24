@@ -8,6 +8,7 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/c
 import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
 import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface ProcessProviderContext {
   readonly projectRoot: string;
@@ -152,12 +153,14 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
               const pending = waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
               await (invocation ? invocation.waits.waitProcess(record.id, pending) : pending);
             } catch (err) {
+              throwIfPublicationOutcomeUnknown(err);
               await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted', graceMs: 5000 });
               if (isAbortError(err, signal)) return { success: true, data: processResult(ctx, record.id) };
               throw err;
             }
             return { success: true, data: processResult(ctx, record.id) };
           } catch (err) {
+            throwIfPublicationOutcomeUnknown(err);
             if (isAbortError(err, signal)) throw err;
             return failureFromError(err);
           }
@@ -178,6 +181,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             if (result.timedOut) return { success: true, data: processResult(ctx, args.process_id) };
             return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {
+            throwIfPublicationOutcomeUnknown(err);
             if (isAbortError(err, signal)) throw err;
             return failureFromError(err);
           }
@@ -194,6 +198,7 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
             if (!record) throw new Error(`Unknown process '${args.process_id}'.`);
             return { success: true, data: processResult(ctx, args.process_id) };
           } catch (err) {
+            throwIfPublicationOutcomeUnknown(err);
             return failureFromError(err);
           }
         },

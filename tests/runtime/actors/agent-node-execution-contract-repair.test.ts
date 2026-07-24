@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/llm-actor.js';
-import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
+import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import type { InvocationSurface, ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
 
 type ToolOutcome = Extract<LLMActorOutcome, { type: 'tool_call' }>;
@@ -306,13 +306,13 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'done' }]);
   });
 
-  it('rethrows app-log publication failure after cleanup and ahead of cleanup failure', async () => {
-    const publication = new AppLogPublicationError('event', new Error('write failed'));
+  it('rethrows publication uncertainty before cleanup', async () => {
+    const publication = new PublicationOutcomeUnknownError();
     const cleanup = new Error('cleanup failed');
     const test = harness({ initial: nonterminal('lookup-1'), toolExecutor: async () => { throw publication; }, cleanupError: cleanup });
 
     await expect(test.run()).rejects.toBe(publication);
-    expect(test.cleanupReasons).toEqual([{ kind: 'publication_terminal', error: publication }]);
-    expect(test.events.slice(-2)).toEqual(['tool-execute', 'cleanup']);
+    expect(test.cleanupReasons).toEqual([]);
+    expect(test.events.at(-1)).toBe('tool-execute');
   });
 });

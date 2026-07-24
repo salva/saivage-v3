@@ -7,6 +7,7 @@ import { replaceConfigYaml } from './config-file.js';
 import { compileProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 import type { WorkflowCompileOptions } from '../runtime/card-process/card-process-config.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export type ConfigSelectionSource =
   | { readonly kind: 'cli'; readonly argument: '--config' }
@@ -106,6 +107,7 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
         requires_restart: true,
       };
     } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
       const failure = error as Error & { fieldPath?: string };
       return { success: false as const, fieldPath: failure.fieldPath ?? '/', message: failure.message };
     }

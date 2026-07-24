@@ -13,6 +13,7 @@ import type {
 } from '../../contracts/index.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import type { CompiledProjectWorkflows } from '../../runtime/card-process/card-process-config.js';
+import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 
 type AgentListResponse = OperatorApiSuccess<'agents.list'>;
 type AgentActivityStatus = OperatorApiSuccess<'agents.conversation'>['activity_status'];
@@ -55,6 +56,7 @@ export class AgentOperatorReadModelService {
     let messages: AgentMessage[];
     try { messages = readConversation(this.projectRoot, parsed).physicalRows; }
     catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { statusCode: 404, body: { error: 'Agent session not found' } };
       throw error;
     }
@@ -69,6 +71,7 @@ export class AgentOperatorReadModelService {
     let messages: AgentMessage[];
     try { messages = readConversation(this.projectRoot, parsed).physicalRows; }
     catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { statusCode: 404, body: { error: 'Agent session not found' } };
       throw error;
     }

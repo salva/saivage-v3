@@ -24,7 +24,7 @@ import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, typ
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
-import { AppLogPublicationError, rethrowAppLogPublicationError } from '../../persistence/app-log.js';
+import { PublicationOutcomeUnknownError, throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 
 export interface AcceptedNodeResult {
@@ -85,7 +85,6 @@ export class AgentNodeExecution {
     const scope = needsProcessScope ? this.executorScope(input, args.nodeOrdinal) : null;
     const surface = this.buildSurface(node, input, sessionId, scope, args.nodeOrdinal);
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
-    let publicationFailure: AppLogPublicationError | null = null;
     let reviewerPair = node.descendantContext ? this.captureReviewerPair(input.card.id, node.descendantContext.records.map((record)=>record.name)) : null;
     let primaryCompletion: { kind: 'success'; value: AcceptedNodeResult } | { kind: 'failure'; reason: unknown };
     try {
@@ -115,7 +114,7 @@ export class AgentNodeExecution {
             if (!parsed.success) throw new Error(parsed.error.message);
             nodeResult = parsed.data;
           }
-          catch (error) { rethrowAppLogPublicationError(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal); continue; }
+          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, { success: false, error: this.correction(node, [errorMessage(error)]) }, signal); continue; }
           const route = processNodeTransition(process, stateId, nodeResult.outcome);
           const target = process.states.get(route.target);
           if (!target || (target.kind !== 'node' && target.kind !== 'terminal')) throw new Error(`Compiled node '${node.nodeId}' has invalid target '${route.target}'.`);
@@ -163,19 +162,16 @@ export class AgentNodeExecution {
         outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId));
       }
     } catch (error) {
-      if (error instanceof AppLogPublicationError) publicationFailure = error;
+      if (error instanceof PublicationOutcomeUnknownError) throw error;
       primaryCompletion = { kind: 'failure', reason: error };
     }
     let cleanupCompletion: { kind: 'success' } | { kind: 'failure'; reason: unknown };
     try {
-      await cleanupInvocationSurface(surface, publicationFailure
-        ? { kind: 'publication_terminal', error: publicationFailure }
-        : { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
+      await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
       cleanupCompletion = { kind: 'success' };
     } catch (error) {
       cleanupCompletion = { kind: 'failure', reason: error };
     }
-    if (publicationFailure) throw publicationFailure;
     if (cleanupCompletion.kind === 'failure') throw cleanupCompletion.reason;
     if (primaryCompletion.kind === 'failure') throw primaryCompletion.reason;
     return primaryCompletion.value;
@@ -254,7 +250,7 @@ export class AgentNodeExecution {
   }
   private closeAcceptedRecords(node: ProcessNodeMetadata, candidates: ReadonlyMap<string, RecordProjection>): Array<{name:string;url:string;version:number}> {
     const currentCard = this.deps.store.read(this.deps.cardId); if (!currentCard) throw new Error(`Card '${this.deps.cardId}' disappeared before record closure.`);
-    const accepted:Array<{name:string;url:string;version:number}>=[];for(const[closeIndex,requirement]of node.requirements.entries()){const filename=requirement.definition.name;const candidate=candidates.get(filename)!;if(candidate.artifact.state!=='open'){accepted.push({name:filename,url:candidate.recordUrl,version:candidate.version});continue;}try{const closed=this.deps.store.closeRecord(this.deps.cardId,filename,candidate.version,node.agent.name as never,currentCard.version_seq);accepted.push({name:filename,url:closed.recordUrl,version:closed.version});}catch{throw new RecordAcceptanceOutcomeUnknown(this.deps.cardId,node.nodeId,closeIndex);}}return accepted;
+    const accepted:Array<{name:string;url:string;version:number}>=[];for(const requirement of node.requirements){const filename=requirement.definition.name;const candidate=candidates.get(filename)!;if(candidate.artifact.state!=='open'){accepted.push({name:filename,url:candidate.recordUrl,version:candidate.version});continue;}const closed=this.deps.store.closeRecord(this.deps.cardId,filename,candidate.version,node.agent.name as never,currentCard.version_seq);accepted.push({name:filename,url:closed.recordUrl,version:closed.version});}return accepted;
   }
   private discardOpenRecord(filename: string, reason: string): void { try { const open = this.deps.store.readRecord(this.deps.cardId, filename, 'open'); this.deps.store.discardRecord(this.deps.cardId, filename, open.version, reason); } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return; throw error; } }
   private directChildren(cardId: string): CardRecord[] { return this.deps.store.listChildren(cardId).map((id) => this.deps.store.read(id)).filter((card): card is CardRecord => card !== null); }
@@ -274,5 +270,3 @@ function compareRecord(candidate: RecordProjection, baseline: NonNullable<Record
 function firstIncompleteDescendant(cardId: string, store: CardService): { id: string; status: string } | null { for (const childId of store.listChildren(cardId)) { const child = store.read(childId); if (!child) throw new Error(`Child '${childId}' was listed but not found.`); if (child.lifecycle.status !== 'done' && child.lifecycle.status !== 'cancelled') return { id: child.id, status: child.lifecycle.status }; const nested = firstIncompleteDescendant(childId, store); if (nested) return nested; } return null; }
 function closedRecordFingerprint(store: CardService, cardId: string,filename:string): ReviewerSnapshot['includedRecordVersions'][number] { try { const record = store.readRecord(cardId, filename, 'latest'); return { cardId, filename, latest: record.version, contentHash: createHash('sha256').update(record.artifact.content).digest('hex') }; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return { cardId, filename, latest: null, contentHash: null }; throw error; } }
 function semanticCardFingerprint(card: CardRecord): string { return createHash('sha256').update(JSON.stringify({ id: card.id, type: card.type, parent: cardParentId(card.id), children: card.children, title: card.title, status: card.lifecycle.status, lifecycle: card.lifecycle, depends_on: card.depends_on, related: card.related, tags: card.tags, priority: card.priority, urgency: card.urgency, metadata: card.metadata, metrics: card.metrics, status_text: card.status_text })).digest('hex'); }
-
-export class RecordAcceptanceOutcomeUnknown extends Error { readonly code='record_acceptance_outcome_unknown';constructor(readonly cardId:string,readonly nodeId:string,readonly failedCloseIndex:number){super(`Record acceptance close outcome is unknown for card '${cardId}', node '${nodeId}', close index ${failedCloseIndex}.`);this.name='RecordAcceptanceOutcomeUnknown';} }

@@ -13,8 +13,17 @@ import type { NewProjectRootInput } from '../boot/app.js';
 import type { RecordDefinition } from '../records/record-definition.js';
 import type { RecordName } from '../schemas/index.js';
 import type { CompiledCardTypeWorkflow } from '../runtime/card-process/card-process-config.js';
+import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 
 export interface CardArtifactIndex { readonly artifacts: CardVersionArtifact[]; readonly current: CardVersionArtifact; readonly tombstone: CardTombstone | null; readonly snapshot: CanonicalGrowingFileSnapshot<CardVersionArtifact | CardTombstone> }
+export interface CardRecordSlotReadIo {
+  stat: typeof fstatSync;
+  read: typeof readFileSync;
+  truncate: typeof ftruncateSync;
+  fsync: typeof fsyncSync;
+  close: typeof closeSync;
+}
+const cardRecordSlotReadIo: CardRecordSlotReadIo = { stat: fstatSync, read: readFileSync, truncate: ftruncateSync, fsync: fsyncSync, close: closeSync };
 
 function requireDirectory(path: string): void {
   const stat = lstatSync(path);
@@ -181,31 +190,45 @@ export function readCanonicalCardFilesMetadata(projectRoot: string, cardId: stri
   return { kind: 'found', value: { card: canonicalProjection(reached.target), files } };
 }
 
-function readRecordSlotSnapshot(
+export function readRecordSlotSnapshot(
   path: string,
   descriptor: number,
   cardId: string,
   definition: RecordDefinition,
   maximumBytes: number,
+  io: CardRecordSlotReadIo,
 ): { readonly kind: 'found'; readonly snapshot: CanonicalGrowingFileSnapshot<unknown> } | { readonly kind: 'too-large'; readonly size: number } {
+  let truncationStarted = false;
+  let descriptorOwned = true;
+  const close = (): void => { descriptorOwned = false; io.close(descriptor); };
   try {
-    const initial = fstatSync(descriptor);
+    const initial = io.stat(descriptor);
     if (!initial.isFile()) throw new Error(`Canonical card artifact '${path}' must be a regular file.`);
-    if (initial.size > maximumBytes) return { kind: 'too-large', size: initial.size };
-    let bytes = readFileSync(descriptor);
-    if (bytes.byteLength > maximumBytes) return { kind: 'too-large', size: bytes.byteLength };
+    if (initial.size > maximumBytes) { close(); return { kind: 'too-large', size: initial.size }; }
+    let bytes = io.read(descriptor);
+    if (bytes.byteLength > maximumBytes) { close(); return { kind: 'too-large', size: bytes.byteLength }; }
     if (bytes.byteLength > 0 && bytes[bytes.byteLength - 1] !== 0x0a) {
       const finalNewline = bytes.lastIndexOf(0x0a);
       const canonicalLength = finalNewline < 0 ? 0 : finalNewline + 1;
-      ftruncateSync(descriptor, canonicalLength);
-      fsyncSync(descriptor);
-      bytes = bytes.subarray(0, canonicalLength);
+      truncationStarted = true;
+      let final: ReturnType<typeof fstatSync>;
+      try {
+        io.truncate(descriptor, canonicalLength);
+        io.fsync(descriptor);
+        bytes = bytes.subarray(0, canonicalLength);
+        final = io.stat(descriptor);
+        close();
+      } catch { throw new PublicationOutcomeUnknownError(); }
+      const rows = validateRecordStream(parseGrowingFile(path, bytes.toString('utf8'), recordVersionArtifactSchema), path, cardId, definition);
+      return { kind: 'found', snapshot: Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() }) };
     }
     const rows = validateRecordStream(parseGrowingFile(path, bytes.toString('utf8'), recordVersionArtifactSchema), path, cardId, definition);
-    const final = fstatSync(descriptor);
+    const final = io.stat(descriptor);
+    close();
     return { kind: 'found', snapshot: Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() }) };
-  } finally {
-    closeSync(descriptor);
+  } catch (error) {
+    if (!truncationStarted && descriptorOwned) { try { close(); } catch { /* pre-truncation failure remains authoritative */ } }
+    throw error;
   }
 }
 
@@ -215,6 +238,7 @@ export function readCanonicalCardFileContent(
   slot: CanonicalCardFileSlot,
   maximumBytes: number,
   definitions:readonly RecordDefinition[],
+  recordSlotIo: CardRecordSlotReadIo = cardRecordSlotReadIo,
 ): CanonicalCardFileContentRead {
   const reached = proveActiveCardPathWithRoot(projectRoot, cardId);
   if (!reached) return { kind: 'card-not-found' };
@@ -232,7 +256,7 @@ export function readCanonicalCardFileContent(
     if (!definition.bootstrap && (error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'slot-not-found' };
     throw error;
   }
-  const result = readRecordSlotSnapshot(path, descriptor, cardId, definition, maximumBytes);
+  const result = readRecordSlotSnapshot(path, descriptor, cardId, definition, maximumBytes, recordSlotIo);
   if (result.kind === 'too-large') return result;
   return { kind: 'found', value: { card: reached.target.current.card, slot, snapshot: result.snapshot } };
 }

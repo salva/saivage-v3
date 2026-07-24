@@ -8,6 +8,7 @@ import { eventsOperatorApiContracts } from '../../src/contracts/operator-api-eve
 import { appLogFile } from '../../src/persistence/layout.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildEventsOperatorContractHandlers } from '../../src/server/routes/operator-events-handlers.js';
 import { createEventLog } from '../../src/observability/index.js';
 
@@ -23,7 +24,7 @@ describe('operator Events handler boundary', () => {
     roots.push(projectRoot);
     const fastify = Fastify({ logger: false });
     const handlers = buildEventsOperatorContractHandlers({ projectRoot });
-    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot) }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(
       fastify,
       eventsOperatorApiContracts,
       handlers,

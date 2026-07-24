@@ -3,6 +3,7 @@ import type { Stats } from 'node:fs';
 import { z } from 'zod';
 
 import { replaceFile, type PublicationTemporaryIdFactory, type ReplacementFileIo } from './replace-file.js';
+import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 
 export interface GrowingFileIo {
   open: typeof openSync; stat: (descriptor: number) => Stats; write: typeof writeSync; fsync: typeof fsyncSync; close: typeof closeSync;
@@ -72,23 +73,40 @@ export function readCanonicalGrowingFileSnapshot<Row>(
   instrumentation?: CanonicalReadInstrumentation,
 ): CanonicalGrowingFileSnapshot<Row> {
   const descriptor = io.open(path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  let descriptorOwned = true;
+  const close = (): void => { descriptorOwned = false; io.close(descriptor); };
+  let bytes: Buffer;
   try {
     const initial = io.stat(descriptor);
     if (!initial.isFile()) throw new Error(`Canonical growing file '${path}' must be a regular file.`);
     instrumentation?.onRead(path);
-    let bytes = io.read(descriptor);
-    if (bytes.byteLength > 0 && bytes[bytes.byteLength - 1] !== 0x0a) {
-      const finalNewline = bytes.lastIndexOf(0x0a);
-      const canonicalLength = finalNewline < 0 ? 0 : finalNewline + 1;
+    bytes = io.read(descriptor);
+  } catch (error) {
+    if (descriptorOwned) { try { close(); } catch { /* pre-truncation failure remains authoritative */ } }
+    throw error;
+  }
+  if (bytes.byteLength > 0 && bytes[bytes.byteLength - 1] !== 0x0a) {
+    const finalNewline = bytes.lastIndexOf(0x0a);
+    const canonicalLength = finalNewline < 0 ? 0 : finalNewline + 1;
+    let final: Stats;
+    try {
       io.truncate(descriptor, canonicalLength);
       io.fsync(descriptor);
       bytes = bytes.subarray(0, canonicalLength);
-    }
+      final = io.stat(descriptor);
+      close();
+    } catch { throw new PublicationOutcomeUnknownError(); }
+    const rows = parseGrowingFile(path, bytes.toString('utf8'), rowSchema);
+    return Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() });
+  }
+  try {
     const rows = parseGrowingFile(path, bytes.toString('utf8'), rowSchema);
     const final = io.stat(descriptor);
+    close();
     return Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() });
-  } finally {
-    io.close(descriptor);
+  } catch (error) {
+    if (descriptorOwned) { try { close(); } catch { /* pre-truncation failure remains authoritative */ } }
+    throw error;
   }
 }
 
@@ -130,26 +148,23 @@ export function appendEnvelope(
     throw error;
   }
 
-  let operationFailed = false;
-  let operationFailure: unknown;
   try {
     if (!io.stat(fd).isFile()) throw new Error(`Growing-file append target '${target}' must be a regular file.`);
-    let offset = 0;
+  } catch (error) { try { io.close(fd); } catch { /* pre-publication close does not displace admission failure */ } throw error; }
+  let offset = 0;
+  try {
     while (offset < bytes.byteLength) {
-      const written = io.write(fd, bytes, offset, bytes.byteLength - offset);
-      if (written === 0) throw new Error(`Growing-file append made no progress at '${target}'.`);
+      let written: number;
+      try { written = io.write(fd, bytes, offset, bytes.byteLength - offset); }
+      catch (error) {
+        if (offset === 0 && (error as NodeJS.ErrnoException & { bytesWritten?: number }).code === 'EINTR' && (error as { bytesWritten?: number }).bytesWritten === 0) continue;
+        throw error;
+      }
+      if (written === 0) throw new Error('zero progress');
       offset += written;
     }
     io.fsync(fd);
-  } catch (error) {
-    operationFailed = true;
-    operationFailure = error;
-  }
-  try {
     io.close(fd);
-  } catch (error) {
-    if (!operationFailed) throw error;
-  }
-  if (operationFailed) throw operationFailure;
+  } catch { throw new PublicationOutcomeUnknownError(); }
   return { kind: 'appended' };
 }

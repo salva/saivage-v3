@@ -6,6 +6,7 @@ import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { conversationFile } from '../runtime/actors/conversation-inventory.js';
 import { listCards } from './card-files.js';
 import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface ConversationFileContext {
   readonly projectRoot: string;
@@ -31,7 +32,7 @@ export function readConversation(projectRoot: string, sessionId: ConversationSes
 
 function readInventoryCandidate(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation | null {
   try { return readConversation(projectRoot, sessionId); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
 }
 
 export function readConversationInventory(projectRoot: string,workflows:CompiledProjectWorkflows): readonly ConversationInventoryEntry[] {
@@ -63,6 +64,7 @@ export function appendConversationBatch(conversations: ConversationFileContext, 
   let current: ValidatedConversation;
   try { current = readConversation(conversations.projectRoot, sessionId); }
   catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     current = validateConversationRows(sessionId, []);
   }

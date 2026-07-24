@@ -8,6 +8,7 @@ type AuthoredRecordReader = { record(cardId: string, filename: string, version?:
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export type ScopedPathMode = 'read' | 'write' | 'search';
 export type ScopedPathErrorFactory = (message: string) => Error;
@@ -55,6 +56,7 @@ function toolFacingErrorMessage(error: unknown): string {
 function readRecordOrNotFound(ctx: ResolveScopedPathContext, read: () => RecordProjection): RecordProjection {
   try { return read(); }
   catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
     if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
     throw error;
   }
@@ -63,6 +65,7 @@ function readRecordOrNotFound(ctx: ResolveScopedPathContext, read: () => RecordP
 function recordDefinitionOrNotFound(ctx: ResolveScopedPathContext, cardId: string, filename: string): RecordDefinition {
   try { return ctx.records!.definition(cardId, filename); }
   catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
     if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
     throw error;
   }

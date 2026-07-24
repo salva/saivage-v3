@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { EventQueryService } from '../../src/application/event-query-service.js';
 import { createEventLog } from '../../src/observability/event-logger.js';
 import { appLogFile } from '../../src/persistence/layout.js';
-import { AppLogPublicationError } from '../../src/persistence/app-log.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 const roots: string[] = [];
@@ -61,8 +60,7 @@ describe('logged event outbound projection', () => {
         actionable_error: { code: 'future_code', message: 'message', nextAction: 'next', currentState: { value: 'unknown' } },
       });
     } catch (error) { thrown = error; }
-    expect(thrown).toBeInstanceOf(AppLogPublicationError);
-    expect((thrown as AppLogPublicationError).publicationCause).toEqual(expect.objectContaining({ message: expect.stringMatching(/unclassified currentState/) }));
+    expect(thrown).toEqual(expect.objectContaining({ message: expect.stringMatching(/unclassified currentState/) }));
   });
 });
 

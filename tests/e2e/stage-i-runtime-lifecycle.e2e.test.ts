@@ -8,6 +8,7 @@ import { workflowResult } from '../helpers/workflow-result.js';
 import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
@@ -26,6 +27,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
   const registry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
   return new SupervisorRuntimeApi({
+    fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     projectRoot,
     actorStore: cards,
@@ -33,7 +35,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
     provider,
     conversations: { projectRoot },
     freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
-    processRunner: new ProcessRunner(projectRoot, registry),
+    processRunner: new ProcessRunner(projectRoot, registry, testApplicationFatalPort),
     runtimeProcessRootScope,
     promptTemplates: { render: () => 'test prompt' },
   });

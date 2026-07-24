@@ -25,7 +25,7 @@ export class McpInvocationStatsRecorder {
       success,
       duration_ms: durationMs,
       ...(operationError === undefined ? {} : { error: operationError instanceof Error ? operationError.message : String(operationError) }),
-    }), { operationError });
+    }));
   }
 
   snapshot(): Record<string, McpInvocationStat> {

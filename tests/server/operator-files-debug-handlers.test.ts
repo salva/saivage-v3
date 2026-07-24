@@ -8,6 +8,7 @@ import { CardService, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-projec
 import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildFilesDebugOperatorContractHandlers } from '../../src/server/routes/operator-files-debug-handlers.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { appLogFile, cardNamespace } from '../../src/persistence/layout.js';
@@ -29,7 +30,7 @@ describe('operator files and debug contract handlers', () => {
     cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cardServiceProvider = jest.fn(() => cards);
     fastify = Fastify({ logger: false });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot) }).mount(
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(
       fastify,
       filesDebugOperatorApiContracts,
       buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider, configAuthority: createTestConfigAuthority(projectRoot), workflows: TEST_RUNTIME_WORKFLOWS }),

@@ -30,7 +30,7 @@ import type { SummarizerProviderPort } from '../runtime/actors/compaction/summar
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { randomUUID } from 'node:crypto';
-import { AppLogPublicationError, rethrowAppLogPublicationError } from '../persistence/app-log.js';
+import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
 
 export interface WorkspaceContext {
@@ -137,6 +137,7 @@ export class AnalystSession {
   readonly #createInvocationSurface: () => InvocationSurface;
   readonly #shutdownProcesses: () => Promise<void>;
   readonly #llm: ConversationLLMActor;
+  readonly #fatalPort: ApplicationFatalPort;
   #phase: AnalystSessionPhase = { kind: 'idle', restartConfirmation: null };
   readonly #retiredOperationTrackers = new Set<ActivationOperationTracker>();
 
@@ -158,6 +159,7 @@ export class AnalystSession {
     runtimeProjectionChanged(): void;
     createInvocationSurface(): InvocationSurface;
     shutdownProcesses(): Promise<void>;
+    fatalPort: ApplicationFatalPort;
   }) {
     this.#projectRoot = input.projectRoot;
     this.#sessionId = input.sessionId;
@@ -173,7 +175,8 @@ export class AnalystSession {
     this.#runtimeProjectionChanged = input.runtimeProjectionChanged;
     this.#createInvocationSurface = input.createInvocationSurface;
     this.#shutdownProcesses = input.shutdownProcesses;
-    this.#llm = new ConversationLLMActor({ agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged });
+    this.#fatalPort = input.fatalPort;
+    this.#llm = new ConversationLLMActor({ agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged, fatalPort: input.fatalPort });
   }
 
   submit(input: AnalystTurnInput): Promise<AnalystTurnResult> {
@@ -214,6 +217,7 @@ export class AnalystSession {
         this.markCancellationPublished(operation, reason);
         this.finishCancellationRevocation(operation, reason);
       } catch (error) {
+        this.#deliverPublicationFatal(error);
         operation.outcome = { kind: 'failed', error };
         operation.tracker.revoke(error);
         if (!operation.abort.signal.aborted) operation.abort.abort(error);
@@ -233,7 +237,7 @@ export class AnalystSession {
     let surface: InvocationSurface;
     try {
       surface = this.#createInvocationSurface();
-    } catch (error) { throw new RecoverablePreparationError(error); }
+    } catch (error) { this.#deliverPublicationFatal(error); throw new RecoverablePreparationError(error); }
     const preparedInput = this.prepareInvocationInput(surface);
     this.assertCurrent(operation, signal);
     operation.step = { kind: 'starting', ingress: 'publishing', cancellationRequested: null };
@@ -339,7 +343,7 @@ export class AnalystSession {
       ? [buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)]
       : [...buildAnalystIngressRows(this.#sessionId,operation.acceptedOperationId, buildWorkspaceContextNote(operation.input.workspaceContext), operation.input.userContent), buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)];
     try { appendConversationBatch(this.#conversations, rows); this.markCancellationPublished(operation, reason); this.finishCancellationRevocation(operation, reason); }
-    catch (error) { operation.outcome = { kind: 'failed', error }; operation.tracker.revoke(error); operation.abort.abort(error); }
+    catch (error) { this.#deliverPublicationFatal(error); operation.outcome = { kind: 'failed', error }; operation.tracker.revoke(error); operation.abort.abort(error); }
     return true;
   }
 
@@ -347,7 +351,7 @@ export class AnalystSession {
     if (!this.claimOuterCancellation(operation, reason)) return false;
     const rows = restartPublished ? [buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)] : [...buildAnalystRestartRows(this.#sessionId,operation.acceptedOperationId, operation.input.userContent), buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)];
     try { appendConversationBatch(this.#conversations, rows); this.markCancellationPublished(operation, reason); this.finishCancellationRevocation(operation, reason); }
-    catch (error) { operation.outcome = { kind: 'failed', error }; operation.tracker.revoke(error); operation.abort.abort(error); }
+    catch (error) { this.#deliverPublicationFatal(error); operation.outcome = { kind: 'failed', error }; operation.tracker.revoke(error); operation.abort.abort(error); }
     return true;
   }
 
@@ -369,7 +373,7 @@ export class AnalystSession {
   }
 
   private logBoundaryDiagnostic(phase: string, err: unknown): void {
-    this.#eventLogger.appendEventPrepared(() => buildRuntimeDiagnosticEvent({ phase, error: err }), { operationError: err });
+    this.#eventLogger.appendEventPrepared(() => buildRuntimeDiagnosticEvent({ phase, error: err }));
   }
 
   private errorMessage(err: unknown): string {
@@ -391,13 +395,14 @@ export class AnalystSession {
     try {
       return JSON.stringify({ projectRoot: this.#projectRoot, cards: this.#cardStore.list().map((card) => ({ id: card.id, type: card.type, parent: this.#cardStore.getParent(card.id), status: card.lifecycle.status, title: card.title, priority: card.priority, tags: card.tags })) }, null, 2);
     } catch (err) {
-      rethrowAppLogPublicationError(err);
+       this.#deliverPublicationFatal(err);
       this.logBoundaryDiagnostic('analyst_project_context_build_failed', err);
       return `Project root: ${this.#projectRoot}`;
     }
   }
 
   private activePendingOperation(): AnalystTurnOperation | null { return this.#phase.kind === 'conversing' && this.#phase.operation.outcome.kind === 'pending' ? this.#phase.operation : null; }
+  #deliverPublicationFatal(error: unknown): void { if (error instanceof PublicationOutcomeUnknownError) this.#fatalPort.publicationOutcomeUnknown(error); }
   private assertCurrent(operation: AnalystTurnOperation, signal: AbortSignal): void { if (this.#phase.kind !== 'conversing' || this.#phase.operation !== operation || operation.outcome.kind !== 'pending') throw signal.aborted ? signal.reason : new Error('Analyst turn lost exact operation authority.'); signal.throwIfAborted(); }
   private assertCurrentOrSettling(operation: AnalystTurnOperation, signal: AbortSignal): void {
     const ownsOperation = (this.#phase.kind === 'conversing' && this.#phase.operation === operation)
@@ -408,21 +413,14 @@ export class AnalystSession {
 
   private async consumeTurn(operation: AnalystTurnOperation, wrapper: Promise<AnalystResponse>): Promise<void> {
     let response: AnalystResponse | null = null; let failure: unknown; let rejected = false;
-    try { response = await wrapper; } catch (error) { rejected = true; failure = error; }
+    try { response = await wrapper; } catch (error) { this.#deliverPublicationFatal(error); rejected = true; failure = error; }
     operation.tracker.closeAdmission(new Error('Analyst turn settled.'));
     this.#retiredOperationTrackers.add(operation.tracker);
-    if (failure instanceof AppLogPublicationError) {
-      try { this.#llm.suppressContinuation(failure); } catch { /* publication failure remains authoritative */ }
-      try { await this.#shutdownProcesses(); } catch { /* publication failure remains authoritative */ }
-      this.#phase = { kind: 'failed', cause: failure };
-      operation.caller.reject(failure);
-      this.pruneRetiredTrackers();
-      return;
-    }
+    this.#deliverPublicationFatal(failure);
     let cleanupFailure: unknown;
     try {
       if (operation.step.kind === 'waiting_tool') this.#llm.abandonParkedTurn();
-    } catch (error) { cleanupFailure = error; }
+    } catch (error) { this.#deliverPublicationFatal(error); cleanupFailure = error; }
     const finalFailure = cleanupFailure ?? failure;
     const disposedPhase = this.#phase.kind === 'disposed' ? this.#phase : null;
     const disposed = disposedPhase !== null;
@@ -444,7 +442,7 @@ export class AnalystSession {
     this.pruneRetiredTrackers(); this.#runtimeProjectionChanged();
   }
 
-  private pruneRetiredTrackers(): void { for (const tracker of this.#retiredOperationTrackers) void tracker.join().then((outcome) => { if (outcome.status === 'joined') this.#retiredOperationTrackers.delete(tracker); }, () => undefined); }
+  private pruneRetiredTrackers(): void { for (const tracker of this.#retiredOperationTrackers) void tracker.join().then((outcome) => { if (outcome.status === 'joined') this.#retiredOperationTrackers.delete(tracker); }, (error) => { this.#deliverPublicationFatal(error); }); }
 
   async shutdownProcesses(): Promise<void> {
     await this.#shutdownProcesses();
@@ -467,7 +465,7 @@ export class AnalystSession {
     if (this.#phase.kind === 'disposed' && this.#phase.settling) trackers.add(this.#phase.settling.tracker);
     const joins = [...trackers].map((tracker) => tracker.join()); const llmJoin = this.#llm.join();
     const settled = await Promise.allSettled([...joins, llmJoin]);
-    const failure = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected'); if (failure) throw failure.reason;
+    const failure = settled.find((entry): entry is PromiseRejectedResult => entry.status === 'rejected'); if (failure) { this.#deliverPublicationFatal(failure.reason); throw failure.reason; }
     return settled.map((entry) => (entry as PromiseFulfilledResult<InvocationJoinOutcome>).value);
   }
 }

@@ -8,6 +8,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 
 export type PublicationTemporaryIdFactory = () => string;
 export interface ReplacementFileIo {
@@ -31,26 +32,26 @@ export function replaceFile(
     temporaryPath,
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
   );
-  let open = true;
-  try {
-    let offset = 0;
-    while (offset < bytes.byteLength) {
-      const written = io.write(descriptor, bytes, offset, bytes.byteLength - offset);
-      if (written === 0) throw new Error(`Write made no progress for '${temporaryPath}'.`);
-      offset += written;
+  let offset = 0;
+  while (offset < bytes.byteLength) {
+    let written: number;
+    try {
+      written = io.write(descriptor, bytes, offset, bytes.byteLength - offset);
+    } catch (error) {
+      if (offset === 0 && (error as NodeJS.ErrnoException & { bytesWritten?: number }).code === 'EINTR' && (error as { bytesWritten?: number }).bytesWritten === 0) continue;
+      throw error;
     }
-    io.fsync(descriptor);
-    io.close(descriptor);
-    open = false;
+    if (written === 0) throw new Error(`Write made no progress for '${temporaryPath}'.`);
+    offset += written;
+  }
+  io.fsync(descriptor);
+  io.close(descriptor);
+  try {
     io.rename(temporaryPath, targetPath);
     const parentDescriptor = io.open(parentPath, constants.O_RDONLY);
-    try {
-      io.fsync(parentDescriptor);
-    } finally {
-      io.close(parentDescriptor);
-    }
-  } catch (error) {
-    if (open) io.close(descriptor);
-    throw error;
+    io.fsync(parentDescriptor);
+    io.close(parentDescriptor);
+  } catch {
+    throw new PublicationOutcomeUnknownError();
   }
 }

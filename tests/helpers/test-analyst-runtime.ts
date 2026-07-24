@@ -11,6 +11,7 @@ import type { RestartPort } from '../../src/boot/restart-port.js';
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { buildAgentSurface } from '../../src/tools/agent-invocation-surface.js';
 import type { TestProcessRunnerComposition } from './test-process-runner.js';
+import { testApplicationFatalPort } from './test-application-fatal-port.js';
 
 export interface TestAnalystRuntimeOptions {
   projectRoot: string;
@@ -91,7 +92,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
       shutdownProcesses,
     };
     sessionConstructionInputs.push(sessionInput);
-    const session = new AnalystSession(sessionInput);
+    const session = new AnalystSession({ ...sessionInput, fatalPort: testApplicationFatalPort });
     sessions.push(session);
     return session;
   };

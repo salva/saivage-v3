@@ -243,6 +243,13 @@ export {
   validateKnownWsEnvelope,
 } from './operator-events.js';
 
+export {
+  PublicationOutcomeUnknownError,
+  createApplicationFatalPort,
+  throwIfPublicationOutcomeUnknown,
+} from './publication-outcome.js';
+export type { ApplicationFatalPort } from './publication-outcome.js';
+
 export type {
   AnalystActivityContent,
   AnalystTurnAcknowledgedStatusEnvelope,

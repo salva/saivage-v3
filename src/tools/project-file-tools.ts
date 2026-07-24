@@ -10,6 +10,7 @@ import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp
 import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
+import { replaceFile } from '../persistence/index.js';
 
 const { spawnSync } = childProcess;
 
@@ -288,7 +289,8 @@ export async function writeProject(ctx: WorkspaceContext, params: { path: string
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   mkdirSync(dirname(absolutePath), { recursive: true });
-  writeFileSync(absolutePath, params.content, 'utf8');
+  if (resolved.kind === 'work') replaceFile(absolutePath, Buffer.from(params.content, 'utf8'));
+  else writeFileSync(absolutePath, params.content, 'utf8');
   return { path: relativePath, bytes: Buffer.byteLength(params.content, 'utf8'), written: true };
 }
 
@@ -515,7 +517,8 @@ export async function editProject(ctx: WorkspaceContext, params: { path: string;
   if (occurrences === 0) throw toolInputError('old_string was not found.');
   if (occurrences > 1 && params.replace_all !== true) throw toolInputError('old_string appears multiple times; set replace_all to true.');
   const next = params.replace_all === true ? content.split(params.old_string).join(params.new_string) : content.replace(params.old_string, params.new_string);
-  writeFileSync(absolutePath, next, 'utf8');
+  if (resolved.kind === 'work') replaceFile(absolutePath, Buffer.from(next, 'utf8'));
+  else writeFileSync(absolutePath, next, 'utf8');
   return { path: relativePath, replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next, 'utf8'), edited: true };
 }
 

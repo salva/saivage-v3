@@ -17,6 +17,9 @@ import { OperatorRuntimeHttpClient } from './application/operator-runtime-http-c
 import { DEFAULT_SAIVAGE_CONFIG } from './agents/default-workflow-config.js';
 import { replaceConfigYaml } from './config/config-file.js';
 import { createResolvedConfigAuthority } from './config/resolved-config-authority.js';
+import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
+
+const fatalPort = createApplicationFatalPort();
 
 function loadCanonicalWorkflows(projectRoot:string){const path=join(projectRoot,'.saivage','saivage.yaml');const authority=createResolvedConfigAuthority({path,source:{kind:'default'},interpolationEnvironment:process.env,projectRoot});return authority.loadEffective().workflows;}
 
@@ -45,7 +48,7 @@ Usage:
 function parseCommand(rawArgs: string[]): { command: string; options: CliOptions } { const args = rawArgs.slice(2); if (args.length === 0) return { command: 'help', options: {} }; const command = args[0]!; const rest = args.slice(1); let options: CliOptions = {}; if (rest.length > 0) { const parsed = parseArgs({ args: rest, options: { port: { type: 'string' }, host: { type: 'string' }, config: { type: 'string' }, 'project-root': { type: 'string' }, 'create-runtime': { type: 'boolean' } }, allowPositionals: false, strict: true }); options = parsed.values as CliOptions; } return { command, options }; }
 async function handleInit(): Promise<void> {
   const projectRoot = process.cwd();
-  withDirectMutationComposition(projectRoot, 'init', (composition) => {
+  withDirectMutationComposition(projectRoot, 'init', fatalPort, (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
     const configPath=join(canonicalProjectRoot,'.saivage','saivage.yaml');
     if(!existsSync(configPath))replaceConfigYaml(configPath,DEFAULT_SAIVAGE_CONFIG);
@@ -95,7 +98,7 @@ async function handleRuntimeControl(command: 'status' | 'pause' | 'resume' | 'st
 }
 async function handleReset(): Promise<void> {
   const projectRoot = process.cwd();
-  withDirectMutationComposition(projectRoot, 'bound', (composition) => {
+  withDirectMutationComposition(projectRoot, 'bound', fatalPort, (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
     const workflows=loadCanonicalWorkflows(canonicalProjectRoot);
     const generatedRoots = resetOwnedGeneratedRoots(canonicalProjectRoot);
@@ -111,4 +114,4 @@ async function handleReset(): Promise<void> {
 }
 function handleHelp(): void { console.log(USAGE); }
 export async function run(args: string[]): Promise<void> { const { command, options } = parseCommand(args); switch (command) { case 'init': await handleInit(); break; case 'start': await handleStart(options, args); break; case 'status': case 'resume': case 'pause': case 'stop': case 'restart_server': if (Object.keys(options).length > 0) throw new Error(`${command} accepts no options.`); await handleRuntimeControl(command); break; case 'reset': await handleReset(); break; case 'help': case '--help': case '-h': handleHelp(); break; default: throw new Error(`Unknown command: ${command}`); } }
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) { run(process.argv).catch((err: unknown) => { console.error(`Fatal error: ${(err as Error).message}`); process.exit(1); }); }
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) { run(process.argv).catch((err: unknown) => { if (err instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(err); console.error(`Fatal error: ${(err as Error).message}`); process.exit(1); }); }

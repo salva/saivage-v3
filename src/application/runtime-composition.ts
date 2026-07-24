@@ -34,6 +34,7 @@ import { describeNodeResultContract } from '../runtime/card-process/card-process
 import { createProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
 import { EventQueryService } from './event-query-service.js';
 import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
+import type { ApplicationFatalPort } from '../contracts/index.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -65,6 +66,7 @@ export interface RuntimeApplicationServices {
   runtimeProcessRootScope: ManagedProcessScope;
   analystProcessRootScope: ManagedProcessScope;
   mcpToolInvocation: McpToolInvocationPort;
+  fatalPort: ApplicationFatalPort;
 }
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
@@ -89,7 +91,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const summarizerProvider: SummarizerProviderPort = {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal, [summarizerCandidate])),
-    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds, operationError) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds, operationError),
+    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
   };
   const compactionPolicy: AutonomousCompactionPolicy = {
     input_budget_tokens: config.compaction.input_budget_tokens,
@@ -139,6 +141,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     mcpToolInvocation: services.mcpToolInvocation,
     conversations,
     freshness: services.freshness,
+    fatalPort: services.fatalPort,
   });
   const runtimeApi: RuntimeApi = runtimeSupervisor;
   const analystSessionId=globalAgentSessionId(workflows.analyst.name);
@@ -195,6 +198,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       runtimeProjectionChanged: () => services.freshness.agentsChanged(),
       createInvocationSurface,
       shutdownProcesses,
+      fatalPort: services.fatalPort,
     });
   };
   const getAnalystToolNames = (): string[] => {

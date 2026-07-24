@@ -11,7 +11,7 @@ import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type Slidi
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound } from './round-classifier.js';
 import { dropRecoverableResultBodies, recoverableEvidenceDescriptors } from './result-dropping.js';
 import { summarizeMerge, summarizeRound, type MergeSummaryInput, type SummarizerProviderPort } from './summarizer.js';
-import { rethrowAppLogPublicationError } from '../../../persistence/app-log.js';
+import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 
 export type AutonomousCompactionPolicy = {
   input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
@@ -282,7 +282,7 @@ async function wrapSummaryConstruction<T>(signal: AbortSignal, construct: () => 
   try {
     return await construct();
   } catch (error) {
-    rethrowAppLogPublicationError(error);
+    throwIfPublicationOutcomeUnknown(error);
     signal.throwIfAborted();
     throw new CompactionSummaryConstructionError(error);
   }

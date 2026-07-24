@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { dirname, join } from 'node:path';
@@ -17,6 +17,8 @@ import { prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../app
 import { redactUrl } from '../redaction/text.js';
 import { WebfetchInvocationSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
 import { websearchInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { replaceFile } from '../persistence/index.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -199,9 +201,10 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
     const stash = `${SAIVAGE_WORK_RELATIVE_DIR}/tmp/stash/${filename}`;
     const absolute = join(ctx.projectRoot, stash);
     mkdirSync(dirname(absolute), { recursive: true });
-    writeFileSync(absolute, text, 'utf8');
+    replaceFile(absolute, Buffer.from(text, 'utf8'));
     return { success: true, data: { ...metadata, stash_url: buildScopedPathUrl('work', ['tmp', 'stash', filename]), bytes: Buffer.byteLength(text, 'utf8'), truncated: true } };
   } catch (err) {
+    throwIfPublicationOutcomeUnknown(err);
     if (isAbortError(err, signal)) throw err;
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }

@@ -15,8 +15,8 @@ describe('McpInvocationStatsRecorder', () => {
       'srv:tool': { total: 2, success: 1, error: 1, lastInvokedAt: expect.any(String) },
     });
     expect(appendEventPrepared).toHaveBeenCalledTimes(1);
-    const [prepare, context] = appendEventPrepared.mock.calls[0] as unknown as [() => unknown, unknown];
+    const [prepare] = appendEventPrepared.mock.calls[0] as unknown as [() => unknown];
     expect(prepare()).toEqual({ kind: 'mcp_tool_invocation', server: 'srv', tool: 'tool', success: false, duration_ms: 42, error: 'boom' });
-    expect(context).toEqual({ operationError });
+    expect(appendEventPrepared.mock.calls[0]).toHaveLength(1);
   });
 });

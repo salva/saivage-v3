@@ -7,6 +7,7 @@ import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ToolContext as AnalystToolContext } from './analyst-tool-types.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface WorkspaceProviderContext {
   readonly projectRoot: string;
@@ -31,6 +32,7 @@ async function runWorkspaceTool(action: () => Promise<unknown>): Promise<ToolRes
   try {
     return { success: true, data: await action() };
   } catch (err) {
+    throwIfPublicationOutcomeUnknown(err);
     if (!isExpectedWorkspaceFailure(err)) throw err;
     return failureFromError(err);
   }

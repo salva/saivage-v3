@@ -9,6 +9,7 @@ import { prepareCompaction, type AutonomousCompactionPolicy } from '../../../src
 import { agentMessageSchema } from '../../../src/schemas/index.js';
 import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
+import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 
 const compactionConfig: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
 
@@ -22,7 +23,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       const compactor: CompactorPort = { shouldCompact: () => true, compact };
       const providerInput = jest.fn(async (_input: PreparedLlmInvocationInput) => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
       const provider: LLMProviderPort = { completeTurn: providerInput };
-      const actor = new ConversationLLMActor({ agentId: 'agent:planner:project', provider, conversations: { projectRoot: ownerRoot }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
+      const actor = new ConversationLLMActor({ fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: ownerRoot }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
       await actor.turn(input(), undefined, terminalHandoff);
 
       expect(compact).toHaveBeenCalledTimes(1);
@@ -52,7 +53,7 @@ describe('ConversationLLMActor compaction ownership', () => {
         if (++calls === 1) return { result: { kind: 'tool_calls', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }, provider_exchanges: [] };
         return { result: { kind: 'message', content: 'done' }, provider_exchanges: [] };
       } };
-      const actor = new ConversationLLMActor({ agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
+      const actor = new ConversationLLMActor({ fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
       const tool = await actor.turn(first, undefined, terminalHandoff);
       if (tool.type !== 'tool_call') throw new Error('Expected tool call.');
       await actor.appendToolResult(tool.toolCallId, { success: true, data: { content: 'x'.repeat(4000) } });
@@ -78,7 +79,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       const compactor: CompactorPort = { shouldCompact: (value) => { checked.push(value); return false; }, compact: jest.fn() as never };
       let calls = 0;
       const provider: LLMProviderPort = { completeTurn: async () => ({ result: { kind: 'message', content: ++calls === 1 ? 'plain' : 'repaired' }, provider_exchanges: [] }) };
-      const actor = new ConversationLLMActor({ agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
+      const actor = new ConversationLLMActor({ fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(provider) });
       await actor.turn(first, undefined, terminalHandoff);
       await actor.continueAfterPlainText(`repair ${'y'.repeat(4000)}`, undefined, terminalHandoff);
 
@@ -100,7 +101,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     try {
       const compact = jest.fn<CompactorPort['compact']>();
       const providerCall = jest.fn<LLMProviderPort['completeTurn']>();
-      const actor = new ConversationLLMActor({ agentId: 'agent:planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
+      const actor = new ConversationLLMActor({ fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
       const malformed = { ...input(), providerConversation: { sourceSessionId: 'agent:reviewer:project' as const, messages: [] } };
 
       await expect(actor.turn(malformed, undefined, terminalHandoff)).rejects.toThrow(/does not match provider conversation source session/);
@@ -118,7 +119,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     try {
       const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'agent:reviewer:project', messages: [] }, compactionMessage: agentMessageSchema.parse({ id: 'compaction', session_id: 'agent:reviewer:project', role: 'system', kind: 'text', content: 'x', round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' }), estimatedProviderMessageTokens: 1 }));
       const providerCall = jest.fn<LLMProviderPort['completeTurn']>();
-      const actor = new ConversationLLMActor({ agentId: 'agent:planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
+      const actor = new ConversationLLMActor({ fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
       await expect(actor.turn(input(), undefined, terminalHandoff)).rejects.toThrow(/Compaction changed provider conversation source session/);
       expect(providerCall).not.toHaveBeenCalled();
       expect(existsSync(conversationFile(root, 'agent:planner:project'))).toBe(false);

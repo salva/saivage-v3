@@ -13,7 +13,8 @@ import type { CardRecord } from '../../../src/schemas/index.js';
 import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
 import type { ProcessStopReport } from '../../../src/runtime/managed-process-group-registry.js';
 import { workflowResult } from '../../helpers/workflow-result.js';
-import { AppLogPublicationError } from '../../../src/persistence/app-log.js';
+import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
+import { testApplicationFatalDelivery, testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
@@ -90,6 +91,7 @@ function harness(withChild = false) {
     activateStopped: jest.fn((id: string) => { lifecycle.set(id, 'running'); return { ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: 'running' as const } }; }),
   };
   const supervisor = new SupervisorRuntimeApi({
+    fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     projectRoot,
     actorStore: store, interventionBinding: intervention,
@@ -140,6 +142,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     const cards = new CardService(projectRoot);
     const processes = createTestProcessRunner(projectRoot);
     const supervisor = new SupervisorRuntimeApi({
+      fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
       projectRoot,
       processIdentity: { pid: 1, startedAt: 'now' },
@@ -192,34 +195,15 @@ describe('Supervisor singular runtime halt concurrency', () => {
     expect(h.store.commitActivationOutcome).toHaveBeenCalledTimes(1);
   });
 
-  it('settles every publication-failed running-child promise while joins are blocked, then Runs through existing recovery', async () => {
+  it('delivers publication uncertainty before installing the ordinary halt', () => {
     const h = harness(true);
-    const failure = new AppLogPublicationError('event', new Error('outcome unknown'));
-    const parentSettlement = h.root.settlement.promise.catch((error) => error);
-    const childSettlement = h.child!.settlement.promise.catch((error) => error);
-    const leaseSettlement = h.lease!.activation.catch((error) => error);
-
-    expect(h.internals.publish(h.child!, () => { throw failure; })).toBeNull();
-
-    await expect(within(parentSettlement)).resolves.toBeInstanceOf(RuntimeStoppedInterruption);
-    await expect(within(childSettlement)).resolves.toBe(failure);
-    await expect(within(leaseSettlement)).resolves.toBe(h.internals.halt!.interruption);
-    expect(h.rootProcessor.actor.joinActivation).toHaveBeenCalledTimes(1);
-    expect(h.childProcessor!.actor.joinActivation).toHaveBeenCalledTimes(1);
-    expect(h.supervisor.getStatus().status).toBe('closing');
-
-    h.rootProcessor.join.resolve([]); h.childProcessor!.join.resolve([]); h.processTermination.resolve(processReport);
-    await expect(h.internals.halt!.promise).resolves.toBeUndefined();
-    expect(h.supervisor.getStatus().status).toBe('stopped');
-
-    const recovered = await h.supervisor.startProject();
-    expect(recovered.started).toBe(true);
-    expect(h.store.stopRunningForRecovery.mock.calls.map(([id]) => id)).toEqual(['card-a', 'project']);
-    expect(h.store.activateStopped).toHaveBeenCalledTimes(1);
-    expect(h.store.activateStopped).toHaveBeenCalledWith('project');
-    expect(h.store.read('project').lifecycle.status).toBe('running');
-    expect(h.store.read('card-a').lifecycle.status).toBe('stopped');
-    await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    const failure = new PublicationOutcomeUnknownError();
+    expect(() => h.internals.publish(h.child!, () => { throw failure; })).toThrow(testApplicationFatalDelivery);
+    expect(h.internals.halt).toBeNull();
+    expect(h.supervisor.getStatus().status).toBe('running');
+    expect(h.rootProcessor.actor.joinActivation).not.toHaveBeenCalled();
+    expect(h.childProcessor!.actor.joinActivation).not.toHaveBeenCalled();
+    expect(h.terminateScopeTree).not.toHaveBeenCalled();
   });
 
   it('shares one freeze, interruption, joins, and process termination across Stop and application close', async () => {

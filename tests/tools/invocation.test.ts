@@ -3,7 +3,7 @@ import { z } from 'zod';
 
 import { composeInvocationSurface, defineTool, invokeTool, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
-import { AppLogPublicationError } from '../../src/persistence/app-log.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 
@@ -127,7 +127,7 @@ describe('tool invocation surface', () => {
   });
 
   it('rethrows app-log publication failures unchanged from the LLM boundary', async () => {
-    const publicationError = new AppLogPublicationError('event', new Error('append failed'));
+    const publicationError = new PublicationOutcomeUnknownError();
     const surface = buildInvocationSurfaceFixture('analyst', [{
       providerName: 'publication',
       tools: [defineTool({ name: 'publish', description: 'Publish.', inputSchema: z.object({}).strict(), executor: async () => { throw publicationError; } })],

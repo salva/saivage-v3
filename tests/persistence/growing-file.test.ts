@@ -6,6 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { z } from 'zod';
 import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
 const roots: string[] = [];
 const row = z.object({ value: z.number().int() }).strict();
@@ -120,10 +121,10 @@ describe('strict growing-file boundaries', () => {
 
   it.each([
     ['stat', ['open', 'stat', 'close']],
-    ['write', ['open', 'stat', 'write', 'close']],
-    ['zero', ['open', 'stat', 'write', 'close']],
-    ['fsync', ['open', 'stat', 'write', 'fsync', 'close']],
-  ])('closes once and preserves the %s operation failure when close also fails', (phase: string, expected: string[]) => {
+    ['write', ['open', 'stat', 'write']],
+    ['zero', ['open', 'stat', 'write']],
+    ['fsync', ['open', 'stat', 'write', 'fsync']],
+  ])('closes only before publication and types the %s operation failure', (phase: string, expected: string[]) => {
     const path = target(); writeFileSync(path, bytes(1));
     const failure = phase === 'write' ? Object.assign(new Error('post-open missing'), { code: 'ENOENT' }) : new Error(`${phase} failure`);
     const closeFailure = new Error('close failure');
@@ -137,18 +138,17 @@ describe('strict growing-file boundaries', () => {
     };
     let thrown: unknown;
     try { appendEnvelope(path, bytes(), io); } catch (error) { thrown = error; }
-    if (phase === 'zero') expect(thrown).toEqual(expect.objectContaining({ message: expect.stringMatching(/no progress/) }));
-    else expect(thrown).toBe(failure);
-    expect(thrown).not.toBe(closeFailure);
+    if (phase === 'stat') expect(thrown).toBe(failure);
+    else expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
     expect(operations).toEqual(expected);
   });
 
   it.each([
     ['stat', ['open', 'stat', 'close']],
-    ['write', ['open', 'stat', 'write', 'close']],
-    ['zero', ['open', 'stat', 'write', 'close']],
-    ['fsync', ['open', 'stat', 'write', 'fsync', 'close']],
-  ])('closes once and preserves the %s operation failure when close succeeds', (phase: string, expected: string[]) => {
+    ['write', ['open', 'stat', 'write']],
+    ['zero', ['open', 'stat', 'write']],
+    ['fsync', ['open', 'stat', 'write', 'fsync']],
+  ])('closes only before publication and types the %s operation failure', (phase: string, expected: string[]) => {
     const path = target(); writeFileSync(path, bytes(1));
     const failure = new Error(`${phase} failure`);
     const operations: string[] = [];
@@ -161,8 +161,8 @@ describe('strict growing-file boundaries', () => {
     };
     let thrown: unknown;
     try { appendEnvelope(path, bytes(), io); } catch (error) { thrown = error; }
-    if (phase === 'zero') expect(thrown).toEqual(expect.objectContaining({ message: expect.stringMatching(/no progress/) }));
-    else expect(thrown).toBe(failure);
+    if (phase === 'stat') expect(thrown).toBe(failure);
+    else expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
     expect(operations).toEqual(expected);
   });
 
@@ -193,7 +193,7 @@ describe('strict growing-file boundaries', () => {
       fsync(fd) { operations.push('fsync'); fsyncSync(fd); },
       close(fd) { operations.push('close'); closeSync(fd); throw failure; },
     };
-    expect(() => appendEnvelope(path, bytes(), io)).toThrow(failure);
+    expect(() => appendEnvelope(path, bytes(), io)).toThrow(PublicationOutcomeUnknownError);
     expect(operations).toEqual(['open', 'stat', 'write', 'fsync', 'close']);
   });
 
@@ -256,7 +256,7 @@ describe('strict growing-file boundaries', () => {
       close(fd) { operations.push('close'); closeSync(fd); },
       rename(source, destination) { operations.push(`rename:${source}->${destination}`); renameSync(source, destination); },
     };
-    expect(() => publishFirstEnvelope(path, bytes(1), () => temporaryId, replacement)).toThrow(failure);
+    expect(() => publishFirstEnvelope(path, bytes(1), () => temporaryId, replacement)).toThrow(PublicationOutcomeUnknownError);
     expect(operations).toEqual([`open:${temporary}`, 'write', 'fsync', 'close', `rename:${temporary}->${path}`, `open:${parent}`]);
   });
 });

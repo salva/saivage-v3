@@ -1,6 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { AgentNodeExecution, RecordAcceptanceOutcomeUnknown } from '../../../src/runtime/actors/agent-node-execution.js';
+import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { AuthoredRecordNotFoundError } from '../../../src/persistence/authored-record-files.js';
 
 type RecordMethods = {
@@ -39,12 +40,12 @@ describe('AgentNodeExecution authored-record absence handling', () => {
   });
 
   it('stops on the first outcome-unknown close and never reads or closes a later requirement',()=>{
-    const failure=new Error('append outcome unknown');
+    const failure=new PublicationOutcomeUnknownError();
     const store={read:jest.fn(()=>({version_seq:7})),readRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string)=>{if(name==='alpha.md')throw failure;throw new Error('LATER_CLOSE_REACHED');})};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({kind:'updated',definition:{name}}));
     const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{recordUrl:'open',version:index+1,artifact:{state:'open'}}]));
-    expect(()=>runner.closeAcceptedRecords({nodeId:'work',agent:{name:'worker'},requirements},candidates)).toThrow(RecordAcceptanceOutcomeUnknown);
+    expect(()=>runner.closeAcceptedRecords({nodeId:'work',agent:{name:'worker'},requirements},candidates)).toThrow(failure);
     expect(store.closeRecord).toHaveBeenCalledTimes(1);
     expect(store.readRecord).not.toHaveBeenCalled();
   });

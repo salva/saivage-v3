@@ -5,6 +5,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 const projectRoot = process.argv[2];
 if (!projectRoot) throw new Error('project root is required');
@@ -12,6 +13,7 @@ const cards = new CardService(projectRoot);
 const processRegistry = new ManagedProcessGroupRegistry();
 const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
 const runtime = new SupervisorRuntimeApi({
+  fatalPort: testApplicationFatalPort,
   ...testAutonomousCompaction,
   projectRoot,
   actorStore: cards,
@@ -19,7 +21,7 @@ const runtime = new SupervisorRuntimeApi({
   provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
   conversations: { projectRoot },
   freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
-  processRunner: new ProcessRunner(projectRoot, processRegistry),
+  processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),
   runtimeProcessRootScope,
   promptTemplates: { render: () => 'test prompt' },
 });

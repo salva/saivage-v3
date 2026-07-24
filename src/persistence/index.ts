@@ -10,11 +10,10 @@ export {
 export type { RecordVersionArtifact } from './canonical-record-artifacts.js';
 export { AuthoredRecordNotFoundError, readAuthoredRecord } from './authored-record-files.js';
 export type { RecordProjection } from './authored-record-files.js';
+export { replaceFile } from './replace-file.js';
 export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';
 export {
-  AppLogPublicationError,
   appendAppLogEntry,
   readAppLogEntries,
-  rethrowAppLogPublicationError,
   type AppLogPublicationContext,
 } from './app-log.js';

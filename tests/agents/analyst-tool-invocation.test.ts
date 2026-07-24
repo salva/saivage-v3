@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 import { AnalystSession } from '../../src/agents/analyst-handler.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { createEventLog } from '../../src/observability/index.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
@@ -39,6 +40,7 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     ? toolCall(argumentsJson)
     : { result: { kind: 'message', content: 'done' }, provider_exchanges: [] });
   const session = new AnalystSession({
+    fatalPort: testApplicationFatalPort,
     projectRoot,
     sessionId: 'agent:analyst:global',
     config: TEST_SAIVAGE_CONFIG,

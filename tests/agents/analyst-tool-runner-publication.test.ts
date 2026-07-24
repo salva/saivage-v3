@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
-import { AppLogPublicationError, readAppLogEntries } from '../../src/persistence/app-log.js';
+import { readAppLogEntries } from '../../src/persistence/app-log.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -29,19 +30,19 @@ describe('audited Analyst mutation publication ordering', () => {
     expect(readAppLogEntries(projectRoot, 'control_action')).toHaveLength(1);
   });
 
-  it('lets audit publication failure win while retaining the exact mutation failure as operation context', async () => {
+  it('preserves an ordinary pre-publication audit failure', async () => {
     const projectRoot = root(); writeFileSync(join(projectRoot, '.saivage'), 'not a directory');
     const mutationError = new Error('mutation failed');
     let thrown: unknown;
     try { await runAuditedAnalystTool(context(projectRoot), {}, spec(() => { throw mutationError; })); }
     catch (error) { thrown = error; }
-    expect(thrown).toBeInstanceOf(AppLogPublicationError);
-    expect(thrown).toMatchObject({ entryType: 'control_action', operationError: mutationError });
+    expect(thrown).toEqual(expect.objectContaining({ message: expect.any(String) }));
+    expect(thrown).not.toBeInstanceOf(PublicationOutcomeUnknownError);
   });
 
   it('rethrows a pre-existing publication error without attempting a second audit', async () => {
     const projectRoot = root();
-    const publicationError = new AppLogPublicationError('event', new Error('event append failed'));
+    const publicationError = new PublicationOutcomeUnknownError();
     await expect(runAuditedAnalystTool(context(projectRoot), {}, spec(() => { throw publicationError; }))).rejects.toBe(publicationError);
     expect(readAppLogEntries(projectRoot)).toEqual([]);
   });

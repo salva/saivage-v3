@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 
 import { controlActionAuditEntrySchema } from '../../src/schemas/validators.js';
 import { listControlActions, recordControlAction } from '../../src/persistence/control-action-audit.js';
-import { AppLogPublicationError } from '../../src/persistence/app-log.js';
 import { OUTBOUND_IDENTITY, OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 let projectRoot: string;
@@ -34,14 +33,12 @@ describe('control action audit persistence', () => {
     expect(listControlActions(projectRoot)).toEqual([created]);
   });
 
-  it('wraps audit preparation failure with the settled operation error', () => {
+  it('preserves audit preparation failure before publication', () => {
     const preparationFailure = new Error('audit preparation failed');
-    const operationError = new Error('mutation failed');
     let thrown: unknown;
-    try { recordControlAction(projectRoot, () => { throw preparationFailure; }, operationError); }
+    try { recordControlAction(projectRoot, () => { throw preparationFailure; }); }
     catch (error) { thrown = error; }
-    expect(thrown).toBeInstanceOf(AppLogPublicationError);
-    expect(thrown).toMatchObject({ entryType: 'control_action', publicationCause: preparationFailure, operationError });
+    expect(thrown).toBe(preparationFailure);
     expect(existsSync(join(projectRoot, '.saivage'))).toBe(false);
   });
 

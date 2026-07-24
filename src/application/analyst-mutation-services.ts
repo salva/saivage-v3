@@ -8,6 +8,7 @@ import { propagateAnalystRecordEdit, propagateChange } from '../runtime/changed-
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { toCardView } from './read-models/card-view.js';
 import { resolveRecordWriteTarget } from '../workspace/index.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export type AnalystMutationOutcome =
   | { kind: 'denied'; reason: string }
@@ -76,6 +77,7 @@ function denied(reason: string): AnalystMutationOutcome { return { kind: 'denied
 class AnalystMutationDeniedError extends Error {}
 
 function denialFrom(error: unknown): AnalystMutationOutcome {
+  throwIfPublicationOutcomeUnknown(error);
   if (error instanceof AnalystMutationDeniedError) return denied(error.message);
   throw error;
 }
@@ -99,7 +101,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     if(!analyst.canCreateChildren||!analyst.tools.includes('create_card'))return denied(`agent '${analyst.name}' is not configured to create children`);
     const allowed=this.store.workflows.cardTypes.get(parentCard.type)!.permittedChildTypes;if(!allowed.has(input.type))return denied(`child type '${input.type}' is not permitted under '${parentCard.type}'`);
     const card = this.store.create({ type: input.type, parent, title: input.title, bootstrap_content: input.bootstrap_content, tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: this.store.workflows.analyst.name as never, depends_on: input.depends_on ?? [], related: input.related ?? [] });
-    try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch { /* notification is best effort */ }
+    try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
     return success(toCardView(this.store, card));
   }
 
@@ -117,7 +119,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     if (!this.cancelCardPort) throw new Error('Analyst cancellation requires the runtime cancellation application port.');
     const result = await this.cancelCardPort(cardId, reason ?? 'analyst_cancel_card');
     const anchor = this.store.getParent(card.id) ?? cardId;
-    try { propagateChange(this.store, anchor, { kind: 'analyst_edit', summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card' }, this.notifyCard); } catch { /* notification is best effort */ }
+    try { propagateChange(this.store, anchor, { kind: 'analyst_edit', summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card' }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
     return success(result);
   }
 
@@ -136,7 +138,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     const result = this.store.reorderChildren(parentId, [...orderedChildIds]);
     if (!result.ok) return failure('reorder_set_mismatch', { reason: 'reorder_set_mismatch', missing: result.missing, extra: result.extra, parent_id: parentId });
     if (result.changed > 0) {
-      try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch { /* notification is best effort */ }
+      try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
     }
     return success({ parent_id: parentId, changed: result.changed });
   }
@@ -198,6 +200,7 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
       propagateAnalystRecordEdit(this.store, target.cardId, { kind: 'analyst_edit', summary: `Analyst updated ${target.filename}` }, this.notifyCard);
       return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: true } });
     } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
       return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } });
     }
   }

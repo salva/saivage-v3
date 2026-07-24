@@ -10,6 +10,7 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
@@ -84,6 +85,7 @@ describe('reviewer rework completion E2E', () => {
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
     const runtime = new SupervisorRuntimeApi({
+      fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
       projectRoot,
       actorStore: cards,
@@ -91,7 +93,7 @@ describe('reviewer rework completion E2E', () => {
       provider,
       conversations: { projectRoot },
       freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
-      processRunner: new ProcessRunner(projectRoot, processRegistry),
+      processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),
       runtimeProcessRootScope,
       promptTemplates: { render: () => 'test prompt' },
     });

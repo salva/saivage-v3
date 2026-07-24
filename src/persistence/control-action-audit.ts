@@ -23,7 +23,6 @@ export function listControlActions(projectRoot: string, filters?: { card_id?: st
 export function recordControlAction(
   projectRoot: string,
   prepareEntry: () => Omit<ControlActionAuditEntry, 'id' | 'created_at'> & { id?: string; created_at?: string },
-  operationError?: unknown,
 ): ControlActionAuditEntry {
   return appendAppLogEntry(projectRoot, 'control_action', () => {
     const entry = prepareEntry();
@@ -33,5 +32,5 @@ export function recordControlAction(
       created_at: entry.created_at ?? new Date().toISOString(),
     });
     return { type: 'control_action', data: redactForOutbound({ source: 'control-action', value: parsed }) };
-  }, { operationError }).data;
+  }).data;
 }

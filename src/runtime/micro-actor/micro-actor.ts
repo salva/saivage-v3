@@ -58,6 +58,7 @@ export abstract class BaseActor {
   protected abstract onStateEntered(context: ActorLifecycleContext): void;
   protected abstract onTransition(context: ActorTransitionContext): void;
   protected abstract onActorMainFailure(error: unknown): void;
+  protected onFatalTaskError(_error: unknown): void {}
 
   state(): string {
     return this.#currentState!;
@@ -71,7 +72,7 @@ export abstract class BaseActor {
       event: null,
       target: this.#definition.initial,
     });
-    this.onStateEntered(context);
+    try { this.onStateEntered(context); } catch (error) { this.onFatalTaskError(error); throw error; }
     this.#ensureActorMain();
   }
 
@@ -187,6 +188,7 @@ export abstract class BaseActor {
         if (this.#currentTaskStateHalted) return;
       }
     } catch (error) {
+      this.onFatalTaskError(error);
       this.#mainLoopFailed = true;
       this.#mainLoopFailure = error;
       for (const waiter of this.#eventSettlementWaiters) {
@@ -222,6 +224,7 @@ export abstract class BaseActor {
     try {
       return { ok: true, result: await run() };
     } catch (error) {
+      this.onFatalTaskError(error);
       return { ok: false, error: error as Error };
     }
   }

@@ -5,6 +5,7 @@ import { readCard } from './card-files.js';
 import { appendEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
 import { cardRecordStreamFile } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
+import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface RecordProjection { readonly cardId: string; readonly filename: string; readonly version: number; readonly recordUrl: string; readonly artifact: RecordVersionArtifact }
 
@@ -30,6 +31,7 @@ function rows(projectRoot: string, cardId: string, definition: RecordDefinition,
   const path = cardRecordStreamFile(projectRoot, cardId, definition);
   try { return validateRecordStream(readCanonicalGrowingFile(path, recordVersionArtifactSchema, undefined, instrumentation), path, cardId, definition); }
   catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
     if ((error as NodeJS.ErrnoException).code === 'ENOENT' && !definition.bootstrap) return [];
     throw error;
   }

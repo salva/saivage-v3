@@ -23,6 +23,7 @@ import { buildProcessOperatorContractHandlers } from './operator-process-handler
 import { buildRuntimeCardOperatorContractHandlers } from './operator-runtime-card-handlers.js';
 import { ContractRuntime } from '../contract-runtime.js';
 import type { EventLog } from '../../observability/index.js';
+import type { ApplicationFatalPort } from '../../contracts/index.js';
 
 export interface OperatorContractRouteRegistrationOptions extends
   OperatorProjectContext,
@@ -37,11 +38,12 @@ export interface OperatorContractRouteRegistrationOptions extends
   runtimeApplication: import('../../application/runtime-composition.js').RuntimeApplication;
   saivageConfig: import('../../schemas/saivage-config.js').SaivageConfig;
   workflows: import('../../runtime/card-process/card-process-config.js').CompiledRuntimeWorkflows;
+  fatalPort: ApplicationFatalPort;
 }
 
 export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
   const { fastify, projectRoot } = options;
-  const runtime = new ContractRuntime({ authPolicy: options.authPolicy, eventLogger: options.eventLogger });
+  const runtime = new ContractRuntime({ authPolicy: options.authPolicy, eventLogger: options.eventLogger, fatalPort: options.fatalPort });
   const handlers = {
     ...defineOperatorContractHandlers({
       'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),

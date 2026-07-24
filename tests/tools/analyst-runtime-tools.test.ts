@@ -98,6 +98,7 @@ describe('analyst runtime tools', () => {
         })]);
         expect(JSON.stringify(result.data)).not.toContain(rawSecret);
       }
+      await processRunner.waitForSettlement(process.id);
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }

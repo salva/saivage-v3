@@ -8,6 +8,7 @@ import { chatOperatorApiContracts } from '../../src/contracts/operator-api-chats
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import type { ExecutingLlmSnapshot } from '../../src/runtime/actors/executing-llm-snapshot.js';
@@ -43,7 +44,7 @@ describe('operator chat route request contracts', () => {
       saivageConfig: TEST_SAIVAGE_CONFIG,
       restartPort: { schedule: jest.fn(), acknowledge },
     });
-    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot) }).mount(fastify, chatOperatorApiContracts, handlers);
+    new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(fastify, chatOperatorApiContracts, handlers);
     await fastify.ready();
   });
 

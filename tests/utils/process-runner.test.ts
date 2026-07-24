@@ -6,7 +6,11 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner as ProcessRunnerImplementation } from '../../src/runtime/process-runner.js';
+import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { dataPropertyGraphContains } from '../helpers/data-property-graph.js';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -25,7 +29,7 @@ describe('ProcessRunner managed process groups', () => {
     runtimeRootScope = registry.createContainerScope(registry.rootScope, 'runtime');
     analystRootScope = registry.createContainerScope(registry.rootScope, 'analyst');
     mcpRootScope = registry.createContainerScope(registry.rootScope, 'mcp');
-    runner = new ProcessRunnerImplementation(root, registry);
+    runner = new ProcessRunnerImplementation(root, registry, testApplicationFatalPort);
   });
 
   afterEach(async () => {
@@ -49,7 +53,7 @@ describe('ProcessRunner managed process groups', () => {
     expect(readFileSync(record.stdout_path, 'utf8')).toContain('stdout');
     expect(readFileSync(record.stderr_path, 'utf8')).toContain('stderr');
     expect(existsSync(join(root, '.saivage', 'state', 'processes.json'))).toBe(false);
-    expect(new ProcessRunnerImplementation(root, new ManagedProcessGroupRegistry()).list()).toEqual([]);
+    expect(new ProcessRunnerImplementation(root, new ManagedProcessGroupRegistry(), testApplicationFatalPort).list()).toEqual([]);
   });
 
   it('contains a real spawn error and remains usable after a nonexistent cwd', async () => {
@@ -88,6 +92,81 @@ describe('ProcessRunner managed process groups', () => {
     await expect(runner.kill(record.id, { directScope: siblingScope, category: 'runtime_card' })).rejects.toThrow('not bound');
     await expect(runner.kill(record.id, { directScope: ownerScope, category: 'operator_session' })).rejects.toThrow('does not authorize');
     await expect(runner.kill(record.id, { directScope: ownerScope, category: 'runtime_card', graceMs: 100 })).resolves.toMatchObject({ status: 'killed' });
+  });
+
+  it('joins trailing captured output on all three successful termination surfaces', async () => {
+    const command = "trap 'echo trailing; exit 0' TERM; echo ready; while :; do sleep 1; done";
+    const waitReady = async (path: string): Promise<void> => {
+      for (let attempt = 0; attempt < 100; attempt += 1) {
+        if (readFileSync(path, 'utf8').includes('ready')) return;
+        await delay(10);
+      }
+      throw new Error('process did not become ready');
+    };
+
+    const killScope = direct('runtime_card', 'kill-drain');
+    const killed = launch(command, killScope);
+    await waitReady(killed.stdout_path);
+    await runner.kill(killed.id, { directScope: killScope, category: 'runtime_card', graceMs: 100 });
+    expect(readFileSync(killed.stdout_path, 'utf8')).toContain('trailing');
+
+    const treeScope = direct('runtime_card', 'tree-drain');
+    const tree = launch(command, treeScope);
+    await waitReady(tree.stdout_path);
+    await runner.terminateScopeTree({ rootScope: runtimeRootScope, categories: ['runtime_card'], reason: 'tree drain', graceMs: 100 });
+    expect(readFileSync(tree.stdout_path, 'utf8')).toContain('trailing');
+
+    const directScope = direct('operator_session', 'direct-drain');
+    const directRecord = launch(command, directScope, 'operator_session');
+    await waitReady(directRecord.stdout_path);
+    await runner.closeAndTerminateDirectScope({ directScope, category: 'operator_session', reason: 'direct drain', graceMs: 100 });
+    expect(readFileSync(directRecord.stdout_path, 'utf8')).toContain('trailing');
+  });
+
+  it.each(['kill', 'terminateScopeTree', 'closeAndTerminateDirectScope'] as const)('%s joins group absence with both readable drains in either event order', async (surface) => {
+    const syntheticRoot = mkdtempSync(join(tmpdir(), `proc-runner-${surface}-`));
+    initProjectTree(syntheticRoot);
+    const stdout = new PassThrough(); const stderr = new PassThrough();
+    const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough };
+    child.stdout = stdout; child.stderr = stderr;
+    let absent: ((reason?: string) => void) | undefined;
+    const report = { selected: ['proc'], stopped: ['proc'], failed: [] };
+    const fakeRegistry = {
+      launch(input: { groupId: string; onAbsent(reason?: string): void }) { report.selected[0] = input.groupId; report.stopped[0] = input.groupId; absent = input.onAbsent; const outputRoot = nonCardProcessOutputRoot(syntheticRoot, input.groupId); expect(existsSync(join(outputRoot, 'stdout.log'))).toBe(true); expect(existsSync(join(outputRoot, 'stderr.log'))).toBe(true); return child; },
+      terminateGroup: async () => { absent?.(); return report; },
+      terminateScopeTree: async () => { absent?.(); return report; },
+      closeAndTerminateDirectScope: async () => { absent?.(); return report; },
+    };
+    const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort);
+    const record = synthetic.spawn({ command: 'synthetic', directScope: {} as never, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+    const terminal = surface === 'kill'
+      ? synthetic.kill(record.id, { directScope: {} as never, category: 'runtime_card' })
+      : synthetic[surface]({ ...(surface === 'terminateScopeTree' ? { rootScope: {} as never, categories: ['runtime_card'] as const } : { directScope: {} as never, category: 'runtime_card' as const }), reason: 'test' } as never);
+    let settled = false; void terminal.then(() => { settled = true; });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    expect(await synthetic.wait(record.id, 0)).toMatchObject({ status: 'running', timedOut: false });
+    expect(await synthetic.wait(record.id, 1)).toMatchObject({ status: 'running', timedOut: true });
+    stdout.write('late-out'); stderr.write('late-err'); child.emit('exit', 0, null); stdout.end(); stderr.end();
+    await terminal;
+    expect(readFileSync(record.stdout_path, 'utf8')).toBe('late-out');
+    expect(readFileSync(record.stderr_path, 'utf8')).toBe('late-err');
+    expect(synthetic.get(record.id)?.status).not.toBe('running');
+    rmSync(syntheticRoot, { recursive: true, force: true });
+  });
+
+  it('joins stopped siblings but never waits for failed/unconfirmed process ids', async () => {
+    const syntheticRoot = mkdtempSync(join(tmpdir(), 'proc-runner-mixed-')); initProjectTree(syntheticRoot);
+    const stdout = new PassThrough(); const stderr = new PassThrough(); const child = new EventEmitter() as EventEmitter & { stdout: PassThrough; stderr: PassThrough }; child.stdout = stdout; child.stderr = stderr;
+    let absent!: () => void; let id = '';
+    const fakeRegistry = { launch(input: { groupId: string; onAbsent(): void }) { id = input.groupId; absent = input.onAbsent; return child; }, terminateScopeTree: async () => { absent(); return { selected: [id, 'unconfirmed'], stopped: [id], failed: [{ groupId: 'unconfirmed', state: 'unverifiable', diagnostic: 'still live' }] }; } };
+    const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort);
+    const record = synthetic.spawn({ command: 'synthetic', directScope: {} as never, category: 'runtime_card', ownerId: 'owner', ownerKind: 'agent' });
+    const termination = synthetic.terminateScopeTree({ rootScope: {} as never, categories: ['runtime_card'], reason: 'mixed' });
+    let settled = false; void termination.then(() => { settled = true; }); await new Promise<void>((resolve) => setImmediate(resolve)); expect(settled).toBe(false);
+    child.emit('exit', 0, null); stdout.end('tail'); stderr.end();
+    await expect(termination).resolves.toMatchObject({ stopped: [record.id], failed: [{ groupId: 'unconfirmed' }] });
+    rmSync(syntheticRoot, { recursive: true, force: true });
   });
 
   it('runtime-card cleanup excludes Analyst and service groups', async () => {
