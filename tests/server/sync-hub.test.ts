@@ -31,9 +31,11 @@ describe('SyncHub semantic hints', () => {
     hub.cardProjectionChanged({ resource: 'cards', scope: 'history', card_id: 'card-a' });
     hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'brief' });
     hub.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'status' });
-    hub.agentsChanged();
-    hub.conversationChanged('agent:analyst:global');
-    hub.conversationChanged('agent:analyst:global');
+    hub.agentMembershipChanged({ scope: 'global-session', sessionId: 'agent:analyst:global' });
+    hub.agentMembershipChanged({ scope: 'card', cardId: 'card-a' });
+    hub.conversationChanged('agent:analyst:global', 'z');
+    hub.conversationChanged('agent:analyst:global', 'a');
+    hub.llmExchangeChanged('agent:analyst:global');
     expect(invalidate).not.toHaveBeenCalled();
 
     jest.advanceTimersByTime(25);
@@ -45,8 +47,18 @@ describe('SyncHub semantic hints', () => {
       { resource: 'cards', scope: 'history', card_id: 'card-a' },
       { resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'brief' },
       { resource: 'cards', scope: 'record', card_id: 'card-a', record_name: 'status' },
-      { resource: 'agents' },
-      { resource: 'conversation', id: 'agent:analyst:global' },
+      {
+        resource: 'agent-membership',
+        scope: 'global-session',
+        session_id: 'agent:analyst:global',
+      },
+      { resource: 'agent-membership', scope: 'card', card_id: 'card-a' },
+      {
+        resource: 'conversation',
+        id: 'agent:analyst:global',
+        through_message_id: 'a',
+      },
+      { resource: 'llm-exchange', id: 'agent:analyst:global' },
     ]);
   });
 

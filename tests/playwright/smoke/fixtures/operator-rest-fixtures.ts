@@ -112,10 +112,10 @@ const debugGraphs = parseOperatorResponse('debug.graphs', {
 });
 
 const sessions = [
-  { id: 'agent:analyst:global', agent_name: 'analyst', session_scope: 'global', card_id: null, status: 'inactive', started_at: now, model: 'synthetic-model' },
-  { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', status: 'inactive', started_at: now, model: 'synthetic-model' },
-  { id: 'agent:reviewer:project', agent_name: 'reviewer', session_scope: 'card', card_id: 'project', status: 'inactive', started_at: now, model: 'synthetic-model' },
-  { id: `agent:executor:${smokeCardId}`, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, status: 'inactive', started_at: now, model: 'synthetic-model' },
+  { id: 'agent:analyst:global', agent_name: 'analyst', session_scope: 'global', card_id: null, started_at: now },
+  { id: `agent:executor:${smokeCardId}`, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now },
+  { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', started_at: now },
+  { id: 'agent:reviewer:project', agent_name: 'reviewer', session_scope: 'card', card_id: 'project', started_at: now },
 ];
 
 const metaRoot = {
@@ -156,8 +156,6 @@ export const processListResponse = parseOperatorResponse('processes.list', expec
 function stampedText(sessionId: string, id: string, content: string) {
   return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
 }
-
-const idleActivity = { status: 'inactive', pending_calls: [] };
 
 export type OperatorRestOptions = {
   unauthorized?: boolean | ((method: string, pathname: string) => boolean);
@@ -213,12 +211,30 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/2`) return json(route, historyEntry);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, historyDiff);
     if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, parseOperatorResponse('agents.list', { sessions }));
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/agent-sessions`) {
+      return json(route, parseOperatorResponse('agents.cardSessions', {
+        card_id: smokeCardId,
+        sessions: sessions.filter((session) => session.card_id === smokeCardId),
+      }));
+    }
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.endsWith('/conversation')) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'agent:analyst:global');
+      const allEntries = sessionId === 'agent:analyst:global'
+        ? chatEntries.get(sessionId) ?? [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')]
+        : [stampedText(sessionId, `msg-${sessionId}-1`, 'Synthetic agent transcript.')];
+      const since = url.searchParams.get('since');
+      const cursorIndex = since === null ? -1 : allEntries.findIndex((entry) => entry.id === since);
+      const entries = cursorIndex < 0 ? allEntries : allEntries.slice(cursorIndex + 1);
       return json(route, parseOperatorResponse('agents.conversation', {
+        session_id: sessionId,
+        entries,
+        cursor: allEntries.at(-1)?.id ?? since,
+      }));
+    }
+    if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.split('/').length === 4) {
+      const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'agent:analyst:global');
+      return json(route, parseOperatorResponse('agents.detail', {
         session: sessions.find((session) => session.id === sessionId) ?? sessions[0],
-        entries: [stampedText(sessionId, `msg-${sessionId}-1`, 'Synthetic agent transcript.')],
-        activity_status: idleActivity,
       }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/files') {
@@ -322,12 +338,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/chat') {
       const sessionId = 'agent:analyst:global';
-      return json(route, parseOperatorResponse('chats.get', {
-        session_id: sessionId,
-        session: { id: sessionId, agent_name: 'analyst', session_scope: 'global', card_id: null, status: 'inactive', started_at: now },
-        entries: chatEntries.get(sessionId) ?? [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')],
-        activity_status: { status: 'inactive', pending_calls: [] },
-      }));
+      return json(route, parseOperatorResponse('chats.get', { session_id: sessionId }));
     }
     if (request.method() === 'POST' && url.pathname === '/api/chat') {
       const sessionId = 'agent:analyst:global';

@@ -15,15 +15,36 @@ describe('live-sync conversation identity contracts', () => {
   it.each(valid)('accepts every frame kind for exact identity %s', (id) => {
     expect(parseLiveSyncClientFrame({ t: 'subscribe', resource: 'conversation', id, lease: 'lease' })).toMatchObject({ id });
     expect(parseLiveSyncClientFrame({ t: 'unsubscribe', resource: 'conversation', id, lease: 'lease' })).toMatchObject({ id });
-    expect(LiveSyncSubscribedFrameSchema.parse({ t: 'subscribed', resource: 'conversation', id, lease: 'lease' }).id).toBe(id);
-    expect(LiveSyncInvalidateFrameSchema.parse({ t: 'invalidate', resource: 'conversation', id })).toMatchObject({ id });
+    expect(
+      LiveSyncSubscribedFrameSchema.parse({
+        t: 'subscribed',
+        resource: 'conversation',
+        id,
+        lease: 'lease',
+      }),
+    ).toMatchObject({ id });
+    expect(
+      LiveSyncInvalidateFrameSchema.parse({
+        t: 'invalidate',
+        resource: 'conversation',
+        id,
+        through_message_id: 'opaque-watermark',
+      }),
+    ).toMatchObject({ id });
   });
 
   it.each(invalid)('rejects every frame kind for noncanonical identity %s', (id) => {
     expect(LiveSyncSubscribeFrameSchema.safeParse({ t: 'subscribe', resource: 'conversation', id, lease: 'lease' }).success).toBe(false);
     expect(LiveSyncUnsubscribeFrameSchema.safeParse({ t: 'unsubscribe', resource: 'conversation', id, lease: 'lease' }).success).toBe(false);
     expect(LiveSyncSubscribedFrameSchema.safeParse({ t: 'subscribed', resource: 'conversation', id, lease: 'lease' }).success).toBe(false);
-    expect(LiveSyncInvalidateFrameSchema.safeParse({ t: 'invalidate', resource: 'conversation', id }).success).toBe(false);
+    expect(
+      LiveSyncInvalidateFrameSchema.safeParse({
+        t: 'invalidate',
+        resource: 'conversation',
+        id,
+        through_message_id: 'opaque-watermark',
+      }).success,
+    ).toBe(false);
   });
 });
 

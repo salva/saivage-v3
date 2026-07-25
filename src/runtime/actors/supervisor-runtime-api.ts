@@ -35,7 +35,7 @@ import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../..
 export interface SupervisorRuntimeApiOptions {
   projectRoot: string; now?: () => string;
   actorStore: CardService; interventionBinding: RuntimeInterventionBinding; provider: LLMProviderPort;
-  conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentsChanged' | 'conversationChanged'>;
+  conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged'>;
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry;
   workflows: CompiledRuntimeWorkflows; processPrompts: ProcessPromptRegistry;
@@ -570,7 +570,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (this.halt && this.halt.owners.some((owner) => this.activationOwners.get(owner.cardId) !== owner)) throw new Error('Runtime halt owner graph is not installed.');
   }
 
-  private ownershipInvalidated(sessionId?: import('../../schemas/index.js').ConversationSessionId): void { this.behavior.freshness.runtimeChanged(); this.behavior.freshness.agentsChanged(); if (sessionId) this.behavior.freshness.conversationChanged(sessionId); }
+  private ownershipInvalidated(_sessionId?: import('../../schemas/index.js').ConversationSessionId): void { this.behavior.freshness.runtimeChanged(); }
   private async cancelNonrunningSubtree(cardId: string, cancelled: string[], authority?: CardActivationOwner): Promise<void> { if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; const owner = this.activationOwners.get(cardId); if (owner) { const result = await this.cancelOwnedOrStored(cardId, 'ancestor cancelled', null); if (authority) this.requireOwnerAuthority(authority); cancelled.push(...result.cancelled_card_ids); return; } const card = this.behavior.actorStore.read(cardId); if (!card || !canCancelCardStatus(card.lifecycle.status)) return; if (card.lifecycle.status === 'running') throw new Error(`Running card '${cardId}' has no activation owner.`); for (const childId of this.behavior.actorStore.listChildren(cardId)) { await this.cancelNonrunningSubtree(childId, cancelled, authority); if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; } if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; this.behavior.actorStore.setStatus(cardId, 'cancelled'); cancelled.push(cardId); }
 }
 

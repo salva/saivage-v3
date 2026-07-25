@@ -20,7 +20,7 @@ const runtime = new SupervisorRuntimeApi({
   interventionBinding: new RuntimeInterventionBinding(),
   provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
   conversations: { projectRoot },
-  freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
+  freshness: { runtimeChanged() {} },
   processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),
   runtimeProcessRootScope,
   promptTemplates: { render: () => 'test prompt' },

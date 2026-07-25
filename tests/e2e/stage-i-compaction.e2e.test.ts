@@ -156,15 +156,21 @@ describe('Stage-I compaction contracts', () => {
       prepareSessionRoot(ownerRoot, sessionId); prepareSessionRoot(decoyRoot, sessionId);
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(ownerRoot, ordinal, sessionId);
       appendRawRound(decoyRoot, 1, sessionId);
-      const changes = { conversationChanged: jest.fn(), agentsChanged: jest.fn(), runtimeChanged: jest.fn(), cardProjectionChanged: jest.fn(), subscribe: jest.fn(() => ({ unsubscribe() {} })) };
+      const changes = {
+        conversationChanged: jest.fn(),
+        agentMembershipChanged: jest.fn(),
+      };
       const invocation = invocationFor(sessionId, [], { ...config, input_budget_tokens: 400 });
       await compact({ strategy: 'preventive', conversations: { projectRoot: ownerRoot, changes }, input: invocation, summarizerProvider: summaryProvider(), signal: new AbortController().signal });
       const owner = readConversation(ownerRoot, sessionId);
       expect(owner.compactions).toHaveLength(1);
       expect(owner.latestCompaction!.metadataRow.session_id).toBe(sessionId);
       expect(readConversation(decoyRoot, sessionId).compactions).toHaveLength(0);
-      expect(changes.conversationChanged).toHaveBeenCalledWith(sessionId);
-      expect(changes.agentsChanged).toHaveBeenCalled();
+      expect(changes.conversationChanged).toHaveBeenCalledWith(
+        sessionId,
+        owner.latestCompaction!.metadataRow.id,
+      );
+      expect(changes.agentMembershipChanged).not.toHaveBeenCalled();
     } finally {
       rmSync(ownerRoot, { recursive: true, force: true });
       rmSync(decoyRoot, { recursive: true, force: true });

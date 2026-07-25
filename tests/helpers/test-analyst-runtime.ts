@@ -31,7 +31,6 @@ export interface TestAnalystRuntimeOptions {
   compactor: any;
   summarizerProvider: any;
   runtimeProjectionChanged(): void;
-  captureExecutingLlmSnapshots: ToolContext['captureExecutingLlmSnapshots'];
   restartServerAvailable?: boolean;
   restartPort?: RestartPort;
 }
@@ -61,7 +60,6 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         actor: 'analyst',
         surface: 'web-chat',
         eventQueries: options.eventQueries,
-        captureExecutingLlmSnapshots: options.captureExecutingLlmSnapshots,
         analystMutations,
       };
       const agentName=options.config.analyst_agent;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { nextTick, ref, type Ref } from 'vue';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
-import type { ActivityStatus, AgentConversationEntry } from '../../api/types';
+import type { AgentConversationEntry } from '../../api/types';
 
 const assistantRound = 'r-assistant-00000000000000000000000000000001';
 const assistantRoundTwo = 'r-assistant-00000000000000000000000000000002';
@@ -21,21 +21,6 @@ function textEntry(id: string, round_id = assistantRound): AgentConversationEntr
   } as AgentConversationEntry;
 }
 
-function idleActivity(): ActivityStatus {
-  return { status: 'inactive', pending_calls: [] };
-}
-
-function activityWithPending(count: number): ActivityStatus {
-  return {
-    status: 'waiting',
-    pending_calls: Array.from({ length: count }, (_, index) => ({
-      id: `pending-${index}`,
-      tool: 'read',
-      started_at: `2026-01-01T00:00:0${index}.000Z`,
-    })),
-  };
-}
-
 function scrollElement(scrollTop = 0): HTMLElement {
   return { scrollTop, scrollHeight: 1000, clientHeight: 200 } as HTMLElement;
 }
@@ -45,18 +30,12 @@ async function flushScrollWatch(): Promise<void> {
   await nextTick();
 }
 
-function setup(
-  initialEntries: AgentConversationEntry[] = [textEntry('m1')],
-  initialActivity: ActivityStatus | null = idleActivity(),
-  initialExtraPending = 0,
-) {
+function setup(initialEntries: AgentConversationEntry[] = [textEntry('m1')]) {
   const entries = ref<readonly AgentConversationEntry[]>(initialEntries);
-  const activityStatus = ref<ActivityStatus | null>(initialActivity);
-  const extraPendingCount = ref(initialExtraPending);
-  const controls = useAgentTimeline(entries, activityStatus, undefined, extraPendingCount);
+  const controls = useAgentTimeline(entries);
   const el = scrollElement();
   controls.scrollAreaRef.value = el;
-  return { entries, activityStatus, extraPendingCount, controls, el };
+  return { entries, controls, el };
 }
 
 function markScrolledAway(controls: ReturnType<typeof useAgentTimeline>, el: HTMLElement): void {
@@ -104,51 +83,6 @@ describe('useAgentTimeline auto-scroll trigger', () => {
     expect(away.controls.unseenCount.value).toBe(1);
   });
 
-  it('reacts to activity pending footer growth', async () => {
-    const tailing = setup();
-    tailing.activityStatus.value = activityWithPending(1);
-    await flushScrollWatch();
-
-    expect(tailing.el.scrollTop).toBe(tailing.el.scrollHeight);
-    expect(tailing.controls.unseenCount.value).toBe(0);
-
-    const away = setup();
-    markScrolledAway(away.controls, away.el);
-    away.activityStatus.value = activityWithPending(2);
-    await flushScrollWatch();
-
-    expect(away.el.scrollTop).toBe(0);
-    expect(away.controls.unseenCount.value).toBe(2);
-  });
-
-  it('reacts to analyst extra pending count growth', async () => {
-    const tailing = setup();
-    tailing.extraPendingCount.value = 1;
-    await flushScrollWatch();
-
-    expect(tailing.el.scrollTop).toBe(tailing.el.scrollHeight);
-    expect(tailing.controls.unseenCount.value).toBe(0);
-
-    const away = setup();
-    markScrolledAway(away.controls, away.el);
-    away.extraPendingCount.value = 3;
-    await flushScrollWatch();
-
-    expect(away.el.scrollTop).toBe(0);
-    expect(away.controls.unseenCount.value).toBe(3);
-  });
-
-  it('does not double-count pending-to-entry replacement', async () => {
-    const { entries, activityStatus, controls, el } = setup([textEntry('m1')], activityWithPending(1));
-
-    entries.value = [...entries.value, textEntry('m2', assistantRound)];
-    activityStatus.value = idleActivity();
-    await flushScrollWatch();
-
-    expect(el.scrollTop).toBe(0);
-    expect(controls.unseenCount.value).toBe(0);
-  });
-
   it('pauses auto-scroll while pinned and resumes according to pinned state', async () => {
     const { entries, controls, el } = setup();
 
@@ -192,12 +126,5 @@ describe('useAgentTimeline auto-scroll trigger', () => {
 
     expect(el.scrollTop).toBe(0);
     expect(controls.unseenCount.value).toBe(0);
-
-    const pending = setup([textEntry('m1')], activityWithPending(2));
-    pending.activityStatus.value = activityWithPending(1);
-    await flushScrollWatch();
-
-    expect(pending.el.scrollTop).toBe(0);
-    expect(pending.controls.unseenCount.value).toBe(0);
   });
 });

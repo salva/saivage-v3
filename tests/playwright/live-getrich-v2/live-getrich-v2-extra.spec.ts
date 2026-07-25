@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 const analystSessionId = 'agent:analyst:global';
 const analystChatPath = '/api/chat';
+const analystConversationPath = `/api/agents/${encodeURIComponent(analystSessionId)}/conversation`;
 
 /**
  * Extra live coverage against http://10.0.3.170:8080 — exercises endpoints the
@@ -25,13 +26,11 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     expect(body.children.every((child: { parent: string }) => child.parent === 'project')).toBe(true);
   });
 
-  test('chats.get for analyst returns the canonical detail tuple', async ({ request }) => {
+  test('chats.get returns only the canonical analyst identity', async ({ request }) => {
     const res = await request.get(analystChatPath);
     expect(res.status(), `GET ${analystChatPath} — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     const body = await res.json();
-    expect(body.session === null || body.session.id === analystSessionId).toBe(true);
-    expect(Array.isArray(body.entries)).toBe(true);
-    expect(body.activity_status).toEqual(expect.objectContaining({ status: expect.any(String), pending_calls: expect.any(Array) }));
+    expect(body).toEqual({ session_id: analystSessionId });
   });
 
   test('files.list returns a directory listing for the project root', async ({ request }) => {
@@ -84,8 +83,8 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     expect(typeof body.error).toBe('string');
   });
 
-  test('chats.send round-trip appends a user entry visible in chats.get', async ({ request }) => {
-    const before = await request.get(analystChatPath);
+  test('chats.send round-trip appends a user entry visible in the analyst transcript', async ({ request }) => {
+    const before = await request.get(analystConversationPath);
     expect(before.status()).toBe(200);
     const beforeBody = await before.json();
     const beforeCount = beforeBody.entries.length;
@@ -97,7 +96,7 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     });
     expect(send.status(), `POST ${analystChatPath} — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
 
-    const after = await request.get(analystChatPath);
+    const after = await request.get(analystConversationPath);
     expect(after.status()).toBe(200);
     const afterBody = await after.json();
     expect(afterBody.entries.length).toBeGreaterThan(beforeCount);
@@ -107,7 +106,7 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
 
   test('destructive-confirmation gate is gone: analyst card mutation request is not rejected with authorized-surface error', async ({ request }) => {
     test.setTimeout(180_000);
-    const before = await request.get(analystChatPath);
+    const before = await request.get(analystConversationPath);
     const beforeCount = (await before.json()).entries.length;
 
     const send = await request.post(analystChatPath, {
@@ -119,7 +118,7 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     });
     expect(send.status(), `POST ${analystChatPath} — body=${await send.text().catch(() => '<unreadable>')}`).toBe(200);
 
-    const after = await request.get(analystChatPath);
+    const after = await request.get(analystConversationPath);
     const entries = (await after.json()).entries.slice(beforeCount) as Array<{ content?: string; text?: string }>;
     const text = entries.map((e) => e.content ?? e.text ?? '').join('\n');
     expect(text).not.toContain('requires an authorized surface');
@@ -131,7 +130,7 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
   test('two back-to-back chats.send POSTs produce two distinct 32-hex round_ids', async ({ request }) => {
     test.setTimeout(240_000);
     const HEX_ROUND = /^r-user-[0-9a-f]{32}$/;
-    const before = await request.get(analystChatPath);
+    const before = await request.get(analystConversationPath);
     const beforeCount = (await before.json()).entries.length as number;
 
     const stamp = Date.now();
@@ -140,7 +139,7 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     const post2 = await request.post(analystChatPath, { data: { content: `round-id-uniqueness-probe-B-${stamp}`, workspaceContext: { view: 'dashboard', entityId: null, refinement: null } }, timeout: 120_000 });
     expect(post2.status()).toBe(200);
 
-    const after = await request.get(analystChatPath);
+    const after = await request.get(analystConversationPath);
     const allEntries = (await after.json()).entries as Array<{ role: string; content?: string; text?: string; round_id?: string }>;
     const newEntries = allEntries.slice(beforeCount);
     const userEntries = newEntries.filter((e) => e.role === 'user');

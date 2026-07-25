@@ -1,5 +1,8 @@
 import type { SaivageConfig } from '../schemas/saivage-config.js';
-import { buildProviderRoutingReadModel, type ProviderRoutingReadModel } from '../agents/provider-routing-read-model.js';
+import {
+  buildProviderRoutingReadModel,
+  type ProviderRoutingReadModel,
+} from '../agents/provider-routing-read-model.js';
 import { MemoryCandidateAvailability } from '../agents/candidate-availability.js';
 import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../agents/analyst-api.js';
 import { ProviderRegistry } from '../agents/provider.js';
@@ -10,7 +13,10 @@ import type { RuntimeApi } from '../runtime/control-api.js';
 
 import { CardService } from '../cards/card-service.js';
 import { InvocationService } from '../agents/invocation-service.js';
-import { createInvocationServiceProvider, invocationRequest } from './invocation-service-provider.js';
+import {
+  createInvocationServiceProvider,
+  invocationRequest,
+} from './invocation-service-provider.js';
 import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
 import type { ManagedProcessScope } from '../runtime/managed-process-group-registry.js';
@@ -21,11 +27,14 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { FreshnessEffects } from './freshness-effects.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
 import { RuntimeInterventionBinding } from './intervention-readiness.js';
-import { compact, shouldCompact, type AutonomousCompactionPolicy } from '../runtime/actors/compaction/compactor.js';
+import {
+  compact,
+  shouldCompact,
+  type AutonomousCompactionPolicy,
+} from '../runtime/actors/compaction/compactor.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
-import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 import { globalAgentSessionId } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import { buildAgentSurface } from '../tools/agent-invocation-surface.js';
@@ -47,7 +56,6 @@ export interface RuntimeApplication {
   cleanupRuntimeForApplicationStop(): Promise<void>;
   cleanupAnalystForApplicationStop(): Promise<void>;
   getProviderRoutingReadModel(): ProviderRoutingReadModel;
-  captureExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }
 
 export interface RuntimeApplicationServices {
@@ -55,7 +63,7 @@ export interface RuntimeApplicationServices {
   processIdentity: RuntimeProcessIdentity;
   config: SaivageConfig;
   workflows: CompiledRuntimeWorkflows;
-  providerRegistry:ProviderRegistry;
+  providerRegistry: ProviderRegistry;
   configAuthority: ResolvedConfigAuthority;
   eventLogger: EventLog;
   cardStore: CardService;
@@ -70,7 +78,14 @@ export interface RuntimeApplicationServices {
 }
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
-  const { projectRoot, config, eventLogger, cardStore, restartServerAvailable = false, restartPort } = services;
+  const {
+    projectRoot,
+    config,
+    eventLogger,
+    cardStore,
+    restartServerAvailable = false,
+    restartPort,
+  } = services;
   const interventionBinding = new RuntimeInterventionBinding();
   const eventQueries = new EventQueryService(projectRoot);
   const candidateAvailability = new MemoryCandidateAvailability();
@@ -78,10 +93,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const registry = services.providerRegistry;
   const summarizerCandidate = registry.assertCandidate(config.compaction.summarizer_candidate);
-  const router = new ModelRouter(
-    config,
-    registry,
-  );
+  const router = new ModelRouter(config, registry);
   const invocationService = new InvocationService({
     projectRoot,
     registry,
@@ -90,8 +102,15 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     freshness: services.freshness,
   });
   const summarizerProvider: SummarizerProviderPort = {
-    completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal, [summarizerCandidate])),
-    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
+    completeTurn: (input, signal) =>
+      invocationService.invokeWithRecovery(invocationRequest(input, signal, [summarizerCandidate])),
+    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) =>
+      invocationService.projectProviderExchanges(
+        sessionId,
+        sourceInputId,
+        attempts,
+        assistantOutputIds,
+      ),
   };
   const compactionPolicy: AutonomousCompactionPolicy = {
     input_budget_tokens: config.compaction.input_budget_tokens,
@@ -110,17 +129,17 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const workflows = services.workflows;
   const processPrompts = createProcessPromptRegistry(workflows);
   for (const [cardType, process] of workflows.cardTypes) {
-      for (const [stateId, node] of process.states) {
-        if (node.kind !== 'node') continue;
-        promptTemplates.validateProcessNode(cardType, node.agent.name, {
-          cardId: 'startup-validation-card',
-          cardTitle: 'Startup prompt validation',
-          cardBrief: 'Startup validates the effective role template before actor construction.',
-          cardType,
-          contractDescription: describeNodeResultContract(process, stateId),
-          toolList: '- startup-validation: no runtime tool invocation',
-        });
-      }
+    for (const [stateId, node] of process.states) {
+      if (node.kind !== 'node') continue;
+      promptTemplates.validateProcessNode(cardType, node.agent.name, {
+        cardId: 'startup-validation-card',
+        cardTitle: 'Startup prompt validation',
+        cardBrief: 'Startup validates the effective role template before actor construction.',
+        cardType,
+        contractDescription: describeNodeResultContract(process, stateId),
+        toolList: '- startup-validation: no runtime tool invocation',
+      });
+    }
   }
 
   const runtimeSupervisor = createSupervisorRuntimeApi({
@@ -144,14 +163,24 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     fatalPort: services.fatalPort,
   });
   const runtimeApi: RuntimeApi = runtimeSupervisor;
-  const analystSessionId=globalAgentSessionId(workflows.analyst.name);
+  const analystSessionId = globalAgentSessionId(workflows.analyst.name);
   let analystRuntimeCache: AnalystRuntime | null = null;
   const analystProvider = createInvocationServiceProvider(invocationService);
   const createAnalystSession = (_turn: AnalystTurnInput): AnalystSession => {
-    const directScope = processRunner.createDirectScope(services.analystProcessRootScope, `analyst-session:${analystSessionId}`, 'operator_session');
+    const directScope = processRunner.createDirectScope(
+      services.analystProcessRootScope,
+      `analyst-session:${analystSessionId}`,
+      'operator_session',
+    );
     const createInvocationSurface = () => {
       const notifyCard = runtimeApi.notifyCard.bind(runtimeApi);
-      const analystMutations = createAnalystMutationServices({ projectRoot, store: cardStore, configAuthority: services.configAuthority, notifyCard, cancelCard: runtimeApi.cancelCard.bind(runtimeApi) });
+      const analystMutations = createAnalystMutationServices({
+        projectRoot,
+        store: cardStore,
+        configAuthority: services.configAuthority,
+        notifyCard,
+        cancelCard: runtimeApi.cancelCard.bind(runtimeApi),
+      });
       const context: ToolContext = {
         projectRoot,
         configAuthority: services.configAuthority,
@@ -165,26 +194,40 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         restartServerAvailable,
         actor: workflows.analyst.name,
         surface: 'web-chat',
-        captureExecutingLlmSnapshots: () => {
-          const snapshots = [...runtimeSupervisor.captureAutonomousExecutingLlmSnapshots()];
-          const analyst = analystRuntimeCache?.executingLlmSnapshot();
-          if (analyst) snapshots.push(analyst);
-          return snapshots;
-        },
         analystMutations,
         eventQueries,
       };
-      return buildAgentSurface({ agentName: workflows.analyst.name, toolNames: workflows.analyst.tools, projectRoot, store: cardStore, processRunner, processScope: directScope, processOwnerId: analystSessionId, mcpToolInvocation: services.mcpToolInvocation, analystToolContext: context });
+      return buildAgentSurface({
+        agentName: workflows.analyst.name,
+        toolNames: workflows.analyst.tools,
+        projectRoot,
+        store: cardStore,
+        processRunner,
+        processScope: directScope,
+        processOwnerId: analystSessionId,
+        mcpToolInvocation: services.mcpToolInvocation,
+        analystToolContext: context,
+      });
     };
     const shutdownProcesses = async (): Promise<void> => {
-      const report = await processRunner.closeAndTerminateDirectScope({ directScope, category: 'operator_session', reason: 'session closed', graceMs: 5_000 });
-      if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
+      const report = await processRunner.closeAndTerminateDirectScope({
+        directScope,
+        category: 'operator_session',
+        reason: 'session closed',
+        graceMs: 5_000,
+      });
+      if (report.failed.length > 0)
+        throw new Error(
+          report.failed
+            .map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`)
+            .join('; '),
+        );
     };
     return new AnalystSession({
       projectRoot,
       sessionId: analystSessionId,
       config,
-      candidateChain:workflows.candidateChains.get(workflows.analyst.name)!,
+      candidateChain: workflows.candidateChains.get(workflows.analyst.name)!,
       promptTemplates,
       restartServerAvailable,
       restartPort,
@@ -195,17 +238,27 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       summarizerProvider,
       eventLogger,
       cardStore,
-      runtimeProjectionChanged: () => services.freshness.agentsChanged(),
+      runtimeProjectionChanged: () => {},
       createInvocationSurface,
       shutdownProcesses,
       fatalPort: services.fatalPort,
     });
   };
   const getAnalystToolNames = (): string[] => {
-    const directScope = processRunner.createDirectScope(services.analystProcessRootScope, 'analyst-tool-catalog', 'operator_session');
+    const directScope = processRunner.createDirectScope(
+      services.analystProcessRootScope,
+      'analyst-tool-catalog',
+      'operator_session',
+    );
     try {
       const notifyCard = runtimeApi.notifyCard.bind(runtimeApi);
-      const analystMutations = createAnalystMutationServices({ projectRoot, store: cardStore, configAuthority: services.configAuthority, notifyCard, cancelCard: runtimeApi.cancelCard.bind(runtimeApi) });
+      const analystMutations = createAnalystMutationServices({
+        projectRoot,
+        store: cardStore,
+        configAuthority: services.configAuthority,
+        notifyCard,
+        cancelCard: runtimeApi.cancelCard.bind(runtimeApi),
+      });
       const context: ToolContext = {
         projectRoot,
         configAuthority: services.configAuthority,
@@ -218,21 +271,33 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         restartServerAvailable,
         actor: workflows.analyst.name,
         surface: 'web-chat',
-        captureExecutingLlmSnapshots: () => {
-          const snapshots = [...runtimeSupervisor.captureAutonomousExecutingLlmSnapshots()];
-          const analyst = analystRuntimeCache?.executingLlmSnapshot();
-          if (analyst) snapshots.push(analyst);
-          return snapshots;
-        },
         analystMutations,
         eventQueries,
       };
-      return Array.from(buildAgentSurface({ agentName: workflows.analyst.name, toolNames: workflows.analyst.tools, projectRoot, store: cardStore, processRunner, processScope: directScope, processOwnerId: 'analyst-tool-catalog', mcpToolInvocation: services.mcpToolInvocation, analystToolContext: context }).tools.keys());
+      return Array.from(
+        buildAgentSurface({
+          agentName: workflows.analyst.name,
+          toolNames: workflows.analyst.tools,
+          projectRoot,
+          store: cardStore,
+          processRunner,
+          processScope: directScope,
+          processOwnerId: 'analyst-tool-catalog',
+          mcpToolInvocation: services.mcpToolInvocation,
+          analystToolContext: context,
+        }).tools.keys(),
+      );
     } finally {
       processRunner.closeScope(directScope);
     }
   };
-  const terminateAnalystRoot = (reason: string) => processRunner.terminateScopeTree({ rootScope: services.analystProcessRootScope, categories: ['operator_session'], reason, graceMs: 5_000 });
+  const terminateAnalystRoot = (reason: string) =>
+    processRunner.terminateScopeTree({
+      rootScope: services.analystProcessRootScope,
+      categories: ['operator_session'],
+      reason,
+      graceMs: 5_000,
+    });
 
   return {
     runtimeApi,
@@ -240,19 +305,27 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     cardStore,
     processRunner,
     get analystRuntime() {
-      analystRuntimeCache ??= new AnalystRuntime({ createSession: createAnalystSession, getAvailableToolNames: getAnalystToolNames, terminateRoot: terminateAnalystRoot });
+      analystRuntimeCache ??= new AnalystRuntime({
+        createSession: createAnalystSession,
+        getAvailableToolNames: getAnalystToolNames,
+        terminateRoot: terminateAnalystRoot,
+      });
       return analystRuntimeCache;
     },
-    captureExecutingLlmSnapshots() {
-      const snapshots = [...runtimeSupervisor.captureAutonomousExecutingLlmSnapshots()];
-      const analyst = analystRuntimeCache?.executingLlmSnapshot();
-      if (analyst) snapshots.push(analyst);
-      return snapshots;
+    closeRuntimeAdmission() {
+      runtimeSupervisor.closeApplicationAdmission();
     },
-    closeRuntimeAdmission() { runtimeSupervisor.closeApplicationAdmission(); },
-    closeAnalystAdmission() { analystRuntimeCache?.closeAdmission(); },
-    cleanupRuntimeForApplicationStop() { return runtimeSupervisor.cleanupForApplicationStop(); },
-    cleanupAnalystForApplicationStop() { return analystRuntimeCache ? analystRuntimeCache.cleanupForApplicationStop() : Promise.resolve(); },
+    closeAnalystAdmission() {
+      analystRuntimeCache?.closeAdmission();
+    },
+    cleanupRuntimeForApplicationStop() {
+      return runtimeSupervisor.cleanupForApplicationStop();
+    },
+    cleanupAnalystForApplicationStop() {
+      return analystRuntimeCache
+        ? analystRuntimeCache.cleanupForApplicationStop()
+        : Promise.resolve();
+    },
     getProviderRoutingReadModel() {
       return buildProviderRoutingReadModel({
         registry,

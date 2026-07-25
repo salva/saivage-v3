@@ -97,7 +97,7 @@ function harness(withChild = false) {
     actorStore: store, interventionBinding: intervention,
     provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
     conversations: { projectRoot },
-    freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
+    freshness: { runtimeChanged() {} },
     processRunner: { terminateScopeTree }, runtimeProcessRootScope: {}, processIdentity: { pid: 1, startedAt: 'now' },
     promptTemplates: createTestPromptTemplateRegistry(),
   } as never);
@@ -150,7 +150,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       interventionBinding: new RuntimeInterventionBinding(),
       provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
       conversations: { projectRoot },
-      freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
+      freshness: { runtimeChanged() {} },
       processRunner: processes.processRunner,
       runtimeProcessRootScope: processes.runtimeProcessRootScope,
       promptTemplates: createTestPromptTemplateRegistry(),

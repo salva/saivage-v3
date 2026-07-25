@@ -35,10 +35,10 @@ describe('conversation file persistence', () => {
     const context = { projectRoot, changes };
 
     appendConversationBatch(context, [text('first')]);
-    expect(effects).toEqual(['conversation:agent:planner:project', 'agents']);
+    expect(effects).toEqual(['conversation:agent:planner:project:first', 'membership:card:project']);
     effects.length = 0;
     appendConversationBatch(context, [text('second'), text('third')]);
-    expect(effects).toEqual(['conversation:agent:planner:project', 'agents']);
+    expect(effects).toEqual(['conversation:agent:planner:project:third']);
     expect(readFileSync(conversationFile(projectRoot, 'agent:planner:project'), 'utf8').trim().split('\n').map((line) => JSON.parse(line).rows.map((row: AgentMessage) => row.id))).toEqual([['first'], ['second', 'third']]);
   });
 
@@ -67,7 +67,14 @@ describe('conversation file persistence', () => {
     };
 
     appendConversationBatch({ projectRoot, changes }, [text('second'), text('third'), text('fourth')], { io });
-    expect(trace).toEqual(['open', 'stat', 'write', 'fsync', 'close', 'conversation:agent:planner:project', 'agents']);
+    expect(trace).toEqual([
+      'open',
+      'stat',
+      'write',
+      'fsync',
+      'close',
+      'conversation:agent:planner:project:fourth',
+    ]);
   });
 
   it('fails fast without observation when a previously nonempty conversation is missing at append open', () => {
@@ -101,7 +108,20 @@ function text(id: string): AgentMessage {
 }
 
 function changesRecording(effects: string[]) {
-  return { agentsChanged: () => effects.push('agents'), conversationChanged: (sessionId: string) => effects.push(`conversation:${sessionId}`) };
+  return {
+    conversationChanged: (sessionId: string, throughMessageId: string) =>
+      effects.push(`conversation:${sessionId}:${throughMessageId}`),
+    agentMembershipChanged: (
+      scope:
+        | { scope: 'card'; cardId: string }
+        | { scope: 'global-session'; sessionId: string },
+    ) =>
+      effects.push(
+        scope.scope === 'card'
+          ? `membership:card:${scope.cardId}`
+          : `membership:global:${scope.sessionId}`,
+      ),
+  };
 }
 
 function invocationInput(inputId: string): CanonicalLlmInvocationInput {

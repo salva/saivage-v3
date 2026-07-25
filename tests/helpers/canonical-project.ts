@@ -38,7 +38,7 @@ export function testConfigAuthority(projectRoot: string, env: Readonly<Record<st
 }
 
 export class CardService extends ProductionCardService {
-  constructor(projectRoot: string, freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'> = NO_FRESHNESS_EFFECTS, io?: GrowingFileIo) {
+  constructor(projectRoot: string, freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'|'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, io?: GrowingFileIo) {
     super(projectRoot, TEST_WORKFLOWS,freshness, io);
   }
   override editCard(id: string,changes:Parameters<ProductionCardService['editCard']>[1],agentName:Parameters<ProductionCardService['editCard']>[2]='planner'){return super.editCard(id,changes,agentName);}

@@ -7,12 +7,17 @@ import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { InterventionReadinessFacet } from '../application/intervention-readiness.js';
 import type { AnalystMutationServices } from '../application/analyst-mutation-services.js';
 import type { AnalystPreparationReadServices } from '../application/analyst-prepare/webfetch.js';
-import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 import type { EventQueryService } from '../application/event-query-service.js';
 
 export type { ToolResult };
 
-export type SafeToolDataValue = string | number | boolean | null | readonly SafeToolDataValue[] | { readonly [key: string]: SafeToolDataValue };
+export type SafeToolDataValue =
+  | string
+  | number
+  | boolean
+  | null
+  | readonly SafeToolDataValue[]
+  | { readonly [key: string]: SafeToolDataValue };
 
 export interface SafeToolData {
   readonly [key: string]: SafeToolDataValue;
@@ -26,7 +31,10 @@ export interface ToolContext {
   processScope: ManagedProcessScope;
   store: CardService;
   sessionId?: string;
-  runtime?: Pick<RuntimeApi, 'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'getStatus'>;
+  runtime?: Pick<
+    RuntimeApi,
+    'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'getStatus'
+  >;
   mcpToolInvocation: McpToolInvocationPort;
   restartServerAvailable: boolean;
   actor: import('../schemas/index.js').AgentName;
@@ -34,5 +42,4 @@ export interface ToolContext {
   analystMutations?: AnalystMutationServices;
   analystPreparation?: AnalystPreparationReadServices;
   eventQueries: EventQueryService;
-  captureExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[];
 }

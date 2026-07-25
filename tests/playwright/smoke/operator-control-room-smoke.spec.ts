@@ -40,7 +40,7 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect(page.locator('.detail-header-bar')).toContainText('agent:analyst:global');
   await expect(page.locator('[data-testid="round-card"]').first()).toBeVisible();
   await expect(page.locator('[data-testid="round-card"]').first()).toContainText('Synthetic agent transcript.');
-  const ps=page.locator('.role-section').filter({has:page.locator('.role-heading',{hasText:'planner'})}); const pc=ps.locator('.session-card'); await expect(pc).toHaveCount(1); await expect(pc.locator('.session-model')).toHaveText('synthetic-model'); await expect(pc.locator('.status-badge')).toContainText('inactive'); await expect(pc.getByRole('button',{name:'Synthetic Project'})).toBeVisible(); await pc.click(); await expect(page).toHaveURL(/\/agents\/agent:planner:project$/); await expect(page.locator('.detail-header-bar')).toContainText('agent:planner:project');
+  const ps=page.locator('.role-section').filter({has:page.locator('.role-heading',{hasText:'planner'})}); const pc=ps.locator('.session-card'); await expect(pc).toHaveCount(1); await expect(pc.locator('.session-scope')).toHaveText('card'); await expect(pc.locator('.status-badge')).toHaveCount(0); await expect(pc.getByRole('button',{name:'Synthetic Project'})).toBeVisible(); await pc.click(); await expect(page).toHaveURL(/\/agents\/agent:planner:project$/); await expect(page.locator('.detail-header-bar')).toContainText('agent:planner:project');
 
   await page.getByText('Files').first().click();
   await expect(page).toHaveURL(/\/files$/);

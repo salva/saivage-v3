@@ -3,23 +3,43 @@
     <div class="conv-header-row">
       <PanelHeader title="Agent conversations">
         <template #actions>
-          <button type="button" class="conv-refresh" :disabled="requestPending" @click="loadSessions">Refresh</button>
+          <button
+            type="button"
+            class="conv-refresh"
+            :disabled="requestPending"
+            @click="loadSessions"
+          >
+            Refresh
+          </button>
         </template>
       </PanelHeader>
     </div>
 
-    <ViewState v-if="sessionsLoading && sessions.length === 0" state="loading" title="Loading agent sessions" />
-    <ViewState v-else-if="loadError" state="error" title="Could not load sessions" :message="loadError" />
-    <StatusBanner v-if="refreshError" tone="warning" :message="refreshError" />
+    <ViewState
+      v-if="state.loading && state.sessions.length === 0"
+      state="loading"
+      title="Loading agent sessions"
+    />
+    <ViewState
+      v-else-if="state.error"
+      state="error"
+      title="Could not load sessions"
+      :message="state.error"
+    />
 
-    <ViewState v-if="!sessionsLoading && cardSessions.length === 0" state="empty" title="No agent sessions" message="No agent sessions have run against this card yet." />
+    <ViewState
+      v-if="!state.loading && state.sessions.length === 0"
+      state="empty"
+      title="No agent sessions"
+      message="No agent sessions have run against this card yet."
+    />
     <ul v-else class="session-list">
-      <li v-for="session in cardSessions" :key="session.id">
-        <SelectableRow class="session-row" :class="'status-' + session.status" @select="openSession(session.id)">
+      <li v-for="session in state.sessions" :key="session.id">
+        <SelectableRow class="session-row" @select="openSession(session.id)">
           <span class="session-role">{{ session.agent_name }}</span>
-          <span class="session-model">{{ session.model || 'default' }}</span>
-          <StatusBadge :status="statusForAgentSession(session.status)" />
-          <span class="session-time" :title="timestampTitle(session.started_at)">{{ fmtDate(session.started_at) }}</span>
+          <span class="session-time" :title="timestampTitle(session.started_at)">{{
+            fmtDate(session.started_at)
+          }}</span>
         </SelectableRow>
       </li>
     </ul>
@@ -27,35 +47,27 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
-import { storeToRefs } from 'pinia';
-import { useAgentStore } from '../../stores/agents';
+import { useCardAgentSessionsStore } from '../../stores/cardAgentSessions';
+import { useLiveSyncStore } from '../../stores/liveSync';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
-import { statusForAgentSession } from '../../utils/status';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SelectableRow from '../ui/SelectableRow.vue';
-import StatusBadge from '../ui/StatusBadge.vue';
-import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import type { ConversationSessionId } from '../../api/contracts';
 
 const props = defineProps<{ cardId: string }>();
 
 const router = useRouter();
-const agentStore = useAgentStore();
-const {
-  sessions,
-  sessionsLoading,
-  sessionsRefreshing,
-  sessionsError: loadError,
-  sessionsRefreshError: refreshError,
-} = storeToRefs(agentStore);
-const requestPending = computed(() => sessionsLoading.value || sessionsRefreshing.value);
-
-const cardSessions = computed(() =>
-  sessions.value.filter((s) => s.card_id === props.cardId),
+const cardSessionsStore = useCardAgentSessionsStore();
+const liveSync = useLiveSyncStore();
+const state = computed(() => cardSessionsStore.scope(props.cardId));
+const leaseReady = ref(false);
+const requestPending = computed(
+  () => !leaseReady.value || state.value.loading || state.value.refreshing,
 );
+let close: (() => void) | null = null;
 
 function fmtDate(ts: string): string {
   return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : '';
@@ -66,23 +78,81 @@ function openSession(id: ConversationSessionId): void {
 }
 
 async function loadSessions(): Promise<void> {
-  await agentStore.fetchSessions().catch(() => {});
+  if (leaseReady.value) await cardSessionsStore.fetchScope(props.cardId).catch(() => {});
 }
-
+function openScope(): void {
+  leaseReady.value = false;
+  close = liveSync.openCardAgentSessions(props.cardId, async () => {
+    leaseReady.value = true;
+    await loadSessions();
+  });
+}
+onMounted(openScope);
+watch(
+  () => props.cardId,
+  (cardId, previousCardId) => {
+    close?.();
+    cardSessionsStore.release(previousCardId);
+    openScope();
+  },
+);
+onUnmounted(() => {
+  close?.();
+  cardSessionsStore.release(props.cardId);
+});
 </script>
 
 <style scoped>
-.conversations-section { display: flex; flex-direction: column; gap: 10px; }
-.conv-header-row { display: block; }
-.conv-refresh { background: none; border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; color: var(--accent-2); font-size: 12px; cursor: pointer; font-family: inherit; }
-.conv-refresh:disabled { opacity: 0.6; cursor: default; }
-.session-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.session-row { padding: 8px 12px; background: var(--surface-1); border: 1px solid var(--surface-3); border-left: 3px solid transparent; border-radius: 6px; color: var(--text); }
-.session-row:hover { border-color: var(--border); }
-.session-row.status-active { border-left-color: var(--accent-2); }
-.session-row.status-waiting { border-left-color: var(--warn); }
-.session-row.status-inactive { border-left-color: var(--border-strong); }
-.session-role { font-size: 12px; font-weight: 600; text-transform: capitalize; }
-.session-model { font-size: 11px; color: var(--text-muted); font-family: 'SF Mono', monospace; }
-.session-time { margin-left: auto; font-size: 11px; color: var(--text-muted); font-family: 'SF Mono', monospace; }
+.conversations-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.conv-header-row {
+  display: block;
+}
+.conv-refresh {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  color: var(--accent-2);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+}
+.conv-refresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.session-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.session-row {
+  padding: 8px 12px;
+  background: var(--surface-1);
+  border: 1px solid var(--surface-3);
+  border-left: 3px solid transparent;
+  border-radius: 6px;
+  color: var(--text);
+}
+.session-row:hover {
+  border-color: var(--border);
+}
+.session-role {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+.session-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: 'SF Mono', monospace;
+}
 </style>

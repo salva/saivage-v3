@@ -1,5 +1,4 @@
 import type {
-  AgentActivityStatus as ContractActivityStatus,
   AgentConversationEntry,
   AgentSessionSummary,
   CardHistoryEntry,
@@ -19,7 +18,6 @@ import type {
   RestartChatAcknowledgement,
 } from './contracts';
 export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
-
 
 export type {
   AgentConversationEntry,
@@ -77,8 +75,8 @@ export interface CardDiffRow {
   after: unknown;
 }
 
-export type ControlActionAuditEntry = OperatorApiSuccess<'controlActions.list'>['control_actions'][number];
-
+export type ControlActionAuditEntry =
+  OperatorApiSuccess<'controlActions.list'>['control_actions'][number];
 
 export type DoctorCheck = DoctorResponse['checks'][number];
 export type DoctorIssue = DoctorResponse['issues'][number];
@@ -86,13 +84,7 @@ export type ProcessView = OperatorApiSuccess<'processes.get'>['process'];
 export type ProcessListResponse = OperatorApiSuccess<'processes.list'>;
 export type ProcessDetailResponse = OperatorApiSuccess<'processes.get'>;
 
-
 export type AgentSession = AgentSessionSummary;
-export type SessionStatus = AgentSessionSummary['status'];
-export type PendingCall = ContractActivityStatus['pending_calls'][number];
-export type ActivityStatusKind = ContractActivityStatus['status'];
-export type ActivityStatus = ContractActivityStatus;
-
 
 export interface FileEntry {
   name: string;
@@ -109,17 +101,27 @@ export type DebugGraph = OperatorApiSuccess<'debug.graphs'>['graphs'][number];
 export type DebugGraphsResponse = OperatorApiSuccess<'debug.graphs'>;
 export type DebugTimelineEvent = OperatorApiSuccess<'events.list'>['events'][number];
 
-
 export type McpToolWithStats = ContractMcpToolsResponse['serverDetails'][number]['tools'][number];
 export type McpServerWithTools = ContractMcpToolsResponse['serverDetails'][number];
 export type McpToolsResponse = OperatorApiSuccess<'mcp.tools'>;
 export type McpStatusResponse = OperatorApiSuccess<'mcp.status'>;
 
-
-export type WsConnectionState = 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token';
+export type WsConnectionState =
+  | 'connected'
+  | 'connecting'
+  | 'offline'
+  | 'unauthorized'
+  | 'no-token';
 export type { WsEventType, WsEnvelope } from './contracts';
 export type DataAuthority = 'rest' | 'ws' | 'mixed' | 'unknown';
-export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
+export type RuntimeStatus =
+  | 'stopped'
+  | 'starting'
+  | 'running'
+  | 'pausing'
+  | 'paused'
+  | 'closing'
+  | 'error';
 export type RuntimeState = Omit<ContractRuntimeState, 'status'> & { status: RuntimeStatus };
 
 export interface FreshnessState {
@@ -129,22 +131,26 @@ export interface FreshnessState {
   isStale: boolean;
 }
 
-
-
 export type CardRecord = OperatorCard & { notes?: NoteRecord[] };
 export type CardChildrenResponse = OperatorApiSuccess<'cards.children'>;
 export type CardDetailResponse = OperatorApiSuccess<'cards.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
-export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[]; };
-export type RuntimeStateResponse = Omit<OperatorApiSuccess<'runtime.getState'>, 'runtime'> & { runtime: RuntimeState | null };
+export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[] };
+export type RuntimeStateResponse = Omit<OperatorApiSuccess<'runtime.getState'>, 'runtime'> & {
+  runtime: RuntimeState | null;
+};
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
-export type AgentConversationResponse = Omit<OperatorApiSuccess<'agents.conversation'>, 'session' | 'entries' | 'activity_status'> & { session: AgentSession; entries: AgentConversationEntry[]; activity_status: ActivityStatus; };
+export type AgentConversationResponse = OperatorApiSuccess<'agents.conversation'>;
+export type AgentDetailResponse = OperatorApiSuccess<'agents.detail'>;
+export type CardAgentSessionsResponse = OperatorApiSuccess<'agents.cardSessions'>;
 export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
-export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & { sessions: AgentSession[]; };
+export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & {
+  sessions: AgentSession[];
+};
 export type ControlActionsListResponse = OperatorApiSuccess<'controlActions.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'>;
-export type AnalystSession = NonNullable<ChatEntriesResponse['session']>;
+export type AnalystSession = AgentSessionSummary;
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugErrorsResponse = OperatorApiSuccess<'debug.errors'>;

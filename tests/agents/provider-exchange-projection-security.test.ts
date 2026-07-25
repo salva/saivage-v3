@@ -27,8 +27,10 @@ describe('provider exchange publication security projection', () => {
   it('publishes one post-append Agent hint per canonical-session exchange and none for other identities or failure', () => {
     const root = projectRoot();
     const readableCounts: number[] = [];
-    const freshness: Pick<FreshnessEffects, 'agentsChanged'> = {
-      agentsChanged: jest.fn(() => { readableCounts.push(readAppLogEntries(root, 'provider_exchange').length); }),
+    const freshness: Pick<FreshnessEffects, 'llmExchangeChanged'> = {
+      llmExchangeChanged: jest.fn(() => {
+        readableCounts.push(readAppLogEntries(root, 'provider_exchange').length);
+      }),
     };
     const service = invocationService(root, freshness);
 
@@ -55,8 +57,10 @@ describe('provider exchange publication security projection', () => {
 
   it('commits a duplicate canonical exchange before one strict Agent observer failure and stops later attempts', () => {
     const root = projectRoot();
-    const agentsChanged = jest.fn(() => { readAppLogEntries(root, 'provider_exchange'); });
-    const changes = { agentsChanged };
+    const llmExchangeChanged = jest.fn(() => {
+      readAppLogEntries(root, 'provider_exchange');
+    });
+    const changes = { llmExchangeChanged };
     const service = invocationService(root, changes);
     service.projectProviderExchanges(sessionId, sourceInputId, [providerAttempts()[0]!], []);
 
@@ -66,13 +70,14 @@ describe('provider exchange publication security projection', () => {
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
     ]);
-    expect(agentsChanged).toHaveBeenCalledTimes(2);
+    expect(llmExchangeChanged).toHaveBeenCalledTimes(2);
     expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate logical id/);
   });
 
   it('commits a duplicate noncanonical exchange without an Agent hint and rejects it only on strict read', () => {
-    const root = projectRoot(); const agentsChanged = jest.fn();
-    const changes = { agentsChanged };
+    const root = projectRoot();
+    const llmExchangeChanged = jest.fn();
+    const changes = { llmExchangeChanged };
     const service = invocationService(root, changes);
     const attempt = attemptFor('summary-input', 0);
     service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], []);
@@ -81,7 +86,7 @@ describe('provider exchange publication security projection', () => {
       providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
       providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
     ]);
-    expect(agentsChanged).not.toHaveBeenCalled();
+    expect(llmExchangeChanged).not.toHaveBeenCalled();
     expect(() => readAppLogEntries(root, 'provider_exchange')).toThrow(/duplicate logical id/);
   });
 
@@ -270,7 +275,10 @@ function rawProviderRows(root: string): Array<{ type: 'provider_exchange'; data:
   return readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: 'provider_exchange'; data: Parameters<typeof providerExchangeLogId>[0] }> }).rows);
 }
 
-function invocationService(root: string, freshness: Pick<FreshnessEffects, 'agentsChanged'> = { agentsChanged() {} }): InvocationService {
+function invocationService(
+  root: string,
+  freshness: Pick<FreshnessEffects, 'llmExchangeChanged'> = { llmExchangeChanged() {} },
+): InvocationService {
   return new InvocationService({
     projectRoot: root,
     freshness,

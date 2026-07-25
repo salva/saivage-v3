@@ -13,6 +13,8 @@ import type {
   AgentConversationResponse,
   AgentLlmExchangeResponse,
   AgentSessionsResponse,
+  AgentDetailResponse,
+  CardAgentSessionsResponse,
   ChatEntriesResponse,
   ChatResponse,
   ChatWorkspaceContext,
@@ -117,7 +119,9 @@ async function request<T>(
     }
     throw new ApiError(
       response.status,
-      (responseBody['message'] as string) || (responseBody['error'] as string) || response.statusText,
+      (responseBody['message'] as string) ||
+        (responseBody['error'] as string) ||
+        response.statusText,
       responseBody,
     );
   }
@@ -136,7 +140,10 @@ type OperatorRequestOptions<K extends OperatorApiOperationId> = {
   signal?: AbortSignal;
 };
 
-function buildOperatorPath<K extends OperatorApiOperationId>(operationId: K, params?: OperatorApiParams<K>): string {
+function buildOperatorPath<K extends OperatorApiOperationId>(
+  operationId: K,
+  params?: OperatorApiParams<K>,
+): string {
   const contract = operatorApiContracts[operationId];
   const values = (params ?? {}) as Record<string, unknown>;
   return contract.path.replace(/:([A-Za-z0-9_]+)/g, (_match, key: string) => {
@@ -148,9 +155,13 @@ function buildOperatorPath<K extends OperatorApiOperationId>(operationId: K, par
   });
 }
 
-function normalizeQuery(query?: Record<string, string | undefined>): Record<string, string> | undefined {
+function normalizeQuery(
+  query?: Record<string, string | undefined>,
+): Record<string, string> | undefined {
   if (!query) return undefined;
-  const entries = Object.entries(query).filter((entry): entry is [string, string] => entry[1] !== undefined);
+  const entries = Object.entries(query).filter(
+    (entry): entry is [string, string] => entry[1] !== undefined,
+  );
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
@@ -169,7 +180,6 @@ function operatorRequest<K extends OperatorApiOperationId>(
   );
 }
 
-
 export function issueWebSocketTicket(): Promise<OperatorApiSuccess<'auth.wsTicket'>> {
   return operatorRequest('auth.wsTicket');
 }
@@ -182,53 +192,99 @@ export function getCard(id: string, signal?: AbortSignal): Promise<CardDetailRes
   return operatorRequest('cards.get', { params: { id }, signal }) as Promise<CardDetailResponse>;
 }
 
-export function listCardHistory(id: string, signal?: AbortSignal): Promise<CardHistoryListResponse> {
+export function listCardHistory(
+  id: string,
+  signal?: AbortSignal,
+): Promise<CardHistoryListResponse> {
   return operatorRequest('cards.history.list', { params: { id }, signal });
 }
 
-export function getCardHistoryEntry(id: string, seq: number, signal?: AbortSignal): Promise<CardHistoryEntryResponse> {
+export function getCardHistoryEntry(
+  id: string,
+  seq: number,
+  signal?: AbortSignal,
+): Promise<CardHistoryEntryResponse> {
   return operatorRequest('cards.history.get', { params: { id, seq }, signal });
 }
 
-export interface CurrentCardDiffKey { cardId: string; fromSeq: number; to: 'current' }
-
-export function getCardDiff(key: CurrentCardDiffKey, signal?: AbortSignal): Promise<CardDiffResponse> {
-  return operatorRequest('cards.diff', { params: { id: key.cardId }, query: {
-    from: String(key.fromSeq),
-    to: key.to,
-  }, signal }) as Promise<CardDiffResponse>;
+export interface CurrentCardDiffKey {
+  cardId: string;
+  fromSeq: number;
+  to: 'current';
 }
 
-
-
+export function getCardDiff(
+  key: CurrentCardDiffKey,
+  signal?: AbortSignal,
+): Promise<CardDiffResponse> {
+  return operatorRequest('cards.diff', {
+    params: { id: key.cardId },
+    query: {
+      from: String(key.fromSeq),
+      to: key.to,
+    },
+    signal,
+  }) as Promise<CardDiffResponse>;
+}
 
 export function getRuntimeState(signal?: AbortSignal): Promise<RuntimeStateResponse> {
   return operatorRequest('runtime.getState', { signal });
 }
 
-export function getRuntimeStatus(signal?: AbortSignal): Promise<OperatorApiSuccess<'runtime.status'>> { return operatorRequest('runtime.status', { signal }); }
-export function stopProject(): Promise<OperatorApiSuccess<'stop_project'>> { return operatorRequest('stop_project'); }
-export function restartServer(): Promise<OperatorApiSuccess<'restart_server'>> { return operatorRequest('restart_server', { body: { confirmation: 'RESTART SERVER' } }); }
-
-
-
-
-
-
+export function getRuntimeStatus(
+  signal?: AbortSignal,
+): Promise<OperatorApiSuccess<'runtime.status'>> {
+  return operatorRequest('runtime.status', { signal });
+}
+export function stopProject(): Promise<OperatorApiSuccess<'stop_project'>> {
+  return operatorRequest('stop_project');
+}
+export function restartServer(): Promise<OperatorApiSuccess<'restart_server'>> {
+  return operatorRequest('restart_server', { body: { confirmation: 'RESTART SERVER' } });
+}
 
 export function listAgentSessions(signal?: AbortSignal): Promise<AgentSessionsResponse> {
   return operatorRequest('agents.list', { signal }) as Promise<AgentSessionsResponse>;
 }
-
-export function getAgentConversation(sessionId: ConversationSessionId, signal?: AbortSignal): Promise<AgentConversationResponse> {
-  return operatorRequest('agents.conversation', { params: { id: sessionId }, signal }) as Promise<AgentConversationResponse>;
+export function getCardAgentSessions(
+  cardId: string,
+  signal?: AbortSignal,
+): Promise<CardAgentSessionsResponse> {
+  return operatorRequest('agents.cardSessions', { params: { id: cardId }, signal });
+}
+export function getAgentSession(
+  sessionId: ConversationSessionId,
+  signal?: AbortSignal,
+): Promise<AgentDetailResponse> {
+  return operatorRequest('agents.detail', { params: { id: sessionId }, signal });
 }
 
-export function getAgentLlmExchange(sessionId: ConversationSessionId, signal?: AbortSignal): Promise<AgentLlmExchangeResponse> {
-  return operatorRequest('agents.llmExchange', { params: { id: sessionId }, signal }) as Promise<AgentLlmExchangeResponse>;
+export function getAgentConversation(
+  sessionId: ConversationSessionId,
+  signal?: AbortSignal,
+  since?: string,
+): Promise<AgentConversationResponse> {
+  return operatorRequest('agents.conversation', {
+    params: { id: sessionId },
+    query: since ? { since } : undefined,
+    signal,
+  }) as Promise<AgentConversationResponse>;
 }
 
-export function listControlActions(query?: { card_id?: string; since?: string }): Promise<ControlActionsListResponse> {
+export function getAgentLlmExchange(
+  sessionId: ConversationSessionId,
+  signal?: AbortSignal,
+): Promise<AgentLlmExchangeResponse> {
+  return operatorRequest('agents.llmExchange', {
+    params: { id: sessionId },
+    signal,
+  }) as Promise<AgentLlmExchangeResponse>;
+}
+
+export function listControlActions(query?: {
+  card_id?: string;
+  since?: string;
+}): Promise<ControlActionsListResponse> {
   return operatorRequest('controlActions.list', { query });
 }
 
@@ -236,7 +292,10 @@ export function getChatEntries(signal?: AbortSignal): Promise<ChatEntriesRespons
   return operatorRequest('chats.get', { signal }) as Promise<ChatEntriesResponse>;
 }
 
-export function sendChatMessage(content: string, workspaceContext?: ChatWorkspaceContext): Promise<ChatResponse> {
+export function sendChatMessage(
+  content: string,
+  workspaceContext?: ChatWorkspaceContext,
+): Promise<ChatResponse> {
   const body = workspaceContext === undefined ? { content } : { content, workspaceContext };
   return operatorRequest('chats.send', { body });
 }
@@ -257,7 +316,9 @@ export function getDebugErrors(): Promise<DebugErrorsResponse> {
   return operatorRequest('debug.errors');
 }
 
-export function getDebugGraphs(signal?: AbortSignal): Promise<import('./types').DebugGraphsResponse> {
+export function getDebugGraphs(
+  signal?: AbortSignal,
+): Promise<import('./types').DebugGraphsResponse> {
   return operatorRequest('debug.graphs', { signal });
 }
 

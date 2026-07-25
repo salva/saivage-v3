@@ -1,11 +1,14 @@
 <template>
-  <div class="app-shell" :class="[`pane-${effectiveMobileActivePane}`, { 'analyst-pane-suppressed': suppressAnalystPane }]" @keydown="handleKeydown">
+  <div
+    class="app-shell"
+    :class="[
+      `pane-${effectiveMobileActivePane}`,
+      { 'analyst-pane-suppressed': suppressAnalystPane },
+    ]"
+    @keydown="handleKeydown"
+  >
     <div class="workspace-shell">
-      <NavRail
-        :nav-items="navItems"
-        :docs-href="docsHref"
-        @open-token="showTokenDialog = true"
-      />
+      <NavRail :nav-items="navItems" :docs-href="docsHref" @open-token="showTokenDialog = true" />
 
       <div class="workspace-stack">
         <WorkspaceHeader
@@ -22,11 +25,29 @@
         />
 
         <main class="workspace-content">
-          <div v-if="showAuthBanner" class="entry-danger auth-banner" role="alert" data-testid="api-auth-banner">
+          <div
+            v-if="showAuthBanner"
+            class="entry-danger auth-banner"
+            role="alert"
+            data-testid="api-auth-banner"
+          >
             <strong>API token required</strong>
             <span>Set a valid API token to load secured runtime data.</span>
-            <Button class="auth-banner-action" size="sm" variant="ghost" @click="openTokenFromAuthBanner">Open Token modal</Button>
-            <Button class="auth-banner-dismiss" size="sm" variant="ghost" aria-label="Dismiss API token banner" @click="dismissAuthBanner">Dismiss</Button>
+            <Button
+              class="auth-banner-action"
+              size="sm"
+              variant="ghost"
+              @click="openTokenFromAuthBanner"
+              >Open Token modal</Button
+            >
+            <Button
+              class="auth-banner-dismiss"
+              size="sm"
+              variant="ghost"
+              aria-label="Dismiss API token banner"
+              @click="dismissAuthBanner"
+              >Dismiss</Button
+            >
           </div>
           <div class="workspace-route-host">
             <router-view v-slot="{ Component }">
@@ -53,7 +74,9 @@
         :class="{ active: effectiveMobileActivePane === 'workspace' }"
         :aria-pressed="effectiveMobileActivePane === 'workspace'"
         @click="mobileActivePane = 'workspace'"
-      >Workspace</button>
+      >
+        Workspace
+      </button>
       <button
         v-if="!suppressAnalystPane"
         type="button"
@@ -61,7 +84,9 @@
         :class="{ active: effectiveMobileActivePane === 'analyst' }"
         :aria-pressed="effectiveMobileActivePane === 'analyst'"
         @click="mobileActivePane = 'analyst'"
-      >Analyst<span v-if="analystActivityDot" class="activity-dot" aria-hidden="true"></span></button>
+      >
+        Analyst<span v-if="analystActivityDot" class="activity-dot" aria-hidden="true"></span>
+      </button>
     </nav>
 
     <GlobalToaster />
@@ -73,17 +98,40 @@
       @cleared="handleTokenCleared"
     />
 
-    <Dialog :visible="showShortcutHelp" title-id="shortcut-help-title" @dismiss="showShortcutHelp = false">
+    <Dialog
+      :visible="showShortcutHelp"
+      title-id="shortcut-help-title"
+      @dismiss="showShortcutHelp = false"
+    >
       <div class="shortcut-help">
         <div class="shortcut-help-header">
           <h2 id="shortcut-help-title" class="shortcut-help-title">Keyboard shortcuts</h2>
-          <button type="button" class="shortcut-help-close" aria-label="Close" @click="showShortcutHelp = false">&times;</button>
+          <button
+            type="button"
+            class="shortcut-help-close"
+            aria-label="Close"
+            @click="showShortcutHelp = false"
+          >
+            &times;
+          </button>
         </div>
         <dl class="shortcut-list">
-          <div class="shortcut-row"><dt><kbd>1</kbd>–<kbd>5</kbd></dt><dd>Switch workspace section</dd></div>
-          <div class="shortcut-row"><dt><kbd>/</kbd></dt><dd>Focus Analyst chat</dd></div>
-          <div class="shortcut-row"><dt><kbd>?</kbd></dt><dd>Show this help</dd></div>
-          <div class="shortcut-row"><dt><kbd>Esc</kbd></dt><dd>Close dialog</dd></div>
+          <div class="shortcut-row">
+            <dt><kbd>1</kbd>–<kbd>5</kbd></dt>
+            <dd>Switch workspace section</dd>
+          </div>
+          <div class="shortcut-row">
+            <dt><kbd>/</kbd></dt>
+            <dd>Focus Analyst chat</dd>
+          </div>
+          <div class="shortcut-row">
+            <dt><kbd>?</kbd></dt>
+            <dd>Show this help</dd>
+          </div>
+          <div class="shortcut-row">
+            <dt><kbd>Esc</kbd></dt>
+            <dd>Close dialog</dd>
+          </div>
         </dl>
       </div>
     </Dialog>
@@ -106,7 +154,11 @@ import { useRuntimeStore } from '../../stores/runtime';
 import { useAuthStore } from '../../stores/auth';
 import { useAnalystChat } from '../../stores/analystChat';
 import type { WsConnectionState } from '../../types/view-models';
-import { API_AUTH_REQUIRED_EVENT, dismissAuthBannerForSession, isAuthBannerDismissedForSession } from '../../utils/auth-events';
+import {
+  API_AUTH_REQUIRED_EVENT,
+  dismissAuthBannerForSession,
+  isAuthBannerDismissedForSession,
+} from '../../utils/auth-events';
 import { parseAgentDetailRouteParam } from '../../router/agent-session-route';
 
 const runtimeStore = useRuntimeStore();
@@ -128,11 +180,46 @@ const route = useRoute();
 const router = useRouter();
 
 const navItems: NavItem[] = [
-  { id: 'dashboard', label: 'Dashboard', shortcut: '1', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="2" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`, to: { name: 'dashboard' }, activePatterns: ['dashboard', '/dashboard'] },
-  { id: 'cards', label: 'Cards', shortcut: '2', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="7" y="2" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="14" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="12" y="14" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v4M5 14v-2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`, to: { name: 'cards' }, activePatterns: ['cards', 'card-detail', '/cards'] },
-  { id: 'agents', label: 'Agents', shortcut: '3', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M5 16c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="7" cy="6.5" r="1" fill="currentColor"/></svg>`, to: { name: 'agents' }, activePatterns: ['agents', 'agent-detail', '/agents'] },
-  { id: 'files', label: 'Files', shortcut: '4', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 3h5l2 2h7a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M3 8h14" stroke="currentColor" stroke-width="1.5"/></svg>`, to: { name: 'files' }, activePatterns: ['files', '/files'] },
-  { id: 'debug', label: 'Debug', shortcut: '5', icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="10" y1="6" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="14" x2="10.01" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`, to: { name: 'debug' }, activePatterns: ['debug', '/debug'] },
+  {
+    id: 'dashboard',
+    label: 'Dashboard',
+    shortcut: '1',
+    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="2" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="2" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="2" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/><rect x="11" y="11" width="7" height="7" rx="1" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>`,
+    to: { name: 'dashboard' },
+    activePatterns: ['dashboard', '/dashboard'],
+  },
+  {
+    id: 'cards',
+    label: 'Cards',
+    shortcut: '2',
+    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect x="7" y="2" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="2" y="14" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="12" y="14" width="6" height="4" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v4M5 14v-2a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    to: { name: 'cards' },
+    activePatterns: ['cards', 'card-detail', '/cards'],
+  },
+  {
+    id: 'agents',
+    label: 'Agents',
+    shortcut: '3',
+    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="6" r="3" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M5 16c0-2.8 2.2-5 5-5s5 2.2 5 5" stroke="currentColor" stroke-width="1.5" fill="none"/><circle cx="7" cy="6.5" r="1" fill="currentColor"/></svg>`,
+    to: { name: 'agents' },
+    activePatterns: ['agents', 'agent-detail', '/agents'],
+  },
+  {
+    id: 'files',
+    label: 'Files',
+    shortcut: '4',
+    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 3h5l2 2h7a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" stroke="currentColor" stroke-width="1.5" fill="none"/><path d="M3 8h14" stroke="currentColor" stroke-width="1.5"/></svg>`,
+    to: { name: 'files' },
+    activePatterns: ['files', '/files'],
+  },
+  {
+    id: 'debug',
+    label: 'Debug',
+    shortcut: '5',
+    icon: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="7" stroke="currentColor" stroke-width="1.5" fill="none"/><line x1="10" y1="6" x2="10" y2="10" stroke="currentColor" stroke-width="1.5"/><line x1="10" y1="14" x2="10.01" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>`,
+    to: { name: 'debug' },
+    activePatterns: ['debug', '/debug'],
+  },
 ];
 
 const docsHref = computed<string>(() => '/docs/');
@@ -141,13 +228,17 @@ const projectName = computed(() => runtimeStore.projectId ?? 'saivage-v3');
 const showAuthBanner = ref(false);
 const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
 const showShortcutHelp = ref(false);
-const analystActivityDot = computed(() => analystChat.activityStatus.status === 'active' || analystChat.activityStatus.status === 'waiting');
+const analystActivityDot = computed(() => analystChat.sending);
 const routeAgentId = computed(() => {
   const parsed = parseAgentDetailRouteParam(route.params.id);
   return parsed.kind === 'valid' ? parsed.sessionId : null;
 });
-const suppressAnalystPane = computed(() => route.name === 'agent-detail' && routeAgentId.value === analystChat.activeSessionId);
-const effectiveMobileActivePane = computed(() => suppressAnalystPane.value ? 'workspace' : mobileActivePane.value);
+const suppressAnalystPane = computed(
+  () => route.name === 'agent-detail' && routeAgentId.value === analystChat.activeSessionId,
+);
+const effectiveMobileActivePane = computed(() =>
+  suppressAnalystPane.value ? 'workspace' : mobileActivePane.value,
+);
 
 const sectionLabels: Record<string, string> = {
   dashboard: 'Dashboard',
@@ -172,9 +263,16 @@ const runtimeUnauthorized = computed(() => unauthorized.value);
 function handleKeydown(event: KeyboardEvent): void {
   if (document.body.hasAttribute('data-modal-open')) return;
   const target = event.target as HTMLElement;
-  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) return;
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)
+    return;
   const key = event.key;
-  const map: Record<string, string> = { '1': 'dashboard', '2': 'cards', '3': 'agents', '4': 'files', '5': 'debug' };
+  const map: Record<string, string> = {
+    '1': 'dashboard',
+    '2': 'cards',
+    '3': 'agents',
+    '4': 'files',
+    '5': 'debug',
+  };
   if (map[key] && !event.ctrlKey && !event.metaKey && !event.altKey) {
     event.preventDefault();
     const item = navItems.find((n) => n.id === map[key]);
@@ -306,7 +404,9 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.mobile-pane-switch { display: none; }
+.mobile-pane-switch {
+  display: none;
+}
 
 @media (max-width: 880px) {
   .app-shell {
@@ -314,10 +414,20 @@ onUnmounted(() => {
     grid-template-rows: 1fr auto;
   }
 
-  .app-shell.pane-workspace .workspace-shell { display: grid; }
-  .app-shell.pane-workspace .analyst-pane { display: none; }
-  .app-shell.pane-analyst .workspace-shell { display: none; }
-  .app-shell.pane-analyst .analyst-pane { display: flex; min-height: 0; overflow: hidden; }
+  .app-shell.pane-workspace .workspace-shell {
+    display: grid;
+  }
+  .app-shell.pane-workspace .analyst-pane {
+    display: none;
+  }
+  .app-shell.pane-analyst .workspace-shell {
+    display: none;
+  }
+  .app-shell.pane-analyst .analyst-pane {
+    display: flex;
+    min-height: 0;
+    overflow: hidden;
+  }
 
   .analyst-pane {
     width: 100%;
@@ -364,8 +474,13 @@ onUnmounted(() => {
   }
 
   @keyframes activity-pulse {
-    0%, 100% { opacity: .4; }
-    50% { opacity: 1; }
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
   }
 }
 
@@ -373,30 +488,80 @@ onUnmounted(() => {
   position: sticky;
   top: 0;
   z-index: 20;
-  display:flex;
-  align-items:center;
-  gap:10px;
-  padding:10px 14px;
-  border-left:0;
-  border-right:0;
-  border-top:0;
-  border-radius:0;
-  color:var(--text);
-  font-size:13px;
-  flex-shrink:0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  border-radius: 0;
+  color: var(--text);
+  font-size: 13px;
+  flex-shrink: 0;
 }
-.auth-banner strong { color:var(--danger); }
-.auth-banner-dismiss { margin-left:auto; }
+.auth-banner strong {
+  color: var(--danger);
+}
+.auth-banner-dismiss {
+  margin-left: auto;
+}
 
-.shortcut-help { min-width:280px; max-width:400px; }
-.shortcut-help-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
-.shortcut-help-title { margin:0; font-size:15px; font-weight:700; color:var(--text); }
-.shortcut-help-close { background:none; border:none; font-size:20px; color:var(--text-muted); cursor:pointer; padding:0; line-height:1; }
-.shortcut-list { margin:0; display:flex; flex-direction:column; gap:10px; }
-.shortcut-row { display:flex; align-items:baseline; gap:12px; }
-.shortcut-row dt { flex-shrink:0; min-width:80px; }
-.shortcut-row dd { margin:0; color:var(--text); font-size:13px; }
-kbd { display:inline-block; padding:1px 6px; border:1px solid var(--border-strong); border-radius:4px; background:var(--surface-2); color:var(--text); font-family:var(--font-mono); font-size:11px; }
+.shortcut-help {
+  min-width: 280px;
+  max-width: 400px;
+}
+.shortcut-help-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.shortcut-help-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.shortcut-help-close {
+  background: none;
+  border: none;
+  font-size: 20px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+}
+.shortcut-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.shortcut-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.shortcut-row dt {
+  flex-shrink: 0;
+  min-width: 80px;
+}
+.shortcut-row dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+kbd {
+  display: inline-block;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
 
 .fade-enter-active,
 .fade-leave-active {

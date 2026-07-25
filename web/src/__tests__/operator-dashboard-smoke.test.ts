@@ -56,7 +56,7 @@ function installOperatorApiFetch(): void {
       case '/api/mcp/tools':
         return jsonResponse({ tools: [], servers: [], invocationStats: {}, serverDetails: [] });
       case '/api/chat':
-        return jsonResponse({ session_id: 'agent:analyst:global', session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } });
+        return jsonResponse({ session_id: 'agent:analyst:global' });
       default:
         return new Response(JSON.stringify({ message: `Unhandled operator route smoke URL: ${url.pathname}` }), {
           status: 404,

@@ -20,7 +20,7 @@ function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEnt
 
 describe('agent conversation timeline', () => {
   it('renders persisted system prompts as context text blocks', () => {
-    const timeline = entriesToTimeline([entry({})], null);
+    const timeline = entriesToTimeline([entry({})]);
 
     expect(timeline.rounds).toHaveLength(1);
     expect(timeline.rounds[0].texts).toEqual([expect.objectContaining({ kind: 'system_prompt' })]);
@@ -55,7 +55,7 @@ describe('agent conversation timeline', () => {
       timestamp: '2026-01-01T00:00:01.000Z',
     });
 
-    const timeline = entriesToTimeline([systemPrompt, context, user], null);
+    const timeline = entriesToTimeline([systemPrompt, context, user]);
 
     expect(timeline.rounds.map((round) => round.id)).toEqual([systemPrompt.round_id, context.round_id, user.round_id]);
   });

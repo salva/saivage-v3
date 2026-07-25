@@ -52,7 +52,7 @@ describe('source-derived publication owner inventory', () => {
     const runner = source('src/runtime/process-runner.ts');
     expect(fileCountInventory(/#registry\.(?:terminateGroup|terminateScopeTree|closeAndTerminateDirectScope)\(/gu)).toEqual({ 'src/runtime/process-runner.ts': 3 });
     expect(fileCountInventory(/#joinStopped\(report\)/gu)).toEqual({ 'src/runtime/process-runner.ts': 3 });
-    expect(fileCountInventory(/(?:processRunner|#processRunner)\.(?:kill|terminateScopeTree|closeAndTerminateDirectScope)\(/gu)).toEqual({
+    expect(fileCountInventory(/(?:processRunner|#processRunner)\s*\.\s*(?:kill|terminateScopeTree|closeAndTerminateDirectScope)\(/gu)).toEqual({
       'src/application/runtime-composition.ts': 2,
       'src/mcp/mcp-manager.ts': 1,
       'src/mcp/server-runtime.ts': 1,

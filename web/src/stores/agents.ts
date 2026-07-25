@@ -1,24 +1,22 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { ActivityStatus, AgentConversationEntry, AgentSession, FreshnessState, SessionStatus } from '../api/types';
-import { ApiError, getAgentConversation, getAgentLlmExchange, listAgentSessions } from '../api/client';
-import type { ProviderExchangePayload } from '../api/contracts';
-import type { ConversationSessionId } from '../api/contracts';
-import { createLogger } from '../utils/logger';
+import type { AgentConversationEntry, AgentSession, FreshnessState } from '../api/types';
+import {
+  ApiError,
+  getAgentConversation,
+  getAgentLlmExchange,
+  getAgentSession,
+  getCardAgentSessions,
+  listAgentSessions,
+} from '../api/client';
+import type { ConversationSessionId, ProviderExchangePayload } from '../api/contracts';
+import type { LeaseInvalidation } from '../sync/client';
 
-const log = createLogger('store:agents');
-const STALE_AFTER_MS = 30_000;
-const inactiveActivity = (): ActivityStatus => ({ status: 'inactive', pending_calls: [] });
-function nowIso(): string { return new Date().toISOString(); }
-function isLiveStatus(status: SessionStatus): boolean { return status === 'active' || status === 'waiting'; }
-function isAbortError(error: unknown): boolean { return error instanceof DOMException && error.name === 'AbortError'; }
-
-declare const conversationSelectionBrand: unique symbol;
-declare const llmExchangeSelectionBrand: unique symbol;
-declare const sessionsBootstrapBrand: unique symbol;
-export type ConversationSelectionToken = object & { readonly [conversationSelectionBrand]: true };
-export type LlmExchangeSelectionToken = object & { readonly [llmExchangeSelectionBrand]: true };
-export type AgentSessionsBootstrapToken = object & { readonly [sessionsBootstrapBrand]: true };
+const abortError = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
+declare const conversationBrand: unique symbol;
+declare const exchangeBrand: unique symbol;
+export type ConversationSelectionToken = object & { readonly [conversationBrand]: true };
+export type LlmExchangeSelectionToken = object & { readonly [exchangeBrand]: true };
 
 export const useAgentStore = defineStore('agents', () => {
   const sessions = ref<AgentSession[]>([]);
@@ -31,18 +29,25 @@ export const useAgentStore = defineStore('agents', () => {
   const lastFetchedAt = ref<string | null>(null);
   const lastWsEventAt = ref<string | null>(null);
   const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
-
+  const partitions = new Map<string, AgentSession[]>();
+  let sessionsController: AbortController | null = null;
+  let sessionsGeneration = 0;
+  const membershipControllers = new Map<string, AbortController>();
+  const membershipGenerations = new Map<string, number>();
   const selectedConversationSessionId = ref<ConversationSessionId | null>(null);
   const currentSession = ref<AgentSession | null>(null);
   const entries = ref<AgentConversationEntry[]>([]);
-  const activityStatus = ref<ActivityStatus>(inactiveActivity());
   const conversationWarning = ref<string | null>(null);
   const conversationLoading = ref(false);
   const conversationRefreshing = ref(false);
   const conversationError = ref<string | null>(null);
   const conversationRefreshError = ref<string | null>(null);
   const conversationUnauthorized = ref(false);
-
+  let conversationController: AbortController | null = null;
+  let conversationGeneration = 0;
+  let conversationCursor: string | null = null;
+  let activeConversationToken: ConversationSelectionToken | null = null;
+  const conversationIds = new WeakMap<object, ConversationSessionId>();
   const llmExchangeSessionId = ref<ConversationSessionId | null>(null);
   const currentLlmExchange = ref<ProviderExchangePayload | null>(null);
   const llmExchangeLoaded = ref(false);
@@ -50,290 +55,265 @@ export const useAgentStore = defineStore('agents', () => {
   const llmExchangeRefreshing = ref(false);
   const llmExchangeError = ref<string | null>(null);
   const llmExchangeRefreshError = ref<string | null>(null);
+  let exchangeController: AbortController | null = null;
+  let exchangeGeneration = 0;
+  let activeExchangeToken: LlmExchangeSelectionToken | null = null;
+  const exchangeIds = new WeakMap<object, ConversationSessionId>();
 
-  let sessionsRequestSeq = 0;
-  let sessionsController: AbortController | null = null;
-  let sessionsBootstrapGateOpen = true;
-  let activeSessionsBootstrapToken: AgentSessionsBootstrapToken | null = null;
-  let conversationEpoch = 0;
-  let conversationController: AbortController | null = null;
-  let activeConversationToken: ConversationSelectionToken | null = null;
-  const conversationTokenSessions = new WeakMap<ConversationSelectionToken, ConversationSessionId>();
-  let llmExchangeEpoch = 0;
-  let llmExchangeController: AbortController | null = null;
-  let activeLlmExchangeToken: LlmExchangeSelectionToken | null = null;
-  const llmExchangeTokenSessions = new WeakMap<LlmExchangeSelectionToken, ConversationSessionId>();
-
-  const isStale = computed(() => {
-    const latest = lastWsEventAt.value ?? lastFetchedAt.value;
-    return latest ? Date.now() - new Date(latest).getTime() > STALE_AFTER_MS : false;
-  });
-  const sessionsByRole = computed<Map<string, AgentSession[]>>(() => {
+  const sessionsByRole = computed(() => {
     const map = new Map<string, AgentSession[]>();
     for (const session of sessions.value) {
-      const list = map.get(session.agent_name) ?? [];
-      list.push(session);
-      map.set(session.agent_name, list);
+      const values = map.get(session.agent_name) ?? [];
+      values.push(session);
+      map.set(session.agent_name, values);
     }
     return map;
   });
-  const activeSessions = computed(() => sessions.value.filter((session) => isLiveStatus(session.status)));
-  const inactiveSessions = computed(() => sessions.value.filter((session) => !isLiveStatus(session.status)));
-
-  function markRestSync(): void { lastFetchedAt.value = nowIso(); lastUpdatedBy.value = 'rest'; }
-  function markWsSync(timestamp = nowIso()): void { lastWsEventAt.value = timestamp; lastUpdatedBy.value = 'ws'; }
-
-  function beginSessionsBootstrap(): AgentSessionsBootstrapToken {
-    const token = Object.freeze({}) as AgentSessionsBootstrapToken;
-    activeSessionsBootstrapToken = token;
-    sessionsBootstrapGateOpen = false;
-    ++sessionsRequestSeq;
-    sessionsController?.abort();
-    sessionsController = null;
-    sessionsLoading.value = false;
-    sessionsRefreshing.value = false;
-    return token;
+  const isStale = computed(() => false);
+  function publishPartitions() {
+    const seen = new Set<string>();
+    const merged = [...partitions.values()].flat();
+    for (const session of merged) {
+      if (seen.has(session.id))
+        throw new Error(`Agent session '${session.id}' occurs in multiple partitions.`);
+      seen.add(session.id);
+      const key = session.card_id ?? 'global';
+      if (!partitions.get(key)?.some((candidate) => candidate.id === session.id))
+        throw new Error('Agent partition identity mismatch.');
+    }
+    sessions.value = merged.sort((a, b) => a.id.localeCompare(b.id));
   }
-
-  async function finishSessionsBootstrap(token: AgentSessionsBootstrapToken): Promise<void> {
-    if (activeSessionsBootstrapToken !== token) return;
-    activeSessionsBootstrapToken = null;
-    sessionsBootstrapGateOpen = true;
-    await requestSessions();
+  function acceptBaseline(values: AgentSession[]) {
+    const next = new Map<string, AgentSession[]>();
+    for (const session of values) {
+      const key = session.card_id ?? 'global';
+      next.set(key, [...(next.get(key) ?? []), session]);
+    }
+    partitions.clear();
+    for (const [key, value] of next) partitions.set(key, value);
+    publishPartitions();
   }
-
+  function abortMembershipRequests() {
+    for (const controller of membershipControllers.values()) controller.abort();
+    membershipControllers.clear();
+    membershipGenerations.clear();
+  }
   async function fetchSessions(): Promise<boolean> {
-    if (!sessionsBootstrapGateOpen) return false;
-    return requestSessions();
-  }
-
-  async function requestSessions(): Promise<boolean> {
-    const requestSeq = ++sessionsRequestSeq;
+    const generation = ++sessionsGeneration;
     sessionsController?.abort();
+    abortMembershipRequests();
     const controller = new AbortController();
     sessionsController = controller;
-    const initial = !sessionsLoaded.value;
-    if (initial) sessionsLoading.value = true;
-    else sessionsRefreshing.value = true;
-    if (initial) sessionsError.value = null;
-    else sessionsRefreshError.value = null;
-    sessionsUnauthorized.value = false;
+    sessionsLoaded.value ? (sessionsRefreshing.value = true) : (sessionsLoading.value = true);
     try {
       const response = await listAgentSessions(controller.signal);
-      if (requestSeq !== sessionsRequestSeq) return false;
-      const existing = new Map(sessions.value.map((session) => [session.id, session]));
-      sessions.value = response.sessions.map((next) => {
-        const current = existing.get(next.id);
-        if (!current) return next;
-        Object.assign(current, next);
-        return current;
-      });
+      if (generation !== sessionsGeneration) return false;
+      acceptBaseline(response.sessions);
       sessionsLoaded.value = true;
       sessionsError.value = null;
       sessionsRefreshError.value = null;
-      markRestSync();
+      lastFetchedAt.value = new Date().toISOString();
       return true;
     } catch (error) {
-      if (requestSeq !== sessionsRequestSeq || isAbortError(error)) return false;
-      const message = error instanceof ApiError ? error.message : 'Failed to fetch agent sessions';
-      if (initial) sessionsError.value = message;
-      else sessionsRefreshError.value = message;
+      if (generation !== sessionsGeneration || abortError(error)) return false;
+      const message = error instanceof Error ? error.message : 'Failed to fetch agent sessions';
+      sessionsLoaded.value
+        ? (sessionsRefreshError.value = message)
+        : (sessionsError.value = message);
       sessionsUnauthorized.value = error instanceof ApiError && error.isUnauthorized;
-      log.error('fetchSessions', message);
       throw error;
     } finally {
-      if (requestSeq === sessionsRequestSeq) {
+      if (generation === sessionsGeneration) {
         sessionsLoading.value = false;
         sessionsRefreshing.value = false;
       }
     }
   }
+  async function reconcileMembership(frame: LeaseInvalidation): Promise<void> {
+    if (!frame || frame.resource !== 'agent-membership') return void (await fetchSessions());
+    const key = frame.scope === 'card' ? frame.card_id : 'global';
+    const baselineGeneration = sessionsGeneration;
+    const requestGeneration = (membershipGenerations.get(key) ?? 0) + 1;
+    membershipGenerations.set(key, requestGeneration);
+    membershipControllers.get(key)?.abort();
+    const controller = new AbortController();
+    membershipControllers.set(key, controller);
+    try {
+      if (frame.scope === 'card') {
+        try {
+          const response = await getCardAgentSessions(frame.card_id, controller.signal);
+          if (
+            baselineGeneration !== sessionsGeneration ||
+            membershipGenerations.get(key) !== requestGeneration
+          )
+            return;
+          partitions.set(frame.card_id, response.sessions);
+        } catch (error) {
+          if (
+            abortError(error) ||
+            baselineGeneration !== sessionsGeneration ||
+            membershipGenerations.get(key) !== requestGeneration
+          )
+            return;
+          if (error instanceof ApiError && error.isNotFound) partitions.delete(frame.card_id);
+          else throw error;
+        }
+      } else {
+        const response = await getAgentSession(frame.session_id, controller.signal);
+        if (
+          baselineGeneration !== sessionsGeneration ||
+          membershipGenerations.get(key) !== requestGeneration
+        )
+          return;
+        partitions.set('global', [response.session]);
+      }
+      publishPartitions();
+    } finally {
+      if (membershipGenerations.get(key) === requestGeneration) membershipControllers.delete(key);
+    }
+  }
+  function releaseSessions() {
+    ++sessionsGeneration;
+    sessionsController?.abort();
+    sessionsController = null;
+    abortMembershipRequests();
+    sessionsLoaded.value = false;
+    partitions.clear();
+    sessions.value = [];
+  }
+  function markWsSync(timestamp = new Date().toISOString()) {
+    lastWsEventAt.value = timestamp;
+    lastUpdatedBy.value = 'ws';
+  }
 
-  function clearConversationData(): void {
+  function beginConversationSelection(id: ConversationSessionId): ConversationSelectionToken {
+    ++conversationGeneration;
+    conversationController?.abort();
+    const token = Object.freeze({}) as ConversationSelectionToken;
+    conversationIds.set(token, id);
+    activeConversationToken = token;
+    selectedConversationSessionId.value = id;
     currentSession.value = null;
     entries.value = [];
-    activityStatus.value = inactiveActivity();
-    conversationWarning.value = null;
-  }
-
-  function beginConversationSelection(sessionId: ConversationSessionId): ConversationSelectionToken {
-    conversationController?.abort();
-    conversationController = null;
-    ++conversationEpoch;
-    const changedIdentity = selectedConversationSessionId.value !== sessionId;
-    const token = Object.freeze({}) as ConversationSelectionToken;
-    conversationTokenSessions.set(token, sessionId);
-    activeConversationToken = token;
-    selectedConversationSessionId.value = sessionId;
-    conversationLoading.value = false;
-    conversationRefreshing.value = false;
-    conversationUnauthorized.value = false;
-    if (changedIdentity) {
-      clearConversationData();
-      conversationError.value = null;
-      conversationRefreshError.value = null;
-    }
+    conversationCursor = null;
+    conversationError.value = null;
     return token;
   }
-
-  function conversationRequestIsCurrent(token: ConversationSelectionToken, epoch: number, sessionId: ConversationSessionId): boolean {
-    return activeConversationToken === token
-      && conversationEpoch === epoch
-      && selectedConversationSessionId.value === sessionId;
-  }
-
   async function fetchConversation(token: ConversationSelectionToken): Promise<void> {
-    if (activeConversationToken !== token) return;
-    const sessionId = conversationTokenSessions.get(token);
-    if (sessionId === undefined) return;
+    if (token !== activeConversationToken) return;
+    const id = conversationIds.get(token)!;
+    const generation = ++conversationGeneration;
     conversationController?.abort();
     const controller = new AbortController();
     conversationController = controller;
-    const epoch = ++conversationEpoch;
-    const refreshing = currentSession.value?.id === sessionId;
-    if (refreshing) conversationRefreshing.value = true;
-    else conversationLoading.value = true;
-    if (refreshing) conversationRefreshError.value = null;
-    else conversationError.value = null;
-    conversationUnauthorized.value = false;
+    conversationCursor ? (conversationRefreshing.value = true) : (conversationLoading.value = true);
     try {
-      const response = await getAgentConversation(sessionId, controller.signal);
-      if (!conversationRequestIsCurrent(token, epoch, sessionId)) return;
-      if (response.session.id !== sessionId) {
-        throw new Error(`Conversation response session ${response.session.id} does not match selected session ${sessionId}`);
-      }
-      if (currentSession.value?.id === response.session.id) Object.assign(currentSession.value, response.session);
-      else currentSession.value = response.session;
-      entries.value = response.entries;
-      activityStatus.value = response.activity_status;
-      if (response.entries.length === 0) conversationWarning.value = 'No recorded conversation entries were returned for this session.';
-      else if (response.entries.some((entry) => entry.kind === 'model_issue')) conversationWarning.value = 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.';
-      else conversationWarning.value = null;
+      const [detail, response] = await Promise.all([
+        getAgentSession(id, controller.signal),
+        getAgentConversation(id, controller.signal, conversationCursor ?? undefined),
+      ]);
+      if (token !== activeConversationToken || generation !== conversationGeneration) return;
+      currentSession.value = detail.session;
+      if (conversationCursor === null) entries.value = response.entries;
+      else entries.value = [...entries.value, ...response.entries];
+      conversationCursor = response.cursor;
+      conversationWarning.value = entries.value.some((entry) => entry.kind === 'model_issue')
+        ? 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.'
+        : null;
       conversationError.value = null;
       conversationRefreshError.value = null;
     } catch (error) {
-      if (!conversationRequestIsCurrent(token, epoch, sessionId) || isAbortError(error)) return;
-      const message = error instanceof Error ? error.message : 'Failed to fetch agent conversation';
-      if (refreshing) conversationRefreshError.value = message;
-      else conversationError.value = message;
+      if (
+        token !== activeConversationToken ||
+        generation !== conversationGeneration ||
+        abortError(error)
+      )
+        return;
+      const message = error instanceof Error ? error.message : String(error);
+      conversationCursor
+        ? (conversationRefreshError.value = message)
+        : (conversationError.value = message);
       conversationUnauthorized.value = error instanceof ApiError && error.isUnauthorized;
-      log.error('fetchConversation', message);
       throw error;
     } finally {
-      if (conversationRequestIsCurrent(token, epoch, sessionId)) {
+      if (token === activeConversationToken && generation === conversationGeneration) {
         conversationLoading.value = false;
         conversationRefreshing.value = false;
       }
     }
   }
-
-  async function refetchConversation(token: ConversationSelectionToken): Promise<void> {
-    if (activeConversationToken === token) await fetchConversation(token);
-  }
-
-  function clearConversationSelection(token: ConversationSelectionToken): void {
-    if (activeConversationToken !== token) return;
+  const refetchConversation = fetchConversation;
+  function clearConversationSelection(token: ConversationSelectionToken) {
+    if (token !== activeConversationToken) return;
+    ++conversationGeneration;
     conversationController?.abort();
-    conversationController = null;
-    ++conversationEpoch;
     activeConversationToken = null;
     selectedConversationSessionId.value = null;
-    clearConversationData();
-    conversationLoading.value = false;
-    conversationRefreshing.value = false;
-    conversationError.value = null;
-    conversationRefreshError.value = null;
-    conversationUnauthorized.value = false;
+    currentSession.value = null;
+    entries.value = [];
+    conversationCursor = null;
   }
 
-  function clearLlmExchangeData(): void {
+  function beginLlmExchangeSelection(id: ConversationSessionId): LlmExchangeSelectionToken {
+    ++exchangeGeneration;
+    exchangeController?.abort();
+    const token = Object.freeze({}) as LlmExchangeSelectionToken;
+    exchangeIds.set(token, id);
+    activeExchangeToken = token;
+    llmExchangeSessionId.value = id;
     currentLlmExchange.value = null;
     llmExchangeLoaded.value = false;
-  }
-
-  function beginLlmExchangeSelection(sessionId: ConversationSessionId): LlmExchangeSelectionToken {
-    llmExchangeController?.abort();
-    llmExchangeController = null;
-    ++llmExchangeEpoch;
-    const changedIdentity = llmExchangeSessionId.value !== sessionId;
-    const token = Object.freeze({}) as LlmExchangeSelectionToken;
-    llmExchangeTokenSessions.set(token, sessionId);
-    activeLlmExchangeToken = token;
-    llmExchangeSessionId.value = sessionId;
-    llmExchangeLoading.value = false;
-    llmExchangeRefreshing.value = false;
-    if (changedIdentity) {
-      clearLlmExchangeData();
-      llmExchangeError.value = null;
-      llmExchangeRefreshError.value = null;
-    }
+    llmExchangeError.value = null;
     return token;
   }
-
-  function llmExchangeRequestIsCurrent(token: LlmExchangeSelectionToken, epoch: number, sessionId: ConversationSessionId): boolean {
-    return activeLlmExchangeToken === token
-      && llmExchangeEpoch === epoch
-      && llmExchangeSessionId.value === sessionId;
-  }
-
   async function fetchLlmExchange(token: LlmExchangeSelectionToken): Promise<void> {
-    if (activeLlmExchangeToken !== token) return;
-    const sessionId = llmExchangeTokenSessions.get(token);
-    if (sessionId === undefined) return;
-    llmExchangeController?.abort();
+    if (token !== activeExchangeToken) return;
+    const id = exchangeIds.get(token)!;
+    const generation = ++exchangeGeneration;
+    exchangeController?.abort();
     const controller = new AbortController();
-    llmExchangeController = controller;
-    const epoch = ++llmExchangeEpoch;
-    const refreshing = llmExchangeLoaded.value;
-    if (refreshing) llmExchangeRefreshing.value = true;
-    else llmExchangeLoading.value = true;
-    if (refreshing) llmExchangeRefreshError.value = null;
-    else llmExchangeError.value = null;
+    exchangeController = controller;
+    llmExchangeLoaded.value
+      ? (llmExchangeRefreshing.value = true)
+      : (llmExchangeLoading.value = true);
     try {
-      const response = await getAgentLlmExchange(sessionId, controller.signal);
-      if (!llmExchangeRequestIsCurrent(token, epoch, sessionId)) return;
-      if (response.sessionId !== sessionId) throw new Error(`LLM exchange response session ${response.sessionId} does not match selected session ${sessionId}`);
+      const response = await getAgentLlmExchange(id, controller.signal);
+      if (token !== activeExchangeToken || generation !== exchangeGeneration) return;
       currentLlmExchange.value = response.exchange;
       llmExchangeLoaded.value = true;
       llmExchangeError.value = null;
       llmExchangeRefreshError.value = null;
     } catch (error) {
-      if (!llmExchangeRequestIsCurrent(token, epoch, sessionId) || isAbortError(error)) return;
-      if (error instanceof ApiError && error.isNotFound) {
+      if (token !== activeExchangeToken || generation !== exchangeGeneration || abortError(error))
+        return;
+      if (
+        error instanceof ApiError &&
+        error.isNotFound &&
+        error.body['error'] === 'No LLM exchange recorded for this session yet.'
+      ) {
         currentLlmExchange.value = null;
         llmExchangeLoaded.value = true;
-        llmExchangeError.value = null;
-        llmExchangeRefreshError.value = null;
         return;
       }
       const message = error instanceof Error ? error.message : String(error);
-      if (refreshing) llmExchangeRefreshError.value = message;
-      else {
-        currentLlmExchange.value = null;
-        llmExchangeLoaded.value = false;
-        llmExchangeError.value = message;
-      }
-      log.error('fetchLlmExchange', message);
+      llmExchangeLoaded.value
+        ? (llmExchangeRefreshError.value = message)
+        : (llmExchangeError.value = message);
     } finally {
-      if (llmExchangeRequestIsCurrent(token, epoch, sessionId)) {
+      if (token === activeExchangeToken && generation === exchangeGeneration) {
         llmExchangeLoading.value = false;
         llmExchangeRefreshing.value = false;
       }
     }
   }
-
-  function clearLlmExchange(token: LlmExchangeSelectionToken): void {
-    if (activeLlmExchangeToken !== token) return;
-    llmExchangeController?.abort();
-    llmExchangeController = null;
-    ++llmExchangeEpoch;
-    activeLlmExchangeToken = null;
+  function clearLlmExchange(token: LlmExchangeSelectionToken) {
+    if (token !== activeExchangeToken) return;
+    ++exchangeGeneration;
+    exchangeController?.abort();
+    activeExchangeToken = null;
     llmExchangeSessionId.value = null;
-    clearLlmExchangeData();
-    llmExchangeLoading.value = false;
-    llmExchangeRefreshing.value = false;
-    llmExchangeError.value = null;
-    llmExchangeRefreshError.value = null;
+    currentLlmExchange.value = null;
+    llmExchangeLoaded.value = false;
   }
 
   return {
@@ -347,16 +327,25 @@ export const useAgentStore = defineStore('agents', () => {
     lastFetchedAt,
     lastWsEventAt,
     lastUpdatedBy,
+    sessionsByRole,
+    isStale,
+    fetchSessions,
+    reconcileMembership,
+    releaseSessions,
+    markWsSync,
     selectedConversationSessionId,
     currentSession,
     entries,
-    activityStatus,
     conversationWarning,
     conversationLoading,
     conversationRefreshing,
     conversationError,
     conversationRefreshError,
     conversationUnauthorized,
+    beginConversationSelection,
+    fetchConversation,
+    refetchConversation,
+    clearConversationSelection,
     llmExchangeSessionId,
     currentLlmExchange,
     llmExchangeLoaded,
@@ -364,20 +353,8 @@ export const useAgentStore = defineStore('agents', () => {
     llmExchangeRefreshing,
     llmExchangeError,
     llmExchangeRefreshError,
-    sessionsByRole,
-    activeSessions,
-    inactiveSessions,
-    isStale,
-    fetchSessions,
-    beginSessionsBootstrap,
-    finishSessionsBootstrap,
-    beginConversationSelection,
-    fetchConversation,
-    refetchConversation,
-    clearConversationSelection,
     beginLlmExchangeSelection,
     fetchLlmExchange,
     clearLlmExchange,
-    markWsSync,
   };
 });

@@ -90,6 +90,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
       { operationId: 'cards.history.get', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.diff', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'agents.detail', identity: { kind: 'session', parameter: 'id' } },
+      { operationId: 'agents.cardSessions', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'agents.conversation', identity: { kind: 'session', parameter: 'id' } },
       { operationId: 'agents.llmExchange', identity: { kind: 'session', parameter: 'id' } },
     ]);
@@ -213,6 +214,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
       expect.objectContaining({ operationId: 'cards.history.list', method: 'GET', path: '/api/cards/:id/history' }),
       expect.objectContaining({ operationId: 'cards.history.get', method: 'GET', path: '/api/cards/:id/history/:seq' }),
       expect.objectContaining({ operationId: 'cards.diff', method: 'GET', path: '/api/cards/:id/diff' }),
+      expect.objectContaining({ operationId: 'agents.cardSessions', method: 'GET', path: '/api/cards/:id/agent-sessions' }),
     ]);
     expect(cardRoutes.every(({ method }) => method === 'GET')).toBe(true);
   });

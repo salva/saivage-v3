@@ -97,9 +97,9 @@ describe('read-only positive checklist', () => {
     expect(agentConversationSource).toContain('Pause auto-scroll');
     expect(analystChatPanelSource).toContain('Pause auto-scroll');
     expect(debugAgentDetailSource).toContain('Pause auto-scroll');
-    expect(agentTimelineSource).toContain('modelLabel');
-    expect(agentConversationSource).toContain('useAgentTimeline(entries, activityStatus, sessionModel)');
-    expect(debugAgentDetailSource).toContain('useAgentTimeline(entries, activityStatus, sessionModel)');
+    expect(agentTimelineSource).not.toContain('modelLabel');
+    expect(agentConversationSource).toContain('useAgentTimeline(entries)');
+    expect(debugAgentDetailSource).toContain('useAgentTimeline(entries)');
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 
     // DebugView: passive tab switching, refresh/fetch, filtering, and file-browse navigation remain.

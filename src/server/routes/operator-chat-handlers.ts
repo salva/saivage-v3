@@ -1,7 +1,4 @@
-import { AgentOperatorReadModelService } from '../../application/read-models/index.js';
-import type {
-  OperatorProjectContext,
-} from './operator-handler-context.js';
+import type { OperatorProjectContext } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { SaivageConfig } from '../../schemas/saivage-config.js';
@@ -16,23 +13,14 @@ type ChatOperatorHandlerOptions = OperatorProjectContext & {
 };
 
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions) {
-  const { projectRoot } = options;
-  const agentReadModel = (): AgentOperatorReadModelService => {
-    return new AgentOperatorReadModelService(projectRoot, () => options.runtimeApplication.captureExecutingLlmSnapshots(),options.runtimeApplication.cardStore.workflows);
-  };
-
   return defineOperatorContractHandlers({
-    'chats.get': () => {
-      const response = agentReadModel().getConversation(options.runtimeApplication.analystSessionId);
-      if (response.statusCode === 404) return { body: { session_id:options.runtimeApplication.analystSessionId,session: null, entries: [], activity_status: { status: 'inactive', pending_calls: [] } } };
-      if (response.statusCode === 400) return response;
-      const conversation = response.body;
-      if (conversation.session.id !== options.runtimeApplication.analystSessionId) throw new Error('Global Analyst conversation projected a foreign session.');
-      return { body: { session_id:options.runtimeApplication.analystSessionId,session: conversation.session, entries: conversation.entries, activity_status: conversation.activity_status } };
-    },
+    'chats.get': () => ({ body: { session_id: options.runtimeApplication.analystSessionId } }),
     'chats.send': async ({ body, reply }) => {
       if (!body.content) return { statusCode: 400, body: { error: 'Message content is required' } };
-      const response = await options.runtimeApplication.analystRuntime.submit({ userContent: body.content, workspaceContext: body.workspaceContext });
+      const response = await options.runtimeApplication.analystRuntime.submit({
+        userContent: body.content,
+        workspaceContext: body.workspaceContext,
+      });
       const result = {
         body: {
           sessionId: response.sessionId,
@@ -51,7 +39,8 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
                 result: invocation.result,
               },
             });
-            if (projected.shape !== 'complete') throw new Error('Live chat invocation projected to a non-complete shape.');
+            if (projected.shape !== 'complete')
+              throw new Error('Live chat invocation projected to a non-complete shape.');
             return ChatToolInvocationSchema.parse({
               tool: projected.identity.toolName,
               params: projected.arguments,
@@ -63,8 +52,11 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       };
       if (response.restart?.status === 'scheduled') {
         const restartPort = options.restartPort;
-        if (!restartPort) throw new Error('Scheduled restart response requires an application-owned restart port.');
-        reply.raw.once('finish', () => { void restartPort.acknowledge(); });
+        if (!restartPort)
+          throw new Error('Scheduled restart response requires an application-owned restart port.');
+        reply.raw.once('finish', () => {
+          void restartPort.acknowledge();
+        });
       }
       return result;
     },

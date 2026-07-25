@@ -58,7 +58,7 @@ describe('complete-union deletion admission and order', () => {
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     const cardEffects = jest.fn(); const runtimeEffects = jest.fn();
-    const deleting = new CardService(root, { cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects }, failingIo);
+    const deleting = new CardService(root, { cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects,agentMembershipChanged:jest.fn() }, failingIo);
     let thrown: unknown;
     try { deleting.deleteSubtrees([left.id, right.id], () => true); } catch (error) { thrown = error; }
     expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
@@ -91,7 +91,7 @@ describe('complete-union deletion admission and order', () => {
       close(fd) { operations.push('close'); closeSync(fd); },
     };
     const cardEffects = jest.fn(); const runtimeEffects = jest.fn();
-    const deleting = new CardService(root, { cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects }, failingIo);
+    const deleting = new CardService(root, { cardProjectionChanged: cardEffects, runtimeChanged: runtimeEffects,agentMembershipChanged:jest.fn() }, failingIo);
     let thrown: unknown;
     try { deleting.deleteSubtrees([left.id, right.id], () => true); } catch (error) { thrown = error; }
     expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
@@ -107,7 +107,7 @@ describe('complete-union deletion admission and order', () => {
       stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
     };
     const effects = jest.fn();
-    const deleting = new CardService(root, { cardProjectionChanged: effects, runtimeChanged: effects }, missingIo);
+    const deleting = new CardService(root, { cardProjectionChanged: effects, runtimeChanged: effects,agentMembershipChanged:effects }, missingIo);
     expect(() => deleting.deleteSubtrees([child.id], () => true)).toThrow(/disappeared before tombstone append/);
     expect(effects).not.toHaveBeenCalled();
   });

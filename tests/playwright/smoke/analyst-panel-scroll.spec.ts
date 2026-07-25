@@ -33,15 +33,14 @@ test('desktop analyst panel keeps the transcript scroll inside the bounded pane'
   await page.setViewportSize({ width: 1280, height: 720 });
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-  await page.route('**/api/chat', async (route) => {
+  await page.route(`**/api/agents/${encodeURIComponent(sessionId)}/conversation*`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(parseOperatorResponse('chats.get', {
+      body: JSON.stringify(parseOperatorResponse('agents.conversation', {
         session_id: sessionId,
-        session: { id: sessionId, agent_name: 'analyst', session_scope: 'global', card_id: null, status: 'inactive', started_at: now },
         entries,
-        activity_status: { status: 'inactive', pending_calls: [] },
+        cursor: entries.at(-1)?.id,
       })),
     });
   });
@@ -50,7 +49,7 @@ test('desktop analyst panel keeps the transcript scroll inside the bounded pane'
   await page.goto('/dashboard');
 
   await expect(page.getByRole('region', { name: 'Analyst chat' })).toBeVisible();
-  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id }), sessionId);
+  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id, through_message_id: 'newer-opaque-id' }), sessionId);
 
   await expect(page.locator('.analyst-pane')).toHaveJSProperty('isConnected', true);
   await expect.poll(async () => page.locator('.analyst-pane').evaluate((el, viewportHeight) => el.getBoundingClientRect().height <= viewportHeight, 720)).toBe(true);

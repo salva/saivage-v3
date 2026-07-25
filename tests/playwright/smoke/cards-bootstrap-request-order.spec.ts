@@ -6,6 +6,7 @@ const token = 'synthetic-cards-bootstrap-order-token';
 const analystSessionId = 'agent:analyst:global';
 const linkedSessionId = `agent:executor:${smokeCardId}`;
 const exactAnalystPath = '/api/chat';
+const exactAnalystConversationPath = `/api/agents/${encodeURIComponent(analystSessionId)}/conversation`;
 
 function deferred(): { promise: Promise<void>; resolve: () => void } {
   let resolve!: () => void;
@@ -20,6 +21,20 @@ function outboundConversationSubscribe(page: Page, sessionId: string) {
   }, sessionId);
 }
 
+function outboundAgentsSubscribe(page: Page) {
+  return page.evaluate(() => {
+    const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
+    return frames.filter((frame) => frame.t === 'subscribe' && frame.resource === 'agents').at(-1) ?? null;
+  });
+}
+
+function outboundCardSessionsSubscribe(page: Page, cardId: string) {
+  return page.evaluate((id) => {
+    const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
+    return frames.filter((frame) => frame.t === 'subscribe' && frame.resource === 'card-agent-sessions' && frame.id === id).at(-1) ?? null;
+  }, cardId);
+}
+
 async function acknowledgeCurrentConversationLease(page: Page, sessionId: string, lease: string): Promise<void> {
   await page.evaluate(({ id, currentLease }) => window.__saivageWsFixture?.emit({
     t: 'subscribed',
@@ -29,7 +44,7 @@ async function acknowledgeCurrentConversationLease(page: Page, sessionId: string
   }), { id: sessionId, currentLease: lease });
 }
 
-test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquisition', async ({ page }) => {
+test('Cards root settlement precedes exact Analyst acquisition and defers global Agents until visible', async ({ page }) => {
   const rootRelease = deferred();
   const agentRelease = deferred();
   const rootObserved = deferred();
@@ -39,11 +54,12 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
   let rootReleased = false;
   let rootRequests = 0;
   let agentRequests = 0;
-  let analystReads = 0;
+  let analystIdentityReads = 0;
+  let analystConversationReads = 0;
 
   // Every transport and response control is installed before the real AppShell is navigated.
   await page.addInitScript((value) => window.localStorage.setItem('saivage_api_token', value), token);
-  await installOperatorWebSocketShim(page);
+  await installOperatorWebSocketShim(page, { autoAcknowledge: false });
   const rest = await installOperatorRestRoutes(page);
   await page.route('**/api/**', async (route: Route) => {
     const request = route.request();
@@ -79,8 +95,12 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
         await route.abort('failed');
         throw new Error(`Exact Analyst HTTP started before Cards root settlement: ${requestLedger.join(', ')}`);
       }
-      analystReads += 1;
-      requestLedger.push(`analyst:get:${analystReads}`);
+      analystIdentityReads += 1;
+      requestLedger.push(`analyst:identity:${analystIdentityReads}`);
+    }
+    if (request.method() === 'GET' && pathname === exactAnalystConversationPath) {
+      analystConversationReads += 1;
+      requestLedger.push(`analyst:conversation:${analystConversationReads}`);
     }
     return route.fallback();
   });
@@ -93,18 +113,19 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
   expect(rootRequests).toBe(1);
   expect(rest.counts.get('GET /api/chats') ?? 0).toBe(0);
   expect(agentRequests).toBe(0);
-  expect(analystReads).toBe(0);
+  expect(analystIdentityReads).toBe(0);
+  expect(analystConversationReads).toBe(0);
   expect(requestLedger).toEqual(['cards:root']);
 
   rootReleased = true;
   eventLedger.push('cards:root:release');
   rootRelease.resolve();
   await expect(page.getByText('Synthetic Project', { exact: true })).toBeVisible();
-  await agentObserved.promise;
-  await expect.poll(() => analystReads).toBe(1);
-  expect(agentRequests).toBe(1);
+  await expect.poll(() => analystIdentityReads).toBe(1);
+  expect(agentRequests).toBe(0);
+  expect(analystConversationReads).toBe(0);
   expect(requestLedger[0]).toBe('cards:root');
-  expect(requestLedger.slice(1).sort()).toEqual(['agents:list', 'analyst:get:1'].sort());
+  expect(requestLedger.slice(1)).toEqual(['analyst:identity:1']);
 
   await expect.poll(() => outboundConversationSubscribe(page, analystSessionId)).toMatchObject({
     t: 'subscribe',
@@ -117,10 +138,10 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
 
   eventLedger.push('analyst:ack:settled');
   await acknowledgeCurrentConversationLease(page, analystSessionId, analystSubscribe.lease);
-  await expect.poll(() => analystReads).toBe(2);
+  await expect.poll(() => analystConversationReads).toBe(1);
   eventLedger.push('analyst:invalidate:settled');
-  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id }), analystSessionId);
-  await expect.poll(() => analystReads).toBe(3);
+  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id, through_message_id: 'newer-opaque-id' }), analystSessionId);
+  await expect.poll(() => analystConversationReads).toBe(2);
   expect(eventLedger).toEqual([
     'cards:root:release',
     'analyst:subscribe',
@@ -128,14 +149,34 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
     'analyst:invalidate:settled',
   ]);
 
-  agentRelease.resolve();
   await page.locator('.nav-item-link').filter({ hasText: 'Agents' }).click();
+  await expect.poll(() => outboundAgentsSubscribe(page)).toMatchObject({ t: 'subscribe', resource: 'agents' });
+  const agentsSubscribe = await outboundAgentsSubscribe(page) as { lease: string };
+  await page.evaluate((lease) => window.__saivageWsFixture?.emit({
+    t: 'subscribed',
+    resource: 'agents',
+    lease,
+  }), agentsSubscribe.lease);
+  await agentObserved.promise;
+  agentRelease.resolve();
   await expect(page).toHaveURL('/agents');
-  await expect(page.getByTestId('route-agents')).toContainText('synthetic-model');
+  await expect(page.getByTestId('route-agents')).toContainText('analyst');
   await expect(page.getByRole('button', { name: 'Synthetic dashboard smoke card', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'Synthetic dashboard smoke card', exact: true }).click();
   await expect(page).toHaveURL(`/cards/${smokeCardId}`);
+  await expect.poll(() => outboundCardSessionsSubscribe(page, smokeCardId)).toMatchObject({
+    t: 'subscribe',
+    resource: 'card-agent-sessions',
+    id: smokeCardId,
+  });
+  const cardSessionsSubscribe = await outboundCardSessionsSubscribe(page, smokeCardId) as { lease: string };
+  await page.evaluate(({ id, lease }) => window.__saivageWsFixture?.emit({
+    t: 'subscribed',
+    resource: 'card-agent-sessions',
+    id,
+    lease,
+  }), { id: smokeCardId, lease: cardSessionsSubscribe.lease });
   const conversations = page.getByTestId('card-conversations');
   await expect(conversations).toContainText('executor');
   await conversations.locator('.session-row').filter({ hasText: 'executor' }).click();
@@ -156,7 +197,8 @@ test('Cards root settlement precedes initial Agent and exact Analyst HTTP acquis
 
   expect(rootRequests).toBe(1);
   expect(agentRequests).toBe(1);
-  expect(analystReads).toBe(3);
+  expect(analystIdentityReads).toBe(1);
+  expect(analystConversationReads).toBe(2);
   expect(rest.counts.get('GET /api/chats') ?? 0).toBe(0);
   expect(rest.unknown).toEqual([]);
 });

@@ -553,7 +553,7 @@ export class ConversationLLMActor {
     };
     return Object.freeze({ waitExternal: <T>(promise: Promise<T>) => wait({ kind: 'external', ...identity }, promise), waitProcess: <T>(processId: string, promise: Promise<T>) => wait({ kind: 'process', ...identity, processId }, promise) });
   }
-  #publishExecutingActivityChange(): void { this.runtimeProjectionChanged?.(); this.conversations.changes?.conversationChanged(this.agentId); }
+  #publishExecutingActivityChange(): void { this.runtimeProjectionChanged?.(); }
   #assertPersistenceOwnership(input: CanonicalLlmInvocationInput): void { if (input.sessionId !== input.providerConversation.sourceSessionId) throw new Error(`Persisted LLM invocation '${input.inputId}' session '${input.sessionId}' does not match provider conversation source session '${input.providerConversation.sourceSessionId}'.`); }
 
   async #callProvider(operation: InvocationOperation, input: CanonicalLlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {

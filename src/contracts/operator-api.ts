@@ -1,8 +1,5 @@
 import { z } from 'zod';
-import {
-  type HttpMethod,
-  type OperatorRouteContract,
-} from './operator-api-core.js';
+import { type HttpMethod, type OperatorRouteContract } from './operator-api-core.js';
 import { authOperatorApiContracts } from './operator-api-auth.js';
 import { agentOperatorApiContracts } from './operator-api-agents.js';
 import { chatOperatorApiContracts } from './operator-api-chats.js';
@@ -13,21 +10,21 @@ import { mcpOperatorApiContracts } from './operator-api-mcp.js';
 import { processesOperatorApiContracts } from './operator-api-processes.js';
 import { runtimeCardsOperatorApiContracts } from './operator-api-runtime-cards.js';
 
-
 export {
-  AgentActivityStatusSchema,
   AgentConversationEntrySchema,
   AgentConversationParamsSchema,
   AgentConversationResponseSchema,
+  AgentConversationQuerySchema,
   AgentLlmExchangeParamsSchema,
   AgentLlmExchangeResponseSchema,
   AgentListResponseSchema,
+  CardAgentSessionsParamsSchema,
+  CardAgentSessionsResponseSchema,
   AgentSessionDetailSchema,
   AgentSessionParamsSchema,
   AgentSessionSummarySchema,
 } from './operator-api-agents.js';
 export type {
-  AgentActivityStatus,
   AgentConversationEntry,
   AgentConversationResponse,
   AgentDetailResponse,
@@ -35,15 +32,22 @@ export type {
   AgentLlmExchangeResponse,
   AgentSessionDetail,
   AgentSessionSummary,
+  CardAgentSessionsResponse,
 } from './operator-api-agents.js';
 export {
-  ChatEntriesResponseSchema,
+  ChatIdentityResponseSchema,
   ChatSendRequestSchema,
   ChatSendResponseSchema,
   RestartChatAcknowledgementSchema,
   ChatWorkspaceContextSchema,
 } from './operator-api-chats.js';
-export type { ChatEntriesResponse, ChatSendRequest, ChatSendResponse, ChatWorkspaceContext, RestartChatAcknowledgement } from './operator-api-chats.js';
+export type {
+  ChatIdentityResponse,
+  ChatSendRequest,
+  ChatSendResponse,
+  ChatWorkspaceContext,
+  RestartChatAcknowledgement,
+} from './operator-api-chats.js';
 export {
   DebugErrorsResponseSchema,
   DebugGraphsResponseSchema,
@@ -94,7 +98,13 @@ export {
   UnexpectedInternalServerErrorSchema,
   UNEXPECTED_INTERNAL_SERVER_ERROR,
 } from './operator-api-core.js';
-export type { ContractAuthClass, ContractFailureIdentity, HttpMethod, OperatorRouteContract, UnexpectedInternalServerError } from './operator-api-core.js';
+export type {
+  ContractAuthClass,
+  ContractFailureIdentity,
+  HttpMethod,
+  OperatorRouteContract,
+  UnexpectedInternalServerError,
+} from './operator-api-core.js';
 export {
   AvailabilityComponentSchema,
   AvailabilityComponentSourceSchema,
@@ -102,11 +112,12 @@ export {
   AvailabilityStateSchema,
   ServerAvailabilitySchema,
 } from './operator-api-availability.js';
-export type { AvailabilityComponent, AvailabilityState, ServerAvailability } from './operator-api-availability.js';
-export {
-  authOperatorApiContracts,
-  WebSocketTicketResponseSchema,
-} from './operator-api-auth.js';
+export type {
+  AvailabilityComponent,
+  AvailabilityState,
+  ServerAvailability,
+} from './operator-api-availability.js';
+export { authOperatorApiContracts, WebSocketTicketResponseSchema } from './operator-api-auth.js';
 export type { WebSocketTicketResponse } from './operator-api-auth.js';
 export {
   McpInvocationStatSchema,
@@ -183,7 +194,12 @@ export {
   ProcessViewSchema,
   processesOperatorApiContracts,
 } from './operator-api-processes.js';
-export type { ProcessDetailResponse, ProcessListResponse, ProcessToolResult, ProcessView } from './operator-api-processes.js';
+export type {
+  ProcessDetailResponse,
+  ProcessListResponse,
+  ProcessToolResult,
+  ProcessView,
+} from './operator-api-processes.js';
 
 export const operatorApiContracts = {
   ...authOperatorApiContracts,
@@ -198,17 +214,35 @@ export const operatorApiContracts = {
 } as const satisfies Record<string, OperatorRouteContract>;
 
 export type OperatorApiOperationId = keyof typeof operatorApiContracts;
-export type OperatorApiContract<K extends OperatorApiOperationId> = (typeof operatorApiContracts)[K];
-export type OperatorApiSuccess<K extends OperatorApiOperationId> = z.output<OperatorApiContract<K>['success']>;
-export type OperatorApiBody<K extends OperatorApiOperationId> = OperatorApiContract<K> extends { body: infer TBody extends z.ZodTypeAny } ? z.output<TBody> : undefined;
-export type OperatorApiParams<K extends OperatorApiOperationId> = OperatorApiContract<K> extends { params: infer TParams extends z.ZodTypeAny } ? z.output<TParams> : undefined;
-export type OperatorApiQuery<K extends OperatorApiOperationId> = OperatorApiContract<K> extends { query: infer TQuery extends z.ZodTypeAny } ? z.output<TQuery> : undefined;
+export type OperatorApiContract<K extends OperatorApiOperationId> =
+  (typeof operatorApiContracts)[K];
+export type OperatorApiSuccess<K extends OperatorApiOperationId> = z.output<
+  OperatorApiContract<K>['success']
+>;
+export type OperatorApiBody<K extends OperatorApiOperationId> =
+  OperatorApiContract<K> extends { body: infer TBody extends z.ZodTypeAny }
+    ? z.output<TBody>
+    : undefined;
+export type OperatorApiParams<K extends OperatorApiOperationId> =
+  OperatorApiContract<K> extends { params: infer TParams extends z.ZodTypeAny }
+    ? z.output<TParams>
+    : undefined;
+export type OperatorApiQuery<K extends OperatorApiOperationId> =
+  OperatorApiContract<K> extends { query: infer TQuery extends z.ZodTypeAny }
+    ? z.output<TQuery>
+    : undefined;
 
-type OperatorApiResponseMap<K extends OperatorApiOperationId> = OperatorApiContract<K> extends {
-  response: infer TResponse extends Record<number, z.ZodTypeAny>;
-} ? TResponse : never;
+type OperatorApiResponseMap<K extends OperatorApiOperationId> =
+  OperatorApiContract<K> extends {
+    response: infer TResponse extends Record<number, z.ZodTypeAny>;
+  }
+    ? TResponse
+    : never;
 
-export type OperatorApiResponseStatus<K extends OperatorApiOperationId> = Extract<keyof OperatorApiResponseMap<K>, number>;
+export type OperatorApiResponseStatus<K extends OperatorApiOperationId> = Extract<
+  keyof OperatorApiResponseMap<K>,
+  number
+>;
 export type OperatorApiResponse<
   K extends OperatorApiOperationId,
   S extends OperatorApiResponseStatus<K>,
@@ -222,7 +256,10 @@ export type OperatorApiHandlerResult<K extends OperatorApiOperationId> =
       };
     }[Exclude<OperatorApiResponseStatus<K>, 200>];
 
-export function parseOperatorResponse<K extends OperatorApiOperationId>(operationId: K, payload: unknown): OperatorApiSuccess<K> {
+export function parseOperatorResponse<K extends OperatorApiOperationId>(
+  operationId: K,
+  payload: unknown,
+): OperatorApiSuccess<K> {
   return operatorApiContracts[operationId].success.parse(payload) as OperatorApiSuccess<K>;
 }
 

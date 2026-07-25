@@ -25,12 +25,13 @@ import { ContractRuntime } from '../contract-runtime.js';
 import type { EventLog } from '../../observability/index.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 
-export interface OperatorContractRouteRegistrationOptions extends
-  OperatorProjectContext,
-  OperatorAvailabilityContext,
-  OperatorConfigContext,
-  OperatorCardServiceContext,
-  Omit<OperatorRuntimeProviderContext, 'runtimeApplication'> {
+export interface OperatorContractRouteRegistrationOptions
+  extends
+    OperatorProjectContext,
+    OperatorAvailabilityContext,
+    OperatorConfigContext,
+    OperatorCardServiceContext,
+    Omit<OperatorRuntimeProviderContext, 'runtimeApplication'> {
   fastify: FastifyInstance;
   authPolicy: AuthPolicy;
   eventLogger: EventLog;
@@ -41,19 +42,49 @@ export interface OperatorContractRouteRegistrationOptions extends
   fatalPort: ApplicationFatalPort;
 }
 
-export function registerOperatorContractRoutes(options: OperatorContractRouteRegistrationOptions): void {
+export function registerOperatorContractRoutes(
+  options: OperatorContractRouteRegistrationOptions,
+): void {
   const { fastify, projectRoot } = options;
-  const runtime = new ContractRuntime({ authPolicy: options.authPolicy, eventLogger: options.eventLogger, fatalPort: options.fatalPort });
+  const runtime = new ContractRuntime({
+    authPolicy: options.authPolicy,
+    eventLogger: options.eventLogger,
+    fatalPort: options.fatalPort,
+  });
   const handlers = {
     ...defineOperatorContractHandlers({
       'auth.wsTicket': () => ({ body: options.authPolicy.issueWebSocketTicket() }),
     }),
-    ...buildRuntimeCardOperatorContractHandlers({ projectRoot, cardStore: options.cardStore, runtimeApplication: options.runtimeApplication, serverAvailabilityProvider: options.serverAvailabilityProvider, restartPort: options.restartPort, restartServerAvailable: options.authPolicy.authEnabled }),
-    ...buildMcpOperatorContractHandlers({ mcpStatusProvider: options.mcpManager, mcpToolsProvider: options.mcpManager, serverAvailabilityProvider: options.serverAvailabilityProvider }),
-    ...buildAgentOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication }),
-    ...buildChatOperatorContractHandlers({ projectRoot, runtimeApplication: options.runtimeApplication, restartPort: options.restartPort, saivageConfig: options.saivageConfig }),
-    ...buildFilesDebugOperatorContractHandlers({ projectRoot, cardServiceProvider: () => options.runtimeApplication.cardStore, configAuthority: options.configAuthority, workflows: options.workflows }),
-    ...buildProcessOperatorContractHandlers({ projectRoot, processRunner: options.runtimeApplication.processRunner }),
+    ...buildRuntimeCardOperatorContractHandlers({
+      projectRoot,
+      cardStore: options.cardStore,
+      runtimeApplication: options.runtimeApplication,
+      serverAvailabilityProvider: options.serverAvailabilityProvider,
+      restartPort: options.restartPort,
+      restartServerAvailable: options.authPolicy.authEnabled,
+    }),
+    ...buildMcpOperatorContractHandlers({
+      mcpStatusProvider: options.mcpManager,
+      mcpToolsProvider: options.mcpManager,
+      serverAvailabilityProvider: options.serverAvailabilityProvider,
+    }),
+    ...buildAgentOperatorContractHandlers({ projectRoot, workflows: options.workflows }),
+    ...buildChatOperatorContractHandlers({
+      projectRoot,
+      runtimeApplication: options.runtimeApplication,
+      restartPort: options.restartPort,
+      saivageConfig: options.saivageConfig,
+    }),
+    ...buildFilesDebugOperatorContractHandlers({
+      projectRoot,
+      cardServiceProvider: () => options.runtimeApplication.cardStore,
+      configAuthority: options.configAuthority,
+      workflows: options.workflows,
+    }),
+    ...buildProcessOperatorContractHandlers({
+      projectRoot,
+      processRunner: options.runtimeApplication.processRunner,
+    }),
     ...buildEventsOperatorContractHandlers({ projectRoot }),
     ...buildConfigOperatorContractHandlers({
       projectRoot,

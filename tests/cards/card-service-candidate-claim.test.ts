@@ -105,7 +105,7 @@ describe('direct child namespace claims', () => {
     const runtimeChanged = jest.fn();
 
     let caught: unknown;
-    try { new CardService(root, { cardProjectionChanged: cardChanged, runtimeChanged }, io).create(input); } catch (error) { caught = error; }
+    try { new CardService(root, { cardProjectionChanged: cardChanged, runtimeChanged,agentMembershipChanged:jest.fn() }, io).create(input); } catch (error) { caught = error; }
 
     expect(caught).toBe(injectedFailure);
     expect(candidateMkdirPaths).toEqual([injectedCandidatePath]);

@@ -6,24 +6,49 @@ import CodeBlock from '../components/content/CodeBlock.vue';
 import type { ProviderExchangePayload } from '../api/contracts';
 import { useAgentStore } from '../stores/agents';
 
+const live = vi.hoisted(() => ({ openLlmExchange: vi.fn(), close: vi.fn() }));
+vi.mock('../stores/liveSync', () => ({ useLiveSyncStore: () => live }));
+
 function exchange(overrides: Partial<ProviderExchangePayload> = {}): ProviderExchangePayload {
   return {
-    contract_id: 'planner.v1', contract_name: 'planner', transport: 'generic', provider: 'test-provider', model: 'test-model',
-    source_input_id: 'planner:card:1', attempt_index: 0, request_params: { endpoint: 'https://provider.test/v1/chat/completions', method: 'POST', temperature: 0, max_tokens: 1000, stream: false, offered_tools_count: 1 },
-    started_at: '2026-05-23T10:00:00.000Z', completed_at: '2026-05-23T10:00:01.000Z', status: 'ok', response_status: 200,
-    terminal_tool_fired: 'emit_result', assistant_output_ids: ['planner:card:1:tool-call:call-1'], ...overrides,
+    contract_id: 'planner.v1',
+    contract_name: 'planner',
+    transport: 'generic',
+    provider: 'test-provider',
+    model: 'test-model',
+    source_input_id: 'planner:card:1',
+    attempt_index: 0,
+    request_params: {
+      endpoint: 'https://provider.test/v1/chat/completions',
+      method: 'POST',
+      temperature: 0,
+      max_tokens: 1000,
+      stream: false,
+      offered_tools_count: 1,
+    },
+    started_at: '2026-05-23T10:00:00.000Z',
+    completed_at: '2026-05-23T10:00:01.000Z',
+    status: 'ok',
+    response_status: 200,
+    terminal_tool_fired: 'emit_result',
+    assistant_output_ids: ['planner:card:1:tool-call:call-1'],
+    ...overrides,
   } as ProviderExchangePayload;
 }
 
 function mountPanel(payload: ProviderExchangePayload | null) {
   setActivePinia(createPinia());
   const store = useAgentStore();
-  store.llmExchangeSessionId = 'agent:planner:project';
-  store.currentLlmExchange = payload;
-  store.llmExchangeLoaded = true;
   const begin = vi.spyOn(store, 'beginLlmExchangeSelection');
-  const fetch = vi.spyOn(store, 'fetchLlmExchange').mockResolvedValue(undefined);
+  const fetch = vi.spyOn(store, 'fetchLlmExchange').mockImplementation(async () => {
+    store.currentLlmExchange = payload;
+    store.llmExchangeLoaded = true;
+  });
   const clear = vi.spyOn(store, 'clearLlmExchange');
+  live.openLlmExchange.mockImplementation((_id, callback) => {
+    void callback(null);
+    return live.close;
+  });
   const wrapper = mount(RawLlmExchangePanel, { props: { sessionId: 'agent:planner:project' } });
   return { wrapper, store, begin, fetch, clear };
 }
@@ -44,6 +69,7 @@ describe('RawLlmExchangePanel', () => {
     expect(fetch).toHaveBeenLastCalledWith(token);
 
     wrapper.unmount();
+    expect(live.close).toHaveBeenCalledOnce();
     expect(clear).toHaveBeenCalledOnce();
     expect(clear).toHaveBeenCalledWith(token);
   });
@@ -63,7 +89,14 @@ describe('RawLlmExchangePanel', () => {
   });
 
   it('renders structured error metadata', async () => {
-    const { wrapper } = mountPanel(exchange({ status: 'error', error: { name: 'LlmRequestError', message: 'rate limited', status: 429 }, response_status: 429, assistant_output_ids: undefined } as Partial<ProviderExchangePayload>));
+    const { wrapper } = mountPanel(
+      exchange({
+        status: 'error',
+        error: { name: 'LlmRequestError', message: 'rate limited', status: 429 },
+        response_status: 429,
+        assistant_output_ids: undefined,
+      } as Partial<ProviderExchangePayload>),
+    );
     await flushPromises();
     expect(wrapper.find('.rlp-error-box').text()).toContain('LlmRequestError');
     expect(wrapper.find('.rlp-error-box').text()).toContain('rate limited');

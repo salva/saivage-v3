@@ -16,6 +16,7 @@ const lifecycle = vi.hoisted(() => ({
 
 vi.mock('../stores/liveSync', () => ({
   useLiveSyncStore: () => ({
+    openAgents: () => () => {},
     openConversation: (sessionId: string, callback: () => Promise<void>) => {
       lifecycle.events.push(`subscribe:${sessionId}`);
       lifecycle.callbacks.set(sessionId, callback);
@@ -28,8 +29,9 @@ vi.mock('../api/client', () => ({
   listAgentSessions: vi.fn(async () => ({ sessions: [makeSession('agent:planner:project'), makeSession('agent:reviewer:project')] })),
   getAgentConversation: vi.fn(async (sessionId: 'agent:planner:project' | 'agent:reviewer:project') => {
     lifecycle.events.push(`fetch:${sessionId}`);
-    return { session: makeSession(sessionId), entries: [], activity_status: { status: 'active', pending_calls: [] } };
+    return { session_id:sessionId, entries: [],cursor:'cursor' };
   }),
+  getAgentSession:vi.fn(async(sessionId:'agent:planner:project'|'agent:reviewer:project')=>({session:makeSession(sessionId)})),
   getAgentLlmExchange: vi.fn(),
   ApiError: class extends Error {
     get isUnauthorized() { return false; }
@@ -38,7 +40,7 @@ vi.mock('../api/client', () => ({
 }));
 
 function makeSession(id: 'agent:planner:project' | 'agent:reviewer:project') {
-  return { id, agent_name: id === 'agent:planner:project' ? 'planner' : 'reviewer', session_scope: 'card' as const, card_id: 'project', status: 'active' as const, started_at: '2026-01-01T00:00:00.000Z' };
+  return { id, agent_name: id === 'agent:planner:project' ? 'planner' : 'reviewer', session_scope: 'card' as const, card_id: 'project', started_at: '2026-01-01T00:00:00.000Z' };
 }
 
 function makeRouter() {
@@ -83,7 +85,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     await flushPromises();
 
     const token = begin.mock.results[0].value;
-    expect(lifecycle.events.slice(0, 2)).toEqual(['subscribe:agent:planner:project', 'fetch:agent:planner:project']);
+    expect(lifecycle.events).toEqual(['subscribe:agent:planner:project']);
     expect(store.selectedConversationSessionId).toBe('agent:planner:project');
     await lifecycle.callbacks.get('agent:planner:project')?.();
     expect(refetch).toHaveBeenCalledWith(token);
@@ -112,7 +114,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
 
     await router.push('/agents/agent:reviewer:project');
     await flushPromises();
-    expect(lifecycle.events).toEqual(['unsubscribe:agent:planner:project', 'clear:agent:planner:project', 'subscribe:agent:reviewer:project', 'fetch:agent:reviewer:project']);
+    expect(lifecycle.events).toEqual(['unsubscribe:agent:planner:project', 'clear:agent:planner:project', 'subscribe:agent:reviewer:project']);
     expect(store.selectedConversationSessionId).toBe('agent:reviewer:project');
 
     await router.push('/agents');

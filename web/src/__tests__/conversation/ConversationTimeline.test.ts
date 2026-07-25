@@ -7,12 +7,12 @@ import { entriesToTimeline, type AgentTimeline, type TimelineRound } from '../..
 import type { AgentConversationEntry } from '../../api/types';
 
 function emptyTimeline(overrides: Partial<AgentTimeline> = {}): AgentTimeline {
-  return { rounds: [], activeRoundId: null, modelLabel: null, ...overrides };
+  return { rounds: [], activeRoundId: null, ...overrides };
 }
 
 function round(id: string, kind: TimelineRound['kind']): TimelineRound {
   return {
-    id, kind, position: 1, entries: [], texts: [], diagnostics: [], toolPairs: [], items: [], activityStatus: null,
+    id, kind, position: 1, entries: [], texts: [], diagnostics: [], toolPairs: [], items: [],
   };
 }
 
@@ -42,24 +42,6 @@ function router() {
 }
 
 describe('ConversationTimeline', () => {
-  it('renders the ambient model chip when the timeline carries a model label', () => {
-    const wrapper = mount(ConversationTimeline, {
-      props: { timeline: emptyTimeline({ modelLabel: 'claude-sonnet-4' }), expandedIds: new Set<string>() },
-    });
-
-    const chip = wrapper.find('[data-testid="timeline-model"]');
-    expect(chip.exists()).toBe(true);
-    expect(chip.text()).toContain('claude-sonnet-4');
-  });
-
-  it('omits the ambient model chip when no model label is present', () => {
-    const wrapper = mount(ConversationTimeline, {
-      props: { timeline: emptyTimeline({ modelLabel: null }), expandedIds: new Set<string>() },
-    });
-
-    expect(wrapper.find('[data-testid="timeline-model"]').exists()).toBe(false);
-  });
-
   it('hides separator, agent name, and iteration number on consecutive same-author rounds', () => {
     const timeline = emptyTimeline({
       rounds: [
@@ -92,7 +74,7 @@ describe('ConversationTimeline', () => {
       toolEntry('call-fetch', 'webfetch', { url: 'https://example.com' }, 5),
       resultEntry('result-fetch', 'call-fetch', 'webfetch', { success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }, 6),
     ];
-    const timeline = entriesToTimeline(entries, null);
+    const timeline = entriesToTimeline(entries);
     expect(timeline.rounds[0].toolPairs.map((pair) => pair.status)).toEqual(['pending', 'ok', 'error', 'ok']);
 
     const r = router(); await r.push('/files'); await r.isReady();

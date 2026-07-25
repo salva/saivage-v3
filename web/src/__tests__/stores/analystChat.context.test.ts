@@ -22,7 +22,7 @@ describe('analyst chat workspace context', () => {
     setActivePinia(createPinia());
     apiMocks.getChatEntries.mockReset();
     apiMocks.sendChatMessage.mockReset();
-    apiMocks.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global', session: null, entries: [] as AgentConversationEntry[], activity_status: { status: 'inactive', pending_calls: [] } });
+    apiMocks.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global' });
     apiMocks.sendChatMessage.mockResolvedValue({
       sessionId: 'agent:analyst:global',
       toolInvocations: [],

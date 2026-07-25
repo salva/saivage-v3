@@ -42,7 +42,7 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
     ...testAutonomousCompaction,
     projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
     conversations: { projectRoot },
-    freshness: { runtimeChanged() {}, agentsChanged() {}, conversationChanged() {} },
+    freshness: { runtimeChanged() {} },
     processRunner, runtimeProcessRootScope, promptTemplates: { render: () => 'test prompt' },
   });
 }

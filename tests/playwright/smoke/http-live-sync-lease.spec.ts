@@ -27,7 +27,7 @@ test('conversation leases work on a real non-loopback plain-HTTP origin', async 
   page.on('pageerror', (error) => pageErrors.push(error.message));
 
   await page.addInitScript((value) => window.localStorage.setItem('saivage_api_token', value), token);
-  await installOperatorWebSocketShim(page);
+  await installOperatorWebSocketShim(page, { autoAcknowledge: false });
   const rest = await installOperatorRestRoutes(page);
 
   await page.goto(`${origin}/agents/${encodeURIComponent(sessionId)}`);

@@ -1,219 +1,242 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
-import type { ActivityStatus, AgentSession } from '../../api/types';
+import type { AgentConversationEntry, AgentSession } from '../../api/types';
 import { useAgentStore } from '../../stores/agents';
 
 vi.mock('../../api/client', () => ({
   listAgentSessions: vi.fn(),
+  getAgentSession: vi.fn(),
+  getCardAgentSessions: vi.fn(),
   getAgentConversation: vi.fn(),
   getAgentLlmExchange: vi.fn(),
   ApiError: class extends Error {
-    constructor(public status: number, message: string) { super(message); }
-    get isUnauthorized() { return this.status === 401; }
-    get isNotFound() { return this.status === 404; }
+    constructor(
+      public status: number,
+      message: string,
+      public body: Record<string, unknown>,
+    ) {
+      super(message);
+    }
+    get isUnauthorized() {
+      return this.status === 401;
+    }
+    get isNotFound() {
+      return this.status === 404;
+    }
   },
 }));
 
-import { ApiError, getAgentConversation, getAgentLlmExchange, listAgentSessions } from '../../api/client';
+import {
+  ApiError,
+  getAgentConversation,
+  getAgentLlmExchange,
+  getAgentSession,
+  getCardAgentSessions,
+  listAgentSessions,
+} from '../../api/client';
 
 const S1 = 'agent:planner:project' as const;
 const S2 = 'agent:reviewer:project' as const;
-const session: AgentSession = { id: S1, agent_name: 'planner', session_scope: 'card', card_id: 'project', status: 'active', started_at: '2026-01-01T00:00:00.000Z' };
-const reviewerSession: AgentSession = { id: S2, agent_name: 'reviewer', session_scope: 'card', card_id: 'project', status: 'active', started_at: session.started_at };
-const entry = { id: 'm1', session_id: S1, role: 'assistant', kind: 'text', content: 'hello', round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:01.000Z' } as const;
-const activityStatus: ActivityStatus = { status: 'inactive', pending_calls: [] };
+const session: AgentSession = {
+  id: S1,
+  agent_name: 'planner',
+  session_scope: 'card',
+  card_id: 'project',
+  started_at: '2026-01-01T00:00:00.000Z',
+};
+const reviewerSession: AgentSession = {
+  ...session,
+  id: S2,
+  agent_name: 'reviewer',
+};
+const entry = {
+  id: 'm1',
+  session_id: S1,
+  role: 'assistant',
+  kind: 'text',
+  content: 'hello',
+  round_id: 'r-assistant-00000000000000000000000000000001',
+  message_index: 0,
+  block_index: 0,
+  timestamp: '2026-01-01T00:00:01.000Z',
+} as const;
 const exchange = { provider: 'provider-one' } as any;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
-  const promise = new Promise<T>((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   return { promise, resolve, reject };
+}
+
+function conversation(entries: AgentConversationEntry[] = [entry], cursor = 'm1') {
+  return { session_id: S1, entries, cursor };
 }
 
 describe('useAgentStore singular agent resource ownership', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    vi.mocked(getAgentSession).mockResolvedValue({ session });
   });
 
-  it('treats an accepted empty session list as loaded and preserves it on refresh failure', async () => {
+  it('treats an accepted empty baseline as loaded and preserves it on refresh failure', async () => {
     vi.mocked(listAgentSessions)
       .mockResolvedValueOnce({ sessions: [] })
       .mockRejectedValueOnce(new ApiError(500, 'refresh failed', {}));
     const store = useAgentStore();
-
     await store.fetchSessions();
-    expect(store.sessionsLoaded).toBe(true);
-    expect(store.sessions).toEqual([]);
-
     const refresh = store.fetchSessions();
-    expect(store.sessionsLoading).toBe(false);
     expect(store.sessionsRefreshing).toBe(true);
     await expect(refresh).rejects.toThrow('refresh failed');
     expect(store.sessions).toEqual([]);
+    expect(store.sessionsLoaded).toBe(true);
     expect(store.sessionsError).toBeNull();
     expect(store.sessionsRefreshError).toBe('refresh failed');
   });
 
-  it('keeps list, conversation, and exchange request state independent', async () => {
+  it('keeps inventory, conversation, and exchange request state independent', async () => {
     const list = deferred<{ sessions: AgentSession[] }>();
-    const conversation = deferred<any>();
+    const detail = deferred<{ session: AgentSession }>();
+    const transcript = deferred<ReturnType<typeof conversation>>();
     const raw = deferred<any>();
     vi.mocked(listAgentSessions).mockReturnValue(list.promise);
-    vi.mocked(getAgentConversation).mockReturnValue(conversation.promise);
+    vi.mocked(getAgentSession).mockReturnValue(detail.promise);
+    vi.mocked(getAgentConversation).mockReturnValue(transcript.promise);
     vi.mocked(getAgentLlmExchange).mockReturnValue(raw.promise);
     const store = useAgentStore();
     const conversationToken = store.beginConversationSelection(S1);
     const exchangeToken = store.beginLlmExchangeSelection(S1);
-
-    const listRequest = store.fetchSessions();
-    const conversationRequest = store.fetchConversation(conversationToken);
-    const exchangeRequest = store.fetchLlmExchange(exchangeToken);
+    const requests = [
+      store.fetchSessions(),
+      store.fetchConversation(conversationToken),
+      store.fetchLlmExchange(exchangeToken),
+    ];
     expect(store.sessionsLoading).toBe(true);
     expect(store.conversationLoading).toBe(true);
     expect(store.llmExchangeLoading).toBe(true);
-
     list.resolve({ sessions: [session] });
-    conversation.resolve({ session, entries: [entry], activity_status: activityStatus });
+    detail.resolve({ session });
+    transcript.resolve(conversation());
     raw.resolve({ sessionId: S1, exchange });
-    await Promise.all([listRequest, conversationRequest, exchangeRequest]);
-    expect(store.sessionsLoaded).toBe(true);
-    expect(store.currentSession?.id).toBe(S1);
+    await Promise.all(requests);
+    expect(store.currentSession).toEqual(session);
+    expect(store.entries).toEqual([entry]);
     expect(store.currentLlmExchange).toEqual(exchange);
   });
 
-  it('aborts a superseded list request and rejects its late completion', async () => {
+  it('aborts a superseded inventory request and ignores its late completion', async () => {
     const oldRequest = deferred<{ sessions: AgentSession[] }>();
     let oldSignal: AbortSignal | undefined;
     vi.mocked(listAgentSessions)
-      .mockImplementationOnce((signal) => { oldSignal = signal; return oldRequest.promise; })
+      .mockImplementationOnce((signal) => {
+        oldSignal = signal;
+        return oldRequest.promise;
+      })
       .mockResolvedValueOnce({ sessions: [reviewerSession] });
     const store = useAgentStore();
     const oldFetch = store.fetchSessions();
     await store.fetchSessions();
     expect(oldSignal?.aborted).toBe(true);
     oldRequest.resolve({ sessions: [session] });
-    await oldFetch;
+    await expect(oldFetch).resolves.toBe(false);
     expect(store.sessions.map(({ id }) => id)).toEqual([S2]);
-    expect(store.sessionsLoading).toBe(false);
   });
 
-  it('gates aggregate triggers, ignores stale bootstrap tokens, and finishes the current token exactly once', async () => {
-    vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [session] });
-    const store = useAgentStore();
-    const stale = store.beginSessionsBootstrap();
-
-    await expect(store.fetchSessions()).resolves.toBe(false);
-    expect(listAgentSessions).not.toHaveBeenCalled();
-
-    const current = store.beginSessionsBootstrap();
-    await store.finishSessionsBootstrap(stale);
-    expect(listAgentSessions).not.toHaveBeenCalled();
-
-    await store.finishSessionsBootstrap(current);
-    await store.finishSessionsBootstrap(current);
-    expect(listAgentSessions).toHaveBeenCalledTimes(1);
-    expect(store.sessions).toEqual([session]);
-  });
-
-  it('synchronously aborts and sequence-supersedes a pending aggregate while preserving accepted stale data', async () => {
+  it('release aborts inventory ownership and clears accepted partitions', async () => {
     const pending = deferred<{ sessions: AgentSession[] }>();
     let signal: AbortSignal | undefined;
-    vi.mocked(listAgentSessions)
-      .mockResolvedValueOnce({ sessions: [session] })
-      .mockImplementationOnce((requestSignal) => { signal = requestSignal; return pending.promise; });
+    vi.mocked(listAgentSessions).mockImplementation((requestSignal) => {
+      signal = requestSignal;
+      return pending.promise;
+    });
     const store = useAgentStore();
-    await expect(store.fetchSessions()).resolves.toBe(true);
-    const old = store.fetchSessions();
-    expect(store.sessionsRefreshing).toBe(true);
-
-    store.beginSessionsBootstrap();
+    const request = store.fetchSessions();
+    store.releaseSessions();
     expect(signal?.aborted).toBe(true);
-    expect(store.sessionsLoading).toBe(false);
-    expect(store.sessionsRefreshing).toBe(false);
-    expect(store.sessions).toEqual([session]);
-
-    pending.resolve({ sessions: [reviewerSession] });
-    await expect(old).resolves.toBe(false);
-    expect(store.sessions).toEqual([session]);
+    pending.resolve({ sessions: [session] });
+    await expect(request).resolves.toBe(false);
+    expect(store.sessionsLoaded).toBe(false);
+    expect(store.sessions).toEqual([]);
   });
 
-  it('makes a superseded late aggregate failure inert and returns true for a normal post-gate refresh', async () => {
-    const pending = deferred<{ sessions: AgentSession[] }>();
-    vi.mocked(listAgentSessions)
-      .mockReturnValueOnce(pending.promise)
-      .mockResolvedValue({ sessions: [session] });
+  it('replaces only the affected card partition and removes it on authoritative 404', async () => {
+    vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [session] });
+    vi.mocked(getCardAgentSessions)
+      .mockResolvedValueOnce({ card_id: 'project', sessions: [reviewerSession] })
+      .mockRejectedValueOnce(new ApiError(404, 'missing', { error: 'Card not found' }));
     const store = useAgentStore();
-    const old = store.fetchSessions();
-    const token = store.beginSessionsBootstrap();
-    pending.reject(new Error('late failure'));
-    await expect(old).resolves.toBe(false);
-    expect(store.sessionsError).toBeNull();
-
-    await store.finishSessionsBootstrap(token);
-    expect(store.sessions).toEqual([session]);
-    await expect(store.fetchSessions()).resolves.toBe(true);
-    expect(listAgentSessions).toHaveBeenCalledTimes(3);
+    await store.fetchSessions();
+    const frame = {
+      t: 'invalidate',
+      resource: 'agent-membership',
+      scope: 'card',
+      card_id: 'project',
+    } as const;
+    await store.reconcileMembership(frame);
+    expect(store.sessions).toEqual([reviewerSession]);
+    await store.reconcileMembership(frame);
+    expect(store.sessions).toEqual([]);
+    expect(listAgentSessions).toHaveBeenCalledTimes(1);
   });
 
-  it('retains accepted conversation data and records only a same-session refresh error', async () => {
+  it('retains accepted transcript data and records only a same-session refresh error', async () => {
     vi.mocked(getAgentConversation)
-      .mockResolvedValueOnce({ session, entries: [entry], activity_status: activityStatus })
+      .mockResolvedValueOnce(conversation())
       .mockRejectedValueOnce(new ApiError(500, 'conversation refresh failed', {}));
     const store = useAgentStore();
     const token = store.beginConversationSelection(S1);
     await store.fetchConversation(token);
-
     const refresh = store.refetchConversation(token);
     expect(store.conversationRefreshing).toBe(true);
-    expect(store.entries).toEqual([entry]);
     await expect(refresh).rejects.toThrow('conversation refresh failed');
     expect(store.entries).toEqual([entry]);
     expect(store.conversationError).toBeNull();
     expect(store.conversationRefreshError).toBe('conversation refresh failed');
   });
 
-  it('rejects a successful conversation response for the wrong session identity', async () => {
-    vi.mocked(getAgentConversation).mockResolvedValue({ session: reviewerSession, entries: [], activity_status: activityStatus });
+  it('appends cursor deltas without reordering or pair expansion', async () => {
+    const result = { ...entry, id: 'm2', kind: 'tool_result' as const, role: 'tool' as const };
+    vi.mocked(getAgentConversation)
+      .mockResolvedValueOnce(conversation([entry], 'm1'))
+      .mockResolvedValueOnce(conversation([result], 'm2'));
     const store = useAgentStore();
     const token = store.beginConversationSelection(S1);
-    await expect(store.fetchConversation(token)).rejects.toThrow(`does not match selected session ${S1}`);
-    expect(store.currentSession).toBeNull();
+    await store.fetchConversation(token);
+    await store.fetchConversation(token);
+    expect(getAgentConversation).toHaveBeenNthCalledWith(2, S1, expect.any(AbortSignal), 'm1');
+    expect(store.entries.map(({ id }) => id)).toEqual(['m1', 'm2']);
   });
 
-  it('makes stale conversation tokens, completions, refetches, and clears unable to affect a newer claim', async () => {
+  it('makes stale transcript tokens, completions, refetches, and clears inert', async () => {
     const oldRequest = deferred<any>();
     vi.mocked(getAgentConversation)
       .mockReturnValueOnce(oldRequest.promise)
-      .mockResolvedValueOnce({ session: reviewerSession, entries: [{ ...entry, session_id: S2, content: 'new' }], activity_status: activityStatus });
+      .mockResolvedValueOnce({
+        session_id: S2,
+        entries: [{ ...entry, session_id: S2 }],
+        cursor: 'm2',
+      });
+    vi.mocked(getAgentSession)
+      .mockResolvedValueOnce({ session })
+      .mockResolvedValueOnce({ session: reviewerSession });
     const store = useAgentStore();
     const oldToken = store.beginConversationSelection(S1);
     const oldFetch = store.fetchConversation(oldToken);
     const newToken = store.beginConversationSelection(S2);
     await store.fetchConversation(newToken);
-
     await store.refetchConversation(oldToken);
     store.clearConversationSelection(oldToken);
-    oldRequest.resolve({ session, entries: [entry], activity_status: activityStatus });
+    oldRequest.resolve(conversation());
     await oldFetch;
-    expect(getAgentConversation).toHaveBeenCalledTimes(2);
     expect(store.currentSession?.id).toBe(S2);
-    expect(store.entries[0]?.content).toBe('new');
-    expect(store.conversationLoading).toBe(false);
+    expect(store.entries[0]?.session_id).toBe(S2);
   });
 
-  it('protects a newer same-session conversation claim from an old cleanup', async () => {
-    vi.mocked(getAgentConversation).mockResolvedValue({ session, entries: [entry], activity_status: activityStatus });
-    const store = useAgentStore();
-    const oldToken = store.beginConversationSelection(S1);
-    const newToken = store.beginConversationSelection(S1);
-    store.clearConversationSelection(oldToken);
-    await store.fetchConversation(newToken);
-    expect(store.currentSession?.id).toBe(S1);
-  });
-
-  it('clear aborts and epoch-invalidates an in-flight conversation before late completion', async () => {
+  it('clear aborts and generation-invalidates an in-flight transcript', async () => {
     const request = deferred<any>();
     let signal: AbortSignal | undefined;
     vi.mocked(getAgentConversation).mockImplementation((_id, requestSignal) => {
@@ -223,77 +246,60 @@ describe('useAgentStore singular agent resource ownership', () => {
     const store = useAgentStore();
     const token = store.beginConversationSelection(S1);
     const fetch = store.fetchConversation(token);
+    await Promise.resolve();
     store.clearConversationSelection(token);
     expect(signal?.aborted).toBe(true);
-    request.resolve({ session, entries: [entry], activity_status: activityStatus });
+    request.resolve(conversation());
     await fetch;
     expect(store.selectedConversationSessionId).toBeNull();
     expect(store.currentSession).toBeNull();
-    expect(store.conversationLoading).toBe(false);
   });
 
-  it('accepts an initial exchange 404 as loaded empty without errors', async () => {
-    vi.mocked(getAgentLlmExchange).mockRejectedValue(new ApiError(404, 'missing', {}));
+  it('accepts only the exact no-exchange 404 as loaded empty', async () => {
+    vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(
+      new ApiError(404, 'missing', { error: 'No LLM exchange recorded for this session yet.' }),
+    );
     const store = useAgentStore();
     const token = store.beginLlmExchangeSelection(S1);
     await store.fetchLlmExchange(token);
     expect(store.llmExchangeLoaded).toBe(true);
     expect(store.currentLlmExchange).toBeNull();
     expect(store.llmExchangeError).toBeNull();
-    expect(store.llmExchangeRefreshError).toBeNull();
+
+    const wrong = store.beginLlmExchangeSelection(S1);
+    vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(
+      new ApiError(404, 'wrong resource', { error: 'Agent session not found' }),
+    );
+    await store.fetchLlmExchange(wrong);
+    expect(store.llmExchangeLoaded).toBe(false);
+    expect(store.llmExchangeError).toBe('wrong resource');
   });
 
-  it('treats a refresh 404 as authoritative empty and clears a prior exchange and both errors', async () => {
+  it('retains accepted exchange state on a non-404 refresh failure', async () => {
     vi.mocked(getAgentLlmExchange)
       .mockResolvedValueOnce({ sessionId: S1, exchange })
-      .mockRejectedValueOnce(new ApiError(404, 'missing', {}));
+      .mockRejectedValueOnce(new ApiError(500, 'refresh failed', {}));
     const store = useAgentStore();
     const token = store.beginLlmExchangeSelection(S1);
     await store.fetchLlmExchange(token);
     await store.fetchLlmExchange(token);
-    expect(store.llmExchangeLoaded).toBe(true);
-    expect(store.currentLlmExchange).toBeNull();
-    expect(store.llmExchangeError).toBeNull();
-    expect(store.llmExchangeRefreshError).toBeNull();
-  });
-
-  it('records only an initial exchange non-404 error and leaves the identity unloaded', async () => {
-    vi.mocked(getAgentLlmExchange).mockRejectedValue(new ApiError(500, 'exchange failed', {}));
-    const store = useAgentStore();
-    const token = store.beginLlmExchangeSelection(S1);
-    await store.fetchLlmExchange(token);
-    expect(store.llmExchangeLoaded).toBe(false);
-    expect(store.currentLlmExchange).toBeNull();
-    expect(store.llmExchangeError).toBe('exchange failed');
-    expect(store.llmExchangeRefreshError).toBeNull();
-  });
-
-  it.each([
-    ['accepted exchange', { sessionId: S1, exchange }, exchange],
-    ['accepted empty result', new ApiError(404, 'missing', {}), null],
-  ])('retains an %s on a same-identity non-404 refresh failure', async (_label, firstResult, expected) => {
-    if (firstResult instanceof Error) vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(firstResult);
-    else vi.mocked(getAgentLlmExchange).mockResolvedValueOnce(firstResult);
-    vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(new ApiError(500, 'refresh failed', {}));
-    const store = useAgentStore();
-    const token = store.beginLlmExchangeSelection(S1);
-    await store.fetchLlmExchange(token);
-    await store.fetchLlmExchange(token);
-    expect(store.llmExchangeLoaded).toBe(true);
-    expect(store.currentLlmExchange).toEqual(expected);
-    expect(store.llmExchangeError).toBeNull();
+    expect(store.currentLlmExchange).toEqual(exchange);
     expect(store.llmExchangeRefreshError).toBe('refresh failed');
   });
 
-  it('aborts and rejects late exchange completion and stale same-session cleanup', async () => {
+  it('aborts and ignores late exchange completion and stale same-session cleanup', async () => {
     const oldRequest = deferred<any>();
     let oldSignal: AbortSignal | undefined;
     vi.mocked(getAgentLlmExchange)
-      .mockImplementationOnce((_id, signal) => { oldSignal = signal; return oldRequest.promise; })
+      .mockImplementationOnce((_id, signal) => {
+        oldSignal = signal;
+        return oldRequest.promise;
+      })
       .mockResolvedValueOnce({ sessionId: S1, exchange: { provider: 'new' } as any });
     const store = useAgentStore();
     const oldToken = store.beginLlmExchangeSelection(S1);
     const oldFetch = store.fetchLlmExchange(oldToken);
+    await Promise.resolve();
     const newToken = store.beginLlmExchangeSelection(S1);
     expect(oldSignal?.aborted).toBe(true);
     await store.fetchLlmExchange(newToken);
@@ -301,6 +307,5 @@ describe('useAgentStore singular agent resource ownership', () => {
     oldRequest.resolve({ sessionId: S1, exchange: { provider: 'old' } });
     await oldFetch;
     expect(store.currentLlmExchange).toEqual({ provider: 'new' });
-    expect(store.llmExchangeLoading).toBe(false);
   });
 });

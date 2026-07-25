@@ -9,24 +9,134 @@ export const WsEnvelopeSchema = z.object({
   content: z.record(z.string(), z.unknown()),
 });
 
-export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'agents', 'timeline', 'processes', 'files']);
+export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'timeline', 'processes', 'files']);
 export const LiveSyncCardRecordNameSchema = recordNameSchema;
 export const LiveSyncCardInvalidateFrameSchema = z.union([
-  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('children'), card_id: cardIdSchema }).strict(),
-  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('detail'), card_id: cardIdSchema }).strict(),
-  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('history'), card_id: cardIdSchema }).strict(),
-  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('diff'), card_id: cardIdSchema }).strict(),
-  z.object({ t: z.literal('invalidate'), resource: z.literal('cards'), scope: z.literal('record'), card_id: cardIdSchema, record_name: LiveSyncCardRecordNameSchema }).strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('cards'),
+      scope: z.literal('children'),
+      card_id: cardIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('cards'),
+      scope: z.literal('detail'),
+      card_id: cardIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('cards'),
+      scope: z.literal('history'),
+      card_id: cardIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('cards'),
+      scope: z.literal('diff'),
+      card_id: cardIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('cards'),
+      scope: z.literal('record'),
+      card_id: cardIdSchema,
+      record_name: LiveSyncCardRecordNameSchema,
+    })
+    .strict(),
 ]);
 export const LiveSyncInvalidateFrameSchema = z.union([
   z.object({ t: z.literal('invalidate'), resource: LiveSyncUnscopedResourceSchema }).strict(),
-  z.object({ t: z.literal('invalidate'), resource: z.literal('conversation'), id: ConversationSessionIdSchema }).strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('agent-membership'),
+      scope: z.literal('card'),
+      card_id: cardIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('agent-membership'),
+      scope: z.literal('global-session'),
+      session_id: ConversationSessionIdSchema,
+    })
+    .strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('conversation'),
+      id: ConversationSessionIdSchema,
+      through_message_id: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      t: z.literal('invalidate'),
+      resource: z.literal('llm-exchange'),
+      id: ConversationSessionIdSchema,
+    })
+    .strict(),
   LiveSyncCardInvalidateFrameSchema,
 ]);
-export const LiveSyncSubscribedFrameSchema = z.object({ t: z.literal('subscribed'), resource: z.literal('conversation'), id: ConversationSessionIdSchema, lease: z.string().min(1) }).strict();
-export const LiveSyncSubscribeFrameSchema = z.object({ t: z.literal('subscribe'), resource: z.literal('conversation'), id: ConversationSessionIdSchema, lease: z.string().min(1) }).strict();
-export const LiveSyncUnsubscribeFrameSchema = z.object({ t: z.literal('unsubscribe'), resource: z.literal('conversation'), id: ConversationSessionIdSchema, lease: z.string().min(1) }).strict();
-export const LiveSyncClientFrameSchema = z.union([LiveSyncSubscribeFrameSchema, LiveSyncUnsubscribeFrameSchema]);
+const agentsLease = <T extends 'subscribe' | 'subscribed' | 'unsubscribe'>(t: T) =>
+  z.object({ t: z.literal(t), resource: z.literal('agents'), lease: z.string().min(1) }).strict();
+const cardSessionsLease = <T extends 'subscribe' | 'subscribed' | 'unsubscribe'>(t: T) =>
+  z
+    .object({
+      t: z.literal(t),
+      resource: z.literal('card-agent-sessions'),
+      id: cardIdSchema,
+      lease: z.string().min(1),
+    })
+    .strict();
+const sessionLease = <
+  T extends 'subscribe' | 'subscribed' | 'unsubscribe',
+  R extends 'conversation' | 'llm-exchange',
+>(
+  t: T,
+  resource: R,
+) =>
+  z
+    .object({
+      t: z.literal(t),
+      resource: z.literal(resource),
+      id: ConversationSessionIdSchema,
+      lease: z.string().min(1),
+    })
+    .strict();
+export const LiveSyncSubscribedFrameSchema = z.union([
+  agentsLease('subscribed'),
+  cardSessionsLease('subscribed'),
+  sessionLease('subscribed', 'conversation'),
+  sessionLease('subscribed', 'llm-exchange'),
+]);
+export const LiveSyncSubscribeFrameSchema = z.union([
+  agentsLease('subscribe'),
+  cardSessionsLease('subscribe'),
+  sessionLease('subscribe', 'conversation'),
+  sessionLease('subscribe', 'llm-exchange'),
+]);
+export const LiveSyncUnsubscribeFrameSchema = z.union([
+  agentsLease('unsubscribe'),
+  cardSessionsLease('unsubscribe'),
+  sessionLease('unsubscribe', 'conversation'),
+  sessionLease('unsubscribe', 'llm-exchange'),
+]);
+export const LiveSyncClientFrameSchema = z.union([
+  LiveSyncSubscribeFrameSchema,
+  LiveSyncUnsubscribeFrameSchema,
+]);
 
 export type LiveSyncUnscopedResource = z.infer<typeof LiveSyncUnscopedResourceSchema>;
 export type LiveSyncCardRecordName = z.infer<typeof LiveSyncCardRecordNameSchema>;
@@ -52,23 +162,27 @@ export function parseLiveSyncClientFrame(input: unknown): LiveSyncClientFrame | 
 
 const stringOrNullSchema = z.string().nullable();
 const optionalStringSchema = z.string().optional();
-export const ConnectedStatusContentSchema = z.object({
-  event: z.literal('connected'),
-  sessionId: ConversationSessionIdSchema,
-  timestamp: z.string().datetime(),
-  clientCount: z.number().int().nonnegative(),
-}).passthrough();
+export const ConnectedStatusContentSchema = z
+  .object({
+    event: z.literal('connected'),
+    sessionId: ConversationSessionIdSchema,
+    timestamp: z.string().datetime(),
+    clientCount: z.number().int().nonnegative(),
+  })
+  .passthrough();
 
 export const ConnectedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
   content: ConnectedStatusContentSchema,
 });
 
-export const AnalystTurnAcknowledgedStatusContentSchema = z.object({
-  event: z.literal('analyst_turn_acknowledged'),
-  sessionId: ConversationSessionIdSchema,
-  restart: RestartChatAcknowledgementSchema.nullable(),
-}).strict();
+export const AnalystTurnAcknowledgedStatusContentSchema = z
+  .object({
+    event: z.literal('analyst_turn_acknowledged'),
+    sessionId: ConversationSessionIdSchema,
+    restart: RestartChatAcknowledgementSchema.nullable(),
+  })
+  .strict();
 
 export const AnalystTurnAcknowledgedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
@@ -83,60 +197,71 @@ export const AnalystActivityEventNames = [
   'tool_invocation',
 ] as const;
 
-export const CardHistoryAppendedContentSchema = z.object({
-  event: z.literal('card_history_appended'),
-  card_id: cardIdSchema,
-  version_seq: z.number().int(),
-  changed_fields: z.array(z.string()),
-  changed_at: z.string().min(1),
-}).passthrough();
+export const CardHistoryAppendedContentSchema = z
+  .object({
+    event: z.literal('card_history_appended'),
+    card_id: cardIdSchema,
+    version_seq: z.number().int(),
+    changed_fields: z.array(z.string()),
+    changed_at: z.string().min(1),
+  })
+  .passthrough();
 
-export const NotificationAddedContentSchema = z.object({
-  event: z.literal('notification_added'),
-  session_id: z.string().nullable(),
-  kind: z.string().min(1),
-}).passthrough();
+export const NotificationAddedContentSchema = z
+  .object({
+    event: z.literal('notification_added'),
+    session_id: z.string().nullable(),
+    kind: z.string().min(1),
+  })
+  .passthrough();
 
+export const ControlActionRecordedContentSchema = z
+  .object({
+    event: z.literal('control_action_recorded'),
+    id: z.string().min(1),
+    action: z.string().min(1),
+    target_kind: stringOrNullSchema,
+    target_id: stringOrNullSchema,
+    outcome: z.string().min(1),
+    created_at: z.string().min(1),
+    actor: optionalStringSchema,
+    surface: optionalStringSchema,
+  })
+  .passthrough();
 
-export const ControlActionRecordedContentSchema = z.object({
-  event: z.literal('control_action_recorded'),
-  id: z.string().min(1),
-  action: z.string().min(1),
-  target_kind: stringOrNullSchema,
-  target_id: stringOrNullSchema,
-  outcome: z.string().min(1),
-  created_at: z.string().min(1),
-  actor: optionalStringSchema,
-  surface: optionalStringSchema,
-}).passthrough();
+export const AnalystToolInvokedContentSchema = z
+  .object({
+    event: z.literal('analyst_tool_invoked'),
+    sessionId: ConversationSessionIdSchema,
+    tool: z.string().min(1),
+    success: z.boolean(),
+    summary: z.string(),
+    classified_as: optionalStringSchema,
+    related_card_id: optionalStringSchema,
+    related_note_id: optionalStringSchema,
+    related_process_id: optionalStringSchema,
+  })
+  .passthrough();
 
-export const AnalystToolInvokedContentSchema = z.object({
-  event: z.literal('analyst_tool_invoked'),
-  sessionId: ConversationSessionIdSchema,
-  tool: z.string().min(1),
-  success: z.boolean(),
-  summary: z.string(),
-  classified_as: optionalStringSchema,
-  related_card_id: optionalStringSchema,
-  related_note_id: optionalStringSchema,
-  related_process_id: optionalStringSchema,
-}).passthrough();
+export const ToolInvocationContentSchema = z
+  .object({
+    event: z.literal('tool_invocation'),
+    sessionId: ConversationSessionIdSchema,
+    tool: z.string().min(1),
+    params: z.unknown().optional(),
+    result: z.unknown().optional(),
+  })
+  .passthrough();
 
-export const ToolInvocationContentSchema = z.object({
-  event: z.literal('tool_invocation'),
-  sessionId: ConversationSessionIdSchema,
-  tool: z.string().min(1),
-  params: z.unknown().optional(),
-  result: z.unknown().optional(),
-}).passthrough();
-
-export const ClassifiedToolInvocationActivityContentSchema = z.object({
-  event: z.literal('tool_invocation'),
-  sessionId: ConversationSessionIdSchema,
-  tool: z.string().min(1),
-  params: z.unknown(),
-  result: ToolInvocationResultSchema,
-}).strict();
+export const ClassifiedToolInvocationActivityContentSchema = z
+  .object({
+    event: z.literal('tool_invocation'),
+    sessionId: ConversationSessionIdSchema,
+    tool: z.string().min(1),
+    params: z.unknown(),
+    result: ToolInvocationResultSchema,
+  })
+  .strict();
 
 export const AnalystActivityContentSchema = z.discriminatedUnion('event', [
   CardHistoryAppendedContentSchema,
@@ -151,9 +276,11 @@ export const AnalystActivityEnvelopeSchema = z.object({
   content: AnalystActivityContentSchema,
 });
 
-export const InboundAnalystMessageContentSchema = z.object({
-  text: z.string().min(1),
-}).passthrough();
+export const InboundAnalystMessageContentSchema = z
+  .object({
+    text: z.string().min(1),
+  })
+  .passthrough();
 
 export const InboundAnalystMessageEnvelopeSchema = z.object({
   type: z.literal('message'),
@@ -165,7 +292,10 @@ export const ErrorEnvelopeSchema = z.object({
   content: z.record(z.string(), z.unknown()),
 });
 
-export const KnownStatusWsEnvelopeSchema = z.union([ConnectedStatusEnvelopeSchema, AnalystTurnAcknowledgedStatusEnvelopeSchema]);
+export const KnownStatusWsEnvelopeSchema = z.union([
+  ConnectedStatusEnvelopeSchema,
+  AnalystTurnAcknowledgedStatusEnvelopeSchema,
+]);
 
 export const KnownWsContentSchema = z.union([
   ConnectedStatusContentSchema,
@@ -207,11 +337,17 @@ export type WsEventType = z.infer<typeof WsEventTypeSchema>;
 export type WsEnvelopeContract = z.infer<typeof WsEnvelopeSchema>;
 export type WsEnvelope = WsEnvelopeContract;
 export type KnownWsEnvelope = z.infer<typeof KnownWsEnvelopeSchema>;
-export type KnownWsEnvelopeWithClassifiedToolActivity = z.infer<typeof KnownWsEnvelopeWithClassifiedToolActivitySchema>;
-export type ClassifiedToolInvocationActivityContent = z.infer<typeof ClassifiedToolInvocationActivityContentSchema>;
+export type KnownWsEnvelopeWithClassifiedToolActivity = z.infer<
+  typeof KnownWsEnvelopeWithClassifiedToolActivitySchema
+>;
+export type ClassifiedToolInvocationActivityContent = z.infer<
+  typeof ClassifiedToolInvocationActivityContentSchema
+>;
 export type KnownWsContent = z.infer<typeof KnownWsContentSchema>;
 export type KnownStatusWsEnvelope = z.infer<typeof KnownStatusWsEnvelopeSchema>;
-export type AnalystTurnAcknowledgedStatusEnvelope = z.infer<typeof AnalystTurnAcknowledgedStatusEnvelopeSchema>;
+export type AnalystTurnAcknowledgedStatusEnvelope = z.infer<
+  typeof AnalystTurnAcknowledgedStatusEnvelopeSchema
+>;
 export type KnownActivityWsEnvelope = z.infer<typeof AnalystActivityEnvelopeSchema>;
 export type InboundAnalystMessageEnvelope = z.infer<typeof InboundAnalystMessageEnvelopeSchema>;
 export type AnalystActivityContent = z.infer<typeof AnalystActivityContentSchema>;
@@ -257,19 +393,31 @@ export function validateKnownWsEnvelope(envelope: WsEnvelopeContract): WsEnvelop
 
 export function isAnalystActivityContent(content: unknown): content is AnalystActivityContent {
   const event = getContentEvent(content);
-  return Boolean(event && analystActivityEventNameSet.has(event) && AnalystActivityContentSchema.safeParse(content).success);
+  return Boolean(
+    event &&
+    analystActivityEventNameSet.has(event) &&
+    AnalystActivityContentSchema.safeParse(content).success,
+  );
 }
 
-export function parseAnalystTurnAcknowledgedStatusContent(input: unknown): z.infer<typeof AnalystTurnAcknowledgedStatusContentSchema> | null {
+export function parseAnalystTurnAcknowledgedStatusContent(
+  input: unknown,
+): z.infer<typeof AnalystTurnAcknowledgedStatusContentSchema> | null {
   const parsed = AnalystTurnAcknowledgedStatusContentSchema.safeParse(input);
   return parsed.success ? parsed.data : null;
 }
 
-export function isConnectedEnvelope(envelope: unknown): envelope is z.infer<typeof ConnectedStatusEnvelopeSchema> {
+export function isConnectedEnvelope(
+  envelope: unknown,
+): envelope is z.infer<typeof ConnectedStatusEnvelopeSchema> {
   return ConnectedStatusEnvelopeSchema.safeParse(envelope).success;
 }
 
-export function buildConnectedEnvelope(input: { sessionId:z.infer<typeof ConversationSessionIdSchema>;timestamp?: string; clientCount?: number }): z.infer<typeof ConnectedStatusEnvelopeSchema> {
+export function buildConnectedEnvelope(input: {
+  sessionId: z.infer<typeof ConversationSessionIdSchema>;
+  timestamp?: string;
+  clientCount?: number;
+}): z.infer<typeof ConnectedStatusEnvelopeSchema> {
   return ConnectedStatusEnvelopeSchema.parse({
     type: 'status',
     content: {
@@ -286,8 +434,14 @@ export function buildInboundAnalystMessageEnvelope(text: string): InboundAnalyst
 }
 
 export const wsContractFixtures = {
-  connected: buildConnectedEnvelope({sessionId:'agent:fixture:global'}),
+  connected: buildConnectedEnvelope({ sessionId: 'agent:fixture:global' }),
   inboundAnalystMessage: buildInboundAnalystMessageEnvelope('hello analyst'),
-  unknownBaseValid: { type: 'activity', content: { event: 'future_event', value: true } } satisfies WsEnvelopeContract,
-  malformedKnown: { type: 'activity', content: { event: 'card_history_appended' } } satisfies WsEnvelopeContract,
+  unknownBaseValid: {
+    type: 'activity',
+    content: { event: 'future_event', value: true },
+  } satisfies WsEnvelopeContract,
+  malformedKnown: {
+    type: 'activity',
+    content: { event: 'card_history_appended' },
+  } satisfies WsEnvelopeContract,
 };

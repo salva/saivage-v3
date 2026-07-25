@@ -12,8 +12,8 @@ const connectedEnvelope = buildConnectedEnvelope({
 });
 const runtimeUpdateEnvelope: LiveSyncInvalidateFrame = { t: 'invalidate', resource: 'runtime' };
 
-export async function installOperatorWebSocketShim(page: Page): Promise<void> {
-  await page.addInitScript(({ connected, runtimeUpdate, inboundFixture }) => {
+export async function installOperatorWebSocketShim(page: Page, options: { autoAcknowledge?: boolean } = {}): Promise<void> {
+  await page.addInitScript(({ connected, runtimeUpdate, inboundFixture, autoAcknowledge }) => {
     type Listener = (event: Event) => void;
     type FixtureFrame = Record<string, unknown>;
 
@@ -85,7 +85,15 @@ export async function installOperatorWebSocketShim(page: Page): Promise<void> {
       }
 
       send(data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
-        outbound.push(typeof data === 'string' ? data : '[binary]');
+        const serialized = typeof data === 'string' ? data : '[binary]';
+        outbound.push(serialized);
+        if (typeof data !== 'string') return;
+        const frame = JSON.parse(data) as FixtureFrame;
+        if (!autoAcknowledge || frame.t !== 'subscribe') return;
+        window.setTimeout(() => {
+          if (this.readyState !== SaivageFixtureWebSocket.OPEN) return;
+          this.emit({ ...frame, t: 'subscribed' });
+        }, 0);
       }
 
       close(code = 1000, reason = 'Fixture close'): void {
@@ -135,6 +143,7 @@ export async function installOperatorWebSocketShim(page: Page): Promise<void> {
     connected: connectedEnvelope,
     runtimeUpdate: runtimeUpdateEnvelope,
     inboundFixture: wsContractFixtures.inboundAnalystMessage,
+    autoAcknowledge: options.autoAcknowledge ?? true,
   });
 }
 

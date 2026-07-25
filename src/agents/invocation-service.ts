@@ -81,7 +81,7 @@ export interface InvocationServiceConfig {
   registry: ProviderRegistry;
   router: ModelRouter;
   candidateAvailability: CandidateAvailability;
-  freshness: Pick<FreshnessEffects, 'agentsChanged'>;
+  freshness: Pick<FreshnessEffects, 'llmExchangeChanged'>;
 }
 
 export class InvocationService {
@@ -91,7 +91,7 @@ export class InvocationService {
   private readonly recoveryDelayMs: number;
   private readonly maxRecoveryRetries: number;
   private readonly registry: ProviderRegistry;
-  private readonly freshness: Pick<FreshnessEffects, 'agentsChanged'>;
+  private readonly freshness: Pick<FreshnessEffects, 'llmExchangeChanged'>;
 
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
@@ -201,7 +201,8 @@ export class InvocationService {
       }
       if (next.kind === 'none') {
         const originalFailure =
-          lastFailure ?? new Error(`No healthy candidates available for agent '${request.agentName}'.`);
+          lastFailure ??
+          new Error(`No healthy candidates available for agent '${request.agentName}'.`);
         throw new ProviderTurnFailure({
           failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
           provider_exchanges: settled,
@@ -315,34 +316,30 @@ export class InvocationService {
     assistantOutputIds: string[],
   ): void {
     for (const attempt of attempts) {
-      appendAppLogEntry(
-        this.projectRoot,
-        'provider_exchange',
-        () => {
-          if (attempt.attempt_index === undefined)
-            throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
-          if (attempt.source_input_id !== sourceInputId)
-            throw new Error(
-              `Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`,
-            );
-          const payload = projectProviderExchangeForPublication(
-            attempt as ProviderExchangeAttempt & { attempt_index: number },
-            assistantOutputIds,
+      appendAppLogEntry(this.projectRoot, 'provider_exchange', () => {
+        if (attempt.attempt_index === undefined)
+          throw new Error(`Provider exchange for '${sourceInputId}' is missing attempt_index.`);
+        if (attempt.source_input_id !== sourceInputId)
+          throw new Error(
+            `Provider exchange source_input_id '${attempt.source_input_id}' does not match '${sourceInputId}'.`,
           );
-          return {
-            type: 'provider_exchange',
-            data: {
-              session_id: sessionId,
-              source_input_id: sourceInputId,
-              attempt_index: attempt.attempt_index,
-              timestamp: attempt.completed_at,
-              payload,
-            },
-          };
-        },
-      );
-      if (ConversationSessionIdSchema.safeParse(sessionId).success)
-        this.freshness.agentsChanged();
+        const payload = projectProviderExchangeForPublication(
+          attempt as ProviderExchangeAttempt & { attempt_index: number },
+          assistantOutputIds,
+        );
+        return {
+          type: 'provider_exchange',
+          data: {
+            session_id: sessionId,
+            source_input_id: sourceInputId,
+            attempt_index: attempt.attempt_index,
+            timestamp: attempt.completed_at,
+            payload,
+          },
+        };
+      });
+      const parsed = ConversationSessionIdSchema.safeParse(sessionId);
+      if (parsed.success) this.freshness.llmExchangeChanged(parsed.data);
     }
   }
 

@@ -3,7 +3,5 @@
   "agent_name": "executor",
   "session_scope": "card",
   "card_id": "card-a",
-  "status": "inactive",
-  "started_at": "2025-01-01T02:30:00.000Z",
-  "model": "claude-sonnet-4-20250514"
+  "started_at": "2025-01-01T02:30:00.000Z"
 }

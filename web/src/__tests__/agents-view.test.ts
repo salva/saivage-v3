@@ -11,12 +11,17 @@ import { AgentSessionSummarySchema } from '../api/contracts';
 const apiMockState = vi.hoisted(() => ({
   sessions: [] as AgentSession[],
   conversation: {
-    session: null as AgentSession | null,
+    session_id: 'agent:planner:project' as const,
     entries: [] as any[],
-  },
+    cursor: 'empty',
+  } as { session_id: AgentSession['id']; entries: any[]; cursor: string },
   listError: null as Error | null,
 }));
-const liveSyncMock = vi.hoisted(() => ({ openConversation: vi.fn(() => vi.fn()) }));
+const liveSyncMock = vi.hoisted(() => ({
+  openAgents: vi.fn(),
+  openConversation: vi.fn(),
+  openLlmExchange: vi.fn(),
+}));
 
 function resetTestState() {
   apiMockState.listError = null;
@@ -24,24 +29,36 @@ function resetTestState() {
 
 vi.mock('../stores/liveSync', () => ({
   useLiveSyncStore: () => ({
+    openAgents: liveSyncMock.openAgents,
     openConversation: liveSyncMock.openConversation,
+    openLlmExchange: liveSyncMock.openLlmExchange,
   }),
 }));
 
 vi.mock('../api/client', () => {
   const ApiError = class extends Error {
-    status: number; body: Record<string, unknown>;
+    status: number;
+    body: Record<string, unknown>;
     constructor(status: number, message: string, body: Record<string, unknown> = {}) {
-      super(message); this.name = 'ApiError'; this.status = status; this.body = body;
+      super(message);
+      this.name = 'ApiError';
+      this.status = status;
+      this.body = body;
     }
-    get isUnauthorized(): boolean { return this.status === 401; }
+    get isUnauthorized(): boolean {
+      return this.status === 401;
+    }
   };
   return {
     listAgentSessions: vi.fn(async () => {
       if (apiMockState.listError) throw apiMockState.listError;
       return { sessions: apiMockState.sessions };
     }),
+    getAgentSession: vi.fn(async (id: AgentSession['id']) => ({
+      session: apiMockState.sessions.find((candidate) => candidate.id === id) ?? plannerSession,
+    })),
     getAgentConversation: vi.fn(async () => apiMockState.conversation),
+    getAgentLlmExchange: vi.fn(),
     ApiError,
   };
 });
@@ -49,22 +66,22 @@ vi.mock('../api/client', () => {
 function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
   const agentName = overrides.agent_name ?? 'planner';
   const sessionScope = overrides.session_scope ?? (agentName === 'analyst' ? 'global' : 'card');
-  const id = overrides.id ?? (sessionScope === 'global' ? `agent:${agentName}:global` : `agent:${agentName}:project`);
+  const id =
+    overrides.id ??
+    (sessionScope === 'global' ? `agent:${agentName}:global` : `agent:${agentName}:project`);
   const cardId = sessionScope === 'global' ? null : id.slice(id.lastIndexOf(':') + 1);
   return AgentSessionSummarySchema.parse({
     id,
     agent_name: agentName,
     session_scope: sessionScope,
     card_id: cardId,
-    status: 'active' as const,
     started_at: '2025-06-01T08:00:00Z',
-    model: 'claude-sonnet-4',
     ...overrides,
   });
 }
 
-const plannerSession = makeSession({ id: 'agent:planner:project', agent_name: 'planner', status: 'active' });
-const executorSession = makeSession({ id: 'agent:executor:project', agent_name: 'executor', status: 'inactive', model: 'deepseek-v4-pro' });
+const plannerSession = makeSession({ id: 'agent:planner:project', agent_name: 'planner' });
+const executorSession = makeSession({ id: 'agent:executor:project', agent_name: 'executor' });
 const allSessions = [plannerSession, executorSession];
 
 function makeRouter() {
@@ -89,30 +106,41 @@ async function mountAgentsView(opts?: {
   apiMockState.sessions = opts?.sessions ?? [];
   apiMockState.listError = opts?.listError ?? null;
   apiMockState.conversation = {
-    session: plannerSession,
+    session_id: plannerSession.id,
     entries: [
       {
         id: 'm1',
         session_id: 'agent:planner:project',
         role: 'assistant',
-          kind: 'text',
-          content: 'Inspect linked evidence.',
-          round_id: 'r-assistant-00000000000000000000000000000001',
-          message_index: 0,
-          block_index: 0,
+        kind: 'text',
+        content: 'Inspect linked evidence.',
+        round_id: 'r-assistant-00000000000000000000000000000001',
+        message_index: 0,
+        block_index: 0,
         timestamp: '2025-06-01T08:05:00Z',
         links: [
-          { entity_type: 'card', entity_id: '11111111-1111-4111-8111-111111111111', label: 'Card title' },
+          {
+            entity_type: 'card',
+            entity_id: '11111111-1111-4111-8111-111111111111',
+            label: 'Card title',
+          },
           { entity_type: 'process', entity_id: 'proc-1', label: 'Process proc-1' },
-          { entity_type: 'artifact', entity_id: '.saivage/work/output.txt', label: 'Artifact output' },
+          {
+            entity_type: 'artifact',
+            entity_id: '.saivage/work/output.txt',
+            label: 'Artifact output',
+          },
         ],
       },
     ],
+    cursor: 'm1',
   };
 
   const pinia = createPinia();
   setActivePinia(pinia);
-  await useAgentStore().fetchSessions().catch(() => {});
+  await useAgentStore()
+    .fetchSessions()
+    .catch(() => {});
   const router = makeRouter();
   await router.push(opts?.initialRoute ?? '/agents');
   await router.isReady();
@@ -126,10 +154,24 @@ describe('AgentsView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetTestState();
+    liveSyncMock.openAgents.mockImplementation((callback) => {
+      void callback(null).catch(() => {});
+      return vi.fn();
+    });
+    liveSyncMock.openConversation.mockImplementation((_id, callback) => {
+      void callback(null);
+      return vi.fn();
+    });
+    liveSyncMock.openLlmExchange.mockImplementation((_id, callback) => {
+      void callback(null);
+      return vi.fn();
+    });
     apiMockState.sessions = [];
   });
 
-  afterEach(() => { vi.restoreAllMocks(); });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
 
   it('exposes a route-owned root and route-body content for browser smoke assertions', () => {
     expect(agentsViewSource).toContain('data-testid="route-agents"');
@@ -155,28 +197,25 @@ describe('AgentsView', () => {
     expect(wrapper.text()).toContain('valid API token');
   });
 
-  it.each(['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'])('rejects invalid direct route %s without detail, API, selection, or live sync work', async (id) => {
-    const api = await import('../api/client');
-    const conversation = vi.mocked(api.getAgentConversation);
-    conversation.mockClear();
-    liveSyncMock.openConversation.mockClear();
-    const { wrapper, router } = await mountAgentsView({ sessions: allSessions, initialRoute: `/agents/${encodeURIComponent(id)}` });
-    expect(router.currentRoute.value.params.id).toBe(id);
-    expect(wrapper.text()).toContain('Invalid agent session');
-    expect(wrapper.findComponent(AgentConversationView).exists()).toBe(false);
-    expect(useAgentStore().selectedConversationSessionId).toBeNull();
-    expect(conversation).not.toHaveBeenCalled();
-    expect(liveSyncMock.openConversation).not.toHaveBeenCalled();
-  });
-
-  it('shows stale messaging when the agents store is stale', async () => {
-    const { wrapper } = await mountAgentsView({ sessions: allSessions });
-    const store = useAgentStore();
-    store.lastFetchedAt = '2025-06-01T00:00:00Z' as any;
-    await flushPromises();
-    expect(wrapper.find('.agents-stale').exists()).toBe(true);
-    expect(wrapper.text()).toContain('stale');
-  });
+  it.each(['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'])(
+    'rejects invalid direct route %s without detail, API, selection, or live sync work',
+    async (id) => {
+      const api = await import('../api/client');
+      const conversation = vi.mocked(api.getAgentConversation);
+      conversation.mockClear();
+      liveSyncMock.openConversation.mockClear();
+      const { wrapper, router } = await mountAgentsView({
+        sessions: allSessions,
+        initialRoute: `/agents/${encodeURIComponent(id)}`,
+      });
+      expect(router.currentRoute.value.params.id).toBe(id);
+      expect(wrapper.text()).toContain('Invalid agent session');
+      expect(wrapper.findComponent(AgentConversationView).exists()).toBe(false);
+      expect(useAgentStore().selectedConversationSessionId).toBeNull();
+      expect(conversation).not.toHaveBeenCalled();
+      expect(liveSyncMock.openConversation).not.toHaveBeenCalled();
+    },
+  );
 
   it('opens detail view when a session card is clicked', async () => {
     const { wrapper } = await mountAgentsView({ sessions: allSessions });
@@ -186,7 +225,10 @@ describe('AgentsView', () => {
   });
 
   it('agent conversation links navigate to supported entities', async () => {
-    const { router } = await mountAgentsView({ sessions: allSessions, initialRoute: '/agents/agent:planner:project' });
+    const { router } = await mountAgentsView({
+      sessions: allSessions,
+      initialRoute: '/agents/agent:planner:project',
+    });
     const pushSpy = vi.spyOn(router, 'push');
 
     const wrapper = mount(AgentConversationView, {
@@ -200,14 +242,23 @@ describe('AgentsView', () => {
     await links[1].trigger('click');
     await links[2].trigger('click');
 
-    expect(pushSpy).toHaveBeenCalledWith({ name: 'card-detail', params: { id: '11111111-1111-4111-8111-111111111111' } });
-    expect(pushSpy).toHaveBeenCalledWith({ name: 'debug', query: { tab: 'processes', process: 'proc-1' } });
-    expect(pushSpy).toHaveBeenCalledWith({ name: 'files', query: { path: '.saivage/work/output.txt' } });
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'card-detail',
+      params: { id: '11111111-1111-4111-8111-111111111111' },
+    });
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'debug',
+      query: { tab: 'processes', process: 'proc-1' },
+    });
+    expect(pushSpy).toHaveBeenCalledWith({
+      name: 'files',
+      query: { path: '.saivage/work/output.txt' },
+    });
   });
 
   it('shows tool names and argument keys in collapsed rows and expands/collapses all rows', async () => {
     apiMockState.conversation = {
-      session: plannerSession,
+      session_id: plannerSession.id,
       entries: [
         {
           id: 'tc1',
@@ -215,7 +266,19 @@ describe('AgentsView', () => {
           role: 'assistant',
           kind: 'tool_call',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'tc1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-a' }) } }] }),
+          content: JSON.stringify({
+            role: 'assistant',
+            tool_calls: [
+              {
+                id: 'tc1',
+                type: 'function',
+                function: {
+                  name: 'activate_card',
+                  arguments: JSON.stringify({ card_id: 'card-a' }),
+                },
+              },
+            ],
+          }),
           round_id: 'r-assistant-00000000000000000000000000000001',
           message_index: 0,
           block_index: 0,
@@ -228,13 +291,30 @@ describe('AgentsView', () => {
           kind: 'tool_result',
           tool: 'activate_card',
           tool_call_id: 'tc1',
-          content: JSON.stringify({ success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'activated G3', result: { kind: 'workflow-result', terminal: 'DONE', agent_name: 'executor', node_id: 'execute', outcome: 'done', summary: 'activated G3', records: [] } } }),
+          content: JSON.stringify({
+            success: true,
+            data: {
+              card_id: 'card-a',
+              outcome: 'done',
+              summary: 'activated G3',
+              result: {
+                kind: 'workflow-result',
+                terminal: 'DONE',
+                agent_name: 'executor',
+                node_id: 'execute',
+                outcome: 'done',
+                summary: 'activated G3',
+                records: [],
+              },
+            },
+          }),
           round_id: 'r-assistant-00000000000000000000000000000001',
           message_index: 1,
           block_index: 0,
           timestamp: '2025-06-01T08:06:01Z',
         },
       ],
+      cursor: 'tr1',
     };
     const router = makeRouter();
     await router.push('/agents/agent:planner:project');
@@ -265,7 +345,7 @@ describe('AgentsView', () => {
   });
 
   it('toolbar exposes a raw LLM exchange toggle that mounts and unmounts the panel', async () => {
-    apiMockState.conversation = { session: plannerSession, entries: [] };
+    apiMockState.conversation = { session_id: plannerSession.id, entries: [], cursor: 'empty' };
     const router = makeRouter();
     await router.push('/agents/agent:planner:project');
     await router.isReady();
@@ -277,9 +357,12 @@ describe('AgentsView', () => {
     });
     await flushPromises();
 
-    const toggleBtn = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Raw exchange'));
+    const toggleBtn = wrapper
+      .findAll('.conv-tb-btn')
+      .find((b) => b.text().includes('Raw exchange'));
     expect(toggleBtn).toBeDefined();
-    const RawLlmExchangePanel = (await import('../components/agents/RawLlmExchangePanel.vue')).default;
+    const RawLlmExchangePanel = (await import('../components/agents/RawLlmExchangePanel.vue'))
+      .default;
     expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(false);
 
     const store = useAgentStore();
@@ -288,12 +371,13 @@ describe('AgentsView', () => {
     await toggleBtn!.trigger('click');
     await flushPromises();
     expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(true);
-    const reToggle = wrapper.findAll('.conv-tb-btn').find((b) => b.text().includes('Hide raw exchange'));
+    const reToggle = wrapper
+      .findAll('.conv-tb-btn')
+      .find((b) => b.text().includes('Hide raw exchange'));
     expect(reToggle).toBeDefined();
 
     await reToggle!.trigger('click');
     await flushPromises();
     expect(wrapper.findComponent(RawLlmExchangePanel).exists()).toBe(false);
   });
-
 });

@@ -11,9 +11,36 @@ const operation = process.argv[2];
 const path = join(root, '.saivage', 'cards', 'project', 'conversations', 'planner.jsonl');
 
 try {
-  if (operation !== 'detail' && operation !== 'conversation') throw new Error(`Unknown operation '${operation}'.`);
+  if (operation !== 'detail' && operation !== 'conversation')
+    throw new Error(`Unknown operation '${operation}'.`);
   fs.mkdirSync(join(path, '..'), { recursive: true });
-  fs.writeFileSync(path, `${JSON.stringify({ version: 1, type: 'rows', rows: [{ id: 'message', session_id: 'agent:planner:project', role: 'user', kind: 'text', content: 'hello', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-22T00:00:00.000Z' }] })}\n`);
+  const timestamp = '2026-07-22T00:00:00.000Z';
+  fs.writeFileSync(
+    path,
+    `${JSON.stringify({
+      version: 1,
+      type: 'rows',
+      rows: [
+        {
+          id: 'marker',
+          session_id: 'agent:planner:project',
+          role: 'system',
+          kind: 'activity',
+          content: JSON.stringify({
+            agent_name: 'planner',
+            card_id: 'project',
+            event: 'activation_open',
+            input_id: '00000000-0000-4000-8000-000000000001',
+            timestamp,
+          }),
+          round_id: 'r-user-00000000000000000000000000000000',
+          message_index: 0,
+          block_index: 0,
+          timestamp,
+        },
+      ],
+    })}\n`,
+  );
 
   const ledger = { openAttempts: 0, descriptorReads: 0, pathReads: 0, closes: 0 };
   const descriptors = new Set<number>();
@@ -33,16 +60,21 @@ try {
   }) as typeof fs.readFileSync;
   fs.closeSync = ((descriptor: number) => {
     if (descriptors.has(descriptor)) ledger.closes += 1;
-    try { return originalCloseSync(descriptor); }
-    finally { descriptors.delete(descriptor); }
+    try {
+      return originalCloseSync(descriptor);
+    } finally {
+      descriptors.delete(descriptor);
+    }
   }) as typeof fs.closeSync;
   syncBuiltinESMExports();
 
-  const { AgentOperatorReadModelService } = await import('../../src/application/read-models/agent-operator-read-model.js');
+  const { AgentOperatorReadModelService } =
+    await import('../../src/application/read-models/agent-operator-read-model.js');
   const { TEST_WORKFLOWS } = await import('../helpers/canonical-project.js');
-  const service = new AgentOperatorReadModelService(root, () => [], TEST_WORKFLOWS);
-  const result = operation === 'detail' ? service.getSession('agent:planner:project') : service.getConversation('agent:planner:project');
-  process.stdout.write(`${JSON.stringify({ ...ledger, statusCode: result.statusCode ?? 200 })}\n`);
+  const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS);
+  if (operation === 'detail') service.getSession('agent:planner:project');
+  else service.getConversation('agent:planner:project');
+  process.stdout.write(`${JSON.stringify({ ...ledger, statusCode: 200 })}\n`);
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.stack : String(error)}\n`);
   process.exitCode = 1;

@@ -9,13 +9,16 @@ import type { AgentConversationResponse, AgentSession } from '../api/types';
 import { AgentSessionSummarySchema, type ConversationSessionId } from '../api/contracts';
 
 const api = vi.hoisted(() => ({
+  getAgentSession: vi.fn(),
   getAgentConversation: vi.fn(),
   getAgentLlmExchange: vi.fn(),
   listAgentSessions: vi.fn(),
 }));
 const live = vi.hoisted(() => ({
   registerResource: vi.fn(() => vi.fn()),
+  openAgents: vi.fn(),
   openConversation: vi.fn(),
+  openLlmExchange: vi.fn(),
   unregisters: [] as Array<ReturnType<typeof vi.fn>>,
 }));
 
@@ -27,12 +30,25 @@ vi.mock('../api/client', () => ({
   listProcesses: vi.fn().mockResolvedValue({ processes: [] }),
   getMcpTools: vi.fn().mockResolvedValue({ tools: [], stats: {}, serverDetails: [] }),
   getAgentConversation: api.getAgentConversation,
+  getAgentSession: api.getAgentSession,
   getAgentLlmExchange: api.getAgentLlmExchange,
   listAgentSessions: api.listAgentSessions,
   ApiError: class ApiError extends Error {
-    constructor(public status: number, message: string) { super(message); }
-    get isUnauthorized() { return this.status === 401; }
-    get isNotFound() { return this.status === 404; }
+    body: Record<string, unknown>;
+    constructor(
+      public status: number,
+      message: string,
+      body: Record<string, unknown> = {},
+    ) {
+      super(message);
+      this.body = body;
+    }
+    get isUnauthorized() {
+      return this.status === 401;
+    }
+    get isNotFound() {
+      return this.status === 404;
+    }
   },
 }));
 
@@ -40,10 +56,16 @@ const SESSION_A = 'agent:planner:project' as const;
 const SESSION_B = 'agent:reviewer:project' as const;
 function session(id: ConversationSessionId): AgentSession {
   const agent_name = id.startsWith('agent:reviewer:') ? 'reviewer' : 'planner';
-  return AgentSessionSummarySchema.parse({ id, agent_name, session_scope: 'card', status: 'active', card_id: 'project', started_at: '2026-01-01T00:00:00.000Z', model: 'test' });
+  return AgentSessionSummarySchema.parse({
+    id,
+    agent_name,
+    session_scope: 'card',
+    card_id: 'project',
+    started_at: '2026-01-01T00:00:00.000Z',
+  });
 }
 function conversation(id: ConversationSessionId): AgentConversationResponse {
-  return { session: session(id), entries: [], activity_status: { status: 'active', pending_calls: [] } };
+  return { session_id: id, entries: [], cursor: 'empty-cursor' };
 }
 
 async function mountDebug() {
@@ -59,7 +81,12 @@ async function mountDebug() {
   });
   await router.push('/debug?tab=agents');
   await router.isReady();
-  const wrapper = mount(DebugView, { global: { plugins: [pinia, router], stubs: { CodeBlock: true, ConversationTimeline: true, StatusBanner: true, StatusBadge: true } } });
+  const wrapper = mount(DebugView, {
+    global: {
+      plugins: [pinia, router],
+      stubs: { CodeBlock: true, ConversationTimeline: true, StatusBanner: true, StatusBadge: true },
+    },
+  });
   await flushPromises();
   return { wrapper, router, store: useAgentStore() };
 }
@@ -68,21 +95,40 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
   beforeEach(() => {
     vi.clearAllMocks();
     live.unregisters = [];
-    live.openConversation.mockImplementation(() => {
+    live.openAgents.mockImplementation((callback) => {
+      void callback(null);
+      return vi.fn();
+    });
+    live.openConversation.mockImplementation((_id, callback) => {
       const unregister = vi.fn();
       live.unregisters.push(unregister);
+      void callback(null);
       return unregister;
     });
-    api.getAgentConversation.mockImplementation(async (id: ConversationSessionId) => conversation(id));
-    api.getAgentLlmExchange.mockImplementation(async (sessionId: ConversationSessionId) => ({ sessionId, exchange: null }));
+    live.openLlmExchange.mockImplementation((_id, callback) => {
+      const unregister = vi.fn();
+      live.unregisters.push(unregister);
+      void callback(null);
+      return unregister;
+    });
+    api.getAgentSession.mockImplementation(async (id: ConversationSessionId) => ({
+      session: session(id),
+    }));
+    api.getAgentConversation.mockImplementation(async (id: ConversationSessionId) =>
+      conversation(id),
+    );
+    api.getAgentLlmExchange.mockImplementation(async (sessionId: ConversationSessionId) => ({
+      sessionId,
+      exchange: null,
+    }));
     api.listAgentSessions.mockResolvedValue({ sessions: [] });
   });
 
-  it('mounts no detail before late bootstrap, then derives first without a list fetch', async () => {
+  it('loads the acknowledged Agent baseline, then derives the first selected detail', async () => {
     const { wrapper, store } = await mountDebug();
     expect(live.openConversation).not.toHaveBeenCalled();
     expect(api.getAgentConversation).not.toHaveBeenCalled();
-    expect(api.listAgentSessions).not.toHaveBeenCalled();
+    expect(api.listAgentSessions).toHaveBeenCalledTimes(1);
 
     store.sessions = [session(SESSION_B), session(SESSION_A)];
     store.sessionsLoaded = true;
@@ -90,16 +136,30 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
 
     expect(live.openConversation).toHaveBeenCalledTimes(1);
     expect(live.openConversation).toHaveBeenCalledWith(SESSION_B, expect.any(Function));
-    expect(api.getAgentConversation).toHaveBeenCalledWith(SESSION_B, expect.any(AbortSignal));
+    expect(api.getAgentConversation).toHaveBeenCalledWith(
+      SESSION_B,
+      expect.any(AbortSignal),
+      undefined,
+    );
     expect(wrapper.find(`[data-session-id="${SESSION_B}"]`).exists()).toBe(true);
-    expect(api.listAgentSessions).not.toHaveBeenCalled();
+    expect(api.listAgentSessions).toHaveBeenCalledTimes(1);
   });
 
   it('keeps timeline and process live-sync registrations on their focused refetch functions', async () => {
     const { wrapper } = await mountDebug();
     const debugStore = useDebugStore();
-    expect(live.registerResource).toHaveBeenCalledWith({ resource: 'timeline', scope: 'active', requestOwnership: 'sync-client', refetch: debugStore.refetchTimeline });
-    expect(live.registerResource).toHaveBeenCalledWith({ resource: 'processes', scope: 'active', requestOwnership: 'sync-client', refetch: debugStore.refetchProcesses });
+    expect(live.registerResource).toHaveBeenCalledWith({
+      resource: 'timeline',
+      scope: 'active',
+      requestOwnership: 'sync-client',
+      refetch: debugStore.refetchTimeline,
+    });
+    expect(live.registerResource).toHaveBeenCalledWith({
+      resource: 'processes',
+      scope: 'active',
+      requestOwnership: 'sync-client',
+      refetch: debugStore.refetchProcesses,
+    });
     wrapper.unmount();
   });
 
@@ -109,7 +169,9 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
     store.sessionsLoaded = true;
     await flushPromises();
 
-    const sessionB = wrapper.findAll('.agent-debug-session').find((button) => button.text().includes(SESSION_B))!;
+    const sessionB = wrapper
+      .findAll('.agent-debug-session')
+      .find((button) => button.text().includes(SESSION_B))!;
     await sessionB.trigger('click');
     await flushPromises();
     expect(wrapper.find(`[data-session-id="${SESSION_B}"]`).exists()).toBe(true);
@@ -126,7 +188,9 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
     await flushPromises();
     expect(wrapper.find(`[data-session-id="${SESSION_B}"]`).exists()).toBe(true);
 
-    const raw = wrapper.findAll('.debug-tab-button').find((button) => button.text() === 'Raw LLM Exchange')!;
+    const raw = wrapper
+      .findAll('.debug-tab-button')
+      .find((button) => button.text() === 'Raw LLM Exchange')!;
     const conversationUnregister = live.unregisters.at(-1)!;
     await raw.trigger('click');
     await flushPromises();
@@ -148,7 +212,10 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
     await flushPromises();
     expect(wrapper.find('[data-session-id]').exists()).toBe(false);
 
-    const agents = wrapper.findAll('.debug-tab-button').find((button) => button.text() === 'Agents')!;
+    const agents = wrapper
+      .findAll('.debug-tab-button')
+      .find((button) => button.text() === 'Agents')!;
+    api.listAgentSessions.mockResolvedValueOnce({ sessions: [session(SESSION_A)] });
     await agents.trigger('click');
     await flushPromises();
     expect(wrapper.find(`[data-session-id="${SESSION_A}"]`).exists()).toBe(true);

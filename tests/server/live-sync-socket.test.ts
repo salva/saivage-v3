@@ -14,10 +14,14 @@ describe('LiveSyncSocket conversation leases', () => {
     live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'agent:planner:project', lease: 'old' });
     live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'agent:planner:project', lease: 'current' });
     live.handleClientFrame(ws, { t: 'unsubscribe', resource: 'conversation', id: 'agent:planner:project', lease: 'old' });
-    live.invalidate({ resource: 'conversation', id: 'agent:planner:project' });
+    live.invalidate({
+      resource: 'conversation',
+      id: 'agent:planner:project',
+      through_message_id: 'opaque-watermark',
+    });
 
     expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
-      t: 'invalidate', resource: 'conversation', id: 'agent:planner:project',
+      t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', through_message_id: 'opaque-watermark',
     });
   });
 
@@ -38,8 +42,12 @@ describe('LiveSyncSocket conversation leases', () => {
     live.handleClientFrame(ws, { t: 'subscribe', resource: 'conversation', id: 'agent:planner:project', lease: 'valid' });
     jest.mocked(ws.send).mockClear();
     expect(live.handleClientFrame(ws, { t: 'unsubscribe', resource: 'conversation', id, lease: 'valid' })).toBe(false);
-    live.invalidate({ resource: 'conversation', id: 'agent:planner:project' });
-    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project' }]);
+    live.invalidate({
+      resource: 'conversation',
+      id: 'agent:planner:project',
+      through_message_id: 'opaque-watermark',
+    });
+    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', through_message_id: 'opaque-watermark' }]);
   });
 });
 

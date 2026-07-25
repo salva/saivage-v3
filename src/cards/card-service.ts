@@ -120,7 +120,7 @@ function assertChildParentAdmission(parent: CardRecord, message: string, workflo
 export class CardService {
   readonly maxDepth = 5;
 
-  constructor(readonly projectRoot: string, readonly workflows: CompiledProjectWorkflows, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
+  constructor(readonly projectRoot: string, readonly workflows: CompiledProjectWorkflows, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged' | 'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
 
   private recordDefinition(cardId:string,filename:string):RecordDefinition {
     const card = this.read(cardId);
@@ -248,6 +248,7 @@ export class CardService {
     const linkHistory = historyEntry(freshParent, 'child_link', ['children'], `linked child ${card.id}`, 'child linked');
     publishCardVersion(this.projectRoot, linked, linkHistory, this.cardAppendIo);
     this.publishCardVersionEffects(linkHistory, cardParentId(freshParent.id), true);
+    this.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id });
     return clone(card);
   }
 
@@ -350,7 +351,7 @@ export class CardService {
     const ready = [...intended].filter((id) => indegree.get(id) === 0).sort(); const order: string[] = [];
     while (ready.length) { const id = ready.shift()!; order.push(id); for (const next of outgoing.get(id)!) { indegree.set(next, indegree.get(next)! - 1); if (indegree.get(next) === 0) { ready.push(next); ready.sort(); } } }
     if (order.length !== intended.size) throw new Error('Deletion dependency and hierarchy constraints conflict.');
-    for (const id of order) { const card = state.get(id)!;const recordNames=[...this.workflows.cardTypes.get(card.type)!.records.keys()]; const entry = historyEntry(card, 'delete', ['__deleted__'], 'card deleted', 'analyst subtree deletion',agentName); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishCardVersionEffects(entry, cardParentId(card.id), true, recordNames); }
+    for (const id of order) { const card = state.get(id)!;const recordNames=[...this.workflows.cardTypes.get(card.type)!.records.keys()]; const entry = historyEntry(card, 'delete', ['__deleted__'], 'card deleted', 'analyst subtree deletion',agentName); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishCardVersionEffects(entry, cardParentId(card.id), true, recordNames); this.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id }); }
     return { deleted: order, requested: roots };
   }
 }

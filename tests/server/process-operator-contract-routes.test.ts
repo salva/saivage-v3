@@ -22,7 +22,6 @@ function runtimeApplication(processRunner: ProcessRunner): RuntimeApplication {
   return {
     processRunner,
     analystRuntime: { submit: async () => { throw new Error('Analyst runtime is not used by process route tests.'); } },
-    captureExecutingLlmSnapshots: () => [],
   } as unknown as RuntimeApplication;
 }
 

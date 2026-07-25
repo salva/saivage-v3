@@ -1,5 +1,4 @@
 export type {
-  ActivityStatus,
   AgentConversationEntry,
   AgentSession,
   CardHistoryHeader,
@@ -9,7 +8,6 @@ export type {
   DetailErrorState,
   EntityLink,
   FileEntry,
-  PendingCall,
   ProcessView,
   WsConnectionState,
 } from '../api/types';

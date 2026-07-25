@@ -1,23 +1,47 @@
 <template>
-  <aside
-    id="analyst-chat-panel"
-    class="analyst-chat-panel"
-    role="region"
-    aria-label="Analyst chat"
-  >
-    <div :ref="setTimelineScrollArea" class="chat-scroll-area" data-testid="chat-scroll-container" @scroll="timelineControls.handleTimelineScroll">
-      <section v-if="childrenOnScreen.length" class="chat-context-card" aria-labelledby="on-screen-title">
+  <aside id="analyst-chat-panel" class="analyst-chat-panel" role="region" aria-label="Analyst chat">
+    <div
+      :ref="setTimelineScrollArea"
+      class="chat-scroll-area"
+      data-testid="chat-scroll-container"
+      @scroll="timelineControls.handleTimelineScroll"
+    >
+      <section
+        v-if="childrenOnScreen.length"
+        class="chat-context-card"
+        aria-labelledby="on-screen-title"
+      >
         <h3 id="on-screen-title">On screen</h3>
         <ul class="on-screen-children">
-          <li v-for="child in childrenOnScreen" :key="child.id">{{ child.id }} — {{ child.title }}</li>
+          <li v-for="child in childrenOnScreen" :key="child.id">
+            {{ child.id }} — {{ child.title }}
+          </li>
         </ul>
       </section>
 
-      <div v-if="messagesLoading" class="chat-status-card loading-skeleton" role="status">Loading history…</div>
-      <div v-else-if="messagesError" class="chat-status-card chat-status-error" role="alert">{{ messagesErrorLabel }}</div>
-      <div v-else-if="!messagesLoading && messages.length === 0 && timelineControls.timeline.value.rounds.length === 0" class="chat-status-card" role="status">No messages yet. Ask the analyst something.</div>
+      <div v-if="messagesLoading" class="chat-status-card loading-skeleton" role="status">
+        Loading history…
+      </div>
+      <div v-else-if="messagesError" class="chat-status-card chat-status-error" role="alert">
+        {{ messagesErrorLabel }}
+      </div>
+      <div
+        v-else-if="
+          !messagesLoading &&
+          messages.length === 0 &&
+          timelineControls.timeline.value.rounds.length === 0
+        "
+        class="chat-status-card"
+        role="status"
+      >
+        No messages yet. Ask the analyst something.
+      </div>
       <div v-else class="chat-rounds">
-        <ConversationTimeline :timeline="timelineControls.timeline.value" :expanded-ids="timelineControls.expandedIds.value" @toggle="timelineControls.toggleExpanded" />
+        <ConversationTimeline
+          :timeline="timelineControls.timeline.value"
+          :expanded-ids="timelineControls.expandedIds.value"
+          @toggle="timelineControls.toggleExpanded"
+        />
       </div>
     </div>
     <button
@@ -25,10 +49,17 @@
       type="button"
       class="jump-to-latest"
       @click="timelineControls.jumpToLatest"
-    >Jump to latest<span v-if="timelineControls.unseenCount.value > 0"> · {{ timelineControls.unseenCount.value }} new</span></button>
+    >
+      Jump to latest<span v-if="timelineControls.unseenCount.value > 0">
+        · {{ timelineControls.unseenCount.value }} new</span
+      >
+    </button>
 
     <form class="chat-input-panel" @submit.prevent="submitMessage">
-      <div v-if="restartAcknowledgement" class="chat-status-card chat-status-warning" role="status">Restart confirmation required. Send exactly <code>RESTART SERVER</code> to schedule server shutdown.</div>
+      <div v-if="restartAcknowledgement" class="chat-status-card chat-status-warning" role="status">
+        Restart confirmation required. Send exactly <code>RESTART SERVER</code> to schedule server
+        shutdown.
+      </div>
       <textarea
         ref="composerRef"
         :value="draft"
@@ -53,9 +84,18 @@
             Pause auto-scroll
           </label>
         </div>
-        <button type="submit" class="chat-send-button" :disabled="!activeSessionWritable || sending || !draft.trim()" :title="composerTitle">{{ sending ? 'Sending…' : 'Send' }}</button>
+        <button
+          type="submit"
+          class="chat-send-button"
+          :disabled="!activeSessionWritable || sending || !draft.trim()"
+          :title="composerTitle"
+        >
+          {{ sending ? 'Sending…' : 'Send' }}
+        </button>
       </div>
-      <div v-if="sendError" class="chat-status-card chat-status-error" role="alert">{{ sendError.message }}</div>
+      <div v-if="sendError" class="chat-status-card chat-status-error" role="alert">
+        {{ sendError.message }}
+      </div>
     </form>
   </aside>
 </template>
@@ -86,19 +126,20 @@ const {
   sendError,
   restartAcknowledgement,
   activeSessionWritable,
-  activityStatus,
 } = storeToRefs(chat);
 
 const composerRef = ref<HTMLTextAreaElement | null>(null);
 const timelineEntries = computed<AgentConversationEntry[]>(() => messages.value);
-const timelineControls = useAgentTimeline(timelineEntries, activityStatus);
+const timelineControls = useAgentTimeline(timelineEntries);
 const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cards' && workspaceRoute.entityId
-    ? cards.loadedChildrenFor(workspaceRoute.entityId) ?? []
+    ? (cards.loadedChildrenFor(workspaceRoute.entityId) ?? [])
     : [],
 );
 const READ_ONLY_TOOLTIP = 'Read-only — switch to analyst to send messages';
-const composerTitle = computed(() => activeSessionWritable.value ? 'Ask the analyst…' : READ_ONLY_TOOLTIP);
+const composerTitle = computed(() =>
+  activeSessionWritable.value ? 'Ask the analyst…' : READ_ONLY_TOOLTIP,
+);
 const messagesErrorLabel = computed(() => {
   if (!messagesError.value) return '';
   if (messagesError.value.kind === 'unauthorized') {
@@ -168,7 +209,9 @@ onMounted(() => {
 
 watch(activeSessionId, (sessionId) => {
   closeAnalystConversation?.();
-  closeAnalystConversation=sessionId?liveSync.openConversation(sessionId,refreshConversation):null;
+  closeAnalystConversation = sessionId
+    ? liveSync.openConversation(sessionId, refreshConversation)
+    : null;
   timelineControls.resetScrollState();
 });
 

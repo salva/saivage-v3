@@ -49,7 +49,7 @@ function harness(provider: LLMProviderPort = { completeTurn: async (_input: unkn
     interventionBinding: new RuntimeInterventionBinding(),
     provider,
     conversations: { projectRoot },
-    freshness: { runtimeChanged() { if (armed && !failureDelivered && new Error().stack?.includes('card-process-actor.')) { failureDelivered = true; throw actorFailure; } }, agentsChanged() {}, conversationChanged() {} },
+    freshness: { runtimeChanged() { if (armed && !failureDelivered && new Error().stack?.includes('card-process-actor.')) { failureDelivered = true; throw actorFailure; } } },
     processRunner: processes.processRunner,
     runtimeProcessRootScope: processes.runtimeProcessRootScope,
     promptTemplates: createTestPromptTemplateRegistry(),

@@ -29,7 +29,9 @@ describe('entriesToTimeline tool pairing', () => {
       timestamp: '2026-05-30T00:00:02Z',
       content: JSON.stringify({
         role: 'assistant',
-        tool_calls: [{ id: 'call-a', type: 'function', function: { name: 'start_project', arguments: '{}' } }],
+        tool_calls: [
+          { id: 'call-a', type: 'function', function: { name: 'start_project', arguments: '{}' } },
+        ],
       }),
     });
     const result = entry({
@@ -44,7 +46,7 @@ describe('entriesToTimeline tool pairing', () => {
       content: JSON.stringify({ success: true }),
     });
 
-    const timeline = entriesToTimeline([call, result], null);
+    const timeline = entriesToTimeline([call, result]);
 
     expect(timeline.rounds).toHaveLength(1);
     expect(timeline.rounds[0].id).toBe(call.round_id);
@@ -72,7 +74,9 @@ describe('entriesToTimeline tool pairing', () => {
       timestamp: '2026-05-30T00:00:02Z',
       content: JSON.stringify({
         role: 'assistant',
-        tool_calls: [{ id: 'call-a', type: 'function', function: { name: 'read', arguments: '{}' } }],
+        tool_calls: [
+          { id: 'call-a', type: 'function', function: { name: 'read', arguments: '{}' } },
+        ],
       }),
     });
     const afterCall = entry({
@@ -95,9 +99,13 @@ describe('entriesToTimeline tool pairing', () => {
       content: JSON.stringify({ success: true, data: { content: '', total_lines: 0 } }),
     });
 
-    const timeline = entriesToTimeline([before, call, afterCall, result], null);
+    const timeline = entriesToTimeline([before, call, afterCall, result]);
 
-    expect(timeline.rounds.map((round) => round.id)).toEqual([before.round_id, call.round_id, afterCall.round_id]);
+    expect(timeline.rounds.map((round) => round.id)).toEqual([
+      before.round_id,
+      call.round_id,
+      afterCall.round_id,
+    ]);
     expect(timeline.rounds[1].toolPairs[0].result?.id).toBe(result.id);
   });
 
@@ -110,11 +118,13 @@ describe('entriesToTimeline tool pairing', () => {
       message_index: 2,
       content: JSON.stringify({
         role: 'assistant',
-        tool_calls: [{
-          id: 'functions.list_cards:0',
-          type: 'function',
-          function: { name: 'list_cards', arguments: '{}' },
-        }],
+        tool_calls: [
+          {
+            id: 'functions.list_cards:0',
+            type: 'function',
+            function: { name: 'list_cards', arguments: '{}' },
+          },
+        ],
       }),
     });
     const result = entry({
@@ -127,7 +137,7 @@ describe('entriesToTimeline tool pairing', () => {
       content: JSON.stringify({ cards: [] }),
     });
 
-    const timeline = entriesToTimeline([call, result], null);
+    const timeline = entriesToTimeline([call, result]);
     const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
     expect(pairs).toHaveLength(1);
     expect(pairs[0].result).not.toBeNull();
@@ -144,7 +154,9 @@ describe('entriesToTimeline tool pairing', () => {
       message_index: 1,
       content: JSON.stringify({
         role: 'assistant',
-        tool_calls: [{ id: 'call-abc', type: 'function', function: { name: 'list_cards', arguments: '{}' } }],
+        tool_calls: [
+          { id: 'call-abc', type: 'function', function: { name: 'list_cards', arguments: '{}' } },
+        ],
       }),
     });
     const result = entry({
@@ -156,7 +168,7 @@ describe('entriesToTimeline tool pairing', () => {
       message_index: 2,
       content: '{}',
     });
-    const timeline = entriesToTimeline([call, result], null);
+    const timeline = entriesToTimeline([call, result]);
     const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
     expect(pairs[0].status).toBe('ok');
   });
@@ -170,7 +182,9 @@ describe('entriesToTimeline tool pairing', () => {
       message_index: 1,
       content: JSON.stringify({
         role: 'assistant',
-        tool_calls: [{ id: 'call-x', type: 'function', function: { name: 'list_cards', arguments: '{}' } }],
+        tool_calls: [
+          { id: 'call-x', type: 'function', function: { name: 'list_cards', arguments: '{}' } },
+        ],
       }),
     });
     const errResult = entry({
@@ -188,10 +202,12 @@ describe('entriesToTimeline tool pairing', () => {
       message_index: 3,
       content: JSON.stringify({
         role: 'assistant',
-        tool_calls: [{ id: 'call-y', type: 'function', function: { name: 'list_cards', arguments: '{}' } }],
+        tool_calls: [
+          { id: 'call-y', type: 'function', function: { name: 'list_cards', arguments: '{}' } },
+        ],
       }),
     });
-    const timeline = entriesToTimeline([call, errResult, lonely], null);
+    const timeline = entriesToTimeline([call, errResult, lonely]);
     const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
     const byCall = new Map(pairs.map((p) => [p.call.id, p]));
     expect(byCall.get('msg-a')?.status).toBe('error');
@@ -229,9 +245,13 @@ describe('entriesToTimeline display filtering', () => {
       timestamp: '2026-07-10T18:00:01.000Z',
     });
 
-    const timeline = entriesToTimeline([repair, laterUser, laterAssistant], null);
+    const timeline = entriesToTimeline([repair, laterUser, laterAssistant]);
 
-    expect(timeline.rounds.map((round) => round.id)).toEqual([repair.round_id, laterUser.round_id, laterAssistant.round_id]);
+    expect(timeline.rounds.map((round) => round.id)).toEqual([
+      repair.round_id,
+      laterUser.round_id,
+      laterAssistant.round_id,
+    ]);
   });
 
   it('does not move a later lower-message-index round before an earlier input round', () => {
@@ -250,7 +270,7 @@ describe('entriesToTimeline display filtering', () => {
       message_index: 0,
     });
 
-    const timeline = entriesToTimeline([earlier, later], null);
+    const timeline = entriesToTimeline([earlier, later]);
 
     expect(timeline.rounds.map((round) => round.id)).toEqual([earlier.round_id, later.round_id]);
   });
@@ -284,9 +304,13 @@ describe('entriesToTimeline display filtering', () => {
       timestamp: '2026-05-30T00:00:03Z',
     });
 
-    const timeline = entriesToTimeline([systemPrompt, context, user], null);
+    const timeline = entriesToTimeline([systemPrompt, context, user]);
 
-    expect(timeline.rounds.map((round) => round.id)).toEqual([systemPrompt.round_id, context.round_id, user.round_id]);
+    expect(timeline.rounds.map((round) => round.id)).toEqual([
+      systemPrompt.round_id,
+      context.round_id,
+      user.round_id,
+    ]);
   });
 
   it('keeps same-timestamp rounds in API order instead of id order', () => {
@@ -309,7 +333,7 @@ describe('entriesToTimeline display filtering', () => {
       timestamp: '2026-05-30T00:00:01Z',
     });
 
-    const timeline = entriesToTimeline([context, user], null);
+    const timeline = entriesToTimeline([context, user]);
 
     expect(timeline.rounds.map((round) => round.id)).toEqual([context.round_id, user.round_id]);
   });
@@ -323,7 +347,7 @@ describe('entriesToTimeline display filtering', () => {
         content: JSON.stringify({ event: 'llm_turn_started' }),
         round_id: 'r-pre-0000000000000000000000000000000a',
       }),
-    ], null);
+    ]);
 
     expect(timeline.rounds).toHaveLength(0);
     expect(timeline.activeRoundId).toBeNull();
@@ -338,27 +362,10 @@ describe('entriesToTimeline display filtering', () => {
         content: '   ',
         round_id: 'r-user-0000000000000000000000000000000b',
       }),
-    ], null);
+    ]);
 
     expect(timeline.rounds).toHaveLength(0);
     expect(timeline.activeRoundId).toBeNull();
-  });
-
-  it('keeps an otherwise empty active round visible when activity status is non-idle', () => {
-    const timeline = entriesToTimeline([
-      entry({
-        id: 'turn-started',
-        role: 'system',
-        kind: 'activity',
-        content: JSON.stringify({ event: 'llm_turn_started' }),
-        round_id: 'r-assistant-0000000000000000000000000000000c',
-      }),
-    ], { status: 'active', pending_calls: [] });
-
-    expect(timeline.rounds).toHaveLength(1);
-    expect(timeline.rounds[0].texts).toHaveLength(0);
-    expect(timeline.rounds[0].activityStatus?.status).toBe('active');
-    expect(timeline.activeRoundId).toBe(timeline.rounds[0].id);
   });
 
   it('does not synthesize tool calls for orphan tool results', () => {
@@ -372,7 +379,7 @@ describe('entriesToTimeline display filtering', () => {
       content: JSON.stringify({ content: 'file contents' }),
     });
 
-    const timeline = entriesToTimeline([orphanResult], null);
+    const timeline = entriesToTimeline([orphanResult]);
     const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
     expect(pairs).toEqual([]);
   });

@@ -42,7 +42,7 @@ describe('tool activity projection', () => {
         sessionId: 'agent:analyst:global',
         tool: 'run_command',
         params: { command: 'TOKEN=[REDACTED] npm test' },
-        result: { success: true, data: { process_id: OUTBOUND_IDENTITY, exit_code: 0, status: 'exited', stdout_url: `work:///processes/${OUTBOUND_IDENTITY}/stdout.log`, stderr_url: `work:///processes/${OUTBOUND_IDENTITY}/stderr.log`, stdout_bytes: 1, stderr_bytes: 2 } },
+        result: { success: true, data: { process_id: 'tok-[REDACTED]', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/tok-[REDACTED]', stderr_url: 'work:///processes/tok-[REDACTED]', stdout_bytes: 1, stderr_bytes: 2 } },
       },
     },
     {

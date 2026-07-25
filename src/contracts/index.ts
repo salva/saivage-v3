@@ -1,5 +1,4 @@
 export {
-  AgentActivityStatusSchema,
   AgentConversationEntrySchema,
   AgentConversationParamsSchema,
   AgentConversationResponseSchema,
@@ -32,7 +31,7 @@ export {
   InvalidCardDiffPivotsErrorSchema,
   OperatorCardSchema,
   canonicalPositiveSafeIntegerStringSchema,
-  ChatEntriesResponseSchema,
+  ChatIdentityResponseSchema,
   ChatSendResponseSchema,
   RestartChatAcknowledgementSchema,
   ConfigGetResponseSchema,
@@ -77,25 +76,15 @@ export {
 export { appLogEntrySchema } from './app-log.js';
 export type { AppLogEntry, AppLogEntryOfType, AppLogEntryType } from './app-log.js';
 
-export {
-  agentOperatorApiContracts,
-} from './operator-api-agents.js';
+export { agentOperatorApiContracts } from './operator-api-agents.js';
 
-export {
-  chatOperatorApiContracts,
-} from './operator-api-chats.js';
+export { chatOperatorApiContracts } from './operator-api-chats.js';
 
-export {
-  filesDebugOperatorApiContracts,
-} from './operator-api-files-debug.js';
+export { filesDebugOperatorApiContracts } from './operator-api-files-debug.js';
 
-export {
-  eventsOperatorApiContracts,
-} from './operator-api-events.js';
+export { eventsOperatorApiContracts } from './operator-api-events.js';
 
-export {
-  mcpOperatorApiContracts,
-} from './operator-api-mcp.js';
+export { mcpOperatorApiContracts } from './operator-api-mcp.js';
 
 export {
   parseProviderExchangePayload,
@@ -106,10 +95,7 @@ export {
   serializeProviderExchangePayload,
 } from './provider-exchange.js';
 
-export type {
-  ProviderExchangeAttempt,
-  ProviderExchangePayload,
-} from './provider-exchange.js';
+export type { ProviderExchangeAttempt, ProviderExchangePayload } from './provider-exchange.js';
 
 export type {
   AvailabilityDecision,
@@ -118,24 +104,16 @@ export type {
   CandidateState,
 } from './candidate-availability.js';
 
-export {
-  candidatesEqual,
-} from './provider-candidate.js';
+export { candidatesEqual } from './provider-candidate.js';
 
-export type {
-  Candidate,
-} from './provider-candidate.js';
+export type { Candidate } from './provider-candidate.js';
 
 export {
   WebfetchInvocationSchema,
   WebfetchMetadataSchema,
   WebfetchResultSchema,
 } from './webfetch.js';
-export type {
-  WebfetchInvocation,
-  WebfetchMetadata,
-  WebfetchResult,
-} from './webfetch.js';
+export type { WebfetchInvocation, WebfetchMetadata, WebfetchResult } from './webfetch.js';
 
 export type {
   AgentConversationResponse,
@@ -151,7 +129,7 @@ export type {
   CardHistoryEntryResponse,
   CardHistoryListResponse,
   OperatorCard,
-  ChatEntriesResponse,
+  ChatIdentityResponse,
   ChatSendResponse,
   RestartChatAcknowledgement,
   ConfigGetResponse,
@@ -272,6 +250,4 @@ export type {
   WsEventType,
 } from './operator-events.js';
 
-export {
-  TERMINAL_RESULT_TOOL_NAME,
-} from './result-envelope.js';
+export { TERMINAL_RESULT_TOOL_NAME } from './result-envelope.js';

@@ -4,6 +4,7 @@ import WebSocket from 'ws';
 const analystSessionId = 'agent:analyst:global';
 const analystSessionPath = encodeURIComponent(analystSessionId);
 const analystChatPath = '/api/chat';
+const analystConversationPath = `/api/agents/${analystSessionPath}/conversation`;
 
 /**
  * Live read-only coverage for the contract endpoints not exercised by the
@@ -327,8 +328,8 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
     expect(typeof (body.error ?? body.message)).toBe('string');
   });
 
-  test('chats.send round-trip with two messages preserves both in chats.get', async ({ request }) => {
-    const before = await request.get(analystChatPath);
+  test('chats.send round-trip with two messages preserves both in the Agent transcript', async ({ request }) => {
+    const before = await request.get(analystConversationPath);
     expect(before.status()).toBe(200);
     const beforeCount = (await before.json()).entries.length;
 
@@ -341,7 +342,7 @@ test.describe('saivage-v3 live deployment — failure-mode coverage', () => {
       expect(res.status(), `POST ${suffix} — body=${await res.text().catch(() => '<unreadable>')}`).toBe(200);
     }
 
-    const after = await request.get(analystChatPath);
+    const after = await request.get(analystConversationPath);
     expect(after.status()).toBe(200);
     const afterBody = await after.json();
     expect(afterBody.entries.length).toBeGreaterThanOrEqual(beforeCount + 2);
