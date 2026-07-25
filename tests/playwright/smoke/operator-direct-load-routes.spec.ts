@@ -10,7 +10,13 @@ const directRouteCases = [
   { path: '/cards', root: '[data-testid="route-cards"]', bodyText: /Synthetic Project|Synthetic dashboard smoke card/i },
   { path: '/agents', root: '[data-testid="route-agents"]', bodyText: /agent sessions|analyst|planner/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata|plan\.json/i },
-  { path: '/debug', root: '[data-testid="route-debug"]', bodyText: /Runtime State|Timeline|Errors/i },
+] as const;
+
+const debugTabResources = [
+  'GET /api/debug/errors',
+  'GET /api/events',
+  'GET /api/agents',
+  'GET /api/mcp/tools',
 ] as const;
 
 type BrowserRouterState = {
@@ -67,9 +73,27 @@ test('production browser direct loads initialize router and render route-owned b
     expect((await routerState(page)).matchedCount, `${routeCase.path} router matched records`).toBeGreaterThan(0);
   }
 
-  expect(rest.unknown).toEqual([]);
-  expect(rest.counts.get('GET /api/debug/errors')).toBeGreaterThan(0);
-  expect(rest.counts.get('GET /api/events')).toBeGreaterThan(0);
+  const beforeDefaultDebug = new Map(debugTabResources.map((key) => [key, rest.counts.get(key) ?? 0]));
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug', { waitUntil: 'networkidle' })));
+  await expect(page.getByTestId('route-debug')).toContainText(/Runtime State|Timeline|Errors/i);
+  for (const key of debugTabResources) expect(rest.counts.get(key) ?? 0, `${key} hidden on default Debug`).toBe(beforeDefaultDebug.get(key));
+
+  const selectedDebugTabs = [
+    { tab: 'errors', label: 'Errors', resource: 'GET /api/debug/errors', bodyText: 'Synthetic provider failure redacted' },
+    { tab: 'timeline', label: 'Timeline', resource: 'GET /api/events', bodyText: 'runtime diagnostic' },
+    { tab: 'agents', label: 'Agents', resource: 'GET /api/agents', bodyText: 'agent:analyst:global' },
+    { tab: 'mcp', label: 'MCP', resource: 'GET /api/mcp/tools', bodyText: 'filesystem' },
+  ] as const;
+  for (const selected of selectedDebugTabs) {
+    const before = new Map(debugTabResources.map((key) => [key, rest.counts.get(key) ?? 0]));
+    await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/debug?tab=${selected.tab}`, { waitUntil: 'networkidle' })));
+    await expect(page.getByRole('button', { name: selected.label, exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await expect(page.getByTestId('route-debug')).toContainText(selected.bodyText);
+    for (const key of debugTabResources) {
+      const expected = (before.get(key) ?? 0) + (key === selected.resource ? 1 : 0);
+      expect(rest.counts.get(key) ?? 0, `${selected.label} tab request ownership for ${key}`).toBe(expected);
+    }
+  }
 
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug?tab=graphs', { waitUntil: 'networkidle' })));
   await expect(page.getByTestId('debug-graphs-tab')).toContainText('Compiled Workflow Graphs');
@@ -80,6 +104,7 @@ test('production browser direct loads initialize router and render route-owned b
   await expect(page.getByTestId('debug-graph-svg').locator('title')).toHaveText('goal compiled workflow');
   await expect(page.getByText('Permitted children').locator('..')).toContainText('code');
   expect(rest.counts.get('GET /api/debug/graphs')).toBe(1);
+  expect(rest.unknown).toEqual([]);
   assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
