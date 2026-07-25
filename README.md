@@ -3,7 +3,9 @@
 > **Want to try Saivage?** Launch your favorite AI agent and point it to
 > [README-IF-YOU-ARE-AN-AI.md](README-IF-YOU-ARE-AN-AI.md). It will guide you
 > through requirements, project specification, LXC setup, credentials, startup,
-> and verification while explaining each step as it proceeds.
+> and verification while explaining each step as it proceeds. This README has
+> not yet been polished for direct human consumption, so the AI-guided setup is
+> currently the preferred way to get started.
 
 Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator workspace projects cards, agents, files, strict app-log events/derived errors, runtime state, and read-only compiled workflow diagrams while the Analyst chat is the ordinary mutating user surface, with direct Dashboard **Stop project** and confirmed bearer-only **Restart server** as bounded exceptions. Debug > Errors—not Dashboard—is the durable command, activation, actionable, and runtime-error surface. Debug > Graphs shows one accessible effective startup workflow per card type; it is visualization only and never edits or reloads configuration.
 
