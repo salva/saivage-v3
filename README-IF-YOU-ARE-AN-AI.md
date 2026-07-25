@@ -64,8 +64,8 @@ Use these names consistently while working:
 <SAIVAGE_CONTAINER_PATH>      normally /opt/saivage-v3
 <TARGET_CONTAINER_PATH>       normally /work/project
 <SERVICE_NAME>                normally saivage.service
-<SERVICE_USER>                in-container runtime user, normally saivage
-<SERVICE_GROUP>               in-container runtime group, normally saivage
+<SERVICE_USER>                username of the host user running/owning the deployment
+<SERVICE_GROUP>               primary group of that host user
 <SERVICE_UID>                 numeric owner UID of the host target directory
 <SERVICE_GID>                 numeric owner GID of the host target directory
 <CONTAINER_IP>                discovered after startup
@@ -121,9 +121,10 @@ Also inspect, without dumping secrets:
 - Whether the target is a Git repository and whether it has uncommitted work.
 - Whether `.saivage`, a specification, a plan, or equivalent project authority
   already exists.
-- The target directory owner's numeric UID and GID. Reuse them for the
-  in-container service user when practical so bind-mounted files retain useful
-  host ownership.
+- The username, numeric UID, primary group, and numeric GID of the host user
+  running the system and owning the target directory. Reuse the same username
+  and UID inside the container, and the same primary group/GID where practical,
+  so bind-mounted files retain straightforward ownership.
 
 Report the result before continuing. If the host lacks LXC, Node 24, sufficient
 access, or a valid target directory, explain the specific prerequisite you need
@@ -295,10 +296,17 @@ sudo lxc-attach -n "<CONTAINER_NAME>" -- bash -lc '
 
 Node must satisfy `>=24 <25`; npm must satisfy `>=10 <12`.
 
-Create a service user whose numeric UID/GID matches the target host owner where
-possible. Give that user passwordless `sudo` inside the externally isolated
-container so trusted Saivage agents can perform privileged guest operations.
-Do not alter host ownership merely to force a match.
+To simplify deployment and bind-mounted file ownership, configure the runtime
+user inside the container to be the same user who runs the system on the host:
+use the same username and numeric UID. Also use the same primary group name and
+numeric GID where practical. This keeps files created from either side
+attributable to one identity and avoids routine ownership translation.
+
+Give that user passwordless `sudo` inside the externally isolated container so
+trusted Saivage agents can perform privileged guest operations. Do not alter
+host ownership merely to force a match. If the required name or numeric identity
+is already occupied by an unrelated guest account, stop and resolve the conflict
+explicitly rather than silently selecting a different identity.
 
 After checking that the chosen names and numeric IDs are unused in the guest, a
 typical creation sequence is:
