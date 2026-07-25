@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
-import { cardRecords, installOperatorRestRoutes, smokeCardId, smokeOperatorCard } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeCardId, smokeOperatorCard } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const syntheticToken = 'synthetic-playwright-token';
@@ -18,10 +18,9 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(parseOperatorResponse('cards.get', {
-         card: smokeOperatorCard,
-         records: cardRecords,
-      })),
+       body: JSON.stringify(parseOperatorResponse('cards.get', {
+          card: smokeOperatorCard,
+       })),
     });
   });
 

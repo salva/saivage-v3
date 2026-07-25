@@ -9,7 +9,7 @@ import { listCardHistory, getCardHistoryEntry, getCardDiff } from '../api/client
 const CARD = 'card-a';
 describe('CardHistoryPanel order', () => {
   let pinia: ReturnType<typeof createPinia>;
-  beforeEach(() => { vi.clearAllMocks(); pinia = createPinia(); setActivePinia(pinia); useCardStore().selectedDetail = { cardId: CARD, card: cardView(CARD, { version_seq: 3 }), records: [] }; });
+  beforeEach(() => { vi.clearAllMocks(); pinia = createPinia(); setActivePinia(pinia); useCardStore().selectedDetail = { cardId: CARD, card: cardView(CARD, { version_seq: 3 }) }; });
   it('renders snapshot child IDs in backend order without resorting', async () => {
     const children = ['card-a-c', 'card-a-a', 'card-a-b'];
     const header = historyHeader({ kind: 'reorder', card_id: CARD, version_seq: 2, change_reason: 'children reordered', changed_fields: ['children'], change_summary: 'children reordered' });

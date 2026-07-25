@@ -37,7 +37,7 @@ export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStor
     } else {
       expanded.add(id);
       const state = cardStore.childrenLoadState(id);
-      if (state.status === 'idle') await cardStore.ensureChildren(id).catch(() => {});
+      if (state.status === 'undiscovered') await cardStore.ensureChildren(id).catch(() => {});
     }
     explicitlyExpandedTreeIds.value = expanded;
   }

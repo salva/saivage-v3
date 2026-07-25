@@ -54,7 +54,7 @@
       <ul data-testid="files-card-children-list">
         <li v-for="child in cardChildren" :key="child.id" data-testid="files-card-children-item">
           <span class="title">{{ child.title }}</span>
-          <span class="status">{{ child.lifecycle.status }}</span>
+          <span class="status">{{ child.status }}</span>
         </li>
       </ul>
     </section>
@@ -94,7 +94,7 @@ import PanelHeader from '../components/ui/PanelHeader.vue';
 import SelectableRow from '../components/ui/SelectableRow.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import ViewState from '../components/ui/ViewState.vue';
-import type { CardRecord, FileEntry } from '../types/view-models';
+import type { CardHierarchyRecord, FileEntry } from '../api/types';
 import type { Tone } from '../utils/status';
 
 type FileRoot = 'meta' | 'output';
@@ -114,7 +114,7 @@ const {
 } = storeToRefs(fileStore);
 
 const activeCardId = computed<string | null>(() => cardsStore.selectedDetail?.cardId ?? null);
-const cardChildren = computed<readonly CardRecord[]>(() => {
+const cardChildren = computed<readonly CardHierarchyRecord[]>(() => {
   const id = activeCardId.value;
   return id ? cardsStore.loadedChildrenFor(id) ?? [] : [];
 });

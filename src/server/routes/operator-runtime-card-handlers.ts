@@ -50,6 +50,8 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
     'runtime.getState': () => getCardsReadModel().getRuntimeState(options.serverAvailabilityProvider?.()),
     'cards.children': ({ params }) => getCardsReadModel().getChildren(params.id),
     'cards.get': ({ params }) => getCardsReadModel().getCard(params.id),
+    'cards.records.list': ({ params }) => getCardsReadModel().listRecords(params.id),
+    'cards.records.get': ({ params }) => getCardsReadModel().getRecord(params.id, params.name),
     'cards.history.list': ({ params }) => getCardsReadModel().listHistory(params.id),
     'cards.history.get': ({ params }) => getCardsReadModel().getHistoryEntry(params.id, params.seq),
     'cards.diff': ({ params, query }) => getCardsReadModel().diffCard(params.id, query),

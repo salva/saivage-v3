@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import type { CardService } from '../../cards/card-api.js';
-import { cardHistoryEntrySchema, cardHistoryHeaderSchema, positiveSafeIntegerSchema, type CardHistoryEntry, type CardHistoryHeader, type CardRecord } from '../../schemas/index.js';
+import { cardHistoryEntrySchema, cardHistoryHeaderSchema, positiveSafeIntegerSchema, type CardHistoryEntry, type CardHistoryHeader, type CardLifecycleState, type CardRecord } from '../../schemas/index.js';
 import { allowedOperatorCardActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
@@ -8,32 +8,34 @@ import type {
   OperatorApiHandlerResult,
   OperatorApiQuery,
   OperatorApiResponse,
-  OperatorCard,
   ServerAvailability,
 } from '../../contracts/index.js';
 import {
+  CardDetailSchema,
   CardChildrenResponseSchema,
   CardDetailResponseSchema,
   CardDiffResponseSchema,
   CardHistoryEntryResponseSchema,
   CardHistoryListResponseSchema,
-  OperatorCardSchema,
+  CardRecordContentResponseSchema,
+  CardRecordListResponseSchema,
+  throwIfPublicationOutcomeUnknown,
 } from '../../contracts/index.js';
-import { toCardOperatorSummary } from './card-view.js';
+import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
+import type { CanonicalReadInstrumentation } from '../../persistence/growing-file.js';
+import { redactTextForOutbound } from '../../redaction/text.js';
 
-export function toOperatorCard(card: CardRecord): OperatorCard {
-  const actions = allowedOperatorCardActions(card.lifecycle.status);
-  return {
-    id: card.id, type: card.type, children: card.children, title: card.title, lifecycle: card.lifecycle,
-    subtype: card.subtype, tags: card.tags, priority: card.priority, urgency: card.urgency, created_by: card.created_by,
-    created_at: card.created_at, updated_at: card.updated_at, version_seq: card.version_seq, assigned_to: card.assigned_to,
-    depends_on: card.depends_on, related: card.related, metrics: card.metrics, estimate: card.estimate,
-    started_at: card.started_at, duration_ms: card.duration_ms, status_text: card.status_text,
-    status_text_updated_at: card.status_text_updated_at, status_text_author_session_id: card.status_text_author_session_id,
-    latest_self_report: card.latest_self_report, metadata: card.metadata, pending_notifications: card.pending_notifications,
-    allowedActions: actions,
-    operator_summary: toCardOperatorSummary(card),
-  };
+function projectLifecycle(lifecycle: CardLifecycleState): CardLifecycleState {
+  switch (lifecycle.status) {
+    case 'done': return { ...lifecycle, result: { ...lifecycle.result, summary: redactTextForOutbound(lifecycle.result.summary) } };
+    case 'failed': return { ...lifecycle, result: { ...lifecycle.result, summary: redactTextForOutbound(lifecycle.result.summary) }, error: redactTextForOutbound(lifecycle.error) };
+    case 'blocked': return { ...lifecycle, result: { ...lifecycle.result, summary: redactTextForOutbound(lifecycle.result.summary) }, error: redactTextForOutbound(lifecycle.error) };
+    default: return { ...lifecycle };
+  }
+}
+
+function detail(card: CardRecord) {
+  return CardDetailSchema.parse({ id: card.id, title: redactTextForOutbound(card.title), type: card.type, lifecycle: projectLifecycle(card.lifecycle), version_seq: card.version_seq, urgency: card.urgency, created_at: card.created_at, updated_at: card.updated_at, allowedActions: allowedOperatorCardActions(card.lifecycle.status) });
 }
 
 function invalidNumberBody(path: 'seq' | 'from' | 'to'): OperatorApiResponse<'cards.history.get', 400> {
@@ -71,20 +73,46 @@ export class CardsReadModelService {
     return { body: { ...identity, runtime: state, ...(serverAvailability ? { serverAvailability } : {}) } };
   }
 
-  getChildren(id: string): OperatorApiHandlerResult<'cards.children'> {
-    const result = this.store.getCardChildren(id);
+  getChildren(id: string, instrumentation?: CanonicalReadInstrumentation): OperatorApiHandlerResult<'cards.children'> {
+    const result = this.store.getCardChildren(id, instrumentation);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const card = OperatorCardSchema.parse(redactForOutbound({ source: 'operator-card', value: toOperatorCard(result.value.parent) }));
-    const children = result.value.activeChildren.map((child) => OperatorCardSchema.parse(redactForOutbound({ source: 'operator-card', value: toOperatorCard(child) })));
-    return { body: CardChildrenResponseSchema.parse({ card, children }) };
+    if (result.value.parent.id !== id) throw new Error(`Hierarchy parent '${result.value.parent.id}' does not match requested card '${id}'.`);
+    const hierarchy = (card: CardRecord) => ({ id: card.id, title: redactTextForOutbound(card.title), type: card.type, status: card.lifecycle.status });
+    return { body: CardChildrenResponseSchema.parse({ parent: hierarchy(result.value.parent), children: result.value.activeChildren.map(hierarchy) }) };
   }
 
-  getCard(id: string): OperatorApiHandlerResult<'cards.get'> {
-    const result = this.store.getCardDetail(id);
+  getCard(id: string, instrumentation?: CanonicalReadInstrumentation): OperatorApiHandlerResult<'cards.get'> {
+    const result = this.store.getCardDetail(id, instrumentation);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const card = OperatorCardSchema.parse(redactForOutbound({ source: 'operator-card', value: toOperatorCard(result.value) }));
-    const records=this.store.recordReader.definitions(id).map(({filename,writers,format,schema,bootstrap})=>({name:filename,writers,format,schema,bootstrap}));
-    return { body: CardDetailResponseSchema.parse({ card,records }) };
+    return { body: CardDetailResponseSchema.parse({ card: detail(result.value) }) };
+  }
+
+  listRecords(id: string, instrumentation?: CanonicalReadInstrumentation): OperatorApiHandlerResult<'cards.records.list'> {
+    const active = this.store.getCardDetail(id, instrumentation);
+    if (active.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
+    const records = this.store.recordReader.definitions(id).map(({ filename, writers, format, schema, bootstrap }) => ({ name: filename, writers: [...writers], format, schema: redactTextForOutbound(schema), bootstrap }));
+    return { body: CardRecordListResponseSchema.parse({ card_id: id, records }) };
+  }
+
+  getRecord(id: string, name: string, instrumentation?: CanonicalReadInstrumentation): OperatorApiHandlerResult<'cards.records.get'> {
+    const active = this.store.getCardDetail(id, instrumentation);
+    if (active.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
+    let definition;
+    try { definition = this.store.recordReader.definition(id, name); }
+    catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if (error instanceof AuthoredRecordDefinitionNotFoundError) return { statusCode: 404, body: { error: 'Card record definition not found', cardId: id, name } };
+      throw error;
+    }
+    try {
+      const projection = this.store.readRecord(id, name, 'latest', instrumentation);
+      if (projection.artifact.committed_at === null) throw new Error(`Closed record '${id}/${name}' has no committed timestamp.`);
+      return { body: CardRecordContentResponseSchema.parse({ card_id: id, record: { name, version: projection.version, committed_at: projection.artifact.committed_at, content: redactTextForOutbound(projection.artifact.content) } }) };
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if (error instanceof AuthoredRecordNotFoundError && !definition.bootstrap) return { statusCode: 404, body: { error: 'Card record not found', cardId: id, name } };
+      throw error;
+    }
   }
 
   listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {

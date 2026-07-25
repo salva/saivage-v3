@@ -11,7 +11,7 @@
           @select="emit('select', node.card.id)"
         >
           <button
-            v-if="node.mayHaveChildren"
+            v-if="loadStateFor(node.card.id).status !== 'confirmed-leaf'"
             type="button"
             class="node-toggle"
             :disabled="isRouteForced(node.card.id) || loadStateFor(node.card.id).status === 'loading'"
@@ -19,7 +19,7 @@
             @click.stop="emit('toggle', node.card.id)"
           >{{ loadStateFor(node.card.id).status === 'loading' ? '…' : isEffectivelyExpanded(node.card.id) ? '▾' : '▸' }}</button>
           <span v-else class="node-toggle placeholder"></span>
-          <span class="state-ball" :class="`card-status-${node.card.lifecycle.status}`" aria-hidden="true"></span>
+           <span class="state-ball" :class="`card-status-${node.card.status}`" aria-hidden="true"></span>
           <span v-if="node.logicalPath" class="node-path">{{ node.logicalPath }}</span>
           <span class="node-title">{{ node.card.title }}</span>
           <span class="node-kind">{{ labelForCardType(node.card.type) }}</span>
@@ -48,7 +48,7 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ toggle: [id: string]; retry: [id: string]; select: [id: string] }>();
 
-interface RenderedNode extends CardTreeNode { depth: number; mayHaveChildren: boolean }
+interface RenderedNode extends CardTreeNode { depth: number }
 function isEffectivelyExpanded(id: string): boolean { return props.expandedIds.has(id); }
 function isRouteForced(id: string): boolean { return props.forcedExpandedIds.has(id); }
 function toggleLabel(node: RenderedNode): string {
@@ -60,9 +60,8 @@ const renderedTree = computed<RenderedNode[]>(() => {
   const walk = (nodes: readonly CardTreeNode[], depth: number): void => {
     for (const node of nodes) {
       const state = props.loadStateFor(node.card.id);
-      const mayHaveChildren = state.status === 'loaded' ? node.childNodes.length > 0 : node.card.children.length > 0;
-      flat.push({ ...node, depth, mayHaveChildren });
-      if (isEffectivelyExpanded(node.card.id) && state.status === 'loaded') walk(node.childNodes, depth + 1);
+      flat.push({ ...node, depth });
+      if (isEffectivelyExpanded(node.card.id) && state.status === 'loaded-nonempty') walk(node.childNodes, depth + 1);
     }
   };
   walk(props.tree, 0);

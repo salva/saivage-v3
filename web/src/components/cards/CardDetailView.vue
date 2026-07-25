@@ -19,10 +19,8 @@
         :status="statusForCard(currentCard.lifecycle.status, reason)"
       >
         <template #meta>
-          <span class="ori-item"><span class="ori-key">v{{ currentCard.version_seq ?? '?' }}</span></span>
-          <span v-if="currentCard.assigned_to" class="ori-item"><span class="ori-key">assigned</span> {{ currentCard.assigned_to }}</span>
-          <span class="ori-item"><span class="ori-key">updated</span> {{ fmtDate(currentCard.updated_at) }}</span>
-          <span v-if="lifecycle?.durationMs != null" class="ori-item"><span class="ori-key">duration</span> {{ lifecycle.durationMs }} ms</span>
+           <span class="ori-item"><span class="ori-key">v{{ currentCard.version_seq }}</span></span>
+           <span class="ori-item"><span class="ori-key">updated</span> {{ fmtDate(currentCard.updated_at) }}</span>
         </template>
 
         <div v-if="reasonLine" class="card-entity__reason">{{ reasonLine }}</div>
@@ -35,14 +33,6 @@
       <CardRecordsSection :card-id="currentCard.id" />
 
       <CardConversationsSection :card-id="currentCard.id" />
-
-      <Section v-if="currentCard.notes && currentCard.notes.length" title="Notes &amp; activity">
-        <div class="notes-list">
-          <DocumentFrame v-for="note in currentCard.notes" :key="note.id" class="note-item" :class="{ 'note-handled': note.handled }" :title="note.kind" :writer="note.author" :timestamp="fmtDate(note.timestamp)">
-            <MarkdownText :source="note.content" />
-          </DocumentFrame>
-        </div>
-      </Section>
 
       <Section v-if="currentCard.lifecycle?.result" title="Result">
         <details class="result-disclosure">
@@ -60,9 +50,7 @@
           <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value" :title="timestampTitle(currentCard.updated_at)">{{ fmtDate(currentCard.updated_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Type</span><span class="meta-value">{{ labelForCardType(currentCard.type) }}</span></div>
           <div class="meta-item"><span class="meta-key">Urgency</span><span class="meta-value">{{ currentCard.urgency }}</span></div>
-          <div v-if="currentCard.assigned_to" class="meta-item"><span class="meta-key">Assigned to</span><span class="meta-value">{{ currentCard.assigned_to }}</span></div>
-          <div v-if="currentCard.started_at || lifecycle?.startedAt" class="meta-item"><span class="meta-key">Started</span><span class="meta-value" :title="timestampTitle(currentCard.started_at || lifecycle?.startedAt || '')">{{ fmtDate(currentCard.started_at || lifecycle?.startedAt || '') }}</span></div>
-          <div v-if="currentCard.lifecycle?.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value" :title="timestampTitle(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '')">{{ fmtDate(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '') }}</span></div>
+           <div v-if="currentCard.lifecycle?.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value" :title="timestampTitle(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '')">{{ fmtDate(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '') }}</span></div>
         </div>
         <div v-if="currentCard.allowedActions?.length" class="allowed-actions" data-testid="allowed-actions">
           <span class="allowed-actions-label">Allowed actions:</span>
@@ -94,8 +82,6 @@ import EntityHeader from '../ui/EntityHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import CodeBlock from '../content/CodeBlock.vue';
-import DocumentFrame from '../content/DocumentFrame.vue';
-import MarkdownText from '../content/MarkdownText.vue';
 import { formatJson } from '../../utils/format-json';
 
 const log = createLogger('comp:card-detail');
@@ -197,9 +183,6 @@ function actionLabel(action: string): string {
 .banner-action { padding:3px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; font:inherit; font-size:11px; }
 
 @media (max-width:880px) { .obsolete-card-action { display:none; } }
-
-.notes-list { display:flex; flex-direction:column; gap:8px; }
-.note-item.note-handled { opacity:0.65; }
 
 .result-disclosure > summary { list-style:none; cursor:pointer; font-size:12px; color:var(--text-muted); }
 .result-disclosure > summary::-webkit-details-marker { display:none; }

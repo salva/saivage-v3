@@ -1,5 +1,7 @@
 <template>
   <Section title="Records">
+    <ViewState v-if="store.recordDescriptorsLoading && records.length === 0" state="loading" title="Loading record definitions" />
+    <ViewState v-else-if="store.recordDescriptorsError" state="error" title="Could not load record definitions" :message="store.recordDescriptorsError" />
     <div class="records-list">
       <DocumentFrame v-for="record in records" :key="record.name" :name="record.name" :title="record.name"
         :version="contentValue(record.name)?.version ?? null"
@@ -31,7 +33,7 @@ import DocumentFrame from '../content/DocumentFrame.vue';
 
 const props = defineProps<{ cardId: string }>();
 const store = useCardStore();
-const records=computed(()=>store.selectedDetail?.cardId===props.cardId?store.selectedDetail.records:[]);
+const records=computed(()=>store.selectedDetail?.cardId===props.cardId?store.recordDescriptors:[]);
 function value(name: RecordName): RecordSlotState { const value=store.cardRecords[name];if(!value)throw new Error(`Missing record state for '${name}'.`);return value; }
 function contentValue(name: RecordName) { const accepted = value(name).accepted; return accepted?.kind === 'content' ? accepted : null; }
 function load(): void { void store.loadCardRecords(props.cardId); }

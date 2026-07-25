@@ -22,9 +22,8 @@ describe('direct card history and operator read models', () => {
     const readModel = new CardsReadModelService(root, cards, { getRuntimeState: () => null });
 
     const detail = readModel.getCard(card.id);
-    expect(detail).toMatchObject({ body: { card: { lifecycle: { status: 'stopped' }, allowedActions: ['card.start', 'card.cancel', 'card.delete'], operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false } } } });
-    expect((detail.body as { card: { operator_summary: unknown } }).card.operator_summary).not.toHaveProperty('terminal');
-    expect(readModel.getChildren('project')).toMatchObject({ body: { children: [{ id: card.id, lifecycle: { status: 'stopped' } }] } });
+    expect(detail).toMatchObject({ body: { card: { lifecycle: { status: 'stopped' }, allowedActions: ['card.start', 'card.cancel', 'card.delete'] } } });
+    expect(readModel.getChildren('project')).toMatchObject({ body: { children: [{ id: card.id, status: 'stopped' }] } });
     expect(cards.listCardHistory(card.id)).toMatchObject({ kind: 'found', value: [expect.objectContaining({ snapshot: expect.objectContaining({ lifecycle: expect.objectContaining({ status: 'running' }) }) }), expect.objectContaining({ snapshot: expect.objectContaining({ lifecycle: expect.objectContaining({ status: 'backlog' }) }) })] });
   });
 

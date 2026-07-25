@@ -9,29 +9,8 @@ import {
   type CardHistoryHeader,
   type CardRecord,
 } from '../../schemas/index.js';
-import {
-  OperatorCardSchema,
-  RuntimeCardRunsResponseSchema,
-  type OperatorCard,
-  type RuntimeCardRunsResponse,
-} from '../../contracts/index.js';
+import { RuntimeCardRunsResponseSchema, type RuntimeCardRunsResponse } from '../../contracts/index.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
-
-export function projectOperatorCard(card: OperatorCard): OperatorCard {
-  const parsed = OperatorCardSchema.parse(card);
-  const { allowedActions, operator_summary, ...record } = parsed;
-  return OperatorCardSchema.parse({
-    ...projectCardRecordForOutbound(record),
-    allowedActions: [...allowedActions],
-    operator_summary: {
-      blocked: operator_summary.blocked,
-      hasError: operator_summary.hasError,
-      error: redactNullableText(operator_summary.error),
-      completedAt: operator_summary.completedAt,
-      stale: operator_summary.stale,
-    },
-  });
-}
 
 export function projectCardRecordForOutbound(card: CardRecord): CardRecord {
   const parsed = cardRecordSchema.parse(card);

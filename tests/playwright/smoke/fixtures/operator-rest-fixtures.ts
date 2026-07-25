@@ -16,35 +16,16 @@ const runtimeRunning = {
 export const smokeOperatorCard = {
   id: smokeCardId,
   type: 'code',
-  children: [],
   title: 'Synthetic dashboard smoke card',
   lifecycle: { status: 'done', result: { kind: 'workflow-result', terminal: 'DONE', agent_name: 'executor', node_id: 'execute', outcome: 'done', summary: 'synthetic result', records: [{ name: 'status.md', url: `record:///status.md?card=${smokeCardId}&v=1`, version: 1 }] }, error: null, completed_at: now },
-  operator_summary: { blocked: false, hasError: false, error: null, completedAt: now, stale: false },
-  tags: ['smoke'],
-  priority: 90,
   urgency: 'normal',
-  subtype: null,
-  created_by: 'analyst',
   created_at: now,
   updated_at: now,
-  assigned_to: null,
-  depends_on: [],
-  related: [],
-  metrics: null,
-  estimate: null,
-  started_at: null,
-  duration_ms: null,
-  status_text: 'synthetic result',
-  status_text_updated_at: now,
-  status_text_author_session_id: null,
-  latest_self_report: null,
-  metadata: null,
-  pending_notifications: [],
   allowedActions: [],
   version_seq: 3,
 };
 const card = smokeOperatorCard;
-const { operator_summary: _operatorSummary, allowedActions: _allowedActions, ...rawCard } = card;
+const rawCard = { id:smokeCardId,type:'code',children:[],title:card.title,lifecycle:card.lifecycle,subtype:null,tags:['smoke'],priority:90,urgency:'normal',created_by:'analyst',created_at:now,updated_at:now,version_seq:3,assigned_to:null,depends_on:[],related:[],metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:'synthetic result',status_text_updated_at:now,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[] };
 const priorCard = {
   ...rawCard,
   lifecycle: { status: 'running' as const, result: null, error: null, completed_at: null },
@@ -60,28 +41,23 @@ const terminalHistory = {
 };
 const historyList = parseOperatorResponse('cards.history.list', { history: [terminalHistory], total: 1 });
 const historyEntry = parseOperatorResponse('cards.history.get', { entry: { ...terminalHistory, snapshot: priorCard } });
-const historyDiff = parseOperatorResponse('cards.diff', { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: card.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
+const historyDiff = parseOperatorResponse('cards.diff', { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: rawCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
 
 const projectCard = {
-  ...card,
   id: 'project',
   type: 'project',
-  children: [smokeCardId],
   title: 'Synthetic Project',
-  priority: 50,
-  lifecycle: { status: 'running', result: null, error: null, completed_at: null },
-  status_text: null,
-  status_text_updated_at: null,
-  operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false },
-  version_seq: 1,
+  status: 'running',
 };
 
-const rootChildren = parseOperatorResponse('cards.children', { card: projectCard, children: [card] });
+const hierarchyCard={id:smokeCardId,type:'code',title:card.title,status:'done'} as const;
+const rootChildren = parseOperatorResponse('cards.children', { parent: projectCard, children: [hierarchyCard] });
 export const cardRecords = [
   { name: 'brief.md', format: 'markdown' as const, schema: 'card-brief.v1', writers: ['analyst', 'executor'], bootstrap: true },
   { name: 'status.md', format: 'markdown' as const, schema: 'work-status.v1', writers: ['executor'], bootstrap: false },
 ];
-const cardDetail = parseOperatorResponse('cards.get', { card, records: cardRecords });
+const cardDetail = parseOperatorResponse('cards.get', { card });
+const recordList = parseOperatorResponse('cards.records.list', { card_id:smokeCardId,records:cardRecords });
 const debugErrors = parseOperatorResponse('debug.errors', {
   errors: [{
     id: 'err-playwright-1',
@@ -205,8 +181,13 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, restart_server_available: false }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
-    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', { card, children: [] }));
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', { parent: hierarchyCard, children: [] }));
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}`) return json(route, cardDetail);
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/records`) return json(route, recordList);
+    if (request.method() === 'GET' && url.pathname.startsWith(`/api/cards/${smokeCardId}/records/`)) {
+      const name=decodeURIComponent(url.pathname.split('/').at(-1) ?? 'brief.md');
+      return json(route, parseOperatorResponse('cards.records.get',{card_id:smokeCardId,record:{name,version:1,committed_at:now,content:`Synthetic ${name} content`}}));
+    }
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, historyList);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/2`) return json(route, historyEntry);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, historyDiff);

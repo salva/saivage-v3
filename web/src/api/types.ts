@@ -3,7 +3,10 @@ import type {
   AgentSessionSummary,
   CardHistoryEntry,
   CardHistoryHeader,
-  OperatorCard,
+  CardDetail,
+  CardHierarchyParent,
+  CardHierarchyChildSummary,
+  CardRecord,
   ChatWorkspaceContext,
   ControlActionSurface,
   DoctorResponse,
@@ -11,7 +14,6 @@ import type {
   McpStatusState,
   McpToolDefinition,
   McpToolsResponse as ContractMcpToolsResponse,
-  NoteAuthor,
   OperatorApiSuccess,
   RuntimeState as ContractRuntimeState,
   ServerAvailability,
@@ -36,12 +38,13 @@ export type {
   McpInvocationStat,
   McpStatusState,
   McpToolDefinition,
-  NoteAuthor,
   LiveSyncClientFrame,
   LiveSyncCardInvalidateFrame,
   LiveSyncCardInvalidateTarget,
   LiveSyncCardRecordName,
   CardRecordDescriptor,
+  CardDetail,
+  CardRecord,
   LiveSyncInvalidateFrame,
   LiveSyncSubscribedFrame,
   LiveSyncInvalidateTarget,
@@ -49,19 +52,6 @@ export type {
   ServerAvailability,
   RestartChatAcknowledgement,
 } from './contracts';
-
-export interface NoteRecord {
-  id: string;
-  card_id: string;
-  author: NoteAuthor;
-  timestamp: string;
-  content: string;
-  kind: NoteKind;
-  handled: boolean;
-  handled_at?: string | null;
-}
-
-export type NoteKind = 'comment' | 'progress' | 'directive' | 'escalation';
 
 export interface DetailErrorState {
   kind: 'unauthorized' | 'not-found' | 'server' | 'network' | 'unknown';
@@ -131,9 +121,11 @@ export interface FreshnessState {
   isStale: boolean;
 }
 
-export type CardRecord = OperatorCard & { notes?: NoteRecord[] };
+export type CardHierarchyRecord = CardHierarchyParent | CardHierarchyChildSummary;
 export type CardChildrenResponse = OperatorApiSuccess<'cards.children'>;
 export type CardDetailResponse = OperatorApiSuccess<'cards.get'>;
+export type CardRecordListResponse = OperatorApiSuccess<'cards.records.list'>;
+export type CardRecordContentResponse = OperatorApiSuccess<'cards.records.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[] };

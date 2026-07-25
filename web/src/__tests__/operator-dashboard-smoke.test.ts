@@ -6,7 +6,7 @@ import App from '../App.vue';
 import { createOperatorRouter } from '../router';
 import dashboardSource from '../views/DashboardView.vue?raw';
 import appShellSource from '../components/layout/AppShell.vue?raw';
-import { cardView } from './card-view-fixtures';
+import { hierarchyView } from './card-view-fixtures';
 import { useCardStore } from '../stores/cards';
 
 const originalFetch = globalThis.fetch;
@@ -41,7 +41,7 @@ function installOperatorApiFetch(): void {
       case '/api/runtime/status':
         return jsonResponse({ runtime: 'stopped', currentCardId: null, started_at: '2026-07-18T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime: { pauseMode: 'running', cards: [] } });
       case '/api/cards/project/children':
-        return jsonResponse({ card: cardView('project'), children: [] });
+        return jsonResponse({ parent: hierarchyView('project'), children: [] });
       case '/api/agents':
         return jsonResponse({ sessions: [] });
       case '/api/files':

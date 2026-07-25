@@ -5,7 +5,7 @@ import AnalystChatPanel from '../../components/chat/AnalystChatPanel.vue';
 import analystChatPanelSource from '../../components/chat/AnalystChatPanel.vue?raw';
 import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
-import { cardView } from '../card-view-fixtures';
+import { hierarchyView } from '../card-view-fixtures';
 
 const getChatEntries = vi.fn();
 const sendChatMessage = vi.fn();
@@ -38,10 +38,10 @@ describe('AnalystChatPanel on-screen children', () => {
     const pinia = createPinia();
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
     const cards = useCardStore();
-    cards.hierarchySlicesByParentId = { project: { parent: cardView('project', { children: [CHILD_ONE_ID, CHILD_TWO_ID, CHILD_ZERO_ID], title: 'Parent' }), children: [
-      cardView(CHILD_ONE_ID, { title: 'First' }),
-      cardView(CHILD_TWO_ID, { title: 'Second' }),
-      cardView(CHILD_ZERO_ID, { title: 'Zero' }),
+    cards.hierarchySlicesByParentId = { project: { parent: hierarchyView('project', { title: 'Parent' }), children: [
+      hierarchyView(CHILD_ONE_ID, { title: 'First' }),
+      hierarchyView(CHILD_TWO_ID, { title: 'Second' }),
+      hierarchyView(CHILD_ZERO_ID, { title: 'Zero' }),
     ] } };
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'cards';
@@ -60,7 +60,7 @@ describe('AnalystChatPanel on-screen children', () => {
     const pinia = createPinia();
     const wrapper = mount(AnalystChatPanel, { attachTo: document.body, global: { plugins: [pinia] } });
     const cards = useCardStore();
-    cards.hierarchySlicesByParentId = { project: { parent: cardView('project', { children: [CHILD_ZERO_ID] }), children: [cardView(CHILD_ZERO_ID, { title: 'Zero' })] } };
+    cards.hierarchySlicesByParentId = { project: { parent: hierarchyView('project'), children: [hierarchyView(CHILD_ZERO_ID, { title: 'Zero' })] } };
     const workspaceRoute = useWorkspaceRouteStore();
     workspaceRoute.view = 'dashboard';
     workspaceRoute.entityId = 'project';

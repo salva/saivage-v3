@@ -1,9 +1,9 @@
 import { computed, type ComputedRef, type Ref } from 'vue';
-import type { CardRecord } from '../api/types';
+import type { CardHierarchyRecord } from '../api/types';
 import type { useCardStore } from '../stores/cards';
 
 export interface DashboardReadModel {
-  goalChildren: ComputedRef<readonly CardRecord[]>;
+  goalChildren: ComputedRef<readonly CardHierarchyRecord[]>;
   runtimeBannerMessage: ComputedRef<string | null>;
   runtimeBannerClass: ComputedRef<string>;
 }

@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 import CardsView from '../views/CardsView.vue';
 import CardsTreeView from '../components/cards/CardsTreeView.vue';
 import { useCardStore } from '../stores/cards';
-import { cardView } from './card-view-fixtures';
+import { hierarchyView } from './card-view-fixtures';
 import source from '../views/CardsView.vue?raw';
 import detailSource from '../components/cards/CardDetailView.vue?raw';
 
@@ -16,11 +16,11 @@ async function mounted(path: string, includeSelectedEdge = true) {
   const pinia = createPinia();
   setActivePinia(pinia);
   const store = useCardStore();
-  const child = cardView('card-a', { title: 'Hierarchy title' });
+  const child = hierarchyView('card-a', { title: 'Hierarchy title' });
   store.hierarchySlicesByParentId = {
-    project: { parent: cardView('project', { children: includeSelectedEdge ? ['card-a'] : [] }), children: includeSelectedEdge ? [child] : [] },
+    project: { parent: hierarchyView('project'), children: includeSelectedEdge ? [child] : [] },
   };
-  store.childrenLoadStateById = { project: { status: 'loaded', error: null, refreshing: false, stale: false, staleReason: null, refreshError: null } };
+  store.childrenLoadStateById = { project: { status: includeSelectedEdge ? 'loaded-nonempty' : 'confirmed-leaf', error: null, refreshing: false, stale: false, staleReason: null, refreshError: null } };
   vi.spyOn(store, 'ensureRoot').mockResolvedValue();
   vi.spyOn(store, 'ensureRouteVisible').mockResolvedValue();
   vi.spyOn(store, 'clearCardSelection');
@@ -80,11 +80,11 @@ describe('CardsView lazy route semantics', () => {
   it('continues route reveal only after a relevant successful slice replacement', async () => {
     const { store } = await mounted('/cards/card-a-b', false);
     vi.mocked(store.ensureRouteVisible).mockClear();
-    store.hierarchySlicesByParentId = { ...store.hierarchySlicesByParentId, 'card-z': { parent: cardView('card-z'), children: [] } };
+    store.hierarchySlicesByParentId = { ...store.hierarchySlicesByParentId, 'card-z': { parent: hierarchyView('card-z'), children: [] } };
     await nextTick();
     expect(store.ensureRouteVisible).not.toHaveBeenCalled();
-    store.childrenLoadStateById = { ...store.childrenLoadStateById, project: { status: 'loaded', error: null, refreshing: false, stale: false, staleReason: null, refreshError: null } };
-    store.hierarchySlicesByParentId = { ...store.hierarchySlicesByParentId, project: { parent: cardView('project', { children: ['card-a'] }), children: [cardView('card-a', { children: ['card-a-b'] })] } };
+    store.childrenLoadStateById = { ...store.childrenLoadStateById, project: { status: 'loaded-nonempty', error: null, refreshing: false, stale: false, staleReason: null, refreshError: null } };
+    store.hierarchySlicesByParentId = { ...store.hierarchySlicesByParentId, project: { parent: hierarchyView('project'), children: [hierarchyView('card-a')] } };
     await nextTick();
     expect(store.ensureRouteVisible).toHaveBeenCalledTimes(1);
     expect(store.ensureRouteVisible).toHaveBeenCalledWith('card-a-b');

@@ -1,5 +1,5 @@
-import { cardHistoryEntrySchema, cardHistoryHeaderSchema, cardRecordSchema, operatorCardSchema, type CardHistoryEntry, type CardHistoryHeader, type CardRecord as RawCardRecord } from '@saivage/schemas';
-import type { CardRecord } from '../api/types';
+import { cardHistoryEntrySchema, cardHistoryHeaderSchema, cardRecordSchema, type CardHistoryEntry, type CardHistoryHeader, type CardRecord as RawCardRecord } from '@saivage/schemas';
+import type { CardDetail, CardHierarchyRecord } from '../api/types';
 
 function lifecycleFor(status: RawCardRecord['lifecycle']['status']): RawCardRecord['lifecycle'] {
   switch (status) {
@@ -25,11 +25,12 @@ export function rawCard(id: string, overrides: Partial<RawCardRecord> = {}): Raw
   });
 }
 
-export function cardView(id: string, overrides: Partial<CardRecord> = {}): CardRecord {
+export function cardView(id: string, overrides: Partial<CardDetail> = {}): CardDetail {
   const lifecycle = overrides.lifecycle ?? lifecycleFor('backlog');
-  const { allowedActions, operator_summary, notes: _notes, ...rawOverrides } = overrides;
-  return operatorCardSchema.parse({ ...rawCard(id, { ...rawOverrides, lifecycle }), allowedActions: allowedActions ?? [], operator_summary: operator_summary ?? { blocked: lifecycle.status === 'blocked', hasError: lifecycle.error !== null, error: lifecycle.error, completedAt: lifecycle.completed_at, stale: lifecycle.status === 'changed' } });
+  return { id, type: id === 'project' ? 'project' : 'code', title: id === 'project' ? 'Project' : 'Card', lifecycle, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [], ...overrides };
 }
+
+export function hierarchyView(id: string, overrides: Partial<CardHierarchyRecord> = {}): CardHierarchyRecord { return { id, type: id === 'project' ? 'project' : 'code', title: id === 'project' ? 'Project' : 'Card', status: 'backlog', ...overrides }; }
 
 export function historyHeader(overrides: Partial<CardHistoryHeader> & Pick<CardHistoryHeader, 'kind' | 'card_id' | 'version_seq'>): CardHistoryHeader {
   const provenance = overrides.kind === 'update' ? { changed_by_actor: 'planner', changed_by_surface: 'runtime' } : overrides.kind === 'delete' ? { changed_by_actor: 'analyst', changed_by_surface: 'runtime' } : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };

@@ -22,6 +22,8 @@ const removedMutationExports = [
 const preservedReadAndBoundedWriteExports = [
   'getCardChildren',
   'getCard',
+  'listCardRecords',
+  'getCardRecord',
   'getRuntimeState',
   'getRuntimeStatus',
   'stopProject',

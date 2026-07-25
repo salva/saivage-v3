@@ -21,7 +21,8 @@ const canonicalCard = {
   metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,
   status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
 } as const;
-const canonicalOperatorCard = { ...canonicalCard, allowedActions: [], operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false } } as const;
+const canonicalCardDetail = { id:'project',type:'project',title:'Project',lifecycle:canonicalCard.lifecycle,version_seq:1,urgency:'normal',created_at:canonicalCard.created_at,updated_at:canonicalCard.updated_at,allowedActions:[] } as const;
+const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog' } as const;
 const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['analyst', 'planner'], bootstrap: true }] as const;
 const canonicalCardKeys = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const;
 
@@ -86,6 +87,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(identities).toEqual([
       { operationId: 'cards.children', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.get', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.records.list', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.records.get', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.history.list', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.history.get', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.diff', identity: { kind: 'card', parameter: 'id' } },
@@ -211,6 +214,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(cardRoutes).toEqual([
       expect.objectContaining({ operationId: 'cards.children', method: 'GET', path: '/api/cards/:id/children' }),
       expect.objectContaining({ operationId: 'cards.get', method: 'GET', path: '/api/cards/:id' }),
+      expect.objectContaining({ operationId: 'cards.records.list', method: 'GET', path: '/api/cards/:id/records' }),
+      expect.objectContaining({ operationId: 'cards.records.get', method: 'GET', path: '/api/cards/:id/records/:name' }),
       expect.objectContaining({ operationId: 'cards.history.list', method: 'GET', path: '/api/cards/:id/history' }),
       expect.objectContaining({ operationId: 'cards.history.get', method: 'GET', path: '/api/cards/:id/history/:seq' }),
       expect.objectContaining({ operationId: 'cards.diff', method: 'GET', path: '/api/cards/:id/diff' }),
@@ -219,18 +224,30 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(cardRoutes.every(({ method }) => method === 'GET')).toBe(true);
   });
 
-  it('derives detail, children, and history snapshots from one complete required card shape', () => {
-    expect(parseOperatorResponse('cards.get', { card: canonicalOperatorCard, records: canonicalRecordDescriptors }).card).toEqual(canonicalOperatorCard);
-    expect(parseOperatorResponse('cards.children', { card: canonicalOperatorCard, children: [canonicalOperatorCard] }).children[0]).toEqual(canonicalOperatorCard);
+  it('keeps hierarchy, displayed detail, records, and history as distinct exact shapes', () => {
+    expect(parseOperatorResponse('cards.get', { card: canonicalCardDetail }).card).toEqual(canonicalCardDetail);
+    expect(parseOperatorResponse('cards.children', { parent: canonicalHierarchyCard, children: [] }).parent).toEqual(canonicalHierarchyCard);
+    expect(parseOperatorResponse('cards.records.list', { card_id:'project',records:canonicalRecordDescriptors }).records).toEqual(canonicalRecordDescriptors);
+    expect(parseOperatorResponse('cards.records.get', { card_id:'project',record:{name:'brief.md',version:1,committed_at:canonicalCard.created_at,content:'Brief'} }).record.content).toBe('Brief');
+    for (const forbidden of ['children','depends_on','assigned_to','started_at','records','operator_summary']) expect(() => parseOperatorResponse('cards.get', { card: { ...canonicalCardDetail, [forbidden]: null } })).toThrow();
+    for (const forbidden of ['children','has_children','descendant_count']) expect(() => parseOperatorResponse('cards.children', { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code',[forbidden]:[] }] })).toThrow();
+    expect(() => parseOperatorResponse('cards.children', { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code' },{ ...canonicalHierarchyCard,id:'card-a',type:'code' }] })).toThrow();
+    expect(() => parseOperatorResponse('cards.records.list', { card_id:'project',records:[...canonicalRecordDescriptors,...canonicalRecordDescriptors] })).toThrow();
+    expect(() => parseOperatorResponse('cards.records.list', { card_id:'project',records:[{...canonicalRecordDescriptors[0],writers:['analyst','analyst']}] })).toThrow();
+    expect(() => parseOperatorResponse('cards.records.list', { card_id:'project',records:[{...canonicalRecordDescriptors[0],bootstrap:false}] })).toThrow();
+    const record404 = operatorApiContracts['cards.records.get'].response[404];
+    for (const body of [
+      {error:'Card not found',cardId:'project'},
+      {error:'Card record definition not found',cardId:'project',name:'brief.md'},
+      {error:'Card record not found',cardId:'project',name:'brief.md'},
+    ]) expect(record404.parse(body)).toEqual(body);
+    expect(() => record404.parse({error:'Card record not found',cardId:'project',name:'brief.md',extra:true})).toThrow();
     const entry = { entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'agent edit_card', changed_fields: ['title'], change_summary: 'title updated', snapshot: canonicalCard } as const;
     expect(parseOperatorResponse('cards.history.get', { entry }).entry.snapshot).toEqual(canonicalCard);
 
     for (const key of canonicalCardKeys) {
-      const incompleteOperator = { ...canonicalOperatorCard } as Record<string, unknown>;
       const incompleteSnapshot = { ...canonicalCard } as Record<string, unknown>;
-      delete incompleteOperator[key]; delete incompleteSnapshot[key];
-      expect(() => parseOperatorResponse('cards.get', { card: incompleteOperator, records: canonicalRecordDescriptors })).toThrow();
-      expect(() => parseOperatorResponse('cards.children', { card: canonicalOperatorCard, children: [incompleteOperator] })).toThrow();
+      delete incompleteSnapshot[key];
       expect(() => parseOperatorResponse('cards.history.get', { entry: { ...entry, snapshot: incompleteSnapshot } })).toThrow();
     }
   });

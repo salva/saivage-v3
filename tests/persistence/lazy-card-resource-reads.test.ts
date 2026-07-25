@@ -22,6 +22,21 @@ function input(parent: string, title: string, type: 'goal' | 'code' = 'code') {
 }
 
 describe('bounded card resource reads', () => {
+  it('does not traverse many grandchildren while classifying one root slice', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-lazy-card-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const grandchildren: string[] = [];
+    for (let index = 0; index < 8; index += 1) {
+      const child = cards.create(input('project', `Parent ${index}`, 'goal'));
+      for (let nested = 0; nested < 20; nested += 1) grandchildren.push(cards.create(input(child.id, `Grandchild ${index}-${nested}`)).id);
+    }
+    const rootRead = recorder();
+    const hierarchy = cards.getCardChildren('project', rootRead.instrumentation);
+    expect(hierarchy.kind).toBe('found');
+    expect(rootRead.paths).toHaveLength(9);
+    for (const id of grandchildren) expect(rootRead.paths).not.toContain(cardStreamFile(root, id));
+  });
+
   it('reads only a target path and the target immediate committed children', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-lazy-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);

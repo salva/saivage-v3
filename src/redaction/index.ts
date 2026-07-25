@@ -5,7 +5,7 @@ import type {
   CardHistoryEntry,
   CardHistoryHeader,
 } from '../schemas/index.js';
-import type { OperatorCard, RuntimeCardRunsResponse } from '../contracts/index.js';
+import type { RuntimeCardRunsResponse } from '../contracts/index.js';
 import type { CardDiffEntry } from '../cards/card-service.js';
 import { projectProviderExchange } from '../agents/provider-exchange-outbound.js';
 import { projectLoggedEvent } from '../observability/logged-event-projection.js';
@@ -14,7 +14,6 @@ import { projectDynamicForOutbound } from './dynamic.js';
 import {
   projectCardDiff,
   projectCardHistory,
-  projectOperatorCard,
   projectRuntimeCardRuns,
 } from '../application/read-models/card-outbound.js';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
@@ -49,7 +48,6 @@ export type OutboundRedactionRequest =
   | { source: 'provider-exchange'; value: ProviderExchangePayload }
   | { source: 'logged-event'; value: LoggedEvent }
   | { source: 'control-action'; value: ControlActionAuditEntry }
-  | { source: 'operator-card'; value: OperatorCard }
   | { source: 'runtime-card-runs'; value: RuntimeCardRunsResponse }
   | { source: 'card-history'; value: CardHistoryHeader | CardHistoryEntry }
   | { source: 'card-diff'; value: CardDiffEntry[] }
@@ -71,9 +69,7 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> = 
     ? LoggedEvent
     : Request extends { source: 'control-action' }
       ? ControlActionAuditEntry
-      : Request extends { source: 'operator-card' }
-        ? OperatorCard
-        : Request extends { source: 'runtime-card-runs' }
+       : Request extends { source: 'runtime-card-runs' }
           ? RuntimeCardRunsResponse
           : Request extends { source: 'card-history'; value: infer Value }
             ? Value
@@ -107,7 +103,6 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'provider-exchange',
   'logged-event',
   'control-action',
-  'operator-card',
   'runtime-card-runs',
   'card-history',
   'card-diff',
@@ -133,8 +128,6 @@ export function redactForOutbound(input: OutboundRedactionRequest): unknown {
       return projectLoggedEvent(input.value);
     case 'control-action':
       return projectControlAction(input.value);
-    case 'operator-card':
-      return projectOperatorCard(input.value);
     case 'runtime-card-runs':
       return projectRuntimeCardRuns(input.value);
     case 'card-history':

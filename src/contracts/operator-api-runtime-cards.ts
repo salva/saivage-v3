@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import {
-  operatorCardSchema,
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   runtimeStateSchema,
@@ -9,6 +8,10 @@ import {
   agentNameSchema,
   recordNameSchema,
   positiveSafeIntegerSchema,
+  cardStatusSchema,
+  urgencySchema,
+  cardActionSchema,
+  cardLifecycleStateSchema,
 } from '../schemas/index.js';
 import {
   ApiErrorSchema,
@@ -25,12 +28,15 @@ import { actorPauseModeSchema, publicCardActorStateSchema } from '../schemas/act
 import { runtimeStatusSchema } from '../schemas/index.js';
 
 export const CardNotFoundErrorSchema = z.object({ error: z.literal('Card not found'), cardId: cardIdSchema }).strict();
+export const CardRecordDefinitionNotFoundErrorSchema = z.object({ error: z.literal('Card record definition not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
+export const CardRecordNotFoundErrorSchema = z.object({ error: z.literal('Card record not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
 export const CardHistoryEntryNotFoundErrorSchema = z.object({ error: z.literal('Card history entry not found'), cardId: cardIdSchema, version_seq: positiveSafeIntegerSchema }).strict();
 export const CardDiffSourceNotFoundErrorSchema = z.object({ error: z.literal('Card diff source not found'), cardId: cardIdSchema, from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, missing_version_seq: positiveSafeIntegerSchema }).strict();
 export const CardHistoryEntryNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, CardHistoryEntryNotFoundErrorSchema]);
 export const CardDiffNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, CardDiffSourceNotFoundErrorSchema]);
 
-export const CardIdParamsSchema = z.object({ id: cardIdSchema });
+export const CardIdParamsSchema = z.object({ id: cardIdSchema }).strict();
+export const CardRecordNameParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema }).strict();
 
 export const HealthLivenessResponseSchema = z.object({ status: z.literal('ok'), version: z.string(), project: z.string() });
 export const HealthReadinessResponseSchema = z.object({ status: z.enum(['ready', 'not_ready']), serverAvailability: ServerAvailabilitySchema.optional() });
@@ -43,11 +49,38 @@ export const RuntimeGetStateResponseSchema = z.object({
   serverAvailability: ServerAvailabilitySchema.optional(),
 }).strict();
 
-export const OperatorCardSchema = operatorCardSchema;
-
-export const CardChildrenResponseSchema = z.object({ card: OperatorCardSchema, children: z.array(OperatorCardSchema) }).strict();
-export const CardRecordDescriptorSchema=z.object({name:recordNameSchema,format:z.literal('markdown'),schema:z.string().min(1),writers:z.array(agentNameSchema),bootstrap:z.boolean()}).strict();
-export const CardDetailResponseSchema = z.object({ card: OperatorCardSchema,records:z.array(CardRecordDescriptorSchema) }).strict();
+const refineHierarchyIdentity = (value: { id: string; type: string }, ctx: z.RefinementCtx): void => {
+  if (value.id === 'project' && value.type !== 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['type'], message: 'The project card is the fixed root.' });
+  if (value.id !== 'project' && value.type === 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['type'], message: 'Only the fixed project card may have type project.' });
+};
+const hierarchyShape = { id: cardIdSchema, title: z.string().min(1), type: cardTypeSchema, status: cardStatusSchema };
+export const CardHierarchyParentSchema = z.object(hierarchyShape).strict().superRefine(refineHierarchyIdentity);
+export const CardHierarchyChildSummarySchema = z.object(hierarchyShape).strict().superRefine(refineHierarchyIdentity);
+export const CardChildrenResponseSchema = z.object({ parent: CardHierarchyParentSchema, children: z.array(CardHierarchyChildSummarySchema) }).strict().superRefine((value, ctx) => {
+  if (new Set(value.children.map(({ id }) => id)).size !== value.children.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['children'], message: 'Direct child ids must be unique.' });
+});
+export const CardDetailLifecycleSchema = cardLifecycleStateSchema;
+export const CardDetailSchema = z.object({
+  id: cardIdSchema,
+  title: z.string().min(1),
+  type: cardTypeSchema,
+  lifecycle: CardDetailLifecycleSchema,
+  version_seq: positiveSafeIntegerSchema,
+  urgency: urgencySchema,
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+  allowedActions: z.array(cardActionSchema),
+}).strict().superRefine(refineHierarchyIdentity);
+export const CardDetailResponseSchema = z.object({ card: CardDetailSchema }).strict();
+export const CardRecordDescriptorSchema = z.object({ name: recordNameSchema, format: z.literal('markdown'), schema: z.string().min(1), writers: z.array(agentNameSchema), bootstrap: z.boolean() }).strict().superRefine((value, ctx) => {
+  if (new Set(value.writers).size !== value.writers.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['writers'], message: 'Record writers must be unique.' });
+});
+export const CardRecordListResponseSchema = z.object({ card_id: cardIdSchema, records: z.array(CardRecordDescriptorSchema) }).strict().superRefine((value, ctx) => {
+  if (new Set(value.records.map(({ name }) => name)).size !== value.records.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['records'], message: 'Record names must be unique.' });
+  if (value.records.filter(({ bootstrap }) => bootstrap).length !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['records'], message: 'Exactly one record must be bootstrap.' });
+});
+export const CardRecordContentSchema = z.object({ name: recordNameSchema, version: positiveSafeIntegerSchema, committed_at: z.string().datetime(), content: z.string() }).strict();
+export const CardRecordContentResponseSchema = z.object({ card_id: cardIdSchema, record: CardRecordContentSchema }).strict();
 
 export const CardHistoryParamsSchema = z.object({ id: cardIdSchema });
 export const canonicalPositiveSafeIntegerStringSchema = z.string().regex(/^[1-9][0-9]*$/).superRefine((raw, ctx) => {
@@ -112,10 +145,15 @@ export const RuntimeCardRunsResponseSchema = z.object({
 export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
 export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;
 export type RuntimeGetStateResponse = z.infer<typeof RuntimeGetStateResponseSchema>;
-export type OperatorCard = z.infer<typeof OperatorCardSchema>;
+export type CardHierarchyParent = z.infer<typeof CardHierarchyParentSchema>;
+export type CardHierarchyChildSummary = z.infer<typeof CardHierarchyChildSummarySchema>;
+export type CardDetail = z.infer<typeof CardDetailSchema>;
 export type CardChildrenResponse = z.infer<typeof CardChildrenResponseSchema>;
 export type CardDetailResponse = z.infer<typeof CardDetailResponseSchema>;
 export type CardRecordDescriptor = z.infer<typeof CardRecordDescriptorSchema>;
+export type CardRecordListResponse = z.infer<typeof CardRecordListResponseSchema>;
+export type CardRecordContent = z.infer<typeof CardRecordContentSchema>;
+export type CardRecordContentResponse = z.infer<typeof CardRecordContentResponseSchema>;
 export type CardHistoryListResponse = z.infer<typeof CardHistoryListResponseSchema>;
 export type CardHistoryEntryResponse = z.infer<typeof CardHistoryEntryResponseSchema>;
 export type CardDiffResponse = z.infer<typeof CardDiffResponseSchema>;
@@ -179,6 +217,30 @@ export const runtimeCardsOperatorApiContracts = {
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
     successSchemaName: 'CardDetailResponse',
+  },
+  'cards.records.list': {
+    operationId: 'cards.records.list',
+    method: 'GET',
+    path: '/api/cards/:id/records',
+    params: CardIdParamsSchema,
+    success: CardRecordListResponseSchema,
+    error: CardNotFoundErrorSchema,
+    response: { 200: CardRecordListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: CardNotFoundErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    failureIdentity: { kind: 'card', parameter: 'id' },
+    ...operatorSessionContract,
+    successSchemaName: 'CardRecordListResponse',
+  },
+  'cards.records.get': {
+    operationId: 'cards.records.get',
+    method: 'GET',
+    path: '/api/cards/:id/records/:name',
+    params: CardRecordNameParamsSchema,
+    success: CardRecordContentResponseSchema,
+    error: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, CardRecordNotFoundErrorSchema]),
+    response: { 200: CardRecordContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, CardRecordNotFoundErrorSchema]), 500: UnexpectedInternalServerErrorSchema },
+    failureIdentity: { kind: 'card', parameter: 'id' },
+    ...operatorSessionContract,
+    successSchemaName: 'CardRecordContentResponse',
   },
 
   'cards.history.list': {

@@ -4,7 +4,7 @@ import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel'
 import { useCardStore } from '../stores/cards';
 
 describe('card browser read model', () => {
-  it('loads only an idle expansion and collapse requests nothing', async () => {
+  it('discovers only an undiscovered expansion and collapse requests nothing', async () => {
     setActivePinia(createPinia());
     const store = useCardStore();
     const ensure = vi.spyOn(store, 'ensureChildren').mockResolvedValue();

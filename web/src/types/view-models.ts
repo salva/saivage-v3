@@ -3,6 +3,7 @@ export type {
   AgentSession,
   CardHistoryHeader,
   CardRecord,
+  CardHierarchyRecord,
   CardStatus,
   CardType,
   DetailErrorState,

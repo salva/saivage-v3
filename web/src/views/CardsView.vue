@@ -11,7 +11,7 @@
     >
       <template #list>
         <div class="cards-md__tree">
-          <ViewState v-if="rootLoadState.status === 'loading' || rootLoadState.status === 'idle'" state="loading" title="Loading cards" />
+          <ViewState v-if="rootLoadState.status === 'loading' || rootLoadState.status === 'undiscovered'" state="loading" title="Loading cards" />
           <ViewState v-else-if="rootLoadState.status === 'error'" state="error" title="Could not load cards" :message="rootLoadState.error ?? undefined">
             <template #action><button type="button" @click="retryRoot">Retry</button></template>
           </ViewState>

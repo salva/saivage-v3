@@ -9,6 +9,8 @@
 import type {
   CardChildrenResponse,
   CardDetailResponse,
+  CardRecordListResponse,
+  CardRecordContentResponse,
   RuntimeStateResponse,
   AgentConversationResponse,
   AgentLlmExchangeResponse,
@@ -190,6 +192,14 @@ export function getCardChildren(id: string, signal?: AbortSignal): Promise<CardC
 
 export function getCard(id: string, signal?: AbortSignal): Promise<CardDetailResponse> {
   return operatorRequest('cards.get', { params: { id }, signal }) as Promise<CardDetailResponse>;
+}
+
+export function listCardRecords(id: string, signal?: AbortSignal): Promise<CardRecordListResponse> {
+  return operatorRequest('cards.records.list', { params: { id }, signal });
+}
+
+export function getCardRecord(id: string, name: string, signal?: AbortSignal): Promise<CardRecordContentResponse> {
+  return operatorRequest('cards.records.get', { params: { id, name }, signal });
 }
 
 export function listCardHistory(

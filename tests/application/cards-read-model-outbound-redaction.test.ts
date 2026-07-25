@@ -45,20 +45,21 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
       read: (id: string) => cards.get(id) ?? null,
       listChildren: (id: string) => cards.get(id)?.children ?? [],
       getAncestors: (id: string) => id === parent.id ? ['project'] : [],
-      recordReader: { definitions: () => testRecordDefinitions('goal') },
+      recordReader: { definitions: () => testRecordDefinitions('goal').map((definition, index) => index === 0 ? { ...definition, schema: 'token=record-schema-secret' } : definition) },
       workflows: TEST_WORKFLOWS,
     };
     const readModel = new CardsReadModelService(root, store as never, { getRuntimeState: () => null });
 
-    const detail = readModel.getCard(parent.id).body as { card: CardRecord & { allowedActions: string[]; operator_summary: { blocked: boolean; hasError: boolean; error: string | null; stale: boolean } } };
-    const children = readModel.getChildren(parent.id).body as { card: CardRecord; children: CardRecord[] };
-    assertProjectedCard(detail.card);
+    const detail = readModel.getCard(parent.id).body as unknown as { card: { id:string;title:string;lifecycle:CardRecord['lifecycle'];urgency:string;allowedActions:string[] } };
+    const children = readModel.getChildren(parent.id).body as unknown as { parent: {id:string;type:string;title:string;status:string}; children: Array<{id:string;type:string;title:string;status:string}> };
     expect(detail.card).toMatchObject({
-      created_by: 'planner', urgency: 'critical', priority: 3, allowedActions: ['card.cancel', 'card.delete'],
-      operator_summary: { blocked: true, hasError: true, error: 'token=[REDACTED]', stale: false },
+      urgency: 'critical', allowedActions: ['card.cancel', 'card.delete'], title: 'title token=[REDACTED]',
+      lifecycle: { status: 'blocked', error: 'token=[REDACTED]' },
     });
-    assertProjectedCard(children.card);
-    expect(children.children[0]).toMatchObject({ id: 'card-token-a', tags: [OUTBOUND_IDENTITY], title: 'child token=[REDACTED]' });
+    expect(children.parent).toEqual({ id:'card-token',type:'code',status:'blocked',title:'title token=[REDACTED]' });
+    expect(children.children[0]).toEqual({ id: 'card-token-a',type:'code',status:'blocked', title: 'child token=[REDACTED]' });
+    const descriptors = readModel.listRecords(parent.id).body as { records: Array<{ schema:string }> };
+    expect(descriptors.records[0]!.schema).toBe('token=[REDACTED]');
 
     const historyList = readModel.listHistory(parent.id).body as { history: Array<Record<string, unknown>> };
     expect(historyList.history[0]).toMatchObject({
@@ -106,7 +107,7 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
     assertProjectedCard((toolEntry.data as CardHistoryEntry).snapshot);
     const toolDiff = await invokeTool(historySurface, 'diff_card', { cardId: 'card-token', fromSeq: 7, toSeq: 8 });
     expect((toolDiff.data as { diff: typeof diff }).diff[0]).toEqual(projectedDiff[0]);
-    expect(JSON.stringify({ detail, children, runs, listed, history, projectedDiff })).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(JSON.stringify({ detail, children, descriptors, runs, listed, history, projectedDiff })).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it('fails fast on an unknown card diff field', () => {

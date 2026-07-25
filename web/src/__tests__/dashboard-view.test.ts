@@ -4,7 +4,7 @@ import { ref } from 'vue';
 import source from '../views/DashboardView.vue?raw';
 import { useDashboardReadModel } from '../composables/useDashboardReadModel';
 import { useCardStore } from '../stores/cards';
-import { cardView } from './card-view-fixtures';
+import { hierarchyView } from './card-view-fixtures';
 
 describe('DashboardView S06 read-only contract', () => {
   it('exposes a route-owned root for browser smoke assertions', () => {
@@ -35,7 +35,7 @@ describe('DashboardView S06 read-only contract', () => {
     expect(source).toContain('data-testid="child-of-goal-list"');
     expect(source).toContain('useDashboardReadModel');
     expect(source).toContain('goalChildren');
-    expect(source).toContain('<StatusBadge :status="statusForCard(child.lifecycle.status)" />');
+    expect(source).toContain('<StatusBadge :status="statusForCard(child.status)" />');
     expect(source).not.toContain('cardsStore.childrenOf(displayedGoalId.value)');
 
     const panelSource = source.slice(source.indexOf('data-testid="dashboard-child-of-goal-panel"'));
@@ -48,8 +48,8 @@ describe('DashboardView S06 read-only contract', () => {
     const goalId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const firstId = `${goalId}-bbbbbbbbbbbbbbbbbbbbbbbbbbbb`;
     const secondId = `${goalId}-cccccccccccccccccccccccccccc`;
-    const goal = cardView(goalId, { type: 'goal', children: [secondId, firstId] });
-    cardsStore.hierarchySlicesByParentId = { [goalId]: { parent: goal, children: [cardView(secondId), cardView(firstId)] } };
+    const goal = hierarchyView(goalId, { type: 'goal' });
+    cardsStore.hierarchySlicesByParentId = { [goalId]: { parent: goal, children: [hierarchyView(secondId), hierarchyView(firstId)] } };
 
     const model = useDashboardReadModel({
       cardsStore,
