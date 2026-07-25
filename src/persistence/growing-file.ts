@@ -87,6 +87,15 @@ export function parseGrowingFile<Row>(path: string, content: string, rowSchema: 
   return rows;
 }
 
+function parseGrowingFileBytes<Row>(path: string, bytes: Buffer, rowSchema: z.ZodType<Row>): Row[] {
+  let content: string;
+  try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch (error) {
+    throw new Error(`Growing file '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
+  return parseGrowingFile(path, content, rowSchema);
+}
+
 function readAt(io: CanonicalGrowingFileReadIo, descriptor: number, position: number, length: number): Buffer {
   const buffer = Buffer.allocUnsafe(length);
   const bytesRead = io.read(descriptor, buffer, 0, length, position);
@@ -323,11 +332,11 @@ export function readCanonicalGrowingFileSnapshot<Row>(
       final = io.stat(descriptor);
       close();
     } catch { throw new PublicationOutcomeUnknownError(); }
-    const rows = parseGrowingFile(path, bytes.toString('utf8'), rowSchema);
+    const rows = parseGrowingFileBytes(path, bytes, rowSchema);
     return Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() });
   }
   try {
-    const rows = parseGrowingFile(path, bytes.toString('utf8'), rowSchema);
+    const rows = parseGrowingFileBytes(path, bytes, rowSchema);
     const final = io.stat(descriptor);
     close();
     return Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() });

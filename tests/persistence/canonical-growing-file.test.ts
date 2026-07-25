@@ -33,6 +33,26 @@ describe('canonical growing-file interrupted suffix handling', () => {
     expect(readFileSync(path, 'utf8')).toBe(malformed);
   });
 
+  it('leaves complete invalid UTF-8 present and fails with the canonical path', () => {
+    const invalid = Buffer.concat([
+      Buffer.from('{"version":1,"type":"rows","rows":[{"id":"'),
+      Buffer.from([0xff]),
+      Buffer.from('"}]}\n'),
+    ]);
+    writeFileSync(path, invalid);
+
+    expect(() => readCanonicalGrowingFile(path, z.object({ id: z.string() }).strict())).toThrow(`Growing file '${path}' is malformed`);
+    expect(readFileSync(path)).toEqual(invalid);
+  });
+
+  it('truncates invalid UTF-8 confined to the unterminated final suffix before decoding', () => {
+    const complete = Buffer.from('{"version":1,"type":"rows","rows":[{"id":"one"}]}\n');
+    writeFileSync(path, Buffer.concat([complete, Buffer.from([0x7b, 0xff, 0x7d])]));
+
+    expect(readCanonicalGrowingFile(path, z.object({ id: z.string() }).strict())).toEqual([{ id: 'one' }]);
+    expect(readFileSync(path)).toEqual(complete);
+  });
+
   it('keeps read, truncation, validation, and final metadata bound to the opened descriptor', () => {
     const complete = '{"version":1,"type":"rows","rows":[{"id":"opened"}]}\n';
     const replacement = '{"version":1,"type":"rows","rows":[{"id":"replacement"}]}\n';

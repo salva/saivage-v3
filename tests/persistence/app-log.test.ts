@@ -63,12 +63,43 @@ describe('strict app-log publication', () => {
     expect(readFileSync(path)).toEqual(canonical);
   });
 
-  it('appends after complete malformed data without reading or retrying and preserves strict read failure', () => {
+  it('removes an interrupted invalid-byte suffix before appending the next envelope', () => {
+    const projectRoot = root(); const first = event('first'); append(projectRoot, first);
+    const path = appLogFile(projectRoot); const firstBytes = readFileSync(path);
+    writeFileSync(path, Buffer.concat([firstBytes, Buffer.from([0x7b, 0xff, 0x7d])]));
+    const second = event('second', '2026-07-20T00:00:01.000Z');
+
+    expect(append(projectRoot, second)).toEqual(second);
+    expect(readAppLogEntries(projectRoot, 'event').map((entry) => entry.data.id)).toEqual(['first', 'second']);
+    expect(readFileSync(path)).toEqual(Buffer.concat([
+      serializeGrowingEnvelope([first], appLogEntrySchema),
+      serializeGrowingEnvelope([second], appLogEntrySchema),
+    ]));
+  });
+
+  it('fails before appending to complete malformed data and leaves the bytes unchanged', () => {
     const projectRoot = root(); append(projectRoot, event('first'));
     const path = appLogFile(projectRoot); writeFileSync(path, Buffer.concat([readFileSync(path), Buffer.from('{complete malformed}\n')]));
     const before = readFileSync(path); const later = event('later', '2026-07-20T00:00:01.000Z');
-    expect(append(projectRoot, later)).toEqual(later);
-    expect(readFileSync(path)).toEqual(Buffer.concat([before, serializeGrowingEnvelope([later], appLogEntrySchema)]));
-    expect(() => readAppLogEntries(projectRoot)).toThrow(/malformed/);
+    expect(() => append(projectRoot, later)).toThrow(/malformed/);
+    expect(readFileSync(path)).toEqual(before);
+  });
+
+  it('fails before appending to a complete invalid-UTF-8 envelope and leaves the bytes unchanged', () => {
+    const projectRoot = root(); append(projectRoot, event('first'));
+    const path = appLogFile(projectRoot);
+    const validEnvelope = serializeGrowingEnvelope([event('invalid-marker', '2026-07-20T00:00:01.000Z')], appLogEntrySchema);
+    const marker = Buffer.from('invalid-marker');
+    const markerOffset = validEnvelope.indexOf(marker);
+    const invalidEnvelope = Buffer.concat([
+      validEnvelope.subarray(0, markerOffset),
+      Buffer.from([0xff]),
+      validEnvelope.subarray(markerOffset + marker.byteLength),
+    ]);
+    writeFileSync(path, Buffer.concat([readFileSync(path), invalidEnvelope]));
+    const before = readFileSync(path);
+
+    expect(() => append(projectRoot, event('later', '2026-07-20T00:00:02.000Z'))).toThrow(/malformed/);
+    expect(readFileSync(path)).toEqual(before);
   });
 });

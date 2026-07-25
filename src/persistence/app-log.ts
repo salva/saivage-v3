@@ -44,6 +44,11 @@ export function appendAppLogEntry<T extends AppLogEntryType>(
     const prepared = prepareGrowingEnvelope([candidate], appLogEntrySchema);
     const parsed = prepared.rows[0] as AppLogEntryOfType<T>;
     const path = appLogFile(projectRoot);
+    try { readCanonicalGrowingFile(path, appLogEntrySchema); }
+    catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
     const result = appendEnvelope(path, prepared.bytes);
   switch (result.kind) {
       case 'appended': return parsed;
