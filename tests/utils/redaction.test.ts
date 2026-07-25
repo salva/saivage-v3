@@ -17,8 +17,6 @@ describe('outbound redaction', () => {
       'card-diff',
       'config',
       'process-view',
-      'webfetch-invocation',
-      'webfetch-result',
       'tool-invocation',
       'ws-envelope',
       'mcp-tools',

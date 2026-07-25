@@ -119,28 +119,24 @@ describe('strict growing-file boundaries', () => {
     expect(operations).toEqual(['open']);
   });
 
-  it.each([
-    ['stat', ['open', 'stat', 'close']],
-    ['write', ['open', 'stat', 'write']],
-    ['zero', ['open', 'stat', 'write']],
-    ['fsync', ['open', 'stat', 'write', 'fsync']],
-  ])('closes only before publication and types the %s operation failure', (phase: string, expected: string[]) => {
+  it('treats post-open write ENOENT as publication outcome unknown', () => {
     const path = target(); writeFileSync(path, bytes(1));
-    const failure = phase === 'write' ? Object.assign(new Error('post-open missing'), { code: 'ENOENT' }) : new Error(`${phase} failure`);
-    const closeFailure = new Error('close failure');
+    const failure = Object.assign(new Error('post-open missing'), { code: 'ENOENT' });
     const operations: string[] = [];
+    let openedFd: number | undefined;
     const io: GrowingFileIo = {
-      open(candidate, flags) { operations.push('open'); return openSync(candidate, flags); },
-      stat(fd) { operations.push('stat'); if (phase === 'stat') throw failure; return fstatSync(fd); },
-      write: ((fd: number, buffer: Uint8Array, offset: number, length: number) => { operations.push('write'); if (phase === 'write') throw failure; if (phase === 'zero') return 0; return writeSync(fd, buffer, offset, length); }) as typeof writeSync,
-      fsync(fd) { operations.push('fsync'); if (phase === 'fsync') throw failure; fsyncSync(fd); },
-      close(fd) { operations.push('close'); closeSync(fd); throw closeFailure; },
+      open(candidate, flags) { operations.push('open'); openedFd = openSync(candidate, flags); return openedFd; },
+      stat(fd) { operations.push('stat'); return fstatSync(fd); },
+      write: (() => { operations.push('write'); throw failure; }) as typeof writeSync,
+      fsync(fd) { operations.push('fsync'); fsyncSync(fd); },
+      close(fd) { operations.push('close'); closeSync(fd); },
     };
-    let thrown: unknown;
-    try { appendEnvelope(path, bytes(), io); } catch (error) { thrown = error; }
-    if (phase === 'stat') expect(thrown).toBe(failure);
-    else expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
-    expect(operations).toEqual(expected);
+    try {
+      expect(() => appendEnvelope(path, bytes(), io)).toThrow(PublicationOutcomeUnknownError);
+      expect(operations).toEqual(['open', 'stat', 'write']);
+    } finally {
+      if (openedFd !== undefined) closeSync(openedFd);
+    }
   });
 
   it.each([

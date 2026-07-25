@@ -18,11 +18,6 @@ import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
 import type { ProcessOutboundValue } from '../application/read-models/process-outbound.js';
 import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';
-import type { WebfetchInvocation, WebfetchResult } from '../contracts/webfetch.js';
-import {
-  projectWebfetchInvocationForOutbound,
-  projectWebfetchResultForOutbound,
-} from '../tools/webfetch-outbound.js';
 import type { ToolInvocationProjectionInput } from '../contracts/tool-invocation-projection.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
 import type { KnownWsEnvelopeWithClassifiedToolActivity } from '../contracts/operator-events.js';
@@ -46,8 +41,6 @@ export type OutboundRedactionRequest =
   | { source: 'card-diff'; value: CardDiffEntry[] }
   | { source: 'config'; value: SaivageConfig }
   | { source: 'process-view'; value: ProcessOutboundValue }
-  | { source: 'webfetch-invocation'; value: WebfetchInvocation }
-  | { source: 'webfetch-result'; value: WebfetchResult }
   | { source: 'tool-invocation'; value: ToolInvocationProjectionInput }
   | { source: 'ws-envelope'; value: KnownWsEnvelopeWithClassifiedToolActivity }
   | { source: 'mcp-tools'; value: InternalMcpToolsReadModel }
@@ -69,17 +62,13 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> = 
                 ? SaivageConfig
                 : Request extends { source: 'process-view'; value: infer Value }
                   ? Value
-                  : Request extends { source: 'webfetch-invocation' }
-                    ? WebfetchInvocation
-                    : Request extends { source: 'webfetch-result' }
-                      ? WebfetchResult
-                      : Request extends { source: 'tool-invocation' }
-                        ? ToolInvocationProjectionInput
-                        : Request extends { source: 'ws-envelope' }
-                          ? KnownWsEnvelopeWithClassifiedToolActivity
-                          : Request extends { source: 'mcp-tools' }
-                              ? McpToolsResponse
-                              : unknown;
+                  : Request extends { source: 'tool-invocation' }
+                    ? ToolInvocationProjectionInput
+                    : Request extends { source: 'ws-envelope' }
+                      ? KnownWsEnvelopeWithClassifiedToolActivity
+                      : Request extends { source: 'mcp-tools' }
+                          ? McpToolsResponse
+                          : unknown;
 
 type ExactOutboundRedactionRequest<Request extends OutboundRedactionRequest> = Request &
   Record<
@@ -95,8 +84,6 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'card-diff',
   'config',
   'process-view',
-  'webfetch-invocation',
-  'webfetch-result',
   'tool-invocation',
   'ws-envelope',
   'mcp-tools',
@@ -122,10 +109,6 @@ export function redactForOutbound(input: OutboundRedactionRequest): unknown {
       return projectEffectiveConfigForOutbound(input.value);
     case 'process-view':
       return projectProcessForOutbound(input.value);
-    case 'webfetch-invocation':
-      return projectWebfetchInvocationForOutbound(input.value);
-    case 'webfetch-result':
-      return projectWebfetchResultForOutbound(input.value);
     case 'tool-invocation':
       return projectToolInvocation(input.value);
     case 'ws-envelope':

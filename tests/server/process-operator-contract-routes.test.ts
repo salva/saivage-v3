@@ -9,7 +9,7 @@ import { registerOperatorContractRoutes } from '../../src/server/routes/operator
 import { initProjectTree, testConfigAuthority, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
-import { ProcessLogRefsSchema } from '../../src/contracts/operator-api-processes.js';
+import { ProcessLogRefsSchema, ProcessViewSchema } from '../../src/contracts/operator-api-processes.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { processesOperatorApiContracts } from '../../src/contracts/operator-api-processes.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
@@ -59,6 +59,8 @@ describe('contract-backed process routes', () => {
           },
         })],
       });
+      const view = list.json().processes[0];
+      expect(ProcessViewSchema.safeParse({ ...view, unexpected: true }).success).toBe(false);
 
       expect((await fastify.inject({ method: 'GET', url: `/api/processes/${record.id}` })).statusCode).toBe(404);
     } finally {

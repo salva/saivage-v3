@@ -22,7 +22,7 @@ import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createEventLog } from '../../src/observability/index.js';
-import { TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
+import { initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
@@ -66,7 +66,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
         .session_id,
     ).toBe(id);
     expect(
-      AgentLlmExchangeResponseSchema.parse({ sessionId: id, exchange: exchange() }).sessionId,
+      AgentLlmExchangeResponseSchema.parse({ session_id: id, exchange: exchange() }).session_id,
     ).toBe(id);
   });
 
@@ -105,9 +105,33 @@ describe('operator Agent exact identity contracts and handlers', () => {
       }).success,
     ).toBe(false);
     expect(
-      AgentLlmExchangeResponseSchema.safeParse({ sessionId: 'analyst:test', exchange: exchange() })
+      AgentLlmExchangeResponseSchema.safeParse({ session_id: 'analyst:test', exchange: exchange() })
         .success,
     ).toBe(false);
+    expect(
+      AgentLlmExchangeResponseSchema.safeParse({
+        sessionId: 'agent:planner:project',
+        exchange: exchange(),
+      }).success,
+    ).toBe(false);
+  });
+
+  it('returns the exact contract-valid card-not-found body for absent card membership', async () => {
+    const root = projectRoot();
+    initProjectTree(root);
+    const handlers = buildAgentOperatorContractHandlers({
+      projectRoot: root,
+      workflows: TEST_RUNTIME_WORKFLOWS,
+    });
+
+    const result = await handlers['agents.cardSessions']!({ params: { id: 'card-a' } } as never);
+
+    expect(result).toEqual({
+      statusCode: 404,
+      body: { error: 'Card not found', cardId: 'card-a' },
+    });
+    expect(agentOperatorApiContracts['agents.cardSessions'].response[404].parse(result.body))
+      .toEqual(result.body);
   });
 
   it.each(invalid)(
@@ -173,7 +197,11 @@ describe('operator Agent exact identity contracts and handlers', () => {
       for (const identity of operatorStructuralIdentities[status])
         expect(serialized).toContain(identity);
       expect(serialized).toContain('[REDACTED]');
-      expect(response.sessionId).toBe('agent:planner:project');
+      expect(result.body).toEqual({
+        session_id: 'agent:planner:project',
+        exchange: response.exchange,
+      });
+      expect(response.session_id).toBe('agent:planner:project');
       expect(response.exchange.source_input_id).toBe('operator-source-identity');
       expect(response.exchange.started_at).toBe(timestamp);
       expect(response.exchange.completed_at).toBe('2026-07-17T00:00:01.000Z');

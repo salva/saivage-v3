@@ -21,7 +21,6 @@ export interface ToolDefinition<Args = unknown> {
 
 export type ToolProviderCleanupReason =
   | { kind: 'activation_settled'; status: 'done' | 'blocked' | 'failed' | 'cancelled' }
-  | { kind: 'publication_terminal'; error: Error }
   | { kind: 'session_closed' }
   | { kind: 'runtime_shutdown' };
 

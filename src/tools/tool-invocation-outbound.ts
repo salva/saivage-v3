@@ -20,10 +20,9 @@ import {
   type ToolInvocationProjectionInput,
 } from '../contracts/tool-invocation-projection.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
-import { redactTextForOutbound } from '../redaction/text.js';
+import { redactTextForOutbound, redactUrl } from '../redaction/text.js';
 import { projectMcpToolCallArgumentsForOutbound } from './mcp-invocation-outbound.js';
 import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
-import { projectWebfetchInvocationForOutbound } from './webfetch-outbound.js';
 
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();
 
@@ -126,8 +125,10 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
       return { ...input, command: redactTextForOutbound(input['command'] as string) };
     case 'websearch':
       return { ...input, query: redactTextForOutbound(input['query'] as string) };
-    case 'webfetch':
-      return projectWebfetchInvocationForOutbound(inputSchemaFor(toolName).parse(input));
+    case 'webfetch': {
+      const invocation = WebfetchInvocationSchema.parse(input);
+      return WebfetchInvocationSchema.parse({ ...invocation, url: redactUrl(invocation.url) });
+    }
     case 'mcp_tool_call':
       return projectMcpToolCallArgumentsForOutbound(McpToolCallArgumentsSchema.parse(input));
     case 'emit_result':

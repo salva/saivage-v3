@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import WebSocket from 'ws';
+import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 
 const analystSessionId = 'agent:analyst:global';
 const analystSessionPath = encodeURIComponent(analystSessionId);
@@ -98,7 +99,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     }
   });
 
-  test('GET /api/agents/:id/llm-exchange returns the latest captured exchange', async ({ request }) => {
+  test('GET /api/agents/:id/llm-exchange returns the latest provider exchange', async ({ request }) => {
     const res = await request.get(`/api/agents/${analystSessionPath}/llm-exchange`);
     if (res.status() === 404) {
       const body = await res.json();
@@ -107,9 +108,26 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     }
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.exchange.sessionId).toBe(analystSessionId);
-    expect(typeof body.exchange.capturedAt).toBe('string');
-    expect(Array.isArray(body.exchange.attempts)).toBe(true);
+    const parsed = parseOperatorResponse('agents.llmExchange', body);
+    expect(body.session_id).toBe(analystSessionId);
+    expect(typeof parsed.exchange.contract_id).toBe('string');
+    expect(typeof parsed.exchange.contract_name).toBe('string');
+    expect(typeof parsed.exchange.transport).toBe('string');
+    expect(typeof parsed.exchange.provider).toBe('string');
+    expect(typeof parsed.exchange.model).toBe('string');
+    expect(typeof parsed.exchange.source_input_id).toBe('string');
+    expect(typeof parsed.exchange.attempt_index).toBe('number');
+    expect(typeof parsed.exchange.request_params).toBe('object');
+    expect(typeof parsed.exchange.started_at).toBe('string');
+    expect(typeof parsed.exchange.completed_at).toBe('string');
+    expect(['ok', 'error']).toContain(parsed.exchange.status);
+    expect(['string', 'object']).toContain(typeof parsed.exchange.terminal_tool_fired);
+    if (parsed.exchange.status === 'ok') {
+      expect(Array.isArray(parsed.exchange.assistant_output_ids)).toBe(true);
+    } else {
+      expect(typeof parsed.exchange.error.name).toBe('string');
+      expect(typeof parsed.exchange.error.message).toBe('string');
+    }
   });
 
   test('GET /api/cards/:id returns the card envelope', async ({ request }) => {

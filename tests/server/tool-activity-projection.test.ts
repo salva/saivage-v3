@@ -21,16 +21,20 @@ describe('tool activity projection', () => {
     expect((projected.result as { data: Record<string, unknown> }).data).toEqual(expect.objectContaining({ process_id: 'proc-1', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 1, stderr_bytes: 0 }));
   });
 
-  it('projects webfetch stash_url without stash_path', () => {
+  it('projects webfetch URL options and opaque result data through the generic invocation owner', () => {
     const projected = projectAnalystToolInvocationActivity({
       tool: 'webfetch',
-      params: { url: 'https://example.test' },
-      result: { success: true, data: { redacted_url: 'https://example.test/', status: 200, headers: {}, bytes: 123, truncated: true, stash_url: 'work:///tmp/stash/webfetch.txt' } },
+      params: { url: `https://example.test/path?token=${OUTBOUND_RAW_MARKER}#fragment`, read_mode: 'text', max_bytes: 123 },
+      result: { success: true, data: { redacted_url: 'https://example.test/path?[REDACTED]', status: 200, headers: {}, bytes: 123, truncated: true, stash_url: 'work:///tmp/stash/webfetch.txt', command: `token=${OUTBOUND_RAW_MARKER}` } },
       ...IDENTITY,
     },'agent:analyst:global');
 
-    expect((projected.result as { data: Record<string, unknown> }).data.stash_url).toBe('work:///tmp/stash/webfetch.txt');
-    expect((projected.result as { data: Record<string, unknown> }).data).not.toHaveProperty('stash_path');
+    expect(projected.params).toEqual({ url: 'https://example.test/path?[REDACTED]', read_mode: 'text', max_bytes: 123 });
+    expect((projected.result as { data: Record<string, unknown> }).data).toEqual(expect.objectContaining({
+      stash_url: 'work:///tmp/stash/webfetch.txt',
+      command: 'token=[REDACTED]',
+    }));
+    expect(JSON.stringify(projected)).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it.each([

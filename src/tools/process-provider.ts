@@ -7,7 +7,7 @@ import { redactForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
-import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
+import { defineTool, type ToolProvider, type ToolProviderCleanupReason, type ToolResult } from './invocation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface ProcessProviderContext {
@@ -118,15 +118,19 @@ function processResult(ctx: ProcessProviderContext, processId: string): ProcessT
   } });
 }
 
+function cleanupReasonLabel(reason: ToolProviderCleanupReason): string {
+  switch (reason.kind) {
+    case 'activation_settled': return `activation settled: ${reason.status}`;
+    case 'session_closed': return 'session closed';
+    case 'runtime_shutdown': return 'runtime shutdown';
+  }
+}
+
 export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider {
   return {
     providerName: 'process',
     async cleanup(reason) {
-      const label = reason.kind === 'activation_settled'
-        ? `activation settled: ${reason.status}`
-        : reason.kind === 'session_closed'
-          ? 'session closed'
-          : 'runtime shutdown';
+      const label = cleanupReasonLabel(reason);
       const report = await ctx.processRunner.closeAndTerminateDirectScope({ directScope: ctx.directScope, category: ctx.category, reason: label, graceMs: 5000 });
       if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
     },

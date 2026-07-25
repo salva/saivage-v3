@@ -51,7 +51,7 @@ export const ProcessViewSchema = z.object({
   command: z.string(),
   cwd: z.string().nullable(),
   logs: ProcessLogRefsSchema,
-});
+}).strict();
 
 export const ProcessToolResultSchema = z.object({
   process_id: z.string().min(1),

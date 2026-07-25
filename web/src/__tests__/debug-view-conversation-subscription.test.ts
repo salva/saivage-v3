@@ -117,7 +117,7 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
       conversation(id),
     );
     api.getAgentLlmExchange.mockImplementation(async (sessionId: ConversationSessionId) => ({
-      sessionId,
+      session_id: sessionId,
       exchange: null,
     }));
     api.listAgentSessions.mockResolvedValue({ sessions: [] });

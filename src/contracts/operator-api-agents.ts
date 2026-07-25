@@ -16,6 +16,7 @@ import {
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
+import { CardNotFoundErrorSchema } from './operator-api-runtime-cards.js';
 
 export const AgentSessionParamsSchema = z.object({ id: ConversationSessionIdSchema }).strict();
 export const AgentConversationParamsSchema = AgentSessionParamsSchema;
@@ -105,7 +106,7 @@ export const AgentConversationResponseSchema = z
   });
 export const AgentLlmExchangeResponseSchema = z
   .object({
-    sessionId: ConversationSessionIdSchema,
+    session_id: ConversationSessionIdSchema,
     exchange: providerExchangePayloadSchema,
   })
   .strict();
@@ -161,13 +162,13 @@ export const agentOperatorApiContracts = {
     path: '/api/cards/:id/agent-sessions',
     params: CardAgentSessionsParamsSchema,
     success: CardAgentSessionsResponseSchema,
-    error: ApiErrorSchema,
+    error: CardNotFoundErrorSchema,
     response: {
       200: CardAgentSessionsResponseSchema,
       400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
       403: ForbiddenErrorSchema,
-      404: ApiErrorSchema,
+      404: CardNotFoundErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     failureIdentity: { kind: 'card', parameter: 'id' },

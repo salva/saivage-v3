@@ -306,6 +306,18 @@ describe('operator API runtime contract without runtime ledgers', () => {
     }
   });
 
+  it('uses the exact card-not-found contract for card Agent sessions', () => {
+    const contract = operatorApiContracts['agents.cardSessions'];
+    const body = { error: 'Card not found', cardId: 'project' };
+    expect(contract.error).toBe(contractsModule.CardNotFoundErrorSchema);
+    expect(contract.response[404]).toBe(contractsModule.CardNotFoundErrorSchema);
+    expect(contract.response[404].parse(body)).toEqual(body);
+    for (const invalid of [
+      { error: 'missing' },
+      { error: 'Card not found', cardId: 'project', message: 'missing' },
+    ]) expect(contract.response[404].safeParse(invalid).success).toBe(false);
+  });
+
   it('accepts only current availability component sources', () => {
     expect(AvailabilityComponentSourceSchema.safeParse('runtime-application').success).toBe(true);
     expect(AvailabilityComponentSourceSchema.safeParse('runtime-state').success).toBe(false);

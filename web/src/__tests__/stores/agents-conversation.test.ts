@@ -121,7 +121,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     list.resolve({ sessions: [session] });
     detail.resolve({ session });
     transcript.resolve(conversation());
-    raw.resolve({ sessionId: S1, exchange });
+    raw.resolve({ session_id: S1, exchange });
     await Promise.all(requests);
     expect(store.currentSession).toEqual(session);
     expect(store.entries).toEqual([entry]);
@@ -277,7 +277,7 @@ describe('useAgentStore singular agent resource ownership', () => {
 
   it('retains accepted exchange state on a non-404 refresh failure', async () => {
     vi.mocked(getAgentLlmExchange)
-      .mockResolvedValueOnce({ sessionId: S1, exchange })
+      .mockResolvedValueOnce({ session_id: S1, exchange })
       .mockRejectedValueOnce(new ApiError(500, 'refresh failed', {}));
     const store = useAgentStore();
     const token = store.beginLlmExchangeSelection(S1);
@@ -295,7 +295,7 @@ describe('useAgentStore singular agent resource ownership', () => {
         oldSignal = signal;
         return oldRequest.promise;
       })
-      .mockResolvedValueOnce({ sessionId: S1, exchange: { provider: 'new' } as any });
+      .mockResolvedValueOnce({ session_id: S1, exchange: { provider: 'new' } as any });
     const store = useAgentStore();
     const oldToken = store.beginLlmExchangeSelection(S1);
     const oldFetch = store.fetchLlmExchange(oldToken);
@@ -304,7 +304,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(oldSignal?.aborted).toBe(true);
     await store.fetchLlmExchange(newToken);
     store.clearLlmExchange(oldToken);
-    oldRequest.resolve({ sessionId: S1, exchange: { provider: 'old' } });
+    oldRequest.resolve({ session_id: S1, exchange: { provider: 'old' } });
     await oldFetch;
     expect(store.currentLlmExchange).toEqual({ provider: 'new' });
   });

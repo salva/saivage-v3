@@ -50,7 +50,14 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   wait_process: { process_id: 'tok_primary', timeout_ms: 1 },
   kill_process: { process_id: 'tok_primary' },
   websearch: { query: marker, max_results: 1 },
-  webfetch: { url: OUTBOUND_URL, read_mode: 'text' },
+  webfetch: {
+    url: OUTBOUND_URL,
+    read_mode: 'text',
+    metadata_only: false,
+    max_bytes: 123,
+    max_inline_bytes: 45,
+    save_as: 'record:///brief.md?card=tok_primary&v=next',
+  },
   skill: { name: 'tok_primary' },
   mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
   edit_card: { card_id: 'card-a', title: marker, tags: ['tok_primary'] },
@@ -86,7 +93,14 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     expect(JSON.stringify(complete('create_card').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(JSON.stringify(complete('write').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(JSON.stringify(complete('run_command').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
-    expect(complete('webfetch').arguments).toEqual({ url: OUTBOUND_REDACTED_URL, read_mode: 'text' });
+    expect(complete('webfetch').arguments).toEqual({
+      url: OUTBOUND_REDACTED_URL,
+      read_mode: 'text',
+      metadata_only: false,
+      max_bytes: 123,
+      max_inline_bytes: 45,
+      save_as: 'record:///brief.md?card=tok_primary&v=next',
+    });
     expect(complete('mcp_tool_call').arguments).toEqual({ serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: '[REDACTED]', identity: 'stable_value' } });
     expect(complete('emit_result').arguments).toMatchObject({ outcome: 'tok_primary' });
     expect(JSON.stringify(complete('emit_result').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
@@ -123,8 +137,9 @@ describe('projectToolInvocation exhaustive identity switch', () => {
   it('projects every result as opaque data and invents neither calls nor arguments', () => {
     const webfetch = projectToolInvocation({
       shape: 'result-row', identity: identity('webfetch'),
-      result: { success: true, data: { redacted_url: 'https://tok_primary.example/path?[REDACTED]', status: 200, headers: { etag: 'tok_primary' }, text: marker, bytes: 42, truncated: false } },
+      result: { success: true, data: { redacted_url: 'https://tok_primary.example/path?[REDACTED]', status: 200, headers: { etag: 'tok_primary' }, text: marker, bytes: 42, truncated: false, opaque_extension: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } } },
     });
+    expect(webfetch).toMatchObject({ result: { success: true, data: { opaque_extension: { apiKey: '[REDACTED]', identity: 'stable_value' } } } });
     expect(JSON.stringify(webfetch)).not.toContain('synthetic-secret-value');
     expect(webfetch).not.toHaveProperty('arguments');
 

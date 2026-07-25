@@ -129,6 +129,24 @@ describe('operator chat route request contracts', () => {
       },
     },
     {
+      label: 'settled valid webfetch',
+      invocation: {
+        tool: 'webfetch',
+        params: {
+          url: `https://example.test/path?token=${OUTBOUND_RAW_MARKER}#fragment`,
+          read_mode: 'text',
+          metadata_only: false,
+          max_bytes: 123,
+          max_inline_bytes: 45,
+          save_as: 'record:///brief.md?card=card-a&v=next',
+        },
+        result: {
+          success: true as const,
+          data: { opaque_extension: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
+        },
+      },
+    },
+    {
       label: 'unsupported',
       invocation: {
         tool: 'unsupported_tok_primary',

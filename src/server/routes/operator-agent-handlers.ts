@@ -75,7 +75,7 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
           statusCode: 404,
           body: { error: 'No LLM exchange recorded for this session yet.' },
         };
-      return { body: { sessionId, exchange: projectProviderExchangeForOperator(exchange) } };
+      return { body: { session_id: sessionId, exchange: projectProviderExchangeForOperator(exchange) } };
     },
   });
 }

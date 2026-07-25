@@ -1,4 +1,4 @@
-import { describe, expect, it } from '@jest/globals';
+import { describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -39,6 +39,23 @@ function withRoot<T>(fn: (root: string) => Promise<T>): Promise<T> {
 }
 
 describe('process provider', () => {
+  it('labels every cleanup reason before terminating the direct scope', async () => withRoot(async (root) => {
+    const processes = createTestProcessRunner(root);
+    const directScope = processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, 'test:cleanup-labels', 'runtime_card');
+    const provider = createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope, category: 'runtime_card', ownerId: 'activation-1', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });
+    const terminate = jest.spyOn(processes.processRunner, 'closeAndTerminateDirectScope').mockResolvedValue({ selected: [], stopped: [], failed: [] });
+
+    await provider.cleanup?.({ kind: 'activation_settled', status: 'done' });
+    await provider.cleanup?.({ kind: 'session_closed' });
+    await provider.cleanup?.({ kind: 'runtime_shutdown' });
+
+    expect(terminate.mock.calls.map(([options]) => options)).toEqual([
+      { directScope, category: 'runtime_card', reason: 'activation settled: done', graceMs: 5000 },
+      { directScope, category: 'runtime_card', reason: 'session closed', graceMs: 5000 },
+      { directScope, category: 'runtime_card', reason: 'runtime shutdown', graceMs: 5000 },
+    ]);
+  }));
+
   it('segments only unfinished process waits and keeps background, inspection, terminal, and kill work active', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
