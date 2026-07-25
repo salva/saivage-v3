@@ -1,5 +1,10 @@
 # Saivage v3
 
+> **Want to try Saivage?** Launch your favorite AI agent and point it to
+> [README-IF-YOU-ARE-AN-AI.md](README-IF-YOU-ARE-AN-AI.md). It will guide you
+> through requirements, project specification, LXC setup, credentials, startup,
+> and verification while explaining each step as it proceeds.
+
 Saivage v3 is an autonomous multi-agent runtime for software-development work. A top-level planner decomposes goals into cards, executors perform scoped work, reviewers verify results, and the operator workspace projects cards, agents, files, strict app-log events/derived errors, runtime state, and read-only compiled workflow diagrams while the Analyst chat is the ordinary mutating user surface, with direct Dashboard **Stop project** and confirmed bearer-only **Restart server** as bounded exceptions. Debug > Errors—not Dashboard—is the durable command, activation, actionable, and runtime-error surface. Debug > Graphs shows one accessible effective startup workflow per card type; it is visualization only and never edits or reloads configuration.
 
 Configured planning and terminal workflows are genuine micro-actors. Startup compiles one immutable topology per family: lifecycle entries, configured nodes, and terminal sinks become states, while accepted outcomes become events and edges become transitions. Same-node edges are explicit external reentry. Node corrections remain hidden inside one state task. Promptless ordinary entries add no lifecycle message; STOPPED adds the discarded-position recovery statement and its configured prompt. Live state and zero-based node ordinal are transient only—there is no graph interpreter or durable cursor.
