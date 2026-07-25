@@ -54,7 +54,7 @@ function installOperatorApiFetch(): void {
       case '/api/events':
         return jsonResponse({ events: [], total: 0 });
       case '/api/mcp/tools':
-        return jsonResponse({ tools: [], servers: [], invocationStats: {}, serverDetails: [] });
+        return jsonResponse({ servers: [] });
       case '/api/chat':
         return jsonResponse({ session_id: 'agent:analyst:global' });
       default:
@@ -153,6 +153,16 @@ describe('operator dashboard S06 smoke contract', () => {
     expect(dashboardSource).not.toMatch(/NotificationsPanel|acknowledgeNotification/);
   });
 
+  it.each(['/dashboard', '/debug'])('%s makes no hidden Agent, event, or MCP request', async (path) => {
+    const router = createOperatorRouter(createMemoryHistory());
+    await router.push(path);
+    await router.isReady();
+    const wrapper = mount(App, { global: { plugins: [createPinia(), router] } });
+    await waitForRouteRender();
+    expect(requestedPaths).not.toEqual(expect.arrayContaining(['/api/agents', '/api/events', '/api/mcp/tools']));
+    wrapper.unmount();
+  });
+
   it('keeps the persistent analyst panel mounted by the shell with no drawer toggle', () => {
     expect(appShellSource).toContain('AnalystChatPanel');
     expect(appShellSource).toContain('workspace-content');
@@ -161,5 +171,11 @@ describe('operator dashboard S06 smoke contract', () => {
     expect(appShellSource).toMatch(/\.workspace-route-host\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*overflow:\s*auto;/s);
     expect(appShellSource).toMatch(/\.auth-banner\s*\{[^}]*flex-shrink:\s*0;/s);
     expect(appShellSource).not.toMatch(/drawer|toggleAnalyst|open analyst|close analyst/i);
+  });
+
+  it('keeps generic Files while removing the dead process-detail UI route', () => {
+    const names = createOperatorRouter(createMemoryHistory()).getRoutes().map((route) => route.name);
+    expect(names).toContain('files');
+    expect(names).not.toContain('process-detail');
   });
 });

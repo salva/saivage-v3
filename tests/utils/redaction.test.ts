@@ -13,7 +13,6 @@ describe('outbound redaction', () => {
       'provider-exchange',
       'logged-event',
       'control-action',
-      'runtime-card-runs',
       'card-history',
       'card-diff',
       'config',
@@ -22,7 +21,6 @@ describe('outbound redaction', () => {
       'webfetch-result',
       'tool-invocation',
       'ws-envelope',
-      'mcp-status',
       'mcp-tools',
       'dynamic',
     ]);

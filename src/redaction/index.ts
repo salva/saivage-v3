@@ -5,7 +5,6 @@ import type {
   CardHistoryEntry,
   CardHistoryHeader,
 } from '../schemas/index.js';
-import type { RuntimeCardRunsResponse } from '../contracts/index.js';
 import type { CardDiffEntry } from '../cards/card-service.js';
 import { projectProviderExchange } from '../agents/provider-exchange-outbound.js';
 import { projectLoggedEvent } from '../observability/logged-event-projection.js';
@@ -14,7 +13,6 @@ import { projectDynamicForOutbound } from './dynamic.js';
 import {
   projectCardDiff,
   projectCardHistory,
-  projectRuntimeCardRuns,
 } from '../application/read-models/card-outbound.js';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
@@ -30,12 +28,8 @@ import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
 import type { KnownWsEnvelopeWithClassifiedToolActivity } from '../contracts/operator-events.js';
 import { projectWsEnvelopeForOutbound } from './ws-envelope.js';
 import type { InternalMcpToolsReadModel } from '../mcp/status-projection.js';
-import {
-  projectMcpStatusForOutbound,
-  projectMcpToolsForOutbound,
-  type InternalMcpStatusResponse,
-} from '../mcp/mcp-outbound.js';
-import type { McpStatusResponse, McpToolsResponse } from '../contracts/operator-api-mcp.js';
+import { projectMcpToolsForOutbound } from '../mcp/mcp-outbound.js';
+import type { McpToolsResponse } from '../contracts/operator-api-mcp.js';
 
 export {
   SECRET_REDACTION_PLACEHOLDER,
@@ -48,7 +42,6 @@ export type OutboundRedactionRequest =
   | { source: 'provider-exchange'; value: ProviderExchangePayload }
   | { source: 'logged-event'; value: LoggedEvent }
   | { source: 'control-action'; value: ControlActionAuditEntry }
-  | { source: 'runtime-card-runs'; value: RuntimeCardRunsResponse }
   | { source: 'card-history'; value: CardHistoryHeader | CardHistoryEntry }
   | { source: 'card-diff'; value: CardDiffEntry[] }
   | { source: 'config'; value: SaivageConfig }
@@ -57,7 +50,6 @@ export type OutboundRedactionRequest =
   | { source: 'webfetch-result'; value: WebfetchResult }
   | { source: 'tool-invocation'; value: ToolInvocationProjectionInput }
   | { source: 'ws-envelope'; value: KnownWsEnvelopeWithClassifiedToolActivity }
-  | { source: 'mcp-status'; value: InternalMcpStatusResponse }
   | { source: 'mcp-tools'; value: InternalMcpToolsReadModel }
   | { source: 'dynamic'; value: unknown };
 
@@ -69,9 +61,7 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> = 
     ? LoggedEvent
     : Request extends { source: 'control-action' }
       ? ControlActionAuditEntry
-       : Request extends { source: 'runtime-card-runs' }
-          ? RuntimeCardRunsResponse
-          : Request extends { source: 'card-history'; value: infer Value }
+       : Request extends { source: 'card-history'; value: infer Value }
             ? Value
             : Request extends { source: 'card-diff' }
               ? CardDiffEntry[]
@@ -87,9 +77,7 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> = 
                         ? ToolInvocationProjectionInput
                         : Request extends { source: 'ws-envelope' }
                           ? KnownWsEnvelopeWithClassifiedToolActivity
-                          : Request extends { source: 'mcp-status' }
-                            ? McpStatusResponse
-                            : Request extends { source: 'mcp-tools' }
+                          : Request extends { source: 'mcp-tools' }
                               ? McpToolsResponse
                               : unknown;
 
@@ -103,7 +91,6 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'provider-exchange',
   'logged-event',
   'control-action',
-  'runtime-card-runs',
   'card-history',
   'card-diff',
   'config',
@@ -112,7 +99,6 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'webfetch-result',
   'tool-invocation',
   'ws-envelope',
-  'mcp-status',
   'mcp-tools',
   'dynamic',
 ] as const satisfies readonly OutboundRedactionRequest['source'][];
@@ -128,8 +114,6 @@ export function redactForOutbound(input: OutboundRedactionRequest): unknown {
       return projectLoggedEvent(input.value);
     case 'control-action':
       return projectControlAction(input.value);
-    case 'runtime-card-runs':
-      return projectRuntimeCardRuns(input.value);
     case 'card-history':
       return projectCardHistory(input.value);
     case 'card-diff':
@@ -146,8 +130,6 @@ export function redactForOutbound(input: OutboundRedactionRequest): unknown {
       return projectToolInvocation(input.value);
     case 'ws-envelope':
       return projectWsEnvelopeForOutbound(input.value);
-    case 'mcp-status':
-      return projectMcpStatusForOutbound(input.value);
     case 'mcp-tools':
       return projectMcpToolsForOutbound(input.value);
     case 'dynamic':

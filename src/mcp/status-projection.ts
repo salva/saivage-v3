@@ -3,10 +3,7 @@ import type { McpServerStatus as RuntimeMcpServerStatus, McpToolDefinition } fro
 import type { McpInvocationStat } from './invocation-stats.js';
 
 export interface InternalMcpToolsReadModel {
-  tools: McpToolDefinition[];
-  servers: string[];
-  invocationStats: Record<string, McpInvocationStat>;
-  serverDetails: Array<{
+  servers: Array<{
     name: string;
     transport: RuntimeMcpServerStatus['transport'];
     status: RuntimeMcpServerStatus['status'];
@@ -41,8 +38,6 @@ export function buildMcpServerStatus(input: {
 }
 
 export function buildMcpToolsReadModel(input: {
-  tools: McpToolDefinition[];
-  servers: string[];
   statuses: RuntimeMcpServerStatus[];
   getServerTools: (name: string) => McpToolDefinition[] | undefined;
   invocationStats: Record<string, McpInvocationStat>;
@@ -56,5 +51,5 @@ export function buildMcpToolsReadModel(input: {
     });
     return { name: status.name, transport: status.transport, status: status.status, toolCount: toolDefs.length, tools: toolList };
   });
-  return { tools: input.tools, servers: input.servers, invocationStats: input.invocationStats, serverDetails };
+  return { servers: serverDetails };
 }

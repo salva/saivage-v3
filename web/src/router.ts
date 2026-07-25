@@ -16,7 +16,6 @@ export const operatorRoutes: RouteRecordRaw[] = [
   { path: '/agents/:id', name: 'agent-detail', component: Agents },
   { path: '/files', name: 'files', component: Files },
   { path: '/debug', name: 'debug', component: Debug },
-  { path: '/debug/process/:id', name: 'process-detail', component: Debug },
   { path: '/config', name: 'config', component: Debug },
   { path: '/:pathMatch(.*)*', name: 'not-found', component: NotFound },
 ];

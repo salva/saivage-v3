@@ -12,7 +12,6 @@ import type {
   DoctorResponse,
   McpInvocationStat,
   McpStatusState,
-  McpToolDefinition,
   McpToolsResponse as ContractMcpToolsResponse,
   OperatorApiSuccess,
   RuntimeState as ContractRuntimeState,
@@ -37,7 +36,6 @@ export type {
   MessageRole,
   McpInvocationStat,
   McpStatusState,
-  McpToolDefinition,
   LiveSyncClientFrame,
   LiveSyncCardInvalidateFrame,
   LiveSyncCardInvalidateTarget,
@@ -70,9 +68,8 @@ export type ControlActionAuditEntry =
 
 export type DoctorCheck = DoctorResponse['checks'][number];
 export type DoctorIssue = DoctorResponse['issues'][number];
-export type ProcessView = OperatorApiSuccess<'processes.get'>['process'];
 export type ProcessListResponse = OperatorApiSuccess<'processes.list'>;
-export type ProcessDetailResponse = OperatorApiSuccess<'processes.get'>;
+export type ProcessView = ProcessListResponse['processes'][number];
 
 export type AgentSession = AgentSessionSummary;
 
@@ -91,10 +88,9 @@ export type DebugGraph = OperatorApiSuccess<'debug.graphs'>['graphs'][number];
 export type DebugGraphsResponse = OperatorApiSuccess<'debug.graphs'>;
 export type DebugTimelineEvent = OperatorApiSuccess<'events.list'>['events'][number];
 
-export type McpToolWithStats = ContractMcpToolsResponse['serverDetails'][number]['tools'][number];
-export type McpServerWithTools = ContractMcpToolsResponse['serverDetails'][number];
+export type McpToolWithStats = ContractMcpToolsResponse['servers'][number]['tools'][number];
+export type McpServerWithTools = ContractMcpToolsResponse['servers'][number];
 export type McpToolsResponse = OperatorApiSuccess<'mcp.tools'>;
-export type McpStatusResponse = OperatorApiSuccess<'mcp.status'>;
 
 export type WsConnectionState =
   | 'connected'

@@ -42,7 +42,9 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
     expect(source).toContain('effectiveAgentSessionId');
     expect(source).toContain(':key="`${effectiveAgentSessionId}:${selectedAgentDebugKind}`"');
     expect(debugStoreSource).not.toMatch(/listAgentSessions|getAgentConversation|getAgentLlmExchange/);
-    expect(debugStoreSource).toContain('fetchErrors(),');
-    expect(debugStoreSource).toContain('fetchTimeline(),');
+    expect(debugStoreSource).toContain('async function fetchErrors()');
+    expect(debugStoreSource).toContain('async function fetchTimeline()');
+    expect(debugStoreSource).not.toContain('refreshObservability');
+    expect(source).not.toContain('startPolling');
   });
 });

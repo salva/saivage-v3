@@ -127,21 +127,6 @@ export const RestartServerRequestSchema = z.object({ confirmation: z.literal('RE
 export const RestartServerResponseSchema = z.object({ status: z.literal('restart_scheduled') }).strict();
 export const RestartUnavailableErrorSchema = z.object({ code: z.literal('restart_unavailable'), message: z.literal('restart unavailable: operator authentication disabled') }).strict();
 
-export const RuntimeCardRunsResponseSchema = z.object({
-  current_card_id: cardIdSchema.nullable(),
-  active_breadcrumb: z.array(z.object({
-    card_id: cardIdSchema,
-    card_type: z.string(),
-    title: z.string(),
-    status_text: z.string().optional(),
-  }).strict()),
-  dormant_agents: z.array(z.object({
-    card_id: cardIdSchema,
-    agent_name:z.string().min(1),
-    session_id: z.string(),
-  }).strict()),
-}).strict();
-
 export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
 export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;
 export type RuntimeGetStateResponse = z.infer<typeof RuntimeGetStateResponseSchema>;
@@ -158,7 +143,6 @@ export type CardHistoryListResponse = z.infer<typeof CardHistoryListResponseSche
 export type CardHistoryEntryResponse = z.infer<typeof CardHistoryEntryResponseSchema>;
 export type CardDiffResponse = z.infer<typeof CardDiffResponseSchema>;
 export type RuntimeStatusResponse = z.infer<typeof RuntimeStatusResponseSchema>;
-export type RuntimeCardRunsResponse = z.infer<typeof RuntimeCardRunsResponseSchema>;
 
 
 export const runtimeCardsOperatorApiContracts = {
@@ -330,15 +314,5 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: RestartServerResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: RestartUnavailableErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'RestartServerResponse',
-  },
-  'runtime.cardRuns': {
-    operationId: 'runtime.cardRuns',
-    method: 'GET',
-    path: '/api/runtime/card-runs',
-    success: RuntimeCardRunsResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: RuntimeCardRunsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'RuntimeCardRunsResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ProcessViewSchema } from '../api/contracts';
-import type { ProcessDetailResponse, ProcessListResponse, ProcessView } from '../api/types';
+import type { ProcessListResponse, ProcessView } from '../api/types';
 
 describe('process contract alignment', () => {
   it('uses the shared process contract shape for web process DTOs', () => {
@@ -22,9 +22,7 @@ describe('process contract alignment', () => {
 
     const processView: ProcessView = parsed;
     const listResponse: ProcessListResponse = { processes: [processView] };
-    const detailResponse: ProcessDetailResponse = { process: processView };
-
-    expect(listResponse.processes[0]).toEqual(detailResponse.process);
-    expect(detailResponse.process.logs.stdout).toBe('work:///processes/proc-1/stdout.log');
+    expect(listResponse.processes[0]).toEqual(processView);
+    expect(processView.logs.stdout).toBe('work:///processes/proc-1/stdout.log');
   });
 });

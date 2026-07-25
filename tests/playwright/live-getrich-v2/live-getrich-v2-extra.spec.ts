@@ -75,14 +75,6 @@ test.describe('saivage-v3 live deployment — extra contract coverage', () => {
     }
   });
 
-  test('processes.get for an unknown id returns 404 with the processId echoed back', async ({ request }) => {
-    const res = await request.get('/api/processes/does-not-exist-xyz');
-    expect(res.status()).toBe(404);
-    const body = await res.json();
-    expect(body.processId).toBe('does-not-exist-xyz');
-    expect(typeof body.error).toBe('string');
-  });
-
   test('chats.send round-trip appends a user entry visible in the analyst transcript', async ({ request }) => {
     const before = await request.get(analystConversationPath);
     expect(before.status()).toBe(200);

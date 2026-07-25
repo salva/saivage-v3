@@ -393,31 +393,6 @@
               </div>
             </div>
           </section>
-          <section v-if="Object.keys(mcpStore.invocationStats).length > 0" class="debug-section">
-            <h4 class="debug-section-title">All Invocation Stats</h4>
-            <div class="mcp-stats-table">
-              <div class="mcp-stats-header">
-                <span class="mcp-stats-cell">Key</span>
-                <span class="mcp-stats-cell">Total</span>
-                <span class="mcp-stats-cell">Success</span>
-                <span class="mcp-stats-cell">Error</span>
-                <span class="mcp-stats-cell">Last</span>
-              </div>
-              <div
-                v-for="(stats, key) in mcpStore.invocationStats"
-                :key="key"
-                class="mcp-stats-row"
-              >
-                <span class="mcp-stats-cell mono">{{ key }}</span>
-                <span class="mcp-stats-cell">{{ stats.total }}</span>
-                <span class="mcp-stats-cell mcp-stat-success">{{ stats.success }}</span>
-                <span class="mcp-stats-cell mcp-stat-error">{{ stats.error }}</span>
-                <span class="mcp-stats-cell mcp-stat-time">{{
-                  stats.lastInvokedAt ? fmtDate(stats.lastInvokedAt) : '-'
-                }}</span>
-              </div>
-            </div>
-          </section>
         </div>
       </div>
 
@@ -664,7 +639,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
@@ -780,20 +755,13 @@ watch(graphs, (value) => {
 });
 
 const selectedProcessId = computed(() => {
-  if (route.name === 'process-detail' && typeof route.params.id === 'string')
-    return route.params.id;
   return typeof route.query.process === 'string' ? route.query.process : null;
 });
 
 watch(
   () => [route.name, route.query.tab, route.params.id] as const,
   () => {
-    const tabFromRoute =
-      route.name === 'process-detail'
-        ? 'processes'
-        : typeof route.query.tab === 'string'
-          ? route.query.tab
-          : 'state';
+    const tabFromRoute = typeof route.query.tab === 'string' ? route.query.tab : 'state';
     if (tabs.some((tab) => tab.id === tabFromRoute))
       setTabLocal(tabFromRoute as typeof localActiveTab.value);
   },
@@ -802,12 +770,6 @@ watch(
 
 function setTabLocal(tab: typeof localActiveTab.value): void {
   localActiveTab.value = tab;
-  if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
-  else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
-  else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
-  else if (tab === 'doctor') debugStore.fetchDoctor().catch(() => {});
-  else if (tab === 'graphs' && graphs.value === null) debugStore.fetchGraphs().catch(() => {});
-  else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
 }
 
 function setTab(tab: typeof localActiveTab.value): void {
@@ -839,9 +801,18 @@ function timelineKey(event: DebugTimelineItem): string {
   return event.id;
 }
 
-let unregisterTimeline: (() => void) | null = null;
-let unregisterProcesses: (() => void) | null = null;
 let unregisterAgents: (() => void) | null = null;
+watch(
+  localActiveTab,
+  (tab) => {
+    if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
+    else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
+    else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
+    else if (tab === 'graphs' && graphs.value === null) debugStore.fetchGraphs().catch(() => {});
+    else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
+  },
+  { immediate: true },
+);
 watch(
   localActiveTab,
   (tab) => {
@@ -855,28 +826,8 @@ watch(
   },
   { immediate: true },
 );
-onMounted(async () => {
-  unregisterTimeline = liveSyncStore.registerResource({
-    resource: 'timeline',
-    scope: 'active',
-    requestOwnership: 'sync-client',
-    refetch: debugStore.refetchTimeline,
-  });
-  unregisterProcesses = liveSyncStore.registerResource({
-    resource: 'processes',
-    scope: 'active',
-    requestOwnership: 'sync-client',
-    refetch: debugStore.refetchProcesses,
-  });
-  await debugStore.refreshObservability().catch(() => {});
-  mcpStore.fetchMcpData().catch(() => {});
-  mcpStore.startPolling(15000);
-});
 onUnmounted(() => {
-  unregisterTimeline?.();
-  unregisterProcesses?.();
   unregisterAgents?.();
-  mcpStore.stopPolling();
 });
 </script>
 

@@ -10,8 +10,6 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 
-export const ProcessIdParamsSchema = z.object({ id: z.string().min(1) });
-
 function isCanonicalProcessLogUrl(filename: string): (value: string | null) => boolean {
   return (value) => {
     if (value === null) return true;
@@ -66,16 +64,10 @@ export const ProcessToolResultSchema = z.object({
 }).strict();
 
 export const ProcessListResponseSchema = z.object({ processes: z.array(ProcessViewSchema) });
-export const ProcessDetailResponseSchema = z.object({ process: ProcessViewSchema });
-export const ProcessNotFoundErrorSchema = ApiErrorSchema.extend({
-  error: z.literal('Process not found'),
-  processId: z.string(),
-});
 
 export type ProcessView = z.infer<typeof ProcessViewSchema>;
 export type ProcessToolResult = z.infer<typeof ProcessToolResultSchema>;
 export type ProcessListResponse = z.infer<typeof ProcessListResponseSchema>;
-export type ProcessDetailResponse = z.infer<typeof ProcessDetailResponseSchema>;
 
 export const processesOperatorApiContracts = {
   'processes.list': {
@@ -87,16 +79,5 @@ export const processesOperatorApiContracts = {
     response: { 200: ProcessListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ProcessListResponse',
-  },
-  'processes.get': {
-    operationId: 'processes.get',
-    method: 'GET',
-    path: '/api/processes/:id',
-    params: ProcessIdParamsSchema,
-    success: ProcessDetailResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: ProcessDetailResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 404: ProcessNotFoundErrorSchema, 500: UnexpectedInternalServerErrorSchema },
-    ...operatorSessionContract,
-    successSchemaName: 'ProcessDetailResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

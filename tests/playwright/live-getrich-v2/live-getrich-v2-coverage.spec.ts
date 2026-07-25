@@ -43,24 +43,13 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     expect(Array.isArray(body.processes)).toBe(true);
   });
 
-  test('GET /api/mcp/status returns servers and serverAvailability', async ({ request }) => {
-    const res = await request.get('/api/mcp/status');
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(Array.isArray(body.servers)).toBe(true);
-    expect(typeof body.serverAvailability).toBe('object');
-    expect(typeof body.serverAvailability.components).toBe('object');
-  });
-
-  test('GET /api/mcp/tools returns a non-empty narrowed tool list', async ({ request }) => {
+  test('GET /api/mcp/tools returns the displayed server/tool hierarchy', async ({ request }) => {
     const res = await request.get('/api/mcp/tools');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(Array.isArray(body.tools)).toBe(true);
-    expect(body.tools.length).toBeGreaterThan(0);
-    const t = body.tools[0];
-    expect(typeof t.name).toBe('string');
-    expect(Object.keys(t)).toEqual(['name']);
+    expect(Array.isArray(body.servers)).toBe(true);
+    expect(body.servers.length).toBeGreaterThan(0);
+    expect(Array.isArray(body.servers[0].tools)).toBe(true);
   });
 
   test('GET /api/control-actions returns the control-actions audit list', async ({ request }) => {
@@ -83,16 +72,6 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     expect(res.status()).toBe(200);
     const body = await res.json();
     expect(typeof body).toBe('object');
-  });
-
-  test('GET /api/runtime/card-runs returns card-run plumbing snapshot', async ({ request }) => {
-    const res = await request.get('/api/runtime/card-runs');
-    expect(res.status()).toBe(200);
-    const body = await res.json();
-    expect(body).toHaveProperty('current_card_id');
-    expect(Array.isArray(body.active_breadcrumb)).toBe(true);
-    expect(Array.isArray(body.dormant_agents)).toBe(true);
-    expect(body).not.toHaveProperty('cards_with_pending_corrections');
   });
 
   test('GET /api/agents/:id returns the per-session envelope', async ({ request }) => {

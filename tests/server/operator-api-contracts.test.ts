@@ -153,15 +153,20 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const executionOrdinal of [-1, Number.MAX_SAFE_INTEGER + 1, 0.5]) expect(() => parseOperatorResponse('runtime.status', { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ ...base.actorRuntime.cards[0], processState: { ...base.actorRuntime.cards[0]!.processState, executionOrdinal } }] } })).toThrow();
   });
 
-  it('accepts the exact runtime card-runs contract', () => {
-    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_agents: [] };
-    expect(parseOperatorResponse('runtime.cardRuns', response)).toEqual(response);
-    expect(() => parseOperatorResponse('runtime.cardRuns', { ...response, active_card_run: null })).toThrow();
-  });
-
-  it('rejects removed cards_with_pending_corrections from runtime card-runs', () => {
-    const response = { current_card_id: 'project', active_breadcrumb: [], dormant_agents: [] };
-    expect(() => parseOperatorResponse('runtime.cardRuns', { ...response, cards_with_pending_corrections: [] })).toThrow();
+  it('removes audited dead operator routes and their public schema exports', () => {
+    for (const operationId of ['runtime.cardRuns', 'processes.get', 'mcp.status']) {
+      expect(operatorApiContracts).not.toHaveProperty(operationId);
+    }
+    const paths = operatorRouteInventory().map(({ path }) => path);
+    expect(paths).not.toEqual(expect.arrayContaining([
+      '/api/runtime/card-runs',
+      '/api/processes/:id',
+      '/api/mcp/status',
+    ]));
+    for (const schema of ['RuntimeCardRunsResponseSchema', 'ProcessDetailResponseSchema', 'McpStatusResponseSchema']) {
+      expect(operatorApiModule).not.toHaveProperty(schema);
+      expect(contractsModule).not.toHaveProperty(schema);
+    }
   });
 
   it('retains concrete runtime response schemas without a runtime summary contract', () => {

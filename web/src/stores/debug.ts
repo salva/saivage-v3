@@ -170,31 +170,6 @@ export const useDebugStore = defineStore('debug', () => {
     }
   }
 
-  async function refreshObservability(): Promise<void> {
-    loading.value = true;
-    error.value = null;
-
-    const results = await Promise.allSettled([
-      fetchErrors(),
-      fetchTimeline(),
-    ]);
-
-    const failures = results
-      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
-      .map((result) => (result.reason instanceof ApiError ? result.reason.message : 'Failed to fetch debug data'));
-
-    if (failures.length > 0) {
-      error.value = failures.length >= 2 ? 'Failed to fetch debug data' : failures.join('; ');
-      loading.value = false;
-      throw results.find((result): result is PromiseRejectedResult => result.status === 'rejected')!.reason;
-    }
-
-    loading.value = false;
-  }
-
-  const refetchTimeline = refreshObservability;
-  const refetchProcesses = fetchProcesses;
-
   return {
     errors: readonly(projectedErrors),
     errorsTotal: readonly(computed(() => projectedErrors.value.length)),
@@ -220,10 +195,7 @@ export const useDebugStore = defineStore('debug', () => {
     fetchErrors,
     fetchTimeline,
     fetchProcesses,
-    refetchTimeline,
-    refetchProcesses,
     fetchDoctor,
     fetchGraphs,
-    refreshObservability,
   };
 });

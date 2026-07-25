@@ -1,8 +1,4 @@
-import {
-  buildCardRunsResponse,
-  buildRuntimeStatusReadModel,
-  CardsReadModelService,
-} from '../../application/read-models/index.js';
+import { buildRuntimeStatusReadModel, CardsReadModelService } from '../../application/read-models/index.js';
 import type { OperatorApiHandlerResult } from '../../contracts/index.js';
 import type {
   OperatorAvailabilityContext,
@@ -86,10 +82,6 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       restartPort.schedule();
       reply.raw.once('finish', () => { void restartPort.acknowledge(); });
       return { body: { status: 'restart_scheduled' } };
-    },
-    'runtime.cardRuns': () => {
-      if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime card runs.');
-      return { body: buildCardRunsResponse(projectRoot, requireCardService(options.cardStore), options.runtimeApplication.runtimeApi) };
     },
   });
 }

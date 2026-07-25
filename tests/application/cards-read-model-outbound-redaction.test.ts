@@ -4,9 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
-import { buildCardRunsResponse } from '../../src/application/read-models/runtime-card-runs-read-model.js';
-import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
-import type { CardHistoryEntry, CardRecord, RuntimeState } from '../../src/schemas/index.js';
+import type { CardHistoryEntry, CardRecord } from '../../src/schemas/index.js';
 import { createCardHistoryProvider } from '../../src/tools/card-history-provider.js';
 import { createCardInspectionProvider } from '../../src/tools/card-inspection-provider.js';
 import { invokeTool } from '../../src/tools/invocation.js';
@@ -75,21 +73,6 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
     const projectedNotifications = projectedDiff[4] as { field: 'pending_notifications'; before: CardRecord['pending_notifications']; after: CardRecord['pending_notifications'] };
     expect(projectedNotifications.before[0]).toMatchObject({ id: 'sk-notification', source: 'tok_primary', content: 'token=[REDACTED]' });
 
-    appendConversationBatch({ projectRoot: root }, [{
-      id: 'sk-message', session_id: 'agent:planner:project', role: 'user', kind: 'text', content: 'plan',
-      round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp,
-    }]);
-    const state: RuntimeState = { status: 'running', project_id: 'project', pid: 42, started_at: timestamp, current_card_id: 'card-token', updated_at: timestamp };
-    const runs = buildCardRunsResponse(root, store as never, { getRuntimeState: () => state });
-    expect(runs).toEqual({
-      current_card_id: 'card-token',
-      active_breadcrumb: [
-        { card_id: 'project', card_type: 'project', title: 'Project' },
-        { card_id: 'card-token', card_type: 'code', title: 'title token=[REDACTED]', status_text: 'token=[REDACTED]' },
-      ],
-      dormant_agents: [{ card_id: 'project', agent_name: 'planner', session_id: 'agent:planner:project' }],
-    });
-
     const cardSurface = buildInvocationSurfaceFixture('analyst', [createCardInspectionProvider({ store })]);
     const listed = await invokeTool(cardSurface, 'list_cards', { tag: OUTBOUND_IDENTITY });
     expect(listed).toMatchObject({ success: true, data: [
@@ -107,7 +90,7 @@ describe('typed card outbound owners across REST, runtime, and built-in tools', 
     assertProjectedCard((toolEntry.data as CardHistoryEntry).snapshot);
     const toolDiff = await invokeTool(historySurface, 'diff_card', { cardId: 'card-token', fromSeq: 7, toSeq: 8 });
     expect((toolDiff.data as { diff: typeof diff }).diff[0]).toEqual(projectedDiff[0]);
-    expect(JSON.stringify({ detail, children, descriptors, runs, listed, history, projectedDiff })).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(JSON.stringify({ detail, children, descriptors, listed, history, projectedDiff })).not.toContain(OUTBOUND_RAW_MARKER);
   });
 
   it('fails fast on an unknown card diff field', () => {

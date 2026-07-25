@@ -64,25 +64,16 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect(chatContract).toBeNull();
   });
 
-  it('accepts only narrowed MCP payload while preserving credential-shaped topology and stats keys', () => {
+  it('accepts only the displayed MCP server/tool hierarchy', () => {
     const stat = { total: 11, success: 9, error: 2, lastInvokedAt: '2026-07-22T12:34:56.000Z' };
     expect(() => parseOperatorResponse('mcp.tools', {
-      tools: [{ name: 'tok_tool', title: 'opaque-title-marker', description: 'opaque-description-marker', inputSchema: { type: 'object', opaque_schema_marker: true }, annotations: { opaque_annotation_marker: true }, _meta: { opaque_meta_marker: true } }],
-      servers: ['ghu_server'],
-      invocationStats: { 'ghu_server:tok_tool': stat },
-      serverDetails: [{ name: 'ghu_server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', description: 'nested-opaque-marker', inputSchema: { type: 'object' }, stats: stat }] }],
+      servers: [{ name: 'ghu_server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', description: 'nested-opaque-marker', inputSchema: { type: 'object' }, stats: stat }] }],
     })).toThrow();
     const parsed = parseOperatorResponse('mcp.tools', {
-      tools: [{ name: 'tok_tool' }],
-      servers: ['ghu_server'],
-      invocationStats: { 'ghu_server:tok_tool': stat },
-      serverDetails: [{ name: 'ghu_server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
+      servers: [{ name: 'ghu_server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
     });
     expect(parsed).toEqual({
-      tools: [{ name: 'tok_tool' }],
-      servers: ['ghu_server'],
-      invocationStats: { 'ghu_server:tok_tool': stat },
-      serverDetails: [{ name: 'ghu_server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
+      servers: [{ name: 'ghu_server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tok_tool', stats: stat }] }],
     });
     expect(JSON.stringify(parsed)).not.toMatch(/opaque|description|inputSchema|annotations|_meta/);
   });

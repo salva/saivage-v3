@@ -30,7 +30,7 @@ describe('contract-backed process routes', () => {
     expect(ProcessLogRefsSchema.safeParse({ stdout: 'work:///', stderr: null }).success).toBe(false);
   });
 
-  it('lists and reads safe process views without the old hand-mounted route owner', async () => {
+  it('lists safe process views and does not mount process detail', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
     initProjectTree(projectRoot);
     const fastify = Fastify({ logger: false });
@@ -60,38 +60,18 @@ describe('contract-backed process routes', () => {
         })],
       });
 
-      const detail = await fastify.inject({ method: 'GET', url: `/api/processes/${record.id}` });
-      expect(detail.statusCode).toBe(200);
-      expect(detail.json().process.id).toBe(record.id);
+      expect((await fastify.inject({ method: 'GET', url: `/api/processes/${record.id}` })).statusCode).toBe(404);
     } finally {
       await fastify.close();
       rmSync(projectRoot, { recursive: true, force: true });
     }
   });
 
-  it('preserves the existing missing-process 404 body', async () => {
-    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-process-route-'));
-    initProjectTree(projectRoot);
-    const fastify = Fastify({ logger: false });
-    try {
-      const processRunner = createTestProcessRunner(projectRoot).processRunner;
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner), saivageConfig: TEST_SAIVAGE_CONFIG, workflows: TEST_RUNTIME_WORKFLOWS, providerRoutingReadModelProvider, authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort });
-
-      const response = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });
-      expect(response.statusCode).toBe(404);
-      expect(response.json()).toEqual({ error: 'Process not found', processId: 'missing' });
-    } finally {
-      await fastify.close();
-      rmSync(projectRoot, { recursive: true, force: true });
-    }
-  });
-
-  it('lets list and projection failures reach the strict contract boundary while retaining typed absence', async () => {
+  it('lets list and projection failures reach the strict contract boundary', async () => {
     const marker = 'hostile-process-read-token';
     const failure = Object.assign(new Error(marker), { token: marker, path: `/secret/${marker}` });
     const processRunner = {
       list: () => { throw failure; },
-      get: (id: string) => id === 'missing' ? undefined : (() => { throw failure; })(),
     } as unknown as ProcessRunner;
     const handlers = buildProcessOperatorContractHandlers({ projectRoot: '/secret/project', processRunner });
     const fastify = Fastify({ logger: false });
@@ -102,16 +82,9 @@ describe('contract-backed process routes', () => {
     );
     try {
       const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
-      const detail = await fastify.inject({ method: 'GET', url: '/api/processes/process-1' });
-      const missing = await fastify.inject({ method: 'GET', url: '/api/processes/missing' });
-
-      for (const response of [list, detail]) {
-        expect(response.statusCode).toBe(500);
-        expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
-        expect(response.body).not.toContain(marker);
-      }
-      expect(missing.statusCode).toBe(404);
-      expect(missing.json()).toEqual({ error: 'Process not found', processId: 'missing' });
+      expect(list.statusCode).toBe(500);
+      expect(list.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+      expect(list.body).not.toContain(marker);
     } finally {
       await fastify.close();
     }

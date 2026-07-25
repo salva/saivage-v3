@@ -50,7 +50,7 @@ describe('verify-doc-routes operator contract discovery', () => {
       'GET /api/events',
       'GET /api/processes',
       'GET /api/config',
-      'GET /api/mcp/status',
+      'GET /api/mcp/tools',
       'GET /api/debug/doctor',
       'GET /api/debug/errors',
       'GET /api/debug/graphs',
@@ -59,6 +59,9 @@ describe('verify-doc-routes operator contract discovery', () => {
       'GET /health/ready',
     ]));
     expect(routes).not.toContain('GET /api/debug/state');
+    expect(routes).not.toContain('GET /api/mcp/status');
+    expect(routes).not.toContain('GET /api/runtime/card-runs');
+    expect(routes).not.toContain('GET /api/processes/:id');
   });
 
   it('classifies every /api/debug route into the internal debug inventory', () => {

@@ -304,12 +304,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, { status: 'ok', checks: [], issues: [] });
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
       return json(route, parseOperatorResponse('mcp.tools', {
-        tools: [
-          { name: 'read' },
-        ],
-        servers: ['filesystem'],
-        invocationStats: { 'filesystem:read': { total: 3, success: 2, error: 1, lastInvokedAt: now } },
-        serverDetails: [{ name: 'filesystem', status: 'running', transport: 'stdio', toolCount: 1, tools: [{ name: 'read', stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
+        servers: [{ name: 'filesystem', status: 'running', transport: 'stdio', toolCount: 1, tools: [{ name: 'read', stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
       }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/processes') {

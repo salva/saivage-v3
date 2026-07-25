@@ -121,19 +121,13 @@ export { authOperatorApiContracts, WebSocketTicketResponseSchema } from './opera
 export type { WebSocketTicketResponse } from './operator-api-auth.js';
 export {
   McpInvocationStatSchema,
-  McpServerStatusSchema,
-  McpStatusResponseSchema,
   McpStatusStateSchema,
-  McpToolDefinitionSchema,
   McpToolsResponseSchema,
   McpTransportSchema,
 } from './operator-api-mcp.js';
 export type {
   McpInvocationStat,
-  McpServerStatus,
-  McpStatusResponse,
   McpStatusState,
-  McpToolDefinition,
   McpToolsResponse,
   McpTransport,
 } from './operator-api-mcp.js';
@@ -168,7 +162,6 @@ export {
   canonicalPositiveSafeIntegerStringSchema,
   HealthLivenessResponseSchema,
   HealthReadinessResponseSchema,
-  RuntimeCardRunsResponseSchema,
   RuntimeGetStateResponseSchema,
   RuntimeStatusResponseSchema,
   StopProjectResponseSchema,
@@ -192,23 +185,18 @@ export type {
   CardHistoryListResponse,
   HealthLivenessResponse,
   HealthReadinessResponse,
-  RuntimeCardRunsResponse,
   RuntimeGetStateResponse,
   RuntimeStatusResponse,
 } from './operator-api-runtime-cards.js';
 
 export {
-  ProcessDetailResponseSchema,
-  ProcessIdParamsSchema,
   ProcessListResponseSchema,
   ProcessLogRefsSchema,
-  ProcessNotFoundErrorSchema,
   ProcessToolResultSchema,
   ProcessViewSchema,
   processesOperatorApiContracts,
 } from './operator-api-processes.js';
 export type {
-  ProcessDetailResponse,
   ProcessListResponse,
   ProcessToolResult,
   ProcessView,

@@ -109,7 +109,7 @@ export class McpManager implements McpReconciliationPort {
   async healthCheck(name: string): Promise<boolean> { return this.#runtimes.get(name)?.healthCheck() ?? false; }
 
   getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> {
-    return buildMcpToolsReadModel({ tools: this.getTools(), servers: this.getToolServers(), statuses: this.getStatus(), getServerTools: (name) => this.getServerTools(name), invocationStats: this.getInvocationStats() });
+    return buildMcpToolsReadModel({ statuses: this.getStatus(), getServerTools: (name) => this.getServerTools(name), invocationStats: this.getInvocationStats() });
   }
 
   findToolCapability(serverName: string, toolName: string): McpToolCapability | null {

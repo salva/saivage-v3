@@ -63,8 +63,8 @@ describe('workspaceRoute store', () => {
     const rows: Array<{ target: NavigateTarget; expected: RouteLocationRaw }> = [
       { target: { kind: 'card', id: '11111111-1111-4111-8111-111111111111' }, expected: { name: 'card-detail', params: { id: '11111111-1111-4111-8111-111111111111' }, query: undefined } },
       { target: { kind: 'transcript', id: 'agent:planner:project' }, expected: { name: 'agent-detail', params: { id: 'agent:planner:project' }, query: undefined } },
-      { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'process-detail', params: { id: 'pid-1' }, query: undefined } },
-      { target: { kind: 'process_list' }, expected: { name: 'debug', query: undefined } },
+      { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'debug', query: { tab: 'processes', process: 'pid-1' } } },
+      { target: { kind: 'process_list' }, expected: { name: 'debug', query: { tab: 'processes' } } },
       { target: { kind: 'agent_session_list' }, expected: { name: 'agents', query: undefined } },
       { target: { kind: 'config' }, expected: { name: 'config', query: undefined } },
     ];

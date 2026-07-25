@@ -64,9 +64,7 @@ export function registerOperatorContractRoutes(
       restartServerAvailable: options.authPolicy.authEnabled,
     }),
     ...buildMcpOperatorContractHandlers({
-      mcpStatusProvider: options.mcpManager,
       mcpToolsProvider: options.mcpManager,
-      serverAvailabilityProvider: options.serverAvailabilityProvider,
     }),
     ...buildAgentOperatorContractHandlers({ projectRoot, workflows: options.workflows }),
     ...buildChatOperatorContractHandlers({

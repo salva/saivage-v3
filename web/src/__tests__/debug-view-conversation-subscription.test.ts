@@ -4,7 +4,6 @@ import { createPinia, setActivePinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
 import DebugView from '../views/DebugView.vue';
 import { useAgentStore } from '../stores/agents';
-import { useDebugStore } from '../stores/debug';
 import type { AgentConversationResponse, AgentSession } from '../api/types';
 import { AgentSessionSummarySchema, type ConversationSessionId } from '../api/contracts';
 
@@ -28,7 +27,7 @@ vi.mock('../api/client', () => ({
   getNewestEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
   getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [], issues: [] }),
   listProcesses: vi.fn().mockResolvedValue({ processes: [] }),
-  getMcpTools: vi.fn().mockResolvedValue({ tools: [], stats: {}, serverDetails: [] }),
+  getMcpTools: vi.fn().mockResolvedValue({ servers: [] }),
   getAgentConversation: api.getAgentConversation,
   getAgentSession: api.getAgentSession,
   getAgentLlmExchange: api.getAgentLlmExchange,
@@ -145,21 +144,9 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
     expect(api.listAgentSessions).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps timeline and process live-sync registrations on their focused refetch functions', async () => {
+  it('does not register hidden timeline or process refresh owners', async () => {
     const { wrapper } = await mountDebug();
-    const debugStore = useDebugStore();
-    expect(live.registerResource).toHaveBeenCalledWith({
-      resource: 'timeline',
-      scope: 'active',
-      requestOwnership: 'sync-client',
-      refetch: debugStore.refetchTimeline,
-    });
-    expect(live.registerResource).toHaveBeenCalledWith({
-      resource: 'processes',
-      scope: 'active',
-      requestOwnership: 'sync-client',
-      refetch: debugStore.refetchProcesses,
-    });
+    expect(live.registerResource).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 

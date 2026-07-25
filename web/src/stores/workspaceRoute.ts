@@ -83,8 +83,6 @@ function snapshotFromRoute(route: RouteLocationNormalizedLoaded): WorkspaceConte
       return { view: 'files', entityId: typeof route.query.path === 'string' ? route.query.path : null, refinement };
     case 'debug':
       return { view: 'debug', entityId: typeof route.query.process === 'string' ? route.query.process : null, refinement };
-    case 'process-detail':
-      return { view: 'debug', entityId: id, refinement };
     case 'config':
       return { view: 'config', entityId: null, refinement };
     default:
@@ -110,7 +108,7 @@ function routeForSnapshot(snapshot: WorkspaceContext): RouteLocationRaw {
   }
   if (snapshot.view === 'debug') {
     return snapshot.entityId
-      ? { name: 'process-detail', params: { id: snapshot.entityId }, query }
+      ? { name: 'debug', query: { ...(query ?? {}), tab: 'processes', process: snapshot.entityId } }
       : { name: 'debug', query };
   }
   if (snapshot.view === 'config') return { name: 'config', query };
@@ -127,9 +125,9 @@ function routeForTarget(target: NavigateTarget): RouteLocationRaw | null {
         return parsed.kind === 'valid' ? { name: 'agent-detail', params: { id: parsed.sessionId }, query: refinementStringToQuery(target.refinement) } : null;
       }
     case 'process':
-      return { name: 'process-detail', params: { id: target.id ?? '' }, query: refinementStringToQuery(target.refinement) };
+      return { name: 'debug', query: { ...(refinementStringToQuery(target.refinement) ?? {}), tab: 'processes', process: target.id ?? '' } };
     case 'process_list':
-      return { name: 'debug', query: refinementStringToQuery(target.refinement) };
+      return { name: 'debug', query: { ...(refinementStringToQuery(target.refinement) ?? {}), tab: 'processes' } };
     case 'agent_session_list':
       return { name: 'agents', query: refinementStringToQuery(target.refinement) };
     case 'config':

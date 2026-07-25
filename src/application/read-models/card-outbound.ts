@@ -9,7 +9,6 @@ import {
   type CardHistoryHeader,
   type CardRecord,
 } from '../../schemas/index.js';
-import { RuntimeCardRunsResponseSchema, type RuntimeCardRunsResponse } from '../../contracts/index.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
 
 export function projectCardRecordForOutbound(card: CardRecord): CardRecord {
@@ -70,24 +69,6 @@ export function projectCardDiff(diff: CardDiffEntry[]): CardDiffEntry[] {
     before: projectDiffValue(entry.field, entry.before),
     after: projectDiffValue(entry.field, entry.after),
   }));
-}
-
-export function projectRuntimeCardRuns(value: RuntimeCardRunsResponse): RuntimeCardRunsResponse {
-  const parsed = RuntimeCardRunsResponseSchema.parse(value);
-  return RuntimeCardRunsResponseSchema.parse({
-    current_card_id: parsed.current_card_id,
-    active_breadcrumb: parsed.active_breadcrumb.map((item) => ({
-      card_id: item.card_id,
-      card_type: item.card_type,
-      title: redactTextForOutbound(item.title),
-      ...(item.status_text !== undefined ? { status_text: redactTextForOutbound(item.status_text) } : {}),
-    })),
-    dormant_agents: parsed.dormant_agents.map((agent) => ({
-      card_id: agent.card_id,
-      agent_name:agent.agent_name,
-      session_id: agent.session_id,
-    })),
-  });
 }
 
 function projectHistoryCommon(value: CardHistoryHeader | CardHistoryEntry) {

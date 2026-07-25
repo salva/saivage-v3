@@ -9,21 +9,5 @@ export function buildProcessOperatorContractHandlers(options: ProcessOperatorHan
 
   return defineOperatorContractHandlers({
     'processes.list': () => ({ body: { processes: processRunner.list().map((record) => buildProcessView(options.projectRoot, record)) } }),
-    'processes.get': ({ params }) => {
-      const processId = params.id;
-      const record = processRunner.get(processId);
-      const process = record ? { process: buildProcessView(options.projectRoot, record) } : null;
-      if (!process) {
-        return {
-          statusCode: 404,
-          body: {
-            error: 'Process not found',
-            processId,
-          },
-        };
-      }
-
-      return { body: process };
-    },
   });
 }
