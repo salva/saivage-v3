@@ -22,6 +22,9 @@ export interface CanonicalGrowingFileSnapshot<Row> {
   readonly size: number;
   readonly modifiedAt: string;
 }
+export type CappedCanonicalGrowingFileSnapshot<Row> =
+  | { readonly kind: 'found'; readonly snapshot: CanonicalGrowingFileSnapshot<Row> }
+  | { readonly kind: 'too-large'; readonly size: number };
 export interface CanonicalReadInstrumentation { readonly onRead: (path: string) => void }
 export interface GrowingFileRowCheckpoint { readonly lineStart: number; readonly lineEnd: number; readonly rowOrdinal: number }
 export interface GrowingFileReplay<Row> {
@@ -69,7 +72,12 @@ export function serializeGrowingEnvelope<Row>(rows: readonly unknown[], rowSchem
   return prepareGrowingEnvelope(rows, rowSchema).bytes;
 }
 
-export function parseGrowingFile<Row>(path: string, content: string, rowSchema: z.ZodType<Row>): Row[] {
+export function parseGrowingFile<Row>(path: string, bytes: Buffer, rowSchema: z.ZodType<Row>): Row[] {
+  let content: string;
+  try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
+  catch (error) {
+    throw new Error(`Growing file '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
+  }
   if (content.length === 0) throw new Error(`Growing file '${path}' is empty.`);
   if (!content.endsWith('\n')) throw new Error(`Growing file '${path}' has an incomplete final envelope.`);
   const rows: Row[] = [];
@@ -85,15 +93,6 @@ export function parseGrowingFile<Row>(path: string, content: string, rowSchema: 
     }
   }
   return rows;
-}
-
-function parseGrowingFileBytes<Row>(path: string, bytes: Buffer, rowSchema: z.ZodType<Row>): Row[] {
-  let content: string;
-  try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
-  catch (error) {
-    throw new Error(`Growing file '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
-  }
-  return parseGrowingFile(path, content, rowSchema);
 }
 
 function readAt(io: CanonicalGrowingFileReadIo, descriptor: number, position: number, length: number): Buffer {
@@ -277,7 +276,7 @@ export function readCanonicalGrowingFileFirstEnvelope<Row>(
   let firstLine: { bytes: Buffer; lineEnd: number } | null = null;
   try {
     while (true) {
-      const chunk = readAt(io, descriptor, position, 1);
+      const chunk = readAt(io, descriptor, position, chunkBytes);
       instrumentation?.onReadChunk?.(position, chunk.byteLength, 'classify');
       if (chunk.byteLength === 0) {
         break;
@@ -290,10 +289,14 @@ export function readCanonicalGrowingFileFirstEnvelope<Row>(
       break;
     }
   } catch (error) { return closeAfterOrdinaryFailure(io, descriptor, error); }
-  if (firstLine === null) truncateIdentifiableSuffix(io, descriptor, 0);
+  if (firstLine === null) {
+    try { io.truncate(descriptor, 0); } catch { throw new PublicationOutcomeUnknownError(); }
+    try { io.fsync(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
+    try { io.close(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
+    throw new Error(`Growing file '${path}' is empty.`);
+  }
   let descriptorOwned = true;
   try {
-    if (firstLine === null) throw new Error(`Growing file '${path}' is empty.`);
     const rows = parseEnvelopeBytes(path, 1, firstLine.bytes, rowSchema);
     const checkpoints = rows.map((_row, rowOrdinal) => Object.freeze({ lineStart: 0, lineEnd: firstLine.lineEnd, rowOrdinal }));
     descriptorOwned = false;
@@ -302,12 +305,13 @@ export function readCanonicalGrowingFileFirstEnvelope<Row>(
   } catch (error) { if (descriptorOwned) return closeAfterOrdinaryFailure(io, descriptor, error); throw error; }
 }
 
-export function readCanonicalGrowingFileSnapshot<Row>(
+function readCanonicalGrowingFileSnapshotInternal<Row>(
   path: string,
   rowSchema: z.ZodType<Row>,
-  io: CanonicalGrowingFileReadIo = canonicalGrowingFileReadIo,
+  io: CanonicalGrowingFileReadIo,
   instrumentation?: CanonicalReadInstrumentation,
-): CanonicalGrowingFileSnapshot<Row> {
+  maximumBytes?: number,
+): CappedCanonicalGrowingFileSnapshot<Row> {
   const descriptor = io.open(path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   let descriptorOwned = true;
   const close = (): void => { descriptorOwned = false; io.close(descriptor); };
@@ -315,8 +319,30 @@ export function readCanonicalGrowingFileSnapshot<Row>(
   try {
     const initial = io.stat(descriptor);
     if (!initial.isFile()) throw new Error(`Canonical growing file '${path}' must be a regular file.`);
+    if (maximumBytes !== undefined && initial.size > maximumBytes) {
+      close();
+      return { kind: 'too-large', size: initial.size };
+    }
     instrumentation?.onRead(path);
-    bytes = readAll(io, descriptor);
+    if (maximumBytes === undefined) {
+      bytes = readAll(io, descriptor);
+    } else {
+      const proofCapacity = maximumBytes + 1;
+      const proof = Buffer.allocUnsafe(proofCapacity);
+      let retainedBytes = 0;
+      while (retainedBytes < proofCapacity) {
+        const requested = Math.min(DEFAULT_READ_CHUNK_BYTES, proofCapacity - retainedBytes);
+        const bytesRead = io.read(descriptor, proof, retainedBytes, requested, retainedBytes);
+        if (bytesRead < 0 || bytesRead > requested) throw new Error(`Canonical growing-file read returned invalid byte count ${bytesRead}.`);
+        if (bytesRead === 0) break;
+        retainedBytes += bytesRead;
+      }
+      if (retainedBytes === proofCapacity) {
+        close();
+        return { kind: 'too-large', size: proofCapacity };
+      }
+      bytes = proof.subarray(0, retainedBytes);
+    }
   } catch (error) {
     if (descriptorOwned) { try { close(); } catch { /* pre-truncation failure remains authoritative */ } }
     throw error;
@@ -332,18 +358,42 @@ export function readCanonicalGrowingFileSnapshot<Row>(
       final = io.stat(descriptor);
       close();
     } catch { throw new PublicationOutcomeUnknownError(); }
-    const rows = parseGrowingFileBytes(path, bytes, rowSchema);
-    return Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() });
+    const rows = parseGrowingFile(path, bytes, rowSchema);
+    return { kind: 'found', snapshot: Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() }) };
   }
   try {
-    const rows = parseGrowingFileBytes(path, bytes, rowSchema);
+    const rows = parseGrowingFile(path, bytes, rowSchema);
     const final = io.stat(descriptor);
     close();
-    return Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() });
+    return { kind: 'found', snapshot: Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() }) };
   } catch (error) {
     if (descriptorOwned) { try { close(); } catch { /* pre-truncation failure remains authoritative */ } }
     throw error;
   }
+}
+
+export function readCanonicalGrowingFileSnapshot<Row>(
+  path: string,
+  rowSchema: z.ZodType<Row>,
+  io: CanonicalGrowingFileReadIo = canonicalGrowingFileReadIo,
+  instrumentation?: CanonicalReadInstrumentation,
+): CanonicalGrowingFileSnapshot<Row> {
+  const result = readCanonicalGrowingFileSnapshotInternal(path, rowSchema, io, instrumentation);
+  if (result.kind !== 'found') throw new Error('Uncapped canonical growing-file read returned a capped result.');
+  return result.snapshot;
+}
+
+export function readCappedCanonicalGrowingFileSnapshot<Row>(
+  path: string,
+  rowSchema: z.ZodType<Row>,
+  maximumBytes: number,
+  io: CanonicalGrowingFileReadIo = canonicalGrowingFileReadIo,
+  instrumentation?: CanonicalReadInstrumentation,
+): CappedCanonicalGrowingFileSnapshot<Row> {
+  if (!Number.isInteger(maximumBytes) || maximumBytes < 0 || maximumBytes >= Number.MAX_SAFE_INTEGER) {
+    throw new Error('Canonical growing-file maximum byte count must be a non-negative integer below Number.MAX_SAFE_INTEGER.');
+  }
+  return readCanonicalGrowingFileSnapshotInternal(path, rowSchema, io, instrumentation, maximumBytes);
 }
 
 export function readCanonicalGrowingFile<Row>(path: string, rowSchema: z.ZodType<Row>, io?: CanonicalGrowingFileReadIo, instrumentation?: CanonicalReadInstrumentation): Row[] {

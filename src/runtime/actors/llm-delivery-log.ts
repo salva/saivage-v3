@@ -59,7 +59,7 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
   return messages;
 }
 
-export function appendLlmTurnMessage(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string): AgentMessage {
+function appendLlmTurnMessage(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, content: string): AgentMessage {
   const message = buildLlmTurnMessage(input, content);
   appendOne(conversations, message);
   return message;
@@ -121,11 +121,11 @@ export function appendLlmTurnError(conversations: ConversationFileContext, input
   return message;
 }
 
-export function appendToolResult(conversations: ConversationFileContext, record: Omit<ToolSettlementRecord, 'created_at'>): ToolSettlementRecord & { message: AgentMessage } {
+export function appendToolResult(conversations: ConversationFileContext, record: Omit<ToolSettlementRecord, 'created_at'>): ToolSettlementRecord {
   const parsed: ToolSettlementRecord = { ...record, created_at: new Date().toISOString() };
   const message = buildToolResultMessage(parsed);
   appendOne(conversations, message);
-  return Object.assign(parsed, { message });
+  return parsed;
 }
 
 export function readLoggedToolCall(projectRoot: string, sessionId: ConversationSessionId, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
@@ -187,7 +187,7 @@ export function buildToolResultMessage(record: Omit<ToolSettlementRecord, 'creat
   });
 }
 
-export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): AgentMessage {
+export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): void {
   const payload: SyntheticFailedToolResultPayload = { success: false, error: record.error };
   if (record.data !== undefined) payload.data = record.data;
   const message = agentMessageSchema.parse({
@@ -204,7 +204,6 @@ export function appendProviderVisibleSyntheticFailedToolResult(conversations: Co
     timestamp: new Date().toISOString(),
   });
   appendOne(conversations, message);
-  return message;
 }
 
 function appendLlmTurnToolCall(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall): AgentMessage {

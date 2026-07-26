@@ -1,4 +1,4 @@
-import { accessSync, constants } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 
 /**
@@ -12,12 +12,7 @@ export function findProjectRoot(startDir?: string): string | null {
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const markerPath = join(current, '.saivage', 'saivage.yaml');
-    try {
-      accessSync(markerPath, constants.R_OK);
-      return current;
-    } catch {
-      // marker not found at this level, go up
-    }
+    if (existsSync(markerPath)) return current;
 
     const parent = dirname(current);
     // Stop at filesystem root: when dirname returns the same directory

@@ -6,5 +6,3 @@ export function conversationFile(projectRoot: string, rawSessionId: Conversation
   const parsed = conversationSessionIdentity(sessionId);
   return parsed.cardId === null ? globalAgentConversationFile(projectRoot,parsed.agentName) : cardConversationFile(projectRoot, parsed.cardId, parsed.agentName);
 }
-
-export { parseConversationSessionId };

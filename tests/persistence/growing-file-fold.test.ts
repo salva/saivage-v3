@@ -160,21 +160,21 @@ describe('first-envelope canonical reader', () => {
     expect(close.trace.filter((entry) => entry === 'close')).toHaveLength(1);
   });
 
-  it('parses every first-envelope row and never reads a later envelope', () => {
+  it('parses every first-envelope row from one bounded chunk and ignores over-read later bytes', () => {
     const first = envelope({ id: 'one', value: 'first' }, { id: 'two', value: 'second' });
     const later = Buffer.from('{not-json}\n');
     const fake = fakeIo(Buffer.concat([first, later]));
-    const result = readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, fake.io, 5);
+    const result = readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, fake.io, 4096);
     expect(result.rows.map((row) => row.id)).toEqual(['one', 'two']);
     expect(result.bytesRead).toBe(first.byteLength);
-    expect(Math.max(...fake.readEnds)).toBe(first.byteLength);
+    expect(fake.trace.filter((entry) => entry.startsWith('read:'))).toEqual(['read:0:4096']);
     expect(fake.trace.at(-1)).toBe('close');
   });
 
   it('truncates a wholly unterminated file before ordinary empty failure and close', () => {
     const fake = fakeIo(Buffer.from([0xff, 0xfe, 0xfd]));
     expect(() => readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, fake.io, 2)).toThrow(/empty/);
-    expect(fake.trace).toEqual(['open', 'stat', 'read:0:1', 'read:1:1', 'read:2:1', 'read:3:1', 'truncate:0', 'fsync', 'close']);
+    expect(fake.trace).toEqual(['open', 'stat', 'read:0:2', 'read:2:2', 'read:3:2', 'truncate:0', 'fsync', 'close']);
     expect(fake.bytes()).toHaveLength(0);
   });
 
@@ -183,6 +183,14 @@ describe('first-envelope canonical reader', () => {
     expect(() => readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, fake.io, 3)).toThrow(PublicationOutcomeUnknownError);
     expect(fake.trace.at(-1)).toBe(failure);
     expect(fake.trace).not.toContain('close');
+  });
+
+  it('types close failure after successful zero truncation and fsync as outcome unknown without retry', () => {
+    const closeFailure = new Error('close failed');
+    const fake = fakeIo(Buffer.from('partial'), undefined, closeFailure);
+    expect(() => readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, fake.io, 3)).toThrow(PublicationOutcomeUnknownError);
+    expect(fake.trace.slice(-3)).toEqual(['truncate:0', 'fsync', 'close']);
+    expect(fake.trace.filter((entry) => entry === 'close')).toHaveLength(1);
   });
 });
 

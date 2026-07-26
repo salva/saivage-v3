@@ -6,7 +6,7 @@ describe('OpenAI Codex SSE error classification', () => {
   function failureFor(event: Record<string, unknown>, responseStatus = 200) {
     const chunk = `data: ${JSON.stringify(event)}\n`;
     try {
-      handleOpenAICodexSseChunk(chunk, responseStatus, new Map(), new Set(), [], () => undefined, () => undefined);
+      handleOpenAICodexSseChunk(chunk, responseStatus, new Map(), new Set(), [], () => undefined);
     } catch (error) {
       expect(error).toBeInstanceOf(LlmRequestError);
       return (error as LlmRequestError).failure;

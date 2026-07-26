@@ -10,6 +10,18 @@ export function saivageRoot(projectRoot: string): string {
   return join(projectRoot, SAIVAGE_RELATIVE_DIR);
 }
 
+export function projectIdentityFile(projectRoot: string): string {
+  return join(saivageRoot(projectRoot), 'project.json');
+}
+
+export function saivageAgentsRoot(projectRoot: string): string {
+  return join(saivageRoot(projectRoot), 'agents');
+}
+
+export function globalAgentConversationsRoot(projectRoot: string): string {
+  return join(saivageAgentsRoot(projectRoot), 'conversations');
+}
+
 export function saivageCardsRoot(projectRoot: string): string {
   return join(projectRoot, SAIVAGE_CARDS_RELATIVE_DIR);
 }
@@ -20,10 +32,13 @@ export function cardNamespace(projectRoot: string, cardId: string): string {
   return path;
 }
 
+export function cardChildrenRoot(projectRoot: string, cardId: string): string { return join(cardNamespace(projectRoot, cardId), 'children'); }
+export function cardConversationsRoot(projectRoot: string, cardId: string): string { return join(cardNamespace(projectRoot, cardId), 'conversations'); }
+
 export function cardStreamFile(projectRoot: string, cardId: string): string { return join(cardNamespace(projectRoot, cardId), 'card.jsonl'); }
 export function cardRecordStreamFile(projectRoot: string, cardId: string, definition: { readonly filename: RecordName }): string { return join(cardNamespace(projectRoot, cardId), recordStreamFilename(definition.filename)); }
-export function cardConversationFile(projectRoot: string, cardId: string, agentName: string): string { return join(cardNamespace(projectRoot, cardId), 'conversations', `${agentName}.jsonl`); }
-export function globalAgentConversationFile(projectRoot: string, agentName:string): string { return join(saivageRoot(projectRoot), 'agents', 'conversations', `${agentName}.jsonl`); }
+export function cardConversationFile(projectRoot: string, cardId: string, agentName: string): string { return join(cardConversationsRoot(projectRoot, cardId), `${agentName}.jsonl`); }
+export function globalAgentConversationFile(projectRoot: string, agentName:string): string { return join(globalAgentConversationsRoot(projectRoot), `${agentName}.jsonl`); }
 
 export function saivageLogsRoot(projectRoot: string): string {
   return join(saivageRoot(projectRoot), 'logs');
@@ -45,10 +60,18 @@ export function saivageWorkRoot(projectRoot: string): string {
   return join(projectRoot, SAIVAGE_WORK_RELATIVE_DIR);
 }
 
+export function saivageWorkRelativePath(...segments: readonly string[]): string {
+  return join(SAIVAGE_WORK_RELATIVE_DIR, ...segments);
+}
+
+export function cardTmpRelativePath(cardId: string, ...segments: readonly string[]): string {
+  return saivageWorkRelativePath('cards', cardId, 'tmp', ...segments);
+}
+
 export function resetOwnedGeneratedRoots(projectRoot: string): readonly string[] {
   return [
     saivageCardsRoot(projectRoot),
-    join(saivageRoot(projectRoot), 'agents'),
+    saivageAgentsRoot(projectRoot),
     saivageLogsRoot(projectRoot),
     saivageWorkRoot(projectRoot),
   ];

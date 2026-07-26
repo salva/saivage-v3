@@ -40,7 +40,7 @@ export const listCardHistoryInputSchema = z.object({ cardId: cardIdSchema }).str
 export const getCardHistoryEntryInputSchema = z.object({ cardId: cardIdSchema, version_seq: positiveSafeIntegerSchema }).strict();
 export const diffCardInputSchema = z.object({ cardId: cardIdSchema, fromSeq: positiveSafeIntegerSchema.optional(), toSeq: positiveSafeIntegerSchema.optional() }).strict();
 
-export const readWorkspaceInputSchema = z.object({ path: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional(), read_mode: z.enum(['auto', 'text', 'multimodal']).optional(), metadata_only: z.boolean().optional() }).strict();
+export const readWorkspaceInputSchema = z.object({ path: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional(), read_mode: z.enum(['auto', 'text']).optional(), metadata_only: z.boolean().optional() }).strict();
 export const writeWorkspaceInputSchema = z.object({ path: z.string(), content: z.string() }).strict();
 export const globWorkspaceInputSchema = z.object({ directory: z.string(), pattern: z.string(), max_results: z.number().int().optional() }).strict();
 export const grepWorkspaceInputSchema = z.object({ pattern: z.string(), path: z.string().optional(), include: z.string().optional(), max_results: z.number().int().optional() }).strict();

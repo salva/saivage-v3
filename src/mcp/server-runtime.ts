@@ -78,8 +78,8 @@ export class McpServerRuntime {
     });
   }
 
-  closeAdmission(): Promise<void> {
-    if (this.#directContainment) return this.#directContainment;
+  closeAdmission(): void {
+    if (this.#directContainment) return;
     this.admissionOpen = false;
     this.generation += 1;
     let containment: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
@@ -98,12 +98,17 @@ export class McpServerRuntime {
     this.#directContainment = directContainment;
     void directContainment.catch(() => undefined);
     for (const controller of this.controllers) controller.abort();
-    return directContainment;
+  }
+
+  directContainment(): Promise<void> {
+    if (!this.#directContainment) throw new Error(`MCP server '${this.name}' admission has not been closed.`);
+    return this.#directContainment;
   }
 
   async stop(): Promise<void> {
     if (this.contained) return;
-    const directContainment = this.closeAdmission();
+    this.closeAdmission();
+    const directContainment = this.directContainment();
     const operations = [...this.operations];
     const settlements = await Promise.allSettled([...operations, directContainment]);
     const directSettlement = settlements[settlements.length - 1]!;

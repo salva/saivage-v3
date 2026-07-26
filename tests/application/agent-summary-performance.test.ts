@@ -31,7 +31,11 @@ type Measurement = {
   cpuMs: number;
   candidateOpens: number;
   candidateCloses: number;
+  candidateReadCalls: number;
+  candidateRequestedBytes: number;
   candidateBytes: number;
+  candidateLogicalBytes: number;
+  candidateReadsAfterFirstNewline: number;
   candidatePathsReadOnce: boolean;
   appLogOpens: number;
   snapshotOpens: number;
@@ -39,7 +43,7 @@ type Measurement = {
 type PerformanceResult = {
   globalRuns: Measurement[];
   cardScope: Measurement;
-  cardScopeLedgers: Record<string, { openAttempts: number; bytesRead: number; closes: number }>;
+  cardScopeLedgers: Record<string, { openAttempts: number; readCalls: number; requestedBytes: number; bytesRead: number; logicalBytesRead: number; readsAfterFirstNewline: number; closes: number }>;
 };
 
 const roots: string[] = [];
@@ -50,6 +54,7 @@ afterEach(() => {
 const stamp = '2026-07-24T00:00:00.000Z';
 const GLOBAL_RUNS = 7;
 const APP_LOG_ROWS = 8_800;
+const FIRST_ENVELOPE_CHUNK_BYTES = 64 * 1024;
 
 describe('pueblicos-shaped Agent summary cost', () => {
   it('measures first-envelope-only global and one-card reads independently of long history and app log', () => {
@@ -74,21 +79,37 @@ describe('pueblicos-shaped Agent summary cost', () => {
     for (const run of globalRuns) {
       expect(run.candidateOpens).toBe(fixture.candidatePaths.size);
       expect(run.candidateCloses).toBe(fixture.candidatePaths.size);
+      expect(run.candidateReadCalls).toBe(fixture.candidatePaths.size);
+      expect(run.candidateRequestedBytes).toBe(fixture.candidatePaths.size * FIRST_ENVELOPE_CHUNK_BYTES);
       expect(run.candidatePathsReadOnce).toBe(true);
-      expect(run.candidateBytes).toBe(fixture.firstEnvelopeBytes);
+      expect(run.candidateLogicalBytes).toBe(fixture.firstEnvelopeBytes);
+      expect(run.candidateBytes).toBeGreaterThanOrEqual(fixture.firstEnvelopeBytes);
+      expect(run.candidateBytes).toBeLessThanOrEqual(fixture.candidatePaths.size * FIRST_ENVELOPE_CHUNK_BYTES);
+      expect(run.candidateReadsAfterFirstNewline).toBe(0);
       expect(run.appLogOpens).toBe(0);
       expect(run.snapshotOpens).toBe(0);
     }
 
     expect(cardScope.candidateOpens).toBe(fixture.measuredCardCandidatePaths.size);
     expect(cardScope.candidateCloses).toBe(fixture.measuredCardCandidatePaths.size);
+    expect(cardScope.candidateReadCalls).toBe(fixture.measuredCardCandidatePaths.size);
+    expect(cardScope.candidateRequestedBytes).toBe(fixture.measuredCardCandidatePaths.size * FIRST_ENVELOPE_CHUNK_BYTES);
     expect(cardScope.candidatePathsReadOnce).toBe(true);
-    expect(cardScope.candidateBytes).toBe(fixture.measuredCardFirstEnvelopeBytes);
+    expect(cardScope.candidateLogicalBytes).toBe(fixture.measuredCardFirstEnvelopeBytes);
+    expect(cardScope.candidateBytes).toBeGreaterThanOrEqual(fixture.measuredCardFirstEnvelopeBytes);
+    expect(cardScope.candidateBytes).toBeLessThanOrEqual(fixture.measuredCardCandidatePaths.size * FIRST_ENVELOPE_CHUNK_BYTES);
+    expect(cardScope.candidateReadsAfterFirstNewline).toBe(0);
     expect(cardScope.appLogOpens).toBe(0);
     expect(cardScope.snapshotOpens).toBe(0);
     for (const [path, ledger] of Object.entries(cardScopeLedgers)) {
       if (!fixture.measuredCardCandidatePaths.has(path)) expect(ledger.openAttempts).toBe(0);
-      else expect(ledger).toMatchObject({ openAttempts: 1, closes: 1 });
+      else expect(ledger).toMatchObject({
+        openAttempts: 1,
+        readCalls: 1,
+        requestedBytes: FIRST_ENVELOPE_CHUNK_BYTES,
+        readsAfterFirstNewline: 0,
+        closes: 1,
+      });
     }
 
     const report = {
@@ -107,8 +128,8 @@ describe('pueblicos-shaped Agent summary cost', () => {
           p95Ms: round(p95Ms),
           cpuMs: round(globalRuns.reduce((total, run) => total + run.cpuMs, 0)),
           exactCandidateOpensPerRun: fixture.candidatePaths.size,
-          firstEnvelopeBytesPerRun: fixture.firstEnvelopeBytes,
-          laterEnvelopeBytesPerRun: 0,
+          firstEnvelopeBytesPerRun: globalRuns[0]!.candidateLogicalBytes,
+          maximumPhysicalBytesPerRun: fixture.candidatePaths.size * FIRST_ENVELOPE_CHUNK_BYTES,
           appLogPassesPerRun: 0,
           snapshotReadsPerRun: 0,
           completeFoldReadsPerRun: 0,
@@ -118,8 +139,8 @@ describe('pueblicos-shaped Agent summary cost', () => {
           elapsedMs: round(cardScope.elapsedMs),
           cpuMs: round(cardScope.cpuMs),
           exactCandidateOpens: cardScope.candidateOpens,
-          firstEnvelopeBytes: cardScope.candidateBytes,
-          laterEnvelopeBytes: 0,
+          firstEnvelopeBytes: cardScope.candidateLogicalBytes,
+          maximumPhysicalBytes: fixture.measuredCardCandidatePaths.size * FIRST_ENVELOPE_CHUNK_BYTES,
           unrelatedCandidateOpens: 0,
           appLogPasses: 0,
           snapshotReads: 0,

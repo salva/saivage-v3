@@ -245,15 +245,8 @@ export class InvocationService {
         if (isAbortFromSignal(originalFailure, request.abortSignal)) throw originalFailure;
         record.attempts += 1;
         const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
-          agentName: request.agentName,
           candidate,
-          attempt: record.attempts,
-          maxAttempts: 1 + this.maxRecoveryRetries,
           recoveryDelayMs: this.recoveryDelayMs,
-          maxRecoveryRetries: this.maxRecoveryRetries,
-          capabilityRequest: request.capabilityRequest,
-          capabilitySkips: this.router.getLastCapabilitySkips(),
-          sessionId: request.sessionId,
         });
         if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
           if (err.provider_exchanges.length === 0)
@@ -268,11 +261,11 @@ export class InvocationService {
             ),
           );
         }
-        if (decision.markFailed && decision.availability) {
+        if (decision.availability) {
           throwIfAborted(request.abortSignal);
           this.candidateAvailability.markFailed(candidate, decision.availability);
         }
-        if (decision.action === 'abort_without_retry' || decision.action === 'fail_invocation') {
+        if (decision.kind === 'terminal') {
           throw new ProviderTurnFailure({
             failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
             provider_exchanges: settled,
@@ -285,24 +278,12 @@ export class InvocationService {
           record.state = 'EXHAUSTED';
           continue;
         }
-        if (decision.failure?.kind === 'rate_limit') {
+        if (decision.wait === 'rate-limit') {
           record.state = 'RATE_LIMIT_WAITING_UNTIL';
-          record.untilMs =
-            decision.availability?.untilMs ?? Date.now() + Math.max(this.recoveryDelayMs, 60_000);
-        } else if (
-          decision.failure?.kind === 'server_transient' ||
-          decision.failure?.kind === 'timeout' ||
-          decision.failure?.kind === 'unknown' ||
-          decision.failure?.kind === 'parse_error'
-        ) {
-          record.state = 'RETRY_WAITING_UNTIL';
-          record.untilMs = Date.now() + (decision.retryDelayMs ?? this.recoveryDelayMs);
+          record.untilMs = decision.availability.untilMs;
         } else {
-          throw new ProviderTurnFailure({
-            failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
-            provider_exchanges: settled,
-            originalFailure,
-          });
+          record.state = 'RETRY_WAITING_UNTIL';
+          record.untilMs = Date.now() + decision.retryDelayMs;
         }
         record.lastFailure = originalFailure;
       }
@@ -344,21 +325,15 @@ export class InvocationService {
   }
 
   private throwNoCandidates(request: InvocationRequest, settled: ProviderExchangeAttempt[]): never {
-    const decision = defaultInvocationRecoveryPolicy.decideNoCandidates({
+    const message = defaultInvocationRecoveryPolicy.decideNoCandidates({
       agentName: request.agentName,
-      attempt: 1,
-      maxAttempts: 1,
-      recoveryDelayMs: this.recoveryDelayMs,
-      maxRecoveryRetries: this.maxRecoveryRetries,
-      capabilityRequest: request.capabilityRequest,
       capabilitySkips: this.router.getLastCapabilitySkips(),
-      sessionId: request.sessionId,
     });
     throw new ProviderTurnFailure({
       failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
       provider_exchanges: settled,
-      originalFailure: new Error(decision.message),
-      message: decision.message,
+      originalFailure: new Error(message),
+      message,
     });
   }
 

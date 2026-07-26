@@ -1,5 +1,6 @@
 import type { LlmCompleteResult, ToolCall } from './llm-contracts.js';
-import { LlmRequestError, redactProviderErrorText } from './llm-errors.js';
+import { redactTextForOutbound } from '../redaction/index.js';
+import { LlmRequestError } from './llm-errors.js';
 import { isInputContextErrorObject } from './llm-failure-classifiers.js';
 
 export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, responseStatus: number): Promise<LlmCompleteResult> {
@@ -27,7 +28,7 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, re
           } else if (!content.endsWith(delta)) {
             content += delta;
           }
-        }, (_reason) => { /* ignored */ });
+        });
         boundary = buffer.indexOf('\n\n');
       }
     }
@@ -52,7 +53,6 @@ export function handleOpenAICodexSseChunk(
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
   appendContent: (delta: string) => void,
-  setFinishReason: (reason: 'stop' | 'tool_calls' | 'length') => void,
 ): void {
   const dataLines = chunk
     .split('\n')
@@ -110,9 +110,6 @@ export function handleOpenAICodexSseChunk(
         pendingToolCalls.delete(id);
         if (pending?.id) pendingToolCalls.delete(pending.id);
       }
-    } else if (type === 'response.completed' || type === 'response.done') {
-      const response = event['response'] as Record<string, unknown> | undefined;
-      if (response?.['status'] === 'incomplete') setFinishReason('length');
     } else if (type === 'response.failed') {
       throw createCodexStreamError('OpenAI Codex response failed', event, responseStatus);
     } else if (type === 'error') {
@@ -150,7 +147,7 @@ function createCodexStreamError(prefix: string, payload: Record<string, unknown>
   const type = typeof error['type'] === 'string' ? error['type'] : '';
   const rawMessage = String(error['message'] ?? payload['message'] ?? JSON.stringify(payload));
   const codePrefix = code ? `${code}: ` : '';
-  const message = `${prefix}: ${codePrefix}${redactProviderErrorText(rawMessage)}`;
+  const message = `${prefix}: ${codePrefix}${redactTextForOutbound(rawMessage)}`;
   const embeddedStatus = statusFromCodexPayload(payload, error);
   const retryAfterMs = retryAfterMsFromCodexPayload(payload, error);
   const evidence = [code, type, rawMessage].join(' ');

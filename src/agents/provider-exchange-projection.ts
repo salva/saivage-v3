@@ -25,9 +25,7 @@ export function projectProviderExchangeForPublication(
     completed_at: attempt.completed_at,
     ...(attempt.response_status !== undefined ? { response_status: attempt.response_status } : {}),
     ...(attempt.latency_ms !== undefined ? { latency_ms: attempt.latency_ms } : {}),
-    terminal_tool_fired: attempt.terminal_tool_fired === null
-      ? null
-      : attempt.terminal_tool_fired,
+    terminal_tool_fired: attempt.terminal_tool_fired,
   };
 
   const projected = attempt.status === 'ok'

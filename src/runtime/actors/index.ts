@@ -1,9 +1,6 @@
 export * from './llm-delivery-log.js';
 export * from './conversation-session.js';
 export * from './conversation-recovery.js';
-export {
-  parseConversationSessionId,
-} from './conversation-inventory.js';
 export * from './llm-invocation.js';
 export * from './invocation-lifecycle.js';
 export * from './llm-actor.js';

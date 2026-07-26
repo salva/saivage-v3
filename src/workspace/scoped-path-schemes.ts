@@ -7,7 +7,7 @@ import { cardIdSchema } from '../schemas/index.js';
 type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;definition(cardId:string,filename:string):RecordDefinition };
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
-import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
+import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/layout.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export type ScopedPathMode = 'read' | 'write' | 'search';
@@ -146,7 +146,7 @@ export const scopedPathResolvers = {
     if (parsed.segments.length < 2) throw ctx.fail(`Invalid tmp URL '${raw}'.`);
     const [cardId, ...rest] = parsed.segments;
     if (mode === 'write' && cardId !== agent.cardId) throw ctx.fail('Card-scoped agents may write tmp files only for their current card.');
-    return { kind: 'tmp', ...resolveContained(ctx, `${SAIVAGE_WORK_RELATIVE_DIR}/cards/${cardId}/tmp/${rest.join('/')}`, 'tmp path') };
+    return { kind: 'tmp', ...resolveContained(ctx, cardTmpRelativePath(cardId!, ...rest), 'tmp path') };
   },
   record(ctx: ResolveScopedPathContext, raw: string, mode: ScopedPathMode): ResolvedScopedPath {
     if (mode === 'write') {
@@ -159,7 +159,7 @@ export const scopedPathResolvers = {
     const parsed = parseScopedPathUrl(raw, 'work');
     rejectQueryAndFragment(raw, 'work', parsed, ctx.fail);
     const workRoot = saivageWorkRoot(ctx.projectRoot);
-    return { kind: 'work', ...resolveContained(ctx, `${SAIVAGE_WORK_RELATIVE_DIR}/${parsed.segments.join('/')}`, 'work path'), workRoot };
+    return { kind: 'work', ...resolveContained(ctx, saivageWorkRelativePath(...parsed.segments), 'work path'), workRoot };
   },
 } as const;
 

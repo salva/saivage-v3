@@ -204,7 +204,7 @@ function patchPaths(patch: string): string[] {
   return [...paths];
 }
 
-export async function readProject(ctx: WorkspaceContext, params: { path: string; offset?: number; limit?: number; read_mode?: 'auto' | 'text' | 'multimodal'; metadata_only?: boolean }): Promise<unknown> {
+export async function readProject(ctx: WorkspaceContext, params: { path: string; offset?: number; limit?: number; read_mode?: 'auto' | 'text'; metadata_only?: boolean }): Promise<unknown> {
   const { resolved, scoped } = resolveReadPath(ctx, params.path);
   if (resolved.kind === 'record' && resolved.recordKind === 'directory') {
     const listing = await listScopedPath(vfsCtx(ctx), params.path);
@@ -232,8 +232,6 @@ export async function readProject(ctx: WorkspaceContext, params: { path: string;
     if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
     return { ...baseRecord, metadata_only: true, is_directory: false, size: st.size, mtime: st.mtime.toISOString() };
   }
-  const mode = params.read_mode ?? 'auto';
-  if (mode === 'multimodal') throw toolInputError('multimodal read_mode is not supported by v3 project tools yet.');
   const offset = parseNonNegativeInt(params.offset, 0);
   const limit = parseNonNegativeInt(params.limit, DEFAULT_READ_LIMIT, DEFAULT_READ_LIMIT);
   if (st.isDirectory()) {

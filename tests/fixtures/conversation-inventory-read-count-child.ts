@@ -6,7 +6,10 @@ type MutableFs = typeof import('node:fs');
 type CandidateLedger = {
   openAttempts: number;
   readCalls: number;
+  requestedLengths: number[];
   bytesRead: number;
+  logicalBytesRead: number;
+  readsAfterFirstNewline: number;
   closes: number;
 };
 
@@ -21,10 +24,11 @@ try {
   const ledger = new Map<string, CandidateLedger>(
     Object.values(paths).map((path) => [
       path,
-      { openAttempts: 0, readCalls: 0, bytesRead: 0, closes: 0 },
+      { openAttempts: 0, readCalls: 0, requestedLengths: [], bytesRead: 0, logicalBytesRead: 0, readsAfterFirstNewline: 0, closes: 0 },
     ]),
   );
   const descriptors = new Map<number, string>();
+  const classifiedDescriptors = new Set<number>();
   const originalOpenSync = fs.openSync;
   const originalReadSync = fs.readSync;
   const originalCloseSync = fs.closeSync;
@@ -42,8 +46,19 @@ try {
     const exactPath = descriptors.get(descriptor);
     if (exactPath) {
       const record = ledger.get(exactPath)!;
+      const buffer = args[0] as Buffer;
+      const offset = args[1] as number;
+      const length = args[2] as number;
       record.readCalls += 1;
+      record.requestedLengths.push(length);
       record.bytesRead += count;
+      if (classifiedDescriptors.has(descriptor)) {
+        record.readsAfterFirstNewline += 1;
+      } else {
+        const newline = buffer.subarray(offset, offset + count).indexOf(0x0a);
+        record.logicalBytesRead += newline < 0 ? count : newline + 1;
+        if (newline >= 0) classifiedDescriptors.add(descriptor);
+      }
     }
     return count;
   }) as typeof fs.readSync;
@@ -55,6 +70,7 @@ try {
       if (exactPath) {
         ledger.get(exactPath)!.closes += 1;
         descriptors.delete(descriptor);
+        classifiedDescriptors.delete(descriptor);
       }
     }
   }) as typeof fs.closeSync;

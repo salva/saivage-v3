@@ -6,7 +6,6 @@ export async function readOpenAIChatStream(body: ReadableStream<Uint8Array>): Pr
   const decoder = new TextDecoder();
   const contentChunks: string[] = [];
   let buffer = '';
-  let finishReason: 'stop' | 'tool_calls' | 'length' | null = null;
   const toolCallAccumulators: Map<number, { id?: string; type?: string; name?: string; arguments: string }> = new Map();
 
   try {
@@ -17,18 +16,18 @@ export async function readOpenAIChatStream(body: ReadableStream<Uint8Array>): Pr
       const lines = buffer.split('\n');
       buffer = lines.pop() ?? '';
       for (const line of lines) {
-        readOpenAIChatStreamLine(line, contentChunks, toolCallAccumulators, (reason) => { finishReason = reason; });
+        readOpenAIChatStreamLine(line, contentChunks, toolCallAccumulators);
         if (line.trim() === 'data: [DONE]') {
-          return buildOpenAIChatStreamResult(contentChunks, toolCallAccumulators, finishReason);
+          return buildOpenAIChatStreamResult(contentChunks, toolCallAccumulators);
         }
       }
     }
 
     if (buffer.trim()) {
-      readOpenAIChatStreamLine(buffer, contentChunks, toolCallAccumulators, (reason) => { finishReason = reason; });
+      readOpenAIChatStreamLine(buffer, contentChunks, toolCallAccumulators);
     }
 
-    return buildOpenAIChatStreamResult(contentChunks, toolCallAccumulators, finishReason);
+    return buildOpenAIChatStreamResult(contentChunks, toolCallAccumulators);
   } catch (err) {
     if (err instanceof LlmRequestError) throw err;
     if (err instanceof DOMException && err.name === 'AbortError') {
@@ -44,7 +43,6 @@ function readOpenAIChatStreamLine(
   line: string,
   contentChunks: string[],
   toolCallAccumulators: Map<number, { id?: string; type?: string; name?: string; arguments: string }>,
-  setFinishReason: (reason: 'stop' | 'tool_calls' | 'length') => void,
 ): void {
   const trimmed = line.trim();
   if (!trimmed || !trimmed.startsWith('data: ')) return;
@@ -63,12 +61,10 @@ function readOpenAIChatStreamLine(
             function?: { name?: string; arguments?: string };
           }>;
         };
-        finish_reason?: string | null;
       }>;
     };
     const choice = parsed.choices?.[0];
     if (!choice) return;
-    if (choice.finish_reason) setFinishReason(choice.finish_reason as 'stop' | 'tool_calls' | 'length');
     const delta = choice.delta;
     if (!delta) return;
     if (delta.content) contentChunks.push(delta.content);
@@ -91,10 +87,9 @@ function readOpenAIChatStreamLine(
   }
 }
 
-export function buildOpenAIChatStreamResult(
+function buildOpenAIChatStreamResult(
   contentChunks: string[],
   toolCallAccumulators: Map<number, { id?: string; type?: string; name?: string; arguments: string }>,
-  _finishReason: 'stop' | 'tool_calls' | 'length' | null,
 ): LlmCompleteResult {
   const toolCalls: ToolCall[] = [];
   const sortedIndices = [...toolCallAccumulators.keys()].sort((a, b) => a - b);

@@ -1,11 +1,11 @@
-import { closeSync, constants, fstatSync, fsyncSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, realpathSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegment } from '../schemas/card-id.js';
 import { cardRecordSchema, type CardHistoryEntry, type CardRecord } from '../schemas/index.js';
 import { cardStreamRowSchema, validateCardStream, type CardTombstone, type CardVersionArtifact } from './canonical-card-artifacts.js';
 import { recordVersionArtifactSchema, validateRecordStream } from './canonical-record-artifacts.js';
-import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFileSnapshot, serializeGrowingEnvelope, type CanonicalGrowingFileSnapshot, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
-import { cardNamespace, cardRecordStreamFile, cardStreamFile, saivageCardsRoot, saivageRoot } from './layout.js';
+import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFileSnapshot, readCappedCanonicalGrowingFileSnapshot, serializeGrowingEnvelope, type CanonicalGrowingFileSnapshot, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
+import { cardChildrenRoot, cardConversationsRoot, cardNamespace, cardRecordStreamFile, cardStreamFile, globalAgentConversationsRoot, saivageAgentsRoot, saivageCardsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { validateParsedCards } from '../cards/validator.js';
 import type { NewChildCardInput } from '../cards/lifecycle.js';
@@ -13,18 +13,8 @@ import type { NewProjectRootInput } from '../boot/app.js';
 import type { RecordDefinition } from '../records/record-definition.js';
 import type { RecordName } from '../schemas/index.js';
 import type { CompiledCardTypeWorkflow } from '../runtime/card-process/card-process-config.js';
-import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 
 export interface CardArtifactIndex { readonly artifacts: CardVersionArtifact[]; readonly current: CardVersionArtifact; readonly tombstone: CardTombstone | null; readonly snapshot: CanonicalGrowingFileSnapshot<CardVersionArtifact | CardTombstone> }
-export interface CardRecordSlotReadIo {
-  stat: typeof fstatSync;
-  read: typeof readFileSync;
-  truncate: typeof ftruncateSync;
-  fsync: typeof fsyncSync;
-  close: typeof closeSync;
-}
-const cardRecordSlotReadIo: CardRecordSlotReadIo = { stat: fstatSync, read: readFileSync, truncate: ftruncateSync, fsync: fsyncSync, close: closeSync };
-
 function requireDirectory(path: string): void {
   const stat = lstatSync(path);
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Canonical card path '${path}' must be a real directory.`);
@@ -66,15 +56,14 @@ export type CardHistoryEntryRead = CardTargetRead<CardHistoryEntry> | { readonly
 function proveActiveCardPathFromBase(realProjectRoot: string, targetId: string, instrumentation?: CanonicalReadInstrumentation): CardArtifactIndex | null {
   const segments = cardIdSegments(targetId);
   let currentId = 'project';
-  let namespace = cardNamespace(realProjectRoot, currentId);
   let artifacts = exactStream(realProjectRoot, currentId, instrumentation);
   if (artifacts.tombstone) throw new Error('The project card cannot be tombstoned.');
   for (const segment of segments) {
     const nextId = childCardId(currentId, segment);
     if (!artifacts.current.card.children.includes(nextId)) return null;
-    const childrenPath = join(namespace, 'children');
+    const childrenPath = cardChildrenRoot(realProjectRoot, currentId);
     proveCanonicalDirectory(realProjectRoot, childrenPath);
-    namespace = join(childrenPath, segment);
+    const namespace = cardNamespace(realProjectRoot, nextId);
     proveCanonicalDirectory(realProjectRoot, namespace);
     artifacts = exactStream(realProjectRoot, nextId, instrumentation);
     if (artifacts.tombstone) return null;
@@ -133,13 +122,12 @@ function readCanonicalChildrenOfReached(
   instrumentation?: CanonicalReadInstrumentation,
 ): CardArtifactIndex[] {
   const activeChildren: CardArtifactIndex[] = [];
-  const parentNamespace = cardNamespace(realProjectRoot, parentId);
   for (const id of parent.current.card.children) {
     const segment = cardIdSegments(id).at(-1)!;
     if (childCardId(parentId, segment) !== id) throw new Error(`Card '${parentId}' has invalid direct child '${id}'.`);
-    const childrenPath = join(parentNamespace, 'children');
+    const childrenPath = cardChildrenRoot(realProjectRoot, parentId);
     proveCanonicalDirectory(realProjectRoot, childrenPath);
-    proveCanonicalDirectory(realProjectRoot, join(childrenPath, segment));
+    proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, id));
     const child = exactStream(realProjectRoot, id, instrumentation);
     if (!child.tombstone) activeChildren.push(child);
   }
@@ -190,55 +178,12 @@ export function readCanonicalCardFilesMetadata(projectRoot: string, cardId: stri
   return { kind: 'found', value: { card: canonicalProjection(reached.target), files } };
 }
 
-export function readRecordSlotSnapshot(
-  path: string,
-  descriptor: number,
-  cardId: string,
-  definition: RecordDefinition,
-  maximumBytes: number,
-  io: CardRecordSlotReadIo,
-): { readonly kind: 'found'; readonly snapshot: CanonicalGrowingFileSnapshot<unknown> } | { readonly kind: 'too-large'; readonly size: number } {
-  let truncationStarted = false;
-  let descriptorOwned = true;
-  const close = (): void => { descriptorOwned = false; io.close(descriptor); };
-  try {
-    const initial = io.stat(descriptor);
-    if (!initial.isFile()) throw new Error(`Canonical card artifact '${path}' must be a regular file.`);
-    if (initial.size > maximumBytes) { close(); return { kind: 'too-large', size: initial.size }; }
-    let bytes = io.read(descriptor);
-    if (bytes.byteLength > maximumBytes) { close(); return { kind: 'too-large', size: bytes.byteLength }; }
-    if (bytes.byteLength > 0 && bytes[bytes.byteLength - 1] !== 0x0a) {
-      const finalNewline = bytes.lastIndexOf(0x0a);
-      const canonicalLength = finalNewline < 0 ? 0 : finalNewline + 1;
-      truncationStarted = true;
-      let final: ReturnType<typeof fstatSync>;
-      try {
-        io.truncate(descriptor, canonicalLength);
-        io.fsync(descriptor);
-        bytes = bytes.subarray(0, canonicalLength);
-        final = io.stat(descriptor);
-        close();
-      } catch { throw new PublicationOutcomeUnknownError(); }
-      const rows = validateRecordStream(parseGrowingFile(path, bytes.toString('utf8'), recordVersionArtifactSchema), path, cardId, definition);
-      return { kind: 'found', snapshot: Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() }) };
-    }
-    const rows = validateRecordStream(parseGrowingFile(path, bytes.toString('utf8'), recordVersionArtifactSchema), path, cardId, definition);
-    const final = io.stat(descriptor);
-    close();
-    return { kind: 'found', snapshot: Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() }) };
-  } catch (error) {
-    if (!truncationStarted && descriptorOwned) { try { close(); } catch { /* pre-truncation failure remains authoritative */ } }
-    throw error;
-  }
-}
-
 export function readCanonicalCardFileContent(
   projectRoot: string,
   cardId: string,
   slot: CanonicalCardFileSlot,
   maximumBytes: number,
   definitions:readonly RecordDefinition[],
-  recordSlotIo: CardRecordSlotReadIo = cardRecordSlotReadIo,
 ): CanonicalCardFileContentRead {
   const reached = proveActiveCardPathWithRoot(projectRoot, cardId);
   if (!reached) return { kind: 'card-not-found' };
@@ -249,16 +194,16 @@ export function readCanonicalCardFileContent(
   const definition = definitions.find((value)=>value.filename===slot);
   if(!definition)return {kind:'slot-not-found'};
   const path = cardRecordStreamFile(reached.realProjectRoot, cardId, definition);
-  let descriptor: number;
   try {
-    descriptor = openSync(path, constants.O_RDWR | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const result = readCappedCanonicalGrowingFileSnapshot(path, recordVersionArtifactSchema, maximumBytes);
+    if (result.kind === 'too-large') return result;
+    const rows = validateRecordStream([...result.snapshot.rows], path, cardId, definition);
+    const snapshot = Object.freeze({ ...result.snapshot, rows: Object.freeze(rows) });
+    return { kind: 'found', value: { card: reached.target.current.card, slot, snapshot } };
   } catch (error) {
     if (!definition.bootstrap && (error as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'slot-not-found' };
     throw error;
   }
-  const result = readRecordSlotSnapshot(path, descriptor, cardId, definition, maximumBytes, recordSlotIo);
-  if (result.kind === 'too-large') return result;
-  return { kind: 'found', value: { card: reached.target.current.card, slot, snapshot: result.snapshot } };
 }
 
 export function readCardHierarchy(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<LinkedChildrenProjection> {
@@ -332,8 +277,7 @@ function publishInitialStreams(projectRoot: string, card: CardRecord, bootstrapC
 }
 
 function claimChildNamespace(projectRoot: string, parentId: string): string {
-  const parentNamespace = cardNamespace(projectRoot, parentId);
-  const childrenPath = join(parentNamespace, 'children');
+  const childrenPath = cardChildrenRoot(projectRoot, parentId);
   try { mkdirSync(childrenPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; requireDirectory(childrenPath); }
   let segment = nextCardSegment();
   for (;;) {
@@ -364,7 +308,7 @@ export function publishInitialChildCard(projectRoot: string, input: NewChildCard
     status_text: null, status_text_updated_at: null, status_text_author_session_id: null,
     latest_self_report: null, metadata: null, pending_notifications: [],
   });
-  mkdirSync(join(cardNamespace(projectRoot, id), 'conversations'));
+  mkdirSync(cardConversationsRoot(projectRoot, id));
   publishInitialStreams(projectRoot, card, input.bootstrap_content, bootstrapDefinition, temporary);
   return card;
 }
@@ -384,9 +328,9 @@ export function publishInitialProjectCard(projectRoot: string, input: NewProject
     metadata: null, pending_notifications: [],
   });
   mkdirSync(cardNamespace(projectRoot, 'project'));
-  mkdirSync(join(cardNamespace(projectRoot, 'project'), 'conversations'));
-  mkdirSync(join(projectRoot, '.saivage', 'agents'));
-  mkdirSync(join(projectRoot, '.saivage', 'agents', 'conversations'));
+  mkdirSync(cardConversationsRoot(projectRoot, 'project'));
+  mkdirSync(saivageAgentsRoot(projectRoot));
+  mkdirSync(globalAgentConversationsRoot(projectRoot));
   publishInitialStreams(projectRoot, card, input.bootstrap_content, bootstrapDefinition, temporary);
 }
 

@@ -238,7 +238,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   private activateChild(parent: CardActivationOwner, childCardId: string, lease: ChildInvocationLease): Promise<import('../../contracts/tool-api.js').CardActivationOutcome> {
-    if (this.halt?.owners.includes(parent)) return this.interruptLease(lease, this.halt.interruption);
+    if (this.halt?.owners.includes(parent)) return this.rejectLease(lease, this.halt.interruption);
     this.requireOwnerAuthority(parent);
     if (cardParentId(childCardId) !== parent.cardId) return this.rejectLease(lease, new Error(`Planner can activate only immediate children of '${parent.cardId}'.`));
     const snapshot = parent.processor.executingLlmSnapshot();
@@ -274,12 +274,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 
   private rejectLease(lease: ChildInvocationLease, error: Error): Promise<never> {
     lease.markRejected(); lease.deliverInterruption(error); return lease.activation as Promise<never>;
-  }
-
-  private interruptLease(lease: ChildInvocationLease, interruption: RuntimeStoppedInterruption): Promise<import('../../contracts/tool-api.js').CardActivationOutcome> {
-    if (lease.phase() === 'reserved') return this.rejectLease(lease, interruption);
-    if (lease.phase() === 'admitted' || lease.phase() === 'settling') lease.interrupt(interruption);
-    return lease.activation;
   }
 
   private createOwner(card: CardRecord, entry: CardProcessEntry, caller: CardActivationCaller, phase: 'prepared_root' | 'child_admission', relationship?: CardActivationOwner['parentRelationship'], stabilized?: ReadonlySet<import('../../schemas/index.js').AgentName>): CardActivationOwner {

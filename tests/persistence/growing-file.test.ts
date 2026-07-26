@@ -197,7 +197,7 @@ describe('strict growing-file boundaries', () => {
     const path = target(); publishFirstEnvelope(path, bytes(1), () => '11111111-1111-4111-8111-111111111111');
     expect(appendEnvelope(path, bytes())).toEqual({ kind: 'appended' });
     expect(readFileSync(path, 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
-    expect(() => parseGrowingFile(path, '{"version":2,"type":"rows","rows":[{}]}\n', row)).toThrow(/malformed/);
+    expect(() => parseGrowingFile(path, Buffer.from('{"version":2,"type":"rows","rows":[{}]}\n'), row)).toThrow(/malformed/);
   });
 
   it('treats every existing exact path object as already published without mutating referents', () => {

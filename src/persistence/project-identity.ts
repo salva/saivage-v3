@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import { lstatSync, mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 
 import { projectConfigSchema, type ProjectConfig } from '../schemas/index.js';
 import { replaceFile, type PublicationTemporaryIdFactory } from './replace-file.js';
+import { projectIdentityFile, saivageRoot } from './layout.js';
 
 const projectIdentitySchema = projectConfigSchema.strict();
 
@@ -14,7 +14,7 @@ export function parseProjectIdentity(raw: unknown, path: string): ProjectConfig 
 }
 
 export function readProjectIdentity(projectRoot: string): ProjectConfig | null {
-  const path = join(projectRoot, '.saivage', 'project.json');
+  const path = projectIdentityFile(projectRoot);
   let raw: unknown;
   try {
     raw = JSON.parse(readFileSync(path, 'utf8')) as unknown;
@@ -30,9 +30,9 @@ export function projectIdentityDigest(project: Pick<ProjectConfig, 'id' | 'creat
 }
 
 export function createProjectIdentity(projectRoot: string, name: string, publicationTemporaryId?: PublicationTemporaryIdFactory): ProjectConfig {
-    const owner = join(projectRoot, '.saivage');
+    const owner = saivageRoot(projectRoot);
     try { mkdirSync(owner); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; const stat = lstatSync(owner); if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Project state owner '${owner}' must be a real directory.`); }
-    const path = join(projectRoot, '.saivage', 'project.json');
+    const path = projectIdentityFile(projectRoot);
     if (readProjectIdentity(projectRoot)) throw new Error(`Project identity already exists at '${path}'.`);
     const stamp = new Date().toISOString();
     const project = parseProjectIdentity({

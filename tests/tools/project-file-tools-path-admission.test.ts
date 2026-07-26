@@ -5,6 +5,15 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { applyProjectPatch } from '../../src/tools/project-file-tools.js';
+import { readWorkspaceInputSchema } from '../../src/contracts/builtin-tool-inputs.js';
+
+describe('workspace read input admission', () => {
+  it('accepts only auto and text read modes', () => {
+    expect(readWorkspaceInputSchema.parse({ path: 'README.md', read_mode: 'auto' }).read_mode).toBe('auto');
+    expect(readWorkspaceInputSchema.parse({ path: 'README.md', read_mode: 'text' }).read_mode).toBe('text');
+    expect(readWorkspaceInputSchema.safeParse({ path: 'README.md', read_mode: 'multimodal' }).success).toBe(false);
+  });
+});
 
 describe('applyProjectPatch path admission', () => {
   const roots: string[] = [];

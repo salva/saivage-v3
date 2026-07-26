@@ -81,7 +81,7 @@ export class McpManager implements McpReconciliationPort {
   async cleanupForApplicationStop(): Promise<void> {
     this.closeAdmission();
     const runtimes = [...this.#runtimes.values()];
-    const directContainments = runtimes.map((runtime) => runtime.closeAdmission());
+    const directContainments = runtimes.map((runtime) => runtime.directContainment());
     let termination: Promise<import('../runtime/process-runner.js').ProcessStopReport>;
     try { termination = this.#processRunner.terminateScopeTree({ rootScope: this.#mcpProcessRootScope, categories: ['service_infrastructure'], reason: 'application stopping', graceMs: 5000 }); }
     catch (error) { termination = Promise.reject(error); }

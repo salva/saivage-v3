@@ -1,5 +1,5 @@
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
-import { redactProviderErrorText } from './llm-errors.js';
+import { redactTextForOutbound } from '../redaction/index.js';
 
 export interface ClassifierContext {
   provider: string;
@@ -11,7 +11,7 @@ export type LlmHttpTransport = 'chat' | 'responses' | 'codex';
 
 function detail(bodyText: string): string {
   if (!bodyText) return '';
-  return `: ${redactProviderErrorText(bodyText.slice(0, 500))}`;
+  return `: ${redactTextForOutbound(bodyText.slice(0, 500))}`;
 }
 
 function parseRetryAfterMs(headers: Headers): number | undefined {

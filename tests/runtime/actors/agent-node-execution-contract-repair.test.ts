@@ -29,6 +29,8 @@ function harness(args: {
   toolExecutor?: () => Promise<{ success: true; data: string }>;
   cleanupError?: Error;
   terminalVariant?: 'pending' | 'records' | 'stale' | 'incomplete';
+  agentTools?: string[];
+  reviewerPreparationError?: Error;
 }) {
   const events: string[] = [];
   const handoffs: unknown[] = [];
@@ -71,9 +73,9 @@ function harness(args: {
   const node = {
     kind: 'node',
     nodeId: 'work',
-    agent: { name: 'planner', tools: [], model: { temperature: 0, maxTokens: 100 } },
+    agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } },
     requirements: args.terminalVariant === 'records' ? [{ kind: 'updated', definition: { name: 'status.md' } }] : [],
-    descendantContext: args.terminalVariant === 'stale' ? { records: [] } : null,
+    descendantContext: args.terminalVariant === 'stale' || args.reviewerPreparationError ? { records: [] } : null,
     outcomes: ['complete'],
     childCreationTypes: new Set(),
     childActivationTypes: new Set(),
@@ -97,6 +99,7 @@ function harness(args: {
     notificationDelivery: { selectNotifications, removeNotifications: () => undefined },
     claimResult: () => { events.push('claim-result'); },
   };
+  const createDirectScope = jest.fn(() => ({}));
   const execution = new AgentNodeExecution({
     cardId: 'project',
     store: {
@@ -104,6 +107,8 @@ function harness(args: {
       readRecord: () => ({ version: 1, recordUrl: 'record:///status.md?card=project&v=1', artifact: { state: 'closed', revision_seq: 1, content: 'status' } }),
       listChildren: args.terminalVariant === 'incomplete' ? jest.fn().mockReturnValueOnce(['card-a']).mockReturnValue([]) : () => [],
     },
+    processRunner: { createDirectScope },
+    runtimeProcessRootScope: {},
     processPrompts: { get: () => 'correct the result' },
   } as never, {
     createLlm: () => llm,
@@ -127,6 +132,7 @@ function harness(args: {
   internals.buildSurface = () => surface;
   internals.correction = (_node, violations) => `correction: ${violations.join('; ')}`;
   internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
+  if (args.reviewerPreparationError) internals.captureReviewerPair = () => { throw args.reviewerPreparationError; };
   if (args.terminalVariant === 'records') {
     let validationCount = 0;
     internals.validateRecords = () => validationCount++ === 0
@@ -146,6 +152,7 @@ function harness(args: {
     appendedToolResults,
     settledToolResults,
     llmInputArguments,
+    createDirectScope,
     run: () => execution.execute({ process, stateId, node, transition: {}, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
   };
 }
@@ -272,6 +279,15 @@ describe('AgentNodeExecution contract repair behavior', () => {
 
     await expect(test.run()).rejects.toThrow('provider unavailable');
     expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'failed' }]);
+  });
+
+  it('finishes throwing reviewer preparation before allocating a direct process scope', async () => {
+    const preparationFailure = new Error('reviewer context preparation failed');
+    const test = harness({ initial: terminal('unused'), agentTools: ['run_command'], reviewerPreparationError: preparationFailure });
+
+    await expect(test.run()).rejects.toBe(preparationFailure);
+    expect(test.createDirectScope).not.toHaveBeenCalled();
+    expect(test.cleanupReasons).toEqual([]);
   });
 
   it('checks currentness around plain-text repair before accepting the continuation', async () => {

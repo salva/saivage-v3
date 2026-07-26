@@ -1,5 +1,4 @@
 import { lstatSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
 
 import {
   appLogEntryLogicalId,
@@ -9,7 +8,7 @@ import {
   type AppLogEntryType,
 } from '../contracts/app-log.js';
 import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFile } from './growing-file.js';
-import { appLogFile } from './layout.js';
+import { appLogFile, saivageLogsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
@@ -53,7 +52,7 @@ export function appendAppLogEntry<T extends AppLogEntryType>(
   switch (result.kind) {
       case 'appended': return parsed;
       case 'missing':
-        for (const owner of [join(projectRoot, '.saivage'), join(projectRoot, '.saivage', 'logs')]) {
+        for (const owner of [saivageRoot(projectRoot), saivageLogsRoot(projectRoot)]) {
           try { mkdirSync(owner); }
           catch (error) {
             if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;

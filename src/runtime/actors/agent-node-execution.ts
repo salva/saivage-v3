@@ -93,11 +93,11 @@ export class AgentNodeExecution {
     const sessionId = cardAgentSessionId(node.agent.name, this.deps.cardId);
     const llm = this.host.createLlm(sessionId);
     this.host.selectLlm(llm);
+    let reviewerPair = node.descendantContext ? this.captureReviewerPair(input.card.id, node.descendantContext.records.map((record)=>record.name)) : null;
     const needsProcessScope = node.agent.tools.some((name) => name === 'run_command' || name === 'wait_process' || name === 'kill_process');
     const scope = needsProcessScope ? this.executorScope(input, args.nodeOrdinal) : null;
     const surface = this.buildSurface(node, input, sessionId, scope, args.nodeOrdinal);
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
-    let reviewerPair = node.descendantContext ? this.captureReviewerPair(input.card.id, node.descendantContext.records.map((record)=>record.name)) : null;
     let primaryCompletion: { kind: 'success'; value: AcceptedNodeResult } | { kind: 'failure'; reason: unknown };
     try {
       const inputId = this.host.freshInputId();

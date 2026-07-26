@@ -1,4 +1,4 @@
-import { InvalidArgumentsError, McpInvokeError, TimeoutError, TransportError } from './errors.js';
+import { TimeoutError, TransportError } from './errors.js';
 import type { StreamableHttpMcpServerConfig } from '../schemas/saivage-config.js';
 import {
   CLIENT_NAME,
@@ -11,6 +11,7 @@ import {
   type McpToolDefinition,
 } from './protocol.js';
 import type { McpServerHandle } from './server-registry.js';
+import { mapToolsCallResponse } from './tools-call-response.js';
 
 interface StreamableHttpReadContext { serverName: string; operation: string; expectedId: number | string; signal?: AbortSignal }
 export interface MessageIdSource { next(): number | string }
@@ -178,7 +179,7 @@ export async function invokeStreamableHttpTool(input: { serverName: string; tool
     let body: Record<string, unknown>;
     try { body = await readStreamableHttpJsonRpcResponse(resp, { serverName, operation: 'tools/call', expectedId: requestId, signal: invokeAbort.signal }); }
     catch (err) { if (operationSignal.aborted) throw new DOMException('MCP invocation aborted', 'AbortError'); if (invokeAbort.signal.aborted) throw new TimeoutError(serverName, toolName, timeoutMs); throw err; }
-    return processToolsCallResponse(body, serverName, toolName);
+    return mapToolsCallResponse(body, serverName, toolName);
   } finally { clearTimeout(timeoutId); }
 }
 
@@ -190,18 +191,6 @@ export async function healthStreamableHttpServer(input: { serverName: string; co
     if (resp.status === 405 || resp.status === 501) resp = await fetch(cfg.url, { method: 'GET', signal });
     return resp.ok;
   } catch { return false; }
-}
-
-function processToolsCallResponse(response: Record<string, unknown>, serverName: string, toolName: string): unknown {
-  if (response.error) {
-    const err = response.error as { code: number; message: string; data?: unknown };
-    if (err.code === -32602) throw new InvalidArgumentsError(serverName, toolName, err.data);
-    throw new McpInvokeError(`MCP server '${serverName}' returned error for tool '${toolName}': ${err.message} (code ${err.code})`, `MCP_ERROR_${err.code}`, 502);
-  }
-  const result = response.result as (Record<string, unknown> & { content?: unknown; isError?: boolean }) | undefined;
-  if (!result) throw new McpInvokeError(`MCP server '${serverName}' returned a response with no result for tool '${toolName}'`, 'MCP_NO_RESULT', 502);
-  if (result.isError === true) throw new McpInvokeError(`Tool '${toolName}' on server '${serverName}' reported an error`, 'TOOL_EXECUTION_ERROR', 422);
-  return result.content !== undefined ? result.content : result;
 }
 
 export async function probeStreamableHttpStartup(input: { config: StreamableHttpMcpServerConfig; signal: AbortSignal }): Promise<{ ok: true } | { ok: false; error: string; aborted: boolean }> {

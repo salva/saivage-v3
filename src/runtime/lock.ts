@@ -10,9 +10,9 @@ import {
   unlinkSync,
   writeSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 
-import { runtimeProcessLockFile } from '../persistence/layout.js';
+import { projectIdentityFile, runtimeProcessLockFile } from '../persistence/layout.js';
 import { replaceFile } from '../persistence/replace-file.js';
 import { parseProjectIdentity, projectIdentityDigest, readProjectIdentity } from '../persistence/project-identity.js';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
@@ -105,7 +105,7 @@ function isIsoTimestamp(value: unknown): value is string {
   return !Number.isNaN(date.getTime()) && date.toISOString() === value;
 }
 
-export function parseRuntimeLockOwnerRecord(value: unknown): RuntimeLockOwnerRecord {
+function parseRuntimeLockOwnerRecord(value: unknown): RuntimeLockOwnerRecord {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('lock record must be an object');
   const record = value as Record<string, unknown>;
   const commonKeys = ['canonical_root_hash', 'format_version', 'instance_id', 'lock_state', 'pid', 'process_start_identity', 'project_identity', 'started_at', 'control_endpoint'];
@@ -159,7 +159,7 @@ export function readRuntimeLockStatus(projectRoot: string, config?: RuntimeLockC
   }
   if (record.canonical_root_hash !== canonicalRootHash(canonicalProjectRoot)) return { kind: 'malformed', detail: 'lifecycle lock belongs to a different project root', repairInstruction: repairInstruction(canonicalProjectRoot, path) };
   if (record.lock_state === 'bound') {
-    const identityPath = join(canonicalProjectRoot, '.saivage', 'project.json');
+    const identityPath = projectIdentityFile(canonicalProjectRoot);
     let identityBytes: string;
     try { identityBytes = readFileSync(identityPath, 'utf8'); }
     catch (error) {
@@ -178,13 +178,6 @@ export function readRuntimeLockStatus(projectRoot: string, config?: RuntimeLockC
   try { actualStart = (config?.readProcessStartIdentity ?? readProcStartIdentity)(record.pid); } catch (error) { return { kind: 'indeterminate', detail: `cannot verify process start identity for PID ${record.pid}: ${(error as Error).message}`, repairInstruction: repairInstruction(canonicalProjectRoot, path) }; }
   if (actualStart === record.process_start_identity) return { kind: 'live', record };
   return { kind: 'dead', record, repairInstruction: repairInstruction(canonicalProjectRoot, path) };
-}
-
-export function isLocked(projectRoot: string, config?: RuntimeLockConfig): boolean {
-  const status = readRuntimeLockStatus(projectRoot, config);
-  if (status.kind === 'missing') return false;
-  if (status.kind === 'live') return true;
-  throw blockerError(status);
 }
 
 function blockerError(status: RuntimeLockBlocker): Error {

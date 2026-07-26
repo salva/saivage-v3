@@ -265,6 +265,21 @@ describe('exact hierarchical card files', () => {
     expect(content.value.snapshot.bytes.byteLength).toBeGreaterThan(0);
   });
 
+  it('rejects complete invalid UTF-8 in a capped card record without changing it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
+    const path = cardRecordStreamFile(root, 'project', testRecordDefinition('brief.md'));
+    const invalid = Buffer.concat([
+      Buffer.from('{"version":1,"type":"rows","rows":[{"kind":"record-revision","content":"'),
+      Buffer.from([0xff]),
+      Buffer.from('"}]}\n'),
+    ]);
+    writeFileSync(path, invalid);
+    const cards = new CardService(root);
+
+    expect(() => cards.getCanonicalCardFileContent('project', 'brief.md', invalid.byteLength)).toThrow(`Growing file '${path}' is malformed`);
+    expect(readFileSync(path)).toEqual(invalid);
+  });
+
   it('keeps every card-domain read opaque after target tombstone and stops before descendants', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-direct-card-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);

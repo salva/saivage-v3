@@ -67,9 +67,15 @@ async function launchCapturingActivation(h: ReturnType<typeof harness>) {
   void owner.settlement.promise.catch(() => undefined);
   const original = owner.processor.activate.bind(owner.processor);
   let activation!: Promise<Exclude<CardActivationOutcome, { status: 'cancelled' }>>;
-  jest.spyOn(owner.processor, 'activate').mockImplementation((input, signal) => activation = original(input, signal));
+  let activationInput!: Parameters<CardProcessActor['activate']>[0];
+  let activationSignal!: AbortSignal;
+  jest.spyOn(owner.processor, 'activate').mockImplementation((input, signal) => {
+    activationInput = input;
+    activationSignal = signal;
+    return activation = original(input, signal);
+  });
   internals.launchStartedProject(prepared.launch);
-  return { owner, activation };
+  return { owner, activation, activationInput, activationSignal };
 }
 
 async function within<T>(promise: Promise<T>): Promise<T> {
@@ -90,6 +96,16 @@ function fatalNotificationSpy(supervisor: SupervisorRuntimeApi) {
 }
 
 describe('real CardProcess actor-main fatal containment', () => {
+  it('throws repeated activation synchronously without replacing the first activation', async () => {
+    const h = harness();
+    const { owner, activation, activationInput, activationSignal } = await launchCapturingActivation(h);
+
+    expect(() => owner.processor.activate(activationInput, activationSignal)).toThrow("Card process 'project' must be activated exactly once.");
+    const stop = h.supervisor.stopProject();
+    await expect(within(activation)).rejects.toBeInstanceOf(RuntimeStoppedInterruption);
+    await expect(within(stop)).resolves.toEqual({ status: 'stopped', contained: true });
+  });
+
   it('rejects an actor-first root activation exactly, publishes no ordinary result, and retains one failed halt', async () => {
     const h = harness();
     const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);

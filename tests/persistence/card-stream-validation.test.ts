@@ -480,7 +480,7 @@ describe('two-kind card stream validation', () => {
     const card = cards.create(input());
     cards.deleteSubtrees([card.id], () => true);
     const path = cardStreamFile(root, card.id);
-    const rows = parseGrowingFile(path, readFileSync(path, 'utf8'), cardStreamRowSchema);
+    const rows = parseGrowingFile(path, readFileSync(path), cardStreamRowSchema);
     const validated = validateCardStream(rows, path, card.id);
     expect(rows.map((row) => row.kind)).toEqual(['card-version', 'card-tombstone']);
     expect(validated.tombstone?.final_card.type).toBe('code');

@@ -2,7 +2,15 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from '@jest/globals';
 
-type Ledger = { openAttempts: number; readCalls: number; bytesRead: number; closes: number };
+type Ledger = {
+  openAttempts: number;
+  readCalls: number;
+  requestedLengths: number[];
+  bytesRead: number;
+  logicalBytesRead: number;
+  readsAfterFirstNewline: number;
+  closes: number;
+};
 type ChildResult = {
   paths: Record<'analyst' | 'planner' | 'reviewer' | 'app', string>;
   ledger: Record<string, Ledger>;
@@ -12,7 +20,9 @@ type ChildResult = {
 };
 
 describe('Agent inventory first-envelope physical reads', () => {
-  it('opens each exact candidate once, reads exactly its first envelope, and never opens app log', () => {
+  const chunkBytes = 64 * 1024;
+
+  it('opens each exact candidate once, classifies it in one bounded chunk, and never opens app log', () => {
     const result = runChild('valid');
     expect(result.error).toBeNull();
     expect(result.sessions?.map(({ id }) => id)).toEqual([
@@ -23,11 +33,21 @@ describe('Agent inventory first-envelope physical reads', () => {
     for (const key of ['planner', 'reviewer'] as const) {
       expect(result.ledger[result.paths[key]]).toEqual({
         openAttempts: 1,
-        readCalls: result.firstEnvelopeBytes[key],
-        bytesRead: result.firstEnvelopeBytes[key],
+        readCalls: 1,
+        requestedLengths: [chunkBytes],
+        bytesRead: expect.any(Number),
+        logicalBytesRead: result.firstEnvelopeBytes[key],
+        readsAfterFirstNewline: 0,
         closes: 1,
       });
+      expect(result.ledger[result.paths[key]].bytesRead).toBeGreaterThanOrEqual(
+        result.firstEnvelopeBytes[key],
+      );
+      expect(result.ledger[result.paths[key]].bytesRead).toBeLessThanOrEqual(chunkBytes);
     }
+    expect(result.ledger[result.paths.planner].bytesRead).toBeGreaterThan(
+      result.firstEnvelopeBytes.planner,
+    );
     expect(result.ledger[result.paths.app]).toEqual(zeroLedger(0));
   });
 
@@ -42,7 +62,15 @@ describe('Agent inventory first-envelope physical reads', () => {
       'agent:planner:project',
       'agent:reviewer:project',
     ]);
-    expect(malformedLater.ledger[malformedLater.paths.planner].bytesRead).toBe(
+    expect(malformedLater.ledger[malformedLater.paths.planner].logicalBytesRead).toBe(
+      malformedLater.firstEnvelopeBytes.planner,
+    );
+    expect(malformedLater.ledger[malformedLater.paths.planner]).toMatchObject({
+      readCalls: 1,
+      requestedLengths: [chunkBytes],
+      readsAfterFirstNewline: 0,
+    });
+    expect(malformedLater.ledger[malformedLater.paths.planner].bytesRead).toBeGreaterThan(
       malformedLater.firstEnvelopeBytes.planner,
     );
     expect(malformedLater.ledger[malformedLater.paths.app]).toEqual(zeroLedger(0));
@@ -60,5 +88,13 @@ function runChild(scenario: string): ChildResult {
 }
 
 function zeroLedger(openAttempts: number): Ledger {
-  return { openAttempts, readCalls: 0, bytesRead: 0, closes: 0 };
+  return {
+    openAttempts,
+    readCalls: 0,
+    requestedLengths: [],
+    bytesRead: 0,
+    logicalBytesRead: 0,
+    readsAfterFirstNewline: 0,
+    closes: 0,
+  };
 }

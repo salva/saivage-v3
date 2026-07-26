@@ -81,7 +81,7 @@ export function stabilizeAgentSession(args: {
   const sourceRows = conversation.sourceRows;
   const activationIndexes = sourceRows.flatMap((message, index) => activationMarker(message) ? [index] : []);
   if (activationIndexes.length === 0) {
-    validateCallSettlementPairs(messages, null, false, args.terminalToolNames);
+    validateCallSettlementPairs(messages, null, false);
     const state = classifyConversation(sourceRows, args.terminalToolNames);
     if (state !== 'empty' && state !== 'system_prompt_only' && state !== 'settled_terminal') throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
     return { disposition: 'clean', messages };
@@ -95,16 +95,16 @@ export function stabilizeAgentSession(args: {
   if (recoveryRows.length > 0 && !exactFinalRecovery) throw new Error(`Interrupted activation '${marker.inputId}' has a recovery notice that is not its final exact canonical source row.`);
   if (exactFinalRecovery) {
     if (recoveryRows.length !== 1) throw new Error(`Interrupted activation '${marker.inputId}' has colliding recovery notices.`);
-    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false, args.terminalToolNames);
+    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false);
     return { disposition: 'clean', messages };
   }
   const state = classifyConversation(activationRows, args.terminalToolNames);
   if (state === 'settled_terminal') {
-    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false, args.terminalToolNames);
+    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false);
     return { disposition: 'clean', messages };
   }
   const latestPhysicalIndex = physicalIndexForSource(messages, sourceRows[latestActivationIndex]!);
-  const unmatched = validateCallSettlementPairs(messages, latestPhysicalIndex, true, args.terminalToolNames);
+  const unmatched = validateCallSettlementPairs(messages, latestPhysicalIndex, true);
   if (unmatched) {
     appendProviderVisibleSyntheticFailedToolResult(args.conversations, {
       sessionId: args.sessionId,
@@ -149,7 +149,7 @@ function physicalIndexForSource(physicalRows: readonly AgentMessage[], source: A
   return index;
 }
 
-function validateCallSettlementPairs(messages: readonly AgentMessage[], latestActivationIndex: number | null, interrupted: boolean, terminalToolNames: ReadonlySet<string>): { sourceInputId: string; toolCallId: string; toolName: string; message: AgentMessage } | null {
+function validateCallSettlementPairs(messages: readonly AgentMessage[], latestActivationIndex: number | null, interrupted: boolean): { sourceInputId: string; toolCallId: string; toolName: string; message: AgentMessage } | null {
   const unmatched = inspectCanonicalCallSettlementPairs(messages).unmatched;
   if (unmatched.length === 0) return null;
   if (!interrupted) throw new Error('A cleanly closed or empty role session contains an unmatched tool call.');
@@ -157,7 +157,6 @@ function validateCallSettlementPairs(messages: readonly AgentMessage[], latestAc
   const call = unmatched[0]!;
   if (latestActivationIndex === null || call.index < latestActivationIndex) throw new Error('Interrupted role session contains an unmatched tool call in an older activation round.');
   if (!call.message.tool || !call.message.tool_call_id) throw new Error(`Unmatched tool call '${call.message.id}' is malformed.`);
-  void terminalToolNames;
   return { sourceInputId: call.sourceInputId, toolCallId: call.toolCallId, toolName: call.message.tool, message: call.message };
 }
 

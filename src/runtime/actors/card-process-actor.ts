@@ -70,9 +70,7 @@ export class CardProcessActor extends BaseActor {
   }
 
   activate(input: CardActivationInput, signal: AbortSignal): Promise<ProcessOutcome> {
-    if (this.#result && !this.#activationSettled) return this.#result.promise;
-    if (this.#result) return Promise.reject(new Error(`Card process '${this.cardId}' has already completed its activation.`));
-    if (this.state() !== 'lifecycle:ready') return Promise.reject(new Error(`Card process '${this.cardId}' cannot activate from '${this.state()}'.`));
+    if (this.#result !== null) throw new Error(`Card process '${this.cardId}' must be activated exactly once.`);
     this.#activationInput = input;
     this.#activationSignal = signal;
     this.#executionOrdinal = null;
