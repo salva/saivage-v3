@@ -80,7 +80,7 @@ const codeDebugGraph = {
     records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['executor'], bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', writers: ['executor'], bootstrap: false }],
     entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt_reference: entry === 'STOPPED' ? 'stopped-recovery' : null })),
     nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled', reference: 'executor', process_reference: 'execute', correction_reference: 'correct-execute-result' }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], writable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', kind: 'updated' }], descendant_context: null, outcomes: ['done'] }],
-    edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, prompt_reference: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }],
+    edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, prompt_reference: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
 const debugGraphs = parseOperatorResponse('debug.graphs', {
@@ -184,6 +184,9 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
       return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, restart_server_available: false }));
+    }
+    if (request.method() === 'GET' && url.pathname === '/api/runtime/content-policy') {
+      return json(route, parseOperatorResponse('runtime.contentPolicy', { refusal_high_water: 0, latest: null }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', { parent: hierarchyCard, children: [] }));

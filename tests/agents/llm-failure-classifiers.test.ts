@@ -42,8 +42,6 @@ describe('strict HTTP input-context classification', () => {
 
   it.each<[number, unknown]>([
     [200, { error: { code: 'context_length_exceeded' } }],
-    [413, { error: { code: 'context_length_exceeded' } }],
-    [422, { error: { code: 'context_length_exceeded' } }],
     [429, { error: { code: 'context_length_exceeded' } }],
     [500, { error: { code: 'context_length_exceeded' } }],
     [400, { error: 'context_length_exceeded' }],
@@ -66,6 +64,10 @@ describe('strict HTTP input-context classification', () => {
     expect(classify('responses', status, JSON.stringify(body)).kind).not.toBe('input_context_exhausted');
   });
 
+  it.each([413,422])('classifies exact context evidence independently of an otherwise unmatched HTTP %s status',(status)=>{
+    expect(classify('responses',status,JSON.stringify({error:{code:'context_length_exceeded'}})).kind).toBe('input_context_exhausted');
+  });
+
   it.each(['', 'null', '[]', '"context_length_exceeded"', '{bad'])('rejects malformed or non-object HTTP body %p', (body) => {
     expect(classify('chat', 400, body).kind).toBe('provider_protocol_error');
   });
@@ -79,6 +81,23 @@ describe('strict HTTP input-context classification', () => {
 });
 
 describe('common HTTP and transport classification', () => {
+  it.each(['cyber_policy','content_filter'])('classifies direct content code %s and preserves exact response evidence',(code)=>{
+    const body=JSON.stringify({error:{code,message:'refused'}});
+    expect(classify('responses',400,body)).toMatchObject({kind:'content_policy',providerResponse:body,status:400});
+  });
+
+  it.each(['content policy','safety policy','safety refusal','request was blocked for safety','cannot assist with this request'])('classifies bounded direct message phrase %s',(phrase)=>{
+    expect(classify('chat',403,JSON.stringify({error:{message:`Provider: ${phrase}.`}})).kind).toBe('content_policy');
+  });
+
+  it('applies operational precedence and fails closed on context/content contradiction',()=>{
+    const content=JSON.stringify({error:{code:'content_filter',message:'content policy'}});
+    expect(classify('chat',401,content).kind).toBe('auth_permanent');
+    expect(classify('chat',429,content).kind).toBe('rate_limit');
+    expect(classify('chat',503,content).kind).toBe('server_transient');
+    expect(classify('chat',400,JSON.stringify({error:{code:'context_length_exceeded',message:'content policy'}})).kind).toBe('provider_protocol_error');
+    expect(classify('chat',403,JSON.stringify({error:{message:'generic forbidden'}})).kind).toBe('auth_permanent');
+  });
   it('preserves rate-limit metadata and common HTTP classifications', () => {
     const limited = classifyHttpFailure('chat', mockResponse(429, { 'Retry-After': '12' }), '', { provider: 'openai-chat', model: 'm' });
     expect(limited).toMatchObject({ kind: 'rate_limit', retryAfterMs: 12000 });

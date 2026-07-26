@@ -11,6 +11,10 @@ describe('DashboardView S06 read-only contract', () => {
     expect(source).toContain('data-testid="route-dashboard"');
     expect(source).toContain('Runtime Status');
     expect(source).not.toContain('lastActionableError');
+    expect(source).toContain('data-testid="content-policy-banner"');
+    expect(source).toContain('data-testid="content-policy-unavailable"');
+    expect(source).toContain('contentPolicyValue.latest.evidence_url');
+    expect(source).not.toContain('provider_response');
   });
 
   it('keeps refresh/navigation and exposes only Stop project plus capability-gated confirmed restart', () => {

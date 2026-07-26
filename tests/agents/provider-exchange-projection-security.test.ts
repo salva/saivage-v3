@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { InvocationService } from '../../src/agents/invocation-service.js';
-import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
+import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
 import { providerExchangeLogId } from '../../src/contracts/provider-exchange-log.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
@@ -18,12 +18,22 @@ const sourceInputId = 'source-input-identity';
 const startedAt = '2026-07-19T10:00:00.000Z';
 const errorCompletedAt = '2026-07-19T10:00:01.000Z';
 const successCompletedAt = '2026-07-19T10:00:02.000Z';
+const noOutputs = { assistantOutputIds: [], terminalConversationOutputId: null } as const;
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
 describe('provider exchange publication security projection', () => {
+  it('keeps successful assistant ids disjoint from required nullable error terminal output identity', () => {
+    const error = { ...providerAttempts()[0]!, terminal_conversation_output_id: null };
+    expect(providerExchangePayloadSchema.parse(error)).toMatchObject({ status: 'error', terminal_conversation_output_id: null });
+    expect(providerExchangePayloadSchema.safeParse(providerAttempts()[0]).success).toBe(false);
+    expect(providerExchangePayloadSchema.safeParse({ ...error, assistant_output_ids: [] }).success).toBe(false);
+    const ok = { ...providerAttempts()[1]!, attempt_index: 0, assistant_output_ids: ['assistant-id'] };
+    expect(providerExchangePayloadSchema.parse(ok)).toMatchObject({ status: 'ok', assistant_output_ids: ['assistant-id'] });
+    expect(providerExchangePayloadSchema.safeParse({ ...ok, terminal_conversation_output_id: null }).success).toBe(false);
+  });
   it('publishes one post-append Agent hint per canonical-session exchange and none for other identities or failure', () => {
     const root = projectRoot();
     const readableCounts: number[] = [];
@@ -34,24 +44,24 @@ describe('provider exchange publication security projection', () => {
     };
     const service = invocationService(root, freshness);
 
-    service.projectProviderExchanges('agent:planner:project', sourceInputId, providerAttempts(), []);
+    service.projectProviderExchanges('agent:planner:project', sourceInputId, providerAttempts(), noOutputs);
     expect(readableCounts).toEqual([1, 2]);
     expect(readAppLogEntries(root, 'provider_exchange').map((row) => row.data.attempt_index)).toEqual([0, 1]);
 
     for (const [ordinal, session] of ['agent:analyst:global', 'agent:reviewer:project', 'agent:executor:project'].entries()) {
       const input = `canonical-${ordinal}`;
-      service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], []);
+      service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], noOutputs);
     }
     expect(readableCounts).toEqual([1, 2, 3, 4, 5]);
 
     for (const [ordinal, session] of ['summary:round-1', 'summary:merge', 'provider:other'].entries()) {
       const input = `non-agent-${ordinal}`;
-      service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], []);
+      service.projectProviderExchanges(session, input, [attemptFor(input, ordinal)], noOutputs);
     }
     expect(readAppLogEntries(root, 'provider_exchange')).toHaveLength(8);
     expect(readableCounts).toEqual([1, 2, 3, 4, 5]);
 
-    service.projectProviderExchanges('agent:planner:project', 'empty', [], []);
+    service.projectProviderExchanges('agent:planner:project', 'empty', [], noOutputs);
     expect(readableCounts).toHaveLength(5);
   });
 
@@ -62,9 +72,9 @@ describe('provider exchange publication security projection', () => {
     });
     const changes = { llmExchangeChanged };
     const service = invocationService(root, changes);
-    service.projectProviderExchanges(sessionId, sourceInputId, [providerAttempts()[0]!], []);
+    service.projectProviderExchanges(sessionId, sourceInputId, [providerAttempts()[0]!], noOutputs);
 
-    expect(() => service.projectProviderExchanges(sessionId, sourceInputId, providerAttempts(), [])).toThrow(/duplicate logical id/);
+    expect(() => service.projectProviderExchanges(sessionId, sourceInputId, providerAttempts(), noOutputs)).toThrow(/duplicate logical id/);
     const rows = rawProviderRows(root);
     expect(rows.map((row) => providerExchangeLogId(row.data))).toEqual([
       providerExchangeLogId({ session_id: sessionId, source_input_id: sourceInputId, attempt_index: 0 }),
@@ -80,8 +90,8 @@ describe('provider exchange publication security projection', () => {
     const changes = { llmExchangeChanged };
     const service = invocationService(root, changes);
     const attempt = attemptFor('summary-input', 0);
-    service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], []);
-    service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], []);
+    service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], noOutputs);
+    service.projectProviderExchanges('summary:round-1', 'summary-input', [attempt], noOutputs);
     expect(rawProviderRows(root).map((row) => providerExchangeLogId(row.data))).toEqual([
       providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
       providerExchangeLogId({ session_id: 'summary:round-1', source_input_id: 'summary-input', attempt_index: 0 }),
@@ -97,7 +107,7 @@ describe('provider exchange publication security projection', () => {
     const originalAttempts = structuredClone(attempts);
     const assistantOutputIds = ['assistant-output-identity'];
 
-    service.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds);
+    service.projectProviderExchanges(sessionId, sourceInputId, attempts, { assistantOutputIds, terminalConversationOutputId: null });
 
     expect(attempts).toEqual(originalAttempts);
     const rows = readAppLogEntries(root, 'provider_exchange');
@@ -176,18 +186,18 @@ describe('provider exchange publication security projection', () => {
     ];
 
     for (const [attempt_index, attempt] of cases.entries()) {
-      const projected = projectProviderExchangeForPublication({ ...attempt, attempt_index } as ProviderExchangeAttempt & { attempt_index: number }, ['sk-output']);
+      const projected = projectProviderExchangeForPublication({ ...attempt, attempt_index } as ProviderExchangeAttempt & { attempt_index: number }, { assistantOutputIds: ['sk-output'], terminalConversationOutputId: null });
       expect(projected.request_params.endpoint).toBe(`https://%5BREDACTED%5D:%5BREDACTED%5D@${OUTBOUND_IDENTITY}.invalid/sk-model?[REDACTED]`);
       expect(projected.contract_id).toBe('tok_contract');
       expect(projected.provider).toBe(OUTBOUND_IDENTITY);
       expect(projected.model).toBe('rt_model');
     }
     expect(cases[2]!.request_params).toMatchObject({ include: ['tok_include'], reasoning_keys: ['sk-reasoning'] });
-    expect(JSON.stringify(cases.map((attempt, attempt_index) => projectProviderExchangeForPublication({ ...attempt, attempt_index }, [])))).not.toContain(OUTBOUND_RAW_MARKER);
+    expect(JSON.stringify(cases.map((attempt, attempt_index) => projectProviderExchangeForPublication({ ...attempt, attempt_index }, noOutputs)))).not.toContain(OUTBOUND_RAW_MARKER);
 
     expect(() => projectProviderExchangeForPublication({
       ...cases[0]!, attempt_index: 4, request_params: { ...cases[0]!.request_params, new_adapter_member: 'unclassified' },
-    } as ProviderExchangeAttempt & { attempt_index: number }, [])).toThrow(/unrecognized key/i);
+    } as ProviderExchangeAttempt & { attempt_index: number }, noOutputs)).toThrow(/unrecognized key/i);
   });
 
   it('rejects a source-input mismatch before appending that attempt', () => {
@@ -196,7 +206,7 @@ describe('provider exchange publication security projection', () => {
     const attempt = { ...providerAttempts()[0]!, source_input_id: 'different-source-input' };
 
     let thrown: unknown;
-    try { service.projectProviderExchanges(sessionId, sourceInputId, [attempt], []); } catch (error) { thrown = error; }
+    try { service.projectProviderExchanges(sessionId, sourceInputId, [attempt], noOutputs); } catch (error) { thrown = error; }
     expect(thrown).toEqual(expect.objectContaining({ message: expect.stringMatching(/does not match/) }));
     expect(readAppLogEntries(root)).toEqual([]);
   });

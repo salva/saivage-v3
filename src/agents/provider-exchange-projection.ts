@@ -2,6 +2,7 @@ import {
   providerExchangePayloadSchema,
   type ProviderExchangeAttempt,
   type ProviderExchangePayload,
+  type ProviderExchangePublicationContext,
 } from '../contracts/provider-exchange.js';
 import { redactForOutbound } from '../redaction/index.js';
 
@@ -9,7 +10,7 @@ type IndexedProviderExchangeAttempt = ProviderExchangeAttempt & { attempt_index:
 
 export function projectProviderExchangeForPublication(
   attempt: IndexedProviderExchangeAttempt,
-  assistantOutputIds: string[],
+  context: ProviderExchangePublicationContext,
 ): ProviderExchangePayload {
   const base = {
     contract_id: attempt.contract_id,
@@ -36,11 +37,12 @@ export function projectProviderExchangeForPublication(
           ? { finish_reason: attempt.finish_reason }
           : {}),
         ...(attempt.token_usage !== undefined ? { token_usage: attempt.token_usage } : {}),
-        assistant_output_ids: assistantOutputIds,
+        assistant_output_ids: [...context.assistantOutputIds],
       }
     : {
         ...base,
         status: 'error' as const,
+        terminal_conversation_output_id: context.terminalConversationOutputId,
         error: {
           name: attempt.error.name,
           message: attempt.error.message,

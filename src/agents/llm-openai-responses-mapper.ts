@@ -62,7 +62,7 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
       input.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content: [{ type: message.role === 'assistant' ? 'output_text' : 'input_text', text: message.content }] });
       continue;
     }
-    if (message.kind !== 'activity') throw new Error(`Unsupported Responses replay row kind '${message.kind}' for '${message.id}'.`);
+    throw new Error(`Unsupported Responses replay row kind '${message.kind}' for '${message.id}'.`);
   }
   for (const { sourceInputId, callId } of emittedFunctionCalls.values()) {
     const key = toolPairKey(sourceInputId, callId);

@@ -1,5 +1,6 @@
 import type { AgentMessage, ConversationSessionId } from '../schemas/index.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
+import type { Candidate } from '../contracts/provider-candidate.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 
 export interface BuiltCandidateRequest {
@@ -93,6 +94,7 @@ export class ProviderTurnFailure extends Error {
   readonly failure_phase: 'pre_provider' | 'provider_attempt';
   readonly provider_exchanges: ProviderExchangeAttempt[];
   readonly originalFailure: unknown;
+  readonly candidate: Candidate | null;
   readonly failure?: unknown;
 
   constructor(args: {
@@ -100,6 +102,7 @@ export class ProviderTurnFailure extends Error {
     provider_exchanges: ProviderExchangeAttempt[];
     originalFailure: unknown;
     message?: string;
+    candidate: Candidate | null;
   }) {
     super(
       args.message ??
@@ -111,6 +114,7 @@ export class ProviderTurnFailure extends Error {
     this.failure_phase = args.failure_phase;
     this.provider_exchanges = args.provider_exchanges;
     this.originalFailure = args.originalFailure;
+    this.candidate = args.candidate;
     if (
       typeof args.originalFailure === 'object' &&
       args.originalFailure !== null &&

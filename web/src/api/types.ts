@@ -113,6 +113,7 @@ export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[] };
 export type RuntimeStateResponse = OperatorApiSuccess<'runtime.getState'>;
+export type ContentPolicyRuntimeResponse = OperatorApiSuccess<'runtime.contentPolicy'>;
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type AgentConversationResponse = OperatorApiSuccess<'agents.conversation'>;
 export type AgentDetailResponse = OperatorApiSuccess<'agents.detail'>;

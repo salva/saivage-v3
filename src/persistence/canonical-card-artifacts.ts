@@ -71,7 +71,7 @@ function validateTerminal(path: string, prior: CardRecord, next: CardRecord, his
     if (result.kind !== 'workflow-result' || result.terminal!=='DONE' || next.lifecycle.error !== null || next.lifecycle.completed_at !== next.status_text_updated_at) fail(path, 'has invalid done terminal relationships');
   } else if (next.lifecycle.status === 'failed') {
     if ((result.kind === 'workflow-result'&&result.terminal!=='FAILED') || next.lifecycle.error !== next.status_text || next.lifecycle.completed_at !== next.status_text_updated_at) fail(path, 'has invalid failed terminal relationships');
-  } else if (result.kind !== 'workflow-result' || result.terminal!=='BLOCKED' || next.lifecycle.error !== next.status_text || next.lifecycle.completed_at !== null) fail(path, 'has invalid blocked terminal relationships');
+  } else if ((result.kind === 'workflow-result' ? result.terminal !== 'BLOCKED' : result.kind !== 'content-policy-refusal') || next.lifecycle.error !== next.status_text || next.lifecycle.completed_at !== null) fail(path, 'has invalid blocked terminal relationships');
   requireSame(path, next.pending_notifications, [], 'terminal row retained notifications');
   const fields = ['lifecycle', ...(!same(prior.status_text, next.status_text) ? ['status_text'] : []), ...(!same(prior.status_text_updated_at, next.status_text_updated_at) ? ['status_text_updated_at'] : []), ...(prior.pending_notifications.length > 0 ? ['pending_notifications'] : [])];
   requireHistory(path, history, fields, 'terminal lifecycle commit');

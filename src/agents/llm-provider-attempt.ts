@@ -127,6 +127,7 @@ export async function executeLlmProviderAttempt(args: {
       failure_phase: 'provider_attempt',
       provider_exchanges: recorder.settledAttempts(),
       originalFailure,
+      candidate: plan.candidate,
     });
   }
 }

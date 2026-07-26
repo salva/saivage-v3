@@ -24,7 +24,7 @@ function request(chain: Candidate[] = [candidate], signal?: AbortSignal): Invoca
     terminalToolNames: [],
     modelParams: {},
     capabilityRequest: {},
-    candidateChain: chain,
+    routePass: {kind:'ordinary',candidateChain:chain},
     abortSignal: signal,
   };
 }
@@ -167,7 +167,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
   });
 
   it('does not wait when no configured or capability-compatible candidates exist', async () => {
-    await expect(service({ chain: [] }).invokeWithRecovery({ ...request([]), candidateChain: [] })).rejects.toBeInstanceOf(ProviderTurnFailure);
+    await expect(service({ chain: [] }).invokeWithRecovery({ ...request([]), routePass:{kind:'ordinary',candidateChain:[]} })).rejects.toBeInstanceOf(ProviderTurnFailure);
   });
 
   it('does not wait for auth-permanent-only unavailability', async () => {

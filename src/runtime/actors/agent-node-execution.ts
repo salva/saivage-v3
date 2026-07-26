@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
-import { cardAgentSessionId, type AgentName, type CardRecord, type ConversationSessionId } from '../../schemas/index.js';
+import { cardAgentSessionId, type AgentName, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
 import { describeNodeResultContract, processNodeOutcomes, processNodeTransition, processTransitionPromptKey, type CompiledCardTypeWorkflow, type ProcessNodeMetadata } from '../card-process/card-process-config.js';
@@ -34,6 +34,7 @@ export interface AcceptedNodeResult {
   readonly summary: string;
   readonly acceptedRecords: readonly Readonly<{ name: string; url: string; version: number }>[];
 }
+export type NodeExecutionResult = AcceptedNodeResult | ContentPolicyRefusalBlockedResult;
 
 export type NodeTransition = Readonly<{ context: ActorTransitionContext; acceptedResult: AcceptedNodeResult | null }>;
 
@@ -84,7 +85,7 @@ export class AgentNodeExecution {
 
   beginActivation(): void { this.#stabilizedAgents.clear(); }
 
-  async execute(args: { process: CompiledCardTypeWorkflow; stateId: string; node: ProcessNodeMetadata; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<AcceptedNodeResult> {
+  async execute(args: { process: CompiledCardTypeWorkflow; stateId: string; node: ProcessNodeMetadata; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<NodeExecutionResult> {
     const { process, stateId, node, input, signal } = args;
     const outcomes = processNodeOutcomes(process, stateId) as [string, ...string[]];
     const nodeResultSchema = z.object({ outcome: z.enum(outcomes), summary: z.string().trim().min(1).max(2000) }).strict();
@@ -98,7 +99,7 @@ export class AgentNodeExecution {
     const scope = needsProcessScope ? this.executorScope(input, args.nodeOrdinal) : null;
     const surface = this.buildSurface(node, input, sessionId, scope, args.nodeOrdinal);
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
-    let primaryCompletion: { kind: 'success'; value: AcceptedNodeResult } | { kind: 'failure'; reason: unknown };
+    let primaryCompletion: { kind: 'success'; value: NodeExecutionResult } | { kind: 'failure'; reason: unknown };
     try {
       const inputId = this.host.freshInputId();
       this.prepareNodeEntry(process, node, args.transition, input, sessionId, inputId, reviewerPair);
@@ -115,6 +116,11 @@ export class AgentNodeExecution {
           continue;
         }
         if (outcome.type === 'error') throw new Error(outcome.error);
+        if (outcome.type === 'blocked') {
+          cleanupStatus = 'blocked';
+          primaryCompletion = { kind: 'success', value: outcome.result };
+          break;
+        }
         if (outcome.toolName === TERMINAL_RESULT_TOOL_NAME) {
           const terminalOutcome = outcome;
           let nodeResult: NodeResult;
@@ -230,7 +236,7 @@ export class AgentNodeExecution {
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
     });
     const tools = [...surfaceToolDefinitions(surface), terminalToolDefinition];
-    const candidateChain=this.deps.candidateChains.get(node.agent.name);if(!candidateChain)throw new Error(`Bound candidate chain for agent '${node.agent.name}' is missing.`);return { inputId, agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:node.agent.model.temperature}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools,node.agent.model.maxTokens), capabilityRequest: { requiresTools: true },candidateChain, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
+    const candidateChain=this.deps.candidateChains.get(node.agent.name);if(!candidateChain)throw new Error(`Bound candidate chain for agent '${node.agent.name}' is missing.`);return { inputId, agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:node.agent.model.temperature}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools,node.agent.model.maxTokens), capabilityRequest: { requiresTools: true },routePass:{kind:'ordinary',candidateChain}, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
   }
 
   private buildSurface(node: ProcessNodeMetadata, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {

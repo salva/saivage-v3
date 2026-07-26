@@ -1,0 +1,45 @@
+import {afterEach,describe,expect,it,jest} from '@jest/globals';
+import {mkdtempSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {InvocationService,type InvocationRequest} from '../../src/agents/invocation-service.js';
+import {MemoryCandidateAvailability} from '../../src/agents/candidate-availability.js';
+import type {Candidate} from '../../src/contracts/provider-candidate.js';
+import {NO_FRESHNESS_EFFECTS} from '../../src/application/freshness-effects.js';
+import {invocationProviderRegistry} from '../helpers/invocation-provider-fixture.js';
+
+const first:Candidate={provider:'first',account:null,model:'m1'};
+const second:Candidate={provider:'second',account:null,model:'m2'};
+const roots:string[]=[];
+afterEach(()=>{jest.restoreAllMocks();while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
+
+function refusal():Response{const body=JSON.stringify({error:{code:'content_filter',message:'content policy refusal'}});return new Response(body,{status:400,headers:{'content-type':'application/json'}});}
+function service(availability=new MemoryCandidateAvailability()):InvocationService{const projectRoot=mkdtempSync(join(tmpdir(),'content-policy-route-'));roots.push(projectRoot);return new InvocationService({projectRoot,registry:invocationProviderRegistry([first,second]),router:{getLastCapabilitySkips:()=>[]} as never,candidateAvailability:availability,freshness:NO_FRESHNESS_EFFECTS});}
+function request(routePass:InvocationRequest['routePass'],signal?:AbortSignal):InvocationRequest{return {inputId:'00000000-0000-4000-8000-000000000001',agentName:'planner',sessionId:'agent:planner:project',systemPrompt:'system',providerConversation:{sourceSessionId:'agent:planner:project',messages:[]},tools:[],terminalToolNames:[],modelParams:{maxTokens:100},capabilityRequest:{},routePass,abortSignal:signal};}
+
+describe('content-policy route passes',()=>{
+  it('terminates ordinary routing at the refusing candidate without availability effects',async()=>{
+    const availability=new MemoryCandidateAvailability();const isAvailable=jest.spyOn(availability,'isAvailable');const markFailed=jest.spyOn(availability,'markFailed');const calls:string[]=[];
+    jest.spyOn(globalThis,'fetch').mockImplementation(async(input)=>{calls.push(new URL(String(input)).hostname);return refusal();});
+    await expect(service(availability).invokeWithRecovery(request({kind:'ordinary',candidateChain:[first,second]}))).rejects.toMatchObject({failure_phase:'provider_attempt',failure:{kind:'content_policy'},candidate:first});
+    expect(calls).toEqual(['first.example.test']);expect(isAvailable).toHaveBeenCalled();expect(markFailed).not.toHaveBeenCalled();
+  });
+
+  it('makes one pinned call without any availability read/write or recovery',async()=>{
+    const availability=new MemoryCandidateAvailability();const reads=jest.spyOn(availability,'isAvailable');const writes=jest.spyOn(availability,'markFailed');const successes=jest.spyOn(availability,'markSucceeded');const fetch=jest.spyOn(globalThis,'fetch').mockResolvedValue(refusal());
+    await expect(service(availability).invokeWithRecovery(request({kind:'pinned-content-policy-retry',candidate:first}))).rejects.toMatchObject({failure_phase:'provider_attempt',failure:{kind:'content_policy'},candidate:first,provider_exchanges:[{attempt_index:0}]});
+    expect(fetch).toHaveBeenCalledTimes(1);expect(reads).not.toHaveBeenCalled();expect(writes).not.toHaveBeenCalled();expect(successes).not.toHaveBeenCalled();
+  });
+
+  it('reports observed pre-transport cancellation as a final zero-call pinned failure',async()=>{
+    const controller=new AbortController();controller.abort(new Error('cancel before transport'));const fetch=jest.spyOn(globalThis,'fetch');
+    await expect(service().invokeWithRecovery(request({kind:'pinned-content-policy-retry',candidate:first},controller.signal))).rejects.toMatchObject({failure_phase:'pre_provider',provider_exchanges:[],candidate:first});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unconfigured pinned candidate before transport',async()=>{
+    const fetch=jest.spyOn(globalThis,'fetch');const invalid={provider:'first',account:null,model:'not-configured'};
+    await expect(service().invokeWithRecovery(request({kind:'pinned-content-policy-retry',candidate:invalid}))).rejects.toMatchObject({failure_phase:'pre_provider',provider_exchanges:[],candidate:invalid});
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

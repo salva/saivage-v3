@@ -167,6 +167,7 @@ export {
   HealthLivenessResponseSchema,
   HealthReadinessResponseSchema,
   RuntimeGetStateResponseSchema,
+  ContentPolicyRuntimeResponseSchema,
   RuntimeStatusResponseSchema,
   StopProjectResponseSchema,
   RestartServerRequestSchema,
@@ -190,6 +191,7 @@ export type {
   HealthLivenessResponse,
   HealthReadinessResponse,
   RuntimeGetStateResponse,
+  ContentPolicyRuntimeResponse,
   RuntimeStatusResponse,
 } from './operator-api-runtime-cards.js';
 

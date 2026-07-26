@@ -24,6 +24,7 @@ export const testCompactionPolicy: AutonomousCompactionPolicy = {
 
 export const testCompactor: CompactorPort = { shouldCompact, compact };
 export const unusedSummarizerProvider: SummarizerProviderPort = {
+  candidate:{provider:'test',account:null,model:'test-model'},
   completeTurn: () => Promise.reject(new Error('Unexpected summarizer call in test.')),
   projectProviderExchanges: () => { throw new Error('Unexpected summarizer exchange projection in test.'); },
 };

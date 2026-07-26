@@ -1,6 +1,7 @@
 import { LlmRequestError } from './llm-errors.js';
 import type { LlmCompleteResult, LlmUsage, OpenAIResponsesPrivateContext, ToolCall } from './llm-contracts.js';
-import { isInputContextErrorObject } from './llm-failure-classifiers.js';
+import { classifyDirectProviderFailure } from './llm-failure-classifiers.js';
+import { IncrementalSseReader, SSE_DONE, type SseOutput } from './llm-sse.js';
 
 export interface ParsedOpenAIResponsesCompletion {
   result: LlmCompleteResult;
@@ -23,12 +24,12 @@ export function parseOpenAIResponsesJson(text: string, ctx: ParserContext): Pars
   return parseOpenAIResponsesObject(response, ctx, text);
 }
 
-export function parseOpenAIResponsesObject(response: Record<string, unknown>, ctx: ParserContext, bodyPreview = ''): ParsedOpenAIResponsesCompletion {
+export function parseOpenAIResponsesObject(response: Record<string, unknown>, ctx: ParserContext, providerResponse: string): ParsedOpenAIResponsesCompletion {
   const status = response.status;
-  if (typeof status !== 'string' || !KNOWN_STATUSES.has(status)) throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: 'OpenAI Responses payload has missing or unknown status.', bodyPreview: bodyPreview.slice(0, 500) });
-  if (status !== 'completed') throw nonCompletedFailure(response, ctx, status, bodyPreview);
+  if (typeof status !== 'string' || !KNOWN_STATUSES.has(status)) throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: 'OpenAI Responses payload has missing or unknown status.', bodyPreview: providerResponse.slice(0, 500) });
+  if (status !== 'completed') throw nonCompletedFailure(response, ctx, status, providerResponse);
   const output = response.output;
-  if (!Array.isArray(output)) throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: 'OpenAI Responses completed payload is missing output array.', bodyPreview: bodyPreview.slice(0, 500) });
+  if (!Array.isArray(output)) throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: 'OpenAI Responses completed payload is missing output array.', bodyPreview: providerResponse.slice(0, 500) });
 
   const toolCalls: ToolCall[] = [];
   const textParts: string[] = [];
@@ -53,32 +54,44 @@ export function parseOpenAIResponsesObject(response: Record<string, unknown>, ct
 
 export async function readOpenAIResponsesStream(stream: ReadableStream<Uint8Array>, ctx: ParserContext): Promise<ParsedOpenAIResponsesCompletion> {
   const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  let finalResponse: Record<string, unknown> | null = null;
+  const sse = new IncrementalSseReader();
+  let terminal: { response: Record<string, unknown>; dataText: string } | null = null;
   const assembled = new ResponsesStreamAssembly(ctx.provider);
-  for (;;) {
-    const { value, done } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    let boundary: number;
-    while ((boundary = buffer.indexOf('\n\n')) !== -1) {
-      const frame = buffer.slice(0, boundary);
-      buffer = buffer.slice(boundary + 2);
-      const parsed = parseSseFrame(frame, ctx.provider);
-      if (!parsed) continue;
-      assembled.apply(parsed.event, parsed.data);
-      if (parsed.event === 'response.completed' || parsed.event === 'response.incomplete' || parsed.event === 'response.failed' || parsed.event === 'response.cancelled') finalResponse = parsed.data;
-      if (parsed.data && typeof parsed.data.status === 'string') finalResponse = parsed.data;
-      if (parsed.data && parsed.data.response && typeof parsed.data.response === 'object') {
-        const response = parsed.data.response as Record<string, unknown>;
-        if (typeof response.status === 'string') finalResponse = response;
-      }
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      const outputs = done ? sse.finish() : sse.push(value);
+      terminal = consumeResponsesEvents(outputs, assembled, ctx.provider, terminal);
+      if (done) break;
     }
+  } catch (error) {
+    if (error instanceof LlmRequestError) throw error;
+    throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: `Error reading OpenAI Responses stream: ${error instanceof Error ? error.message : String(error)}` });
+  } finally {
+    reader.releaseLock();
   }
-  if (!finalResponse) throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: 'OpenAI Responses stream ended before a terminal response payload.' });
+  if (!terminal) throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: 'OpenAI Responses stream ended before a terminal response payload.' });
+  let finalResponse = terminal.response;
   if (!Array.isArray(finalResponse.output) && finalResponse.status === 'completed') finalResponse = { ...finalResponse, output: assembled.output() };
-  return parseOpenAIResponsesObject(finalResponse, ctx);
+  return parseOpenAIResponsesObject(finalResponse, ctx, terminal.dataText);
+}
+
+function consumeResponsesEvents(outputs: SseOutput[], assembled: ResponsesStreamAssembly, provider: string, current: { response: Record<string, unknown>; dataText: string } | null): { response: Record<string, unknown>; dataText: string } | null {
+  let terminal = current;
+  for (const output of outputs) {
+    if (output === SSE_DONE) continue;
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(output.dataText) as Record<string, unknown>;
+    } catch (error) {
+      throw new LlmRequestError({ kind: 'parse_error', provider, message: `OpenAI Responses stream frame has invalid JSON: ${error instanceof Error ? error.message : String(error)}`, bodyPreview: output.dataText.slice(0, 500) });
+    }
+    assembled.apply(output.event, data);
+    if (['response.completed', 'response.incomplete', 'response.failed', 'response.cancelled'].includes(output.event) || typeof data.status === 'string') terminal = { response: data, dataText: output.dataText };
+    const nested = objectField(data, 'response');
+    if (nested && typeof nested.status === 'string') terminal = { response: nested, dataText: output.dataText };
+  }
+  return terminal;
 }
 
 class ResponsesStreamAssembly {
@@ -142,21 +155,20 @@ class ResponsesStreamAssembly {
   }
 }
 
-function nonCompletedFailure(response: Record<string, unknown>, ctx: ParserContext, status: string, bodyPreview: string): LlmRequestError {
+function nonCompletedFailure(response: Record<string, unknown>, ctx: ParserContext, status: string, providerResponse: string): LlmRequestError {
   if (status === 'incomplete') {
     const reason = incompleteReason(response);
     if (ctx.responseStatus === 200 && reason === 'max_output_tokens') return new LlmRequestError({ kind: 'output_token_limit_exceeded', provider: ctx.provider, status: ctx.responseStatus, message: 'OpenAI Responses exceeded max_output_tokens.' });
-    return new LlmRequestError({ kind: 'provider_protocol_error', provider: ctx.provider, status: ctx.responseStatus, message: `OpenAI Responses returned incomplete status${reason ? ` (${reason})` : ''}.`, bodyPreview: bodyPreview.slice(0, 500) });
+    return new LlmRequestError({ kind: 'provider_protocol_error', provider: ctx.provider, status: ctx.responseStatus, message: `OpenAI Responses returned incomplete status${reason ? ` (${reason})` : ''}.`, bodyPreview: providerResponse.slice(0, 500) });
   }
   if (status === 'cancelled') return new LlmRequestError({ kind: 'server_transient', provider: ctx.provider, status: ctx.responseStatus, message: 'OpenAI Responses provider cancelled response before completion' });
   if (status === 'failed') {
     const error = objectField(response, 'error');
-    if (ctx.responseStatus === 200 && error !== undefined && isInputContextErrorObject(error, ['input'])) {
-      return new LlmRequestError({ kind: 'input_context_exhausted', provider: ctx.provider, status: ctx.responseStatus, message: providerErrorMessage(response) });
-    }
+    const classified = classifyDirectProviderFailure({ provider: ctx.provider, responseStatus: ctx.responseStatus, error: ctx.responseStatus === 200 ? error : undefined, allowedContextParams: ['input'], message: providerErrorMessage(response), providerResponse });
+    if (classified) return new LlmRequestError(classified);
     return new LlmRequestError({ kind: 'server_transient', provider: ctx.provider, status: ctx.responseStatus, message: providerErrorMessage(response) });
   }
-  return new LlmRequestError({ kind: 'provider_protocol_error', provider: ctx.provider, status: ctx.responseStatus, message: `OpenAI Responses terminal parser received nonterminal status '${status}'.`, bodyPreview: bodyPreview.slice(0, 500) });
+  return new LlmRequestError({ kind: 'provider_protocol_error', provider: ctx.provider, status: ctx.responseStatus, message: `OpenAI Responses terminal parser received nonterminal status '${status}'.`, bodyPreview: providerResponse.slice(0, 500) });
 }
 
 function incompleteReason(response: Record<string, unknown>): string | undefined {
@@ -196,23 +208,6 @@ function parseUsage(usage: unknown): LlmUsage | undefined {
     completion_tokens: typeof u.output_tokens === 'number' ? u.output_tokens : undefined,
     total_tokens: typeof u.total_tokens === 'number' ? u.total_tokens : undefined,
   };
-}
-
-function parseSseFrame(frame: string, provider: string): { event: string; data: Record<string, unknown> } | null {
-  let event = 'message';
-  const dataLines: string[] = [];
-  for (const line of frame.split('\n')) {
-    if (line.startsWith('event:')) event = line.slice('event:'.length).trim();
-    if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trimStart());
-  }
-  if (dataLines.length === 0) return null;
-  const dataText = dataLines.join('\n');
-  if (dataText === '[DONE]') return null;
-  try {
-    return { event, data: JSON.parse(dataText) as Record<string, unknown> };
-  } catch (error) {
-    throw new LlmRequestError({ kind: 'parse_error', provider, message: `OpenAI Responses stream frame has invalid JSON: ${error instanceof Error ? error.message : String(error)}`, bodyPreview: dataText.slice(0, 500) });
-  }
 }
 
 function objectField(value: Record<string, unknown>, key: string): Record<string, unknown> | undefined {

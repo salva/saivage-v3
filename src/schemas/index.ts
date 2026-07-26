@@ -9,6 +9,7 @@ export {
   toPublicCardActorState,
 } from './actor-vocabulary.js';
 export { canonicalJson, contextCompactionContentSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
+export { CONTENT_POLICY_RETRY_TEXT, contentPolicyRefusalContentSchema, parseCanonicalContentPolicyRefusal, type ContentPolicyRefusalContent } from './content-policy.js';
 export {
   ConversationSessionIdSchema,
   parseConversationSessionId,
@@ -52,6 +53,7 @@ export {
 export type {
   ActivationOutcome,
   BlockedResult,
+  ContentPolicyRefusalBlockedResult,
   CardLifecycleState,
   CardResult,
   DoneResult,
@@ -60,6 +62,7 @@ export type {
   SelfReport,
 } from './lifecycle.js';
 export {
+  CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY,
   activationOutcomeSchema,
   blockedResultSchema,
   cardLifecycleStateSchema,

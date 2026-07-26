@@ -43,4 +43,8 @@ describe('OpenAI Codex stream parser', () => {
       }],
     });
   });
+
+  it('fails malformed JSON instead of skipping the event',async()=>{
+    await expect(readOpenAICodexStream(stream('data: {bad}\n\n'),200)).rejects.toMatchObject({failure:{kind:'parse_error'}});
+  });
 });

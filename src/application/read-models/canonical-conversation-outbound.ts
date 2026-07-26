@@ -6,7 +6,7 @@ import {
   type ToolInvocationProjectionInput,
   type ToolInvocationProjector,
 } from '../../contracts/tool-invocation-projection.js';
-import { agentMessageSchema, type AgentMessage } from '../../schemas/index.js';
+import { agentMessageSchema, canonicalJson, parseCanonicalContentPolicyRefusal, type AgentMessage } from '../../schemas/index.js';
 import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
@@ -20,6 +20,10 @@ export function projectCanonicalConversationRow(
   const row = stripModelDecoration(agentMessageSchema.parse(value));
   if (row.kind === 'tool_call') return projectCallRow(row, projectInvocation);
   if (row.kind === 'tool_result') return projectResultRow(row, projectInvocation);
+  if (row.kind === 'content_policy_refusal') {
+    const payload = parseCanonicalContentPolicyRefusal(row.content);
+    return agentMessageSchema.parse({ ...row, content: canonicalJson({ ...payload, provider_response: redactTextForOutbound(payload.provider_response) }) });
+  }
   return agentMessageSchema.parse({
     ...row,
     content: redactTextForOutbound(row.content),

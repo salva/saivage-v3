@@ -7,7 +7,7 @@ import {
   type ActivateCardToolResult,
   type CardActivationOutcome,
 } from '../../src/contracts/tool-api.js';
-import type { BlockedResult } from '../../src/schemas/index.js';
+import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, type BlockedResult } from '../../src/schemas/index.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 
 describe('activate_card shared tool contract', () => {
@@ -16,6 +16,16 @@ describe('activate_card shared tool contract', () => {
 
     expect(activateCardArgumentsSchema.parse(args)).toEqual(args);
     expect(parseActivateCardArguments(args)).toEqual(args);
+  });
+
+  it('formats content-policy BLOCKED as one exact nested result without duplicate top-level evidence fields', () => {
+    const result: BlockedResult = { kind: 'content-policy-refusal', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: 'agent:executor:card-a', marker_id: 'marker-id', evidence_url: '/agents/agent%3Aexecutor%3Acard-a?entry=marker-id' };
+    const formatted = formatActivateCardResult('card-a', { status: 'blocked', summary: result.summary, result });
+    expect(formatted).toEqual({ success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, result } });
+    expect(formatted).not.toHaveProperty('reason');
+    expect(formatted).not.toHaveProperty('evidence_url');
+    expect(formatted).not.toHaveProperty('session_id');
+    expect(formatted).not.toHaveProperty('marker_id');
   });
 
   it.each([

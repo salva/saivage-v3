@@ -57,6 +57,12 @@ describe('OpenAI Responses parser', () => {
       { ...CTX, responseStatus: 201 },
     )).toMatchObject({ kind: 'server_transient', status: 201 });
   });
+
+  it('classifies HTTP-200 failed content evidence and preserves the original body',()=>{
+    const body=JSON.stringify({status:'failed',error:{type:'content_filter',message:'blocked'}});
+    try{parseOpenAIResponsesJson(body,CTX);}catch(error){expect((error as LlmRequestError).failure).toMatchObject({kind:'content_policy',providerResponse:body});return;}
+    throw new Error('Expected content refusal');
+  });
 });
 
 describe('OpenAI Responses streaming parser', () => {
@@ -83,6 +89,11 @@ describe('OpenAI Responses streaming parser', () => {
     await expect(readOpenAIResponsesStream(sseStream([
       { event: 'response.failed', data: { response: { status: 'failed', error: { type: 'context_length_exceeded' } } } },
     ]), CTX)).rejects.toMatchObject({ failure: { kind: 'input_context_exhausted', status: 200 } });
+  });
+
+  it('uses the enclosing normalized SSE data as nested terminal refusal evidence',async()=>{
+    const data={response:{status:'failed',error:{code:'cyber_policy',message:'refused'}}};
+    await expect(readOpenAIResponsesStream(sseStream([{event:'response.failed',data}]),CTX)).rejects.toMatchObject({failure:{kind:'content_policy',providerResponse:JSON.stringify(data)}});
   });
 
   it('rejects invalid JSON frames and streams without terminal response', async () => {

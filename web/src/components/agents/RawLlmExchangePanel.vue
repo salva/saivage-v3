@@ -87,6 +87,7 @@
           <div v-if="exchange.status === 'error'" class="rlp-error-box">
             <div class="rlp-error-name">{{ exchange.error.name }}</div>
             <div class="rlp-error-message">{{ exchange.error.message }}</div>
+            <div class="rlp-error-output">Terminal conversation output: {{ exchange.terminal_conversation_output_id ?? 'none' }}</div>
           </div>
 
           <CodeBlock

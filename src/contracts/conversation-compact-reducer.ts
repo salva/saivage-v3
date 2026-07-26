@@ -83,7 +83,7 @@ export function reduceCompactConversationRow(
   }
 
   const toolFacts = validateToolContent(row);
-  const repairAnchor = row.kind === 'model_repair' || toolFacts.failedResult;
+  const repairAnchor = row.kind === 'model_repair' || row.kind === 'content_policy_retry' || toolFacts.failedResult;
   const opensRound = validateActivationOpenMarker(state.sessionId, row);
   if (conversationSessionIdentity(state.sessionId).cardId === null && state.rounds.length === 0 && !opensRound) {
     throw new Error(`Global-agent conversation '${state.sessionId}' must start with an exact activation_open marker and have an empty preamble.`);

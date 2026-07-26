@@ -63,6 +63,7 @@
         :message="conversationRefreshError"
       />
       <StatusBanner v-if="conversationRefreshing" tone="stale" message="Refreshing conversation…" />
+      <StatusBanner v-if="entryId && entryTargetState === 'missing'" tone="warning" message="The requested conversation entry was not found in this session." />
       <div
         :ref="setTimelineScrollArea"
         class="conv-rounds"
@@ -88,7 +89,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
@@ -100,7 +101,7 @@ import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 import type { ConversationSessionId } from '../../api/contracts';
-const props = defineProps<{ sessionId: ConversationSessionId }>();
+const props = defineProps<{ sessionId: ConversationSessionId; entryId: string | null }>();
 const agentStore = useAgentStore();
 const liveSyncStore = useSyncStore();
 const {
@@ -115,6 +116,7 @@ const {
 } = storeToRefs(agentStore);
 const rawPanelOpen = ref(false);
 const timelineControls = useAgentTimeline(entries);
+const entryTargetState = ref<'idle' | 'found' | 'missing'>('idle');
 let unsubscribeConversation: (() => void) | null = null;
 let conversationToken: ReturnType<typeof agentStore.beginConversationSelection> | null = null;
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
@@ -123,10 +125,19 @@ function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): vo
 onMounted(async () => {
   conversationToken = agentStore.beginConversationSelection(props.sessionId);
   const token = conversationToken;
-  unsubscribeConversation = liveSyncStore.openConversation(props.sessionId, () =>
-    agentStore.refetchConversation(token),
-  );
+  unsubscribeConversation = liveSyncStore.openConversation(props.sessionId, async () => {
+    await agentStore.refetchConversation(token);
+    await focusRequestedEntry();
+  });
 });
+async function focusRequestedEntry(): Promise<void> {
+  if (props.entryId) {
+    await nextTick();
+    const row = timelineControls.scrollAreaRef.value?.querySelector<HTMLElement>(`[data-entry-id="${props.entryId}"]`) ?? null;
+    entryTargetState.value = row ? 'found' : 'missing';
+    if (row) { row.classList.add('targeted-conversation-entry'); row.scrollIntoView({ block: 'center' }); }
+  }
+}
 onUnmounted(() => {
   unsubscribeConversation?.();
   if (conversationToken) agentStore.clearConversationSelection(conversationToken);
@@ -209,6 +220,7 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 12px;
 }
+.conv-rounds :deep(.targeted-conversation-entry) { outline:2px solid var(--warn); outline-offset:2px; }
 .conv-jump-latest {
   align-self: center;
   margin: 0 0 10px;

@@ -50,6 +50,7 @@ export const providerExchangePayloadSchema = z.discriminatedUnion('status', [
     response_status: z.number().int().optional(),
     latency_ms: z.number().nonnegative().optional(),
     terminal_tool_fired: z.string().nullable(),
+    terminal_conversation_output_id: z.string().min(1).nullable(),
     error: providerExchangeErrorSchema,
   }).strict(),
 ]);
@@ -60,7 +61,12 @@ export type ProviderExchangeErrorPayload = Extract<ProviderExchangePayload, { st
 
 export type ProviderExchangeAttempt =
   | (Omit<ProviderExchangeOkPayload, 'assistant_output_ids' | 'attempt_index'> & { attempt_index?: number })
-  | (Omit<ProviderExchangeErrorPayload, 'attempt_index'> & { attempt_index?: number });
+  | (Omit<ProviderExchangeErrorPayload, 'terminal_conversation_output_id' | 'attempt_index'> & { attempt_index?: number });
+
+export type ProviderExchangePublicationContext = Readonly<{
+  assistantOutputIds: readonly string[];
+  terminalConversationOutputId: string | null;
+}>;
 
 function orderedPayload(payload: ProviderExchangePayload): ProviderExchangePayload {
   const base = {
@@ -83,7 +89,7 @@ function orderedPayload(payload: ProviderExchangePayload): ProviderExchangePaylo
     terminal_tool_fired: payload.terminal_tool_fired,
     ...(payload.status === 'ok'
       ? { assistant_output_ids: payload.assistant_output_ids }
-      : { error: payload.error }),
+      : { terminal_conversation_output_id: payload.terminal_conversation_output_id, error: payload.error }),
   };
   return providerExchangePayloadSchema.parse(base);
 }

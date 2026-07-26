@@ -1,5 +1,5 @@
 <template>
-  <div class="diagnostic-row" :class="severity">
+  <div class="diagnostic-row" :class="severity" :data-entry-id="entry.id">
     <span class="diagnostic-label">{{ label }}</span>
     {{ entry.content }}
   </div>

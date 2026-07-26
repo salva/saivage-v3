@@ -176,7 +176,7 @@ export class AnalystSession {
     this.#createInvocationSurface = input.createInvocationSurface;
     this.#shutdownProcesses = input.shutdownProcesses;
     this.#fatalPort = input.fatalPort;
-    this.#llm = new ConversationLLMActor({ agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged, fatalPort: input.fatalPort });
+    this.#llm = new ConversationLLMActor({ purpose:{kind:'analyst'}, agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged, fatalPort: input.fatalPort });
   }
 
   submit(input: AnalystTurnInput): Promise<AnalystTurnResult> {
@@ -259,6 +259,7 @@ export class AnalystSession {
     for (;;) {
       this.assertCurrentOrSettling(operation, signal);
       if (outcome.type === 'error' || outcome.type === 'result') return this.settleTerminalCompletion(operation, outcome);
+      if (outcome.type === 'blocked') throw new Error('Analyst-purpose LLM actor produced an autonomous-card blocked outcome.');
       operation.step = { kind: 'waiting_tool', input: this.#llm.waitingToolInput(outcome), outcome };
       const rawArguments = this.#llm.waitingToolArguments(outcome);
       const parsed = parseProtocolToolArgs(rawArguments);
@@ -312,7 +313,8 @@ export class AnalystSession {
         || (this.#phase.kind === 'disposed' && this.#phase.settling === operation);
       if (!ownsOperation || operation.outcome.kind !== 'pending') throw new Error('Analyst terminal handoff lost outer ownership.');
       if (operation.step.kind !== 'nested' && operation.step.kind !== 'waiting_tool') throw new Error(`Analyst terminal handoff arrived from '${operation.step.kind}'.`);
-      operation.step = { kind: 'settling_llm', completion, noticeEntered: false };
+      if (completion.outcome.type === 'blocked') throw new Error('Analyst-purpose LLM actor handed off an autonomous-card blocked outcome.');
+      operation.step = { kind: 'settling_llm', completion: { input: completion.input, outcome: completion.outcome }, noticeEntered: false };
     };
   }
 
@@ -363,13 +365,13 @@ export class AnalystSession {
   private finishCancellationRevocation(operation: AnalystTurnOperation, reason: string): void { const interruption = new Error(reason); if (!operation.abort.signal.aborted) operation.abort.abort(interruption); operation.tracker.revoke(interruption); }
 
   private acceptedInput(operation: AnalystTurnOperation): CanonicalLlmInvocationInput {
-    return { inputId: operation.acceptedOperationId, agentId: this.#llm.agentId, agentName:this.#config.analyst_agent, sessionId: this.#sessionId, systemPrompt: '', providerConversation: { sourceSessionId: this.#sessionId, messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(this.#compactionPolicy, '', []), capabilityRequest: { requiresTools: false },candidateChain:this.#candidateChain, episodeContext: {} };
+    return { inputId: operation.acceptedOperationId, agentId: this.#llm.agentId, agentName:this.#config.analyst_agent, sessionId: this.#sessionId, systemPrompt: '', providerConversation: { sourceSessionId: this.#sessionId, messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(this.#compactionPolicy, '', []), capabilityRequest: { requiresTools: false },routePass:{kind:'ordinary',candidateChain:this.#candidateChain}, episodeContext: {} };
   }
 
   private prepareInvocationInput(surface: InvocationSurface): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const tools = surfaceToolDefinitions(surface); const modelParams = getModelParamsForAgent(this.#config, this.#config.analyst_agent);
     const systemPrompt = this.#promptTemplates.render('global', this.#config.analyst_agent, { toolList: formatPromptToolList(tools), vocabularySnippet: formatVocabularySnippet(), projectContext: this.buildProjectContext() });
-    return { inputId: randomUUID(), agentId: this.#llm.agentId, agentName:this.#config.analyst_agent, sessionId: this.#sessionId, systemPrompt, tools, terminalToolNames: [], modelParams: { temperature: modelParams.temperature }, preparedCompaction: prepareCompaction(this.#compactionPolicy, systemPrompt, tools, modelParams.maxTokens), capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),candidateChain:this.#candidateChain, episodeContext: { surface: 'web-chat' } };
+    return { inputId: randomUUID(), agentId: this.#llm.agentId, agentName:this.#config.analyst_agent, sessionId: this.#sessionId, systemPrompt, tools, terminalToolNames: [], modelParams: { temperature: modelParams.temperature }, preparedCompaction: prepareCompaction(this.#compactionPolicy, systemPrompt, tools, modelParams.maxTokens), capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),routePass:{kind:'ordinary',candidateChain:this.#candidateChain}, episodeContext: { surface: 'web-chat' } };
   }
 
   private logBoundaryDiagnostic(phase: string, err: unknown): void {

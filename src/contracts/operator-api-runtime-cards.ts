@@ -12,6 +12,7 @@ import {
   urgencySchema,
   cardActionSchema,
   cardLifecycleStateSchema,
+  ConversationSessionIdSchema,
 } from '../schemas/index.js';
 import {
   operatorSessionContract,
@@ -45,6 +46,17 @@ export const RuntimeGetStateResponseSchema = z.object({
   projectId: z.string().min(1),
   runtime: runtimeStateSchema.nullable(),
   serverAvailability: ServerAvailabilitySchema.optional(),
+}).strict();
+
+export const ContentPolicyRuntimeResponseSchema = z.object({
+  refusal_high_water: z.number().int().nonnegative().safe(),
+  latest: z.object({
+    card_id: cardIdSchema,
+    session_id: ConversationSessionIdSchema,
+    marker_id: z.string().min(1),
+    evidence_url: z.string().min(1),
+    blocked_at: z.string().datetime(),
+  }).strict().nullable(),
 }).strict();
 
 const refineHierarchyIdentity = (value: { id: string; type: string }, ctx: z.RefinementCtx): void => {
@@ -128,6 +140,7 @@ export const RestartUnavailableErrorSchema = z.object({ code: z.literal('restart
 export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
 export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;
 export type RuntimeGetStateResponse = z.infer<typeof RuntimeGetStateResponseSchema>;
+export type ContentPolicyRuntimeResponse = z.infer<typeof ContentPolicyRuntimeResponseSchema>;
 export type CardHierarchyParent = z.infer<typeof CardHierarchyParentSchema>;
 export type CardHierarchyChildSummary = z.infer<typeof CardHierarchyChildSummarySchema>;
 export type CardDetail = z.infer<typeof CardDetailSchema>;
@@ -175,6 +188,16 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: RuntimeGetStateResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'RuntimeGetStateResponse',
+  },
+  'runtime.contentPolicy': {
+    operationId: 'runtime.contentPolicy',
+    method: 'GET',
+    path: '/api/runtime/content-policy',
+    success: ContentPolicyRuntimeResponseSchema,
+    error: UnauthorizedErrorSchema,
+    response: { 200: ContentPolicyRuntimeResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'ContentPolicyRuntimeResponse',
   },
   'cards.children': {
     operationId: 'cards.children',

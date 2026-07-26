@@ -1,4 +1,4 @@
-import { buildRuntimeStatusReadModel, CardsReadModelService } from '../../application/read-models/index.js';
+import { buildContentPolicyReadModel, buildRuntimeStatusReadModel, CardsReadModelService } from '../../application/read-models/index.js';
 import type { OperatorApiHandlerResult } from '../../contracts/index.js';
 import type {
   OperatorAvailabilityContext,
@@ -44,6 +44,7 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       return { statusCode: ready ? 200 : 503, body: { status: ready ? 'ready' : 'not_ready', ...(serverAvailability ? { serverAvailability } : {}) } };
     },
     'runtime.getState': () => getCardsReadModel().getRuntimeState(options.serverAvailabilityProvider?.()),
+    'runtime.contentPolicy': () => ({ body: buildContentPolicyReadModel(projectRoot) }),
     'cards.children': ({ params }) => getCardsReadModel().getChildren(params.id),
     'cards.get': ({ params }) => getCardsReadModel().getCard(params.id),
     'cards.records.list': ({ params }) => getCardsReadModel().listRecords(params.id),

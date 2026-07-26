@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-recovery.js';
-import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
+import { type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
+import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
 import { codexMessages } from '../../src/agents/llm-openai-codex-adapter.js';
@@ -96,6 +97,20 @@ describe('stable same-session recovery', () => {
       { role: 'tool', content: failed.content, tool_call_id: 'call-1' },
       { role: 'system', content: notice.content },
     ]));
+  });
+
+  it('treats one exact final content-policy refusal marker as clean and rejects rows after it', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-refusal-recovery-')); initProjectTree(projectRoot); roots.push(projectRoot);
+    const sessionId: ConversationSessionId = 'agent:planner:project';
+    const timestamp = '2026-07-26T00:00:00.000Z';
+    const activation: AgentMessage = { session_id: sessionId, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp }), round_id: 'r-pre-dddddddddddddddddddddddddddddddd', message_index: 0, block_index: 0, timestamp };
+    const marker = buildContentPolicyRefusalMessage({ sessionId, sourceInputId: source, candidate: { provider: 'test', account: null, model: 'model' }, providerResponse: 'raw' });
+    appendConversationBatch({ projectRoot }, [activation, marker]);
+    expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) })).toMatchObject({ disposition: 'clean' });
+    expect(readConversation(projectRoot, sessionId).sourceRows.at(-1)?.kind).toBe('content_policy_refusal');
+    const after = { ...marker, id: 'after-marker', kind: 'text' as const, role: 'user' as const, content: 'invalid suffix' };
+    appendConversationBatch({ projectRoot }, [after]);
+    expect(() => stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) })).toThrow(/rows after or colliding/);
   });
 
 });

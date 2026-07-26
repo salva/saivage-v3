@@ -5,18 +5,16 @@ import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
     completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
-    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, assistantOutputIds),
+    projectProviderExchanges: (sessionId, sourceInputId, attempts, context) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, context),
   };
 }
 
-export function invocationRequest(input: LlmInvocationInput, signal: AbortSignal, candidateChain?: NonNullable<InvocationRequest['candidateChain']>): InvocationRequest {
-  const boundCandidates=candidateChain??input.candidateChain;
-  if(!boundCandidates)throw new Error(`LLM invocation for agent '${input.agentName}' has no bound candidate chain.`);
+export function invocationRequest(input: LlmInvocationInput, signal: AbortSignal): InvocationRequest {
   const common = {
     inputId: input.inputId, agentName: input.agentName, sessionId: input.sessionId, systemPrompt: input.systemPrompt,
     providerConversation: input.providerConversation,
     tools: input.tools, terminalToolNames: input.terminalToolNames, capabilityRequest: input.capabilityRequest, abortSignal: signal,
-    candidateChain: [...boundCandidates],
+    routePass: input.routePass.kind === 'ordinary' ? { kind: 'ordinary' as const, candidateChain: [...input.routePass.candidateChain] } : { kind: 'pinned-content-policy-retry' as const, candidate: input.routePass.candidate },
   };
   return input.preparedCompaction
     ? { ...common, modelParams: input.modelParams, preparedCompaction: input.preparedCompaction }

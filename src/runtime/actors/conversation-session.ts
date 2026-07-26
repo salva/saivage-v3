@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, type MessageRole, type ConversationSessionId } from '../../schemas/index.js';
+import { agentMessageSchema, conversationSessionIdentity, CONTENT_POLICY_RETRY_TEXT, type AgentMessage, type MessageRole, type ConversationSessionId } from '../../schemas/index.js';
 import type { ValidatedConversation } from '../../contracts/conversation-compaction.js';
 import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
@@ -9,6 +9,14 @@ import { generateRoundId } from '../../schemas/round-id-server.js';
 export type UserContextMessageCategory = 'notification' | 'reviewer_descendant' | 'process_transition' | 'process_node' | 'continuation_hook';
 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
+
+export function contentPolicyEvidenceUrl(sessionId: ConversationSessionId, markerId: string): string {
+  return `/agents/${encodeURIComponent(sessionId)}?entry=${encodeURIComponent(markerId)}`;
+}
+
+export function contentPolicyRefusalProjectionText(sessionId: ConversationSessionId, markerId: string): string {
+  return `A prior activation ended after repeated provider content-policy refusal. Reassess the task decomposition and use only assistance the provider can give within its safety requirements. Operator evidence: ${contentPolicyEvidenceUrl(sessionId, markerId)}.`;
+}
 
 export function appendUserContextMessage(
   conversations: ConversationFileContext,
@@ -142,7 +150,7 @@ export function buildContextTextMessage(sessionId: ConversationSessionId, role: 
 export function providerConversationProjection(conversation: ValidatedConversation): ProviderConversationProjection {
   const latest = conversation.latestCompaction;
   const messages = !latest
-    ? conversation.sourceRows.filter(isProviderConversationMessage)
+    ? conversation.sourceRows.flatMap(projectProviderConversationMessage)
     : projectCompactedConversation(conversation, latest);
   const wrongSession = messages.find((message) => message.session_id !== conversation.sourceSessionId);
   if (wrongSession) throw new Error(`Projected conversation row '${wrongSession.id}' belongs to session '${wrongSession.session_id}', not source session '${conversation.sourceSessionId}'.`);
@@ -152,18 +160,26 @@ export function providerConversationProjection(conversation: ValidatedConversati
 
 function projectCompactedConversation(conversation: ValidatedConversation, latest: NonNullable<ValidatedConversation['latestCompaction']>): AgentMessage[] {
   const retainedIds = new Set(latest.payload.retained_static_message_ids);
-  const retained = conversation.sourceRows.filter((message, index) => index <= latest.cutoffSourceIndex && retainedIds.has(message.id) && isProviderConversationMessage(message));
+  const retained = conversation.sourceRows.filter((message, index) => index <= latest.cutoffSourceIndex && retainedIds.has(message.id)).flatMap(projectProviderConversationMessage);
   const metadata = latest.metadataRow;
   const synthetic = agentMessageSchema.parse({ id: `${metadata.id}:rendered`, session_id: metadata.session_id, role: 'system', kind: 'text', content: latest.renderedContext, round_id: metadata.round_id, message_index: metadata.message_index, block_index: metadata.block_index, timestamp: metadata.timestamp });
-  return [...retained, synthetic, ...conversation.sourceRows.slice(latest.cutoffSourceIndex + 1).filter(isProviderConversationMessage)];
+  const coveredMarkers = conversation.sourceRows.slice(0, latest.cutoffSourceIndex + 1).filter((message) => message.kind === 'content_policy_refusal').flatMap(projectProviderConversationMessage);
+  return [...retained, synthetic, ...coveredMarkers, ...conversation.sourceRows.slice(latest.cutoffSourceIndex + 1).flatMap(projectProviderConversationMessage)];
 }
 
 export function isProviderConversationMessage(message: AgentMessage): boolean {
-  return message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'model_recovered' || message.kind === 'provider_private';
+  return message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'model_recovered' || message.kind === 'provider_private' || message.kind === 'content_policy_retry' || message.kind === 'content_policy_refusal';
 }
 
 export function isConversationBudgetVisible(message: AgentMessage): boolean {
   return isProviderConversationMessage(message) && message.kind !== 'provider_private';
+}
+
+function projectProviderConversationMessage(message: AgentMessage): AgentMessage[] {
+  if (!isProviderConversationMessage(message)) return [];
+  if (message.kind === 'content_policy_retry') return [agentMessageSchema.parse({ ...message, kind: 'text', role: 'user', content: CONTENT_POLICY_RETRY_TEXT })];
+  if (message.kind === 'content_policy_refusal') return [agentMessageSchema.parse({ ...message, kind: 'text', role: 'user', content: contentPolicyRefusalProjectionText(message.session_id, message.id) })];
+  return [message];
 }
 
 function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {

@@ -51,6 +51,7 @@ export type {
   ProcessListResponse,
   ProcessView,
   RuntimeGetStateResponse,
+  ContentPolicyRuntimeResponse,
   RuntimeStatusResponse,
   WorkspaceFileContentResponse,
   WorkspaceFilesListResponse,

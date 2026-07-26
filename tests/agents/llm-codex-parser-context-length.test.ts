@@ -1,12 +1,12 @@
 import { describe, expect, it } from '@jest/globals';
-import { handleOpenAICodexSseChunk } from '../../src/agents/llm-codex-parser.js';
+import { handleOpenAICodexEvent } from '../../src/agents/llm-codex-parser.js';
 import { LlmRequestError } from '../../src/agents/llm-errors.js';
 
 describe('OpenAI Codex SSE error classification', () => {
   function failureFor(event: Record<string, unknown>, responseStatus = 200) {
-    const chunk = `data: ${JSON.stringify(event)}\n`;
+    const dataText = JSON.stringify(event);
     try {
-      handleOpenAICodexSseChunk(chunk, responseStatus, new Map(), new Set(), [], () => undefined);
+      handleOpenAICodexEvent(dataText, responseStatus, new Map(), new Set(), [], () => undefined);
     } catch (error) {
       expect(error).toBeInstanceOf(LlmRequestError);
       return (error as LlmRequestError).failure;
@@ -42,5 +42,11 @@ describe('OpenAI Codex SSE error classification', () => {
     expect(failureFor({ type: 'error', retry_after: 2, error: { code: 'rate_limit_exceeded', message: 'slow down' } }, 201)).toMatchObject({ kind: 'rate_limit', status: 201, retryAfterMs: 2000 });
     expect(failureFor({ type: 'error', status: 401, error: { code: 'unauthorized', message: 'bad auth' } })).toMatchObject({ kind: 'auth_permanent', status: 200 });
     expect(failureFor({ type: 'error', error: { code: 'mystery', message: 'unknown' } })).toMatchObject({ kind: 'provider_protocol_error', status: 200 });
+  });
+
+  it('classifies content evidence with exact normalized event data',()=>{
+    const event={type:'response.failed',response:{status:'failed',error:{code:'content_filter',message:'content policy refusal'}}};
+    const failure=failureFor(event);
+    expect(failure).toMatchObject({kind:'content_policy',providerResponse:JSON.stringify(event)});
   });
 });

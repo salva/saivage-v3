@@ -10,6 +10,7 @@ import { cardStreamRowSchema } from '../../src/persistence/canonical-card-artifa
 import { cardStreamFile } from '../../src/persistence/layout.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
+import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -37,6 +38,11 @@ function createInStatus(cards: CardService, status: 'backlog' | 'running' | 'cha
 }
 
 describe('exact card producer contracts', () => {
+  it('persists the typed content-policy BLOCKED lifecycle with null completed_at', () => {
+    const { cards } = setup(); const card = cards.create(input()); cards.setStatus(card.id, 'running');
+    const result = { kind: 'content-policy-refusal' as const, summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: `agent:executor:${card.id}` as const, marker_id: 'marker-id', evidence_url: `/agents/agent%3Aexecutor%3A${card.id}?entry=marker-id` };
+    expect(cards.commitActivationOutcome(card.id, { status: 'blocked', summary: result.summary, result }, settled).lifecycle).toEqual({ status: 'blocked', result, error: result.summary, completed_at: null });
+  });
   it('publishes complete exact initial root and child records and runtime-owned child links', () => {
     const { root, cards } = setup(); const child = cards.create(input('project', 'child', 'planner'));
     const project = readCardArtifacts(root, 'project').artifacts[0];

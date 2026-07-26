@@ -24,6 +24,10 @@ export type PreparedCompaction = {
   readonly snap: 'keep_straddler_verbatim' | 'compact_straddler';
 };
 
+export type InvocationRoutePass =
+  | { kind: 'ordinary'; candidateChain: readonly Candidate[] }
+  | { kind: 'pinned-content-policy-retry'; candidate: Candidate };
+
 interface LlmInvocationInputBase {
   inputId: string;
   agentId: string;
@@ -37,7 +41,7 @@ interface LlmInvocationInputBase {
   terminalToolNames: string[];
   capabilityRequest: CapabilityRequest;
   episodeContext: Record<string, unknown>;
-  candidateChain?:readonly Candidate[];
+  routePass: InvocationRoutePass;
 }
 
 export type LlmInvocationInput = LlmInvocationInputBase & (

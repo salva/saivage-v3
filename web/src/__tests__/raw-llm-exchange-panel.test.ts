@@ -92,6 +92,7 @@ describe('RawLlmExchangePanel', () => {
     const { wrapper } = mountPanel(
       exchange({
         status: 'error',
+        terminal_conversation_output_id: null,
         error: { name: 'LlmRequestError', message: 'rate limited', status: 429 },
         response_status: 429,
         assistant_output_ids: undefined,

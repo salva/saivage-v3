@@ -50,7 +50,7 @@ describe('Stage-I compaction contracts', () => {
   it('estimates the already-projected invocation sequence without changing estimator input', () => {
     const contextMessages = [agentMessageSchema.parse({ id: 'visible', session_id: 'agent:planner:project', role: 'user', kind: 'text', content: 'projected context', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' })];
     const preparedCompaction = prepareCompaction(config, 'system', []);
-    const invocation: PreparedLlmInvocationInput = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner' as const, sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {}, episodeContext: {} };
+    const invocation: PreparedLlmInvocationInput = { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner' as const, sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction, capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[TEST_CANDIDATE]}, episodeContext: {} };
     expect(shouldCompact(invocation)).toBe(contextMessages.reduce((sum, row) => sum + estimateMessageTokens(row), 0) >= preparedCompaction.triggerMessageThreshold);
     expect(invocation.providerConversation.messages).toBe(contextMessages);
   });
@@ -80,7 +80,7 @@ describe('Stage-I compaction contracts', () => {
     initProjectTree(root);
     try {
       for (let ordinal = 1; ordinal <= 4; ordinal++) appendRawRound(root, ordinal);
-      const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
+      const provider = { candidate:TEST_CANDIDATE,completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
       const integrationConfig: AutonomousCompactionPolicy = { ...config, input_budget_tokens: 400, snap };
       const invocation = invocationFor('agent:planner:project', [], integrationConfig);
       await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation, summarizerProvider: provider, signal: new AbortController().signal });
@@ -125,7 +125,7 @@ describe('Stage-I compaction contracts', () => {
         ...Array.from({ length: 10 }, (_, index) => ({ id: `hard-message-${index}`, session_id, role: 'user' as const, kind: 'text' as const, content: `${index}:${'x'.repeat(320)}`, round_id: 'r-user-99999999999999999999999999999999', message_index: index + 1, block_index: 0, timestamp: '2026-07-15T00:01:00.000Z' })),
       ];
       appendConversationBatch({ projectRoot: root }, rows);
-      const provider = { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'small prefix summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
+      const provider = { candidate:TEST_CANDIDATE,completeTurn: async () => ({ result: { kind: 'message' as const, content: 'small prefix summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
       const hardConfig: AutonomousCompactionPolicy = { ...config, input_budget_tokens: 400 };
       const invocation = invocationFor(session_id, rows, hardConfig);
 
@@ -184,7 +184,7 @@ describe('Stage-I compaction contracts', () => {
       for (let ordinal = 1; ordinal <= 7; ordinal++) appendRawRound(root, ordinal);
       const inputs: LlmInvocationInput[] = [];
       let ordinal = 0;
-      const provider = { completeTurn: async (input: LlmInvocationInput) => { inputs.push(input); return { result: { kind: 'message' as const, content: `summary-${++ordinal}` }, provider_exchanges: [] }; }, projectProviderExchanges: jest.fn() };
+      const provider = { candidate:TEST_CANDIDATE,completeTurn: async (input: LlmInvocationInput) => { inputs.push(input); return { result: { kind: 'message' as const, content: `summary-${++ordinal}` }, provider_exchanges: [] }; }, projectProviderExchanges: jest.fn() };
       const integrationConfig = { ...config, input_budget_tokens: 400 };
       await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('agent:planner:project', [], integrationConfig), summarizerProvider: provider, signal: new AbortController().signal });
       const first = readConversation(root, 'agent:planner:project');
@@ -252,9 +252,11 @@ function appendRawRound(root: string, ordinal: number, session_id: ConversationS
 
 function invocationFor(sessionId: ConversationSessionId, contextMessages: AgentMessage[], compactionConfig: AutonomousCompactionPolicy): PreparedLlmInvocationInput {
   const agentName=conversationSessionIdentity(sessionId).agentName;
-  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {}, episodeContext: {} };
+  return { inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName, sessionId, systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: contextMessages }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(compactionConfig, 'system', []), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[TEST_CANDIDATE]}, episodeContext: {} };
 }
 
 function summaryProvider() {
-  return { completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
+  return { candidate:TEST_CANDIDATE,completeTurn: async () => ({ result: { kind: 'message' as const, content: 'short raw-derived summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() };
 }
+
+const TEST_CANDIDATE={provider:'test',account:null,model:'test-model'} as const;

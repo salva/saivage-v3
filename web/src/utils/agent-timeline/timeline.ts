@@ -47,6 +47,7 @@ function buildToolPairs(entries: TimelineEntry[]): ToolPair[] {
 function isDisplayTextEntry(entry: TimelineEntry): boolean {
   if (entry.kind === 'text') return entry.content.trim().length > 0;
   if (entry.kind === 'system_prompt') return entry.content.trim().length > 0;
+  if (entry.kind === 'content_policy_refusal') return true;
   return false;
 }
 
@@ -113,7 +114,10 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[]): A
     );
   const builtRounds: TimelineRound[] = sortedGroups.map(({ id, entries: roundEntries }, idx) => {
     const parsed = parseRoundId(id);
-    const sorted = [...roundEntries].map(({ entry }) => entry).sort(compareEntry);
+    const sorted = [...roundEntries].map(({ entry }) => entry.kind === 'content_policy_refusal' ? {
+      ...entry,
+      content: `A prior activation ended after repeated provider content-policy refusal. Reassess the task decomposition and use only assistance the provider can give within its safety requirements. Operator evidence: /agents/${encodeURIComponent(entry.session_id)}?entry=${encodeURIComponent(entry.id)}.`,
+    } : entry).sort(compareEntry);
     const toolPairs = buildToolPairs(sorted);
     return {
       id,

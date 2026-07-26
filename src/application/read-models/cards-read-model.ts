@@ -29,7 +29,9 @@ function projectLifecycle(lifecycle: CardLifecycleState): CardLifecycleState {
   switch (lifecycle.status) {
     case 'done': return { ...lifecycle, result: { ...lifecycle.result, summary: redactTextForOutbound(lifecycle.result.summary) } };
     case 'failed': return { ...lifecycle, result: { ...lifecycle.result, summary: redactTextForOutbound(lifecycle.result.summary) }, error: redactTextForOutbound(lifecycle.error) };
-    case 'blocked': return { ...lifecycle, result: { ...lifecycle.result, summary: redactTextForOutbound(lifecycle.result.summary) }, error: redactTextForOutbound(lifecycle.error) };
+    case 'blocked': return lifecycle.result.kind === 'content-policy-refusal'
+      ? { ...lifecycle, result: { ...lifecycle.result }, error: redactTextForOutbound(lifecycle.error) }
+      : { ...lifecycle, result: { ...lifecycle.result, summary: redactTextForOutbound(lifecycle.result.summary) }, error: redactTextForOutbound(lifecycle.error) };
     default: return { ...lifecycle };
   }
 }

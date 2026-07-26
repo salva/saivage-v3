@@ -81,6 +81,15 @@ describe('operator API runtime contract without runtime ledgers', () => {
     });
   });
 
+  it('registers the authenticated content-policy high-water operation with one strict response', () => {
+    expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationId: 'runtime.contentPolicy', method: 'GET', path: '/api/runtime/content-policy', requiresAuth: true, successSchemaName: 'ContentPolicyRuntimeResponse' }),
+    ]));
+    const body = { refusal_high_water: 1, latest: { card_id: 'card-a', session_id: 'agent:executor:card-a', marker_id: 'marker', evidence_url: '/agents/agent%3Aexecutor%3Acard-a?entry=marker', blocked_at: timestamp } };
+    expect(contractsModule.ContentPolicyRuntimeResponseSchema.parse(body)).toEqual(body);
+    expect(contractsModule.ContentPolicyRuntimeResponseSchema.safeParse({ ...body, latest: { ...body.latest, provider_response: 'forbidden' } }).success).toBe(false);
+  });
+
   it('uses one strict unexpected-500 schema for every mounted operation', () => {
     const body = { error: 'InternalServerError', message: 'Internal server error' };
     expect(contractsModule.UNEXPECTED_INTERNAL_SERVER_ERROR).toEqual(body);

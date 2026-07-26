@@ -14,14 +14,14 @@ import {
   type ProviderTurnCompletion,
   type ToolDefinition,
 } from './llm-contracts.js';
-import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
+import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../contracts/provider-exchange.js';
 import { appendAppLogEntry } from '../persistence/app-log.js';
 import {
   buildCandidateRequest,
   CandidateRequestPlanIntegrityError,
   type CandidateRequestPlan,
 } from './candidate-request.js';
-import type { PreparedCompaction } from '../runtime/actors/llm-invocation.js';
+import type { InvocationRoutePass, PreparedCompaction } from '../runtime/actors/llm-invocation.js';
 import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
@@ -64,7 +64,7 @@ interface InvocationRequestBase {
   terminalToolNames: string[];
   capabilityRequest: CapabilityRequest;
   abortSignal?: AbortSignal;
-  candidateChain?: Candidate[];
+  routePass: InvocationRoutePass;
 }
 
 export type InvocationRequest = InvocationRequestBase &
@@ -101,13 +101,6 @@ export class InvocationService {
     this.recoveryDelayMs = INVOCATION_RECOVERY_DELAY_MS;
     this.maxRecoveryRetries = MAX_INVOCATION_RECOVERY_RETRIES;
     this.freshness = config.freshness;
-  }
-
-  async resolveCandidates(
-    agentName: AgentName,
-    capabilityRequest: CapabilityRequest,
-  ): Promise<Candidate[]> {
-    return this.router.resolve(agentName, capabilityRequest);
   }
 
   async invokeCall(
@@ -168,12 +161,55 @@ export class InvocationService {
   }
 
   async invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion> {
+    switch (request.routePass.kind) {
+      case 'ordinary':
+        return this.invokeOrdinary(request, request.routePass.candidateChain);
+      case 'pinned-content-policy-retry':
+        return this.invokePinned(request, request.routePass.candidate);
+    }
+  }
+
+  private async invokePinned(request: InvocationRequest, candidate: Candidate): Promise<ProviderTurnCompletion> {
+    try {
+      this.registry.assertCandidate(candidate);
+      throwIfAborted(request.abortSignal);
+      const completion = await this.invokeCall(request, candidate);
+      const attempts = indexProviderExchangeAttempts(request.inputId, 0, completion.provider_exchanges);
+      try {
+        throwIfAborted(request.abortSignal);
+      } catch (error) {
+        throw new ProviderTurnFailure({
+          failure_phase: 'provider_attempt',
+          provider_exchanges: attempts,
+          originalFailure: error,
+          candidate,
+        });
+      }
+      return { ...completion, provider_exchanges: attempts };
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if (error instanceof ProviderTurnFailure) {
+        const attempts = error.failure_phase === 'provider_attempt' ? indexProviderExchangeAttempts(request.inputId, 0, error.provider_exchanges) : [];
+        throw new ProviderTurnFailure({
+          failure_phase: attempts.length > 0 ? 'provider_attempt' : 'pre_provider',
+          provider_exchanges: attempts,
+          originalFailure: error.originalFailure,
+          candidate,
+        });
+      }
+      throw new ProviderTurnFailure({
+        failure_phase: 'pre_provider',
+        provider_exchanges: [],
+        originalFailure: error,
+        candidate,
+      });
+    }
+  }
+
+  private async invokeOrdinary(request: InvocationRequest, chain: readonly Candidate[]): Promise<ProviderTurnCompletion> {
     const settled: ProviderExchangeAttempt[] = [];
     let lastFailure: unknown = null;
     const deadlineMs = Date.now() + LLM_UNAVAILABILITY_TIMEOUT_MS;
-    const chain =
-      request.candidateChain ??
-      (await this.resolveCandidates(request.agentName, request.capabilityRequest));
     if (chain.length === 0) this.throwNoCandidates(request, settled);
     const states: CandidateRecoveryRecord[] = chain.map((candidate) => ({
       candidate,
@@ -193,6 +229,7 @@ export class InvocationService {
           provider_exchanges: settled,
           originalFailure: lastFailure ?? new Error(message),
           message,
+          candidate: null,
         });
       }
       if (next.kind === 'wait') {
@@ -207,6 +244,7 @@ export class InvocationService {
           failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
           provider_exchanges: settled,
           originalFailure,
+          candidate: null,
         });
       }
 
@@ -270,6 +308,7 @@ export class InvocationService {
             failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
             provider_exchanges: settled,
             originalFailure,
+            candidate,
           });
         }
         lastFailure = originalFailure;
@@ -294,8 +333,11 @@ export class InvocationService {
     sessionId: string,
     sourceInputId: string,
     attempts: ProviderExchangeAttempt[],
-    assistantOutputIds: string[],
+    context: ProviderExchangePublicationContext,
   ): void {
+    const hasOk = attempts.some((attempt) => attempt.status === 'ok');
+    if (context.terminalConversationOutputId !== null && hasOk) throw new Error('A terminal conversation output id cannot be published with a successful provider attempt.');
+    if (context.assistantOutputIds.length > 0 && !hasOk) throw new Error('Assistant output ids require a successful provider attempt.');
     for (const attempt of attempts) {
       appendAppLogEntry(this.projectRoot, 'provider_exchange', () => {
         if (attempt.attempt_index === undefined)
@@ -306,7 +348,9 @@ export class InvocationService {
           );
         const payload = projectProviderExchangeForPublication(
           attempt as ProviderExchangeAttempt & { attempt_index: number },
-          assistantOutputIds,
+          attempt.status === 'ok'
+            ? { assistantOutputIds: context.assistantOutputIds, terminalConversationOutputId: null }
+            : { assistantOutputIds: [], terminalConversationOutputId: hasOk ? null : context.terminalConversationOutputId },
         );
         return {
           type: 'provider_exchange',
@@ -334,6 +378,7 @@ export class InvocationService {
       provider_exchanges: settled,
       originalFailure: new Error(message),
       message,
+      candidate: null,
     });
   }
 

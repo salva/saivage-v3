@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
-import { parseConversationSessionId, type ConversationSessionId } from '../../schemas/index.js';
+import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, conversationSessionIdentity, parseConversationSessionId, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
+import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';
+import type { CardId } from '../../schemas/card-id.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, buildLlmTurnMessage, buildToolResultMessage, readLoggedToolCall } from './llm-delivery-log.js';
 import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
@@ -10,7 +12,7 @@ import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
-import { providerExchangePayloadSchema, type ProviderExchangeAttempt } from '../../contracts/provider-exchange.js';
+import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../../contracts/provider-exchange.js';
 import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import { sanitizeRecoveryMessage } from '../../agents/invocation-recovery-policy.js';
@@ -21,11 +23,12 @@ import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../..
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
   | { type: 'tool_call'; agentId: string; inputId: string; toolCallId: string; toolName: string; args: unknown }
+  | { type: 'blocked'; agentId: string; result: ContentPolicyRefusalBlockedResult }
   | { type: 'error'; agentId: string; error: string };
 
 export interface LLMProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
-  projectProviderExchanges?(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], assistantOutputIds: string[]): void;
+  projectProviderExchanges?(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void;
 }
 
 export interface CompactorPort {
@@ -33,7 +36,7 @@ export interface CompactorPort {
   compact(args: CompactArgs): Promise<CompactionResult>;
 }
 
-export type LlmTerminalHandoff = (terminal: Readonly<{ input: CanonicalLlmInvocationInput; outcome: Extract<LLMActorOutcome, { type: 'result' | 'error' }> }>) => void;
+export type LlmTerminalHandoff = (terminal: Readonly<{ input: CanonicalLlmInvocationInput; outcome: Extract<LLMActorOutcome, { type: 'result' | 'blocked' | 'error' }> }>) => void;
 export type AnalystCancellationPublication = Readonly<{ markPublished(): void }>;
 export type AnalystCancellationClaim = (input: CanonicalLlmInvocationInput, reason: string) => AnalystCancellationPublication;
 
@@ -92,9 +95,13 @@ export type ConversationCancellationDisposition =
   | { kind: 'claimed'; input: CanonicalLlmInvocationInput; publicationOwnedByLlm: boolean };
 export type ConversationDisposalDisposition = 'revoked_before_owned_completion' | 'joining_owned_completion';
 export type LLMToolContinuationContextHook = (continuationInputId: string) => { messages: readonly ProviderVisibleUserContextMessage[]; afterAppend?: () => void } | undefined;
+export type ConversationLLMActorPurpose = Readonly<
+  { kind: 'autonomous-card'; cardId: CardId } | { kind: 'analyst' }
+>;
 
 export class ConversationLLMActor {
   readonly agentId: ConversationSessionId;
+  readonly purpose: ConversationLLMActorPurpose;
   readonly provider: LLMProviderPort;
   readonly gate: RuntimeGate;
   readonly conversations: ConversationFileContext;
@@ -107,8 +114,18 @@ export class ConversationLLMActor {
   #phase: ConversationPhase = { kind: 'idle', disposition: { kind: 'open' } };
   #executingActivity: ExecutingLlmActivity = Object.freeze({ mode: 'active', barrier: null });
 
-  constructor(args: { agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void; fatalPort: ApplicationFatalPort }) {
+  constructor(args: { purpose: ConversationLLMActorPurpose; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void; fatalPort: ApplicationFatalPort }) {
     this.agentId = parseConversationSessionId(args.agentId);
+    const identity = conversationSessionIdentity(this.agentId);
+    switch (args.purpose.kind) {
+      case 'autonomous-card':
+        if (identity.cardId !== args.purpose.cardId) throw new Error(`Autonomous-card LLM actor purpose '${args.purpose.cardId}' does not match session '${this.agentId}'.`);
+        break;
+      case 'analyst':
+        if (identity.cardId !== null) throw new Error(`Analyst LLM actor requires a global session, received '${this.agentId}'.`);
+        break;
+    }
+    this.purpose = Object.freeze(args.purpose);
     this.provider = args.provider;
     this.conversations = args.conversations;
     this.gate = args.gate ?? new RuntimeGate();
@@ -397,8 +414,9 @@ export class ConversationLLMActor {
     if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(input.sessionId);
     await this.gate.waitUntilOpen(signal); this.#invocations.assertCurrent(operation.lease!); operation.providerBoundaryEntered = true;
     const completion = await this.#callProvider(operation, input, signal); this.#invocations.assertCurrent(operation.lease!);
+    if (completion.kind === 'content-policy-blocked') return completion;
     operation.completionPersistenceEntered = true;
-    return this.#persistProviderCompletion(input, completion);
+    return this.#persistProviderCompletion(input, completion.completion);
   }
 
   async #completeInvocation(operation: InvocationOperation, persisted: PersistedProviderCompletion): Promise<void> {
@@ -432,7 +450,7 @@ export class ConversationLLMActor {
       const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
       operation.completionPersistenceEntered = true;
       const appended = appendLlmTurnError(this.conversations, operation.input, message);
-      this.#projectProviderExchanges(operation.input, error.provider_exchanges, [appended.id]);
+      this.#projectProviderExchanges(operation.input, error.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: appended.id });
       const outcome: Extract<LLMActorOutcome, { type: 'error' }> = { type: 'error', agentId: this.agentId, error: message };
       operation.callbacks.terminal(Object.freeze({ input: operation.input, outcome }));
       this.#phase = { kind: 'idle', disposition: operation.disposition };
@@ -556,10 +574,14 @@ export class ConversationLLMActor {
   #publishExecutingActivityChange(): void { this.runtimeProjectionChanged?.(); }
   #assertPersistenceOwnership(input: CanonicalLlmInvocationInput): void { if (input.sessionId !== input.providerConversation.sourceSessionId) throw new Error(`Persisted LLM invocation '${input.inputId}' session '${input.sessionId}' does not match provider conversation source session '${input.providerConversation.sourceSessionId}'.`); }
 
-  async #callProvider(operation: InvocationOperation, input: CanonicalLlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
+  async #callProvider(operation: InvocationOperation, input: CanonicalLlmInvocationInput, signal: AbortSignal): Promise<{ kind: 'completion'; completion: ProviderTurnCompletion } | Extract<PersistedProviderCompletion, { kind: 'content-policy-blocked' }>> {
     let firstFailure: AuthoritativeContextFailure;
-    try { return await this.provider.completeTurn(input, signal); }
-    catch (error) { if (!isAuthoritativeContextFailure(error)) throw error; firstFailure = error; }
+    try { return { kind: 'completion', completion: await this.provider.completeTurn(input, signal) }; }
+    catch (error) {
+      if (isAuthoritativeContentPolicyFailure(error)) return this.#recoverContentPolicyRefusal(operation, input, signal, error);
+      if (!isAuthoritativeContextFailure(error)) throw error;
+      firstFailure = error;
+    }
     if (!operation.providerBoundaryEntered || operation.completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover outside the provider boundary.`);
     const firstAttempts = strictContextFailureAttempts(firstFailure, input.inputId); signal.throwIfAborted();
     let compaction: Extract<CompactionResult, { kind: 'compacted' }>;
@@ -578,7 +600,7 @@ export class ConversationLLMActor {
     if (compaction.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compaction.providerConversation.sourceSessionId}'.`);
     try {
       const completion = await this.provider.completeTurn({ ...input, providerConversation: compaction.providerConversation }, signal);
-      return { ...completion, provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, completion.provider_exchanges) };
+      return { kind: 'completion', completion: { ...completion, provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, completion.provider_exchanges) } };
     } catch (error) {
       this.#deliverPublicationFatal(error);
       if (!(error instanceof ProviderTurnFailure)) throw error;
@@ -586,20 +608,58 @@ export class ConversationLLMActor {
         const secondAttempts = strictContextFailureAttempts(error, input.inputId);
         throw normalContextFailure(`Provider input context remained exhausted after one forced compacted retry (first_pass_attempts=${firstAttempts.length}, second_pass_attempts=${secondAttempts.length}, compacted_estimated_message_tokens=${compaction.estimatedProviderMessageTokens}).`, combineProviderAttempts(input.inputId, firstAttempts, secondAttempts), error.originalFailure);
       }
-      throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, error.provider_exchanges), originalFailure: error.originalFailure, message: error.message });
+      throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, error.provider_exchanges), originalFailure: error.originalFailure, message: error.message, candidate:error.candidate });
+    }
+  }
+
+  async #recoverContentPolicyRefusal(operation: InvocationOperation, input: CanonicalLlmInvocationInput, signal: AbortSignal, firstFailure: AuthoritativeContentPolicyFailure): Promise<{ kind: 'completion'; completion: ProviderTurnCompletion } | Extract<PersistedProviderCompletion, { kind: 'content-policy-blocked' }>> {
+    switch (this.purpose.kind) {
+      case 'analyst': throw firstFailure;
+      case 'autonomous-card': break;
+    }
+    if (!operation.providerBoundaryEntered || operation.completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover content policy outside the provider boundary.`);
+    if (!firstFailure.candidate) throw new Error(`Content-policy failure for '${input.inputId}' is missing its refusing candidate.`);
+    const firstAttempts = strictContentPolicyFailureAttempts(firstFailure, input.inputId);
+    signal.throwIfAborted();
+    appendConversationBatch(this.conversations, [buildContentPolicyRetryMessage(input.sessionId, input.inputId)]);
+    const retryInput: CanonicalLlmInvocationInput = {
+      ...input,
+      providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, input.sessionId)),
+      routePass: { kind: 'pinned-content-policy-retry', candidate: firstFailure.candidate },
+    };
+    operation.input = retryInput;
+    try {
+      const completion = await this.provider.completeTurn(retryInput, signal);
+      return { kind: 'completion', completion: { ...completion, provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, completion.provider_exchanges) } };
+    } catch (error) {
+      this.#deliverPublicationFatal(error);
+      if (!(error instanceof ProviderTurnFailure)) throw error;
+      const combined = combineProviderAttempts(input.inputId, firstAttempts, error.provider_exchanges);
+      if (!isAuthoritativeContentPolicyFailure(error)) {
+        throw new ProviderTurnFailure({ failure_phase: combined.length > 0 ? 'provider_attempt' : error.failure_phase, provider_exchanges: combined, originalFailure: error.originalFailure, message: error.message, candidate: error.candidate });
+      }
+      strictContentPolicyFailureAttempts(error, input.inputId);
+      if (!error.candidate || !sameCandidate(error.candidate, firstFailure.candidate)) throw new Error(`Pinned content-policy retry for '${input.inputId}' did not preserve the refusing candidate.`);
+      operation.completionPersistenceEntered = true;
+      const marker = buildContentPolicyRefusalMessage({ sessionId: input.sessionId, sourceInputId: input.inputId, candidate: firstFailure.candidate, providerResponse: error.originalFailure.failure.providerResponse });
+      appendConversationBatch(this.conversations, [marker]);
+      this.#projectProviderExchanges(input, combined, { assistantOutputIds: [], terminalConversationOutputId: marker.id });
+      const result: ContentPolicyRefusalBlockedResult = { kind: 'content-policy-refusal', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: input.sessionId, marker_id: marker.id, evidence_url: `/agents/${encodeURIComponent(input.sessionId)}?entry=${encodeURIComponent(marker.id)}` };
+      return { kind: 'content-policy-blocked', input, result, toolCallArguments: null };
     }
   }
 
   #persistProviderCompletion(input: CanonicalLlmInvocationInput, completion: ProviderTurnCompletion): PersistedProviderCompletion {
     const result = completion.result;
-    if (result.kind === 'message') { const appended = appendLlmTurnMessageBatch(this.conversations, input, result.content, completion.provider_private_context); this.#projectProviderExchanges(input, completion.provider_exchanges, [appended.id]); return { kind: 'message', input, result, toolCallArguments: null }; }
-    if (result.tool_calls.length !== 1) { const error = `Provider returned ${result.tool_calls.length} tool calls; exactly one supported tool call is required.`; const appended = appendLlmTurnError(this.conversations, input, error); this.#projectProviderExchanges(input, completion.provider_exchanges, [appended.id]); return { kind: 'error', input, error, toolCallArguments: null }; }
-    const call = result.tool_calls[0]!; const appended = appendLlmTurnToolCallBatch(this.conversations, input, call, completion.provider_private_context); this.#projectProviderExchanges(input, completion.provider_exchanges, [appended.id]);
+    if (result.kind === 'message') { const appended = appendLlmTurnMessageBatch(this.conversations, input, result.content, completion.provider_private_context); this.#projectProviderExchanges(input, completion.provider_exchanges, { assistantOutputIds: [appended.id], terminalConversationOutputId: null }); return { kind: 'message', input, result, toolCallArguments: null }; }
+    if (result.tool_calls.length !== 1) { const error = `Provider returned ${result.tool_calls.length} tool calls; exactly one supported tool call is required.`; const appended = appendLlmTurnError(this.conversations, input, error); this.#projectProviderExchanges(input, completion.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: appended.id }); return { kind: 'error', input, error, toolCallArguments: null }; }
+    const call = result.tool_calls[0]!; const appended = appendLlmTurnToolCallBatch(this.conversations, input, call, completion.provider_private_context); this.#projectProviderExchanges(input, completion.provider_exchanges, { assistantOutputIds: [appended.id], terminalConversationOutputId: null });
     return { kind: 'tool_call', input, result, toolCallArguments: call.function.arguments };
   }
-  #projectProviderExchanges(input: CanonicalLlmInvocationInput, attempts: ProviderExchangeAttempt[], outputIds: string[]): void { if (attempts.length === 0) return; if (!this.provider.projectProviderExchanges) throw new Error(`Provider for '${input.inputId}' returned provider exchanges without a projection capability.`); this.provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, outputIds); }
+  #projectProviderExchanges(input: CanonicalLlmInvocationInput, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void { if (attempts.length === 0) return; if (!this.provider.projectProviderExchanges) throw new Error(`Provider for '${input.inputId}' returned provider exchanges without a projection capability.`); this.provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, context); }
   #deliverPublicationFatal(error: unknown): void { if (error instanceof PublicationOutcomeUnknownError) this.#fatalPort.publicationOutcomeUnknown(error); }
   #outcomeFromPersisted(persisted: PersistedProviderCompletion): LLMActorOutcome {
+    if (persisted.kind === 'content-policy-blocked') return { type: 'blocked', agentId: this.agentId, result: persisted.result };
     if (persisted.kind === 'message') return { type: 'result', agentId: this.agentId, result: persisted.result };
     if (persisted.kind === 'error') return { type: 'error', agentId: this.agentId, error: persisted.error };
     const call = persisted.result.tool_calls[0]!; return { type: 'tool_call', agentId: this.agentId, inputId: persisted.input.inputId, toolCallId: call.id, toolName: call.function.name, args: parseToolArguments(call.function.arguments) };
@@ -609,19 +669,29 @@ export class ConversationLLMActor {
 type PersistedProviderCompletion =
   | { kind: 'message'; input: CanonicalLlmInvocationInput; result: Extract<LlmCompleteResult, { kind: 'message' }>; toolCallArguments: null }
   | { kind: 'tool_call'; input: CanonicalLlmInvocationInput; result: Extract<LlmCompleteResult, { kind: 'tool_calls' }>; toolCallArguments: string }
-  | { kind: 'error'; input: CanonicalLlmInvocationInput; error: string; toolCallArguments: null };
+  | { kind: 'error'; input: CanonicalLlmInvocationInput; error: string; toolCallArguments: null }
+  | { kind: 'content-policy-blocked'; input: CanonicalLlmInvocationInput; result: ContentPolicyRefusalBlockedResult; toolCallArguments: null };
 type AuthoritativeContextFailure = ProviderTurnFailure & { originalFailure: LlmRequestError & { failure: Extract<LlmTransportFailure, { kind: 'input_context_exhausted' }> } };
 function isAuthoritativeContextFailure(error: unknown): error is AuthoritativeContextFailure { return error instanceof ProviderTurnFailure && error.originalFailure instanceof LlmRequestError && error.originalFailure.failure.kind === 'input_context_exhausted'; }
+type AuthoritativeContentPolicyFailure = ProviderTurnFailure & { originalFailure: LlmRequestError & { failure: Extract<LlmTransportFailure, { kind: 'content_policy' }> } };
+function isAuthoritativeContentPolicyFailure(error: unknown): error is AuthoritativeContentPolicyFailure { return error instanceof ProviderTurnFailure && error.originalFailure instanceof LlmRequestError && error.originalFailure.failure.kind === 'content_policy'; }
 function strictContextFailureAttempts(error: ProviderTurnFailure, inputId: string): ProviderExchangeAttempt[] {
   if (error.failure_phase !== 'provider_attempt' || error.provider_exchanges.length === 0) throw new Error(`Context failure for '${inputId}' carried no provider exchange.`);
   return error.provider_exchanges.map((attempt, index) => {
-    const parsed = providerExchangePayloadSchema.parse(attempt);
-    if (parsed.status !== 'error' || parsed.terminal_tool_fired !== null || parsed.source_input_id !== inputId || parsed.attempt_index !== index) throw new Error(`Context failure for '${inputId}' carried contradictory provider-exchange metadata.`);
-    return parsed;
+    if (attempt.status !== 'error' || attempt.terminal_tool_fired !== null || attempt.source_input_id !== inputId || attempt.attempt_index !== index) throw new Error(`Context failure for '${inputId}' carried contradictory provider-exchange metadata.`);
+    return attempt;
   });
 }
+function strictContentPolicyFailureAttempts(error: AuthoritativeContentPolicyFailure, inputId: string): ProviderExchangeAttempt[] {
+  if (error.failure_phase !== 'provider_attempt' || error.provider_exchanges.length === 0) throw new Error(`Content-policy failure for '${inputId}' carried no provider exchange.`);
+  return error.provider_exchanges.map((attempt, index) => {
+    if (attempt.status !== 'error' || attempt.terminal_tool_fired !== null || attempt.source_input_id !== inputId || attempt.attempt_index !== index) throw new Error(`Content-policy failure for '${inputId}' carried contradictory provider-exchange metadata.`);
+    return attempt;
+  });
+}
+function sameCandidate(left: import('../../contracts/provider-candidate.js').Candidate, right: import('../../contracts/provider-candidate.js').Candidate): boolean { return left.provider === right.provider && left.account === right.account && left.model === right.model; }
 function combineProviderAttempts(inputId: string, ...passes: ProviderExchangeAttempt[][]): ProviderExchangeAttempt[] { return passes.flat().map((attempt, attempt_index) => ({ ...attempt, source_input_id: inputId, attempt_index })); }
-function normalContextFailure(message: string, attempts: ProviderExchangeAttempt[], classifiedFailure: LlmRequestError, cause?: unknown): ProviderTurnFailure { const originalFailure = new LlmRequestError({ ...classifiedFailure.failure, message }); if (cause !== undefined) originalFailure.cause = cause; return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: attempts, originalFailure }); }
+function normalContextFailure(message: string, attempts: ProviderExchangeAttempt[], classifiedFailure: LlmRequestError, cause?: unknown): ProviderTurnFailure { const originalFailure = new LlmRequestError({ ...classifiedFailure.failure, message }); if (cause !== undefined) originalFailure.cause = cause; return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: attempts, originalFailure,candidate:null }); }
 function parseToolArguments(raw: string): unknown { try { return JSON.parse(raw) as unknown; } catch { return raw; } }
 function asError(error: unknown): Error { return error instanceof Error ? error : new Error(String(error)); }
 function toolTerminal(operation: ToolSettlementOperation): ToolTerminal { return operation.terminal; }

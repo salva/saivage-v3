@@ -439,6 +439,7 @@ function sensitiveExchange(status: 'ok' | 'error'): ProviderExchangePayload {
         ...base,
         status,
         terminal_tool_fired: null,
+        terminal_conversation_output_id: null,
         error: {
           name: 'Synthetic tok_operator_error_name',
           message: 'failure tok_operator_error_message',

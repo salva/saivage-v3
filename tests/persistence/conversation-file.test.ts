@@ -125,7 +125,7 @@ function changesRecording(effects: string[]) {
 }
 
 function invocationInput(inputId: string): CanonicalLlmInvocationInput {
-  return { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {}, episodeContext: {} };
+  return { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} };
 }
 
 function privateContext(sourceInputId: string) {

@@ -125,6 +125,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     if (parsed.exchange.status === 'ok') {
       expect(Array.isArray(parsed.exchange.assistant_output_ids)).toBe(true);
     } else {
+      expect(parsed.exchange.terminal_conversation_output_id === null || typeof parsed.exchange.terminal_conversation_output_id === 'string').toBe(true);
       expect(typeof parsed.exchange.error.name).toBe('string');
       expect(typeof parsed.exchange.error.message).toBe('string');
     }

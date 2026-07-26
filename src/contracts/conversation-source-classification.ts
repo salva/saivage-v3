@@ -67,7 +67,7 @@ function isCanonicalUuid(value: unknown): boolean {
 }
 
 export function isConversationRepairAnchor(message: AgentMessage): boolean {
-  return message.kind === 'model_repair' || (message.kind === 'tool_result' && parseJsonObject(message.content).success === false);
+  return message.kind === 'model_repair' || message.kind === 'content_policy_retry' || (message.kind === 'tool_result' && parseJsonObject(message.content).success === false);
 }
 
 function parseJsonObject(content: string): Record<string, unknown> {

@@ -72,6 +72,7 @@ export class InvocationRecoveryPolicy {
           availability: { state: 'COOLING', untilMs: Date.now() + Math.max(context.recoveryDelayMs, 5_000), reason: failure.kind },
         };
       case 'provider_protocol_error':
+      case 'content_policy':
       case 'input_context_exhausted':
       case 'output_token_limit_exceeded':
       case 'local_setup_error':

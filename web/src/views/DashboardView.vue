@@ -19,6 +19,19 @@
 
       <div class="console-body">
         <StatusBanner v-if="runtimeBannerMessage" :tone="runtimeBannerTone" :message="runtimeBannerMessage" />
+        <StatusBanner
+          v-if="contentPolicyError"
+          tone="warning"
+          message="Content-policy refusal status is unavailable."
+          data-testid="content-policy-unavailable"
+        />
+        <div v-else-if="contentPolicyValue && contentPolicyValue.refusal_high_water > 0" class="content-policy-banner" data-testid="content-policy-banner">
+          <strong>{{ contentPolicyValue.refusal_high_water }} provider content-policy refusal{{ contentPolicyValue.refusal_high_water === 1 ? '' : 's' }}</strong>
+          <span v-if="contentPolicyValue.latest">
+            Latest: {{ contentPolicyValue.latest.card_id }} at {{ shortTime(contentPolicyValue.latest.blocked_at) }}.
+            <RouterLink :to="contentPolicyValue.latest.evidence_url">Open exact Agent entry</RouterLink>
+          </span>
+        </div>
         <ViewState v-if="runtimeLoading && !runtime" state="loading" title="Loading runtime state" />
         <ViewState v-else-if="errorMsg" state="error" title="Failed to load runtime" :message="errorMsg" />
 
@@ -88,6 +101,7 @@ import { storeToRefs } from 'pinia';
 import { useRouter } from 'vue-router';
 import { useRuntimeStore } from '../stores/runtime';
 import { useCardStore } from '../stores/cards';
+import { useContentPolicyStore } from '../stores/contentPolicy';
 import { useDashboardReadModel } from '../composables/useDashboardReadModel';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { statusForCard, type Tone } from '../utils/status';
@@ -99,7 +113,9 @@ import ViewState from '../components/ui/ViewState.vue';
 
 const runtimeStore = useRuntimeStore();
 const cardsStore = useCardStore();
+const contentPolicyStore = useContentPolicyStore();
 const router = useRouter();
+const { value: contentPolicyValue, error: contentPolicyError } = storeToRefs(contentPolicyStore);
 
 const {
   runtime,
@@ -175,6 +191,8 @@ async function refreshRuntime(): Promise<void> {
 .console-header :deep(.ui-panel-header) { margin-bottom: 0; }
 .console-body { padding: 4px 0; }
 .console-body :deep(.status-banner) { margin: 8px 16px; }
+.content-policy-banner { margin:8px 16px; padding:10px 12px; display:flex; flex-direction:column; gap:4px; border:1px solid var(--warn); border-radius:6px; background:var(--entry-warn-bg); color:var(--text); font-size:12px; }
+.content-policy-banner a { color:var(--accent-2); }
 .console-body :deep(.view-state) { padding: 16px; }
 .ui-refresh-button { background: none; border: 1px solid var(--border); border-radius: 4px; color: var(--text-muted); cursor: pointer; width: 28px; height: 28px; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: color 0.15s, border-color 0.15s; }
 .ui-refresh-button:hover:not(:disabled) { color: var(--accent-2); border-color: var(--accent-2); }

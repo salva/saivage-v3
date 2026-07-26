@@ -31,6 +31,7 @@ import type {
   CardHistoryEntryResponse,
   CardDiffResponse,
   ControlActionsListResponse,
+  ContentPolicyRuntimeResponse,
 } from './types';
 import { type ConversationSessionId } from './contracts';
 import { getAuthToken } from './auth';
@@ -239,6 +240,9 @@ export function getCardDiff(
 
 export function getRuntimeState(signal?: AbortSignal): Promise<RuntimeStateResponse> {
   return operatorRequest('runtime.getState', { signal });
+}
+export function getContentPolicyRuntime(signal?: AbortSignal): Promise<ContentPolicyRuntimeResponse> {
+  return operatorRequest('runtime.contentPolicy', { signal });
 }
 
 export function getRuntimeStatus(

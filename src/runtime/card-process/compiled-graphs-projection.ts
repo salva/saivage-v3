@@ -79,6 +79,15 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         export_records: [],
         promotion: null,
       },
+      {
+        source_node_id: node.nodeId,
+        outcome: 'execution:blocked',
+        runtime_owned: true,
+        prompt_reference: null,
+        target: { kind: 'terminal' as const, terminal: 'BLOCKED' as const },
+        export_records: [],
+        promotion: null,
+      },
     ]);
     return {
       card_type: cardType,

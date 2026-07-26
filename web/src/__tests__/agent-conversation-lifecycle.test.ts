@@ -68,6 +68,8 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(agentConversationSource).not.toContain('watch(');
     expect(rawPanelSource).not.toContain('watch(');
     expect(rawPanelSource).not.toContain('maybeFetch');
+    expect(agentsViewSource).toContain(':entry-id="selectedEntryId"');
+    expect(agentConversationSource).toContain('[data-entry-id=');
   });
 
   it('claims, subscribes, then fetches once and unregisters before token-guarded clear', async () => {
@@ -81,7 +83,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
       lifecycle.events.push('clear:agent:planner:project');
       originalClear(token);
     });
-    const wrapper = mount(AgentConversationView, { props: { sessionId: 'agent:planner:project' }, global: { plugins: [pinia] } });
+    const wrapper = mount(AgentConversationView, { props: { sessionId: 'agent:planner:project', entryId: null }, global: { plugins: [pinia] } });
     await flushPromises();
 
     const token = begin.mock.results[0].value;

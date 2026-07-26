@@ -15,6 +15,16 @@ import type { RecordName } from '../schemas/index.js';
 import type { CompiledCardTypeWorkflow } from '../runtime/card-process/card-process-config.js';
 
 export interface CardArtifactIndex { readonly artifacts: CardVersionArtifact[]; readonly current: CardVersionArtifact; readonly tombstone: CardTombstone | null; readonly snapshot: CanonicalGrowingFileSnapshot<CardVersionArtifact | CardTombstone> }
+export interface CanonicalCardHistoryVersionPair {
+  readonly resultingCard: CardRecord;
+  readonly history: CardHistoryEntry | null;
+  readonly version: number;
+}
+export interface CanonicalLinkedCardHistoryProjection {
+  readonly current: CardRecord;
+  readonly tombstone: CardTombstone | null;
+  readonly versions: readonly CanonicalCardHistoryVersionPair[];
+}
 function requireDirectory(path: string): void {
   const stat = lstatSync(path);
   if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Canonical card path '${path}' must be a real directory.`);
@@ -240,6 +250,38 @@ export function listCards(projectRoot: string): CardRecord[] {
   visit(root);
   validateParsedCards({ cards, maxDepth: 5 });
   return cards;
+}
+
+export function readCanonicalLinkedCardHistoryTree(
+  projectRoot: string,
+  instrumentation?: CanonicalReadInstrumentation,
+): readonly CanonicalLinkedCardHistoryProjection[] {
+  const realProjectRoot = proveCanonicalBase(projectRoot);
+  if (realProjectRoot === null) return [];
+  const reached: CanonicalLinkedCardHistoryProjection[] = [];
+  const visit = (cardId: string, index: CardArtifactIndex): void => {
+    reached.push(Object.freeze({
+      current: index.current.card,
+      tombstone: index.tombstone,
+      versions: Object.freeze(index.artifacts.map((artifact) => Object.freeze({
+        resultingCard: artifact.card,
+        history: artifact.history,
+        version: artifact.version,
+      }))),
+    }));
+    if (index.tombstone) return;
+    for (const childId of index.current.card.children) {
+      const segment = cardIdSegments(childId).at(-1)!;
+      if (childCardId(cardId, segment) !== childId) throw new Error(`Card '${cardId}' has invalid direct child '${childId}'.`);
+      proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, cardId));
+      proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, childId));
+      visit(childId, exactStream(realProjectRoot, childId, instrumentation));
+    }
+  };
+  const root = exactStream(realProjectRoot, 'project', instrumentation);
+  if (root.tombstone) throw new Error('The project card cannot be tombstoned.');
+  visit('project', root);
+  return Object.freeze(reached);
 }
 
 function historyFrom(index: CardArtifactIndex): CardHistoryEntry[] {

@@ -19,6 +19,8 @@ import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.j
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { parseCanonicalContentPolicyRefusal } from '../../src/schemas/index.js';
+import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -33,7 +35,7 @@ type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
 };
 
-function runtime(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>; projectProviderExchanges?: (sessionId: string, inputId: string, attempts: ProviderExchangeAttempt[], outputIds: string[]) => void }, processes?: { processRunner: ProcessRunner; runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope }): SupervisorRuntimeApi {
+function runtime(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>; projectProviderExchanges?: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort['projectProviderExchanges'] }, processes?: { processRunner: ProcessRunner; runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope }): SupervisorRuntimeApi {
   const registry = processes ? null : new ManagedProcessGroupRegistry();
   const processRunner = processes?.processRunner ?? new ProcessRunner(projectRoot, registry!, testApplicationFatalPort);
   const runtimeProcessRootScope = processes?.runtimeProcessRootScope ?? registry!.createContainerScope(registry!.rootScope, 'runtime-cards');
@@ -65,10 +67,59 @@ function permanentFailure(input: LlmInvocationInput): ProviderTurnFailure {
     started_at: '2026-07-17T00:00:00.000Z', completed_at: '2026-07-17T00:00:00.001Z',
     status: 'error', response_status: 401, terminal_tool_fired: null, error: { name: 'LlmRequestError', message, status: 401 },
   };
-  return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange], originalFailure });
+  return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange], originalFailure,candidate:null });
+}
+function contentPolicyFailure(input: LlmInvocationInput, providerResponse: string): ProviderTurnFailure {
+  const candidate = input.routePass.kind === 'ordinary' ? input.routePass.candidateChain[0]! : input.routePass.candidate;
+  const originalFailure = new LlmRequestError({ kind: 'content_policy', provider: candidate.provider, message: 'Provider content policy refusal.', providerResponse });
+  const exchange: ProviderExchangeAttempt = { contract_id: 'test-contract', contract_name: 'test contract', transport: 'generic', provider: candidate.provider, ...(candidate.account === null ? {} : { account: candidate.account }), model: candidate.model, source_input_id: input.inputId, attempt_index: 0, request_params: { endpoint: 'https://provider.example.test/v1/chat/completions', method: 'POST', stream: false, offered_tools_count: input.tools.length, temperature: 0, max_tokens: 256 }, started_at: '2026-07-26T00:00:00.000Z', completed_at: '2026-07-26T00:00:00.001Z', status: 'error', response_status: 400, terminal_tool_fired: null, error: { name: 'LlmRequestError', message: 'Provider content policy refusal.', status: 400 } };
+  return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange], originalFailure, candidate });
 }
 
 describe('failed child activation lifecycle E2E', () => {
+  it('pins one autonomous safety reframing, blocks on a second refusal, and returns only nested safe parent evidence', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-content-policy-child-')); roots.push(projectRoot); initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'Refusal child', bootstrap_content: 'Perform scoped work', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    cards.setStatus('project', 'running');
+    let plannerCalls = 0; let childCalls = 0; let parentResult: unknown;
+    const childInputs: LlmInvocationInput[] = [];
+    const provider = {
+      projectProviderExchanges: jest.fn(),
+      completeTurn: jest.fn(async (input: LlmInvocationInput): Promise<ProviderTurnCompletion> => {
+        if (input.sessionId === 'agent:planner:project') {
+          plannerCalls += 1;
+          if (plannerCalls === 1) return complete(tool('activate-refusal-child', 'activate_card', { card_id: child.id }));
+          if (plannerCalls === 2) {
+            const row = [...input.providerConversation.messages].reverse().find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-refusal-child');
+            parentResult = row ? JSON.parse(row.content) : null;
+            return complete(tool('write-refusal-status', 'write', { path: 'record:///status.md?v=next', content: 'Child blocked; parent safely continued.' }));
+          }
+          return complete(tool('finish-after-refusal', 'emit_result', { outcome: 'failed', summary: 'Parent continued after blocked child.' }));
+        }
+        if (input.sessionId === `agent:executor:${child.id}`) {
+          childCalls += 1; childInputs.push(input);
+          throw contentPolicyFailure(input, childCalls === 1 ? '{"error":{"code":"content_filter","message":"first"}}' : '{"error":{"code":"content_filter","message":"second"}}');
+        }
+        throw new Error(`Unexpected provider session '${input.sessionId}'.`);
+      }),
+    };
+    const supervisor = runtime(projectRoot, cards, provider);
+    const started = await supervisor.startProject(); if (!started.started) throw new Error('Run was not accepted.');
+    await waitUntil(() => supervisor.getStatus().status === 'stopped');
+    expect(childCalls).toBe(2);
+    expect(childInputs[0]!.routePass.kind).toBe('ordinary');
+    expect(childInputs[1]!.routePass).toEqual({ kind: 'pinned-content-policy-retry', candidate: childInputs[0]!.routePass.kind === 'ordinary' ? childInputs[0]!.routePass.candidateChain[0] : null });
+    expect(childInputs[1]!.providerConversation.messages.filter((row) => row.role === 'user' && row.content.startsWith('Saivage authorizes only assistance'))).toHaveLength(1);
+    expect(childInputs.every((input) => input.providerConversation.messages.every((row) => row.kind !== 'content_policy_refusal'))).toBe(true);
+    const sourceRows = readConversation(projectRoot, `agent:executor:${child.id}`).sourceRows;
+    expect(sourceRows.filter((row) => row.kind === 'content_policy_retry')).toHaveLength(1);
+    const marker = sourceRows.find((row) => row.kind === 'content_policy_refusal')!;
+    expect(parseCanonicalContentPolicyRefusal(marker.content)).toEqual({ version: 1, type: 'content_policy_refusal', source_input_id: expect.any(String), candidate: expect.any(Object), provider_response: '{"error":{"code":"content_filter","message":"second"}}' });
+    expect(parentResult).toEqual({ success: true, data: { card_id: child.id, outcome: 'blocked', summary: 'Provider content policy blocked this card after one safety-respecting reframing attempt.', result: { kind: 'content-policy-refusal', summary: 'Provider content policy blocked this card after one safety-respecting reframing attempt.', session_id: `agent:executor:${child.id}`, marker_id: marker.id, evidence_url: `/agents/${encodeURIComponent(`agent:executor:${child.id}`)}?entry=${marker.id}` } } });
+    expect(JSON.stringify(parentResult)).not.toContain('content_filter');
+    expect(buildContentPolicyReadModel(projectRoot)).toMatchObject({ refusal_high_water: 1, latest: { card_id: child.id, marker_id: marker.id } });
+  });
   it('rejects autonomous reactivation of a failed child without ownership, then continues through a sibling to natural completion', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-failed-child-siblings-'));
     roots.push(projectRoot);

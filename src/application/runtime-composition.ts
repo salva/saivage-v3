@@ -102,14 +102,14 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     freshness: services.freshness,
   });
   const summarizerProvider: SummarizerProviderPort = {
-    completeTurn: (input, signal) =>
-      invocationService.invokeWithRecovery(invocationRequest(input, signal, [summarizerCandidate])),
-    projectProviderExchanges: (sessionId, sourceInputId, attempts, assistantOutputIds) =>
+    candidate:summarizerCandidate,
+    completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
+    projectProviderExchanges: (sessionId, sourceInputId, attempts, context) =>
       invocationService.projectProviderExchanges(
         sessionId,
         sourceInputId,
         attempts,
-        assistantOutputIds,
+        context,
       ),
   };
   const compactionPolicy: AutonomousCompactionPolicy = {

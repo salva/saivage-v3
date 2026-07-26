@@ -13,6 +13,8 @@ function installBootstrapMocks() {
   const ensureRoot = vi.fn(async () => undefined);
   const reset = vi.fn();
   const authRefresh = vi.fn();
+  const contentPolicyRefetch = vi.fn(async () => undefined);
+  const contentPolicyReset = vi.fn();
   const fetchSessions = vi.fn();
   vi.doMock('../stores/sync', () => ({
     useSyncStore: () => ({ registerResource, connect, reconfigure }),
@@ -24,6 +26,7 @@ function installBootstrapMocks() {
     useCardStore: () => ({ ensureRoot, reset, onInvalidate: vi.fn(), onReconnect: vi.fn() }),
   }));
   vi.doMock('../stores/agents', () => ({ useAgentStore: () => ({ fetchSessions }) }));
+  vi.doMock('../stores/contentPolicy', () => ({ useContentPolicyStore: () => ({ refetch: contentPolicyRefetch, reset: contentPolicyReset }) }));
   vi.doMock('../stores/auth', () => ({
     AUTH_TOKEN_CHANGED_EVENT: authEvent,
     useAuthStore: () => ({ refresh: authRefresh }),
@@ -38,6 +41,8 @@ function installBootstrapMocks() {
     reset,
     authRefresh,
     fetchSessions,
+    contentPolicyRefetch,
+    contentPolicyReset,
   };
 }
 
@@ -58,6 +63,7 @@ describe('application bootstrap live sync', () => {
     expect(mocks.connect).toHaveBeenCalledTimes(1);
     expect(mocks.runtimeRefetch).toHaveBeenCalledTimes(1);
     expect(mocks.ensureRoot).toHaveBeenCalledTimes(1);
+    expect(mocks.contentPolicyRefetch).toHaveBeenCalledTimes(1);
     expect(mocks.fetchSessions).not.toHaveBeenCalled();
     expect(
       mocks.registerResource.mock.calls.map(([registration]) => registration.resource),
@@ -76,6 +82,21 @@ describe('application bootstrap live sync', () => {
     expect(mocks.runtimeRefetch).toHaveBeenCalledTimes(2);
     expect(mocks.reset).toHaveBeenCalledTimes(1);
     expect(mocks.ensureRoot).toHaveBeenCalledTimes(2);
+    expect(mocks.contentPolicyReset).toHaveBeenCalledTimes(1);
+    expect(mocks.contentPolicyRefetch).toHaveBeenCalledTimes(2);
     expect(mocks.fetchSessions).not.toHaveBeenCalled();
+  });
+
+  it('composes content-policy refresh after card invalidation and reconnect without another resource', async () => {
+    const mocks = installBootstrapMocks();
+    const { startAppBootstrap } = await import('../composables/useAppBootstrap');
+    startAppBootstrap();
+    const cards = mocks.registerResource.mock.calls[0]![0];
+    mocks.contentPolicyRefetch.mockClear();
+    cards.onInvalidate({ scope: 'detail', card_id: 'project' });
+    cards.onReconnect();
+    await Promise.resolve();
+    expect(mocks.contentPolicyRefetch).toHaveBeenCalledTimes(2);
+    expect(mocks.registerResource.mock.calls.map(([registration]) => registration.resource)).toEqual(['cards', 'runtime']);
   });
 });

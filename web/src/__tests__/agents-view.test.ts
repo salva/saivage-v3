@@ -232,7 +232,7 @@ describe('AgentsView', () => {
     const pushSpy = vi.spyOn(router, 'push');
 
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'agent:planner:project' },
+      props: { sessionId: 'agent:planner:project', entryId: null },
       global: { plugins: [router, createPinia()] },
     });
     await flushPromises();
@@ -322,7 +322,7 @@ describe('AgentsView', () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'agent:planner:project' },
+      props: { sessionId: 'agent:planner:project', entryId: null },
       global: { plugins: [router, pinia] },
     });
     await flushPromises();
@@ -352,7 +352,7 @@ describe('AgentsView', () => {
     const pinia = createPinia();
     setActivePinia(pinia);
     const wrapper = mount(AgentConversationView, {
-      props: { sessionId: 'agent:planner:project' },
+      props: { sessionId: 'agent:planner:project', entryId: null },
       global: { plugins: [router, pinia] },
     });
     await flushPromises();

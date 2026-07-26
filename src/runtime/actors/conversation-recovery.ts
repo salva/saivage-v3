@@ -28,6 +28,8 @@ const recoveryVisibilityByKind = {
   tool_result: 'visible',
   model_issue: 'visible',
   model_repair: 'visible',
+  content_policy_retry: 'visible',
+  content_policy_refusal: 'visible',
   context_compaction: 'visible',
   model_recovered: 'visible',
   system_prompt: 'visible',
@@ -90,6 +92,12 @@ export function stabilizeAgentSession(args: {
   const marker = requireAssociatedActivationMarker(sourceRows[latestActivationIndex]!, args.sessionId);
   const activationRows = sourceRows.slice(latestActivationIndex);
   const final = activationRows.at(-1)!;
+  const refusalMarkers = activationRows.filter((message) => message.kind === 'content_policy_refusal');
+  if (refusalMarkers.length > 0) {
+    if (refusalMarkers.length !== 1 || final.kind !== 'content_policy_refusal') throw new Error(`Activation '${marker.inputId}' has rows after or colliding with its terminal content-policy refusal marker.`);
+    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false);
+    return { disposition: 'clean', messages };
+  }
   const exactFinalRecovery = isExactRecoveryNotice(final, args.sessionId, marker.inputId);
   const recoveryRows = activationRows.filter((message) => message.kind === 'model_recovered');
   if (recoveryRows.length > 0 && !exactFinalRecovery) throw new Error(`Interrupted activation '${marker.inputId}' has a recovery notice that is not its final exact canonical source row.`);
@@ -173,7 +181,8 @@ function recoverySettlementKeys(messages: readonly AgentMessage[]): Set<string> 
 }
 
 function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>): boolean {
-  const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'context_compaction' || message.kind === 'model_recovered');
+  const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'content_policy_retry' || message.kind === 'content_policy_refusal' || message.kind === 'context_compaction' || message.kind === 'model_recovered');
+  if (modelVisible.at(-1)?.kind === 'content_policy_refusal') return true;
   const last = modelVisible.at(-1);
   if (!last || last.kind !== 'tool_result') return false;
   if (parseResultPayload(last).success !== true) return false;

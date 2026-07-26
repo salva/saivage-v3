@@ -1,36 +1,29 @@
 import type { LlmCompleteResult, ToolCall } from './llm-contracts.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { LlmRequestError } from './llm-errors.js';
-import { isInputContextErrorObject } from './llm-failure-classifiers.js';
+import { classifyDirectProviderFailure } from './llm-failure-classifiers.js';
+import { IncrementalSseReader, SSE_DONE, type SseOutput } from './llm-sse.js';
 
 export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, responseStatus: number): Promise<LlmCompleteResult> {
   const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
+  const sse = new IncrementalSseReader();
   let content = '';
   const pendingToolCalls = new Map<string, { id: string; name: string; args: string }>();
   const finalizedToolCalls = new Set<string>();
   const toolCalls: ToolCall[] = [];
+  const appendContent = (delta: string): void => {
+    if (content.length > 0 && delta.startsWith(content)) content = delta;
+    else if (!content.endsWith(delta)) content += delta;
+  };
 
   try {
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-
-      let boundary = buffer.indexOf('\n\n');
-      while (boundary !== -1) {
-        const chunk = buffer.slice(0, boundary);
-        buffer = buffer.slice(boundary + 2);
-        handleOpenAICodexSseChunk(chunk, responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, (delta) => {
-          if (content.length > 0 && delta.startsWith(content)) {
-            content = delta;
-          } else if (!content.endsWith(delta)) {
-            content += delta;
-          }
-        });
-        boundary = buffer.indexOf('\n\n');
+      if (done) {
+        consumeCodexEvents(sse.finish(), responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, appendContent);
+        break;
       }
+      consumeCodexEvents(sse.push(value), responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, appendContent);
     }
 
     if (toolCalls.length > 0) return { kind: 'tool_calls', tool_calls: toolCalls };
@@ -46,75 +39,66 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, re
   }
 }
 
-export function handleOpenAICodexSseChunk(
-  chunk: string,
+function consumeCodexEvents(outputs: SseOutput[], responseStatus: number, pendingToolCalls: Map<string, { id: string; name: string; args: string }>, finalizedToolCalls: Set<string>, toolCalls: ToolCall[], appendContent: (delta: string) => void): void {
+  for (const output of outputs) if (output !== SSE_DONE) handleOpenAICodexEvent(output.dataText, responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, appendContent);
+}
+
+export function handleOpenAICodexEvent(
+  dataText: string,
   responseStatus: number,
   pendingToolCalls: Map<string, { id: string; name: string; args: string }>,
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
   appendContent: (delta: string) => void,
 ): void {
-  const dataLines = chunk
-    .split('\n')
-    .filter((line) => line.startsWith('data:'))
-    .map((line) => line.slice(5).trim());
+  const event = JSON.parse(dataText) as Record<string, unknown>;
 
-  for (const data of dataLines) {
-    if (!data || data === '[DONE]') continue;
-    let event: Record<string, unknown>;
-    try {
-      event = JSON.parse(data) as Record<string, unknown>;
-    } catch {
-      continue;
+  const type = event['type'];
+  if (type === 'response.output_text.delta') {
+    appendContent(String(event['delta'] ?? ''));
+  } else if (type === 'response.output_item.added') {
+    const item = event['item'] as Record<string, unknown> | undefined;
+    if (item?.['type'] === 'function_call') {
+      const callId = String(item['call_id'] ?? item['id'] ?? `call_${pendingToolCalls.size}`);
+      const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
+      const pending = { id: callId, name: String(item['name'] ?? ''), args: String(item['arguments'] ?? '') };
+      pendingToolCalls.set(callId, pending);
+      if (itemId && itemId !== callId) pendingToolCalls.set(itemId, pending);
     }
-
-    const type = event['type'];
-    if (type === 'response.output_text.delta') {
-      appendContent(String(event['delta'] ?? ''));
-    } else if (type === 'response.output_item.added') {
-      const item = event['item'] as Record<string, unknown> | undefined;
-      if (item?.['type'] === 'function_call') {
-        const callId = String(item['call_id'] ?? item['id'] ?? `call_${pendingToolCalls.size}`);
-        const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
-        const pending = { id: callId, name: String(item['name'] ?? ''), args: String(item['arguments'] ?? '') };
-        pendingToolCalls.set(callId, pending);
-        if (itemId && itemId !== callId) pendingToolCalls.set(itemId, pending);
-      }
-    } else if (type === 'response.output_item.done') {
-      const item = event['item'] as Record<string, unknown> | undefined;
-      if (item?.['type'] === 'function_call') {
-        const callId = String(item['call_id'] ?? item['id'] ?? `call_${toolCalls.length}`);
-        const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
-        const pending = pendingToolCalls.get(callId) ?? (itemId ? pendingToolCalls.get(itemId) : undefined);
-        finalizeCodexToolCall(toolCalls, finalizedToolCalls, callId, String(item['name'] ?? pending?.name ?? ''), String(item['arguments'] ?? pending?.args ?? '{}'));
-        pendingToolCalls.delete(callId);
-        if (itemId) pendingToolCalls.delete(itemId);
-      } else if (item?.['type'] === 'message') {
-        appendCodexMessageContent(item, appendContent);
-      }
-    } else if (type === 'response.content_part.done') {
-      const part = event['part'] as Record<string, unknown> | undefined;
-      if (part?.['type'] === 'output_text' && typeof part['text'] === 'string') appendContent(part['text']);
-    } else if (type === 'response.output_text.done') {
-      if (typeof event['text'] === 'string') appendContent(event['text']);
-    } else if (type === 'response.function_call_arguments.delta') {
-      const id = String(event['call_id'] ?? event['item_id'] ?? '');
-      const pending = pendingToolCalls.get(id);
-      if (pending) pending.args += String(event['delta'] ?? '');
-    } else if (type === 'response.function_call_arguments.done') {
-      const id = String(event['call_id'] ?? event['item_id'] ?? '');
-      const pending = pendingToolCalls.get(id);
-      const callId = String(event['call_id'] ?? pending?.id ?? id);
-      if (pending || typeof event['arguments'] === 'string') {
-        finalizeCodexToolCall(toolCalls, finalizedToolCalls, callId, String((event['name'] as string | undefined) ?? pending?.name ?? ''), String((event['arguments'] as string | undefined) ?? pending?.args ?? '{}'));
-        pendingToolCalls.delete(id);
-        if (pending?.id) pendingToolCalls.delete(pending.id);
-      }
-    } else if (type === 'response.failed') {
-      throw createCodexStreamError('OpenAI Codex response failed', event, responseStatus);
-    } else if (type === 'error') {
-      throw createCodexStreamError('OpenAI Codex stream error', event, responseStatus);
+  } else if (type === 'response.output_item.done') {
+    const item = event['item'] as Record<string, unknown> | undefined;
+    if (item?.['type'] === 'function_call') {
+      const callId = String(item['call_id'] ?? item['id'] ?? `call_${toolCalls.length}`);
+      const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
+      const pending = pendingToolCalls.get(callId) ?? (itemId ? pendingToolCalls.get(itemId) : undefined);
+      finalizeCodexToolCall(toolCalls, finalizedToolCalls, callId, String(item['name'] ?? pending?.name ?? ''), String(item['arguments'] ?? pending?.args ?? '{}'));
+      pendingToolCalls.delete(callId);
+      if (itemId) pendingToolCalls.delete(itemId);
+    } else if (item?.['type'] === 'message') {
+      appendCodexMessageContent(item, appendContent);
     }
+  } else if (type === 'response.content_part.done') {
+    const part = event['part'] as Record<string, unknown> | undefined;
+    if (part?.['type'] === 'output_text' && typeof part['text'] === 'string') appendContent(part['text']);
+  } else if (type === 'response.output_text.done') {
+    if (typeof event['text'] === 'string') appendContent(event['text']);
+  } else if (type === 'response.function_call_arguments.delta') {
+    const id = String(event['call_id'] ?? event['item_id'] ?? '');
+    const pending = pendingToolCalls.get(id);
+    if (pending) pending.args += String(event['delta'] ?? '');
+  } else if (type === 'response.function_call_arguments.done') {
+    const id = String(event['call_id'] ?? event['item_id'] ?? '');
+    const pending = pendingToolCalls.get(id);
+    const callId = String(event['call_id'] ?? pending?.id ?? id);
+    if (pending || typeof event['arguments'] === 'string') {
+      finalizeCodexToolCall(toolCalls, finalizedToolCalls, callId, String((event['name'] as string | undefined) ?? pending?.name ?? ''), String((event['arguments'] as string | undefined) ?? pending?.args ?? '{}'));
+      pendingToolCalls.delete(id);
+      if (pending?.id) pendingToolCalls.delete(pending.id);
+    }
+  } else if (type === 'response.failed') {
+    throw createCodexStreamError('OpenAI Codex response failed', event, responseStatus, dataText);
+  } else if (type === 'error') {
+    throw createCodexStreamError('OpenAI Codex stream error', event, responseStatus, dataText);
   }
 }
 
@@ -140,34 +124,20 @@ function appendCodexMessageContent(item: Record<string, unknown>, appendContent:
   }
 }
 
-function createCodexStreamError(prefix: string, payload: Record<string, unknown>, responseStatus: number): LlmRequestError {
-  const nested = payload['error'];
-  const error = nested && typeof nested === 'object' ? nested as Record<string, unknown> : payload;
+function createCodexStreamError(prefix: string, payload: Record<string, unknown>, responseStatus: number, providerResponse: string): LlmRequestError {
+  const error = codexDirectError(payload) ?? payload;
   const code = typeof error['code'] === 'string' ? error['code'] : '';
-  const type = typeof error['type'] === 'string' ? error['type'] : '';
   const rawMessage = String(error['message'] ?? payload['message'] ?? JSON.stringify(payload));
   const codePrefix = code ? `${code}: ` : '';
   const message = `${prefix}: ${codePrefix}${redactTextForOutbound(rawMessage)}`;
   const embeddedStatus = statusFromCodexPayload(payload, error);
   const retryAfterMs = retryAfterMsFromCodexPayload(payload, error);
-  const evidence = [code, type, rawMessage].join(' ');
-  const contextError = codexContextError(payload);
-  if (contextError !== undefined && isInputContextErrorObject(contextError, ['input'])) {
-    return new LlmRequestError({ kind: 'input_context_exhausted', provider: 'openai-codex', status: responseStatus, message });
-  }
-  if (embeddedStatus === 401 || embeddedStatus === 403 || /auth|account|permission|unauthorized|forbidden/i.test(evidence)) {
-    return new LlmRequestError({ kind: 'auth_permanent', provider: 'openai-codex', status: responseStatus, message });
-  }
-  if (embeddedStatus === 429 || retryAfterMs !== undefined || /rate_limit|rate limit/i.test(evidence)) {
-    return new LlmRequestError({ kind: 'rate_limit', provider: 'openai-codex', status: responseStatus, message, ...(retryAfterMs !== undefined ? { retryAfterMs } : {}) });
-  }
-  if ((embeddedStatus !== undefined && [500, 502, 503, 504].includes(embeddedStatus)) || /server_error|internal_server_error|service_unavailable|temporarily_unavailable|overloaded/i.test(evidence)) {
-    return new LlmRequestError({ kind: 'server_transient', provider: 'openai-codex', status: responseStatus, message });
-  }
+  const classified = classifyDirectProviderFailure({ provider: 'openai-codex', status: embeddedStatus, responseStatus, error, allowedContextParams: ['input'], message, providerResponse, retryAfterMs });
+  if (classified) return new LlmRequestError(classified);
   return new LlmRequestError({ kind: 'provider_protocol_error', provider: 'openai-codex', status: responseStatus, message, bodyPreview: JSON.stringify(payload).slice(0, 500) });
 }
 
-function codexContextError(payload: Record<string, unknown>): Record<string, unknown> | undefined {
+function codexDirectError(payload: Record<string, unknown>): Record<string, unknown> | undefined {
   if (payload['type'] === 'error') return directObject(payload['error']);
   if (payload['type'] !== 'response.failed') return undefined;
   const response = directObject(payload['response']);

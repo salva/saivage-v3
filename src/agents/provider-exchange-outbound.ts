@@ -51,6 +51,7 @@ export function projectProviderExchange(exchange: ProviderExchangePayload): Prov
   } : {
     ...base,
     status: 'error',
+    terminal_conversation_output_id: parsed.terminal_conversation_output_id,
     error: {
       name: parsed.error.name,
       message: redactTextForOutbound(parsed.error.message),

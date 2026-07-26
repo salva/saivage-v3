@@ -14,7 +14,7 @@ function detail(bodyText: string): string {
   return `: ${redactTextForOutbound(bodyText.slice(0, 500))}`;
 }
 
-function parseRetryAfterMs(headers: Headers): number | undefined {
+export function parseRetryAfterMs(headers: Headers): number | undefined {
   const raw = headers.get('retry-after');
   if (!raw) return undefined;
   const seconds = Number(raw);
@@ -27,15 +27,59 @@ function parseRetryAfterMs(headers: Headers): number | undefined {
   return undefined;
 }
 
-function parseResetsAt(headers: Headers): string | undefined {
+export function parseResetsAt(headers: Headers): string | undefined {
   const raw = headers.get('x-ratelimit-reset') ?? headers.get('x-ratelimit-reset-requests');
   if (!raw) return undefined;
   if (Number.isFinite(Date.parse(raw))) return raw;
   return undefined;
 }
 
-function bodyMatches(bodyText: string, fragment: string): boolean {
-  return bodyText.toLowerCase().includes(fragment.toLowerCase());
+const CONTENT_POLICY_TOKENS = new Set(['cyber_policy', 'content_filter']);
+const CONTENT_POLICY_PHRASES = ['content policy', 'safety policy', 'safety refusal', 'request was blocked for safety', 'cannot assist with this request'];
+const RATE_LIMIT_TOKENS = new Set(['rate_limit', 'rate_limit_exceeded', 'usage_limit_reached']);
+const TRANSIENT_TOKENS = new Set(['server_error', 'internal_server_error', 'service_unavailable', 'temporarily_unavailable', 'overloaded']);
+const AUTH_TOKENS = new Set(['auth', 'authentication_error', 'unauthorized', 'forbidden', 'permission_denied']);
+
+function directText(error: Record<string, unknown>, key: 'code' | 'type' | 'message'): string | undefined {
+  const value = error[key];
+  return typeof value === 'string' ? value : undefined;
+}
+
+function directToken(error: Record<string, unknown>, tokens: ReadonlySet<string>): boolean {
+  return [directText(error, 'code'), directText(error, 'type')].some((value) => value !== undefined && tokens.has(value.toLowerCase()));
+}
+
+export function hasContentPolicyEvidence(error: Record<string, unknown>): boolean {
+  if (directToken(error, CONTENT_POLICY_TOKENS)) return true;
+  const message = directText(error, 'message')?.toLowerCase();
+  return message !== undefined && CONTENT_POLICY_PHRASES.some((phrase) => message.includes(phrase));
+}
+
+export function classifyDirectProviderFailure(args: {
+  provider: string;
+  status?: number;
+  responseStatus: number;
+  error?: Record<string, unknown>;
+  allowedContextParams: readonly string[];
+  message: string;
+  providerResponse: string;
+  retryAfterMs?: number;
+  resetsAt?: string;
+}): LlmTransportFailure | undefined {
+  const { provider, error, responseStatus } = args;
+  const status = args.status ?? responseStatus;
+  if (args.status === 401 || (args.status === undefined && responseStatus === 401)) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
+  if (args.status === 429 || responseStatus === 429 || args.retryAfterMs !== undefined || args.resetsAt !== undefined || (error !== undefined && directToken(error, RATE_LIMIT_TOKENS))) {
+    return { kind: 'rate_limit', provider, status: responseStatus, message: args.message, ...(args.retryAfterMs !== undefined ? { retryAfterMs: args.retryAfterMs } : {}), ...(args.resetsAt !== undefined ? { resetsAt: args.resetsAt } : {}) };
+  }
+  if ((args.status !== undefined && args.status >= 500) || responseStatus >= 500 || (error !== undefined && directToken(error, TRANSIENT_TOKENS))) return { kind: 'server_transient', provider, status: responseStatus, message: args.message };
+  const context = error !== undefined && isInputContextErrorObject(error, args.allowedContextParams);
+  const content = error !== undefined && hasContentPolicyEvidence(error);
+  if (context && content) return { kind: 'provider_protocol_error', provider, status: responseStatus, message: `Ambiguous provider failure contains both input-context and content-policy evidence.`, bodyPreview: args.providerResponse.slice(0, 500) };
+  if (context) return { kind: 'input_context_exhausted', provider, status: responseStatus, message: args.message };
+  if (content) return { kind: 'content_policy', provider, status, message: args.message, providerResponse: args.providerResponse };
+  if (args.status === 403 || responseStatus === 403 || (error !== undefined && directToken(error, AUTH_TOKENS))) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
+  return undefined;
 }
 
 export function classifyHttpFailure(
@@ -47,38 +91,20 @@ export function classifyHttpFailure(
   const status = response.status;
   const provider = ctx.provider;
   const d = detail(bodyText);
-
-  if (status === 400) {
-    const body = parseJsonObject(bodyText);
-    const error = body === undefined ? undefined : directObject(body['error']);
-    const allowedParams = transport === 'chat' ? ['input', 'messages'] : ['input'];
-    if (error !== undefined && isInputContextErrorObject(error, allowedParams)) {
-      return {
-        kind: 'input_context_exhausted',
-        provider,
-        status,
-        message: `LLM input context exhausted (HTTP ${status})${d}`,
-      };
-    }
-  }
-
-  if (status === 401 || status === 403) {
-    return { kind: 'auth_permanent', provider, status, message: `LLM authentication failed (HTTP ${status})${d}` };
-  }
-  if (status === 429) {
-    const retryAfterMs = parseRetryAfterMs(response.headers);
-    const resetsAt = parseResetsAt(response.headers);
-    const failure: LlmTransportFailure = { kind: 'rate_limit', provider, status, message: `LLM rate limit exceeded (HTTP 429)${d}` };
-    if (retryAfterMs !== undefined) (failure as Extract<LlmTransportFailure, { kind: 'rate_limit' }>).retryAfterMs = retryAfterMs;
-    if (resetsAt !== undefined) (failure as Extract<LlmTransportFailure, { kind: 'rate_limit' }>).resetsAt = resetsAt;
-    return failure;
-  }
-  if (status >= 500) {
-    return { kind: 'server_transient', provider, status, message: `LLM server error (HTTP ${status})${d}` };
-  }
-  if (status === 400 && bodyMatches(bodyText, 'usage_limit_reached')) {
-    return { kind: 'rate_limit', provider, status: 429, message: `LLM usage limit reached (HTTP ${status})${d}` };
-  }
+  const body = parseJsonObject(bodyText);
+  const error = body === undefined ? undefined : directObject(body['error']);
+  const classified = classifyDirectProviderFailure({
+    provider,
+    status,
+    responseStatus: status,
+    error: status >= 400 ? error : undefined,
+    allowedContextParams: transport === 'chat' ? ['input', 'messages'] : ['input'],
+    message: `LLM request failed (HTTP ${status})${d}`,
+    providerResponse: bodyText,
+    retryAfterMs: parseRetryAfterMs(response.headers),
+    resetsAt: parseResetsAt(response.headers),
+  });
+  if (classified) return classified;
   return {
     kind: 'provider_protocol_error',
     provider,

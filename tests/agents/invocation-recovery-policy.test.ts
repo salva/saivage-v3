@@ -40,6 +40,7 @@ describe('InvocationRecoveryPolicy', () => {
   });
 
   it('keeps capability mismatch and cancellation terminal without health mutation', () => {
+    expect(policy.decideFailure(new LlmRequestError({kind:'content_policy',provider:'openai-compatible',message:'refused',providerResponse:'raw'}),baseContext)).toEqual({kind:'terminal'});
     expect(policy.decideFailure(new LlmRequestError({
       kind: 'capability_mismatch',
       provider: 'openai-compatible',
