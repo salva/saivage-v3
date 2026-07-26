@@ -1,8 +1,6 @@
 import { z } from 'zod';
 import { agentNameSchema, cardTypeSchema, errorEventSchema, recordNameSchema } from '../schemas/index.js';
 import {
-  ApiErrorSchema,
-  ForbiddenErrorSchema,
   operatorSessionContract,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
@@ -10,8 +8,8 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 
-export const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() });
-export const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() });
+export const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() }).strict();
+export const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() }).strict();
 export const WorkspaceFilesListResponseSchema = z.object({
   path: z.string(),
   files: z.array(z.object({
@@ -20,8 +18,8 @@ export const WorkspaceFilesListResponseSchema = z.object({
     type: z.enum(['directory', 'file']),
     size: z.number().int().nonnegative().optional(),
     modifiedAt: z.string(),
-  })),
-});
+  }).strict()),
+}).strict();
 export const WorkspaceFileContentResponseSchema = z.object({
   path: z.string(),
   size: z.number().int().nonnegative(),
@@ -31,7 +29,19 @@ export const WorkspaceFileContentResponseSchema = z.object({
   sensitivity: z.string(),
   version: z.number().int().positive().optional(),
   modifiedAt: z.string().nullable().optional(),
-});
+}).strict();
+
+export const WorkspaceFileErrorSchema = z.object({ error: z.string() }).strict();
+export const WorkspaceFilePathErrorSchema = z.object({ error: z.string(), path: z.string() }).strict();
+export const WorkspaceFileTooLargeErrorSchema = z.object({
+  error: z.string(),
+  path: z.string(),
+  size: z.number().int().nonnegative(),
+  maxSize: z.number().int().positive(),
+}).strict();
+export const WorkspaceFilesListBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFilePathErrorSchema]);
+export const WorkspaceFileContentBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);
+export const WorkspaceFileContentForbiddenSchema = z.union([WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);
 
 export const DebugErrorsResponseSchema = z.object({ errors: z.array(errorEventSchema), total: z.number().int().nonnegative() }).strict()
   .refine((response) => response.total === response.errors.length, { path: ['total'], message: 'total must equal errors.length' });
@@ -101,11 +111,39 @@ export const DebugGraphSchema = z.object({
 }).strict();
 export const DebugGraphsResponseSchema = z.object({ graphs: z.array(DebugGraphSchema) }).strict();
 
+const DoctorCardsLoadableOkCheckSchema = z.object({
+  name: z.literal('cards_loadable'),
+  passed: z.literal(true),
+  details: z.literal('Cards loaded successfully.'),
+}).strict();
+const DoctorCardsLoadableFailedCheckSchema = z.object({
+  name: z.literal('cards_loadable'),
+  passed: z.literal(false),
+  details: z.literal('Cards failed to load.'),
+}).strict();
+const DoctorCardsLoadFailedIssueSchema = z.object({
+  severity: z.literal('error'),
+  message: z.literal('Cards failed to load.'),
+}).strict();
+export const DoctorResponseSchema = z.discriminatedUnion('status', [
+  z.object({
+    status: z.literal('ok'),
+    checks: z.tuple([DoctorCardsLoadableOkCheckSchema]),
+    issues: z.tuple([]),
+  }).strict(),
+  z.object({
+    status: z.literal('issues_found'),
+    checks: z.tuple([DoctorCardsLoadableFailedCheckSchema]),
+    issues: z.tuple([DoctorCardsLoadFailedIssueSchema]),
+  }).strict(),
+]);
+
 export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
 export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentResponseSchema>;
 export type DebugErrorsResponse = z.infer<typeof DebugErrorsResponseSchema>;
 export type DebugGraph = z.infer<typeof DebugGraphSchema>;
 export type DebugGraphsResponse = z.infer<typeof DebugGraphsResponseSchema>;
+export type DoctorResponse = z.infer<typeof DoctorResponseSchema>;
 
 export const filesDebugOperatorApiContracts = {
   'files.list': {
@@ -114,8 +152,8 @@ export const filesDebugOperatorApiContracts = {
     path: '/api/files',
     query: WorkspaceFilesQuerySchema,
     success: WorkspaceFilesListResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: WorkspaceFilesListResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ApiErrorSchema, 404: ApiErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    error: z.union([WorkspaceFilesListBadRequestSchema, WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]),
+    response: { 200: WorkspaceFilesListResponseSchema, 400: WorkspaceFilesListBadRequestSchema, 401: UnauthorizedErrorSchema, 403: WorkspaceFileErrorSchema, 404: WorkspaceFilePathErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'WorkspaceFilesListResponse',
   },
@@ -125,8 +163,8 @@ export const filesDebugOperatorApiContracts = {
     path: '/api/files/content',
     query: WorkspaceFileContentQuerySchema,
     success: WorkspaceFileContentResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: WorkspaceFileContentResponseSchema, 400: ApiErrorSchema, 401: UnauthorizedErrorSchema, 403: ApiErrorSchema, 404: ApiErrorSchema, 413: ApiErrorSchema, 415: ApiErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    error: z.union([WorkspaceFileContentBadRequestSchema, WorkspaceFileContentForbiddenSchema, WorkspaceFilePathErrorSchema, WorkspaceFileTooLargeErrorSchema]),
+    response: { 200: WorkspaceFileContentResponseSchema, 400: WorkspaceFileContentBadRequestSchema, 401: UnauthorizedErrorSchema, 403: WorkspaceFileContentForbiddenSchema, 404: WorkspaceFilePathErrorSchema, 413: WorkspaceFileTooLargeErrorSchema, 415: WorkspaceFilePathErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'WorkspaceFileContentResponse',
   },
@@ -135,8 +173,8 @@ export const filesDebugOperatorApiContracts = {
     method: 'GET',
     path: '/api/debug/errors',
     success: DebugErrorsResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: DebugErrorsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    error: UnauthorizedErrorSchema,
+    response: { 200: DebugErrorsResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'DebugErrorsResponse',
   },
@@ -145,9 +183,19 @@ export const filesDebugOperatorApiContracts = {
     method: 'GET',
     path: '/api/debug/graphs',
     success: DebugGraphsResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: DebugGraphsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    error: UnauthorizedErrorSchema,
+    response: { 200: DebugGraphsResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'DebugGraphsResponse',
+  },
+  'debug.doctor': {
+    operationId: 'debug.doctor',
+    method: 'GET',
+    path: '/api/debug/doctor',
+    success: DoctorResponseSchema,
+    error: UnauthorizedErrorSchema,
+    response: { 200: DoctorResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    ...operatorSessionContract,
+    successSchemaName: 'DoctorResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

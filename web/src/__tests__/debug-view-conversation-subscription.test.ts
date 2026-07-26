@@ -25,7 +25,7 @@ vi.mock('../stores/liveSync', () => ({ useLiveSyncStore: () => live }));
 vi.mock('../api/client', () => ({
   getDebugErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
   getNewestEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
-  getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [], issues: [] }),
+  getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }], issues: [] }),
   listProcesses: vi.fn().mockResolvedValue({ processes: [] }),
   getMcpTools: vi.fn().mockResolvedValue({ servers: [] }),
   getAgentConversation: api.getAgentConversation,

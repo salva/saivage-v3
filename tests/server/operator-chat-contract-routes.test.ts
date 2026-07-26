@@ -97,7 +97,6 @@ describe('operator chat route request contracts', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      sessionId: 'agent:analyst:global',
       toolInvocations: [],
       restart: null,
     });
@@ -335,16 +334,21 @@ describe('operator chat route request contracts', () => {
     );
   });
 
-  it('preserves optional content semantics after request parsing', async () => {
+  it.each([
+    {},
+    { content: '' },
+    { content: 'hello', unexpected: true },
+    { content: 'hello', workspaceContext: { view: null, entityId: null, refinement: null, unexpected: true } },
+  ])('rejects invalid body %j through runtime validation', async (payload) => {
     const response = await fastify.inject({
       method: 'POST',
       url: '/api/chat',
       headers: authHeaders,
-      payload: {},
+      payload,
     });
 
     expect(response.statusCode).toBe(400);
-    expect(response.json()).toEqual({ error: 'Message content is required' });
+    expect(response.json()).toMatchObject({ error: 'ValidationError', message: expect.any(String), issues: expect.any(Array) });
     expect(submit).not.toHaveBeenCalled();
   });
 
@@ -407,7 +411,6 @@ describe('operator chat route request contracts', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({
-      sessionId: 'agent:analyst:global',
       toolInvocations: [],
       restart: { status: 'scheduled' },
     });

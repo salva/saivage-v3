@@ -9,7 +9,7 @@ describe('process outbound owner', () => {
     const rawSecret = OUTBOUND_RAW_MARKER;
     const process: ProcessView = {
       id: 'tok_process',
-      status: 'sk-status',
+      status: 'failed',
       started_at: 'tok_started_at',
       ended_at: 'sk-ended-at',
       exit_code: 23,

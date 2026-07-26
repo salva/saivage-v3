@@ -8,8 +8,6 @@ import {
   conversationSessionIdentity,
 } from '../schemas/index.js';
 import {
-  ApiErrorSchema,
-  ForbiddenErrorSchema,
   operatorSessionContract,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
@@ -110,6 +108,25 @@ export const AgentLlmExchangeResponseSchema = z
     exchange: providerExchangePayloadSchema,
   })
   .strict();
+export const AgentSessionNotFoundErrorSchema = z.object({
+  error: z.literal('Agent session not found'),
+}).strict();
+export const AgentLlmExchangeNotFoundErrorSchema = z.object({
+  error: z.literal('No LLM exchange recorded for this session yet.'),
+}).strict();
+export const AgentConversationCursorNotFoundErrorSchema = z.object({
+  error: z.literal('ValidationError'),
+  issues: z.tuple([
+    z.object({
+      path: z.literal('since'),
+      message: z.literal('Cursor is not present in this conversation.'),
+    }).strict(),
+  ]),
+}).strict();
+export const AgentConversationBadRequestSchema = z.union([
+  ValidationErrorSchema,
+  AgentConversationCursorNotFoundErrorSchema,
+]);
 
 export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
@@ -126,12 +143,10 @@ export const agentOperatorApiContracts = {
     method: 'GET',
     path: '/api/agents',
     success: AgentListResponseSchema,
-    error: ApiErrorSchema,
+    error: UnauthorizedErrorSchema,
     response: {
       200: AgentListResponseSchema,
-      400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
-      403: ForbiddenErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,
@@ -143,13 +158,12 @@ export const agentOperatorApiContracts = {
     path: '/api/agents/:id',
     params: AgentSessionParamsSchema,
     success: AgentDetailResponseSchema,
-    error: ApiErrorSchema,
+    error: AgentSessionNotFoundErrorSchema,
     response: {
       200: AgentDetailResponseSchema,
-      400: ApiErrorSchema,
+      400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
-      403: ForbiddenErrorSchema,
-      404: ApiErrorSchema,
+      404: AgentSessionNotFoundErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     failureIdentity: { kind: 'session', parameter: 'id' },
@@ -167,7 +181,6 @@ export const agentOperatorApiContracts = {
       200: CardAgentSessionsResponseSchema,
       400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
-      403: ForbiddenErrorSchema,
       404: CardNotFoundErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
@@ -182,13 +195,12 @@ export const agentOperatorApiContracts = {
     params: AgentConversationParamsSchema,
     query: AgentConversationQuerySchema,
     success: AgentConversationResponseSchema,
-    error: ApiErrorSchema,
+    error: z.union([AgentConversationBadRequestSchema, AgentSessionNotFoundErrorSchema]),
     response: {
       200: AgentConversationResponseSchema,
-      400: ApiErrorSchema,
+      400: AgentConversationBadRequestSchema,
       401: UnauthorizedErrorSchema,
-      403: ForbiddenErrorSchema,
-      404: ApiErrorSchema,
+      404: AgentSessionNotFoundErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     failureIdentity: { kind: 'session', parameter: 'id' },
@@ -201,13 +213,12 @@ export const agentOperatorApiContracts = {
     path: '/api/agents/:id/llm-exchange',
     params: AgentLlmExchangeParamsSchema,
     success: AgentLlmExchangeResponseSchema,
-    error: ApiErrorSchema,
+    error: AgentLlmExchangeNotFoundErrorSchema,
     response: {
       200: AgentLlmExchangeResponseSchema,
-      400: ApiErrorSchema,
+      400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
-      403: ForbiddenErrorSchema,
-      404: ApiErrorSchema,
+      404: AgentLlmExchangeNotFoundErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     failureIdentity: { kind: 'session', parameter: 'id' },

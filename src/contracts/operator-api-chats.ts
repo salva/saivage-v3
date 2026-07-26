@@ -1,10 +1,9 @@
 import { z } from 'zod';
 import {
-  ApiErrorSchema,
-  ForbiddenErrorSchema,
   operatorSessionContract,
   UnauthorizedErrorSchema,
   UnexpectedInternalServerErrorSchema,
+  ValidationErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { ConversationSessionIdSchema } from '../schemas/index.js';
@@ -14,11 +13,11 @@ export const ChatWorkspaceContextSchema = z.object({
   view: z.string().nullable(),
   entityId: z.string().nullable(),
   refinement: z.record(z.string(), z.string()).nullable(),
-});
+}).strict();
 export const ChatSendRequestSchema = z.object({
-  content: z.string().optional(),
+  content: z.string().min(1),
   workspaceContext: ChatWorkspaceContextSchema.optional(),
-});
+}).strict();
 export const ChatIdentityResponseSchema = z
   .object({
     session_id: ConversationSessionIdSchema,
@@ -42,7 +41,6 @@ export const ChatToolInvocationSchema = z
   .strict();
 export const ChatSendResponseSchema = z
   .object({
-    sessionId: ConversationSessionIdSchema,
     toolInvocations: z.array(ChatToolInvocationSchema),
     restart: RestartChatAcknowledgementSchema.nullable(),
   })
@@ -61,12 +59,10 @@ export const chatOperatorApiContracts = {
     method: 'GET',
     path: '/api/chat',
     success: ChatIdentityResponseSchema,
-    error: ApiErrorSchema,
+    error: UnauthorizedErrorSchema,
     response: {
       200: ChatIdentityResponseSchema,
-      400: ApiErrorSchema,
       401: UnauthorizedErrorSchema,
-      403: ForbiddenErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,
@@ -78,12 +74,11 @@ export const chatOperatorApiContracts = {
     path: '/api/chat',
     body: ChatSendRequestSchema,
     success: ChatSendResponseSchema,
-    error: ApiErrorSchema,
+    error: ValidationErrorSchema,
     response: {
       200: ChatSendResponseSchema,
-      400: ApiErrorSchema,
+      400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
-      403: ForbiddenErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,

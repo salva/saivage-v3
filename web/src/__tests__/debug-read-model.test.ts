@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { DebugErrorRecord, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView } from '../api/types';
-import { filterTimelineByKinds, projectErrorRecord, selectDoctorIssuesBySeverity, selectErrorsBySource, selectFailedChecks, selectOperatorDataFreshnessLabel, selectSortedProcesses, selectSortedTimeline, selectTimelineKindOptions } from '../stores/debug-read-model';
+import type { DebugErrorRecord, DebugTimelineEvent, ProcessView } from '../api/types';
+import { filterTimelineByKinds, projectErrorRecord, selectErrorsBySource, selectOperatorDataFreshnessLabel, selectSortedProcesses, selectSortedTimeline, selectTimelineKindOptions } from '../stores/debug-read-model';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
 const diagnostic = { id: 'event-diagnostic', kind: 'runtime_diagnostic', timestamp, card_id: 'card-a', goal_id: 'project', phase: 'execute', error_message: 'token=abc1234567890' } as const satisfies DebugTimelineEvent;
@@ -29,12 +29,8 @@ describe('debug-read-model', () => {
     expect(filterTimelineByKinds(sorted, ['mcp_tool_invocation']).map((event) => event.kind)).toEqual(['mcp_tool_invocation']);
   });
 
-  it('projects freshness, process ordering, and Doctor findings', () => {
+  it('projects freshness and process ordering', () => {
     expect(selectOperatorDataFreshnessLabel(timestamp, new Date('2026-01-01T00:00:30Z').getTime())).toBe('fresh');
     expect(selectSortedProcesses([process({ id: 'old', status: 'exited' }), process({ id: 'run', status: 'running' })]).map((entry) => entry.id)).toEqual(['run', 'old']);
-    const checks: DoctorCheck[] = [{ name: 'integrity', passed: false }, { name: 'metadata', passed: true }];
-    const issues: DoctorIssue[] = [{ severity: 'error', message: 'missing' }, { severity: 'warning', message: 'unsafe' }];
-    expect(selectFailedChecks(checks).map((check) => check.name)).toEqual(['integrity']);
-    expect(selectDoctorIssuesBySeverity(issues).get('warning')).toHaveLength(1);
   });
 });

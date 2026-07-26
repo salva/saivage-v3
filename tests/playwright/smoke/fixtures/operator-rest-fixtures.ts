@@ -86,6 +86,11 @@ const codeDebugGraph = {
 const debugGraphs = parseOperatorResponse('debug.graphs', {
   graphs: [codeDebugGraph, { ...codeDebugGraph, card_type: 'goal', permitted_child_types: ['code'] }],
 });
+const doctorOk = parseOperatorResponse('debug.doctor', {
+  status: 'ok',
+  checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }],
+  issues: [],
+});
 
 const sessions = [
   { id: 'agent:analyst:global', agent_name: 'analyst', session_scope: 'global', card_id: null, started_at: now },
@@ -301,7 +306,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/events') {
       return json(route, debugTimeline);
     }
-    if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, { status: 'ok', checks: [], issues: [] });
+    if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, doctorOk);
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
       return json(route, parseOperatorResponse('mcp.tools', {
         servers: [{ name: 'filesystem', status: 'running', transport: 'stdio', toolCount: 1, tools: [{ name: 'read', stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
@@ -340,7 +345,6 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       };
       chatEntries.set(sessionId, [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.'), message]);
       return json(route, parseOperatorResponse('chats.send', {
-        sessionId,
         toolInvocations: [],
         restart: null,
       }));

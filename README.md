@@ -230,7 +230,7 @@ curl http://localhost:8080/health
 curl http://localhost:8080/health/ready
 ```
 
-Every `/api/*` operator contract uses the operator-session boundary. When `SAIVAGE_API_TOKEN` is configured, send it only as a bearer header, for example:
+Every `/api/*` operator contract, including Doctor, uses the shared operator registry and operator-session boundary. Required exact status-response maps are the sole runtime authority; `npm run validate:docs` checks the source-derived route inventory and response-contract fixtures. When `SAIVAGE_API_TOKEN` is configured, send it only as a bearer header, for example:
 
 ```bash
 curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/processes

@@ -9,7 +9,7 @@ export const WsEnvelopeSchema = z.object({
   content: z.record(z.string(), z.unknown()),
 });
 
-export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'timeline', 'processes', 'files']);
+export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'timeline']);
 export const LiveSyncCardRecordNameSchema = recordNameSchema;
 export const LiveSyncCardInvalidateFrameSchema = z.union([
   z
@@ -330,7 +330,6 @@ export const knownWsContentEventNames = [
   ...AnalystActivityEventNames,
 ] as const;
 
-const knownWsContentEventNameSet = new Set<string>(knownWsContentEventNames);
 const analystActivityEventNameSet = new Set<string>(AnalystActivityEventNames);
 
 export type WsEventType = z.infer<typeof WsEventTypeSchema>;
@@ -363,32 +362,12 @@ export function parseWsEnvelope(input: unknown): WsEnvelopeContract | null {
   return parsed.success ? parsed.data : null;
 }
 
-export function parseKnownWsContent(content: unknown): KnownWsContent | null {
-  const event = getContentEvent(content);
-  if (!event || !knownWsContentEventNameSet.has(event)) return null;
-  const known = KnownWsContentSchema.safeParse(content);
-  if (known.success) return known.data;
+export function parseKnownWsContent(content: unknown): KnownWsContent {
   return KnownWsContentSchema.parse(content);
 }
 
-export function parseKnownWsEnvelope(envelope: unknown): KnownWsEnvelope | null {
-  const base = WsEnvelopeSchema.safeParse(envelope);
-  if (!base.success) return null;
-  const event = getContentEvent(base.data.content);
-  if (event) {
-    if (!knownWsContentEventNameSet.has(event)) return null;
-    parseKnownWsContent(base.data.content);
-    return KnownWsEnvelopeSchema.parse(base.data);
-  }
-  if (base.data.type === 'message' || base.data.type === 'error') {
-    return KnownWsEnvelopeSchema.parse(base.data);
-  }
-  return null;
-}
-
-export function validateKnownWsEnvelope(envelope: WsEnvelopeContract): WsEnvelopeContract {
-  parseKnownWsEnvelope(envelope);
-  return envelope;
+export function parseKnownWsEnvelope(envelope: unknown): KnownWsEnvelope {
+  return KnownWsEnvelopeSchema.parse(envelope);
 }
 
 export function isAnalystActivityContent(content: unknown): content is AnalystActivityContent {
@@ -405,12 +384,6 @@ export function parseAnalystTurnAcknowledgedStatusContent(
 ): z.infer<typeof AnalystTurnAcknowledgedStatusContentSchema> | null {
   const parsed = AnalystTurnAcknowledgedStatusContentSchema.safeParse(input);
   return parsed.success ? parsed.data : null;
-}
-
-export function isConnectedEnvelope(
-  envelope: unknown,
-): envelope is z.infer<typeof ConnectedStatusEnvelopeSchema> {
-  return ConnectedStatusEnvelopeSchema.safeParse(envelope).success;
 }
 
 export function buildConnectedEnvelope(input: {
@@ -432,16 +405,3 @@ export function buildConnectedEnvelope(input: {
 export function buildInboundAnalystMessageEnvelope(text: string): InboundAnalystMessageEnvelope {
   return InboundAnalystMessageEnvelopeSchema.parse({ type: 'message', content: { text } });
 }
-
-export const wsContractFixtures = {
-  connected: buildConnectedEnvelope({ sessionId: 'agent:fixture:global' }),
-  inboundAnalystMessage: buildInboundAnalystMessageEnvelope('hello analyst'),
-  unknownBaseValid: {
-    type: 'activity',
-    content: { event: 'future_event', value: true },
-  } satisfies WsEnvelopeContract,
-  malformedKnown: {
-    type: 'activity',
-    content: { event: 'card_history_appended' },
-  } satisfies WsEnvelopeContract,
-};

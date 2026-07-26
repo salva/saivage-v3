@@ -12,17 +12,21 @@ import { runtimeCardsOperatorApiContracts } from './operator-api-runtime-cards.j
 
 export {
   AgentConversationEntrySchema,
+  AgentConversationBadRequestSchema,
+  AgentConversationCursorNotFoundErrorSchema,
   AgentConversationParamsSchema,
   AgentConversationResponseSchema,
   AgentConversationQuerySchema,
   AgentLlmExchangeParamsSchema,
   AgentLlmExchangeResponseSchema,
+  AgentLlmExchangeNotFoundErrorSchema,
   AgentListResponseSchema,
   CardAgentSessionsParamsSchema,
   CardAgentSessionsResponseSchema,
   AgentSessionDetailSchema,
   AgentSessionParamsSchema,
   AgentSessionSummarySchema,
+  AgentSessionNotFoundErrorSchema,
 } from './operator-api-agents.js';
 export type {
   AgentConversationEntry,
@@ -51,6 +55,13 @@ export type {
 export {
   DebugErrorsResponseSchema,
   DebugGraphsResponseSchema,
+  DoctorResponseSchema,
+  WorkspaceFileContentBadRequestSchema,
+  WorkspaceFileContentForbiddenSchema,
+  WorkspaceFileErrorSchema,
+  WorkspaceFilePathErrorSchema,
+  WorkspaceFilesListBadRequestSchema,
+  WorkspaceFileTooLargeErrorSchema,
   WorkspaceFileContentQuerySchema,
   WorkspaceFileContentResponseSchema,
   WorkspaceFilesListResponseSchema,
@@ -60,37 +71,30 @@ export type {
   DebugErrorsResponse,
   DebugGraph,
   DebugGraphsResponse,
+  DoctorResponse,
   WorkspaceFileContentResponse,
   WorkspaceFilesListResponse,
 } from './operator-api-files-debug.js';
 export {
   ConfigGetResponseSchema,
-  ConfigUnavailableErrorSchema,
-  ControlActionsListFailureSchema,
   ControlActionsListResponseSchema,
   ControlActionsQuerySchema,
   ProviderSummarySchema,
   ProvidersListResponseSchema,
-  ProvidersUnavailableErrorSchema,
 } from './operator-api-config.js';
 export type {
   ConfigGetResponse,
-  ConfigUnavailableError,
-  ControlActionsListFailure,
   ControlActionsListResponse,
   ControlActionsQuery,
   ProviderSummary,
   ProvidersListResponse,
-  ProvidersUnavailableError,
 } from './operator-api-config.js';
 export {
-  EventsListFailureSchema,
   EventsListResponseSchema,
   EventsQuerySchema,
 } from './operator-api-events.js';
-export type { EventsListFailure, EventsListResponse, EventsQuery } from './operator-api-events.js';
+export type { EventsListResponse, EventsQuery } from './operator-api-events.js';
 export {
-  ApiErrorSchema,
   ForbiddenErrorSchema,
   HttpMethodSchema,
   UnauthorizedErrorSchema,

@@ -93,10 +93,6 @@ function forbiddenBody(reason?: string): Record<string, unknown> {
   return { error: 'Forbidden', statusCode: 403, ...(reason ? { message: reason } : {}) };
 }
 
-function schemaForStatus(contract: OperatorRouteContract, statusCode: number): z.ZodTypeAny | undefined {
-  return contract.response?.[statusCode] ?? (statusCode >= 200 && statusCode < 300 ? contract.success : contract.error);
-}
-
 function isPermissionAllowed(result: Awaited<ReturnType<ContractPermissionPredicate>>): { allowed: boolean; reason?: string } {
   if (typeof result === 'boolean') return { allowed: result };
   return result.allowed ? { allowed: true } : { allowed: false, reason: result.reason };
@@ -179,9 +175,9 @@ export class ContractRuntime {
           if (!candidate) throw new Error('Contract operation produced no response descriptor.');
 
           failureCode = 'response_validation_failed';
-          const schema = schemaForStatus(contract, candidate.statusCode);
+          const schema = contract.response[candidate.statusCode];
           const parsedResponse = schema?.safeParse(candidate.body);
-          if (schema && !parsedResponse?.success) {
+          if (!schema || !parsedResponse?.success) {
             this.eventLogger.appendEventPrepared(() => ({
               kind: 'runtime_actionable_error',
               actionable_error: {
@@ -199,7 +195,7 @@ export class ContractRuntime {
             throw RESPONSE_CONTRACT_VIOLATION;
           }
 
-          final = { statusCode: candidate.statusCode, body: parsedResponse?.success ? parsedResponse.data : candidate.body };
+          final = { statusCode: candidate.statusCode, body: parsedResponse.data };
 
         } catch (error) {
           if (error instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(error);

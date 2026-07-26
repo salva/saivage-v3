@@ -2,10 +2,8 @@ import { z } from 'zod';
 import { cardIdSchema, processStatusSchema } from '../schemas/index.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 import {
-  ApiErrorSchema,
   operatorSessionContract,
   UnauthorizedErrorSchema,
-  ValidationErrorSchema,
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
@@ -35,11 +33,11 @@ function isCanonicalProcessLogUrl(filename: string): (value: string | null) => b
 export const ProcessLogRefsSchema = z.object({
   stdout: z.string().nullable().refine(isCanonicalProcessLogUrl('stdout.log'), 'stdout must be a canonical work:///cards/<cardId>/processes/<id>/stdout.log or work:///processes/<id>/stdout.log URL or null'),
   stderr: z.string().nullable().refine(isCanonicalProcessLogUrl('stderr.log'), 'stderr must be a canonical work:///cards/<cardId>/processes/<id>/stderr.log or work:///processes/<id>/stderr.log URL or null'),
-});
+}).strict();
 
 export const ProcessViewSchema = z.object({
   id: z.string(),
-  status: z.string(),
+  status: processStatusSchema,
   started_at: z.string(),
   ended_at: z.string().nullable(),
   exit_code: z.number().int().nullable(),
@@ -63,7 +61,7 @@ export const ProcessToolResultSchema = z.object({
   stderr_bytes: z.number().int().nonnegative(),
 }).strict();
 
-export const ProcessListResponseSchema = z.object({ processes: z.array(ProcessViewSchema) });
+export const ProcessListResponseSchema = z.object({ processes: z.array(ProcessViewSchema) }).strict();
 
 export type ProcessView = z.infer<typeof ProcessViewSchema>;
 export type ProcessToolResult = z.infer<typeof ProcessToolResultSchema>;
@@ -75,8 +73,8 @@ export const processesOperatorApiContracts = {
     method: 'GET',
     path: '/api/processes',
     success: ProcessListResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: ProcessListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    error: UnauthorizedErrorSchema,
+    response: { 200: ProcessListResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ProcessListResponse',
   },

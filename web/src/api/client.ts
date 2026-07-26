@@ -337,7 +337,7 @@ export function getNewestEvents(): Promise<EventsResponse> {
 }
 
 export function getDoctor(): Promise<DoctorResponse> {
-  return request<DoctorResponse>('GET', '/api/debug/doctor');
+  return operatorRequest('debug.doctor');
 }
 
 export function getMcpTools(): Promise<McpToolsResponse> {

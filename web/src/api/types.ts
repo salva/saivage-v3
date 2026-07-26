@@ -9,7 +9,6 @@ import type {
   CardRecord,
   ChatWorkspaceContext,
   ControlActionSurface,
-  DoctorResponse,
   McpInvocationStat,
   McpStatusState,
   McpToolsResponse as ContractMcpToolsResponse,
@@ -29,7 +28,6 @@ export type {
   CardHistoryKind,
   CardStatus,
   CardType,
-  DoctorResponse,
   ControlActionSurface,
   EntityLink,
   MessageKind,
@@ -66,6 +64,7 @@ export interface CardDiffRow {
 export type ControlActionAuditEntry =
   OperatorApiSuccess<'controlActions.list'>['control_actions'][number];
 
+export type DoctorResponse = OperatorApiSuccess<'debug.doctor'>;
 export type DoctorCheck = DoctorResponse['checks'][number];
 export type DoctorIssue = DoctorResponse['issues'][number];
 export type ProcessListResponse = OperatorApiSuccess<'processes.list'>;

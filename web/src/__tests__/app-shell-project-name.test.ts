@@ -8,7 +8,7 @@ vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
 
 vi.mock('../api/client', () => ({
   getChatEntries: vi.fn(async () => ({ session_id: 'agent:analyst:global' })),
-  sendChatMessage: vi.fn(async (sessionId: string) => ({ sessionId, toolInvocations: [], restart: null })),
+  sendChatMessage: vi.fn(async () => ({ toolInvocations: [], restart: null })),
   ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 

@@ -6,6 +6,7 @@ export {
   ProcessLogRefsSchema,
   ProcessViewSchema,
   DebugGraphsResponseSchema,
+  DoctorResponseSchema,
   McpToolsResponseSchema,
   AgentSessionSummarySchema,
   processesOperatorApiContracts,
@@ -47,6 +48,7 @@ export type {
   DebugErrorsResponse,
   DebugGraph,
   DebugGraphsResponse,
+  DoctorResponse,
   HealthLivenessResponse,
   HealthReadinessResponse,
   McpInvocationStat,
@@ -81,13 +83,10 @@ export {
   buildInboundAnalystMessageEnvelope,
   isAnalystActivityContent,
   parseAnalystTurnAcknowledgedStatusContent,
-  isConnectedEnvelope,
   parseLiveSyncClientFrame,
   parseKnownWsContent,
   parseKnownWsEnvelope,
   parseWsEnvelope,
-  validateKnownWsEnvelope,
-  wsContractFixtures,
 } from '@saivage/contracts/operator-events';
 
 export type {
@@ -125,7 +124,6 @@ export type {
   ControlActionAuditEntry,
   ControlActionSurface,
   CreatedBy,
-  DoctorResponse,
   EntityLink,
   MessageKind,
   MessageRole,

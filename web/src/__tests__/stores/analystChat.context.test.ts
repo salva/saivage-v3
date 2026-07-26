@@ -24,7 +24,6 @@ describe('analyst chat workspace context', () => {
     apiMocks.sendChatMessage.mockReset();
     apiMocks.getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global' });
     apiMocks.sendChatMessage.mockResolvedValue({
-      sessionId: 'agent:analyst:global',
       toolInvocations: [],
       restart: null,
     });
@@ -54,7 +53,6 @@ describe('analyst chat workspace context', () => {
     const target = { kind: 'card' as const, id: '22222222-2222-4222-8222-222222222222' };
     const payload = { intent: 'navigate_workspace' as const, target };
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: 'agent:analyst:global',
       toolInvocations: [{ tool: 'navigate_workspace', params: {}, result: { success: true, data: payload } }],
       restart: null,
     });
@@ -70,7 +68,6 @@ describe('analyst chat workspace context', () => {
 
   it('does not dispatch failed navigation invocations', async () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: 'agent:analyst:global',
       toolInvocations: [{ tool: 'navigate_back', params: {}, result: { success: false, error: 'denied' } }],
       restart: null,
     });

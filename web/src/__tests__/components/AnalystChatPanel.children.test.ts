@@ -26,7 +26,7 @@ describe('AnalystChatPanel on-screen children', () => {
     getChatEntries.mockReset();
     sendChatMessage.mockReset();
     getChatEntries.mockResolvedValue({ session_id: 'agent:analyst:global' });
-    sendChatMessage.mockResolvedValue({ sessionId: 'agent:analyst:global', toolInvocations: [], restart: null });
+    sendChatMessage.mockResolvedValue({ toolInvocations: [], restart: null });
   });
 
   it('imports the singular useCardStore symbol from ../../stores/cards', () => {

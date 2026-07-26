@@ -26,16 +26,15 @@ describe('singleton Analyst contracts', () => {
     expect(ChatIdentityResponseSchema.parse({ session_id: 'agent:analyst:global' }).session_id).toBe(
       'agent:analyst:global',
     );
-    expect(ChatSendResponseSchema.parse({ sessionId: 'agent:analyst:global', toolInvocations: [], restart: null }).sessionId).toBe('agent:analyst:global');
+    expect(ChatSendResponseSchema.parse({ toolInvocations: [], restart: null })).toEqual({ toolInvocations: [], restart: null });
     expect(buildConnectedEnvelope({sessionId:'agent:analyst:global'}).content.sessionId).toBe('agent:analyst:global');
     expect(AnalystTurnAcknowledgedStatusContentSchema.parse({ event: 'analyst_turn_acknowledged', sessionId: 'agent:analyst:global', restart: null }).sessionId).toBe('agent:analyst:global');
     expect(AnalystToolInvokedContentSchema.parse({ event: 'analyst_tool_invoked', sessionId: 'agent:analyst:global', tool: 'read', success: true, summary: '' }).sessionId).toBe('agent:analyst:global');
     expect(ToolInvocationContentSchema.parse({ event: 'tool_invocation', sessionId: 'agent:analyst:global', tool: 'read' }).sessionId).toBe('agent:analyst:global');
   });
 
-  it.each(invalid)('rejects noncanonical Analyst identity %s at every success/event boundary', (sessionId) => {
+  it.each(invalid)('rejects noncanonical Analyst identity %s at every identity-bearing success/event boundary', (sessionId) => {
     expect(ChatIdentityResponseSchema.safeParse({ session_id: sessionId }).success).toBe(false);
-    expect(ChatSendResponseSchema.safeParse({ sessionId, toolInvocations: [], restart: null }).success).toBe(false);
     expect(ConnectedStatusContentSchema.safeParse({ event: 'connected', sessionId, timestamp, clientCount: 1 }).success).toBe(false);
     expect(AnalystTurnAcknowledgedStatusContentSchema.safeParse({ event: 'analyst_turn_acknowledged', sessionId, restart: null }).success).toBe(false);
     expect(AnalystToolInvokedContentSchema.safeParse({ event: 'analyst_tool_invoked', sessionId, tool: 'read', success: true, summary: '' }).success).toBe(false);
@@ -53,5 +52,12 @@ describe('singleton Analyst contracts', () => {
     ]) {
       expect(ChatIdentityResponseSchema.safeParse({ ...identity, ...removed }).success).toBe(false);
     }
+  });
+
+  it('keeps both session identity spellings out of the POST response', () => {
+    const response = { toolInvocations: [], restart: null };
+    expect(ChatSendResponseSchema.parse(response)).toEqual(response);
+    expect(ChatSendResponseSchema.safeParse({ ...response, sessionId: 'agent:analyst:global' }).success).toBe(false);
+    expect(ChatSendResponseSchema.safeParse({ ...response, session_id: 'agent:analyst:global' }).success).toBe(false);
   });
 });

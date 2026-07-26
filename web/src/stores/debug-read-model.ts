@@ -1,5 +1,5 @@
 import { getEventSeverity, type EventKind } from '@saivage/schemas/event-catalog';
-import type { DebugErrorRecord, DebugTimelineEvent, DoctorCheck, DoctorIssue, ProcessView, RuntimeState } from '../api/types';
+import type { DebugErrorRecord, DebugTimelineEvent, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel } from './runtime-read-model';
 
@@ -74,19 +74,6 @@ export function selectErrorsBySource(errors: DebugErrorItem[]): Map<string, Debu
     if (list) list.push(error); else map.set(error.source, [error]);
   }
   for (const list of map.values()) list.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  return map;
-}
-
-export function selectFailedChecks(checks: DoctorCheck[]): DoctorCheck[] {
-  return checks.filter((check) => !check.passed);
-}
-
-export function selectDoctorIssuesBySeverity(issues: DoctorIssue[]): Map<'error' | 'warning', DoctorIssue[]> {
-  const map = new Map<'error' | 'warning', DoctorIssue[]>();
-  for (const issue of issues) {
-    const list = map.get(issue.severity);
-    if (list) list.push(issue); else map.set(issue.severity, [issue]);
-  }
   return map;
 }
 

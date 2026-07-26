@@ -83,7 +83,6 @@ describe('analyst chat store', () => {
     });
     apiMocks.getAgentConversation.mockResolvedValue(chat());
     apiMocks.sendChatMessage.mockResolvedValue({
-      sessionId: analystSessionId,
       toolInvocations: [],
       restart: null,
     });
@@ -144,7 +143,7 @@ describe('analyst chat store', () => {
     const send = store.sendMessage();
     expect(store.sending).toBe(true);
     expect(store.activeSession).toBeNull();
-    pending.resolve({ sessionId: analystSessionId, toolInvocations: [], restart: null });
+    pending.resolve({ toolInvocations: [], restart: null });
     await send;
   });
 
@@ -188,7 +187,6 @@ describe('analyst chat store', () => {
 
   it('presents a confirmation-required response without adding a status transcript entry', async () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: analystSessionId,
       toolInvocations: [],
       restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
     });
@@ -233,7 +231,6 @@ describe('analyst chat store', () => {
       confirmationMessage: 'RESTART SERVER',
     });
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: analystSessionId,
       toolInvocations: [],
       restart: null,
     });
@@ -251,7 +248,6 @@ describe('analyst chat store', () => {
       confirmationMessage: 'RESTART SERVER',
     });
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: analystSessionId,
       toolInvocations: [],
       restart: { status: 'scheduled' },
     });
@@ -278,7 +274,6 @@ describe('analyst chat store', () => {
   it('retains a consumed acknowledgement when a non-scheduled response refetch fails', async () => {
     const store = useAnalystChat();
     apiMocks.sendChatMessage.mockResolvedValueOnce({
-      sessionId: analystSessionId,
       toolInvocations: [],
       restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
     });

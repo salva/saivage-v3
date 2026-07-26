@@ -1,10 +1,7 @@
 import { z } from 'zod';
 import {
-  ApiErrorSchema,
-  ForbiddenErrorSchema,
   operatorSessionContract,
   UnauthorizedErrorSchema,
-  ValidationErrorSchema,
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
@@ -42,8 +39,8 @@ export const mcpOperatorApiContracts = {
     method: 'GET',
     path: '/api/mcp/tools',
     success: McpToolsResponseSchema,
-    error: ApiErrorSchema,
-    response: { 200: McpToolsResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: ForbiddenErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    error: UnauthorizedErrorSchema,
+    response: { 200: McpToolsResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'McpToolsResponse',
   },

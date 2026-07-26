@@ -45,7 +45,7 @@ describe('Debug selected-tab ownership', () => {
     api.listProcesses.mockResolvedValue({ processes: [] });
     api.listAgentSessions.mockResolvedValue({ sessions: [] });
     api.getDebugGraphs.mockResolvedValue({ graphs: [] });
-    api.getDoctor.mockResolvedValue({ status: 'ok', checks: [], issues: [] });
+    api.getDoctor.mockResolvedValue({ status: 'ok', checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }], issues: [] });
   });
 
   it('loads only MCP when MCP is selected and never polls', async () => {

@@ -72,6 +72,37 @@ describe('ContractRuntime app-log ownership', () => {
     expect(trace).toEqual(['hint']);
   });
 
+  it.each<[string, number, unknown]>([
+    ['success-like', 201, { ok: true }],
+    ['error-like', 404, { error: 'not found' }],
+    ['schema-less', 204, undefined],
+  ])('rejects an undeclared %s status without success/error fallback', async (_kind, statusCode, body) => {
+    const fastify = Fastify({ logger: false });
+    const appendEventPrepared = jest.fn();
+    new ContractRuntime({
+      authPolicy: new AuthPolicy(),
+      eventLogger: { appendEventPrepared } as never,
+      fatalPort: testApplicationFatalPort,
+    }).mount(fastify, { operation: contract }, {
+      operation: () => ({ statusCode, body }),
+    });
+
+    const response = await fastify.inject({ method: 'GET', url: '/test' });
+    await fastify.close();
+
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(appendEventPrepared).toHaveBeenCalledTimes(1);
+    const buildEvent = appendEventPrepared.mock.calls[0]![0] as () => unknown;
+    expect(buildEvent()).toEqual(expect.objectContaining({
+      kind: 'runtime_actionable_error',
+      actionable_error: expect.objectContaining({
+        code: 'contract_response_violation',
+        currentState: expect.objectContaining({ statusCode }),
+      }),
+    }));
+  });
+
   it('rethrows the exact publication failure before ordinary contract normalization', async () => {
     let mounted: ((request: unknown, reply: unknown) => Promise<unknown>) | undefined;
     const fastify = { route: (route: { handler: typeof mounted }) => { mounted = route.handler; } } as unknown as FastifyInstance;

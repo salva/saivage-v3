@@ -108,7 +108,6 @@ describe('AnalystChatPanel', () => {
     });
     api.getCardChildren.mockResolvedValue({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog' }, children: [] });
     api.sendChatMessage.mockResolvedValue({
-      sessionId: analystSessionId,
       toolInvocations: [],
       restart: null,
     });

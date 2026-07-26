@@ -16,7 +16,8 @@ import { useAnalystChat } from '../stores/analystChat';
 import { createLogger } from '../utils/logger';
 
 export type SyncResourceScope = 'core' | 'active';
-export type SyncResourceKey = LiveSyncUnscopedResource | 'cards';
+export type ReconnectResourceKey = LiveSyncUnscopedResource | 'files';
+export type SyncResourceKey = ReconnectResourceKey | 'cards';
 type LeaseResource = 'agents' | 'card-agent-sessions' | 'conversation' | 'llm-exchange';
 export type LeaseInvalidation = Extract<
   LiveSyncInvalidateFrame,
@@ -214,12 +215,7 @@ export class SyncClient {
       if (registration?.resource === 'cards') registration.onInvalidate(frame);
       return;
     }
-    if (
-      frame.resource === 'runtime' ||
-      frame.resource === 'timeline' ||
-      frame.resource === 'processes' ||
-      frame.resource === 'files'
-    )
+    if (frame.resource === 'runtime' || frame.resource === 'timeline')
       this.refetchResource(frame.resource, timestamp);
   }
 

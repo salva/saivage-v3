@@ -88,6 +88,45 @@ describe('websocket ticket client', () => {
     expect(MockWebSocket.instances).toHaveLength(0);
   });
 
+  it('dispatches the parsed known envelope and extracts its session', async () => {
+    mocks.issueWebSocketTicket.mockResolvedValueOnce({ ticket: 'known', expiresAt: '2026-01-01T00:00:00.000Z' });
+    const conn = createWsConnection();
+    const handler = vi.fn();
+    conn.onEvent(handler);
+    conn.connect();
+    await vi.runAllTicks();
+
+    const connected = {
+      type: 'status',
+      content: {
+        event: 'connected',
+        sessionId: 'agent:analyst:global',
+        timestamp: '2026-07-24T00:00:00.000Z',
+        clientCount: 1,
+      },
+    };
+    MockWebSocket.instances[0]!.onmessage?.({ data: JSON.stringify(connected) });
+
+    expect(conn.sessionId.value).toBe('agent:analyst:global');
+    expect(handler).toHaveBeenCalledWith(connected);
+  });
+
+  it('does not dispatch unknown or malformed known envelopes', async () => {
+    mocks.issueWebSocketTicket.mockResolvedValueOnce({ ticket: 'strict', expiresAt: '2026-01-01T00:00:00.000Z' });
+    const conn = createWsConnection();
+    const handler = vi.fn();
+    conn.onEvent(handler);
+    conn.connect();
+    await vi.runAllTicks();
+
+    const socket = MockWebSocket.instances[0]!;
+    socket.onmessage?.({ data: JSON.stringify({ type: 'activity', content: { event: 'future_event' } }) });
+    socket.onmessage?.({ data: JSON.stringify({ type: 'activity', content: { event: 'card_history_appended' } }) });
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(conn.sessionId.value).toBeNull();
+  });
+
   it('replaces a closing socket without letting its close callback take the new generation offline', async () => {
     mocks.issueWebSocketTicket
       .mockResolvedValueOnce({ ticket: 'first', expiresAt: '2026-01-01T00:00:00.000Z' })

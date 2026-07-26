@@ -221,8 +221,8 @@ describe('SyncClient', () => {
     client.register(runtimeRegistration)();
   });
 
-  it('ignores invalidations for inactive resources', async () => {
-    const { conn, emitSync } = createConn();
+  it('refreshes mounted Files registration on a genuine reconnect without a Files wire invalidation', async () => {
+    const { conn, emitOpen } = createConn();
     const client = new SyncClient(conn);
     const refetch = vi.fn(async () => undefined);
     client.register({
@@ -230,12 +230,16 @@ describe('SyncClient', () => {
       scope: 'active',
       requestOwnership: 'sync-client',
       refetch,
-    })();
+    });
+    client.start();
 
-    emitSync({ t: 'invalidate', resource: 'files' });
+    emitOpen();
     await flush();
+    expect(refetch).toHaveBeenCalledTimes(1);
 
-    expect(refetch).not.toHaveBeenCalled();
+    emitOpen();
+    await flush();
+    expect(refetch).toHaveBeenCalledTimes(2);
   });
 
   it('subscribes without randomUUID, refetches on acknowledgement, and unsubscribes with the current opaque lease', async () => {
@@ -451,7 +455,7 @@ describe('SyncClient', () => {
       type: 'activity',
       content: {
         event: 'analyst_tool_invoked',
-        session_id: 'agent:analyst:global',
+        sessionId: 'agent:analyst:global',
         tool: 'read',
         summary: 'opened docs',
         success: true,
@@ -470,21 +474,11 @@ describe('SyncClient', () => {
     expect(refetch).toHaveBeenCalledTimes(1);
   });
 
-  it('ingests only canonical Analyst WS restart acknowledgements through the shared presenter', async () => {
+  it('ingests canonical Analyst WS restart acknowledgements through the shared presenter', async () => {
     const harness = createConn();
     const client = new SyncClient(harness.conn);
     const chat = useAnalystChat();
     client.start();
-
-    harness.emitEvent({
-      type: 'status',
-      content: {
-        event: 'analyst_turn_acknowledged',
-        sessionId: 'other-session',
-        restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
-      },
-    } as Parameters<WsEventHandler>[0]);
-    expect(chat.restartAcknowledgement).toBeNull();
 
     harness.emitEvent({
       type: 'status',

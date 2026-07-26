@@ -9,10 +9,10 @@
  *   { "type": "message | activity | thinking | status | error", "content": { ... } }
  */
 
-import type { WsConnectionState, WsEnvelope } from './types';
+import type { WsConnectionState } from './types';
 import { issueWebSocketTicket } from './client';
 import { getAuthToken } from './auth';
-import { buildInboundAnalystMessageEnvelope, LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseKnownWsEnvelope, parseWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
+import { buildInboundAnalystMessageEnvelope, LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseKnownWsEnvelope, type KnownWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
 import { createLogger } from '../utils/logger';
 
 // ── Re-export auth helper ────────────────────────────────────
@@ -21,7 +21,7 @@ export { getAuthToken };
 
 // ── Types ─────────────────────────────────────────────────────
 
-export type WsEventHandler = (envelope: WsEnvelope) => void;
+export type WsEventHandler = (envelope: KnownWsEnvelope) => void;
 export type WsStateHandler = (state: WsConnectionState) => void;
 export type WsOpenHandler = () => void;
 export type WsSyncFrameHandler = (frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame) => void;
@@ -192,21 +192,17 @@ export function createWsConnection(): WsConnectionManager {
             return;
           }
 
-          const envelope = parseWsEnvelope(rawEnvelope);
-          if (!envelope) {
-            log.warn('Dropped structurally invalid WS envelope');
-            return;
-          }
+          let envelope: KnownWsEnvelope;
           try {
-            parseKnownWsEnvelope(envelope);
+            envelope = parseKnownWsEnvelope(rawEnvelope);
           } catch (err) {
-            log.error('Dropped malformed known WS envelope', err);
+            log.error('Dropped unknown or malformed WS envelope', err);
             return;
           }
 
           // Extract session ID from connect status event
           if (envelope.type === 'status' && envelope.content?.event === 'connected') {
-            sessionId.value = envelope.content.sessionId as string;
+            sessionId.value = envelope.content.sessionId;
           }
 
           // Dispatch to all handlers

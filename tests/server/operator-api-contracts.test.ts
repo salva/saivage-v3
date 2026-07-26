@@ -5,6 +5,8 @@ import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContra
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
 import { allRepresentativeLoggedEvents } from '../helpers/logged-events.js';
 
+const timestamp = '2026-01-01T00:00:00.000Z';
+
 const runtimeState = {
   status: 'running',
   project_id: 'project',
@@ -68,6 +70,17 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(contractsModule).not.toHaveProperty('ChatListResponseSchema');
   });
 
+  it('registers Doctor as an authenticated files/debug contract operation', () => {
+    expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationId: 'debug.doctor', method: 'GET', path: '/api/debug/doctor', requiresAuth: true, successSchemaName: 'DoctorResponse' }),
+    ]));
+    expect(operatorApiContracts['debug.doctor'].response).toEqual({
+      200: contractsModule.DoctorResponseSchema,
+      401: contractsModule.UnauthorizedErrorSchema,
+      500: contractsModule.UnexpectedInternalServerErrorSchema,
+    });
+  });
+
   it('uses one strict unexpected-500 schema for every mounted operation', () => {
     const body = { error: 'InternalServerError', message: 'Internal server error' };
     expect(contractsModule.UNEXPECTED_INTERNAL_SERVER_ERROR).toEqual(body);
@@ -78,6 +91,70 @@ describe('operator API runtime contract without runtime ledgers', () => {
       expect(contract.response[500].safeParse({ ...body, diagnostic: 'secret' }).success).toBe(false);
       expect(contract.response[500].safeParse({ error: 'anything', message: 'secret' }).success).toBe(false);
     }
+  });
+
+  it('uses exact strict runtime-generated 4xx bodies', () => {
+    const validation = {
+      error: 'ValidationError',
+      message: 'request failed validation',
+      issues: [{ path: 'query.path', message: 'Expected string' }],
+    };
+    expect(contractsModule.ValidationErrorSchema.parse(validation)).toEqual(validation);
+    expect(contractsModule.ValidationErrorSchema.safeParse({ ...validation, unexpected: true }).success).toBe(false);
+    expect(contractsModule.ValidationErrorSchema.safeParse({ ...validation, issues: [{ ...validation.issues[0], unexpected: true }] }).success).toBe(false);
+    expect(contractsModule.ValidationErrorSchema.safeParse({ error: 'Request validation failed', message: validation.message, issues: [] }).success).toBe(false);
+    expect(contractsModule.ValidationErrorSchema.safeParse({ error: 'ValidationError', issues: [] }).success).toBe(false);
+
+    expect(contractsModule.UnauthorizedErrorSchema.parse({ error: 'Unauthorized', statusCode: 401 })).toEqual({ error: 'Unauthorized', statusCode: 401 });
+    expect(contractsModule.UnauthorizedErrorSchema.safeParse({ error: 'Unauthorized' }).success).toBe(false);
+    expect(contractsModule.ForbiddenErrorSchema.parse({ error: 'Forbidden', statusCode: 403 })).toEqual({ error: 'Forbidden', statusCode: 403 });
+    expect(contractsModule.ForbiddenErrorSchema.parse({ error: 'Forbidden', statusCode: 403, message: 'denied' })).toEqual({ error: 'Forbidden', statusCode: 403, message: 'denied' });
+    expect(contractsModule.ForbiddenErrorSchema.safeParse({ error: 'Forbidden', statusCode: 403, message: '' }).success).toBe(false);
+  });
+
+  it('rejects representative top-level and nested extras in every REST contract family', () => {
+    const availability = {
+      generatedAt: '2026-01-01T00:00:00.000Z',
+      components: {
+        api: { state: 'available', source: 'startup', checkedAt: '2026-01-01T00:00:00.000Z' },
+        runtime: { state: 'idle', source: 'runtime-application', checkedAt: '2026-01-01T00:00:00.000Z' },
+        mcp: { state: 'unknown', source: 'mcp-manager', checkedAt: '2026-01-01T00:00:00.000Z' },
+      },
+    };
+    expect(contractsModule.ServerAvailabilitySchema.safeParse({ ...availability, unexpected: true }).success).toBe(false);
+    expect(contractsModule.ServerAvailabilitySchema.safeParse({ ...availability, components: { ...availability.components, api: { ...availability.components.api, unexpected: true } } }).success).toBe(false);
+
+    expect(operatorApiModule.WebSocketTicketResponseSchema.safeParse({ ticket: 'ticket', expiresAt: timestamp, unexpected: true }).success).toBe(false);
+    expect(contractsModule.HealthLivenessResponseSchema.safeParse({ status: 'ok', version: '1', project: 'project', unexpected: true }).success).toBe(false);
+
+    const session = { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', started_at: timestamp };
+    expect(operatorApiModule.AgentListResponseSchema.safeParse({ sessions: [session], unexpected: true }).success).toBe(false);
+    expect(operatorApiModule.AgentListResponseSchema.safeParse({ sessions: [{ ...session, unexpected: true }] }).success).toBe(false);
+    expect(operatorApiModule.ChatSendRequestSchema.safeParse({ content: 'hello', unexpected: true }).success).toBe(false);
+    expect(operatorApiModule.ChatSendRequestSchema.safeParse({ content: 'hello', workspaceContext: { view: null, entityId: null, refinement: null, unexpected: true } }).success).toBe(false);
+
+    const file = { name: 'README.md', path: 'README.md', type: 'file', size: 10, modifiedAt: timestamp };
+    expect(operatorApiModule.WorkspaceFilesListResponseSchema.safeParse({ path: '.', files: [file], unexpected: true }).success).toBe(false);
+    expect(operatorApiModule.WorkspaceFilesListResponseSchema.safeParse({ path: '.', files: [{ ...file, unexpected: true }] }).success).toBe(false);
+    expect(operatorApiModule.ProcessListResponseSchema.safeParse({ processes: [], unexpected: true }).success).toBe(false);
+    expect(operatorApiModule.EventsListResponseSchema.safeParse({ events: [], total: 0, unexpected: true }).success).toBe(false);
+
+    const provider = {
+      priority: 1,
+      models: ['model'],
+      candidateCount: 1,
+      availableCandidateCount: 1,
+      capabilitiesByModel: { model: { deliberatelyOpaque: true } },
+      availability: [{ candidate: { provider: 'provider', account: null, model: 'model' }, state: 'available' }],
+    };
+    expect(operatorApiModule.ProviderSummarySchema.parse(provider).capabilitiesByModel).toEqual(provider.capabilitiesByModel);
+    expect(operatorApiModule.ProviderSummarySchema.safeParse({ ...provider, unexpected: true }).success).toBe(false);
+    expect(operatorApiModule.ProviderSummarySchema.safeParse({ ...provider, availability: [{ ...provider.availability[0], unexpected: true }] }).success).toBe(false);
+    expect(operatorApiModule.ProviderSummarySchema.safeParse({ ...provider, availability: [{ ...provider.availability[0], candidate: { ...provider.availability[0]!.candidate, unexpected: true } }] }).success).toBe(false);
+
+    const mcp = { servers: [{ name: 'server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tool', stats: { total: 1, success: 1, error: 0 } }] }] };
+    expect(operatorApiModule.McpToolsResponseSchema.safeParse({ ...mcp, unexpected: true }).success).toBe(false);
+    expect(operatorApiModule.McpToolsResponseSchema.safeParse({ servers: [{ ...mcp.servers[0], tools: [{ ...mcp.servers[0]!.tools[0], unexpected: true }] }] }).success).toBe(false);
   });
 
   it('declares failure identities only for canonical session and card parameters', () => {

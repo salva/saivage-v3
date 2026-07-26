@@ -7,7 +7,6 @@ import type { LiveSyncSocket } from '../live-sync-socket.js';
 import type { RestartPort } from '../../boot/restart-port.js';
 import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';
-import { registerInternalDebugRoutes } from '../routes/chats-files-debug.js';
 import { registerWebSocket } from '../websocket.js';
 import type { AuthPolicy } from '../auth-policy.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
@@ -48,7 +47,6 @@ export function registerServerRoutes(options: {
     workflows: options.workflows,
     fatalPort: options.fatalPort,
   });
-  registerInternalDebugRoutes(options.fastify, options.projectRoot, options.cardStore, options.authPolicy);
   registerWebSocket(options.fastify, options.projectRoot, {
     authPolicy: options.authPolicy,
     liveSyncSocket: options.liveSyncSocket,

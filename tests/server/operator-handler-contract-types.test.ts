@@ -57,7 +57,7 @@ const handlers = defineOperatorContractHandlers({
     return { statusCode: 500, body: { error: 'InternalServerError', message: 'Internal server error' } };
   },
   'chats.send': ({ body, request, reply }) => {
-    const parsedBody: { content?: string; workspaceContext?: { view: string | null; entityId: string | null; refinement: Record<string, string> | null } } = body;
+    const parsedBody: { content: string; workspaceContext?: { view: string | null; entityId: string | null; refinement: Record<string, string> | null } } = body;
     const rawRequest: FastifyRequest = request;
     const preSendReply: ContractPreSendReply = reply;
     preSendReply.header('x-type-fixture', 'ok');

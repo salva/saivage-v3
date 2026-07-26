@@ -134,6 +134,42 @@ describe('operator Agent exact identity contracts and handlers', () => {
       .toEqual(result.body);
   });
 
+  it('declares exact runtime, cursor, and route-owned Agent 400/404 bodies', () => {
+    const runtimeValidation = {
+      error: 'ValidationError',
+      message: 'agents.conversation query did not match the operator API contract',
+      issues: [{ path: 'since', message: 'Required' }],
+    };
+    const cursorValidation = {
+      error: 'ValidationError',
+      issues: [{ path: 'since', message: 'Cursor is not present in this conversation.' }],
+    };
+    const sessionNotFound = { error: 'Agent session not found' };
+    const exchangeNotFound = { error: 'No LLM exchange recorded for this session yet.' };
+
+    expect(agentOperatorApiContracts['agents.detail'].response[400].parse(runtimeValidation)).toEqual(runtimeValidation);
+    expect(agentOperatorApiContracts['agents.conversation'].response[400].parse(runtimeValidation)).toEqual(runtimeValidation);
+    expect(agentOperatorApiContracts['agents.conversation'].response[400].parse(cursorValidation)).toEqual(cursorValidation);
+    expect(agentOperatorApiContracts['agents.detail'].response[404].parse(sessionNotFound)).toEqual(sessionNotFound);
+    expect(agentOperatorApiContracts['agents.conversation'].response[404].parse(sessionNotFound)).toEqual(sessionNotFound);
+    expect(agentOperatorApiContracts['agents.llmExchange'].response[404].parse(exchangeNotFound)).toEqual(exchangeNotFound);
+
+    for (const invalid of [
+      { ...runtimeValidation, error: 'Request validation failed' },
+      { error: 'ValidationError', issues: [] },
+      { ...cursorValidation, issues: [{ path: 'since', message: 'different' }] },
+      { ...cursorValidation, unexpected: true },
+    ]) expect(agentOperatorApiContracts['agents.conversation'].response[400].safeParse(invalid).success).toBe(false);
+    for (const invalid of [
+      { error: 'missing' },
+      { ...sessionNotFound, unexpected: true },
+    ]) expect(agentOperatorApiContracts['agents.detail'].response[404].safeParse(invalid).success).toBe(false);
+    for (const invalid of [
+      { error: 'Agent session not found' },
+      { ...exchangeNotFound, unexpected: true },
+    ]) expect(agentOperatorApiContracts['agents.llmExchange'].response[404].safeParse(invalid).success).toBe(false);
+  });
+
   it.each(invalid)(
     'rejects every ID-bearing route before handler dependencies are used for %s',
     async (id) => {

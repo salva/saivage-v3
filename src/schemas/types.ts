@@ -65,9 +65,6 @@ export interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; s
 export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
 export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
 export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id: string; updated_at: string; }
-export interface DoctorCheck { name: string; passed: boolean; details?: string; }
-export interface DoctorIssue { severity: 'error' | 'warning'; message: string; }
-export interface DoctorResponse { status: 'ok' | 'issues_found'; checks: DoctorCheck[]; issues: DoctorIssue[]; }
 export interface SkillIndexEntry { name: string; file: string; target_agents: import('./agent-name.js').AgentName[]; }
 
 

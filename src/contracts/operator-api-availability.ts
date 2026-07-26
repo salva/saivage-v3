@@ -5,21 +5,21 @@ export const AvailabilityComponentSourceSchema = z.enum(['startup', 'runtime-app
 export const AvailabilityDiagnosticSchema = z.object({
   code: z.string().min(1),
   summary: z.string().min(1).max(240),
-});
+}).strict();
 export const AvailabilityComponentSchema = z.object({
   state: AvailabilityStateSchema,
   source: AvailabilityComponentSourceSchema,
   checkedAt: z.string().datetime(),
   diagnostic: AvailabilityDiagnosticSchema.optional(),
-});
+}).strict();
 export const ServerAvailabilitySchema = z.object({
   generatedAt: z.string().datetime(),
   components: z.object({
     api: AvailabilityComponentSchema,
     runtime: AvailabilityComponentSchema,
     mcp: AvailabilityComponentSchema,
-  }),
-});
+  }).strict(),
+}).strict();
 
 export type AvailabilityState = z.infer<typeof AvailabilityStateSchema>;
 export type AvailabilityComponent = z.infer<typeof AvailabilityComponentSchema>;

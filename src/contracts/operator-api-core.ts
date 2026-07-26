@@ -5,12 +5,6 @@ export type ContractAuthClass = 'public' | 'operator-session';
 export const HttpMethodSchema = z.enum(['GET', 'POST', 'PATCH', 'DELETE']);
 export type HttpMethod = z.infer<typeof HttpMethodSchema>;
 
-export const ApiErrorSchema = z.object({
-  error: z.string(),
-  message: z.string().optional(),
-  statusCode: z.number().int().optional(),
-}).catchall(z.unknown());
-
 export const UnexpectedInternalServerErrorSchema = z.object({
   error: z.literal('InternalServerError'),
   message: z.literal('Internal server error'),
@@ -20,20 +14,21 @@ export const UNEXPECTED_INTERNAL_SERVER_ERROR: Readonly<UnexpectedInternalServer
   UnexpectedInternalServerErrorSchema.parse({ error: 'InternalServerError', message: 'Internal server error' }),
 );
 
-export const ValidationErrorSchema = ApiErrorSchema.extend({
-  error: z.union([z.literal('ValidationError'), z.literal('Request validation failed')]),
-  issues: z.array(z.object({ path: z.string(), message: z.string() })).optional(),
-});
+export const ValidationErrorSchema = z.object({
+  error: z.literal('ValidationError'),
+  message: z.string(),
+  issues: z.array(z.object({ path: z.string(), message: z.string() }).strict()),
+}).strict();
 
-export const UnauthorizedErrorSchema = ApiErrorSchema.extend({
+export const UnauthorizedErrorSchema = z.object({
   error: z.literal('Unauthorized'),
-  statusCode: z.literal(401).optional(),
-});
+  statusCode: z.literal(401),
+}).strict();
 
-export const ForbiddenErrorSchema = ApiErrorSchema.extend({
-  error: z.literal('Forbidden'),
-  statusCode: z.literal(403).optional(),
-});
+export const ForbiddenErrorSchema = z.union([
+  z.object({ error: z.literal('Forbidden'), statusCode: z.literal(403) }).strict(),
+  z.object({ error: z.literal('Forbidden'), statusCode: z.literal(403), message: z.string().min(1) }).strict(),
+]);
 
 export const operatorSessionContract = { auth: 'operator-session' } as const;
 export const publicContract = { auth: 'public' } as const;
@@ -57,7 +52,7 @@ export type OperatorRouteContract<
   body?: TBody;
   success: TSuccess;
   error: TError;
-  response?: Record<number, z.ZodTypeAny>;
+  response: Record<number, z.ZodTypeAny>;
   auth: ContractAuthClass;
   permissions?: (context: { contract: OperatorRouteContract; params: unknown; query: unknown; body: unknown; request: unknown }) => boolean | { allowed: true } | { allowed: false; reason?: string } | Promise<boolean | { allowed: true } | { allowed: false; reason?: string }>;
   audit?: { kind: string; action?: string; targetKind?: string | null; targetId?: (context: { request: unknown; body: unknown }) => string | null };

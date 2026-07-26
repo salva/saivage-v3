@@ -26,6 +26,21 @@ function runtimeApplication(processRunner: ProcessRunner): RuntimeApplication {
 }
 
 describe('contract-backed process routes', () => {
+  const processView = {
+    id: 'proc-1', started_at: '2026-01-01T00:00:00.000Z', ended_at: null, exit_code: null,
+    timed_out: false, owner_id: 'runtime', owner_kind: 'runtime' as const, session_id: null,
+    card_id: null, command: 'echo ok', cwd: null, logs: { stdout: null, stderr: null },
+  };
+
+  it.each(['running', 'exited', 'failed', 'killed'] as const)('accepts process status %s', (status) => {
+    expect(ProcessViewSchema.parse({ ...processView, status }).status).toBe(status);
+  });
+
+  it('rejects unknown process status and extra members', () => {
+    expect(ProcessViewSchema.safeParse({ ...processView, status: 'unknown' }).success).toBe(false);
+    expect(ProcessViewSchema.safeParse({ ...processView, status: 'running', unexpected: true }).success).toBe(false);
+  });
+
   it('keeps the work root invalid as a concrete process-log reference', () => {
     expect(ProcessLogRefsSchema.safeParse({ stdout: 'work:///', stderr: null }).success).toBe(false);
   });
@@ -61,6 +76,7 @@ describe('contract-backed process routes', () => {
       });
       const view = list.json().processes[0];
       expect(ProcessViewSchema.safeParse({ ...view, unexpected: true }).success).toBe(false);
+      expect(ProcessViewSchema.safeParse({ ...view, logs: { ...view.logs, unexpected: true } }).success).toBe(false);
 
       expect((await fastify.inject({ method: 'GET', url: `/api/processes/${record.id}` })).statusCode).toBe(404);
     } finally {

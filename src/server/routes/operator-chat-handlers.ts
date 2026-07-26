@@ -16,14 +16,12 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
   return defineOperatorContractHandlers({
     'chats.get': () => ({ body: { session_id: options.runtimeApplication.analystSessionId } }),
     'chats.send': async ({ body, reply }) => {
-      if (!body.content) return { statusCode: 400, body: { error: 'Message content is required' } };
       const response = await options.runtimeApplication.analystRuntime.submit({
         userContent: body.content,
         workspaceContext: body.workspaceContext,
       });
       const result = {
         body: {
-          sessionId: response.sessionId,
           toolInvocations: (response.toolInvocations ?? []).map((invocation) => {
             const projected = redactForOutbound({
               source: 'tool-invocation',

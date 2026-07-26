@@ -20,16 +20,10 @@ export const EventsQuerySchema = z.object({
 export const EventsListResponseSchema = z.object({
   events: z.array(loggedEventSchema),
   total: z.number().int().nonnegative(),
-});
-
-export const EventsListFailureSchema = z.object({
-  error: z.literal('Failed to query events'),
-  message: z.string(),
-});
+}).strict();
 
 export type EventsQuery = z.infer<typeof EventsQuerySchema>;
 export type EventsListResponse = z.infer<typeof EventsListResponseSchema>;
-export type EventsListFailure = z.infer<typeof EventsListFailureSchema>;
 
 export const eventsOperatorApiContracts = {
   'events.list': {
@@ -38,7 +32,7 @@ export const eventsOperatorApiContracts = {
     path: '/api/events',
     query: EventsQuerySchema,
     success: EventsListResponseSchema,
-    error: EventsListFailureSchema,
+    error: ValidationErrorSchema,
     response: { 200: EventsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'EventsListResponse',

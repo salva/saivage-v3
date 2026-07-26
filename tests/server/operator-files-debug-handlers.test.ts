@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 
 import { CardService, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
-import { filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
+import { DoctorResponseSchema, filesDebugOperatorApiContracts } from '../../src/contracts/operator-api-files-debug.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -15,6 +15,7 @@ import { appLogFile, cardNamespace } from '../../src/persistence/layout.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
+import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../src/contracts/publication-outcome.js';
 
 describe('operator files and debug contract handlers', () => {
   let fastify: FastifyInstance;
@@ -53,10 +54,176 @@ describe('operator files and debug contract handlers', () => {
     expect(cardServiceProvider).not.toHaveBeenCalled();
   });
 
+  it('declares exact status-local Files error structures', () => {
+    const list = filesDebugOperatorApiContracts['files.list'].response;
+    const content = filesDebugOperatorApiContracts['files.content'].response;
+    const validation = { error: 'ValidationError', message: 'invalid query', issues: [{ path: 'path', message: 'Expected string' }] };
+    const errorOnly = { error: 'Path cannot be resolved.' };
+    const withPath = { error: 'File not found', path: 'missing.txt' };
+    const tooLarge = { error: 'File exceeds maximum size.', path: 'large.txt', size: 2_000_000, maxSize: 1_048_576 };
+
+    expect(list[400].parse(validation)).toEqual(validation);
+    expect(list[400].parse(withPath)).toEqual(withPath);
+    expect(list[403].parse(errorOnly)).toEqual(errorOnly);
+    expect(list[404].parse(withPath)).toEqual(withPath);
+    expect(content[400].parse(errorOnly)).toEqual(errorOnly);
+    expect(content[400].parse(withPath)).toEqual(withPath);
+    expect(content[403].parse(errorOnly)).toEqual(errorOnly);
+    expect(content[403].parse(withPath)).toEqual(withPath);
+    expect(content[404].parse(withPath)).toEqual(withPath);
+    expect(content[413].parse(tooLarge)).toEqual(tooLarge);
+    expect(content[415].parse(withPath)).toEqual(withPath);
+
+    for (const schema of [list[400], list[403], list[404], content[400], content[403], content[404], content[413], content[415]]) {
+      expect(schema.safeParse({ ...withPath, unexpected: true }).success).toBe(false);
+    }
+    expect(content[413].safeParse({ error: tooLarge.error, path: tooLarge.path, size: tooLarge.size }).success).toBe(false);
+    expect(list[403].safeParse(withPath).success).toBe(false);
+  });
+
   it('returns an exact empty Debug error projection when the log is missing', async () => {
     const errors = await fastify.inject({ method: 'GET', url: '/api/debug/errors', headers: authHeaders });
     expect(errors.statusCode).toBe(200);
     expect(errors.json()).toEqual({ errors: [], total: 0 });
+  });
+
+  it('registers Doctor and returns its exact ok projection', async () => {
+    const response = await fastify.inject({ method: 'GET', url: '/api/debug/doctor', headers: authHeaders });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      status: 'ok',
+      checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }],
+      issues: [],
+    });
+    expect(DoctorResponseSchema.parse(response.json())).toEqual(response.json());
+  });
+
+  it('authenticates Doctor before route work', async () => {
+    cardServiceProvider.mockClear();
+    const response = await fastify.inject({ method: 'GET', url: '/api/debug/doctor' });
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: 'Unauthorized', statusCode: 401 });
+    expect(cardServiceProvider).not.toHaveBeenCalled();
+  });
+
+  it('normalizes hostile Doctor authentication evaluation without route work', async () => {
+    const authPolicy = new AuthPolicy();
+    jest.spyOn(authPolicy, 'validateHttpRequest').mockImplementation(() => { throw new Error('hostile auth'); });
+    const list = jest.fn();
+    const { handler, request, reply } = mountedDoctorHandler({
+      projectRoot,
+      cardServiceProvider: () => ({ list } as unknown as CardService),
+      authPolicy,
+      fatalPort: testApplicationFatalPort,
+    });
+
+    await handler(request, reply.value);
+
+    expect(list).not.toHaveBeenCalled();
+    expect(reply.status).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(request.log.error).toHaveBeenCalledWith(
+      { operation: 'debug.doctor', failureCode: 'auth_evaluation_failed' },
+      'Operator contract operation failed',
+    );
+  });
+
+  it('accepts only the two coherent exact Doctor projections', () => {
+    const failed = {
+      status: 'issues_found',
+      checks: [{ name: 'cards_loadable', passed: false, details: 'Cards failed to load.' }],
+      issues: [{ severity: 'error', message: 'Cards failed to load.' }],
+    } as const;
+    expect(DoctorResponseSchema.parse(failed)).toEqual(failed);
+    for (const invalid of [
+      { status: 'ok', checks: failed.checks, issues: [] },
+      { status: 'ok', checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }], issues: failed.issues },
+      { ...failed, unexpected: true },
+      { ...failed, issues: [] },
+    ]) expect(DoctorResponseSchema.safeParse(invalid).success).toBe(false);
+  });
+
+  it('keeps an ordinary Doctor list failure as one safe diagnostic and exact issues_found response', async () => {
+    const marker = 'hostile-doctor-list';
+    const list = jest.fn(() => { throw new Error(marker); });
+    const { handler, request, reply } = mountedDoctorHandler({
+      projectRoot,
+      cardServiceProvider: () => ({ list } as unknown as CardService),
+      authPolicy: new AuthPolicy(),
+      fatalPort: testApplicationFatalPort,
+    });
+
+    await handler(request, reply.value);
+
+    expect(reply.status).toHaveBeenCalledWith(200);
+    expect(reply.send).toHaveBeenCalledWith({
+      status: 'issues_found',
+      checks: [{ name: 'cards_loadable', passed: false, details: 'Cards failed to load.' }],
+      issues: [{ severity: 'error', message: 'Cards failed to load.' }],
+    });
+    expect(request.log.error).toHaveBeenCalledTimes(1);
+    expect(request.log.error).toHaveBeenCalledWith(
+      { operation: 'debug.doctor', failureCode: 'cards_load_failed' },
+      'Operator Doctor card check failed',
+    );
+    expect(JSON.stringify(request.log.error.mock.calls)).not.toContain(marker);
+  });
+
+  it('delivers the same publication-unknown Doctor failure to the fatal port without response or ordinary diagnostics', async () => {
+    const publicationError = new PublicationOutcomeUnknownError();
+    const sentinel = new Error('fatal sentinel');
+    const publicationOutcomeUnknown = jest.fn((_error: PublicationOutcomeUnknownError): never => { throw sentinel; });
+    const { handler, request, reply, appendEventPrepared } = mountedDoctorHandler({
+      projectRoot,
+      cardServiceProvider: () => ({ list: () => { throw publicationError; } } as unknown as CardService),
+      authPolicy: new AuthPolicy(),
+      fatalPort: { publicationOutcomeUnknown } satisfies ApplicationFatalPort,
+    });
+
+    await expect(handler(request, reply.value)).rejects.toBe(sentinel);
+    expect(publicationOutcomeUnknown).toHaveBeenCalledTimes(1);
+    expect(publicationOutcomeUnknown).toHaveBeenCalledWith(publicationError);
+    expect(reply.status).not.toHaveBeenCalled();
+    expect(reply.send).not.toHaveBeenCalled();
+    expect(request.log.error).not.toHaveBeenCalled();
+    expect(appendEventPrepared).not.toHaveBeenCalled();
+  });
+
+  it('normalizes a Doctor outer failure once through ContractRuntime', async () => {
+    const { handler, request, reply } = mountedDoctorHandler({
+      projectRoot,
+      cardServiceProvider: () => ({ list: () => { throw new Error('inner'); } } as unknown as CardService),
+      authPolicy: new AuthPolicy(),
+      fatalPort: testApplicationFatalPort,
+    });
+    request.log.error.mockImplementationOnce(() => { throw new Error('outer'); });
+
+    await handler(request, reply.value);
+
+    expect(reply.status).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(request.log.error).toHaveBeenCalledTimes(2);
+    expect(request.log.error.mock.calls[1]?.[0]).toEqual({ operation: 'debug.doctor', failureCode: 'handler_failed' });
+  });
+
+  it('fails a malformed Doctor handler projection through response-contract validation', async () => {
+    const { handler, request, reply, appendEventPrepared } = mountedDoctorHandler({
+      projectRoot,
+      cardServiceProvider: () => cards,
+      authPolicy: new AuthPolicy(),
+      fatalPort: testApplicationFatalPort,
+      doctorHandler: () => ({ body: { status: 'ok', checks: [], issues: [] } }),
+    });
+
+    await handler(request, reply.value);
+
+    expect(reply.status).toHaveBeenCalledWith(500);
+    expect(reply.send).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(appendEventPrepared).toHaveBeenCalledTimes(1);
+    expect((appendEventPrepared.mock.calls[0]?.[0] as () => unknown)()).toEqual(expect.objectContaining({
+      kind: 'runtime_actionable_error',
+      actionable_error: expect.objectContaining({ code: 'contract_response_violation' }),
+    }));
   });
 
   it('authenticates and returns the strict non-disclosing startup graph projection', async () => {
@@ -191,3 +358,39 @@ describe('operator files and debug contract handlers', () => {
     expect(cardServiceProvider).toHaveBeenCalledTimes(1);
   });
 });
+
+function mountedDoctorHandler(options: {
+  projectRoot: string;
+  cardServiceProvider: () => CardService;
+  authPolicy: AuthPolicy;
+  fatalPort: ApplicationFatalPort;
+  doctorHandler?: () => { body: unknown };
+}) {
+  let handler: ((request: unknown, reply: FastifyReply) => Promise<unknown>) | undefined;
+  const fastify = {
+    route: (route: { url: string; handler: unknown }) => {
+      if (route.url === '/api/debug/doctor') handler = route.handler as typeof handler;
+    },
+  } as unknown as FastifyInstance;
+  const appendEventPrepared = jest.fn();
+  const handlers = {
+    ...buildFilesDebugOperatorContractHandlers({
+      projectRoot: options.projectRoot,
+      cardServiceProvider: options.cardServiceProvider,
+      configAuthority: createTestConfigAuthority(options.projectRoot),
+      workflows: TEST_RUNTIME_WORKFLOWS,
+    }),
+    ...(options.doctorHandler ? { 'debug.doctor': options.doctorHandler } : {}),
+  };
+  new ContractRuntime({ authPolicy: options.authPolicy, eventLogger: { appendEventPrepared } as never, fatalPort: options.fatalPort }).mount(
+    fastify,
+    filesDebugOperatorApiContracts,
+    handlers as never,
+  );
+  if (!handler) throw new Error('Doctor contract handler was not mounted.');
+  const send = jest.fn();
+  const status = jest.fn(() => ({ send }));
+  const reply = { value: { status, send, raw: { once: jest.fn() }, header: jest.fn() } as unknown as FastifyReply, status, send };
+  const request = { params: {}, query: {}, body: {}, headers: {}, log: { error: jest.fn() } };
+  return { handler, request, reply, appendEventPrepared };
+}

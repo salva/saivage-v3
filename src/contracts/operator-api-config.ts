@@ -15,11 +15,6 @@ export const ConfigGetResponseSchema = z.object({
   warnings: z.array(z.string()),
 }).strict();
 
-export const ConfigUnavailableErrorSchema = z.object({
-  error: z.literal('Configuration unavailable'),
-  message: z.string(),
-});
-
 export const ProviderSummarySchema = z.object({
   priority: z.number(),
   models: z.array(z.string()),
@@ -28,46 +23,33 @@ export const ProviderSummarySchema = z.object({
   availableCandidateCount: z.number().int().nonnegative(),
   capabilitiesByModel: z.record(z.string(), z.unknown()),
   availability: z.array(z.object({
-    candidate: z.object({ provider: z.string(), account: z.string().nullable(), model: z.string() }),
+    candidate: z.object({ provider: z.string(), account: z.string().nullable(), model: z.string() }).strict(),
     state: z.string(),
     reason: z.string().optional(),
     untilMs: z.number().optional(),
-  })),
-});
+  }).strict()),
+}).strict();
 
 export const ProvidersListResponseSchema = z.object({
   availabilityScope: z.literal('process_local_reset_on_restart'),
   providers: z.record(z.string(), ProviderSummarySchema),
-});
-
-export const ProvidersUnavailableErrorSchema = z.object({
-  error: z.literal('Providers unavailable'),
-  message: z.string(),
-});
+}).strict();
 
 export const ControlActionsQuerySchema = z.object({
   card_id: cardIdSchema.optional(),
   since: z.string().optional(),
-});
+}).strict();
 
 export const ControlActionsListResponseSchema = z.object({
   control_actions: z.array(controlActionAuditEntrySchema),
   total: z.number().int().nonnegative(),
-});
-
-export const ControlActionsListFailureSchema = z.object({
-  error: z.literal('Failed to list control actions'),
-  message: z.string(),
-});
+}).strict();
 
 export type ConfigGetResponse = z.infer<typeof ConfigGetResponseSchema>;
-export type ConfigUnavailableError = z.infer<typeof ConfigUnavailableErrorSchema>;
 export type ProviderSummary = z.infer<typeof ProviderSummarySchema>;
 export type ProvidersListResponse = z.infer<typeof ProvidersListResponseSchema>;
-export type ProvidersUnavailableError = z.infer<typeof ProvidersUnavailableErrorSchema>;
 export type ControlActionsQuery = z.infer<typeof ControlActionsQuerySchema>;
 export type ControlActionsListResponse = z.infer<typeof ControlActionsListResponseSchema>;
-export type ControlActionsListFailure = z.infer<typeof ControlActionsListFailureSchema>;
 
 export const configOperatorApiContracts = {
   'config.get': {
@@ -75,7 +57,7 @@ export const configOperatorApiContracts = {
     method: 'GET',
     path: '/api/config',
     success: ConfigGetResponseSchema,
-    error: ConfigUnavailableErrorSchema,
+    error: UnauthorizedErrorSchema,
     response: { 200: ConfigGetResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ConfigGetResponse',
@@ -85,7 +67,7 @@ export const configOperatorApiContracts = {
     method: 'GET',
     path: '/api/providers',
     success: ProvidersListResponseSchema,
-    error: ProvidersUnavailableErrorSchema,
+    error: UnauthorizedErrorSchema,
     response: { 200: ProvidersListResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ProvidersListResponse',
@@ -96,7 +78,7 @@ export const configOperatorApiContracts = {
     path: '/api/control-actions',
     query: ControlActionsQuerySchema,
     success: ControlActionsListResponseSchema,
-    error: ControlActionsListFailureSchema,
+    error: ValidationErrorSchema,
     response: { 200: ControlActionsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ControlActionsListResponse',

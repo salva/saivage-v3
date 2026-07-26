@@ -49,10 +49,9 @@ describe('Analyst chat API client', () => {
       entityId: 'project',
       refinement: { tab: 'history' },
     };
-    request.mockResolvedValue(new Response(JSON.stringify({ sessionId: analystSessionId, toolInvocations: [], restart: null }), { status: 200 }));
+    request.mockResolvedValue(new Response(JSON.stringify({ toolInvocations: [], restart: null }), { status: 200 }));
 
     await expect(sendChatMessage('inspect this', workspaceContext)).resolves.toEqual({
-      sessionId: analystSessionId,
       toolInvocations: [],
       restart: null,
     });
