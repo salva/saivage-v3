@@ -103,6 +103,7 @@ describe('SyncClient', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -169,7 +170,61 @@ describe('SyncClient', () => {
     expect(onReconnect).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps non-Cards refetches single-flight with one trailing call and settlement callback', async () => {
+  it('replays the latest complete invocation after public registration replacement', async () => {
+    vi.useFakeTimers();
+    const invalidatedAt = new Date('2026-07-24T12:34:56.789Z');
+    const { conn, emitSync } = createConn('connected');
+    const client = new SyncClient(conn);
+    const first = deferred();
+    const second = deferred();
+    const refetchA = vi.fn(() => first.promise);
+    const refetchB = vi.fn(() => second.promise);
+    const onRefetchA = vi.fn();
+    const onRefetchB = vi.fn();
+    client.start();
+
+    const disposeA = client.register({
+      resource: 'runtime',
+      scope: 'core',
+      requestOwnership: 'sync-client',
+      refetch: refetchA,
+      onRefetch: onRefetchA,
+    });
+    client.register({
+      resource: 'runtime',
+      scope: 'core',
+      requestOwnership: 'sync-client',
+      refetch: refetchB,
+      onRefetch: onRefetchB,
+    });
+    disposeA();
+    vi.setSystemTime(invalidatedAt);
+    emitSync({ t: 'invalidate', resource: 'runtime' });
+
+    expect(refetchA).toHaveBeenCalledTimes(1);
+    expect(refetchB).not.toHaveBeenCalled();
+
+    first.resolve(undefined);
+    await flush();
+    expect(refetchA).toHaveBeenCalledTimes(1);
+    expect(refetchB).toHaveBeenCalledTimes(1);
+    expect(onRefetchA).not.toHaveBeenCalled();
+    expect(onRefetchB).not.toHaveBeenCalled();
+
+    second.resolve(undefined);
+    await flush();
+    expect(refetchA).toHaveBeenCalledTimes(1);
+    expect(refetchB).toHaveBeenCalledTimes(1);
+    expect(onRefetchA).not.toHaveBeenCalled();
+    expect(onRefetchB).toHaveBeenCalledTimes(1);
+    expect(onRefetchB).toHaveBeenCalledWith(invalidatedAt.toISOString());
+  });
+
+  it('keeps only the latest complete invocation while a non-Cards refetch is active', async () => {
+    vi.useFakeTimers();
+    const firstInvalidatedAt = new Date('2026-07-24T12:00:00.000Z');
+    const intermediateInvalidatedAt = new Date('2026-07-24T12:00:01.000Z');
+    const latestInvalidatedAt = new Date('2026-07-24T12:00:02.000Z');
     const { conn, emitSync } = createConn();
     const client = new SyncClient(conn);
     const first = deferred();
@@ -185,7 +240,11 @@ describe('SyncClient', () => {
     });
     client.start();
 
+    vi.setSystemTime(firstInvalidatedAt);
     emitSync({ t: 'invalidate', resource: 'runtime' });
+    vi.setSystemTime(intermediateInvalidatedAt);
+    emitSync({ t: 'invalidate', resource: 'runtime' });
+    vi.setSystemTime(latestInvalidatedAt);
     emitSync({ t: 'invalidate', resource: 'runtime' });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(1);
@@ -195,11 +254,16 @@ describe('SyncClient', () => {
     await flush();
     expect(refetch).toHaveBeenCalledTimes(2);
     expect(onRefetch).toHaveBeenCalledTimes(1);
-    expect(onRefetch).toHaveBeenCalledWith(expect.any(String));
+    expect(onRefetch).toHaveBeenCalledWith(firstInvalidatedAt.toISOString());
 
     second.resolve(undefined);
     await flush();
-    expect(onRefetch).toHaveBeenCalledTimes(1);
+    expect(refetch).toHaveBeenCalledTimes(2);
+    expect(onRefetch.mock.calls.map(([timestamp]) => timestamp)).toEqual([
+      firstInvalidatedAt.toISOString(),
+      latestInvalidatedAt.toISOString(),
+    ]);
+    expect(onRefetch).not.toHaveBeenCalledWith(intermediateInvalidatedAt.toISOString());
   });
 
   it('uses a Cards-specific registration boundary', () => {

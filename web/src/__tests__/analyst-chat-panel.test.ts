@@ -141,6 +141,49 @@ describe('AnalystChatPanel', () => {
     expect(live.closeConversation).toHaveBeenCalledTimes(1);
   });
 
+  it('reopens the unchanged conversation identity for each component lifetime', async () => {
+    const firstClose = vi.fn();
+    const secondClose = vi.fn();
+    live.openConversation
+      .mockImplementationOnce((_id, callback) => {
+        void callback(null);
+        return firstClose;
+      })
+      .mockImplementationOnce((_id, callback) => {
+        void callback(null);
+        return secondClose;
+      });
+    const pinia = createPinia();
+
+    const firstPanel = mountPanel(pinia);
+    await flushPromises();
+    expect(api.getChatEntries).toHaveBeenCalledTimes(1);
+    expect(live.openConversation).toHaveBeenCalledTimes(1);
+    expect(live.openConversation).toHaveBeenNthCalledWith(
+      1,
+      analystSessionId,
+      expect.any(Function),
+    );
+
+    firstPanel.unmount();
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(secondClose).not.toHaveBeenCalled();
+
+    const secondPanel = mountPanel(pinia);
+    await flushPromises();
+    expect(api.getChatEntries).toHaveBeenCalledTimes(1);
+    expect(live.openConversation).toHaveBeenCalledTimes(2);
+    expect(live.openConversation).toHaveBeenNthCalledWith(
+      2,
+      analystSessionId,
+      expect.any(Function),
+    );
+
+    secondPanel.unmount();
+    expect(firstClose).toHaveBeenCalledTimes(1);
+    expect(secondClose).toHaveBeenCalledTimes(1);
+  });
+
   it('makes root settlement inert after unmount', async () => {
     let resolveRoot!: (value: unknown) => void;
     api.getCardChildren.mockReturnValue(new Promise((resolve) => (resolveRoot = resolve)));

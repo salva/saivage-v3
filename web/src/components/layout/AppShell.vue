@@ -5,7 +5,6 @@
       `pane-${effectiveMobileActivePane}`,
       { 'analyst-pane-suppressed': suppressAnalystPane },
     ]"
-    @keydown="handleKeydown"
   >
     <div class="workspace-shell">
       <NavRail :nav-items="navItems" :docs-href="docsHref" @open-token="showTokenDialog = true" />
@@ -287,10 +286,6 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 }
 
-function globalKeyHandler(event: KeyboardEvent): void {
-  handleKeydown(event);
-}
-
 function handleApiAuthRequired(): void {
   if (!isAuthBannerDismissedForSession()) {
     showAuthBanner.value = true;
@@ -316,12 +311,12 @@ function handleTokenCleared(): void {
 }
 
 onMounted(() => {
-  window.addEventListener('keydown', globalKeyHandler);
+  window.addEventListener('keydown', handleKeydown);
   window.addEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
 });
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', globalKeyHandler);
+  window.removeEventListener('keydown', handleKeydown);
   window.removeEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
 });
 </script>

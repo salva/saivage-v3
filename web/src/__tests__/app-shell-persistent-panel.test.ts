@@ -74,6 +74,22 @@ describe('AppShell persistent analyst panel', () => {
     wrapper.unmount();
   });
 
+  it('handles one bubbling descendant numeric shortcut with one navigation', async () => {
+    const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
+    await flushPromises();
+    const push = vi.spyOn(router, 'push');
+
+    wrapper.get('.workspace-content').element.dispatchEvent(
+      new KeyboardEvent('keydown', { key: '2', bubbles: true }),
+    );
+    await flushPromises();
+
+    expect(push).toHaveBeenCalledOnce();
+    expect(push).toHaveBeenCalledWith({ name: 'cards' });
+    wrapper.unmount();
+    push.mockRestore();
+  });
+
   it('keeps the analyst region visible across route changes', async () => {
     const wrapper = mount(AppShell, { attachTo: document.body, global: { plugins: [createPinia(), router] } });
     await flushPromises();

@@ -3,7 +3,13 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
 import FilesView from '../views/FilesView.vue';
+import { useFileStore } from '../stores/files';
 import type { FileContent, FilesListResponse } from '../api/types';
+
+const syncMocks = vi.hoisted(() => ({
+  registerResource: vi.fn(),
+  unregisterFiles: vi.fn(),
+}));
 
 vi.mock('../api/client', () => {
   const ApiError = class extends Error {
@@ -27,7 +33,7 @@ vi.mock('../api/client', () => {
 
 vi.mock('../stores/sync', () => ({
   useSyncStore: () => ({
-    registerResource: vi.fn(() => vi.fn()),
+    registerResource: syncMocks.registerResource,
   }),
 }));
 
@@ -77,6 +83,7 @@ async function mountFilesView(opts?: {
   }));
 
   const pinia = createPinia();
+  const fileStore = useFileStore(pinia);
   const router = makeRouter();
   await router.push(opts?.initialRoute ?? '/files');
   await router.isReady();
@@ -85,12 +92,13 @@ async function mountFilesView(opts?: {
     global: { plugins: [pinia, router] },
   });
   await flushPromises();
-  return { wrapper, router };
+  return { wrapper, router, fileStore };
 }
 
 describe('FilesView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    syncMocks.registerResource.mockReturnValue(syncMocks.unregisterFiles);
   });
 
   afterEach(() => {
@@ -102,6 +110,23 @@ describe('FilesView', () => {
     expect(wrapper.find('[data-testid="route-files"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="files-canonical-panel"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="route-files"]').text()).toContain('Metadata');
+  });
+
+  it('owns the exact reconnect-only Files registration for its mounted lifetime', async () => {
+    const { wrapper, fileStore } = await mountFilesView();
+
+    expect(syncMocks.registerResource).toHaveBeenCalledTimes(1);
+    expect(syncMocks.registerResource).toHaveBeenCalledWith({
+      resource: 'files',
+      scope: 'active',
+      requestOwnership: 'sync-client',
+      refetch: fileStore.refetch,
+    });
+    expect(syncMocks.unregisterFiles).not.toHaveBeenCalled();
+
+    wrapper.unmount();
+
+    expect(syncMocks.unregisterFiles).toHaveBeenCalledTimes(1);
   });
 
   it.each([

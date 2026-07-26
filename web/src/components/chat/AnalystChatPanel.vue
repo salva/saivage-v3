@@ -147,7 +147,6 @@ const messagesErrorLabel = computed(() => {
   }
   return messagesError.value.message;
 });
-let closeAnalystConversation: (() => void) | null = null;
 let rootSettled = false;
 let refreshPending = false;
 let mounted = false;
@@ -207,19 +206,19 @@ onMounted(() => {
   void cards.ensureRoot().then(settleRootGate, settleRootGate);
 });
 
-watch(activeSessionId, (sessionId) => {
-  closeAnalystConversation?.();
-  closeAnalystConversation = sessionId
-    ? liveSync.openConversation(sessionId, refreshConversation)
-    : null;
-  timelineControls.resetScrollState();
-});
+watch(
+  activeSessionId,
+  (sessionId, _previousSessionId, onCleanup) => {
+    timelineControls.resetScrollState();
+    if (!sessionId) return;
+    onCleanup(liveSync.openConversation(sessionId, refreshConversation));
+  },
+  { immediate: true },
+);
 
 onBeforeUnmount(() => {
   mounted = false;
   window.removeEventListener('saivage:focus-chat', handleFocusChat);
-  closeAnalystConversation?.();
-  closeAnalystConversation = null;
 });
 </script>
 

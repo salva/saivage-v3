@@ -8,7 +8,7 @@
 
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import type { FileEntry, FileContent, FilesListResponse, FreshnessState } from '../api/types';
+import type { FileEntry, FileContent, FilesListResponse } from '../api/types';
 import { listFiles, getFileContent, ApiError } from '../api/client';
 import { createLogger } from '../utils/logger';
 
@@ -77,8 +77,6 @@ export const useFileStore = defineStore('files', () => {
   const listError = ref<string | null>(null);
   const viewerError = ref<string | null>(null);
   const unauthorized = ref(false);
-  const lastWsEventAt = ref<string | null>(null);
-  const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
 
   // ── Getters ────────────────────────────────────────────────
 
@@ -107,9 +105,8 @@ export const useFileStore = defineStore('files', () => {
 
   const lastFetchedAt = computed(() => viewerLastFetchedAt.value ?? outputLastFetchedAt.value ?? metaLastFetchedAt.value);
   const isStale = computed(() => {
-    const latest = lastWsEventAt.value ?? lastFetchedAt.value;
-    if (!latest) return false;
-    return Date.now() - new Date(latest).getTime() > STALE_AFTER_MS;
+    if (!lastFetchedAt.value) return false;
+    return Date.now() - new Date(lastFetchedAt.value).getTime() > STALE_AFTER_MS;
   });
 
   function markRestSync(target: 'meta' | 'output' | 'viewer'): void {
@@ -117,12 +114,6 @@ export const useFileStore = defineStore('files', () => {
     if (target === 'meta') metaLastFetchedAt.value = now;
     if (target === 'output') outputLastFetchedAt.value = now;
     if (target === 'viewer') viewerLastFetchedAt.value = now;
-    lastUpdatedBy.value = 'rest';
-  }
-
-  function markWsSync(timestamp = nowIso()): void {
-    lastWsEventAt.value = timestamp;
-    lastUpdatedBy.value = 'ws';
   }
 
   function handleApiError(err: unknown, fallback: string): string {
@@ -271,8 +262,6 @@ export const useFileStore = defineStore('files', () => {
     metaLastFetchedAt,
     outputLastFetchedAt,
     viewerLastFetchedAt,
-    lastWsEventAt,
-    lastUpdatedBy,
     unauthorized,
     isStale,
 
@@ -291,7 +280,6 @@ export const useFileStore = defineStore('files', () => {
     navigateOutputUp,
     fetchFileContent,
     clearViewedFile,
-    markWsSync,
     refetch,
   };
 });

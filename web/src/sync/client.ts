@@ -40,7 +40,13 @@ export type SyncResourceRegistration =
 
 interface FlightState {
   inFlight: boolean;
-  trailing: boolean;
+  trailing?: SingleFlightInvocation;
+}
+
+interface SingleFlightInvocation {
+  refetch: () => Promise<void | boolean>;
+  refetchedAt?: string;
+  onRefetch?: (timestamp: string) => void;
 }
 
 const log = createLogger('sync');
@@ -362,10 +368,10 @@ export class SyncClient {
     refetchedAt?: string,
     onRefetch?: (timestamp: string) => void,
   ): void {
-    const state = this.flights.get(key) ?? { inFlight: false, trailing: false };
+    const state = this.flights.get(key) ?? { inFlight: false };
     this.flights.set(key, state);
     if (state.inFlight) {
-      state.trailing = true;
+      state.trailing = { refetch, refetchedAt, onRefetch };
       return;
     }
     state.inFlight = true;
@@ -376,9 +382,15 @@ export class SyncClient {
       .catch((err) => log.warn(`Sync refetch failed for ${key}`, err))
       .finally(() => {
         state.inFlight = false;
-        if (state.trailing) {
-          state.trailing = false;
-          this.runSingleFlight(key, refetch);
+        const trailing = state.trailing;
+        state.trailing = undefined;
+        if (trailing) {
+          this.runSingleFlight(
+            key,
+            trailing.refetch,
+            trailing.refetchedAt,
+            trailing.onRefetch,
+          );
           return;
         }
         this.flights.delete(key);
