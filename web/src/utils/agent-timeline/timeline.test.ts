@@ -350,7 +350,6 @@ describe('entriesToTimeline display filtering', () => {
     ]);
 
     expect(timeline.rounds).toHaveLength(0);
-    expect(timeline.activeRoundId).toBeNull();
   });
 
   it('does not render empty text-only rounds', () => {
@@ -365,7 +364,6 @@ describe('entriesToTimeline display filtering', () => {
     ]);
 
     expect(timeline.rounds).toHaveLength(0);
-    expect(timeline.activeRoundId).toBeNull();
   });
 
   it('does not synthesize tool calls for orphan tool results', () => {

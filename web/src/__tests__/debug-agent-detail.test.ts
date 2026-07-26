@@ -12,7 +12,7 @@ const api = vi.hoisted(() => ({
   getAgentLlmExchange: vi.fn(),
 }));
 const live = vi.hoisted(() => ({ openConversation: vi.fn(), openLlmExchange: vi.fn() }));
-vi.mock('../stores/liveSync', () => ({ useLiveSyncStore: () => live }));
+vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 vi.mock('../api/client', () => ({
   getAgentSession: api.getAgentSession,
   getAgentConversation: api.getAgentConversation,

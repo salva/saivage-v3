@@ -43,6 +43,7 @@ import { computed, ref, watch } from 'vue';
 import InlineParts from '../content/InlineParts.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import type { ToolDisplayModel } from '../../utils/tool-friendly';
+import { inlinePartsText } from '../../utils/tool-friendly';
 import { formatTimestamp, isRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
 
 const props = defineProps<{
@@ -67,21 +68,11 @@ const toggleLabel = computed(() => `${props.expanded ? 'Collapse' : 'Expand'} to
 const formattedTimestamp = computed(() => props.timestamp ? formatTimestamp(props.timestamp, isRecentTimestamp(props.timestamp) ? 'relative' : 'absolute') : '');
 const timeTitle = computed(() => props.timestamp ? absoluteTimestampTitle(props.timestamp) : '');
 const statusText = computed(() => {
-  if (props.display.status.length) return inlineText(props.display.status);
+  if (props.display.status.length) return inlinePartsText(props.display.status);
   if (props.display.statusTone === 'pending') return 'running…';
   if (props.display.statusTone === 'error') return 'errored';
   return 'ok';
 });
-
-function inlineText(parts: ToolDisplayModel['target']): string {
-  return parts.map((part) => {
-    if (part.kind === 'text') return part.text;
-    if (part.kind === 'code') return part.code;
-    if (part.kind === 'file') return part.label ?? part.path;
-    if (part.kind === 'url') return part.label ?? part.href;
-    return part.fallbackLabel ?? part.id;
-  }).join('').trim();
-}
 
 const showRawCall = ref(false);
 const showRawResult = ref(false);

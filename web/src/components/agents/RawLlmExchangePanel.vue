@@ -111,10 +111,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { onMounted, onUnmounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
-import { useLiveSyncStore } from '../../stores/liveSync';
+import { useSyncStore } from '../../stores/sync';
 import { formatJson } from '../../utils/format-json';
 import CodeBlock from '../content/CodeBlock.vue';
 
@@ -122,9 +122,9 @@ import type { ConversationSessionId } from '../../api/contracts';
 const props = defineProps<{ sessionId: ConversationSessionId }>();
 
 const agentStore = useAgentStore();
-const liveSync = useLiveSyncStore();
+const liveSync = useSyncStore();
 const {
-  currentLlmExchange,
+  currentLlmExchange: exchange,
   llmExchangeLoaded,
   llmExchangeLoading,
   llmExchangeRefreshing,
@@ -132,7 +132,6 @@ const {
   llmExchangeRefreshError,
 } = storeToRefs(agentStore);
 
-const exchange = computed(() => currentLlmExchange.value);
 let exchangeToken: ReturnType<typeof agentStore.beginLlmExchangeSelection> | null = null;
 let closeExchange: (() => void) | null = null;
 const leaseReady = ref(false);
@@ -235,23 +234,6 @@ onUnmounted(() => {
   border: 1px solid var(--entry-danger-border);
   border-radius: 4px;
 }
-.rlp-tabs {
-  display: flex;
-  gap: 4px;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 6px;
-  flex-wrap: wrap;
-}
-.rlp-attempt-tab {
-  padding: 3px 10px;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-  cursor: pointer;
-  font-family: inherit;
-}
 .rlp-attempt-meta {
   display: flex;
   flex-wrap: wrap;
@@ -289,14 +271,6 @@ onUnmounted(() => {
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
-.rlp-notice {
-  font-size: 11px;
-  color: var(--warn);
-  padding: 6px 8px;
-  background: var(--entry-warn-bg);
-  border: 1px solid var(--entry-warn-border);
-  border-radius: 4px;
-}
 .rlp-error-box {
   padding: 10px;
   background: var(--entry-danger-bg);
@@ -315,15 +289,6 @@ onUnmounted(() => {
 .rlp-error-message {
   font-size: 12px;
   color: var(--text);
-}
-.rlp-parsed-details {
-  margin-top: 6px;
-}
-.rlp-parsed-details summary {
-  cursor: pointer;
-  font-size: 11px;
-  color: var(--accent-2);
-  padding: 4px 0;
 }
 @media (max-width: 900px) {
   .rlp-panes {

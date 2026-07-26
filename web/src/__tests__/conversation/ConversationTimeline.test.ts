@@ -7,7 +7,7 @@ import { entriesToTimeline, type AgentTimeline, type TimelineRound } from '../..
 import type { AgentConversationEntry } from '../../api/types';
 
 function emptyTimeline(overrides: Partial<AgentTimeline> = {}): AgentTimeline {
-  return { rounds: [], activeRoundId: null, ...overrides };
+  return { rounds: [], ...overrides };
 }
 
 function round(id: string, kind: TimelineRound['kind']): TimelineRound {

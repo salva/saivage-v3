@@ -12,7 +12,7 @@ const live = vi.hoisted(() => ({
   closes: [] as Array<ReturnType<typeof vi.fn>>,
 }));
 
-vi.mock('../stores/liveSync', () => ({ useLiveSyncStore: () => live }));
+vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 vi.mock('../api/client', () => ({
   getCardAgentSessions: api.getCardAgentSessions,
   listAgentSessions: api.listAgentSessions,

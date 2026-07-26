@@ -25,9 +25,7 @@
 
         <div v-if="reasonLine" class="card-entity__reason">{{ reasonLine }}</div>
 
-        <StatusBanner v-if="bannerSeverity" :tone="bannerSeverity" :message="bannerMessage">
-          <template v-if="bannerSeverity === 'warning'" #action><button type="button" class="banner-action" @click="reloadDetail">Refresh card</button></template>
-        </StatusBanner>
+        <StatusBanner v-if="currentCard.lifecycle.error" tone="danger" :message="`Card error: ${currentCard.lifecycle.error}`" />
       </EntityHeader>
 
       <CardRecordsSection :card-id="currentCard.id" />
@@ -50,7 +48,7 @@
           <div class="meta-item"><span class="meta-key">Updated</span><span class="meta-value" :title="timestampTitle(currentCard.updated_at)">{{ fmtDate(currentCard.updated_at) }}</span></div>
           <div class="meta-item"><span class="meta-key">Type</span><span class="meta-value">{{ labelForCardType(currentCard.type) }}</span></div>
           <div class="meta-item"><span class="meta-key">Urgency</span><span class="meta-value">{{ currentCard.urgency }}</span></div>
-           <div v-if="currentCard.lifecycle?.completed_at || lifecycle?.completedAt" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value" :title="timestampTitle(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '')">{{ fmtDate(currentCard.lifecycle?.completed_at || lifecycle?.completedAt || '') }}</span></div>
+           <div v-if="currentCard.lifecycle.completed_at" class="meta-item"><span class="meta-key">Completed</span><span class="meta-value" :title="timestampTitle(currentCard.lifecycle.completed_at)">{{ fmtDate(currentCard.lifecycle.completed_at) }}</span></div>
         </div>
         <div v-if="currentCard.allowedActions?.length" class="allowed-actions" data-testid="allowed-actions">
           <span class="allowed-actions-label">Allowed actions:</span>
@@ -90,7 +88,6 @@ const emit = defineEmits<{ 'back-to-cards': [] }>();
 const cardStore = useCardStore();
 const {
   selectedDetail,
-  selectedLifecycle: lifecycle,
   selectedDetailError,
   selectedDetailLoading,
   selectedDetailFreshness,
@@ -124,21 +121,12 @@ function statusExplainer(status: CardStatus): string {
   return map[status];
 }
 
-const reason = computed(() => lifecycle.value?.explanation || statusExplainer(currentCard.value?.lifecycle.status ?? 'backlog'));
+const reason = computed(() => statusExplainer(currentCard.value?.lifecycle.status ?? 'backlog'));
 const PROBLEMATIC: ReadonlySet<CardStatus> = new Set(['failed', 'blocked', 'cancelled']);
 const reasonLine = computed(() => {
   const status = currentCard.value?.lifecycle.status;
   if (!status || (status !== 'stopped' && !PROBLEMATIC.has(status))) return '';
-  return lifecycle.value?.explanation || statusExplainer(status);
-});
-
-const bannerSeverity = computed<'danger' | 'warning' | null>(() => {
-  if (lifecycle.value?.error || currentCard.value?.lifecycle?.error) return 'danger';
-  return null;
-});
-const bannerMessage = computed(() => {
-  if (bannerSeverity.value === 'danger') return `Card error: ${lifecycle.value?.error || currentCard.value?.lifecycle?.error}`;
-  return '';
+  return statusExplainer(status);
 });
 
 const resultSize = computed(() => {

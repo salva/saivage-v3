@@ -16,14 +16,6 @@ export function selectCurrentCardId(runtime: RuntimeState | null): string | null
   return runtime?.current_card_id ?? null;
 }
 
-export function selectRuntimeStatusTone(runtime: RuntimeState | null): string {
-  const label = selectRuntimeStatusLabel(runtime);
-  if (label === 'error') return 'danger';
-  if (label === 'paused') return 'warning';
-  if (label === 'running') return 'success';
-  return 'neutral';
-}
-
 export function selectRuntimeModeLabel(options: { statusLabel: string }): string {
   return options.statusLabel === 'unknown'
     ? 'Unknown'

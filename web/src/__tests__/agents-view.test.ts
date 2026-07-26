@@ -27,8 +27,8 @@ function resetTestState() {
   apiMockState.listError = null;
 }
 
-vi.mock('../stores/liveSync', () => ({
-  useLiveSyncStore: () => ({
+vi.mock('../stores/sync', () => ({
+  useSyncStore: () => ({
     openAgents: liveSyncMock.openAgents,
     openConversation: liveSyncMock.openConversation,
     openLlmExchange: liveSyncMock.openLlmExchange,

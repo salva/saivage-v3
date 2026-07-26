@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { reactive } from 'vue';
+import { markRaw, reactive } from 'vue';
 import { ApiError, getCardAgentSessions } from '../api/client';
 import type { AgentSession } from '../api/types';
 export interface CardAgentSessionsState {
@@ -31,7 +31,7 @@ export const useCardAgentSessionsStore = defineStore('card-agent-sessions', () =
     const state = scope(cardId);
     const generation = ++state.generation;
     state.controller?.abort();
-    const controller = new AbortController();
+    const controller = markRaw(new AbortController());
     state.controller = controller;
     state.sessions.length ? (state.refreshing = true) : (state.loading = true);
     try {

@@ -5,7 +5,7 @@ import type { CardHistoryListResponse } from '../api/contracts';
 import CardHistoryPanel from '../components/cards/CardHistoryPanel.vue';
 import { useCardStore } from '../stores/cards';
 import { cardView, historyEntry, historyHeader, rawCard } from './card-view-fixtures';
-vi.mock('../api/client', () => ({ listCards: vi.fn(), getCard: vi.fn(), listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn(), ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } } }));
+vi.mock('../api/client', () => ({ getCard: vi.fn(), listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn(), ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } } }));
 import { listCardHistory, getCardHistoryEntry, getCardDiff, ApiError } from '../api/client';
 const CARD = 'card-a';
 const header = historyHeader({ kind: 'update', card_id: CARD, version_seq: 2, change_reason: 'planner edit_card', changed_fields: ['title'], change_summary: 'title updated' });

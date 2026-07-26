@@ -165,15 +165,15 @@ const runtimeStore = useRuntimeStore();
 const authStore = useAuthStore();
 const analystChat = useAnalystChat();
 const {
-  statusLabel,
+  statusLabel: runtimeStatusLabel,
   status,
   syncConnectionState,
   liveUpdateLabel,
   liveUpdateDetail,
   runtimeModeLabel,
   runtimeDetail,
-  isStale,
-  unauthorized,
+  isStale: isRuntimeStale,
+  unauthorized: runtimeUnauthorized,
 } = storeToRefs(runtimeStore);
 
 const route = useRoute();
@@ -257,9 +257,6 @@ const currentSectionTitle = computed(() => {
 
 const wsConnectionState = computed<WsConnectionState>(() => syncConnectionState.value ?? 'offline');
 const runtimeStatus = computed<string | null>(() => status.value ?? null);
-const runtimeStatusLabel = computed(() => statusLabel.value);
-const isRuntimeStale = computed(() => isStale.value);
-const runtimeUnauthorized = computed(() => unauthorized.value);
 function handleKeydown(event: KeyboardEvent): void {
   if (document.body.hasAttribute('data-modal-open')) return;
   const target = event.target as HTMLElement;

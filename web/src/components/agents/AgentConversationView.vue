@@ -88,11 +88,11 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, ref, onMounted, onUnmounted } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
-import { useLiveSyncStore } from '../../stores/liveSync';
+import { useSyncStore } from '../../stores/sync';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
@@ -102,18 +102,17 @@ import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 import type { ConversationSessionId } from '../../api/contracts';
 const props = defineProps<{ sessionId: ConversationSessionId }>();
 const agentStore = useAgentStore();
-const liveSyncStore = useLiveSyncStore();
+const liveSyncStore = useSyncStore();
 const {
   currentSession,
   entries,
   conversationLoading: loading,
-  conversationError,
+  conversationError: errorMsg,
   conversationRefreshError,
   conversationRefreshing,
   conversationUnauthorized,
   conversationWarning,
 } = storeToRefs(agentStore);
-const errorMsg = computed(() => conversationError.value);
 const rawPanelOpen = ref(false);
 const timelineControls = useAgentTimeline(entries);
 let unsubscribeConversation: (() => void) | null = null;
@@ -127,7 +126,6 @@ onMounted(async () => {
   unsubscribeConversation = liveSyncStore.openConversation(props.sessionId, () =>
     agentStore.refetchConversation(token),
   );
-  void token;
 });
 onUnmounted(() => {
   unsubscribeConversation?.();

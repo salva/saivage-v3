@@ -41,18 +41,6 @@ export const cardTypeLabel: Record<CardType, string> = {
   ops: 'Ops',
 };
 
-export const cardTypeShort: Record<CardType, string> = {
-  project: 'Proj',
-  goal: 'Goal',
-  architecture: 'Arch',
-  code: 'Code',
-  test: 'Test',
-  doc: 'Doc',
-  data: 'Data',
-  research: 'Res',
-  ops: 'Ops',
-};
-
 export function toneForCardStatus(status: CardStatus): Tone {
   return cardStatusTone[status] ?? 'neutral';
 }
@@ -68,10 +56,6 @@ export function statusForCard(status: CardStatus, description?: string): UiStatu
 
 export function labelForCardType(type: CardType): string {
   return cardTypeLabel[type] ?? type;
-}
-
-export function shortLabelForCardType(type: CardType): string {
-  return cardTypeShort[type] ?? type;
 }
 
 export const runtimeStatusTone: Record<string, Tone> = {

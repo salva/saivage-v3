@@ -9,11 +9,8 @@ import type {
   CardRecord,
   ChatWorkspaceContext,
   ControlActionSurface,
-  McpInvocationStat,
-  McpStatusState,
   McpToolsResponse as ContractMcpToolsResponse,
   OperatorApiSuccess,
-  RuntimeState as ContractRuntimeState,
   ServerAvailability,
   RestartChatAcknowledgement,
 } from './contracts';
@@ -32,8 +29,6 @@ export type {
   EntityLink,
   MessageKind,
   MessageRole,
-  McpInvocationStat,
-  McpStatusState,
   LiveSyncClientFrame,
   LiveSyncCardInvalidateFrame,
   LiveSyncCardInvalidateTarget,
@@ -47,6 +42,8 @@ export type {
   LiveSyncUnscopedResource,
   ServerAvailability,
   RestartChatAcknowledgement,
+  RuntimeState,
+  RuntimeStatus,
 } from './contracts';
 
 export interface DetailErrorState {
@@ -97,17 +94,8 @@ export type WsConnectionState =
   | 'offline'
   | 'unauthorized'
   | 'no-token';
-export type { WsEventType, WsEnvelope } from './contracts';
+export type { WsEnvelope } from './contracts';
 export type DataAuthority = 'rest' | 'ws' | 'mixed' | 'unknown';
-export type RuntimeStatus =
-  | 'stopped'
-  | 'starting'
-  | 'running'
-  | 'pausing'
-  | 'paused'
-  | 'closing'
-  | 'error';
-export type RuntimeState = Omit<ContractRuntimeState, 'status'> & { status: RuntimeStatus };
 
 export interface FreshnessState {
   lastFetchedAt: string | null;
@@ -124,9 +112,7 @@ export type CardRecordContentResponse = OperatorApiSuccess<'cards.records.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[] };
-export type RuntimeStateResponse = Omit<OperatorApiSuccess<'runtime.getState'>, 'runtime'> & {
-  runtime: RuntimeState | null;
-};
+export type RuntimeStateResponse = OperatorApiSuccess<'runtime.getState'>;
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type AgentConversationResponse = OperatorApiSuccess<'agents.conversation'>;
 export type AgentDetailResponse = OperatorApiSuccess<'agents.detail'>;

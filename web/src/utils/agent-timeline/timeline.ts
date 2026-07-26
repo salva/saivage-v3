@@ -132,15 +132,8 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[]): A
       items: groupToolPairs(id, toolPairs),
     };
   });
-  const activeRound =
-    [...builtRounds].reverse().find((round: TimelineRound) => round.kind === 'assistant') ??
-    builtRounds[builtRounds.length - 1] ??
-    null;
   const rounds = builtRounds
     .filter(hasVisibleRoundContent)
     .map((round, idx) => ({ ...round, position: idx + 1 }));
-  const visibleActiveRound = activeRound
-    ? (rounds.find((round) => round.id === activeRound.id) ?? null)
-    : null;
-  return { rounds, activeRoundId: visibleActiveRound?.id ?? null };
+  return { rounds };
 }

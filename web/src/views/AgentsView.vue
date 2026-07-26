@@ -32,12 +32,6 @@
         />
         <div v-else class="agents-content">
           <StatusBanner
-            v-if="isStale"
-            class="agents-stale"
-            tone="stale"
-            message="Agent session data is stale. Refresh or wait for reconnect to resync with the authoritative REST state."
-          />
-          <StatusBanner
             v-if="sessionsRefreshError"
             tone="warning"
             :message="sessionsRefreshError"
@@ -116,7 +110,7 @@ import type { AgentSession } from '../types/view-models';
 import type { ConversationSessionId } from '../api/contracts';
 import { parseAgentDetailRouteParam } from '../router/agent-session-route';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
-import { useLiveSyncStore } from '../stores/liveSync';
+import { useSyncStore } from '../stores/sync';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
 import EntityInspectorShell from '../components/layout/EntityInspectorShell.vue';
 import SelectableRow from '../components/ui/SelectableRow.vue';
@@ -126,18 +120,16 @@ import ViewState from '../components/ui/ViewState.vue';
 const route = useRoute();
 const router = useRouter();
 const agentStore = useAgentStore();
-const liveSync = useLiveSyncStore();
+const liveSync = useSyncStore();
 let closeAgents: (() => void) | null = null;
 const cardStore = useCardStore();
 const {
   sessionsByRole,
   sessionsLoading,
-  sessionsError,
+  sessionsError: errorMsg,
   sessionsRefreshError,
   sessionsUnauthorized,
-  isStale,
 } = storeToRefs(agentStore);
-const errorMsg = computed(() => sessionsError.value);
 
 const routeSession = computed(() => parseAgentDetailRouteParam(route.params.id));
 const selectedSessionId = computed(() =>

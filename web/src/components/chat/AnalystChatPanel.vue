@@ -108,14 +108,14 @@ import type { AgentConversationEntry } from '../../types/view-models';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useCardStore } from '../../stores/cards';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
-import { useLiveSyncStore } from '../../stores/liveSync';
+import { useSyncStore } from '../../stores/sync';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 
 const chat = useAnalystChat();
 const cards = useCardStore();
 const workspaceRoute = useWorkspaceRouteStore();
-const liveSync = useLiveSyncStore();
+const liveSync = useSyncStore();
 const {
   activeSessionId,
   messages,

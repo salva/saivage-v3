@@ -5,9 +5,8 @@
         <code v-if="name" class="document-frame__name">{{ name }}</code>
         <h3 class="document-frame__title">{{ title }}</h3>
       </div>
-      <div v-if="version !== null || writer || timestamp" class="document-frame__meta">
+      <div v-if="version !== null || timestamp" class="document-frame__meta">
         <span v-if="version !== null" class="document-frame__pill">v{{ version }}</span>
-        <span v-if="writer" class="document-frame__writer">{{ writer }}</span>
         <time v-if="timestamp" class="document-frame__time" :datetime="timestamp">{{ timestamp }}</time>
       </div>
     </header>
@@ -22,12 +21,10 @@ withDefaults(defineProps<{
   title: string;
   name?: string | null;
   version?: number | string | null;
-  writer?: string | null;
   timestamp?: string | null;
 }>(), {
   name: null,
   version: null,
-  writer: null,
   timestamp: null,
 });
 </script>
@@ -40,7 +37,7 @@ withDefaults(defineProps<{
 .document-frame__title { margin:0; font-size:12px; font-weight:600; color:var(--text); }
 .document-frame__meta { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-left:auto; font-size:11px; color:var(--text-muted); }
 .document-frame__pill { font-size:10px; padding:1px 6px; border-radius:999px; border:1px solid var(--border); color:var(--text-muted); }
-.document-frame__writer, .document-frame__time { color:var(--text-muted); }
+.document-frame__time { color:var(--text-muted); }
 .document-frame__body { padding:10px 14px; font-size:13px; line-height:1.55; color:var(--text); }
 .document-frame__body :deep(.markdown-text > *:first-child) { margin-top:0; }
 .document-frame__body :deep(.markdown-text > *:last-child) { margin-bottom:0; }

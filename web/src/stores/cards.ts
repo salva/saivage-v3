@@ -1,6 +1,6 @@
 import { computed, markRaw, ref, shallowRef } from 'vue';
 import { defineStore } from 'pinia';
-import type { CardDetail, CardDiffRow, CardHierarchyRecord, CardHistoryEntry, CardHistoryHeader, CardRecordDescriptor, CardStatus, DetailErrorState, LiveSyncCardInvalidateTarget, LiveSyncCardRecordName } from '../api/types';
+import type { CardDetail, CardDiffRow, CardHierarchyRecord, CardHistoryEntry, CardHistoryHeader, CardRecordDescriptor, DetailErrorState, LiveSyncCardInvalidateTarget, LiveSyncCardRecordName } from '../api/types';
 import { ApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getCardRecord, listCardHistory, listCardRecords, type CurrentCardDiffKey } from '../api/client';
 import { abortRequestOwner, abortRequestOwners, releaseRequestOwner, replaceRequestOwner, withKey } from './keyed-containers';
 
@@ -45,27 +45,6 @@ function isExactRecordNotFound(error: unknown, cardId: string, name: string): er
     && error.body.error === 'Card record not found'
     && error.body.cardId === cardId
     && error.body.name === name;
-}
-
-export interface CardLifecycleSummary {
-  status: CardStatus; phase: 'planned' | 'ready' | 'running' | 'blocked' | 'stopped' | 'completed' | 'failed' | 'cancelled';
-  explanation: string; completionState: 'not-started' | 'in-progress' | 'blocked' | 'stopped' | 'failed' | 'cancelled' | 'marked-done'; error: string | null;
-  completedAt: string | null; childCounts?: Record<CardStatus, number>;
-  hasActiveChildren?: boolean; hasBlockingChildren?: boolean;
-}
-function lifecyclePhase(status: CardStatus): CardLifecycleSummary['phase'] {
-  if (status === 'backlog') return 'planned'; if (status === 'running') return 'running'; if (status === 'blocked') return 'blocked';
-  if (status === 'stopped') return 'stopped';
-  if (status === 'done') return 'completed'; if (status === 'failed') return 'failed'; if (status === 'cancelled') return 'cancelled'; return 'ready';
-}
-function completionState(status: CardStatus): CardLifecycleSummary['completionState'] {
-  if (status === 'backlog') return 'not-started'; if (status === 'blocked') return 'blocked'; if (status === 'failed') return 'failed';
-  if (status === 'stopped') return 'stopped';
-  if (status === 'cancelled') return 'cancelled'; if (status === 'done') return 'marked-done'; return 'in-progress';
-}
-export function deriveCardLifecycleSummary(card: CardDetail, children?: readonly CardHierarchyRecord[]): CardLifecycleSummary {
-  const projection = children === undefined ? {} : (() => { const counts = { backlog: 0, running: 0, blocked: 0, changed: 0, stopped: 0, done: 0, failed: 0, cancelled: 0 } satisfies Record<CardStatus, number>; for (const child of children) counts[child.status] += 1; return { childCounts: counts, hasActiveChildren: children.some((child) => child.status === 'running'), hasBlockingChildren: children.some((child) => child.status === 'blocked' || child.status === 'failed') }; })();
-  return { status: card.lifecycle.status, phase: lifecyclePhase(card.lifecycle.status), explanation: '', completionState: completionState(card.lifecycle.status), error: card.lifecycle.error, completedAt: card.lifecycle.completed_at, ...projection };
 }
 
 export function cardRouteChain(cardId: string): string[] {
@@ -236,7 +215,5 @@ export const useCardStore = defineStore('cards', () => {
     if (cardHistoryVisible.value && cardHistoryDiffKey.value && cardHistoryDiffFreshness.value.staleReason !== 'refresh-failed') void refreshDiff('reconnect');
   }
   function reset(): void { ++revealSeq; abortRequestOwners(childrenRequestOwnersByParentId); clearSelectionData(); selectedCardId.value = null; hierarchySlicesByParentId.value = {}; childrenLoadStateById.value = {}; }
-  const selectedLifecycle = computed(() => selectedDetail.value ? deriveCardLifecycleSummary(selectedDetail.value.card, loadedChildrenFor(selectedDetail.value.cardId)) : null);
-
-  return { hierarchySlicesByParentId, childrenLoadStateById, childrenRequestOwnersByParentId, selectedCardId, selectedDetail, selectedDetailLoading, selectedDetailError, selectedDetailFreshness, selectedLifecycle, orderedCardTree, cardRecords, recordDescriptors, recordDescriptorsLoading, recordDescriptorsError, cardHistory, cardHistoryLoading, cardHistoryError, cardHistoryFreshness, cardHistoryVisible, cardHistorySelectedSeq, cardHistoryEntry, cardHistoryEntryLoading, cardHistoryEntryError, cardHistoryDiff, cardHistoryDiffKey, cardHistoryDiffLoading, cardHistoryDiffError, cardHistoryDiffFreshness, childrenLoadState, loadedChildrenFor, hierarchyCardById, hierarchyPathFor, isHierarchyCardRepresented, ensureChildren, ensureRoot, refreshChildren, retryChildren, ensureRouteVisible, clearCardSelection, fetchCardDetail, refreshCardDetail, retryCardDetail, loadRecordDescriptors, loadCardRecords, refreshRecord, retryRecord, openCardHistory, closeCardHistory, fetchCardHistoryForCard, refreshHistory, retryHistory, selectCardHistoryVersion, refreshDiff, retryDiff, clearCardHistoryState, onInvalidate, onReconnect, reset };
+  return { hierarchySlicesByParentId, childrenLoadStateById, childrenRequestOwnersByParentId, selectedCardId, selectedDetail, selectedDetailLoading, selectedDetailError, selectedDetailFreshness, orderedCardTree, cardRecords, recordDescriptors, recordDescriptorsLoading, recordDescriptorsError, cardHistory, cardHistoryLoading, cardHistoryError, cardHistoryFreshness, cardHistoryVisible, cardHistorySelectedSeq, cardHistoryEntry, cardHistoryEntryLoading, cardHistoryEntryError, cardHistoryDiff, cardHistoryDiffKey, cardHistoryDiffLoading, cardHistoryDiffError, cardHistoryDiffFreshness, childrenLoadState, loadedChildrenFor, hierarchyCardById, hierarchyPathFor, isHierarchyCardRepresented, ensureChildren, ensureRoot, refreshChildren, retryChildren, ensureRouteVisible, clearCardSelection, fetchCardDetail, refreshCardDetail, retryCardDetail, loadRecordDescriptors, loadCardRecords, refreshRecord, retryRecord, openCardHistory, closeCardHistory, fetchCardHistoryForCard, refreshHistory, retryHistory, selectCardHistoryVersion, refreshDiff, retryDiff, clearCardHistoryState, onInvalidate, onReconnect, reset };
 });

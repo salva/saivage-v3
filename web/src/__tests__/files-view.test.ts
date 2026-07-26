@@ -25,8 +25,8 @@ vi.mock('../api/client', () => {
   };
 });
 
-vi.mock('../stores/liveSync', () => ({
-  useLiveSyncStore: () => ({
+vi.mock('../stores/sync', () => ({
+  useSyncStore: () => ({
     registerResource: vi.fn(() => vi.fn()),
   }),
 }));

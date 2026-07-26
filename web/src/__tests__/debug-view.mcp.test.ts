@@ -17,7 +17,7 @@ vi.mock('../api/client', () => ({
   },
 }));
 const live = vi.hoisted(() => ({ openAgents: vi.fn(() => vi.fn()) }));
-vi.mock('../stores/liveSync', () => ({ useLiveSyncStore: () => live }));
+vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 
 async function mountDebug(path: string) {
   const pinia = createPinia();

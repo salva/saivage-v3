@@ -7,7 +7,7 @@ import type { ProviderExchangePayload } from '../api/contracts';
 import { useAgentStore } from '../stores/agents';
 
 const live = vi.hoisted(() => ({ openLlmExchange: vi.fn(), close: vi.fn() }));
-vi.mock('../stores/liveSync', () => ({ useLiveSyncStore: () => live }));
+vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 
 function exchange(overrides: Partial<ProviderExchangePayload> = {}): ProviderExchangePayload {
   return {

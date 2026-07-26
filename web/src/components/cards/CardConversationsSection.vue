@@ -50,7 +50,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCardAgentSessionsStore } from '../../stores/cardAgentSessions';
-import { useLiveSyncStore } from '../../stores/liveSync';
+import { useSyncStore } from '../../stores/sync';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SelectableRow from '../ui/SelectableRow.vue';
@@ -61,7 +61,7 @@ const props = defineProps<{ cardId: string }>();
 
 const router = useRouter();
 const cardSessionsStore = useCardAgentSessionsStore();
-const liveSync = useLiveSyncStore();
+const liveSync = useSyncStore();
 const state = computed(() => cardSessionsStore.scope(props.cardId));
 const leaseReady = ref(false);
 const requestPending = computed(

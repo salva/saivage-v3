@@ -21,7 +21,7 @@ const live = vi.hoisted(() => ({
   unregisters: [] as Array<ReturnType<typeof vi.fn>>,
 }));
 
-vi.mock('../stores/liveSync', () => ({ useLiveSyncStore: () => live }));
+vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 vi.mock('../api/client', () => ({
   getDebugErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
   getNewestEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),

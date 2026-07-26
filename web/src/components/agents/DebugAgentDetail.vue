@@ -110,7 +110,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import { useAgentStore } from '../../stores/agents';
-import { useLiveSyncStore } from '../../stores/liveSync';
+import { useSyncStore } from '../../stores/sync';
 import { formatJson } from '../../utils/format-json';
 import CodeBlock from '../content/CodeBlock.vue';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
@@ -123,7 +123,7 @@ const props = defineProps<{
   kind: 'conversation' | 'llmExchange';
 }>();
 const agentStore = useAgentStore();
-const liveSyncStore = useLiveSyncStore();
+const liveSyncStore = useSyncStore();
 const {
   currentSession,
   entries,

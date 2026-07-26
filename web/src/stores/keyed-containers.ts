@@ -2,10 +2,6 @@ export interface AbortableRequestOwner {
   readonly controller: AbortController;
 }
 
-export function keyedRecord<Key extends string, Value>(keys: readonly Key[], valueFor: (key: Key) => Value): Record<Key, Value> {
-  return Object.fromEntries(keys.map((key) => [key, valueFor(key)])) as Record<Key, Value>;
-}
-
 export function withKey<Key extends string, Value>(record: Record<Key, Value>, key: NoInfer<Key>, value: NoInfer<Value>): Record<Key, Value> {
   return { ...record, [key]: value };
 }

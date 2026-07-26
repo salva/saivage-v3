@@ -82,7 +82,7 @@ import { computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
-import { useLiveSyncStore } from '../stores/liveSync';
+import { useSyncStore } from '../stores/sync';
 import { useCardStore } from '../stores/cards';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
@@ -102,7 +102,7 @@ type FileRoot = 'meta' | 'output';
 const route = useRoute();
 const router = useRouter();
 const fileStore = useFileStore();
-const liveSyncStore = useLiveSyncStore();
+const liveSyncStore = useSyncStore();
 const cardsStore = useCardStore();
 const {
   metaFiles, metaLoading, metaBreadcrumbs,

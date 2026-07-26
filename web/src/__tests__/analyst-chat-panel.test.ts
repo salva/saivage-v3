@@ -29,7 +29,7 @@ vi.mock('../api/client', () => ({
     }
   },
 }));
-vi.mock('../stores/liveSync', () => ({ useLiveSyncStore: () => live }));
+vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 
 const entries = [
   {

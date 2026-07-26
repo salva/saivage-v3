@@ -1,15 +1,10 @@
 export {
   operatorApiContracts,
-  operatorRouteInventory,
   parseOperatorResponse,
-  ProcessListResponseSchema,
-  ProcessLogRefsSchema,
   ProcessViewSchema,
   DebugGraphsResponseSchema,
   DoctorResponseSchema,
-  McpToolsResponseSchema,
   AgentSessionSummarySchema,
-  processesOperatorApiContracts,
 } from '@saivage/contracts/operator-api';
 
 export { ConversationSessionIdSchema, parseConversationSessionId } from '@saivage/schemas';
@@ -51,8 +46,6 @@ export type {
   DoctorResponse,
   HealthLivenessResponse,
   HealthReadinessResponse,
-  McpInvocationStat,
-   McpStatusState,
   McpToolsResponse,
   McpTransport,
   ProcessListResponse,
@@ -106,7 +99,6 @@ export type {
   LiveSyncUnscopedResource,
   WsEnvelope,
   WsEnvelopeContract,
-  WsEventType,
 } from '@saivage/contracts/operator-events';
 
 export { providerExchangePayloadSchema } from '@saivage/contracts/provider-exchange';

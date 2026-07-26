@@ -643,7 +643,7 @@ import { computed, onUnmounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useDebugStore } from '../stores/debug';
-import { useLiveSyncStore } from '../stores/liveSync';
+import { useSyncStore } from '../stores/sync';
 import { useRuntimeStore } from '../stores/runtime';
 import { useAgentStore } from '../stores/agents';
 import type { ConversationSessionId } from '../api/contracts';
@@ -663,7 +663,7 @@ import type { ProcessView } from '../types/view-models';
 import type { DebugTimelineItem } from '../stores/debug-read-model';
 
 const debugStore = useDebugStore();
-const liveSyncStore = useLiveSyncStore();
+const liveSyncStore = useSyncStore();
 const runtimeStore = useRuntimeStore();
 const agentStore = useAgentStore();
 const mcpStore = useMcpStore();

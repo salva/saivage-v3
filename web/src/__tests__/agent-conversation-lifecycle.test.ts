@@ -14,8 +14,8 @@ const lifecycle = vi.hoisted(() => ({
   callbacks: new Map<string, () => Promise<void>>(),
 }));
 
-vi.mock('../stores/liveSync', () => ({
-  useLiveSyncStore: () => ({
+vi.mock('../stores/sync', () => ({
+  useSyncStore: () => ({
     openAgents: () => () => {},
     openConversation: (sessionId: string, callback: () => Promise<void>) => {
       lifecycle.events.push(`subscribe:${sessionId}`);

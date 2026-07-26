@@ -3,7 +3,6 @@ import type { AgentConversationEntry } from '../../api/types';
 export type TimelineRoundKind = 'pre' | 'user' | 'assistant' | 'compacted';
 export interface ParsedRoundId {
   kind: TimelineRoundKind;
-  tier: number;
 }
 export interface ToolPair {
   call: AgentConversationEntry;
@@ -30,5 +29,4 @@ export interface TimelineRound {
 }
 export interface AgentTimeline {
   rounds: TimelineRound[];
-  activeRoundId: string | null;
 }

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AgentConversationEntry, AgentSession, FreshnessState } from '../api/types';
+import type { AgentConversationEntry, AgentSession } from '../api/types';
 import {
   ApiError,
   getAgentConversation,
@@ -26,9 +26,6 @@ export const useAgentStore = defineStore('agents', () => {
   const sessionsError = ref<string | null>(null);
   const sessionsRefreshError = ref<string | null>(null);
   const sessionsUnauthorized = ref(false);
-  const lastFetchedAt = ref<string | null>(null);
-  const lastWsEventAt = ref<string | null>(null);
-  const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const partitions = new Map<string, AgentSession[]>();
   let sessionsController: AbortController | null = null;
   let sessionsGeneration = 0;
@@ -69,7 +66,6 @@ export const useAgentStore = defineStore('agents', () => {
     }
     return map;
   });
-  const isStale = computed(() => false);
   function publishPartitions() {
     const seen = new Set<string>();
     const merged = [...partitions.values()].flat();
@@ -112,7 +108,6 @@ export const useAgentStore = defineStore('agents', () => {
       sessionsLoaded.value = true;
       sessionsError.value = null;
       sessionsRefreshError.value = null;
-      lastFetchedAt.value = new Date().toISOString();
       return true;
     } catch (error) {
       if (generation !== sessionsGeneration || abortError(error)) return false;
@@ -181,11 +176,6 @@ export const useAgentStore = defineStore('agents', () => {
     partitions.clear();
     sessions.value = [];
   }
-  function markWsSync(timestamp = new Date().toISOString()) {
-    lastWsEventAt.value = timestamp;
-    lastUpdatedBy.value = 'ws';
-  }
-
   function beginConversationSelection(id: ConversationSessionId): ConversationSelectionToken {
     ++conversationGeneration;
     conversationController?.abort();
@@ -324,15 +314,10 @@ export const useAgentStore = defineStore('agents', () => {
     sessionsError,
     sessionsRefreshError,
     sessionsUnauthorized,
-    lastFetchedAt,
-    lastWsEventAt,
-    lastUpdatedBy,
     sessionsByRole,
-    isStale,
     fetchSessions,
     reconcileMembership,
     releaseSessions,
-    markWsSync,
     selectedConversationSessionId,
     currentSession,
     entries,

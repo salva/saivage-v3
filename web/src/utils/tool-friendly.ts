@@ -22,7 +22,7 @@ function isInteractive(part: InlinePart): boolean {
   return part.kind === 'file' || part.kind === 'url' || part.kind === 'card';
 }
 
-function inlineText(parts: InlinePart[]): string {
+export function inlinePartsText(parts: readonly InlinePart[]): string {
   return parts
     .map((part) => {
       if (part.kind === 'text') return part.text;
@@ -71,7 +71,7 @@ export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
     statusTone = 'pending';
   } else {
     const resultParts = [...(resultPres?.headline ?? []), ...(resultPres?.detail ?? [])];
-    const text = inlineText(resultParts);
+    const text = inlinePartsText(resultParts);
     if (text) {
       statusParts = resultParts.filter((part) => !isInteractive(part));
       statusTone = resultPres?.status === 'error' ? 'error' : 'ok';
