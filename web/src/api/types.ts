@@ -47,7 +47,7 @@ export type {
 } from './contracts';
 
 export interface DetailErrorState {
-  kind: 'unauthorized' | 'not-found' | 'server' | 'network' | 'unknown';
+  kind: 'unauthorized' | 'not-found' | 'busy' | 'server' | 'network' | 'unknown';
   status: number | null;
   message: string;
 }

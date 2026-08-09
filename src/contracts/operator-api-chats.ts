@@ -46,12 +46,27 @@ export const ChatSendResponseSchema = z
   })
   .strict();
 
+export const AnalystTurnBusyErrorSchema = z
+  .object({
+    error: z.literal('analyst_turn_busy'),
+    message: z.literal('Another Analyst turn is active. Retry after it finishes.'),
+  })
+  .strict();
+export const ANALYST_TURN_BUSY_ERROR = Object.freeze(
+  AnalystTurnBusyErrorSchema.parse({
+    error: 'analyst_turn_busy',
+    message: 'Another Analyst turn is active. Retry after it finishes.',
+  }),
+);
+
 export type ChatWorkspaceContext = z.infer<typeof ChatWorkspaceContextSchema>;
 export type ChatSendRequest = z.infer<typeof ChatSendRequestSchema>;
 export type ChatIdentityResponse = z.infer<typeof ChatIdentityResponseSchema>;
 export type RestartChatAcknowledgement = z.infer<typeof RestartChatAcknowledgementSchema>;
 export type ChatToolInvocation = z.infer<typeof ChatToolInvocationSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
+
+export type AnalystTurnBusyErrorResponse = z.infer<typeof AnalystTurnBusyErrorSchema>;
 
 export const chatOperatorApiContracts = {
   'chats.get': {
@@ -74,11 +89,12 @@ export const chatOperatorApiContracts = {
     path: '/api/chat',
     body: ChatSendRequestSchema,
     success: ChatSendResponseSchema,
-    error: ValidationErrorSchema,
+    error: z.union([ValidationErrorSchema, AnalystTurnBusyErrorSchema]),
     response: {
       200: ChatSendResponseSchema,
       400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
+      409: AnalystTurnBusyErrorSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,

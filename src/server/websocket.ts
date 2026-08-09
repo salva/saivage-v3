@@ -10,9 +10,9 @@
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
-import type { SaivageConfig } from '../schemas/saivage-config.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
-import { buildConnectedEnvelope, KnownWsEnvelopeWithClassifiedToolActivitySchema } from '../contracts/index.js';
+import { buildConnectedEnvelope, KnownWsEnvelopeWithClassifiedToolActivitySchema,
+} from '../contracts/index.js';
 import type { WsEnvelope, WsEventType } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
 import { redactForOutbound } from '../redaction/index.js';
@@ -29,7 +29,8 @@ export function serializeOutboundEnvelope(event: WsEnvelope): string {
   return JSON.stringify(KnownWsEnvelopeWithClassifiedToolActivitySchema.parse(envelope));
 }
 
-export function sendToClient(ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void): void {
+export function sendToClient(ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void,
+): void {
   try {
     if (ws.readyState === ws.OPEN) {
       ws.send(serializeOutboundEnvelope(event), callback);
@@ -59,17 +60,16 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
 export interface RegisterWebSocketOptions {
   authPolicy: AuthPolicy;
   liveSyncSocket: LiveSyncSocket;
-  saivageConfig: SaivageConfig;
   runtimeApplication: RuntimeApplication;
   restartPort?: RestartPort;
   fatalPort: ApplicationFatalPort;
 }
 
-export function registerWebSocket(fastify: FastifyInstance, projectRoot: string, options: RegisterWebSocketOptions): void {
+export function registerWebSocket(fastify: FastifyInstance,
+  options: RegisterWebSocketOptions,
+): void {
   const liveSyncSocket = options.liveSyncSocket;
   const analystWsHandler = new AnalystWsHandler({
-    projectRoot,
-    saivageConfig: options.saivageConfig,
     liveSyncSocket,
     runtimeApplication: options.runtimeApplication,
     restartPort: options.restartPort,
@@ -93,25 +93,24 @@ export function registerWebSocket(fastify: FastifyInstance, projectRoot: string,
         sessionId: analystSessionId,
         timestamp: new Date().toISOString(),
         clientCount: liveSyncSocket.clientCount(),
-      }));
+      }),
+    );
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
         if (!liveSyncSocket.isAdmissionOpen()) return;
         void analystWsHandler.handleRawMessage(ws, raw).catch((error) => {
           if (error instanceof PublicationOutcomeUnknownError) options.fatalPort.publicationOutcomeUnknown(error);
-          request.log.error({ code: 'analyst_websocket_message_failed', transport: 'websocket' }, 'Analyst WebSocket message failed');
+          request.log.error({ code: 'analyst_websocket_message_failed', transport: 'websocket' }, 'Analyst WebSocket message failed',
+        );
         });
       });
 
       ws.on('close', () => {
         liveSyncSocket.delete(ws);
-        analystWsHandler.cleanup(ws);
-      });
+    });
 
       ws.on('error', () => {
         liveSyncSocket.delete(ws);
-        analystWsHandler.cleanup(ws);
-      });
-    },
-  );
+    });
+    });
 }

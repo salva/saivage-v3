@@ -3,6 +3,7 @@ import { describe, expect, it } from '@jest/globals';
 import {
   ChatIdentityResponseSchema,
   ChatSendResponseSchema,
+  AnalystTurnBusyErrorSchema,
   chatOperatorApiContracts,
 } from '../../src/contracts/operator-api-chats.js';
 import {
@@ -10,6 +11,7 @@ import {
   AnalystTurnAcknowledgedStatusContentSchema,
   ConnectedStatusContentSchema,
   ToolInvocationContentSchema,
+  ErrorEnvelopeSchema,
   buildConnectedEnvelope,
 } from '../../src/contracts/operator-events.js';
 
@@ -59,5 +61,17 @@ describe('singleton Analyst contracts', () => {
     expect(ChatSendResponseSchema.parse(response)).toEqual(response);
     expect(ChatSendResponseSchema.safeParse({ ...response, sessionId: 'agent:analyst:global' }).success).toBe(false);
     expect(ChatSendResponseSchema.safeParse({ ...response, session_id: 'agent:analyst:global' }).success).toBe(false);
+  });
+
+  it('keeps REST and WebSocket Analyst errors strict and content-free', () => {
+    const busy = { error: 'analyst_turn_busy', message: 'Another Analyst turn is active. Retry after it finishes.' };
+    expect(AnalystTurnBusyErrorSchema.parse(busy)).toEqual(busy);
+    expect(ErrorEnvelopeSchema.parse({ type: 'error', content: busy })).toEqual({ type: 'error', content: busy });
+    expect(ErrorEnvelopeSchema.parse({ type: 'error', content: { error: 'analyst_processing_failed', message: 'Failed to process Analyst message.' } })).toEqual({
+      type: 'error',
+      content: { error: 'analyst_processing_failed', message: 'Failed to process Analyst message.' },
+    });
+    expect(ErrorEnvelopeSchema.safeParse({ type: 'error', content: { ...busy, details: 'not admitted' } }).success).toBe(false);
+    expect(ErrorEnvelopeSchema.safeParse({ type: 'error', content: { error: 'other', message: 'dynamic' } }).success).toBe(false);
   });
 });

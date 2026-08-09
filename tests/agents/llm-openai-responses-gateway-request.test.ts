@@ -5,7 +5,7 @@ import { buildOpenAIResponsesRequest } from '../../src/agents/llm-openai-respons
 import type { LlmCompleteOptions, ToolDefinition } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
-import { validateConversationRows } from '../../src/contracts/conversation-compaction.js';
+import { validateConversation } from '../../src/contracts/conversation-validation.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { compactedConversationFixture } from '../helpers/compacted-conversation-fixture.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
@@ -57,7 +57,7 @@ describe('OpenAI Responses request shape', () => {
 
   it('builds and sends one byte-identical latest-only candidate from validated C1/C2 state', async () => {
     const fixture = compactedConversationFixture('agent:planner:project', true);
-    const providerConversation = providerConversationProjection(validateConversationRows('agent:planner:project', fixture.rows));
+    const providerConversation = providerConversationProjection(validateConversation('agent:planner:project', fixture.rows));
     const opts: LlmCompleteOptions = { inputId: 'input-3', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 123 };
     const capabilities = { transportProtocol: 'openai-responses' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, streaming: false, contextWindowTokens: 10000, maxOutputTokens: 1000, quirks: [] };
     const built = buildCandidateRequest({ candidate: CANDIDATE, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: 'role prompt', providerConversation, options: opts }).request;

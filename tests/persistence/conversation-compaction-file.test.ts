@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { describe, expect, it } from '@jest/globals';
 
-import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
+import { hashConversationRows } from '../../src/contracts/conversation-validation.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage } from '../../src/schemas/index.js';

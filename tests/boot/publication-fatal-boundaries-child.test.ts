@@ -47,7 +47,7 @@ describe('publication fatal owner boundaries', () => {
     unlinkSync(runtimeProcessLockFile(root));
   });
 
-  it('exits the WebSocket queue owner before a frame or second turn', () => {
+  it('exits the WebSocket message owner before an ordinary error frame', () => {
     const root = mkdtempSync(join(tmpdir(), 'publication-websocket-')); roots.push(root);
     const marker = join(root, 'marker'); writeFileSync(marker, '');
     const result = child('websocket', marker);

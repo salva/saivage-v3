@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import { ConversationSessionIdSchema, cardIdSchema, recordNameSchema } from '../schemas/index.js';
-import { RestartChatAcknowledgementSchema } from './operator-api-chats.js';
+import {
+  AnalystTurnBusyErrorSchema,
+  RestartChatAcknowledgementSchema,
+} from './operator-api-chats.js';
 import { ToolInvocationResultSchema } from './tool-invocation-projection.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
@@ -287,10 +290,27 @@ export const InboundAnalystMessageEnvelopeSchema = z.object({
   content: InboundAnalystMessageContentSchema,
 });
 
-export const ErrorEnvelopeSchema = z.object({
-  type: z.literal('error'),
-  content: z.record(z.string(), z.unknown()),
-});
+export const AnalystProcessingFailedErrorSchema = z.object({
+    error: z.literal('analyst_processing_failed'),
+    message: z.literal('Failed to process Analyst message.'),
+  })
+  .strict();
+export const ANALYST_PROCESSING_FAILED_ERROR = Object.freeze(
+  AnalystProcessingFailedErrorSchema.parse({
+    error: 'analyst_processing_failed',
+    message: 'Failed to process Analyst message.',
+  }),
+);
+export const AnalystWsErrorContentSchema = z.discriminatedUnion('error', [
+  AnalystTurnBusyErrorSchema,
+  AnalystProcessingFailedErrorSchema,
+]);
+export const ErrorEnvelopeSchema = z
+  .object({
+    type: z.literal('error'),
+    content: AnalystWsErrorContentSchema,
+  })
+  .strict();
 
 export const KnownStatusWsEnvelopeSchema = z.union([
   ConnectedStatusEnvelopeSchema,

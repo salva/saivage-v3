@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
 import { useFeedbackStore } from '../stores/feedback';
 import type { AgentConversationEntry, AgentConversationResponse } from '../api/types';
+import { ApiError } from '../api/client';
 
 const analystSessionId = 'agent:analyst:global' as const;
 
@@ -397,5 +398,99 @@ describe('analyst chat store', () => {
     await expect(store.sendMessage()).rejects.toThrow('again');
     expect(store.draft).toBe('restore me');
     expect(store.messages).toEqual([authoritative]);
+  });
+
+  it('recognizes only the exact 409 busy body and removes only that send owner', async () => {
+    const store = useAnalystChat();
+    store.setDraft('accepted earlier');
+    await store.sendMessage();
+    expect(store.messages.map((message) => message.content)).toEqual(['accepted earlier']);
+
+    apiMocks.sendChatMessage.mockRejectedValueOnce(new ApiError(
+      409,
+      'Another Analyst turn is active. Retry after it finishes.',
+      {
+        error: 'analyst_turn_busy',
+        message: 'Another Analyst turn is active. Retry after it finishes.',
+},));
+    store.setDraft('busy loser');
+
+    await expect(store.sendMessage()).rejects.toThrow('Another Analyst turn is active');
+
+    expect(store.messages.map((message) => message.content)).toEqual(['accepted earlier']);
+    expect(store.draft).toBe('busy loser');
+    expect(store.sendError).toEqual({
+      kind: 'busy',
+      status: 409,
+      message: 'Another Analyst turn is active. Retry after it finishes.',
+    });
+    expect(useFeedbackStore().toasts.at(-1)).toEqual(expect.objectContaining({
+      tone: 'danger',
+      title: 'Failed to send Analyst message',
+      message: 'Another Analyst turn is active. Retry after it finishes.',
+    }));
+
+    apiMocks.sendChatMessage.mockRejectedValueOnce(new ApiError(
+      409,
+      'Another Analyst turn is active. Retry after it finishes.',
+      {
+        error: 'analyst_turn_busy',
+        message: 'Another Analyst turn is active. Retry after it finishes.',
+        retryAfter: 1,
+      },
+    ));
+    store.setDraft('not exact');
+    await expect(store.sendMessage()).rejects.toThrow();
+    expect(store.sendError?.kind).toBe('unknown');
+  });
+
+  it('does not overwrite a newer composer edit when an exact busy response arrives', async () => {
+    const busy = deferred<never>();
+    apiMocks.sendChatMessage.mockReturnValueOnce(busy.promise);
+    const store = useAnalystChat();
+    store.setDraft('captured draft');
+    const send = store.sendMessage();
+    store.setDraft('newer edit');
+    busy.reject(new ApiError(409, 'busy', {
+      error: 'analyst_turn_busy',
+      message: 'Another Analyst turn is active. Retry after it finishes.',
+    }));
+
+    await expect(send).rejects.toThrow();
+    expect(store.draft).toBe('newer edit');
+    expect(store.messages).toEqual([]);
+    expect(store.sendError?.kind).toBe('busy');
+  });
+
+  it.each([
+    ['unauthorized', new ApiError(401, 'Unauthorized.', { statusCode: 401, error: 'Unauthorized' })],
+    ['unknown', new ApiError(400, 'Invalid request.', { error: 'ValidationError' })],
+    ['server', new ApiError(500, 'Handler failed.', { error: 'UnexpectedInternalServerError' })],
+    ['network', new Error('network down')],
+  ] as const)('keeps %s send failures distinct from busy', async (kind, error) => {
+    apiMocks.sendChatMessage.mockRejectedValueOnce(error);
+    const store = useAnalystChat();
+    store.setDraft('failed');
+
+    await expect(store.sendMessage()).rejects.toThrow();
+
+    expect(store.sendError?.kind).toBe(kind);
+    expect(store.draft).toBe('failed');
+    expect(store.messages).toEqual([]);
+  });
+
+  it('suppresses local duplicate sends while the current request is pending', async () => {
+    const pending = deferred<{ toolInvocations: []; restart: null }>();
+    apiMocks.sendChatMessage.mockReturnValueOnce(pending.promise);
+    const store = useAnalystChat();
+    store.setDraft('one local send');
+
+    const first = store.sendMessage();
+    await expect(store.sendMessage()).resolves.toBeUndefined();
+
+    expect(apiMocks.sendChatMessage).toHaveBeenCalledTimes(1);
+    expect(store.messages.map((message) => message.content)).toEqual(['one local send']);
+    pending.resolve({ toolInvocations: [], restart: null });
+    await first;
   });
 });

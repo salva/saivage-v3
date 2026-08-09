@@ -1,4 +1,4 @@
-import type { AgentMessage, MessageKind, ConversationSessionId } from '../../schemas/index.js';
+import type { AgentMessage, MessageKind, CardConversationSessionId } from '../../schemas/index.js';
 import { conversationSessionIdentity } from '../../schemas/index.js';
 import {
   loggedToolCallIdentity,
@@ -7,9 +7,11 @@ import {
 } from '../../schemas/message-identity.js';
 import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-session.js';
 import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
-import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
-import { inspectCanonicalCallSettlementPairs } from './conversation-call-pairs.js';
-import { validateConversationRows, type ValidatedConversation } from '../../contracts/conversation-compaction.js';
+import { readConversation, type ConversationFileContext,
+} from '../../persistence/conversation-file.js';
+import {
+  validateConversation, type ValidatedConversation,
+} from '../../contracts/conversation-validation.js';
 
 export type ConversationImplicitState =
   | 'empty'
@@ -36,21 +38,18 @@ const recoveryVisibilityByKind = {
   provider_private: 'ignored',
 } as const satisfies Record<MessageKind, RecoveryVisibility>;
 
-export function classifyConversation(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>): ConversationImplicitState {
+export function classifyConversation(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>,
+  unmatchedToolCall: AgentMessage | null,
+): ConversationImplicitState {
   const recoveryVisibilities = messages.map((message) => recoveryVisibility(message.kind));
 
-  const recoveryVisible = messages.filter((_message, index) => recoveryVisibilities[index] === 'visible');
+  const recoveryVisible = messages.filter((_message, index) => recoveryVisibilities[index] === 'visible',
+  );
   if (recoveryVisible.length === 0) return 'empty';
   if (recoveryVisible.length === 1 && recoveryVisible[0]?.kind === 'system_prompt') return 'system_prompt_only';
 
-  const recoverySettlements = recoverySettlementKeys(recoveryVisible);
-  for (let index = recoveryVisible.length - 1; index >= 0; index -= 1) {
-    const message = recoveryVisible[index]!;
-    if (message.kind !== 'tool_call') continue;
-    const identity = toolCallIdentity(message);
-    if (!recoverySettlements.has(loggedToolCallKey(identity))) return 'awaiting_tool_result';
-    break;
-  }
+  if (unmatchedToolCall && recoveryVisible.some((message) => message.id === unmatchedToolCall.id))
+    return 'awaiting_tool_result';
 
   if (lastModelVisibleExchangeIsSettledTerminal(recoveryVisible, terminalToolNames)) return 'settled_terminal';
 
@@ -65,11 +64,11 @@ function recoveryVisibility(kind: MessageKind): RecoveryVisibility {
 }
 
 export type AgentSessionStabilization =
-  | { disposition: 'clean'; messages: AgentMessage[] }
-  | { disposition: 'ordinary_interruption'; messages: AgentMessage[] };
+  | { disposition: 'clean'; messages: readonly AgentMessage[] }
+  | { disposition: 'ordinary_interruption'; messages: readonly AgentMessage[] };
 
 export function stabilizeAgentSession(args: {
-  sessionId: ConversationSessionId;
+  sessionId: CardConversationSessionId;
   conversations: ConversationFileContext;
   terminalToolNames: ReadonlySet<string>;
 }): AgentSessionStabilization {
@@ -77,42 +76,57 @@ export function stabilizeAgentSession(args: {
   try { conversation = readConversation(args.conversations.projectRoot, args.sessionId); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    conversation = validateConversationRows(args.sessionId, []);
+    conversation = validateConversation(args.sessionId, []);
   }
   const messages = conversation.physicalRows;
   const sourceRows = conversation.sourceRows;
-  const activationIndexes = sourceRows.flatMap((message, index) => activationMarker(message) ? [index] : []);
+  const activationIndexes = sourceRows.flatMap((message, index) => activationMarker(message) ? [index] : [],
+  );
   if (activationIndexes.length === 0) {
-    validateCallSettlementPairs(messages, null, false);
-    const state = classifyConversation(sourceRows, args.terminalToolNames);
+    validateCallSettlementPairs(conversation, null, false);
+    const state = classifyConversation(sourceRows, args.terminalToolNames,
+      conversation.unmatchedCall?.message ?? null,
+    );
     if (state !== 'empty' && state !== 'system_prompt_only' && state !== 'settled_terminal') throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
     return { disposition: 'clean', messages };
   }
   const latestActivationIndex = activationIndexes.at(-1)!;
-  const marker = requireAssociatedActivationMarker(sourceRows[latestActivationIndex]!, args.sessionId);
+  const marker = requireAssociatedActivationMarker(sourceRows[latestActivationIndex]!, args.sessionId,
+  );
   const activationRows = sourceRows.slice(latestActivationIndex);
   const final = activationRows.at(-1)!;
-  const refusalMarkers = activationRows.filter((message) => message.kind === 'content_policy_refusal');
+  const refusalMarkers = activationRows.filter((message) => message.kind === 'content_policy_refusal',
+  );
   if (refusalMarkers.length > 0) {
-    if (refusalMarkers.length !== 1 || final.kind !== 'content_policy_refusal') throw new Error(`Activation '${marker.inputId}' has rows after or colliding with its terminal content-policy refusal marker.`);
-    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false);
+    if (refusalMarkers.length !== 1 || final.kind !== 'content_policy_refusal') throw new Error(`Activation '${marker.inputId}' has rows after or colliding with its terminal content-policy refusal marker.`,
+      );
+    validateCallSettlementPairs(
+      conversation, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false,
+    );
     return { disposition: 'clean', messages };
   }
   const exactFinalRecovery = isExactRecoveryNotice(final, args.sessionId, marker.inputId);
   const recoveryRows = activationRows.filter((message) => message.kind === 'model_recovered');
-  if (recoveryRows.length > 0 && !exactFinalRecovery) throw new Error(`Interrupted activation '${marker.inputId}' has a recovery notice that is not its final exact canonical source row.`);
+  if (recoveryRows.length > 0 && !exactFinalRecovery) throw new Error(`Interrupted activation '${marker.inputId}' has a recovery notice that is not its final exact canonical source row.`,
+    );
   if (exactFinalRecovery) {
     if (recoveryRows.length !== 1) throw new Error(`Interrupted activation '${marker.inputId}' has colliding recovery notices.`);
-    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false);
+    validateCallSettlementPairs(
+      conversation, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false,
+    );
     return { disposition: 'clean', messages };
   }
-  const state = classifyConversation(activationRows, args.terminalToolNames);
+  const state = classifyConversation(activationRows, args.terminalToolNames,
+    conversation.unmatchedCall?.message ?? null,
+  );
   if (state === 'settled_terminal') {
-    validateCallSettlementPairs(messages, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false);
+    validateCallSettlementPairs(
+      conversation, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false,
+    );
     return { disposition: 'clean', messages };
   }
   const latestPhysicalIndex = physicalIndexForSource(messages, sourceRows[latestActivationIndex]!);
-  const unmatched = validateCallSettlementPairs(messages, latestPhysicalIndex, true);
+  const unmatched = validateCallSettlementPairs(conversation, latestPhysicalIndex, true);
   if (unmatched) {
     appendProviderVisibleSyntheticFailedToolResult(args.conversations, {
       sessionId: args.sessionId,
@@ -130,12 +144,15 @@ export function stabilizeAgentSession(args: {
   };
 }
 
-function activationMarker(message: AgentMessage): { agentName: string; cardId: string; inputId: string } | null {
+function activationMarker(message: AgentMessage,
+): { agentName: string; cardId: string; inputId: string } | null {
   if (message.kind !== 'activity') return null;
   try {
-    const payload = JSON.parse(message.content) as { event?: unknown; agent_name?: unknown; card_id?: unknown; input_id?: unknown };
+    const payload = JSON.parse(message.content) as { event?: unknown; agent_name?: unknown; card_id?: unknown; input_id?: unknown;
+    };
     if (payload.event !== 'activation_open') return null;
-    if (typeof payload.agent_name !== 'string' || typeof payload.card_id !== 'string' || typeof payload.input_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(payload.input_id)) throw new Error(`Activation marker '${message.id}' has malformed content.`);
+    if (typeof payload.agent_name !== 'string' || typeof payload.card_id !== 'string' || typeof payload.input_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(payload.input_id,
+      )) throw new Error(`Activation marker '${message.id}' has malformed content.`);
     return { agentName: payload.agent_name, cardId: payload.card_id, inputId: payload.input_id };
   } catch (error) {
     if (message.id.includes(':activation:')) throw error;
@@ -143,7 +160,8 @@ function activationMarker(message: AgentMessage): { agentName: string; cardId: s
   }
 }
 
-function requireAssociatedActivationMarker(message: AgentMessage, sessionId: ConversationSessionId): { agentName: string; cardId: string; inputId: string } {
+function requireAssociatedActivationMarker(message: AgentMessage, sessionId: CardConversationSessionId,
+): { agentName: string; cardId: string; inputId: string } {
   const marker = activationMarker(message);
   if (!marker) throw new Error(`Latest activation marker for '${sessionId}' is missing or malformed.`);
   const identity=conversationSessionIdentity(sessionId);
@@ -151,37 +169,35 @@ function requireAssociatedActivationMarker(message: AgentMessage, sessionId: Con
   return marker;
 }
 
-function physicalIndexForSource(physicalRows: readonly AgentMessage[], source: AgentMessage): number {
+function physicalIndexForSource(physicalRows: readonly AgentMessage[], source: AgentMessage,
+): number {
   const index = physicalRows.findIndex((message) => message.id === source.id);
   if (index < 0) throw new Error(`Canonical activation marker '${source.id}' is missing from physical rows.`);
   return index;
 }
 
-function validateCallSettlementPairs(messages: readonly AgentMessage[], latestActivationIndex: number | null, interrupted: boolean): { sourceInputId: string; toolCallId: string; toolName: string; message: AgentMessage } | null {
-  const unmatched = inspectCanonicalCallSettlementPairs(messages).unmatched;
-  if (unmatched.length === 0) return null;
+function validateCallSettlementPairs(
+  conversation: ValidatedConversation, latestActivationIndex: number | null, interrupted: boolean,
+): { sourceInputId: string; toolCallId: string; toolName: string; message: AgentMessage } | null {
+  const call = conversation.unmatchedCall;
+  if (!call) return null;
   if (!interrupted) throw new Error('A cleanly closed or empty role session contains an unmatched tool call.');
-  if (unmatched.length > 1) throw new Error('Interrupted role session contains more than one unmatched tool call.');
-  const call = unmatched[0]!;
-  if (latestActivationIndex === null || call.index < latestActivationIndex) throw new Error('Interrupted role session contains an unmatched tool call in an older activation round.');
+  if (latestActivationIndex === null || call.physicalIndex < latestActivationIndex) throw new Error('Interrupted role session contains an unmatched tool call in an older activation round.',
+    );
   if (!call.message.tool || !call.message.tool_call_id) throw new Error(`Unmatched tool call '${call.message.id}' is malformed.`);
-  return { sourceInputId: call.sourceInputId, toolCallId: call.toolCallId, toolName: call.message.tool, message: call.message };
+  return { sourceInputId: call.sourceInputId, toolCallId: call.toolCallId, toolName: call.message.tool, message: call.message,
+  };
 }
 
 function parseResultPayload(message: AgentMessage): { success?: unknown; data?: unknown } {
-  try { return JSON.parse(message.content) as { success?: unknown; data?: unknown }; } catch { throw new Error(`Tool result '${message.id}' has malformed JSON content.`); }
-}
-
-function recoverySettlementKeys(messages: readonly AgentMessage[]): Set<string> {
-  const keys = new Set<string>();
-  for (const message of messages) {
-    if (message.kind === 'tool_result') keys.add(loggedToolCallKey(toolResultIdentity(message)));
+  try { return JSON.parse(message.content) as { success?: unknown; data?: unknown }; } catch { throw new Error(`Tool result '${message.id}' has malformed JSON content.`);
   }
-  return keys;
 }
 
-function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>): boolean {
-  const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'content_policy_retry' || message.kind === 'content_policy_refusal' || message.kind === 'context_compaction' || message.kind === 'model_recovered');
+function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>,
+): boolean {
+  const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'content_policy_retry' || message.kind === 'content_policy_refusal' || message.kind === 'context_compaction' || message.kind === 'model_recovered',
+  );
   if (modelVisible.at(-1)?.kind === 'content_policy_refusal') return true;
   const last = modelVisible.at(-1);
   if (!last || last.kind !== 'tool_result') return false;

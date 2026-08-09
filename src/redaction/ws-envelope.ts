@@ -18,17 +18,15 @@ export function projectWsEnvelopeForOutbound(
         },
       });
     case 'error':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
-        type: 'error',
-        content: projectDynamicForOutbound(envelope.content),
-      });
+      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse(envelope);
     case 'status':
       switch (envelope.content.event) {
         case 'connected':
           return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
             type: 'status',
             content: {
-              ...projectPassthrough(envelope.content, ['event', 'sessionId', 'timestamp', 'clientCount']),
+              ...projectPassthrough(envelope.content, ['event', 'sessionId', 'timestamp', 'clientCount',
+              ]),
               event: 'connected',
               sessionId: envelope.content.sessionId,
               timestamp: envelope.content.timestamp,
@@ -36,7 +34,8 @@ export function projectWsEnvelopeForOutbound(
             },
           });
         case 'analyst_turn_acknowledged':
-          return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({ type: 'status', content: { ...envelope.content } });
+          return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({ type: 'status', content: { ...envelope.content },
+          });
       }
       return assertNever(envelope.content);
     case 'activity':
@@ -50,25 +49,29 @@ function projectActivityEnvelope(
   const content = envelope.content;
   switch (content.event) {
     case 'tool_invocation':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({ type: 'activity', content: { ...content } });
+      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({ type: 'activity', content: { ...content },
+      });
     case 'analyst_tool_invoked':
       return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
         type: 'activity',
         content: {
-          ...projectPassthrough(content, ['event', 'sessionId', 'tool', 'success', 'summary', 'classified_as', 'related_card_id', 'related_note_id', 'related_process_id']),
+          ...projectPassthrough(content, ['event', 'sessionId', 'tool', 'success', 'summary', 'classified_as', 'related_card_id', 'related_note_id', 'related_process_id',
+          ]),
           event: content.event,
           sessionId: content.sessionId,
           tool: content.tool,
           success: content.success,
           summary: redactTextForOutbound(content.summary),
-          ...copyOptional(content, ['classified_as', 'related_card_id', 'related_note_id', 'related_process_id']),
+          ...copyOptional(content, ['classified_as', 'related_card_id', 'related_note_id', 'related_process_id',
+          ]),
         },
       });
     case 'card_history_appended':
       return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
         type: 'activity',
         content: {
-          ...projectPassthrough(content, ['event', 'card_id', 'version_seq', 'changed_fields', 'changed_at']),
+          ...projectPassthrough(content, ['event', 'card_id', 'version_seq', 'changed_fields', 'changed_at',
+          ]),
           event: content.event,
           card_id: content.card_id,
           version_seq: content.version_seq,
@@ -90,7 +93,8 @@ function projectActivityEnvelope(
       return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
         type: 'activity',
         content: {
-          ...projectPassthrough(content, ['event', 'id', 'action', 'target_kind', 'target_id', 'outcome', 'created_at', 'actor', 'surface']),
+          ...projectPassthrough(content, ['event', 'id', 'action', 'target_kind', 'target_id', 'outcome', 'created_at', 'actor', 'surface',
+          ]),
           event: content.event,
           id: content.id,
           action: content.action,
@@ -104,14 +108,17 @@ function projectActivityEnvelope(
   }
 }
 
-function projectPassthrough(value: Record<string, unknown>, ownedKeys: readonly string[]): Record<string, unknown> {
+function projectPassthrough(value: Record<string, unknown>, ownedKeys: readonly string[],
+): Record<string, unknown> {
   const owned = new Set(ownedKeys);
   const passthrough = Object.fromEntries(Object.entries(value).filter(([key]) => !owned.has(key)));
   return projectDynamicForOutbound(passthrough) as Record<string, unknown>;
 }
 
-function copyOptional(value: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
-  return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]));
+function copyOptional(value: Record<string, unknown>, keys: readonly string[],
+): Record<string, unknown> {
+  return Object.fromEntries(keys.filter((key) => Object.hasOwn(value, key)).map((key) => [key, value[key]]),
+  );
 }
 
 function assertNever(value: never): never {

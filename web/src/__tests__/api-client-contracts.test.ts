@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as client from '../api/client';
-import { parseOperatorResponse, type ConversationSessionId, type OperatorApiSuccess } from '../api/contracts';
+import { AnalystTurnBusyErrorSchema, parseOperatorResponse, type ConversationSessionId, type OperatorApiSuccess } from '../api/contracts';
 import type { CardChildrenResponse, ChatResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
 
 const removedMutationExports = [
@@ -62,6 +62,16 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect(runtimeContract).toBeNull();
     expect(mcpContract).toBeNull();
     expect(chatContract).toBeNull();
+  });
+
+  it('shares the exact strict Analyst busy response contract', () => {
+    const busy = {
+      error: 'analyst_turn_busy',
+      message: 'Another Analyst turn is active. Retry after it finishes.',
+    };
+    expect(AnalystTurnBusyErrorSchema.parse(busy)).toEqual(busy);
+    expect(AnalystTurnBusyErrorSchema.safeParse({ ...busy, retryAfter: 1 }).success).toBe(false);
+    expect(AnalystTurnBusyErrorSchema.safeParse({ ...busy, message: 'busy' }).success).toBe(false);
   });
 
   it('accepts only the displayed MCP server/tool hierarchy', () => {

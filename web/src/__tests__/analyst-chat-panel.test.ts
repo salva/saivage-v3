@@ -3,6 +3,8 @@ import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
 import { useCardStore } from '../stores/cards';
+import { useAnalystChat } from '../stores/analystChat';
+import { ApiError } from '../api/client';
 
 const analystSessionId = 'agent:analyst:global' as const;
 const api = vi.hoisted(() => ({
@@ -242,6 +244,31 @@ describe('AnalystChatPanel', () => {
     await flushPromises();
     expect(api.sendChatMessage).toHaveBeenCalledWith('hello analyst', expect.any(Object));
     expect(document.activeElement).toBe(textarea.element);
+    wrapper.unmount();
+  });
+
+  it('renders the stable exact busy feedback in the existing send-error surface', async () => {
+    const pinia = createPinia();
+    const wrapper = mountPanel(pinia);
+    await flushPromises();
+    api.sendChatMessage.mockRejectedValueOnce(new ApiError(
+      409,
+      'Another Analyst turn is active. Retry after it finishes.',
+      {
+        error: 'analyst_turn_busy',
+        message: 'Another Analyst turn is active. Retry after it finishes.',
+},));
+    const chat = useAnalystChat(pinia);
+    chat.setDraft('overlap');
+
+    await expect(chat.sendMessage()).rejects.toThrow();
+    await flushPromises();
+
+    expect(wrapper.get('[role="alert"]').text()).toBe(
+      'Another Analyst turn is active. Retry after it finishes.',
+    );
+    expect(chat.messages).toEqual(entries);
+    expect(chat.draft).toBe('overlap');
     wrapper.unmount();
   });
 });

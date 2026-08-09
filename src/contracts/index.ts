@@ -44,6 +44,8 @@ export {
   canonicalPositiveSafeIntegerStringSchema,
   ChatIdentityResponseSchema,
   ChatSendResponseSchema,
+  AnalystTurnBusyErrorSchema,
+  ANALYST_TURN_BUSY_ERROR,
   RestartChatAcknowledgementSchema,
   ConfigGetResponseSchema,
   ControlActionsListResponseSchema,

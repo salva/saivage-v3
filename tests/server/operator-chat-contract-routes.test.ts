@@ -25,6 +25,9 @@ import {
 import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
 import { read_agent_session } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { AnalystTurnBusyError } from '../../src/agents/analyst-api.js';
+import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
+import type { WebSocket } from 'ws';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
@@ -376,6 +379,95 @@ describe('operator chat route request contracts', () => {
     });
     expect(response.body).not.toContain(marker);
     expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it('maps only typed Analyst overlap to the exact content-free 409 contract', async () => {
+    submit.mockRejectedValueOnce(new AnalystTurnBusyError());
+    const response = await fastify.inject({
+      method: 'POST',
+      url: '/api/chat',
+      headers: authHeaders,
+      payload: { content: 'overlap' },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({
+      error: 'analyst_turn_busy',
+      message: 'Another Analyst turn is active. Retry after it finishes.',
+    });
+  });
+
+  it('shares immediate one-winner admission across REST and WebSocket without later queued execution', async () => {
+    let release!: (value: { sessionId: 'agent:analyst:global'; toolInvocations: []; restart: null }) => void;
+    const active = new Promise<{ sessionId: 'agent:analyst:global'; toolInvocations: []; restart: null }>((resolve) => { release = resolve; });
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    let submissions = 0;
+    submit.mockImplementation(() => {
+      submissions += 1;
+      if (submissions === 1) { markStarted(); return active; }
+      return Promise.reject(new AnalystTurnBusyError());
+    });
+    const restWinner = fastify.inject({
+      method: 'POST',
+      url: '/api/chat',
+      headers: authHeaders,
+      payload: { content: 'rest winner' },
+    }).then((response) => response);
+    await started;
+
+    const sendToClient = jest.fn();
+    const wsHandler = new AnalystWsHandler({
+      fatalPort: testApplicationFatalPort,
+      liveSyncSocket: { handleClientFrame: () => false } as never,
+      runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit } } as never,
+      sendToClient,
+    });
+    const ws = { OPEN: 1, readyState: 1 } as WebSocket;
+    await wsHandler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'ws loser' } })));
+    expect(sendToClient).toHaveBeenCalledWith(ws, {
+      type: 'error',
+      content: { error: 'analyst_turn_busy', message: 'Another Analyst turn is active. Retry after it finishes.' },
+    });
+
+    release({ sessionId: 'agent:analyst:global', toolInvocations: [], restart: null });
+    expect((await restWinner).statusCode).toBe(200);
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns an immediate typed loser for overlapping REST callers without later execution', async () => {
+    let release!: (value: { sessionId: 'agent:analyst:global'; toolInvocations: []; restart: null }) => void;
+    const active = new Promise<{ sessionId: 'agent:analyst:global'; toolInvocations: []; restart: null }>((resolve) => { release = resolve; });
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => { markStarted = resolve; });
+    let submissions = 0;
+    submit.mockImplementation(() => {
+      submissions += 1;
+      if (submissions === 1) { markStarted(); return active; }
+      return Promise.reject(new AnalystTurnBusyError());
+    });
+    const winner = fastify.inject({
+      method: 'POST',
+      url: '/api/chat',
+      headers: authHeaders,
+      payload: { content: 'winner' },
+    }).then((response) => response);
+    await started;
+
+    const loser = await fastify.inject({
+      method: 'POST',
+      url: '/api/chat',
+      headers: authHeaders,
+      payload: { content: 'loser' },
+    });
+
+    expect(loser.statusCode).toBe(409);
+    expect(loser.json()).toEqual({
+      error: 'analyst_turn_busy',
+      message: 'Another Analyst turn is active. Retry after it finishes.',
+    });
+    release({ sessionId: 'agent:analyst:global', toolInvocations: [], restart: null });
+    expect((await winner).statusCode).toBe(200);
+    expect(submit).toHaveBeenCalledTimes(2);
   });
 
   it('rejects malformed workspace context before Analyst submission', async () => {

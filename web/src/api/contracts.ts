@@ -5,6 +5,8 @@ export {
   DebugGraphsResponseSchema,
   DoctorResponseSchema,
   AgentSessionSummarySchema,
+  AnalystTurnBusyErrorSchema,
+  ANALYST_TURN_BUSY_ERROR,
 } from '@saivage/contracts/operator-api';
 
 export { ConversationSessionIdSchema, parseConversationSessionId } from '@saivage/schemas';
@@ -38,6 +40,7 @@ export type {
   CardHistoryListResponse,
   ChatIdentityResponse,
   ChatSendResponse,
+  AnalystTurnBusyErrorResponse,
   RestartChatAcknowledgement,
   ChatWorkspaceContext,
   DebugErrorsResponse,

@@ -8,7 +8,7 @@ import { appendConversationBatch, readConversation } from '../../src/persistence
 import { compact } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
+import { hashConversationRows } from '../../src/contracts/conversation-validation.js';
 import { buildOpenAIResponsesRequest } from '../../src/agents/llm-openai-responses-adapter.js';
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

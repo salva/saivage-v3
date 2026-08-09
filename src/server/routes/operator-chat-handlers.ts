@@ -5,6 +5,8 @@ import type { SaivageConfig } from '../../schemas/saivage-config.js';
 import type { RestartPort } from '../../boot/restart-port.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import { ChatToolInvocationSchema } from '../../contracts/operator-api-chats.js';
+import { ANALYST_TURN_BUSY_ERROR } from '../../contracts/operator-api-chats.js';
+import { AnalystTurnBusyError } from '../../agents/analyst-api.js';
 
 type ChatOperatorHandlerOptions = OperatorProjectContext & {
   runtimeApplication: RuntimeApplication;
@@ -16,10 +18,17 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
   return defineOperatorContractHandlers({
     'chats.get': () => ({ body: { session_id: options.runtimeApplication.analystSessionId } }),
     'chats.send': async ({ body, reply }) => {
-      const response = await options.runtimeApplication.analystRuntime.submit({
+      let response;
+      try {
+        response = await options.runtimeApplication.analystRuntime.submit({
         userContent: body.content,
         workspaceContext: body.workspaceContext,
       });
+      } catch (error) {
+        if (error instanceof AnalystTurnBusyError)
+          return { statusCode: 409, body: ANALYST_TURN_BUSY_ERROR };
+        throw error;
+      }
       const result = {
         body: {
           toolInvocations: (response.toolInvocations ?? []).map((invocation) => {

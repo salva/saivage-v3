@@ -29,7 +29,8 @@ export function registerServerRoutes(options: {
   workflows: CompiledRuntimeWorkflows;
   fatalPort: ApplicationFatalPort;
 }): void {
-  const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager });
+  const serverAvailabilityProvider = () => buildServerAvailability({ projectRoot: options.projectRoot, runtimeApplication: options.runtimeApplication, mcpManager: options.mcpManager,
+    });
 
   registerOperatorContractRoutes({
     fastify: options.fastify,
@@ -47,10 +48,9 @@ export function registerServerRoutes(options: {
     workflows: options.workflows,
     fatalPort: options.fatalPort,
   });
-  registerWebSocket(options.fastify, options.projectRoot, {
+  registerWebSocket(options.fastify, {
     authPolicy: options.authPolicy,
     liveSyncSocket: options.liveSyncSocket,
-    saivageConfig: options.saivageConfig,
     runtimeApplication: options.runtimeApplication,
     restartPort: options.restartPort,
     fatalPort: options.fatalPort,

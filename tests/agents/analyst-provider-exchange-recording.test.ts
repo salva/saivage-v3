@@ -130,6 +130,7 @@ describe('production-composed Analyst provider-exchange recording', () => {
         analystProcessRootScope,
         mcpToolInvocation: unusedMcpToolInvocation,
         fatalPort: testApplicationFatalPort,
+        analystSessionId: 'agent:analyst:global',
       });
 
       expect(live.handleClientFrame(socket, {

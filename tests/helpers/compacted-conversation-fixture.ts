@@ -1,4 +1,4 @@
-import { hashConversationRows } from '../../src/contracts/conversation-compaction.js';
+import { hashConversationRows } from '../../src/contracts/conversation-validation.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, conversationSessionIdentity, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 
 const TIMESTAMP = '2026-07-17T00:00:00.000Z';

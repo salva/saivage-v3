@@ -35,7 +35,7 @@ import {
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
-import { globalAgentSessionId } from '../schemas/index.js';
+import type { GlobalConversationSessionId } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import { buildAgentSurface } from '../tools/agent-invocation-surface.js';
 import { createAnalystMutationServices } from './analyst-mutation-services.js';
@@ -75,6 +75,7 @@ export interface RuntimeApplicationServices {
   analystProcessRootScope: ManagedProcessScope;
   mcpToolInvocation: McpToolInvocationPort;
   fatalPort: ApplicationFatalPort;
+  analystSessionId: GlobalConversationSessionId;
 }
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
@@ -109,8 +110,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         sessionId,
         sourceInputId,
         attempts,
-        context,
-      ),
+        context),
   };
   const compactionPolicy: AutonomousCompactionPolicy = {
     input_budget_tokens: config.compaction.input_budget_tokens,
@@ -163,7 +163,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     fatalPort: services.fatalPort,
   });
   const runtimeApi: RuntimeApi = runtimeSupervisor;
-  const analystSessionId = globalAgentSessionId(workflows.analyst.name);
+  const analystSessionId = services.analystSessionId;
   let analystRuntimeCache: AnalystRuntime | null = null;
   const analystProvider = createInvocationServiceProvider(invocationService);
   const createAnalystSession = (_turn: AnalystTurnInput): AnalystSession => {

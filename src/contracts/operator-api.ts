@@ -42,6 +42,8 @@ export {
   ChatIdentityResponseSchema,
   ChatSendRequestSchema,
   ChatSendResponseSchema,
+  AnalystTurnBusyErrorSchema,
+  ANALYST_TURN_BUSY_ERROR,
   RestartChatAcknowledgementSchema,
   ChatWorkspaceContextSchema,
 } from './operator-api-chats.js';
@@ -49,6 +51,7 @@ export type {
   ChatIdentityResponse,
   ChatSendRequest,
   ChatSendResponse,
+  AnalystTurnBusyErrorResponse,
   ChatWorkspaceContext,
   RestartChatAcknowledgement,
 } from './operator-api-chats.js';
@@ -91,8 +94,7 @@ export type {
 } from './operator-api-config.js';
 export {
   EventsListResponseSchema,
-  EventsQuerySchema,
-} from './operator-api-events.js';
+  EventsQuerySchema } from './operator-api-events.js';
 export type { EventsListResponse, EventsQuery } from './operator-api-events.js';
 export {
   ForbiddenErrorSchema,

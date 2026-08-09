@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 
-import { AnalystSession } from '../../src/agents/analyst-handler.js';
+import { AnalystSession, AnalystTurnBusyError } from '../../src/agents/analyst-handler.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { createEventLog } from '../../src/observability/index.js';
@@ -62,6 +62,36 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
 }
 
 describe('Analyst parsed tool invocation', () => {
+  it('admits one synchronous turn owner, rejects overlap as typed busy, and never queues the loser', async () => {
+    let release!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const executor = jest.fn(async () => {
+      await blocked;
+      return { success: true as const, data: 'done' };
+    });
+    const test = analyst('{"value":"ok"}', executor);
+
+    const winner = test.session.submit({ userContent: 'first' });
+    const loser = test.session.submit({ userContent: 'second' });
+    await expect(loser).rejects.toBeInstanceOf(AnalystTurnBusyError);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(test.completeTurn).toHaveBeenCalledTimes(1);
+
+    release();
+    await expect(winner).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    expect(test.completeTurn).toHaveBeenCalledTimes(2);
+    await expect(test.session.submit({ userContent: 'later' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    expect(test.completeTurn).toHaveBeenCalledTimes(3);
+    expect(executor).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not classify ordinary synchronous input rejection as busy', async () => {
+    const test = analyst('{"value":"ok"}', jest.fn(async () => ({ success: true as const, data: 'unused' })));
+    const rejected = test.session.submit({ userContent: '   ' });
+    await expect(rejected).rejects.toThrow('must not be empty');
+    await expect(rejected).rejects.not.toBeInstanceOf(AnalystTurnBusyError);
+  });
+
   it.each([
     { raw: '{', violation: 'tool_args_invalid_json' },
     { raw: '[]', violation: 'tool_args_not_object' },

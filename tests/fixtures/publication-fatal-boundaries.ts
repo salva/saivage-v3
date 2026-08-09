@@ -37,15 +37,12 @@ if (mode === 'websocket') {
   let submits = 0;
   const handler = new AnalystWsHandler({
     fatalPort,
-    projectRoot: '.',
-    saivageConfig: {} as never,
     liveSyncSocket: { handleClientFrame: () => false } as never,
     runtimeApplication: { analystRuntime: { submit: async () => { submits += 1; appendFileSync(path, String(submits)); throw new PublicationOutcomeUnknownError(); } } } as never,
     sendToClient: () => { appendFileSync(path, 'frame'); },
   });
   const ws = { OPEN: 1, readyState: 1 } as never;
   void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'first' } })));
-  void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'second' } })));
 }
 
 if (mode === 'base-actor-task') {
@@ -137,7 +134,7 @@ if (mode === 'analyst-card' || mode === 'analyst-config' || mode === 'analyst-ap
     else appendAppLogEntry(root, 'event', () => appLogEntrySchema.parse({ type: 'event', data: { id: 'analyst-fatal', timestamp: '2026-07-24T00:00:00.000Z', kind: 'runtime_diagnostic', error_message: 'injected' } }) as never);
     throw new PublicationOutcomeUnknownError();
   };
-  const handler = new AnalystWsHandler({ fatalPort, projectRoot: root, saivageConfig: {} as never, liveSyncSocket: { handleClientFrame: () => false } as never, runtimeApplication: { analystRuntime: { submit: async () => publication() } } as never, sendToClient: () => { appendFileSync(path, 'frame'); } });
+  const handler = new AnalystWsHandler({ fatalPort, liveSyncSocket: { handleClientFrame: () => false } as never, runtimeApplication: { analystRuntime: { submit: async () => publication() } } as never, sendToClient: () => { appendFileSync(path, 'frame'); } });
   const ws = { OPEN: 1, readyState: 1 } as never;
   void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'publish' } })));
 }
