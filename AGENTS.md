@@ -19,6 +19,12 @@ rather than duplicating project policy.
 
 See historical: docs under `docs-old/` and stale design docs are provenance, not implementation authority.
 
+## Project Owner Overrides
+
+- The project owner may explicitly override a project-local rule in this file for a specific task. The override must identify the rule being overridden, the intended operation, and its scope; an explicit conversational instruction is sufficient and does not require another edit to this file.
+- Before acting on an override that permits irreversible mutation, data loss, weakened validation, or unsupported state, the agent must state the concrete consequence and receive explicit confirmation. Once confirmed, follow the owner's scoped override without substituting a different operation.
+- An override is task-scoped unless the owner explicitly makes it standing. It does not override system, platform, or tool-level instructions, and it does not relax external authentication or outbound secret non-disclosure unless a higher-priority instruction expressly permits that change.
+
 ## Deployment And Trust Model
 
 - Saivage is intended to run inside an externally isolated LXC container. That isolation is deployment-owned; Saivage neither creates nor verifies it.
