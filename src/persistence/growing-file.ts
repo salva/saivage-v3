@@ -290,10 +290,8 @@ export function readCanonicalGrowingFileFirstEnvelope<Row>(
     }
   } catch (error) { return closeAfterOrdinaryFailure(io, descriptor, error); }
   if (firstLine === null) {
-    try { io.truncate(descriptor, 0); } catch { throw new PublicationOutcomeUnknownError(); }
-    try { io.fsync(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
-    try { io.close(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
-    throw new Error(`Growing file '${path}' is empty.`);
+    if (position > 0) truncateIdentifiableSuffix(io, descriptor, 0);
+    return closeAfterOrdinaryFailure(io, descriptor, new Error(`Growing file '${path}' is empty.`));
   }
   let descriptorOwned = true;
   try {
@@ -350,16 +348,8 @@ function readCanonicalGrowingFileSnapshotInternal<Row>(
   if (bytes.byteLength > 0 && bytes[bytes.byteLength - 1] !== 0x0a) {
     const finalNewline = bytes.lastIndexOf(0x0a);
     const canonicalLength = finalNewline < 0 ? 0 : finalNewline + 1;
-    let final: Stats;
-    try {
-      io.truncate(descriptor, canonicalLength);
-      io.fsync(descriptor);
-      bytes = bytes.subarray(0, canonicalLength);
-      final = io.stat(descriptor);
-      close();
-    } catch { throw new PublicationOutcomeUnknownError(); }
-    const rows = parseGrowingFile(path, bytes, rowSchema);
-    return { kind: 'found', snapshot: Object.freeze({ bytes, rows: Object.freeze(rows), size: final.size, modifiedAt: final.mtime.toISOString() }) };
+    truncateIdentifiableSuffix(io, descriptor, canonicalLength);
+    bytes = bytes.subarray(0, canonicalLength);
   }
   try {
     const rows = parseGrowingFile(path, bytes, rowSchema);

@@ -171,6 +171,21 @@ describe('first-envelope canonical reader', () => {
     expect(fake.trace.at(-1)).toBe('close');
   });
 
+  it('does not mutate empty input and preserves the empty-file failure through cleanup close', () => {
+    const empty = fakeIo(Buffer.alloc(0));
+    expect(() => readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, empty.io, 2)).toThrow("Growing file '/canonical.jsonl' is empty.");
+    expect(empty.trace).toEqual(['open', 'stat', 'read:0:2', 'close']);
+
+    const closeFailure = new Error('close failed');
+    const cleanupFailure = fakeIo(Buffer.alloc(0), undefined, closeFailure);
+    let thrown: unknown;
+    try { readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, cleanupFailure.io, 2); } catch (error) { thrown = error; }
+    expect(thrown).toEqual(new Error("Growing file '/canonical.jsonl' is empty."));
+    expect(thrown).not.toBe(closeFailure);
+    expect(thrown).not.toBeInstanceOf(PublicationOutcomeUnknownError);
+    expect(cleanupFailure.trace).toEqual(['open', 'stat', 'read:0:2', 'close']);
+  });
+
   it('truncates a wholly unterminated file before ordinary empty failure and close', () => {
     const fake = fakeIo(Buffer.from([0xff, 0xfe, 0xfd]));
     expect(() => readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, fake.io, 2)).toThrow(/empty/);
@@ -185,10 +200,14 @@ describe('first-envelope canonical reader', () => {
     expect(fake.trace).not.toContain('close');
   });
 
-  it('types close failure after successful zero truncation and fsync as outcome unknown without retry', () => {
+  it('preserves the empty-file failure over one cleanup-close failure after successful zero truncation and fsync', () => {
     const closeFailure = new Error('close failed');
     const fake = fakeIo(Buffer.from('partial'), undefined, closeFailure);
-    expect(() => readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, fake.io, 3)).toThrow(PublicationOutcomeUnknownError);
+    let thrown: unknown;
+    try { readCanonicalGrowingFileFirstEnvelope('/canonical.jsonl', rowSchema, fake.io, 3); } catch (error) { thrown = error; }
+    expect(thrown).toEqual(new Error("Growing file '/canonical.jsonl' is empty."));
+    expect(thrown).not.toBe(closeFailure);
+    expect(thrown).not.toBeInstanceOf(PublicationOutcomeUnknownError);
     expect(fake.trace.slice(-3)).toEqual(['truncate:0', 'fsync', 'close']);
     expect(fake.trace.filter((entry) => entry === 'close')).toHaveLength(1);
   });
