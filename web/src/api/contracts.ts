@@ -7,6 +7,7 @@ export {
   AgentSessionSummarySchema,
   AnalystTurnBusyErrorSchema,
   ANALYST_TURN_BUSY_ERROR,
+  CardDiffRowSchema,
 } from '@saivage/contracts/operator-api';
 
 export { ConversationSessionIdSchema, parseConversationSessionId } from '@saivage/schemas';
@@ -37,6 +38,7 @@ export type {
   CardHierarchyParent,
   CardHierarchyChildSummary,
   CardChildrenResponse,
+  CardDiffRow,
   CardDiffResponse,
   CardHistoryEntryResponse,
   CardHistoryListResponse,

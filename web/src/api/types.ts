@@ -6,6 +6,7 @@ import type {
   CardDetail,
   CardHierarchyParent,
   CardHierarchyChildSummary,
+  CardDiffRow,
   CardRecord,
   ChatWorkspaceContext,
   ControlActionSurface,
@@ -15,6 +16,7 @@ import type {
   RestartChatAcknowledgement,
 } from './contracts';
 export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
+export type { CardDiffRow };
 
 export type {
   AgentConversationEntry,
@@ -50,12 +52,6 @@ export interface DetailErrorState {
   kind: 'unauthorized' | 'not-found' | 'busy' | 'server' | 'network' | 'unknown';
   status: number | null;
   message: string;
-}
-
-export interface CardDiffRow {
-  field: string;
-  before: unknown;
-  after: unknown;
 }
 
 export type ControlActionAuditEntry =
@@ -111,7 +107,7 @@ export type CardRecordListResponse = OperatorApiSuccess<'cards.records.list'>;
 export type CardRecordContentResponse = OperatorApiSuccess<'cards.records.get'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
-export type CardDiffResponse = OperatorApiSuccess<'cards.diff'> & { diff: CardDiffRow[] };
+export type CardDiffResponse = OperatorApiSuccess<'cards.diff'>;
 export type RuntimeStateResponse = OperatorApiSuccess<'runtime.getState'>;
 export type ContentPolicyRuntimeResponse = OperatorApiSuccess<'runtime.contentPolicy'>;
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;

@@ -105,7 +105,31 @@ const diffPivotSchema = z.union([
 export const CardDiffQuerySchema = z.object({ from: diffPivotSchema.optional(), to: diffPivotSchema.optional() }).strict();
 export const CardHistoryListResponseSchema = z.object({ history: z.array(cardHistoryHeaderSchema), total: z.number().int().nonnegative() }).strict();
 export const CardHistoryEntryResponseSchema = z.object({ entry: cardHistoryEntrySchema }).strict();
-export const CardDiffResponseSchema = z.object({ diff: z.unknown(), from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, card_id: cardIdSchema }).strict();
+type CardDiffJsonValue =
+  | null
+  | boolean
+  | string
+  | number
+  | CardDiffJsonValue[]
+  | { [key: string]: CardDiffJsonValue };
+
+const cardDiffJsonValueSchema: z.ZodType<CardDiffJsonValue> = z.lazy(() =>
+  z.union([
+    z.null(),
+    z.boolean(),
+    z.string(),
+    z.number().finite(),
+    z.array(cardDiffJsonValueSchema),
+    z.record(z.string(), cardDiffJsonValueSchema),
+  ]),
+);
+
+export const CardDiffRowSchema = z.object({
+  field: z.string().min(1),
+  before: cardDiffJsonValueSchema,
+  after: cardDiffJsonValueSchema,
+}).strict();
+export const CardDiffResponseSchema = z.object({ diff: z.array(CardDiffRowSchema), from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, card_id: cardIdSchema }).strict();
 export const InvalidCardDiffPivotsErrorSchema = z.object({ error: z.literal('Invalid diff pivots'), from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema }).strict();
 export const CardDiffBadRequestSchema = z.union([ValidationErrorSchema, InvalidCardDiffPivotsErrorSchema]);
 
@@ -152,6 +176,7 @@ export type CardRecordContent = z.infer<typeof CardRecordContentSchema>;
 export type CardRecordContentResponse = z.infer<typeof CardRecordContentResponseSchema>;
 export type CardHistoryListResponse = z.infer<typeof CardHistoryListResponseSchema>;
 export type CardHistoryEntryResponse = z.infer<typeof CardHistoryEntryResponseSchema>;
+export type CardDiffRow = z.infer<typeof CardDiffRowSchema>;
 export type CardDiffResponse = z.infer<typeof CardDiffResponseSchema>;
 export type RuntimeStatusResponse = z.infer<typeof RuntimeStatusResponseSchema>;
 

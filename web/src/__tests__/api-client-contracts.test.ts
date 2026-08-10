@@ -1,8 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as client from '../api/client';
-import { AnalystTurnBusyErrorSchema, parseOperatorResponse, type ConversationSessionId, type OperatorApiSuccess } from '../api/contracts';
+import { AnalystTurnBusyErrorSchema, CardDiffRowSchema, parseOperatorResponse, type CardDiffRow, type ConversationSessionId, type OperatorApiSuccess } from '../api/contracts';
 import type { CardChildrenResponse, ChatResponse, McpToolsResponse, RuntimeStateResponse } from '../api/types';
 import { API_AUTH_REQUIRED_EVENT } from '../utils/auth-events';
+
+const validCardDiffRow: CardDiffRow = { field: 'title', before: null, after: 'new' };
+// @ts-expect-error CardDiffRow requires before through the web contract boundary.
+const cardDiffRowMissingBefore: CardDiffRow = { field: 'title', after: 'new' };
+// @ts-expect-error CardDiffRow requires after through the web contract boundary.
+const cardDiffRowMissingAfter: CardDiffRow = { field: 'title', before: null };
 
 const removedMutationExports = [
   'createCard',
@@ -73,6 +79,22 @@ describe('operator API client contracts after S06 mutation removal', () => {
     expect(AnalystTurnBusyErrorSchema.parse(busy)).toEqual(busy);
     expect(AnalystTurnBusyErrorSchema.safeParse({ ...busy, retryAfter: 1 }).success).toBe(false);
     expect(AnalystTurnBusyErrorSchema.safeParse({ ...busy, message: 'busy' }).success).toBe(false);
+  });
+
+  it('re-exports the strict recursive card diff row contract', () => {
+    const nestedRow: CardDiffRow = {
+      field: 'metadata',
+      before: { nested: [null, true, 1, 'old', [], {}] },
+      after: { nested: [{ value: 'new' }] },
+    };
+
+    expect(CardDiffRowSchema.parse(nestedRow)).toEqual(nestedRow);
+    expect(CardDiffRowSchema.safeParse({ field: 'title', after: 'new' }).success).toBe(false);
+    expect([validCardDiffRow, cardDiffRowMissingBefore, cardDiffRowMissingAfter]).toEqual([
+      validCardDiffRow,
+      { field: 'title', after: 'new' },
+      { field: 'title', before: null },
+    ]);
   });
 
   it('accepts only the displayed MCP server/tool hierarchy', () => {
@@ -181,15 +203,36 @@ describe('operator API client contracts after S06 mutation removal', () => {
   });
 
   it('serializes the literal current diff key and forwards record cancellation', async () => {
+    const diffResponse = {
+      card_id: 'card-a',
+      from: 2,
+      to: 7,
+      diff: [{ field: 'metadata', before: { nested: [null, true] }, after: ['new', 3] }],
+    };
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ card_id: 'card-a', from: 2, to: 7, diff: [] }), { status: 200, headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(diffResponse), { status: 200, headers: { 'content-type': 'application/json' } }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ path: 'record:///brief.md', size: 1, contentType: 'text/markdown', content: 'x', redacted: false, sensitivity: 'normal' }), { status: 200, headers: { 'content-type': 'application/json' } }));
     vi.stubGlobal('fetch', fetchMock);
-    await client.getCardDiff({ cardId: 'card-a', fromSeq: 2, to: 'current' });
+    await expect(client.getCardDiff({ cardId: 'card-a', fromSeq: 2, to: 'current' })).resolves.toEqual(diffResponse);
     const controller = new AbortController();
     await client.getFileContent('record:///brief.md?card=card-a&v=latest', controller.signal);
     expect(new URL(fetchMock.mock.calls[0]![0]).searchParams.get('to')).toBe('current');
     expect(new URL(fetchMock.mock.calls[0]![0]).searchParams.get('from')).toBe('2');
     expect(fetchMock.mock.calls[1]![1].signal).toBe(controller.signal);
+  });
+
+  it('rejects malformed declared-200 card diff JSON before creating an OperatorApiError', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      card_id: 'card-a',
+      from: 2,
+      to: 7,
+      diff: [{ field: 'title', after: 'new' }],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+
+    const failure = await client.getCardDiff({ cardId: 'card-a', fromSeq: 2, to: 'current' })
+      .catch((error: unknown) => error);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(client.OperatorApiError);
   });
 });

@@ -255,7 +255,7 @@ export function getCardDiff(
       to: key.to,
     },
     signal,
-  }) as Promise<CardDiffResponse>;
+  });
 }
 
 export function getRuntimeState(signal?: AbortSignal): Promise<RuntimeStateResponse> {

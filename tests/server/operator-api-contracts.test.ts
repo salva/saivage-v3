@@ -2,6 +2,8 @@ import { describe, expect, it } from '@jest/globals';
 import * as contractsModule from '../../src/contracts/index.js';
 import * as operatorApiModule from '../../src/contracts/operator-api.js';
 import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody, type OperatorApiResponse, type OperatorApiResponseStatus } from '../../src/contracts/operator-api.js';
+import type { CardDiffRow as OperatorApiCardDiffRow } from '../../src/contracts/operator-api.js';
+import type { CardDiffRow as IndexCardDiffRow } from '../../src/contracts/index.js';
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
 import { allRepresentativeLoggedEvents } from '../helpers/logged-events.js';
 
@@ -27,6 +29,12 @@ const canonicalCardDetail = { id:'project',type:'project',title:'Project',lifecy
 const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog' } as const;
 const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['analyst', 'planner'], bootstrap: true }] as const;
 const canonicalCardKeys = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const;
+const validOperatorApiRow: OperatorApiCardDiffRow = { field: 'title', before: null, after: 'new' };
+// @ts-expect-error CardDiffRow requires before through operator-api.ts.
+const missingBefore: OperatorApiCardDiffRow = { field: 'title', after: 'new' };
+// @ts-expect-error CardDiffRow requires after through index.ts.
+const missingAfter: IndexCardDiffRow = { field: 'title', before: null };
+const validIndexRow: IndexCardDiffRow = validOperatorApiRow;
 
 describe('operator API runtime contract without runtime ledgers', () => {
   it('reserves public contracts for the exact health probes and authenticates every operator API route', () => {
@@ -85,6 +93,81 @@ describe('operator API runtime contract without runtime ledgers', () => {
       error: 'Unauthorized',
       statusCode: 401,
     })).toThrow('does not declare response status 418');
+  });
+
+  it('exports one strict recursive card diff row contract through both backend public paths', () => {
+    const recursiveRow = {
+      field: 'metadata',
+      before: { active: true, count: 3, note: 'old', nested: [null, [], {}] },
+      after: { active: false, count: 4.5, nested: [{ label: 'new' }] },
+    };
+
+    expect(operatorApiModule.CardDiffRowSchema.parse(recursiveRow)).toEqual(recursiveRow);
+    expect(contractsModule.CardDiffRowSchema.parse(recursiveRow)).toEqual(recursiveRow);
+    expect([validOperatorApiRow, missingBefore, missingAfter, validIndexRow]).toEqual([
+      validOperatorApiRow,
+      { field: 'title', after: 'new' },
+      { field: 'title', before: null },
+      validOperatorApiRow,
+    ]);
+  });
+
+  it('parses card diff status 200 only when every strict row contains recursive JSON values', () => {
+    const payload = {
+      card_id: 'card-a',
+      from: 2,
+      to: 3,
+      diff: [{
+        field: 'metadata',
+        before: null,
+        after: {
+          boolean: true,
+          string: 'value',
+          finite: -2.5,
+          array: [false, 'nested', 0, null, [], {}],
+          object: { nested: { values: [1, 2, 3] } },
+        },
+      }],
+    };
+
+    expect(parseOperatorResponse('cards.diff', 200, payload)).toEqual(payload);
+
+    const invalidPayloads = [
+      { ...payload, diff: {} },
+      { ...payload, diff: [{ before: null, after: 'new' }] },
+      { ...payload, diff: [{ field: 'title', after: 'new' }] },
+      { ...payload, diff: [{ field: 'title', before: null }] },
+      { ...payload, diff: [{ field: '', before: null, after: 'new' }] },
+      { ...payload, diff: [{ field: 1, before: null, after: 'new' }] },
+      { ...payload, diff: [{ field: 'title', before: null, after: 'new', extra: true }] },
+      { ...payload, diff: [{ field: 'metadata', before: { nested: undefined }, after: null }] },
+      { ...payload, diff: [{ field: 'metadata', before: [null, undefined], after: null }] },
+    ];
+    for (const invalid of invalidPayloads) {
+      expect(() => parseOperatorResponse('cards.diff', 200, invalid)).toThrow();
+    }
+  });
+
+  it('rejects every non-JSON JavaScript value through the shared card diff row schema', () => {
+    const invalidValues = [
+      undefined,
+      () => 'value',
+      Symbol('value'),
+      1n,
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+      { nested: undefined },
+      [null, undefined],
+    ];
+
+    for (const value of invalidValues) {
+      expect(operatorApiModule.CardDiffRowSchema.safeParse({
+        field: 'metadata',
+        before: value,
+        after: null,
+      }).success).toBe(false);
+    }
   });
 
   it('exposes only exact chat operations and no aggregate chat contract', () => {

@@ -320,7 +320,7 @@ In the web dependency direction, runtime, Card, and Agent Pinia stores own separ
 
 `projectCompiledGraphs()` is the source-adjacent non-disclosure projector for Debug Graphs. Server composition passes the one bound `CompiledRuntimeWorkflows` startup object directly to the operator handler. Projection derives entries, nodes, configured edges, and runtime-owned edges from each workflow's singular immutable state table and bound candidate chains; there is no actor-definition or node/edge index. It omits prompt text/path and candidate account identity and validates the complete strict response schema. It never receives `ResolvedConfigAuthority`, source YAML, prompt registries, CardService, event queries, or runtime-state readers. Consequently a successful restart-only configuration replacement cannot alter the current Graphs response; only creating a new server and binding a new startup artifact changes it.
 
-Shared strict Zod operation contracts are the server response validator and the browser wire authority. Browser contracts and inferred types import that backend contract surface through `web/src/api/contracts.ts`; backend schema, route fallback, store/view, and fixtures cut over together. Debug error and timeline row types are indexed directly from `OperatorApiSuccess`; no response overlay or client assertion replaces them. DebugStore keeps those canonical REST rows, while pure exhaustive web read-model projectors create separate error and timeline presentation items. This dependency is one-way: frontend display heuristics are defense in depth and never normalize durable/wire input or replace backend source-aware projection.
+Shared strict Zod operation contracts are the server response validator and the browser wire authority. Browser contracts and inferred types import that backend contract surface through `web/src/api/contracts.ts`; backend schema, route fallback, store/view, and fixtures cut over together. `CardDiffRowSchema` is the sole card-diff row owner: it validates required strict `{field,before,after}` recursive-JSON rows at backend final egress and in browser declared status-200 parsing. The browser has no local card-diff row overlay or card-diff client result cast. Debug error and timeline row types are indexed directly from `OperatorApiSuccess`; no response overlay or client assertion replaces them. DebugStore keeps those canonical REST rows, while pure exhaustive web read-model projectors create separate error and timeline presentation items. This dependency is one-way: frontend display heuristics are defense in depth and never normalize durable/wire input or replace backend source-aware projection.
 
 For Cards specifically, CardStore owns disjoint `hierarchySlicesByParentId`, selected detail, an ordered map of selected-card record states keyed by exact configured name, mounted selected history, immutable selected history entry, and selected current-relative diff state. A successful `cards.children(parentId)` atomically owns only `{ parent, children }` at that parent key; only the containing parent's ordered `children` rows render tree membership, titles, and sibling rank. A child's own returned `parent` never overwrites its row in another slice. Detail, each record, history, entry, and diff likewise replace only their exact authority, so completion order cannot merge or normalize state.
 
@@ -401,22 +401,22 @@ This appendix is maintained as source-derived reference data for documentation d
 | `GET /api/files/content` | Contained, pre-read-admitted workspace content with outbound redaction where required. | `src/contracts/operator-api-files-debug.ts:163` |
 | `GET /api/mcp/tools` | MCP tools. | `src/contracts/operator-api-mcp.ts:40` |
 | `GET /api/processes` | Operator-session process list. | `src/contracts/operator-api-processes.ts:74` |
-| `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:160` |
-| `GET /health/ready` | Public readiness. | `src/contracts/operator-api-runtime-cards.ts:171` |
-| `GET /api/state` | Operator runtime state without card inventory. | `src/contracts/operator-api-runtime-cards.ts:182` |
-| `GET /api/runtime/content-policy` | Read-derived content-policy refusal high-water and latest evidence locator. | `src/contracts/operator-api-runtime-cards.ts:192` |
-| `GET /api/cards/:id/children` | Immediate committed active-child hierarchy slice. | `src/contracts/operator-api-runtime-cards.ts:202` |
-| `GET /api/cards/:id` | Current card detail only. | `src/contracts/operator-api-runtime-cards.ts:214` |
-| `GET /api/cards/:id/records` | Compiled record descriptors for one active card. | `src/contracts/operator-api-runtime-cards.ts:226` |
-| `GET /api/cards/:id/records/:name` | One exact latest closed compiled record. | `src/contracts/operator-api-runtime-cards.ts:238` |
-| `GET /api/cards/:id/history` | Embedded card-version history headers. | `src/contracts/operator-api-runtime-cards.ts:251` |
-| `GET /api/cards/:id/history/:seq` | Embedded card-version history entry. | `src/contracts/operator-api-runtime-cards.ts:263` |
-| `GET /api/cards/:id/diff` | Embedded card-version diff. | `src/contracts/operator-api-runtime-cards.ts:275` |
-| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:288` |
-| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:298` |
-| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:308` |
-| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:318` |
-| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:328` |
+| `GET /health` | Public liveness. | `src/contracts/operator-api-runtime-cards.ts:186` |
+| `GET /health/ready` | Public readiness. | `src/contracts/operator-api-runtime-cards.ts:197` |
+| `GET /api/state` | Operator runtime state without card inventory. | `src/contracts/operator-api-runtime-cards.ts:208` |
+| `GET /api/runtime/content-policy` | Read-derived content-policy refusal high-water and latest evidence locator. | `src/contracts/operator-api-runtime-cards.ts:218` |
+| `GET /api/cards/:id/children` | Immediate committed active-child hierarchy slice. | `src/contracts/operator-api-runtime-cards.ts:228` |
+| `GET /api/cards/:id` | Current card detail only. | `src/contracts/operator-api-runtime-cards.ts:240` |
+| `GET /api/cards/:id/records` | Compiled record descriptors for one active card. | `src/contracts/operator-api-runtime-cards.ts:252` |
+| `GET /api/cards/:id/records/:name` | One exact latest closed compiled record. | `src/contracts/operator-api-runtime-cards.ts:264` |
+| `GET /api/cards/:id/history` | Embedded card-version history headers. | `src/contracts/operator-api-runtime-cards.ts:277` |
+| `GET /api/cards/:id/history/:seq` | Embedded card-version history entry. | `src/contracts/operator-api-runtime-cards.ts:289` |
+| `GET /api/cards/:id/diff` | Embedded card-version diff. | `src/contracts/operator-api-runtime-cards.ts:301` |
+| `GET /api/runtime/status` | Runtime status. | `src/contracts/operator-api-runtime-cards.ts:314` |
+| `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:324` |
+| `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:334` |
+| `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:344` |
+| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:354` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes
