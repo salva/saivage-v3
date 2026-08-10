@@ -6,6 +6,7 @@ import { join, resolve } from 'node:path';
 type TracedOperation = 'existsSync' | 'lstatSync' | 'readlinkSync' | 'realpathSync' | 'statSync' | 'readdirSync' | 'readFileSync';
 type Trace = { operation: TracedOperation; path: string };
 const traces: Trace[] = [];
+const statFailures = new Map<string, unknown>();
 
 function traced<T extends (...args: never[]) => unknown>(operation: TracedOperation, implementation: T): T {
   return ((...args: Parameters<T>) => {
@@ -14,13 +15,20 @@ function traced<T extends (...args: never[]) => unknown>(operation: TracedOperat
   }) as T;
 }
 
+const tracedStatSync = ((...args: unknown[]) => {
+  const path = resolve(String(args[0]));
+  traces.push({ operation: 'statSync', path });
+  if (statFailures.has(path)) throw statFailures.get(path);
+  return Reflect.apply(realFs.statSync, undefined, args);
+}) as typeof realFs.statSync;
+
 jest.unstable_mockModule('node:fs', () => ({
   ...realFs,
   existsSync: traced('existsSync', realFs.existsSync),
   lstatSync: traced('lstatSync', realFs.lstatSync),
   readlinkSync: traced('readlinkSync', realFs.readlinkSync),
   realpathSync: traced('realpathSync', realFs.realpathSync),
-  statSync: traced('statSync', realFs.statSync),
+  statSync: tracedStatSync,
   readdirSync: traced('readdirSync', realFs.readdirSync),
   readFileSync: traced('readFileSync', realFs.readFileSync),
 }));
@@ -62,7 +70,23 @@ function listedNames(body: unknown): string[] {
   });
 }
 
-beforeEach(() => { traces.length = 0; });
+function errno(code: string): NodeJS.ErrnoException {
+  return Object.assign(new Error(`synthetic ${code}`), { code });
+}
+
+function caughtValue(action: () => unknown): unknown {
+  try {
+    action();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('Expected action to throw.');
+}
+
+beforeEach(() => {
+  traces.length = 0;
+  statFailures.clear();
+});
 afterEach(() => {
   while (roots.length > 0) realFs.rmSync(roots.pop()!, { recursive: true, force: true });
 });
@@ -265,5 +289,75 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     }
     expect(projectionTracesFor(yamlPath).filter((trace) => trace.operation === 'readFileSync')).toHaveLength(1);
     expect(projectionTracesFor(aliasPath).filter((trace) => trace.operation === 'readFileSync')).toHaveLength(1);
+  });
+});
+
+describe('WorkspaceFileReadModelService generic metadata failures', () => {
+  it('stats each requested target once and maps only exact ENOENT to the existing 404', () => {
+    const root = temporaryRoot('saivage-workspace-metadata-');
+    const directory = join(root, 'directory');
+    const file = join(root, 'file.txt');
+    realFs.mkdirSync(directory);
+    realFs.writeFileSync(file, 'content');
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    statFailures.set(resolve(directory), errno('ENOENT'));
+    statFailures.set(resolve(file), errno('ENOENT'));
+
+    expect(service.listFiles('directory')).toEqual({ statusCode: 404, body: { error: 'Path not found', path: 'directory' } });
+    expect(service.readFileContent('file.txt')).toEqual({ statusCode: 404, body: { error: 'File not found', path: 'file.txt' } });
+    expect(targetProjectionTracesFor(directory)).toEqual([{ operation: 'statSync', path: resolve(directory) }]);
+    expect(targetProjectionTracesFor(file)).toEqual([{ operation: 'statSync', path: resolve(file) }]);
+  });
+
+  it('omits only a reached child whose metadata stat reports exact ENOENT', () => {
+    const root = temporaryRoot('saivage-workspace-metadata-');
+    const directory = join(root, 'directory');
+    const disappeared = join(directory, 'disappeared.txt');
+    const retained = join(directory, 'retained.txt');
+    realFs.mkdirSync(directory);
+    realFs.writeFileSync(disappeared, 'gone');
+    realFs.writeFileSync(retained, 'present');
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    statFailures.set(resolve(disappeared), errno('ENOENT'));
+
+    expect(listedNames(service.listFiles('directory').body)).toEqual(['retained.txt']);
+    expect(targetProjectionTracesFor(disappeared)).toEqual([{ operation: 'statSync', path: resolve(disappeared) }]);
+    expect(targetProjectionTracesFor(retained)).toEqual([{ operation: 'statSync', path: resolve(retained) }]);
+  });
+
+  it('rethrows requested-target EACCES and non-errno values unchanged', () => {
+    const root = temporaryRoot('saivage-workspace-metadata-');
+    const directory = join(root, 'directory');
+    const file = join(root, 'file.txt');
+    realFs.mkdirSync(directory);
+    realFs.writeFileSync(file, 'content');
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    const denied = errno('EACCES');
+    const sentinel = null;
+    statFailures.set(resolve(directory), denied);
+    statFailures.set(resolve(file), sentinel);
+
+    expect(caughtValue(() => service.listFiles('directory'))).toBe(denied);
+    expect(caughtValue(() => service.readFileContent('file.txt'))).toBe(sentinel);
+  });
+
+  it('rethrows reached-child EACCES and non-errno values unchanged', () => {
+    const root = temporaryRoot('saivage-workspace-metadata-');
+    const directory = join(root, 'directory');
+    const deniedChild = join(directory, 'denied.txt');
+    const sentinelChild = join(directory, 'sentinel.txt');
+    realFs.mkdirSync(directory);
+    realFs.writeFileSync(deniedChild, 'denied');
+    realFs.writeFileSync(sentinelChild, 'sentinel');
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    const denied = errno('EACCES');
+    statFailures.set(resolve(deniedChild), denied);
+
+    expect(caughtValue(() => service.listFiles('directory'))).toBe(denied);
+
+    const sentinel = Symbol('non-errno-child-sentinel');
+    statFailures.delete(resolve(deniedChild));
+    statFailures.set(resolve(sentinelChild), sentinel);
+    expect(caughtValue(() => service.listFiles('directory'))).toBe(sentinel);
   });
 });

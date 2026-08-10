@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, type Stats } from 'node:fs';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../../contracts/scoped-path-url.js';
 import type { OperatorApiHandlerResult, WorkspaceFilesListResponse } from '../../contracts/index.js';
@@ -39,6 +39,15 @@ type RecordContentRequest =
 
 const CANNOT_RESOLVE_REASON = 'Path cannot be resolved.';
 const MAX_CLASSIFIER_SYMLINK_EXPANSIONS = 40;
+
+function statIfPresent(path: string): Stats | null {
+  try {
+    return statSync(path);
+  } catch (error) {
+    if (typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
 
 function isContainedPath(parent: string, candidate: string): boolean {
   const rel = relative(parent, candidate);
@@ -279,8 +288,8 @@ export class WorkspaceFileReadModelService {
     if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
     if (this.isBlockedPath(resolvedPath)) return { statusCode: 403, body: { error: `Access to "${resolvedPath.responsePath}" is blocked for security reasons.` } };
     const { absolutePath, responsePath, kind } = resolvedPath;
-    if (!existsSync(absolutePath)) return { statusCode: 404, body: { error: 'Path not found', path: responsePath } };
-    const pathStat = statSync(absolutePath);
+    const pathStat = statIfPresent(absolutePath);
+    if (!pathStat) return { statusCode: 404, body: { error: 'Path not found', path: responsePath } };
     if (!pathStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is not a directory', path: responsePath } };
     const files = readdirSync(absolutePath).flatMap((entry: string): WorkspaceFilesListResponse['files'] => {
       const entryAbsolutePath = join(absolutePath, entry);
@@ -295,10 +304,9 @@ export class WorkspaceFileReadModelService {
       if (!containedEntry.safe || !containedEntry.relativePath) return [];
       const entryPolicyPath = { policyRelativePath: containedEntry.relativePath, realTargetProjectRelativePath: containedEntry.realTargetProjectRelativePath };
       if (this.isBlockedPath(entryPolicyPath)) return [];
-      try {
-        const entryStat = statSync(containedEntry.absolutePath);
-        return [{ name: entry, path: kind === 'work' ? workUrlFromAbsolutePath(this.projectRoot, containedEntry.absolutePath) : containedEntry.relativePath, type: entryStat.isDirectory() ? 'directory' : 'file', size: entryStat.isFile() ? entryStat.size : undefined, modifiedAt: entryStat.mtime.toISOString() }];
-      } catch { return []; }
+      const entryStat = statIfPresent(containedEntry.absolutePath);
+      if (!entryStat) return [];
+      return [{ name: entry, path: kind === 'work' ? workUrlFromAbsolutePath(this.projectRoot, containedEntry.absolutePath) : containedEntry.relativePath, type: entryStat.isDirectory() ? 'directory' : 'file', size: entryStat.isFile() ? entryStat.size : undefined, modifiedAt: entryStat.mtime.toISOString() }];
     });
     return { body: { path: responsePath, files } };
   }
@@ -329,8 +337,8 @@ export class WorkspaceFileReadModelService {
     if (!resolvedPath.safe) return { statusCode: 403, body: { error: resolvedPath.reason } };
     if (this.isBlockedPath(resolvedPath)) return { statusCode: 403, body: { error: `Access to "${resolvedPath.responsePath}" is blocked for security reasons.`, path: resolvedPath.responsePath } };
     const { absolutePath, responsePath } = resolvedPath;
-    if (!existsSync(absolutePath)) return { statusCode: 404, body: { error: 'File not found', path: responsePath } };
-    const fileStat = statSync(absolutePath);
+    const fileStat = statIfPresent(absolutePath);
+    if (!fileStat) return { statusCode: 404, body: { error: 'File not found', path: responsePath } };
     if (fileStat.isDirectory()) return { statusCode: 400, body: { error: 'Path is a directory', path: responsePath } };
     if (fileStat.size > MAX_FILE_SIZE_BYTES) return { statusCode: 413, body: { error: `File exceeds maximum size of ${MAX_FILE_SIZE_BYTES} bytes.`, path: responsePath, size: fileStat.size, maxSize: MAX_FILE_SIZE_BYTES } };
     const rawBuffer = readFileSync(absolutePath);
