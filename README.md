@@ -139,6 +139,8 @@ card_types:
 
 The generated default preserves the visible project/goal plan-review loop and one-node execution workflows, but these are independent card-type artifacts rather than families. Edges are strict tagged objects; terminal edges choose ordered record exports and either the current accepted result or an earlier reachable node result. Configuration is required—there is no runtime family fallback.
 
+Non-empty model equivalence groups use nested arrays, for example `equivalents: [["model-a", "model-b"]]`. Legacy mapping/object forms are invalid and must be manually corrected to nested arrays before restart; Saivage does not rewrite them.
+
 Direct public OpenAI GPT-5.6 through the Responses API is selected by provider capability, not by a model-name heuristic. Public OpenAI Responses uses API-key credentials only; Codex/OpenAI OAuth auth profiles are a separate `openai-codex-backend` contract and are not aliases for public OpenAI API keys.
 
 ```yaml

@@ -3,10 +3,6 @@ import { agentNameSchema } from './agent-name.js';
 import { recordNameSchema } from './record-name.js';
 import { cardTypeValues } from './types.js';
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 // ── Zod Schemas ───────────────────────────────────────────────
 
 // Routing profile
@@ -15,16 +11,7 @@ const routingProfileSchema = z.object({
   allowed: z.array(z.string()).default([]),
 }).strict();
 
-const modelEquivalentsSchema = z.preprocess((value) => {
-  if (isRecord(value)) {
-    return Object.entries(value).flatMap(([model, equivalents]) => {
-      if (Array.isArray(equivalents)) return [[model, ...equivalents]];
-      if (typeof equivalents === 'string') return [[model, equivalents]];
-      return [];
-    });
-  }
-  return value;
-}, z.array(z.array(z.string())));
+const modelEquivalentsSchema = z.array(z.array(z.string()));
 
 const namedIdentifierSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 const outcomeIdentifierSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);

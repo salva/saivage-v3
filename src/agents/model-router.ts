@@ -47,8 +47,8 @@ export class ModelRouter {
     const modelList = getModelListForAgent(this.config, agentName);
     const candidates: Candidate[] = [];
 
-    const equivalents = this.config.models.equivalents ?? [];
-    const failover = this.config.models.failover ?? {};
+    const equivalents = this.config.models.equivalents;
+    const failover = this.config.models.failover;
 
     const emittedModelBatches = new Set<string>();
     const emittedCandidates = new Set<string>();
