@@ -1,6 +1,6 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
-import { ApiError, getContentPolicyRuntime } from '../api/client';
+import { OperatorApiError, getContentPolicyRuntime } from '../api/client';
 import type { ContentPolicyRuntimeResponse } from '../api/types';
 
 export const useContentPolicyStore = defineStore('contentPolicy', () => {
@@ -22,7 +22,7 @@ export const useContentPolicyStore = defineStore('contentPolicy', () => {
       value.value = response;
     } catch (caught) {
       if (requestEpoch !== epoch || (caught instanceof DOMException && caught.name === 'AbortError')) return;
-      error.value = caught instanceof ApiError ? caught.message : caught instanceof Error ? caught.message : 'Failed to load content-policy status';
+      error.value = caught instanceof OperatorApiError ? caught.message : caught instanceof Error ? caught.message : 'Failed to load content-policy status';
       throw caught;
     } finally {
       if (requestEpoch === epoch) loading.value = false;

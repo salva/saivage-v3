@@ -7,19 +7,16 @@ import type {
   RestartChatAcknowledgement,
 } from '../api/types';
 import {
-  ApiError,
+  OperatorApiError,
   getChatEntries,
   getAgentConversation,
   getAgentSession,
+  isOperatorApiError,
   sendChatMessage,
 } from '../api/client';
 import { useWorkspaceRouteStore } from './workspaceRoute';
 import { useFeedbackStore } from './feedback';
 import type { ConversationSessionId } from '../api/contracts';
-import {
-  ANALYST_TURN_BUSY_ERROR,
-  AnalystTurnBusyErrorSchema,
-} from '../api/contracts';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -34,7 +31,7 @@ function isWritableSession(
 }
 
 function buildErrorState(err: unknown, fallback: string): DetailErrorState {
-  if (err instanceof ApiError) {
+  if (err instanceof OperatorApiError) {
     if (err.isUnauthorized) {
       return { kind: 'unauthorized', status: err.status, message: err.message || 'Unauthorized.' };
     }
@@ -47,12 +44,6 @@ function buildErrorState(err: unknown, fallback: string): DetailErrorState {
     return { kind: 'network', status: null, message: err.message || fallback };
   }
   return { kind: 'unknown', status: null, message: fallback };
-}
-
-function isExactAnalystTurnBusyError(err: unknown): err is ApiError {
-  return err instanceof ApiError
-    && err.status === 409
-    && AnalystTurnBusyErrorSchema.safeParse(err.body).success;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -247,11 +238,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       }
     } catch (err) {
       if (sendAccepted) throw err;
-      sendError.value = isExactAnalystTurnBusyError(err)
+      sendError.value = isOperatorApiError(err, 'chats.send', 409)
         ? {
             kind: 'busy',
             status: 409,
-            message: ANALYST_TURN_BUSY_ERROR.message,
+            message: err.data.message,
           }
         : buildErrorState(err, 'Failed to send analyst chat message.');
       pendingMessages.value = pendingMessages.value.filter(

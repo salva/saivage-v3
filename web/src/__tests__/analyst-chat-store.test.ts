@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
 import { useFeedbackStore } from '../stores/feedback';
 import type { AgentConversationEntry, AgentConversationResponse } from '../api/types';
-import { ApiError } from '../api/client';
+import { OperatorApiError } from '../api/client';
 
 const analystSessionId = 'agent:analyst:global' as const;
 
@@ -14,23 +14,12 @@ const apiMocks = vi.hoisted(() => ({
   sendChatMessage: vi.fn(),
 }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getChatEntries: apiMocks.getChatEntries,
   getAgentSession: apiMocks.getAgentSession,
   getAgentConversation: apiMocks.getAgentConversation,
   sendChatMessage: apiMocks.sendChatMessage,
-  ApiError: class extends Error {
-    status: number;
-    body: Record<string, unknown>;
-    constructor(status: number, message: string, body: Record<string, unknown> = {}) {
-      super(message);
-      this.status = status;
-      this.body = body;
-    }
-    get isUnauthorized() {
-      return this.status === 401;
-    }
-  },
 }));
 
 function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
@@ -400,15 +389,15 @@ describe('analyst chat store', () => {
     expect(store.messages).toEqual([authoritative]);
   });
 
-  it('recognizes only the exact 409 busy body and removes only that send owner', async () => {
+  it('recognizes the declared chats.send 409 and removes only that send owner', async () => {
     const store = useAnalystChat();
     store.setDraft('accepted earlier');
     await store.sendMessage();
     expect(store.messages.map((message) => message.content)).toEqual(['accepted earlier']);
 
-    apiMocks.sendChatMessage.mockRejectedValueOnce(new ApiError(
+    apiMocks.sendChatMessage.mockRejectedValueOnce(new OperatorApiError(
+      'chats.send',
       409,
-      'Another Analyst turn is active. Retry after it finishes.',
       {
         error: 'analyst_turn_busy',
         message: 'Another Analyst turn is active. Retry after it finishes.',
@@ -429,19 +418,6 @@ describe('analyst chat store', () => {
       title: 'Failed to send Analyst message',
       message: 'Another Analyst turn is active. Retry after it finishes.',
     }));
-
-    apiMocks.sendChatMessage.mockRejectedValueOnce(new ApiError(
-      409,
-      'Another Analyst turn is active. Retry after it finishes.',
-      {
-        error: 'analyst_turn_busy',
-        message: 'Another Analyst turn is active. Retry after it finishes.',
-        retryAfter: 1,
-      },
-    ));
-    store.setDraft('not exact');
-    await expect(store.sendMessage()).rejects.toThrow();
-    expect(store.sendError?.kind).toBe('unknown');
   });
 
   it('does not overwrite a newer composer edit when an exact busy response arrives', async () => {
@@ -451,7 +427,7 @@ describe('analyst chat store', () => {
     store.setDraft('captured draft');
     const send = store.sendMessage();
     store.setDraft('newer edit');
-    busy.reject(new ApiError(409, 'busy', {
+    busy.reject(new OperatorApiError('chats.send', 409, {
       error: 'analyst_turn_busy',
       message: 'Another Analyst turn is active. Retry after it finishes.',
     }));
@@ -463,9 +439,9 @@ describe('analyst chat store', () => {
   });
 
   it.each([
-    ['unauthorized', new ApiError(401, 'Unauthorized.', { statusCode: 401, error: 'Unauthorized' })],
-    ['unknown', new ApiError(400, 'Invalid request.', { error: 'ValidationError' })],
-    ['server', new ApiError(500, 'Handler failed.', { error: 'UnexpectedInternalServerError' })],
+    ['unauthorized', new OperatorApiError('chats.send', 401, { statusCode: 401, error: 'Unauthorized' })],
+    ['unknown', new OperatorApiError('chats.send', 400, { error: 'ValidationError', message: 'Invalid request.', issues: [] })],
+    ['server', new OperatorApiError('chats.send', 500, { error: 'InternalServerError', message: 'Internal server error' })],
     ['network', new Error('network down')],
   ] as const)('keeps %s send failures distinct from busy', async (kind, error) => {
     apiMocks.sendChatMessage.mockRejectedValueOnce(error);

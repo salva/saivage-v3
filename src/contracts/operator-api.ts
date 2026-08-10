@@ -256,6 +256,12 @@ export type OperatorApiResponse<
   K extends OperatorApiOperationId,
   S extends OperatorApiResponseStatus<K>,
 > = z.output<OperatorApiResponseMap<K>[S]>;
+type ParsedOperatorApiResponse<
+  K extends OperatorApiOperationId,
+  S extends number,
+> = S extends OperatorApiResponseStatus<K>
+  ? OperatorApiResponse<K, S>
+  : OperatorApiResponse<K, OperatorApiResponseStatus<K>>;
 export type OperatorApiHandlerResult<K extends OperatorApiOperationId> =
   | { statusCode?: 200; body: OperatorApiSuccess<K> }
   | {
@@ -265,11 +271,20 @@ export type OperatorApiHandlerResult<K extends OperatorApiOperationId> =
       };
     }[Exclude<OperatorApiResponseStatus<K>, 200>];
 
-export function parseOperatorResponse<K extends OperatorApiOperationId>(
+export function parseOperatorResponse<
+  K extends OperatorApiOperationId,
+  S extends number,
+>(
   operationId: K,
+  statusCode: S,
   payload: unknown,
-): OperatorApiSuccess<K> {
-  return operatorApiContracts[operationId].success.parse(payload) as OperatorApiSuccess<K>;
+): ParsedOperatorApiResponse<K, S> {
+  const responseSchemas = operatorApiContracts[operationId].response as Partial<Record<number, z.ZodTypeAny>>;
+  const schema = responseSchemas[statusCode];
+  if (schema === undefined) {
+    throw new Error(`Operator API operation ${operationId} does not declare response status ${statusCode}.`);
+  }
+  return schema.parse(payload) as ParsedOperatorApiResponse<K, S>;
 }
 
 export function operatorRouteInventory(): Array<{

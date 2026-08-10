@@ -72,14 +72,14 @@ async function install(page: Page): Promise<Fixture> {
     if (request.method() !== 'GET') return route.fallback();
     if (url.pathname === '/api/cards/project/children') {
       await fixture.hierarchyDelay.get('project');
-      return json(route, parseOperatorResponse('cards.children', { parent: hierarchy(project), children: [source, goal, ...overflow].map(hierarchy) }));
+      return json(route, parseOperatorResponse('cards.children', 200, { parent: hierarchy(project), children: [source, goal, ...overflow].map(hierarchy) }));
     }
     if (url.pathname === `/api/cards/${goalId}/children`) {
-      return json(route, parseOperatorResponse('cards.children', { parent: hierarchy(goal), children: (fixture.omitNewEdge ? [target] : [target, newlyLinked]).map(hierarchy) }));
+      return json(route, parseOperatorResponse('cards.children', 200, { parent: hierarchy(goal), children: (fixture.omitNewEdge ? [target] : [target, newlyLinked]).map(hierarchy) }));
     }
     if (url.pathname === `/api/cards/${targetId}/history`) {
       await fixture.historyDelay.get(targetId);
-      return json(route, parseOperatorResponse('cards.history.list', { history: [{
+      return json(route, parseOperatorResponse('cards.history.list', 200, { history: [{
         entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: targetId, version_seq: 2,
         changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card',
         changed_fields: ['title'], change_summary: 'title updated',
@@ -87,25 +87,25 @@ async function install(page: Page): Promise<Fixture> {
     }
     if (url.pathname === `/api/cards/${targetId}/history/2`) {
       const { operator_summary: _operatorSummary, allowedActions: _allowedActions, ...snapshot } = targetPrior;
-      return json(route, parseOperatorResponse('cards.history.get', { entry: {
+      return json(route, parseOperatorResponse('cards.history.get', 200, { entry: {
         entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: targetId, version_seq: 2,
         changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card',
         changed_fields: ['title'], change_summary: 'title updated', snapshot,
       } }));
     }
     if (url.pathname === `/api/cards/${targetId}/diff`) {
-      return json(route, parseOperatorResponse('cards.diff', { card_id: targetId, from: 2, to: 3, diff: [{ field: 'title', before: 'Earlier target', after: target.title }] }));
+      return json(route, parseOperatorResponse('cards.diff', 200, { card_id: targetId, from: 2, to: 3, diff: [{ field: 'title', before: 'Earlier target', after: target.title }] }));
     }
     const childrenMatch = url.pathname.match(/^\/api\/cards\/([^/]+)\/children$/);
     if (childrenMatch) {
       const id = decodeURIComponent(childrenMatch[1]!);
       const found = [source, target, newlyLinked, ...overflow].find((entry) => entry.id === id);
-      return found ? json(route, parseOperatorResponse('cards.children', { parent: hierarchy(found), children: [] })) : json(route, { error: 'Card not found', cardId: id }, 404);
+      return found ? json(route, parseOperatorResponse('cards.children', 200, { parent: hierarchy(found), children: [] })) : json(route, { error: 'Card not found', cardId: id }, 404);
     }
     const recordMatch=url.pathname.match(/^\/api\/cards\/([^/]+)\/records\/([^/]+)$/);
-    if(recordMatch){const cardId=decodeURIComponent(recordMatch[1]!);const name=decodeURIComponent(recordMatch[2]!);const stem=name.replace(/\.md$/,'');const key=`${cardId}:${stem}`;await fixture.recordDelay.get(key);const queued=fixture.recordReplies.get(key)?.shift();if(queued&&queued.status!==200)return json(route,queued.status===404?{error:'Card record not found',cardId,name}:{error:'InternalServerError',message:'Internal server error'},queued.status);if(!queued&&name!=='brief.md')return json(route,{error:'Card record not found',cardId,name},404);const content=queued?.content??(cardId===targetId?`Continue with [[card:${sourceId}|Source card]].`:'Brief content');return json(route,parseOperatorResponse('cards.records.get',{card_id:cardId,record:{name,version:2,committed_at:now,content}}));}
+    if(recordMatch){const cardId=decodeURIComponent(recordMatch[1]!);const name=decodeURIComponent(recordMatch[2]!);const stem=name.replace(/\.md$/,'');const key=`${cardId}:${stem}`;await fixture.recordDelay.get(key);const queued=fixture.recordReplies.get(key)?.shift();if(queued&&queued.status!==200)return json(route,queued.status===404?{error:'Card record not found',cardId,name}:{error:'InternalServerError',message:'Internal server error'},queued.status);if(!queued&&name!=='brief.md')return json(route,{error:'Card record not found',cardId,name},404);const content=queued?.content??(cardId===targetId?`Continue with [[card:${sourceId}|Source card]].`:'Brief content');return json(route,parseOperatorResponse('cards.records.get',200,{card_id:cardId,record:{name,version:2,committed_at:now,content}}));}
     const recordsMatch=url.pathname.match(/^\/api\/cards\/([^/]+)\/records$/);
-    if(recordsMatch){const id=decodeURIComponent(recordsMatch[1]!);return json(route,parseOperatorResponse('cards.records.list',{card_id:id,records:recordsFor(id)}));}
+    if(recordsMatch){const id=decodeURIComponent(recordsMatch[1]!);return json(route,parseOperatorResponse('cards.records.list',200,{card_id:id,records:recordsFor(id)}));}
     const detailMatch = url.pathname.match(/^\/api\/cards\/([^/]+)$/);
     if (detailMatch) {
       const id = decodeURIComponent(detailMatch[1]!);
@@ -113,7 +113,7 @@ async function install(page: Page): Promise<Fixture> {
       if (fixture.missingDetails.has(id)) return json(route, { error: 'Card not found', cardId: id }, 404);
       const found = [project, source, goal, target, newlyLinked, ...overflow].find((entry) => entry.id === id);
       const detailCard = found && id === goalId ? { ...found, title: 'Detail authority goal' } : found;
-      return detailCard ? json(route, parseOperatorResponse('cards.get', { card: detailProjection(detailCard) })) : json(route, { error: 'Card not found', cardId: id }, 404);
+      return detailCard ? json(route, parseOperatorResponse('cards.get', 200, { card: detailProjection(detailCard) })) : json(route, { error: 'Card not found', cardId: id }, 404);
     }
     return route.fallback();
   });

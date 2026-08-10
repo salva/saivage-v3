@@ -9,7 +9,7 @@
  *  3. JSON content detection via contentType, +json suffix, and .json extension.
  *  4. Markdown content detection via .md extension and text/markdown contentType.
  *  5. Protected-content / error handling: listFiles failure, getFileContent failure,
- *     ApiError-specific message extraction, and generic Error fallback.
+ *     OperatorApiError-specific message extraction, and generic Error fallback.
  *  6. Store-level navigation actions: navigateMeta, navigateOutput, navigateMetaUp,
  *     navigateOutputUp, clearViewedFile.
  *
@@ -19,24 +19,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   listFiles: vi.fn(),
   getFileContent: vi.fn(),
-  ApiError: class extends Error {
-    status: number;
-    body: Record<string, unknown>;
-    constructor(status: number, message: string, body: Record<string, unknown> = {}) {
-      super(message);
-      this.name = 'ApiError';
-      this.status = status;
-      this.body = body;
-    }
-    get isUnauthorized(): boolean { return this.status === 401; }
-    get isNotFound(): boolean { return this.status === 404; }
-  },
 }));
 
-import { listFiles, getFileContent, ApiError } from '../api/client';
+import { listFiles, getFileContent, OperatorApiError } from '../api/client';
 import { useFileStore } from '../stores/files';
 
 function setupStore() {
@@ -285,9 +274,9 @@ describe('useFileStore', () => {
       expect(store.metaLoading).toBe(false);
     });
 
-    it('sets error on ApiError failure', async () => {
+    it('sets error on OperatorApiError failure', async () => {
       const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new ApiError(403, 'Forbidden', {}));
+      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 403, { error: 'Forbidden' }));
 
       await store.fetchMetaFiles();
 
@@ -332,7 +321,7 @@ describe('useFileStore', () => {
 
     it('sets error on failure', async () => {
       const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new ApiError(404, 'Not found', {}));
+      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 404, { error: 'Not found', path: '.saivage' }));
 
       await store.fetchOutputFiles();
 
@@ -367,11 +356,11 @@ describe('useFileStore', () => {
 
     it('propagates errors from fetchMetaFiles', async () => {
       const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new ApiError(500, 'Server error', {}));
+      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 500, { error: 'InternalServerError', message: 'Internal server error' }));
 
       await store.navigateMeta('.saivage/cards');
 
-      expect(store.error).toBe('Server error');
+      expect(store.error).toBe('Internal server error');
     });
   });
 
@@ -469,10 +458,10 @@ describe('useFileStore', () => {
       expect(store.contentLoading).toBe(false);
     });
 
-    it('sets error on ApiError failure', async () => {
+    it('sets error on OperatorApiError failure', async () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockRejectedValue(
-        new ApiError(403, 'Protected content — requires supervisor approval', { code: 'PROTECTED' }),
+        new OperatorApiError('files.content', 403, { error: 'Protected content — requires supervisor approval' }),
       );
 
       await store.fetchFileContent('.saivage/work/output/bad.txt');
@@ -645,10 +634,10 @@ describe('useFileStore', () => {
   });
 
   describe('error handling — protected content and failed fetch', () => {
-    it('sets error message from ApiError with protected content message in listFiles', async () => {
+    it('sets error message from OperatorApiError with protected content message in listFiles', async () => {
       const store = setupStore();
       vi.mocked(listFiles).mockRejectedValue(
-        new ApiError(403, 'Protected content — access denied', { code: 'ACCESS_DENIED' }),
+        new OperatorApiError('files.list', 403, { error: 'Protected content — access denied' }),
       );
 
       await store.fetchMetaFiles('.saivage/protected');
@@ -657,10 +646,10 @@ describe('useFileStore', () => {
       expect(store.metaFiles).toEqual([]);
     });
 
-    it('sets error message from ApiError with protected content message in getFileContent', async () => {
+    it('sets error message from OperatorApiError with protected content message in getFileContent', async () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockRejectedValue(
-        new ApiError(403, 'This file is blocked by content supervisor', {}),
+        new OperatorApiError('files.content', 403, { error: 'This file is blocked by content supervisor' }),
       );
 
       await store.fetchFileContent('.saivage/work/output/blocked.json');
@@ -673,7 +662,7 @@ describe('useFileStore', () => {
     it('handles 404 not-found errors from getFileContent', async () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockRejectedValue(
-        new ApiError(404, 'File not found at path', {}),
+        new OperatorApiError('files.content', 404, { error: 'File not found at path', path: 'missing' }),
       );
 
       await store.fetchFileContent('.saivage/missing.txt');
@@ -685,19 +674,19 @@ describe('useFileStore', () => {
     it('handles 401 unauthorized errors from listFiles', async () => {
       const store = setupStore();
       vi.mocked(listFiles).mockRejectedValue(
-        new ApiError(401, 'Unauthorized — valid API token required', {}),
+        new OperatorApiError('files.list', 401, { error: 'Unauthorized', statusCode: 401 }, 'Unauthorized — valid API token required'),
       );
 
       await store.fetchMetaFiles();
 
-      expect(store.error).toBe('Unauthorized — valid API token required');
+      expect(store.error).toBe('Unauthorized');
       expect(store.metaLoading).toBe(false);
     });
 
     it('handles 500 server errors from listFiles', async () => {
       const store = setupStore();
       vi.mocked(listFiles).mockRejectedValue(
-        new ApiError(500, 'Internal server error', {}),
+        new OperatorApiError('files.list', 500, { error: 'InternalServerError', message: 'Internal server error' }),
       );
 
       await store.fetchMetaFiles();
@@ -705,7 +694,7 @@ describe('useFileStore', () => {
       expect(store.error).toBe('Internal server error');
     });
 
-    it('handles network failure (non-ApiError) in fetchOutputFiles', async () => {
+    it('handles network failure (non-OperatorApiError) in fetchOutputFiles', async () => {
       const store = setupStore();
       vi.mocked(listFiles).mockRejectedValue(new TypeError('Failed to fetch'));
 
@@ -714,7 +703,7 @@ describe('useFileStore', () => {
       expect(store.error).toBe('Failed to list output files');
     });
 
-    it('handles network failure (non-ApiError) in fetchFileContent', async () => {
+    it('handles network failure (non-OperatorApiError) in fetchFileContent', async () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockRejectedValue(new TypeError('NetworkError'));
 
@@ -740,11 +729,11 @@ describe('useFileStore', () => {
   describe('navigation error propagation', () => {
     it('navigateMeta sets error on failure', async () => {
       const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new ApiError(500, 'Boom', {}));
+      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 500, { error: 'InternalServerError', message: 'Internal server error' }));
 
       await store.navigateMeta('.saivage/bad');
 
-      expect(store.error).toBe('Boom');
+      expect(store.error).toBe('Internal server error');
     });
 
     it('navigateOutput sets error on failure', async () => {
@@ -759,11 +748,11 @@ describe('useFileStore', () => {
     it('navigateMetaUp sets error when parent fetch fails', async () => {
       const store = setupStore();
       store.$patch({ metaPath: '.saivage/cards' });
-      vi.mocked(listFiles).mockRejectedValue(new ApiError(500, 'Parent failed', {}));
+      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 500, { error: 'InternalServerError', message: 'Internal server error' }));
 
       await store.navigateMetaUp();
 
-      expect(store.error).toBe('Parent failed');
+      expect(store.error).toBe('Internal server error');
       expect(store.metaPath).toBe('.saivage');
     });
   });
@@ -801,7 +790,7 @@ describe('useFileStore', () => {
       const store = setupStore();
 
       vi.mocked(getFileContent).mockRejectedValueOnce(
-        new ApiError(403, 'Content blocked by supervisor', { code: 'BLOCKED' }),
+        new OperatorApiError('files.content', 403, { error: 'Content blocked by supervisor' }),
       );
       await store.fetchFileContent('.saivage/work/output/bad.txt');
 
@@ -828,16 +817,16 @@ describe('useFileStore', () => {
       const store = setupStore();
 
       vi.mocked(getFileContent).mockRejectedValueOnce(
-        new ApiError(500, 'Server error', {}),
+        new OperatorApiError('files.content', 500, { error: 'InternalServerError', message: 'Internal server error' }),
       );
       await store.fetchFileContent('.saivage/bad.json');
 
-      expect(store.error).toBe('Server error');
-      expect(store.viewerError).toBe('Server error');
+      expect(store.error).toBe('Internal server error');
+      expect(store.viewerError).toBe('Internal server error');
       expect(store.viewedFile).toBeNull();
 
       store.clearViewedFile();
-      expect(store.error).toBe('Server error');
+      expect(store.error).toBe('Internal server error');
       expect(store.viewerError).toBeNull();
       expect(store.viewedFile).toBeNull();
       expect(store.viewedFilePath).toBe('');

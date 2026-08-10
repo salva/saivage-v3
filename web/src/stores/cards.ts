@@ -1,7 +1,7 @@
 import { computed, markRaw, ref, shallowRef } from 'vue';
 import { defineStore } from 'pinia';
 import type { CardDetail, CardDiffRow, CardHierarchyRecord, CardHistoryEntry, CardHistoryHeader, CardRecordDescriptor, DetailErrorState, LiveSyncCardInvalidateTarget, LiveSyncCardRecordName } from '../api/types';
-import { ApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getCardRecord, listCardHistory, listCardRecords, type CurrentCardDiffKey } from '../api/client';
+import { OperatorApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getCardRecord, isOperatorApiError, listCardHistory, listCardRecords, type CurrentCardDiffKey } from '../api/client';
 import { abortRequestOwner, abortRequestOwners, releaseRequestOwner, replaceRequestOwner, withKey } from './keyed-containers';
 
 export type ChildrenLoadStatus = 'undiscovered' | 'loading' | 'error' | 'loaded-nonempty' | 'confirmed-leaf';
@@ -24,7 +24,7 @@ const recordsFrom=(descriptors:readonly CardRecordDescriptor[]):Record<string,Re
 function sameDescriptor(left:CardRecordDescriptor,right:CardRecordDescriptor):boolean{return left.name===right.name&&left.format===right.format&&left.schema===right.schema&&left.bootstrap===right.bootstrap&&left.writers.length===right.writers.length&&left.writers.every((writer,index)=>writer===right.writers[index]);}
 
 export function buildDetailError(err: unknown, fallback: string): DetailErrorState {
-  if (err instanceof ApiError) {
+  if (err instanceof OperatorApiError) {
     if (err.isUnauthorized) return { kind: 'unauthorized', status: err.status, message: err.message || 'Unauthorized.' };
     if (err.isNotFound) return { kind: 'not-found', status: err.status, message: err.message || 'Card not found.' };
     if (err.status >= 500) return { kind: 'server', status: err.status, message: err.message || fallback };
@@ -35,18 +35,6 @@ export function buildDetailError(err: unknown, fallback: string): DetailErrorSta
 }
 const message = (error: unknown, fallback: string) => error instanceof Error ? error.message || fallback : fallback;
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
-function isExactRecordNotFound(error: unknown, cardId: string, name: string): error is ApiError {
-  if (!(error instanceof ApiError) || error.status !== 404) return false;
-  const keys = Object.keys(error.body);
-  return keys.length === 3
-    && keys.includes('error')
-    && keys.includes('cardId')
-    && keys.includes('name')
-    && error.body.error === 'Card record not found'
-    && error.body.cardId === cardId
-    && error.body.name === name;
-}
-
 export function cardRouteChain(cardId: string): string[] {
   if (cardId === 'project') return ['project'];
   const parts = cardId.startsWith('card-') ? cardId.slice(5).split('-') : [];
@@ -146,7 +134,7 @@ export const useCardStore = defineStore('cards', () => {
     const accepted = selectedDetail.value?.cardId === id; const controller = new AbortController(); let owner!: RequestOwner;
     const promise = getCard(id, controller.signal).then((response) => { if (detailOwner !== owner || selectedCardId.value !== id) return; selectedDetail.value = Object.freeze({ cardId: id, card: response.card }); selectedDetailError.value = null; selectedDetailFreshness.value = fresh(); if (!recordDescriptors.value.length && !descriptorOwner) void loadRecordDescriptors(id); }).catch((error: unknown) => {
       if (detailOwner !== owner || selectedCardId.value !== id || aborted(error)) return;
-      if (error instanceof ApiError && error.isNotFound) {
+      if (error instanceof OperatorApiError && error.isNotFound) {
         clearSelectedSubordinates(); selectedDetail.value = null; selectedDetailLoading.value = false; selectedDetailError.value = buildDetailError(error, 'Failed to fetch card detail'); selectedDetailFreshness.value = fresh(); return;
       }
       if (accepted) selectedDetailFreshness.value = { refreshing: false, stale: true, staleReason: 'refresh-failed', refreshError: message(error, 'Failed to refresh card detail') }; else selectedDetailError.value = buildDetailError(error, 'Failed to fetch card detail');
@@ -169,7 +157,10 @@ export const useCardStore = defineStore('cards', () => {
     abortRequestOwner(recordOwners, name); const accepted = prior.accepted; const controller = new AbortController(); let owner!: RequestOwner;
     const promise = getCardRecord(cardId, name, controller.signal).then((response) => { if (recordOwners.get(name) !== owner || selectedCardId.value !== cardId) return; cardRecords.value = withKey(cardRecords.value, name, { ...prior,loading: false, error: null, accepted: { kind: 'content', version: response.record.version, committedAt: response.record.committed_at, content: response.record.content }, ...fresh() }); }).catch((error: unknown) => {
       if (recordOwners.get(name) !== owner || selectedCardId.value !== cardId || aborted(error)) return;
-      const optionalEmpty404 = isExactRecordNotFound(error, cardId, name)
+      const optionalEmpty404 = isOperatorApiError(error, 'cards.records.get', 404)
+        && error.data.error === 'Card record not found'
+        && error.data.cardId === cardId
+        && error.data.name === name
         && !prior.descriptor.bootstrap
         && (accepted === null || accepted.kind === 'empty');
       if (optionalEmpty404) cardRecords.value = withKey(cardRecords.value, name, { ...prior,loading: false, error: null, accepted: { kind: 'empty' }, ...fresh() });

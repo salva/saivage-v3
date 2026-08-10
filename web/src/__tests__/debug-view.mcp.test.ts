@@ -8,13 +8,9 @@ const api = vi.hoisted(() => ({
   getMcpTools: vi.fn(), getNewestEvents: vi.fn(), getDebugErrors: vi.fn(),
   listProcesses: vi.fn(), listAgentSessions: vi.fn(), getDebugGraphs: vi.fn(), getDoctor: vi.fn(),
 }));
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   ...api,
-  ApiError: class ApiError extends Error {
-    constructor(public status: number, message: string) { super(message); }
-    get isUnauthorized() { return this.status === 401; }
-    get isNotFound() { return this.status === 404; }
-  },
 }));
 const live = vi.hoisted(() => ({ openAgents: vi.fn(() => vi.fn()) }));
 vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));

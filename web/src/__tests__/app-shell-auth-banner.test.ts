@@ -10,10 +10,10 @@ import AppShell from '../components/layout/AppShell.vue';
 import { API_AUTH_REQUIRED_EVENT, API_AUTH_DISMISSED_SESSION_KEY } from '../utils/auth-events';
 
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => null) }));
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getChatEntries: vi.fn(async () => ({ session_id: 'agent:analyst:global' })),
   sendChatMessage: vi.fn(),
-  ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 vi.mock('../stores/sync', () => ({
   useSyncStore: () => ({ connect: vi.fn(), disconnect: vi.fn(), registerResource: vi.fn(() => vi.fn()), openConversation: vi.fn(() => vi.fn()), connectionState: 'connected' }),

@@ -7,21 +7,15 @@ import { listProcesses } from '../api/client';
 
 const mockPush = vi.fn();
 
-vi.mock('../api/client', () => {
-  const ApiError = class extends Error {
-    status: number;
-    constructor(status: number, message: string) {
-      super(message);
-      this.status = status;
-    }
-  };
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>();
   return {
+    ...actual,
     getDebugErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
     getNewestEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
     getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }], issues: [] }),
     listProcesses: vi.fn(),
     getMcpTools: vi.fn().mockResolvedValue({ tools: [], stats: {} }),
-    ApiError,
   };
 });
 

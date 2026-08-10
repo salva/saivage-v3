@@ -108,7 +108,7 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     }
     expect(res.status()).toBe(200);
     const body = await res.json();
-    const parsed = parseOperatorResponse('agents.llmExchange', body);
+    const parsed = parseOperatorResponse('agents.llmExchange', 200, body);
     expect(body.session_id).toBe(analystSessionId);
     expect(typeof parsed.exchange.contract_id).toBe('string');
     expect(typeof parsed.exchange.contract_name).toBe('string');

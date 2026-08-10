@@ -18,7 +18,7 @@ import {
   getRuntimeStatus,
   stopProject as stopProjectRequest,
   restartServer as restartServerRequest,
-  ApiError,
+  OperatorApiError,
 } from '../api/client';
 import { useSyncStore } from './sync';
 import { createLogger } from '../utils/logger';
@@ -126,9 +126,9 @@ export const useRuntimeStore = defineStore('runtime', () => {
       refreshError.value = null;
     } catch (err) {
       if (epoch !== requestEpoch || (err instanceof DOMException && err.name === 'AbortError')) return;
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch runtime state';
+      const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch runtime state';
       if (initial) error.value = msg; else refreshError.value = msg;
-      unauthorized.value = err instanceof ApiError && err.isUnauthorized;
+      unauthorized.value = err instanceof OperatorApiError && err.isUnauthorized;
       if (unauthorized.value) {
         projectRoot.value = null;
         projectId.value = null;

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { markRaw, reactive } from 'vue';
-import { ApiError, getCardAgentSessions } from '../api/client';
+import { OperatorApiError, getCardAgentSessions } from '../api/client';
 import type { AgentSession } from '../api/types';
 export interface CardAgentSessionsState {
   sessions: AgentSession[];
@@ -45,7 +45,7 @@ export const useCardAgentSessionsStore = defineStore('card-agent-sessions', () =
         (error instanceof DOMException && error.name === 'AbortError')
       )
         return;
-      if (error instanceof ApiError && error.isNotFound) {
+      if (error instanceof OperatorApiError && error.isNotFound) {
         state.sessions = [];
         state.error = null;
         return;

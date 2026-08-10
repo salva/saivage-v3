@@ -9,10 +9,10 @@ const apiMocks = vi.hoisted(() => ({
   sendChatMessage: vi.fn(),
 }));
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
   getChatEntries: apiMocks.getChatEntries,
   sendChatMessage: apiMocks.sendChatMessage,
-  ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } },
 }));
 
 describe('analyst chat workspace context', () => {

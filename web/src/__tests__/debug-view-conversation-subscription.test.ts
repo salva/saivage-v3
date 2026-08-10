@@ -22,7 +22,8 @@ const live = vi.hoisted(() => ({
 }));
 
 vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getDebugErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
   getNewestEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
   getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }], issues: [] }),
@@ -32,23 +33,6 @@ vi.mock('../api/client', () => ({
   getAgentSession: api.getAgentSession,
   getAgentLlmExchange: api.getAgentLlmExchange,
   listAgentSessions: api.listAgentSessions,
-  ApiError: class ApiError extends Error {
-    body: Record<string, unknown>;
-    constructor(
-      public status: number,
-      message: string,
-      body: Record<string, unknown> = {},
-    ) {
-      super(message);
-      this.body = body;
-    }
-    get isUnauthorized() {
-      return this.status === 401;
-    }
-    get isNotFound() {
-      return this.status === 404;
-    }
-  },
 }));
 
 const SESSION_A = 'agent:planner:project' as const;

@@ -3,22 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { getCardAgentSessions, listAgentSessions } from '../api/client';
 import { useAgentStore } from '../stores/agents';
 
-vi.mock('../api/client', () => ({
-  ApiError: class ApiError extends Error {
-    constructor(
-      readonly status: number,
-      message: string,
-      readonly body: Record<string, unknown> = {},
-    ) {
-      super(message);
-    }
-    get isNotFound() {
-      return this.status === 404;
-    }
-    get isUnauthorized() {
-      return this.status === 401;
-    }
-  },
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getAgentConversation: vi.fn(),
   getAgentLlmExchange: vi.fn(),
   getAgentSession: vi.fn(),

@@ -35,21 +35,10 @@ vi.mock('../stores/sync', () => ({
   }),
 }));
 
-vi.mock('../api/client', () => {
-  const ApiError = class extends Error {
-    status: number;
-    body: Record<string, unknown>;
-    constructor(status: number, message: string, body: Record<string, unknown> = {}) {
-      super(message);
-      this.name = 'ApiError';
-      this.status = status;
-      this.body = body;
-    }
-    get isUnauthorized(): boolean {
-      return this.status === 401;
-    }
-  };
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>();
   return {
+    ...actual,
     listAgentSessions: vi.fn(async () => {
       if (apiMockState.listError) throw apiMockState.listError;
       return { sessions: apiMockState.sessions };
@@ -59,7 +48,6 @@ vi.mock('../api/client', () => {
     })),
     getAgentConversation: vi.fn(async () => apiMockState.conversation),
     getAgentLlmExchange: vi.fn(),
-    ApiError,
   };
 });
 
@@ -191,8 +179,8 @@ describe('AgentsView', () => {
   });
 
   it('shows unauthorized messaging for 401 responses', async () => {
-    const { ApiError } = await import('../api/client');
-    const { wrapper } = await mountAgentsView({ listError: new ApiError(401, 'Unauthorized', {}) });
+    const { OperatorApiError } = await import('../api/client');
+    const { wrapper } = await mountAgentsView({ listError: new OperatorApiError('agents.list', 401, { error: 'Unauthorized', statusCode: 401 }) });
     expect(wrapper.find('.agents-unauthorized').exists()).toBe(true);
     expect(wrapper.text()).toContain('valid API token');
   });

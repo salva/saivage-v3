@@ -25,7 +25,8 @@ vi.mock('../stores/sync', () => ({
   }),
 }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   listAgentSessions: vi.fn(async () => ({ sessions: [makeSession('agent:planner:project'), makeSession('agent:reviewer:project')] })),
   getAgentConversation: vi.fn(async (sessionId: 'agent:planner:project' | 'agent:reviewer:project') => {
     lifecycle.events.push(`fetch:${sessionId}`);
@@ -33,10 +34,6 @@ vi.mock('../api/client', () => ({
   }),
   getAgentSession:vi.fn(async(sessionId:'agent:planner:project'|'agent:reviewer:project')=>({session:makeSession(sessionId)})),
   getAgentLlmExchange: vi.fn(),
-  ApiError: class extends Error {
-    get isUnauthorized() { return false; }
-    get isNotFound() { return false; }
-  },
 }));
 
 function makeSession(id: 'agent:planner:project' | 'agent:reviewer:project') {

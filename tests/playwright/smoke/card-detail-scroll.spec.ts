@@ -18,7 +18,7 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-       body: JSON.stringify(parseOperatorResponse('cards.get', {
+       body: JSON.stringify(parseOperatorResponse('cards.get', 200, {
           card: smokeOperatorCard,
        })),
     });

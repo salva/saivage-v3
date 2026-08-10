@@ -4,7 +4,7 @@ import { createPinia } from 'pinia';
 import AnalystChatPanel from '../components/chat/AnalystChatPanel.vue';
 import { useCardStore } from '../stores/cards';
 import { useAnalystChat } from '../stores/analystChat';
-import { ApiError } from '../api/client';
+import { OperatorApiError } from '../api/client';
 
 const analystSessionId = 'agent:analyst:global' as const;
 const api = vi.hoisted(() => ({
@@ -16,20 +16,9 @@ const api = vi.hoisted(() => ({
 }));
 const live = vi.hoisted(() => ({ openConversation: vi.fn(), closeConversation: vi.fn() }));
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   ...api,
-  ApiError: class extends Error {
-    constructor(
-      public status: number,
-      message: string,
-      public body: Record<string, unknown> = {},
-    ) {
-      super(message);
-    }
-    get isUnauthorized() {
-      return this.status === 401;
-    }
-  },
 }));
 vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 
@@ -251,9 +240,9 @@ describe('AnalystChatPanel', () => {
     const pinia = createPinia();
     const wrapper = mountPanel(pinia);
     await flushPromises();
-    api.sendChatMessage.mockRejectedValueOnce(new ApiError(
+    api.sendChatMessage.mockRejectedValueOnce(new OperatorApiError(
+      'chats.send',
       409,
-      'Another Analyst turn is active. Retry after it finishes.',
       {
         error: 'analyst_turn_busy',
         message: 'Another Analyst turn is active. Retry after it finishes.',

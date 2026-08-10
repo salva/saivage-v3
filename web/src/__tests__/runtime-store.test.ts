@@ -4,12 +4,8 @@ import { computed, ref } from 'vue';
 import { useRuntimeStore } from '../stores/runtime';
 
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
-vi.mock('../api/client', () => ({
-  ApiError: class ApiError extends Error {
-    status: number;
-    constructor(status: number, message: string) { super(message); this.status = status; }
-    get isUnauthorized() { return this.status === 401; }
-  },
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getRuntimeState: vi.fn(async () => ({
     projectRoot: '/fixture',
     projectId: 'fixture-project',

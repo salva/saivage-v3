@@ -26,7 +26,7 @@ import {
   getNewestEvents,
   getDoctor,
   listProcesses,
-  ApiError,
+  OperatorApiError,
   getDebugGraphs,
 } from '../api/client';
 import { createLogger } from '../utils/logger';
@@ -78,7 +78,7 @@ export const useDebugStore = defineStore('debug', () => {
       const response: DebugErrorsResponse = await getDebugErrors();
       errors.value = response.errors;
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug errors';
+      const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch debug errors';
       error.value = msg;
       log.error('fetchErrors', msg);
       throw err;
@@ -95,7 +95,7 @@ export const useDebugStore = defineStore('debug', () => {
       timelineEvents.value = response.events;
       timelineTotal.value = response.total;
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch debug timeline';
+      const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch debug timeline';
       error.value = msg;
       log.error('fetchTimeline', msg);
       throw err;
@@ -111,7 +111,7 @@ export const useDebugStore = defineStore('debug', () => {
       const response: ProcessListResponse = await listProcesses();
       processes.value = response.processes;
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch processes';
+      const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch processes';
       processesError.value = msg;
       log.error('fetchProcesses', msg);
     } finally {
@@ -129,7 +129,7 @@ export const useDebugStore = defineStore('debug', () => {
       doctorChecks.value = response.checks;
       doctorIssues.value = response.issues;
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch doctor diagnostics';
+      const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch doctor diagnostics';
       doctorError.value = msg;
       log.error('fetchDoctor', msg);
     } finally {
@@ -157,7 +157,7 @@ export const useDebugStore = defineStore('debug', () => {
       graphsRefreshError.value = null;
     } catch (err) {
       if (graphsRequest !== request) return;
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch compiled graphs';
+      const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch compiled graphs';
       if (refreshing) graphsRefreshError.value = msg;
       else graphsError.value = msg;
       log.error('fetchGraphs', msg);

@@ -11,23 +11,12 @@ const syncMocks = vi.hoisted(() => ({
   unregisterFiles: vi.fn(),
 }));
 
-vi.mock('../api/client', () => {
-  const ApiError = class extends Error {
-    status: number;
-    body: Record<string, unknown>;
-    constructor(status: number, message: string, body: Record<string, unknown> = {}) {
-      super(message);
-      this.name = 'ApiError';
-      this.status = status;
-      this.body = body;
-    }
-    get isUnauthorized(): boolean { return this.status === 401; }
-    get isNotFound(): boolean { return this.status === 404; }
-  };
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../api/client')>();
   return {
+    ...actual,
     listFiles: vi.fn(),
     getFileContent: vi.fn(),
-    ApiError,
   };
 });
 
@@ -37,7 +26,7 @@ vi.mock('../stores/sync', () => ({
   }),
 }));
 
-import { listFiles, getFileContent, ApiError } from '../api/client';
+import { listFiles, getFileContent, OperatorApiError } from '../api/client';
 
 const mockMetaRootFiles: FilesListResponse = {
   path: '.saivage',
@@ -143,7 +132,7 @@ describe('FilesView', () => {
   });
 
   it('shows viewer state when file preview is blocked', async () => {
-    vi.mocked(getFileContent).mockRejectedValue(new ApiError(403, 'Protected content — access denied', {}));
+    vi.mocked(getFileContent).mockRejectedValue(new OperatorApiError('files.content', 403, { error: 'Protected content — access denied' }));
     const { wrapper } = await mountFilesView();
 
     await wrapper.findAll('.file-list')[0].findAll('.file-entry')[1].trigger('click');
@@ -155,7 +144,7 @@ describe('FilesView', () => {
   });
 
   it('shows viewer state when file is missing', async () => {
-    vi.mocked(getFileContent).mockRejectedValue(new ApiError(404, 'File not found at path', {}));
+    vi.mocked(getFileContent).mockRejectedValue(new OperatorApiError('files.content', 404, { error: 'File not found at path', path: 'missing' }));
     const { wrapper } = await mountFilesView();
 
     await wrapper.findAll('.file-list')[0].findAll('.file-entry')[1].trigger('click');
@@ -168,7 +157,7 @@ describe('FilesView', () => {
   it('shows unauthorized banner when listing files is rejected with 401', async () => {
     const { wrapper } = await mountFilesView({
       listFilesImpl: async () => {
-        throw new ApiError(401, 'Unauthorized — valid API token required', {});
+        throw new OperatorApiError('files.list', 401, { error: 'Unauthorized', statusCode: 401 });
       },
     });
 

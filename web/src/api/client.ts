@@ -41,6 +41,8 @@ import {
   type OperatorApiOperationId,
   type OperatorApiParams,
   type OperatorApiBody,
+  type OperatorApiResponseStatus,
+  type OperatorApiResponse,
   type OperatorApiSuccess,
 } from './contracts';
 import type { ProviderExchangePayload } from './contracts';
@@ -55,15 +57,38 @@ function authHeaders(): Record<string, string> {
   return headers;
 }
 
-class ApiError extends Error {
-  status: number;
-  body: Record<string, unknown>;
+type OperatorApiFailureStatus<K extends OperatorApiOperationId> = Exclude<
+  OperatorApiResponseStatus<K>,
+  200
+>;
 
-  constructor(status: number, message: string, body: Record<string, unknown>) {
-    super(message);
-    this.name = 'ApiError';
+function responseErrorMessage(data: unknown, status: number, statusText: string): string {
+  if (data && typeof data === 'object') {
+    const responseData = data as { message?: unknown; error?: unknown };
+    if (typeof responseData.message === 'string' && responseData.message.length > 0) {
+      return responseData.message;
+    }
+    if (typeof responseData.error === 'string' && responseData.error.length > 0) {
+      return responseData.error;
+    }
+  }
+  return statusText || `HTTP ${status}`;
+}
+
+export class OperatorApiError<
+  K extends OperatorApiOperationId = OperatorApiOperationId,
+  S extends OperatorApiFailureStatus<K> = OperatorApiFailureStatus<K>,
+> extends Error {
+  readonly operationId: K;
+  readonly status: S;
+  readonly data: OperatorApiResponse<K, S>;
+
+  constructor(operationId: K, status: S, data: OperatorApiResponse<K, S>, statusText = '') {
+    super(responseErrorMessage(data, status, statusText));
+    this.name = 'OperatorApiError';
+    this.operationId = operationId;
     this.status = status;
-    this.body = body;
+    this.data = data;
   }
 
   get isUnauthorized(): boolean {
@@ -75,14 +100,23 @@ class ApiError extends Error {
   }
 }
 
-async function request<T>(
-  method: string,
-  path: string,
-  query?: Record<string, string>,
-  body?: unknown,
-  operationId?: OperatorApiOperationId,
-  signal?: AbortSignal,
-): Promise<T> {
+export function isOperatorApiError<
+  K extends OperatorApiOperationId,
+  S extends OperatorApiFailureStatus<K>,
+>(error: unknown, operationId: K, status: S): error is OperatorApiError<K, S> {
+  return error instanceof OperatorApiError
+    && error.operationId === operationId
+    && error.status === status;
+}
+
+async function operatorRequest<K extends OperatorApiOperationId>(
+  operationId: K,
+  options: OperatorRequestOptions<K> = {},
+): Promise<OperatorApiSuccess<K>> {
+  const contract = operatorApiContracts[operationId];
+  const method = contract.method;
+  const path = buildOperatorPath(operationId, options.params);
+  const query = normalizeQuery(options.query);
   const url = new URL(path, window.location.origin);
   if (query) {
     for (const [key, value] of Object.entries(query)) {
@@ -95,45 +129,46 @@ async function request<T>(
   const init: RequestInit = {
     method,
     headers: authHeaders(),
-    signal,
+    signal: options.signal,
   };
 
-  if (body !== undefined && method !== 'GET' && method !== 'HEAD') {
-    init.body = JSON.stringify(body);
+  if (options.body !== undefined && method !== 'GET') {
+    init.body = JSON.stringify(options.body);
     (init.headers as Record<string, string>)['Content-Type'] = 'application/json';
   }
 
   const response = await fetch(url.toString(), init);
 
-  if (response.status === 204) {
-    return {} as T;
-  }
-
-  let responseBody: Record<string, unknown>;
-  try {
-    responseBody = (await response.json()) as Record<string, unknown>;
-  } catch {
-    throw new ApiError(response.status, `Invalid JSON response`, {});
-  }
-
-  if (!response.ok) {
-    if (response.status === 401) {
-      dispatchApiAuthRequired({ status: response.status, path });
-    }
-    throw new ApiError(
-      response.status,
-      (responseBody['message'] as string) ||
-        (responseBody['error'] as string) ||
-        response.statusText,
-      responseBody,
+  if (!Object.hasOwn(contract.response, response.status)) {
+    throw new Error(
+      `Operator API operation ${operationId} does not declare response status ${response.status}.`,
     );
   }
 
-  if (operationId) {
-    return parseOperatorResponse(operationId, responseBody) as T;
+  let responseBody: unknown;
+  try {
+    responseBody = await response.json();
+  } catch {
+    throw new Error(
+      `Operator API operation ${operationId} returned invalid JSON for declared response status ${response.status}.`,
+    );
   }
 
-  return responseBody as T;
+  const parsed = parseOperatorResponse(operationId, response.status, responseBody);
+
+  if (response.status === 200) {
+    return parsed as OperatorApiSuccess<K>;
+  }
+
+  if (response.status === 401) {
+    dispatchApiAuthRequired({ status: response.status, path });
+  }
+  throw new OperatorApiError(
+    operationId,
+    response.status as OperatorApiFailureStatus<K>,
+    parsed as OperatorApiResponse<K, OperatorApiFailureStatus<K>>,
+    response.statusText,
+  );
 }
 
 type OperatorRequestOptions<K extends OperatorApiOperationId> = {
@@ -168,21 +203,6 @@ function normalizeQuery(
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
-function operatorRequest<K extends OperatorApiOperationId>(
-  operationId: K,
-  options: OperatorRequestOptions<K> = {},
-): Promise<OperatorApiSuccess<K>> {
-  const contract = operatorApiContracts[operationId];
-  return request<OperatorApiSuccess<K>>(
-    contract.method,
-    buildOperatorPath(operationId, options.params),
-    normalizeQuery(options.query),
-    options.body,
-    operationId,
-    options.signal,
-  );
-}
-
 export function issueWebSocketTicket(): Promise<OperatorApiSuccess<'auth.wsTicket'>> {
   return operatorRequest('auth.wsTicket');
 }
@@ -192,7 +212,7 @@ export function getCardChildren(id: string, signal?: AbortSignal): Promise<CardC
 }
 
 export function getCard(id: string, signal?: AbortSignal): Promise<CardDetailResponse> {
-  return operatorRequest('cards.get', { params: { id }, signal }) as Promise<CardDetailResponse>;
+  return operatorRequest('cards.get', { params: { id }, signal });
 }
 
 export function listCardRecords(id: string, signal?: AbortSignal): Promise<CardRecordListResponse> {
@@ -258,7 +278,7 @@ export function restartServer(): Promise<OperatorApiSuccess<'restart_server'>> {
 }
 
 export function listAgentSessions(signal?: AbortSignal): Promise<AgentSessionsResponse> {
-  return operatorRequest('agents.list', { signal }) as Promise<AgentSessionsResponse>;
+  return operatorRequest('agents.list', { signal });
 }
 export function getCardAgentSessions(
   cardId: string,
@@ -282,7 +302,7 @@ export function getAgentConversation(
     params: { id: sessionId },
     query: since ? { since } : undefined,
     signal,
-  }) as Promise<AgentConversationResponse>;
+  });
 }
 
 export function getAgentLlmExchange(
@@ -292,7 +312,7 @@ export function getAgentLlmExchange(
   return operatorRequest('agents.llmExchange', {
     params: { id: sessionId },
     signal,
-  }) as Promise<AgentLlmExchangeResponse>;
+  });
 }
 
 export function listControlActions(query?: {
@@ -303,7 +323,7 @@ export function listControlActions(query?: {
 }
 
 export function getChatEntries(signal?: AbortSignal): Promise<ChatEntriesResponse> {
-  return operatorRequest('chats.get', { signal }) as Promise<ChatEntriesResponse>;
+  return operatorRequest('chats.get', { signal });
 }
 
 export function sendChatMessage(
@@ -319,7 +339,7 @@ export function listFiles(path?: string): Promise<FilesListResponse> {
 }
 
 export function getFileContent(path: string, signal?: AbortSignal): Promise<FileContent> {
-  return operatorRequest('files.content', { query: { path }, signal }) as Promise<FileContent>;
+  return operatorRequest('files.content', { query: { path }, signal });
 }
 
 export function listProcesses(): Promise<ProcessListResponse> {
@@ -347,5 +367,3 @@ export function getDoctor(): Promise<DoctorResponse> {
 export function getMcpTools(): Promise<McpToolsResponse> {
   return operatorRequest('mcp.tools');
 }
-
-export { ApiError };

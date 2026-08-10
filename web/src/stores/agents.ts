@@ -2,11 +2,12 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import type { AgentConversationEntry, AgentSession } from '../api/types';
 import {
-  ApiError,
+  OperatorApiError,
   getAgentConversation,
   getAgentLlmExchange,
   getAgentSession,
   getCardAgentSessions,
+  isOperatorApiError,
   listAgentSessions,
 } from '../api/client';
 import type { ConversationSessionId, ProviderExchangePayload } from '../api/contracts';
@@ -115,7 +116,7 @@ export const useAgentStore = defineStore('agents', () => {
       sessionsLoaded.value
         ? (sessionsRefreshError.value = message)
         : (sessionsError.value = message);
-      sessionsUnauthorized.value = error instanceof ApiError && error.isUnauthorized;
+      sessionsUnauthorized.value = error instanceof OperatorApiError && error.isUnauthorized;
       throw error;
     } finally {
       if (generation === sessionsGeneration) {
@@ -150,7 +151,7 @@ export const useAgentStore = defineStore('agents', () => {
             membershipGenerations.get(key) !== requestGeneration
           )
             return;
-          if (error instanceof ApiError && error.isNotFound) partitions.delete(frame.card_id);
+          if (error instanceof OperatorApiError && error.isNotFound) partitions.delete(frame.card_id);
           else throw error;
         }
       } else {
@@ -223,7 +224,7 @@ export const useAgentStore = defineStore('agents', () => {
       conversationCursor
         ? (conversationRefreshError.value = message)
         : (conversationError.value = message);
-      conversationUnauthorized.value = error instanceof ApiError && error.isUnauthorized;
+      conversationUnauthorized.value = error instanceof OperatorApiError && error.isUnauthorized;
       throw error;
     } finally {
       if (token === activeConversationToken && generation === conversationGeneration) {
@@ -276,11 +277,7 @@ export const useAgentStore = defineStore('agents', () => {
     } catch (error) {
       if (token !== activeExchangeToken || generation !== exchangeGeneration || abortError(error))
         return;
-      if (
-        error instanceof ApiError &&
-        error.isNotFound &&
-        error.body['error'] === 'No LLM exchange recorded for this session yet.'
-      ) {
+      if (isOperatorApiError(error, 'agents.llmExchange', 404)) {
         currentLlmExchange.value = null;
         llmExchangeLoaded.value = true;
         return;

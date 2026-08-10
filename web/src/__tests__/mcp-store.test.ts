@@ -2,9 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 
 const api = vi.hoisted(() => ({ getMcpTools: vi.fn() }));
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getMcpTools: api.getMcpTools,
-  ApiError: class ApiError extends Error {},
 }));
 
 import { useMcpStore } from '../stores/mcp';

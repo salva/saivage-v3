@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import DebugAgentDetail from '../components/agents/DebugAgentDetail.vue';
 import source from '../components/agents/DebugAgentDetail.vue?raw';
 import { useAgentStore } from '../stores/agents';
-import { ApiError } from '../api/client';
+import { OperatorApiError } from '../api/client';
 
 const api = vi.hoisted(() => ({
   getAgentSession: vi.fn(),
@@ -13,28 +13,12 @@ const api = vi.hoisted(() => ({
 }));
 const live = vi.hoisted(() => ({ openConversation: vi.fn(), openLlmExchange: vi.fn() }));
 vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getAgentSession: api.getAgentSession,
   getAgentConversation: api.getAgentConversation,
   getAgentLlmExchange: api.getAgentLlmExchange,
   listAgentSessions: vi.fn(),
-  ApiError: class ApiError extends Error {
-    body: Record<string, unknown>;
-    constructor(
-      public status: number,
-      message: string,
-      body: Record<string, unknown> = {},
-    ) {
-      super(message);
-      this.body = body;
-    }
-    get isUnauthorized() {
-      return this.status === 401;
-    }
-    get isNotFound() {
-      return this.status === 404;
-    }
-  },
 }));
 
 describe('DebugAgentDetail keyed lifecycle', () => {
@@ -56,7 +40,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
       cursor: 'empty',
     });
     api.getAgentLlmExchange.mockRejectedValue(
-      new ApiError(404, 'missing', { error: 'No LLM exchange recorded for this session yet.' }),
+      new OperatorApiError('agents.llmExchange', 404, { error: 'No LLM exchange recorded for this session yet.' }),
     );
   });
 

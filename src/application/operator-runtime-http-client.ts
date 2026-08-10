@@ -1,4 +1,4 @@
-import { operatorApiContracts, parseOperatorResponse, type OperatorApiOperationId, type OperatorApiSuccess } from '../contracts/operator-api.js';
+import { operatorApiContracts, parseOperatorResponse, type OperatorApiSuccess } from '../contracts/operator-api.js';
 import type { RuntimeControlEndpoint } from '../runtime/lock.js';
 
 type RuntimeOperation = 'runtime.status' | 'runtime.pause' | 'runtime.resume' | 'stop_project' | 'restart_server';
@@ -34,7 +34,7 @@ export class OperatorRuntimeHttpClient {
         : `${operationId} failed with HTTP ${response.status}.`;
       throw new Error(message);
     }
-    try { return parseOperatorResponse(operationId as OperatorApiOperationId, payload) as OperatorApiSuccess<K>; }
+    try { return parseOperatorResponse(operationId, response.status, payload) as OperatorApiSuccess<K>; }
     catch { throw new Error(`${operationId} response did not match the operator API contract.`); }
   }
 }

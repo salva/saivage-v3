@@ -39,9 +39,9 @@ const terminalHistory = {
   change_reason: 'terminal lifecycle commit', changed_fields: ['lifecycle', 'status_text', 'status_text_updated_at'],
   change_summary: 'lifecycle, status_text, status_text_updated_at updated',
 };
-const historyList = parseOperatorResponse('cards.history.list', { history: [terminalHistory], total: 1 });
-const historyEntry = parseOperatorResponse('cards.history.get', { entry: { ...terminalHistory, snapshot: priorCard } });
-const historyDiff = parseOperatorResponse('cards.diff', { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: rawCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
+const historyList = parseOperatorResponse('cards.history.list', 200, { history: [terminalHistory], total: 1 });
+const historyEntry = parseOperatorResponse('cards.history.get', 200, { entry: { ...terminalHistory, snapshot: priorCard } });
+const historyDiff = parseOperatorResponse('cards.diff', 200, { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: rawCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
 
 const projectCard = {
   id: 'project',
@@ -51,14 +51,14 @@ const projectCard = {
 };
 
 const hierarchyCard={id:smokeCardId,type:'code',title:card.title,status:'done'} as const;
-const rootChildren = parseOperatorResponse('cards.children', { parent: projectCard, children: [hierarchyCard] });
+const rootChildren = parseOperatorResponse('cards.children', 200, { parent: projectCard, children: [hierarchyCard] });
 export const cardRecords = [
   { name: 'brief.md', format: 'markdown' as const, schema: 'card-brief.v1', writers: ['analyst', 'executor'], bootstrap: true },
   { name: 'status.md', format: 'markdown' as const, schema: 'work-status.v1', writers: ['executor'], bootstrap: false },
 ];
-const cardDetail = parseOperatorResponse('cards.get', { card });
-const recordList = parseOperatorResponse('cards.records.list', { card_id:smokeCardId,records:cardRecords });
-const debugErrors = parseOperatorResponse('debug.errors', {
+const cardDetail = parseOperatorResponse('cards.get', 200, { card });
+const recordList = parseOperatorResponse('cards.records.list', 200, { card_id:smokeCardId,records:cardRecords });
+const debugErrors = parseOperatorResponse('debug.errors', 200, {
   errors: [{
     id: 'err-playwright-1',
     kind: 'runtime_diagnostic',
@@ -68,7 +68,7 @@ const debugErrors = parseOperatorResponse('debug.errors', {
   }],
   total: 1,
 });
-const debugTimeline = parseOperatorResponse('events.list', {
+const debugTimeline = parseOperatorResponse('events.list', 200, {
   events: [
     { id: 'evt-1', kind: 'runtime_diagnostic', phase: 'planner-smoke', timestamp: now, error_message: 'Synthetic provider failure redacted' },
     { id: 'evt-2', kind: 'mcp_tool_invocation', server: 'filesystem', tool: 'read', success: true, duration_ms: 5, timestamp: now },
@@ -83,10 +83,10 @@ const codeDebugGraph = {
     edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, prompt_reference: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
-const debugGraphs = parseOperatorResponse('debug.graphs', {
+const debugGraphs = parseOperatorResponse('debug.graphs', 200, {
   graphs: [codeDebugGraph, { ...codeDebugGraph, card_type: 'goal', permitted_child_types: ['code'] }],
 });
-const doctorOk = parseOperatorResponse('debug.doctor', {
+const doctorOk = parseOperatorResponse('debug.doctor', 200, {
   status: 'ok',
   checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }],
   issues: [],
@@ -132,7 +132,7 @@ const outputRoot = {
 export const processOwnerId = '11111111-1111-4111-8111-111111111111:node:0';
 export const processId = 'proc-111111111111';
 export const expectedProcessList = { processes: [{ id: processId, status: 'exited', command: 'npm run synthetic-smoke', cwd: '.', card_id: smokeCardId, session_id: processOwnerId, owner_id: processOwnerId, owner_kind: 'agent' as const, started_at: now, ended_at: now, exit_code: 0, timed_out: false, logs: { stdout: `work:///cards/${smokeCardId}/processes/${processId}/stdout.log`, stderr: `work:///cards/${smokeCardId}/processes/${processId}/stderr.log` } }] };
-export const processListResponse = parseOperatorResponse('processes.list', expectedProcessList);
+export const processListResponse = parseOperatorResponse('processes.list', 200, expectedProcessList);
 
 function stampedText(sessionId: string, id: string, content: string) {
   return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
@@ -180,28 +180,28 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, { ticket: 'synthetic-ws-ticket', expiresAt: '2026-05-19T12:05:00.000Z' });
     }
     if (request.method() === 'GET' && url.pathname === '/api/state') {
-      return json(route, parseOperatorResponse('runtime.getState', { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning }));
+      return json(route, parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
-      return json(route, parseOperatorResponse('runtime.status', { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, restart_server_available: false }));
+      return json(route, parseOperatorResponse('runtime.status', 200, { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, restart_server_available: false }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/content-policy') {
-      return json(route, parseOperatorResponse('runtime.contentPolicy', { refusal_high_water: 0, latest: null }));
+      return json(route, parseOperatorResponse('runtime.contentPolicy', 200, { refusal_high_water: 0, latest: null }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/cards/project/children') return json(route, rootChildren);
-    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', { parent: hierarchyCard, children: [] }));
+    if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/children`) return json(route, parseOperatorResponse('cards.children', 200, { parent: hierarchyCard, children: [] }));
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}`) return json(route, cardDetail);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/records`) return json(route, recordList);
     if (request.method() === 'GET' && url.pathname.startsWith(`/api/cards/${smokeCardId}/records/`)) {
       const name=decodeURIComponent(url.pathname.split('/').at(-1) ?? 'brief.md');
-      return json(route, parseOperatorResponse('cards.records.get',{card_id:smokeCardId,record:{name,version:1,committed_at:now,content:`Synthetic ${name} content`}}));
+      return json(route, parseOperatorResponse('cards.records.get',200,{card_id:smokeCardId,record:{name,version:1,committed_at:now,content:`Synthetic ${name} content`}}));
     }
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history`) return json(route, historyList);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/history/2`) return json(route, historyEntry);
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/diff`) return json(route, historyDiff);
-    if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, parseOperatorResponse('agents.list', { sessions }));
+    if (request.method() === 'GET' && url.pathname === '/api/agents') return json(route, parseOperatorResponse('agents.list', 200, { sessions }));
     if (request.method() === 'GET' && url.pathname === `/api/cards/${smokeCardId}/agent-sessions`) {
-      return json(route, parseOperatorResponse('agents.cardSessions', {
+      return json(route, parseOperatorResponse('agents.cardSessions', 200, {
         card_id: smokeCardId,
         sessions: sessions.filter((session) => session.card_id === smokeCardId),
       }));
@@ -214,7 +214,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       const since = url.searchParams.get('since');
       const cursorIndex = since === null ? -1 : allEntries.findIndex((entry) => entry.id === since);
       const entries = cursorIndex < 0 ? allEntries : allEntries.slice(cursorIndex + 1);
-      return json(route, parseOperatorResponse('agents.conversation', {
+      return json(route, parseOperatorResponse('agents.conversation', 200, {
         session_id: sessionId,
         entries,
         cursor: allEntries.at(-1)?.id ?? since,
@@ -222,7 +222,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     }
     if (request.method() === 'GET' && url.pathname.startsWith('/api/agents/') && url.pathname.split('/').length === 4) {
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'agent:analyst:global');
-      return json(route, parseOperatorResponse('agents.detail', {
+      return json(route, parseOperatorResponse('agents.detail', 200, {
         session: sessions.find((session) => session.id === sessionId) ?? sessions[0],
       }));
     }
@@ -311,7 +311,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, doctorOk);
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
-      return json(route, parseOperatorResponse('mcp.tools', {
+      return json(route, parseOperatorResponse('mcp.tools', 200, {
         servers: [{ name: 'filesystem', status: 'running', transport: 'stdio', toolCount: 1, tools: [{ name: 'read', stats: { total: 3, success: 2, error: 1, lastInvokedAt: now } }] }],
       }));
     }
@@ -322,7 +322,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/chat') {
       const sessionId = 'agent:analyst:global';
-      return json(route, parseOperatorResponse('chats.get', { session_id: sessionId }));
+      return json(route, parseOperatorResponse('chats.get', 200, { session_id: sessionId }));
     }
     if (request.method() === 'POST' && url.pathname === '/api/chat') {
       const sessionId = 'agent:analyst:global';
@@ -347,7 +347,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         timestamp: now,
       };
       chatEntries.set(sessionId, [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.'), message]);
-      return json(route, parseOperatorResponse('chats.send', {
+      return json(route, parseOperatorResponse('chats.send', 200, {
         toolInvocations: [],
         restart: null,
       }));

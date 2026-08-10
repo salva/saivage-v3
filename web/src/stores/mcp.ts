@@ -7,7 +7,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, readonly } from 'vue';
 import type { McpToolsResponse, McpServerWithTools } from '../api/types';
-import { getMcpTools, ApiError } from '../api/client';
+import { getMcpTools, OperatorApiError } from '../api/client';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:mcp');
@@ -45,7 +45,7 @@ export const useMcpStore = defineStore('mcp', () => {
       servers.value = response.servers;
       lastRefreshed.value = new Date().toISOString();
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : 'Failed to fetch MCP tools';
+      const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch MCP tools';
       error.value = msg;
       log.error('fetchMcpData', msg);
     } finally {

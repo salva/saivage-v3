@@ -238,7 +238,7 @@ curl http://localhost:8080/health
 curl http://localhost:8080/health/ready
 ```
 
-Every `/api/*` operator contract, including Doctor, uses the shared operator registry and operator-session boundary. Required exact status-response maps are the sole runtime authority; `npm run validate:docs` checks the source-derived route inventory and response-contract fixtures. When `SAIVAGE_API_TOKEN` is configured, send it only as a bearer header, for example:
+Every `/api/*` operator contract, including Doctor, uses the shared operator registry and operator-session boundary. Required exact status-response maps validate both server output and browser input for status 200 and declared non-200 responses; `npm run validate:docs` checks the source-derived route inventory and response-contract fixtures. When `SAIVAGE_API_TOKEN` is configured, send it only as a bearer header, for example:
 
 ```bash
 curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/processes

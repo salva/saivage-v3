@@ -14,6 +14,8 @@ export type { ConversationSessionId } from '@saivage/schemas';
 
 export type {
   OperatorApiOperationId,
+  OperatorApiResponseStatus,
+  OperatorApiResponse,
   OperatorApiSuccess,
   OperatorApiBody,
   OperatorApiParams,

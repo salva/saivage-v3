@@ -2,9 +2,9 @@ import { createPinia, setActivePinia } from 'pinia';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const requests = vi.hoisted(() => [] as Array<{ signal: AbortSignal; resolve: (value: unknown) => void; reject: (reason: unknown) => void }>);
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getContentPolicyRuntime: vi.fn((signal: AbortSignal) => new Promise((resolve, reject) => requests.push({ signal, resolve, reject }))),
-  ApiError: class extends Error {},
 }));
 
 describe('content-policy store', () => {

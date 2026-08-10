@@ -58,12 +58,12 @@ async function install(page: Page): Promise<string[]> {
   await installOperatorRestRoutes(page);
   const requests: string[] = [];
 
-  await page.route('**/api/state', (route) => json(route, parseOperatorResponse('runtime.getState', {
+  await page.route('**/api/state', (route) => json(route, parseOperatorResponse('runtime.getState', 200, {
     projectRoot: '/work/status-fixture',
     projectId: 'project',
     runtime: { status: 'running', project_id: 'project', pid: 4242, started_at: now, current_card_id: goalId, updated_at: now },
   })));
-  await page.route('**/api/runtime/status', (route) => json(route, parseOperatorResponse('runtime.status', {
+  await page.route('**/api/runtime/status', (route) => json(route, parseOperatorResponse('runtime.status', 200, {
     runtime: 'running', currentCardId: goalId, started_at: now, pid: 4242,
     actorRuntime: { pauseMode: 'running', cards: [{ cardId: goalId, actorState: 'running', processState: { cardType: 'goal', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] },
     restart_server_available: false,
@@ -74,19 +74,19 @@ async function install(page: Page): Promise<string[]> {
     requests.push(`${request.method()} ${url.pathname}`);
     if (request.method() !== 'GET') return route.fallback();
     if (url.pathname === '/api/cards/project/children') {
-      return json(route, parseOperatorResponse('cards.children', { parent: hierarchy(project), children: [hierarchy(goal)] }));
+      return json(route, parseOperatorResponse('cards.children', 200, { parent: hierarchy(project), children: [hierarchy(goal)] }));
     }
     if (url.pathname === `/api/cards/${goalId}/children`) {
-      return json(route, parseOperatorResponse('cards.children', { parent: hierarchy(goal), children: children.map(hierarchy) }));
+      return json(route, parseOperatorResponse('cards.children', 200, { parent: hierarchy(goal), children: children.map(hierarchy) }));
     }
     const recordsId=url.pathname.match(/^\/api\/cards\/([^/]+)\/records$/)?.[1];
-    if(recordsId)return json(route,parseOperatorResponse('cards.records.list',{card_id:decodeURIComponent(recordsId),records:descriptors}));
+    if(recordsId)return json(route,parseOperatorResponse('cards.records.list',200,{card_id:decodeURIComponent(recordsId),records:descriptors}));
     const recordMatch=url.pathname.match(/^\/api\/cards\/([^/]+)\/records\/([^/]+)$/);
-    if(recordMatch)return json(route,parseOperatorResponse('cards.records.get',{card_id:decodeURIComponent(recordMatch[1]!),record:{name:decodeURIComponent(recordMatch[2]!),version:1,committed_at:now,content:'Brief'}}));
+    if(recordMatch)return json(route,parseOperatorResponse('cards.records.get',200,{card_id:decodeURIComponent(recordMatch[1]!),record:{name:decodeURIComponent(recordMatch[2]!),version:1,committed_at:now,content:'Brief'}}));
     const detailId = url.pathname.match(/^\/api\/cards\/([^/]+)$/)?.[1];
     if (detailId) {
       const detail = [project, goal, ...children].find((entry) => entry.id === decodeURIComponent(detailId));
-      if (detail) return json(route, parseOperatorResponse('cards.get', { card: detailProjection(detail) }));
+      if (detail) return json(route, parseOperatorResponse('cards.get', 200, { card: detailProjection(detail) }));
     }
     return route.fallback();
   });

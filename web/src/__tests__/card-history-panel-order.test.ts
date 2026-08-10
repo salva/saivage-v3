@@ -4,7 +4,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import CardHistoryPanel from '../components/cards/CardHistoryPanel.vue';
 import { useCardStore } from '../stores/cards';
 import { cardView, historyEntry, historyHeader, rawCard } from './card-view-fixtures';
-vi.mock('../api/client', () => ({ getCard: vi.fn(), listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn(), ApiError: class extends Error { status: number; body: Record<string, unknown>; constructor(status: number, message: string, body: Record<string, unknown> = {}) { super(message); this.status = status; this.body = body; } get isUnauthorized() { return this.status === 401; } get isNotFound() { return this.status === 404; } } }));
+vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), getCard: vi.fn(), listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn() }));
 import { listCardHistory, getCardHistoryEntry, getCardDiff } from '../api/client';
 const CARD = 'card-a';
 describe('CardHistoryPanel order', () => {

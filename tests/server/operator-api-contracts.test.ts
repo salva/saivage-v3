@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import * as contractsModule from '../../src/contracts/index.js';
 import * as operatorApiModule from '../../src/contracts/operator-api.js';
-import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody } from '../../src/contracts/operator-api.js';
+import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody, type OperatorApiResponse, type OperatorApiResponseStatus } from '../../src/contracts/operator-api.js';
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
 import { allRepresentativeLoggedEvents } from '../helpers/logged-events.js';
 
@@ -55,6 +55,36 @@ describe('operator API runtime contract without runtime ledgers', () => {
       expect(contract.response).toHaveProperty('200');
       expect(contract.response[200]).toBe(contract.success);
     }
+  });
+
+  it('parses only the exact schema declared for the operation and status', () => {
+    const success = parseOperatorResponse('providers.list', 200, {
+      availabilityScope: 'process_local_reset_on_restart',
+      providers: {},
+    });
+    expect(success.availabilityScope).toBe('process_local_reset_on_restart');
+
+    const unauthorized: OperatorApiResponse<'providers.list', 401> = parseOperatorResponse(
+      'providers.list',
+      401,
+      { error: 'Unauthorized', statusCode: 401 },
+    );
+    expect(unauthorized).toEqual({ error: 'Unauthorized', statusCode: 401 });
+
+    const dynamicStatus: number = 200;
+    const dynamicResponse: OperatorApiResponse<
+      'providers.list',
+      OperatorApiResponseStatus<'providers.list'>
+    > = parseOperatorResponse('providers.list', dynamicStatus, success);
+    expect(dynamicResponse).toEqual(success);
+
+    expect(() => parseOperatorResponse('providers.list', 401, {
+      error: 'Unauthorized',
+    })).toThrow();
+    expect(() => parseOperatorResponse('providers.list', 418, {
+      error: 'Unauthorized',
+      statusCode: 401,
+    })).toThrow('does not declare response status 418');
   });
 
   it('exposes only exact chat operations and no aggregate chat contract', () => {
@@ -207,8 +237,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('parses runtime state/status without command/run/activation projections', () => {
-    expect(parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState }).runtime).toEqual(runtimeState);
-    const status = parseOperatorResponse('runtime.status', {
+    expect(parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState }).runtime).toEqual(runtimeState);
+    const status = parseOperatorResponse('runtime.status', 200, {
       runtime: 'running',
       currentCardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
       started_at: '2026-01-01T00:00:00.000Z',
@@ -219,24 +249,24 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(status).not.toHaveProperty('lastCommand');
     expect(status).not.toHaveProperty('activeRun');
     expect(status).not.toHaveProperty('latestRun');
-    expect(() => parseOperatorResponse('runtime.status', { ...status, actorRuntime: { ...status.actorRuntime, agents: [] } })).toThrow();
+    expect(() => parseOperatorResponse('runtime.status', 200, { ...status, actorRuntime: { ...status.actorRuntime, agents: [] } })).toThrow();
   });
 
   it('rejects removed runtime ledger fields and public schema exports are absent', () => {
-    expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] } })).toThrow();
-    expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] } })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
     expect(operatorApiContracts['runtime.status'].success.keyof().options).not.toEqual(expect.arrayContaining(['lastCommand', 'activeRun', 'latestRun']));
-    for (const removed of ['active_card_run', 'last_tick_at']) expect(() => parseOperatorResponse('runtime.getState', { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, [removed]: null } })).toThrow();
+    for (const removed of ['active_card_run', 'last_tick_at']) expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, [removed]: null } })).toThrow();
     const validStatus = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [] } };
-    for (const removed of ['goalCount', 'lastTickAt']) expect(() => parseOperatorResponse('runtime.status', { ...validStatus, [removed]: null })).toThrow();
-    for (const removed of ['activeWork', 'diagnostics']) expect(() => parseOperatorResponse('runtime.status', { ...validStatus, actorRuntime: { ...validStatus.actorRuntime, [removed]: removed === 'diagnostics' ? [] : 'none' } })).toThrow();
+    for (const removed of ['goalCount', 'lastTickAt']) expect(() => parseOperatorResponse('runtime.status', 200, { ...validStatus, [removed]: null })).toThrow();
+    for (const removed of ['activeWork', 'diagnostics']) expect(() => parseOperatorResponse('runtime.status', 200, { ...validStatus, actorRuntime: { ...validStatus.actorRuntime, [removed]: removed === 'diagnostics' ? [] : 'none' } })).toThrow();
   });
 
   it('requires strict live process state and a nonnegative safe node ordinal', () => {
     const base = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [{ cardId: 'project', actorState: 'running', processState: { cardType: 'project', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] } };
-    expect(parseOperatorResponse('runtime.status', base)).toEqual(base);
-    expect(() => parseOperatorResponse('runtime.status', { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ cardId: 'project', actorState: 'running' }] } })).toThrow();
-    for (const executionOrdinal of [-1, Number.MAX_SAFE_INTEGER + 1, 0.5]) expect(() => parseOperatorResponse('runtime.status', { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ ...base.actorRuntime.cards[0], processState: { ...base.actorRuntime.cards[0]!.processState, executionOrdinal } }] } })).toThrow();
+    expect(parseOperatorResponse('runtime.status', 200, base)).toEqual(base);
+    expect(() => parseOperatorResponse('runtime.status', 200, { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ cardId: 'project', actorState: 'running' }] } })).toThrow();
+    for (const executionOrdinal of [-1, Number.MAX_SAFE_INTEGER + 1, 0.5]) expect(() => parseOperatorResponse('runtime.status', 200, { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ ...base.actorRuntime.cards[0], processState: { ...base.actorRuntime.cards[0]!.processState, executionOrdinal } }] } })).toThrow();
   });
 
   it('removes audited dead operator routes and their public schema exports', () => {
@@ -282,13 +312,13 @@ describe('operator API runtime contract without runtime ledgers', () => {
 
   it('accepts only exact canonical event and Debug error rows with matching totals', () => {
     const error = allRepresentativeLoggedEvents[0]!;
-    expect(parseOperatorResponse('debug.errors', { errors: [error], total: 1 })).toEqual({ errors: [error], total: 1 });
-    expect(parseOperatorResponse('events.list', { events: allRepresentativeLoggedEvents, total: 3 }).events).toHaveLength(3);
+    expect(parseOperatorResponse('debug.errors', 200, { errors: [error], total: 1 })).toEqual({ errors: [error], total: 1 });
+    expect(parseOperatorResponse('events.list', 200, { events: allRepresentativeLoggedEvents, total: 3 }).events).toHaveLength(3);
 
     for (const invalid of [
       { errors: [{ ...error, error_message: 1 }], total: 1 },
       { errors: [{ ...error, extra: true }], total: 1 },
-    ]) expect(() => parseOperatorResponse('debug.errors', invalid)).toThrow();
+    ]) expect(() => parseOperatorResponse('debug.errors', 200, invalid)).toThrow();
 
     const event = allRepresentativeLoggedEvents[0]!;
     for (const invalid of [
@@ -296,7 +326,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
       { events: [{ ...event, extra: true }], total: 1 },
       { events: [{ ...event, kind: 'obsolete_event' }], total: 1 },
       { events: [{ ...event, error_message: 1 }], total: 1 },
-    ]) expect(() => parseOperatorResponse('events.list', invalid)).toThrow();
+    ]) expect(() => parseOperatorResponse('events.list', 200, invalid)).toThrow();
   });
 
   it('keeps the operator card route inventory read-only', () => {
@@ -316,16 +346,16 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('keeps hierarchy, displayed detail, records, and history as distinct exact shapes', () => {
-    expect(parseOperatorResponse('cards.get', { card: canonicalCardDetail }).card).toEqual(canonicalCardDetail);
-    expect(parseOperatorResponse('cards.children', { parent: canonicalHierarchyCard, children: [] }).parent).toEqual(canonicalHierarchyCard);
-    expect(parseOperatorResponse('cards.records.list', { card_id:'project',records:canonicalRecordDescriptors }).records).toEqual(canonicalRecordDescriptors);
-    expect(parseOperatorResponse('cards.records.get', { card_id:'project',record:{name:'brief.md',version:1,committed_at:canonicalCard.created_at,content:'Brief'} }).record.content).toBe('Brief');
-    for (const forbidden of ['children','depends_on','assigned_to','started_at','records','operator_summary']) expect(() => parseOperatorResponse('cards.get', { card: { ...canonicalCardDetail, [forbidden]: null } })).toThrow();
-    for (const forbidden of ['children','has_children','descendant_count']) expect(() => parseOperatorResponse('cards.children', { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code',[forbidden]:[] }] })).toThrow();
-    expect(() => parseOperatorResponse('cards.children', { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code' },{ ...canonicalHierarchyCard,id:'card-a',type:'code' }] })).toThrow();
-    expect(() => parseOperatorResponse('cards.records.list', { card_id:'project',records:[...canonicalRecordDescriptors,...canonicalRecordDescriptors] })).toThrow();
-    expect(() => parseOperatorResponse('cards.records.list', { card_id:'project',records:[{...canonicalRecordDescriptors[0],writers:['analyst','analyst']}] })).toThrow();
-    expect(() => parseOperatorResponse('cards.records.list', { card_id:'project',records:[{...canonicalRecordDescriptors[0],bootstrap:false}] })).toThrow();
+    expect(parseOperatorResponse('cards.get', 200, { card: canonicalCardDetail }).card).toEqual(canonicalCardDetail);
+    expect(parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [] }).parent).toEqual(canonicalHierarchyCard);
+    expect(parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:canonicalRecordDescriptors }).records).toEqual(canonicalRecordDescriptors);
+    expect(parseOperatorResponse('cards.records.get', 200, { card_id:'project',record:{name:'brief.md',version:1,committed_at:canonicalCard.created_at,content:'Brief'} }).record.content).toBe('Brief');
+    for (const forbidden of ['children','depends_on','assigned_to','started_at','records','operator_summary']) expect(() => parseOperatorResponse('cards.get', 200, { card: { ...canonicalCardDetail, [forbidden]: null } })).toThrow();
+    for (const forbidden of ['children','has_children','descendant_count']) expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code',[forbidden]:[] }] })).toThrow();
+    expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code' },{ ...canonicalHierarchyCard,id:'card-a',type:'code' }] })).toThrow();
+    expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[...canonicalRecordDescriptors,...canonicalRecordDescriptors] })).toThrow();
+    expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],writers:['analyst','analyst']}] })).toThrow();
+    expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],bootstrap:false}] })).toThrow();
     const record404 = operatorApiContracts['cards.records.get'].response[404];
     for (const body of [
       {error:'Card not found',cardId:'project'},
@@ -334,12 +364,12 @@ describe('operator API runtime contract without runtime ledgers', () => {
     ]) expect(record404.parse(body)).toEqual(body);
     expect(() => record404.parse({error:'Card record not found',cardId:'project',name:'brief.md',extra:true})).toThrow();
     const entry = { entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'agent edit_card', changed_fields: ['title'], change_summary: 'title updated', snapshot: canonicalCard } as const;
-    expect(parseOperatorResponse('cards.history.get', { entry }).entry.snapshot).toEqual(canonicalCard);
+    expect(parseOperatorResponse('cards.history.get', 200, { entry }).entry.snapshot).toEqual(canonicalCard);
 
     for (const key of canonicalCardKeys) {
       const incompleteSnapshot = { ...canonicalCard } as Record<string, unknown>;
       delete incompleteSnapshot[key];
-      expect(() => parseOperatorResponse('cards.history.get', { entry: { ...entry, snapshot: incompleteSnapshot } })).toThrow();
+      expect(() => parseOperatorResponse('cards.history.get', 200, { entry: { ...entry, snapshot: incompleteSnapshot } })).toThrow();
     }
   });
 
@@ -352,11 +382,11 @@ describe('operator API runtime contract without runtime ledgers', () => {
           ? { changed_by_actor: 'analyst', changed_by_surface: 'runtime' }
           : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };
       const header = { entry_id: '11111111-1111-4111-8111-111111111111', kind, card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', ...provenance, change_reason: 'reason', changed_fields: ['field'], change_summary: 'summary' };
-      expect(parseOperatorResponse('cards.history.list', { history: [header], total: 1 }).history[0]).toEqual(header);
-      expect(parseOperatorResponse('cards.history.get', { entry: { ...header, snapshot: canonicalCard } }).entry.kind).toBe(kind);
+      expect(parseOperatorResponse('cards.history.list', 200, { history: [header], total: 1 }).history[0]).toEqual(header);
+      expect(parseOperatorResponse('cards.history.get', 200, { entry: { ...header, snapshot: canonicalCard } }).entry.kind).toBe(kind);
       const analystWebChat = { ...header, changed_by_actor: 'analyst', changed_by_surface: 'web-chat' };
-      expect(() => parseOperatorResponse('cards.history.list', { history: [analystWebChat], total: 1 })).toThrow();
-      expect(() => parseOperatorResponse('cards.history.get', { entry: { ...analystWebChat, snapshot: canonicalCard } })).toThrow();
+      expect(() => parseOperatorResponse('cards.history.list', 200, { history: [analystWebChat], total: 1 })).toThrow();
+      expect(() => parseOperatorResponse('cards.history.get', 200, { entry: { ...analystWebChat, snapshot: canonicalCard } })).toThrow();
     }
   });
 
@@ -410,9 +440,9 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('labels provider availability as process-local and resettable', () => {
-    expect(parseOperatorResponse('providers.list', { availabilityScope: 'process_local_reset_on_restart', providers: {} }))
+    expect(parseOperatorResponse('providers.list', 200, { availabilityScope: 'process_local_reset_on_restart', providers: {} }))
       .toEqual({ availabilityScope: 'process_local_reset_on_restart', providers: {} });
-    expect(() => parseOperatorResponse('providers.list', { providers: {} })).toThrow();
+    expect(() => parseOperatorResponse('providers.list', 200, { providers: {} })).toThrow();
   });
 
   it('requires present event pagination parameters to be non-negative integer strings', () => {

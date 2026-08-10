@@ -13,18 +13,10 @@ const live = vi.hoisted(() => ({
 }));
 
 vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getCardAgentSessions: api.getCardAgentSessions,
   listAgentSessions: api.listAgentSessions,
-  ApiError: class extends Error {
-    status = 500;
-    get isUnauthorized() {
-      return false;
-    }
-    get isNotFound() {
-      return false;
-    }
-  },
 }));
 
 function session(id: AgentSession['id'], cardId: string): AgentSession {

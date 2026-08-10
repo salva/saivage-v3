@@ -5,9 +5,9 @@ import CardRecordsSection from '../components/cards/CardRecordsSection.vue';
 import { useCardStore } from '../stores/cards';
 import { cardView } from './card-view-fixtures';
 
-vi.mock('../api/client', () => ({
+vi.mock('../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../api/client')>()),
   getCardRecord: vi.fn(), listCardRecords: vi.fn(), getCardChildren: vi.fn(), getCard: vi.fn(), listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn(),
-  ApiError: class extends Error { status = 500; body = {}; get isUnauthorized() { return false; } get isNotFound() { return false; } },
 }));
 import { getCardRecord } from '../api/client';
 

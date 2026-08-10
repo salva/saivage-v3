@@ -3,31 +3,17 @@ import { createPinia, setActivePinia } from 'pinia';
 import type { AgentConversationEntry, AgentSession } from '../../api/types';
 import { useAgentStore } from '../../stores/agents';
 
-vi.mock('../../api/client', () => ({
+vi.mock('../../api/client', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../api/client')>()),
   listAgentSessions: vi.fn(),
   getAgentSession: vi.fn(),
   getCardAgentSessions: vi.fn(),
   getAgentConversation: vi.fn(),
   getAgentLlmExchange: vi.fn(),
-  ApiError: class extends Error {
-    constructor(
-      public status: number,
-      message: string,
-      public body: Record<string, unknown>,
-    ) {
-      super(message);
-    }
-    get isUnauthorized() {
-      return this.status === 401;
-    }
-    get isNotFound() {
-      return this.status === 404;
-    }
-  },
 }));
 
 import {
-  ApiError,
+  OperatorApiError,
   getAgentConversation,
   getAgentLlmExchange,
   getAgentSession,
@@ -86,7 +72,7 @@ describe('useAgentStore singular agent resource ownership', () => {
   it('treats an accepted empty baseline as loaded and preserves it on refresh failure', async () => {
     vi.mocked(listAgentSessions)
       .mockResolvedValueOnce({ sessions: [] })
-      .mockRejectedValueOnce(new ApiError(500, 'refresh failed', {}));
+      .mockRejectedValueOnce(new Error('refresh failed'));
     const store = useAgentStore();
     await store.fetchSessions();
     const refresh = store.fetchSessions();
@@ -167,7 +153,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [session] });
     vi.mocked(getCardAgentSessions)
       .mockResolvedValueOnce({ card_id: 'project', sessions: [reviewerSession] })
-      .mockRejectedValueOnce(new ApiError(404, 'missing', { error: 'Card not found' }));
+      .mockRejectedValueOnce(new OperatorApiError('agents.cardSessions', 404, { error: 'Card not found', cardId: 'project' }));
     const store = useAgentStore();
     await store.fetchSessions();
     const frame = {
@@ -186,7 +172,7 @@ describe('useAgentStore singular agent resource ownership', () => {
   it('retains accepted transcript data and records only a same-session refresh error', async () => {
     vi.mocked(getAgentConversation)
       .mockResolvedValueOnce(conversation())
-      .mockRejectedValueOnce(new ApiError(500, 'conversation refresh failed', {}));
+      .mockRejectedValueOnce(new Error('conversation refresh failed'));
     const store = useAgentStore();
     const token = store.beginConversationSelection(S1);
     await store.fetchConversation(token);
@@ -257,7 +243,7 @@ describe('useAgentStore singular agent resource ownership', () => {
 
   it('accepts only the exact no-exchange 404 as loaded empty', async () => {
     vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(
-      new ApiError(404, 'missing', { error: 'No LLM exchange recorded for this session yet.' }),
+      new OperatorApiError('agents.llmExchange', 404, { error: 'No LLM exchange recorded for this session yet.' }),
     );
     const store = useAgentStore();
     const token = store.beginLlmExchangeSelection(S1);
@@ -266,19 +252,19 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(store.currentLlmExchange).toBeNull();
     expect(store.llmExchangeError).toBeNull();
 
-    const wrong = store.beginLlmExchangeSelection(S1);
+    const failed = store.beginLlmExchangeSelection(S1);
     vi.mocked(getAgentLlmExchange).mockRejectedValueOnce(
-      new ApiError(404, 'wrong resource', { error: 'Agent session not found' }),
+      new OperatorApiError('agents.llmExchange', 500, { error: 'InternalServerError', message: 'Internal server error' }),
     );
-    await store.fetchLlmExchange(wrong);
+    await store.fetchLlmExchange(failed);
     expect(store.llmExchangeLoaded).toBe(false);
-    expect(store.llmExchangeError).toBe('wrong resource');
+    expect(store.llmExchangeError).toBe('Internal server error');
   });
 
   it('retains accepted exchange state on a non-404 refresh failure', async () => {
     vi.mocked(getAgentLlmExchange)
       .mockResolvedValueOnce({ session_id: S1, exchange })
-      .mockRejectedValueOnce(new ApiError(500, 'refresh failed', {}));
+      .mockRejectedValueOnce(new Error('refresh failed'));
     const store = useAgentStore();
     const token = store.beginLlmExchangeSelection(S1);
     await store.fetchLlmExchange(token);

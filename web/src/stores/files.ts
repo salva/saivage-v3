@@ -9,7 +9,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { FileEntry, FileContent, FilesListResponse } from '../api/types';
-import { listFiles, getFileContent, ApiError } from '../api/client';
+import { listFiles, getFileContent, OperatorApiError } from '../api/client';
 import { createLogger } from '../utils/logger';
 
 const log = createLogger('store:files');
@@ -117,8 +117,8 @@ export const useFileStore = defineStore('files', () => {
   }
 
   function handleApiError(err: unknown, fallback: string): string {
-    unauthorized.value = err instanceof ApiError && err.isUnauthorized;
-    if (err instanceof ApiError) return err.message;
+    unauthorized.value = err instanceof OperatorApiError && err.isUnauthorized;
+    if (err instanceof OperatorApiError) return err.message;
     return fallback;
   }
 
@@ -215,7 +215,7 @@ export const useFileStore = defineStore('files', () => {
       const msg = handleApiError(err, 'Failed to fetch file content');
       error.value = msg;
       viewerError.value = msg;
-      if (err instanceof ApiError) {
+      if (err instanceof OperatorApiError) {
         if (err.status === 403) viewerState.value = 'blocked';
         else if (err.status === 404) viewerState.value = 'missing';
         else if (err.status === 415) viewerState.value = 'binary';
