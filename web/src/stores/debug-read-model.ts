@@ -3,8 +3,6 @@ import type { DebugErrorRecord, DebugTimelineEvent, ProcessView, RuntimeState } 
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
 import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel } from './runtime-read-model';
 
-export const OPERATOR_STALE_AGE_MS = 60_000;
-
 export interface DebugErrorItem {
   id: string;
   source: string;
@@ -81,16 +79,9 @@ export function selectSortedTimeline(events: DebugTimelineEvent[]): DebugTimelin
   return events.map(projectTimelineEvent).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 }
 
-export function selectOperatorDataFreshnessLabel(lastFetchedAt: string | null, nowMs = Date.now()): 'fresh' | 'stale' | null {
-  if (!lastFetchedAt) return null;
-  const ageMs = nowMs - new Date(lastFetchedAt).getTime();
-  if (Number.isNaN(ageMs)) return null;
-  return ageMs > OPERATOR_STALE_AGE_MS ? 'stale' : 'fresh';
-}
-
-export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
-  const label = selectSharedRuntimeStatusLabel(runtime);
-  return label === 'unknown' ? 'Unavailable' : label.charAt(0).toUpperCase() + label.slice(1);
+export function selectRuntimeStatusLabel(loaded: boolean, runtime: RuntimeState | null): string {
+  const label = selectSharedRuntimeStatusLabel({ loaded, runtime });
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 export function selectSortedProcesses(processes: ReadonlyArray<ProcessView>): ProcessView[] {

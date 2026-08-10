@@ -23,10 +23,7 @@ export function startAppBootstrap(): void {
   });
   syncStore.registerResource({
     resource: 'runtime',
-    scope: 'core',
-    requestOwnership: 'sync-client',
     refetch: runtimeStore.refetch,
-    onRefetch: runtimeStore.markWsSync,
   });
   syncStore.connect();
   runtimeStore.refetch().catch(() => {});

@@ -5,8 +5,6 @@ import type { ConversationSessionId } from '../api/contracts';
 
 export const useSyncStore = defineStore('sync', () => {
   const connectionState = computed(() => syncClient.connectionState.value);
-  const lastConnectedAt = computed(() => syncClient.lastConnectedAt.value);
-  const lastEventAt = computed(() => syncClient.lastEventAt.value);
 
   function connect(): void {
     syncClient.start();
@@ -46,8 +44,6 @@ export const useSyncStore = defineStore('sync', () => {
 
   return {
     connectionState,
-    lastConnectedAt,
-    lastEventAt,
     connect,
     disconnect,
     reconfigure,

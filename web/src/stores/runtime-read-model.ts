@@ -5,11 +5,9 @@ import type {
   WsConnectionState,
 } from '../api/types';
 
-export type LiveUpdateState = 'live' | 'connecting' | 'offline' | 'unauthorized' | 'no-token' | 'stale';
-
-export function selectRuntimeStatusLabel(runtime: RuntimeState | null): string {
-  if (!runtime) return 'unknown';
-  return runtime.status;
+export function selectRuntimeStatusLabel(options: { loaded: boolean; runtime: RuntimeState | null }): string {
+  if (!options.loaded) return 'unknown';
+  return options.runtime?.status ?? 'stopped';
 }
 
 export function selectCurrentCardId(runtime: RuntimeState | null): string | null {
@@ -37,52 +35,34 @@ export function selectAvailabilityDetail(availability: ServerAvailability | null
 }
 
 export function selectRuntimeDetail(options: {
+  loaded: boolean;
   unauthorized: boolean;
   runtime: RuntimeState | null;
-  stale: boolean;
-  status: RuntimeStatus;
+  status: RuntimeStatus | null;
   availabilityDetail: string | null;
 }): string {
   if (options.unauthorized) return 'Runtime snapshot unavailable until a valid API token is provided.';
+  if (!options.loaded) return 'Runtime state has not been loaded yet.';
+  if (!options.runtime) return 'No live runtime.';
   if (options.status === 'error') return 'Runtime reported an error state. Inspect Debug for recovery evidence.';
   if (options.status === 'paused') return 'Runtime is paused. Ask the Analyst to Run when work should continue.';
-  if (options.stale) return 'Runtime snapshot is stale. Refresh to resync with the authoritative REST state.';
-  if (!options.runtime) return options.availabilityDetail ?? 'Runtime state has not been loaded yet.';
-  return options.availabilityDetail ?? 'REST snapshot is authoritative; live updates may accelerate status changes.';
+  return options.availabilityDetail ?? 'Runtime snapshot comes from the latest accepted REST response.';
 }
 
-export function selectLiveUpdateState(options: {
-  connectionState: WsConnectionState;
-  unauthorized: boolean;
-  stale: boolean;
-  wsStale: boolean;
-}): LiveUpdateState {
-  if (options.connectionState === 'unauthorized' || options.unauthorized) return 'unauthorized';
-  if (options.connectionState === 'no-token') return options.stale ? 'stale' : 'offline';
-  if (options.connectionState === 'connecting') return 'connecting';
-  if (options.connectionState === 'offline') return options.stale ? 'stale' : 'offline';
-  if (options.stale || options.wsStale) return 'stale';
-  return 'live';
-}
-
-export function selectLiveUpdateLabel(state: LiveUpdateState): string {
+export function selectSocketLabel(state: WsConnectionState): string {
   switch (state) {
-    case 'live': return 'Live updates connected';
-    case 'connecting': return 'Live updates reconnecting';
-    case 'offline': return 'Live updates offline';
-    case 'unauthorized': return 'Live updates unauthorized';
-    case 'no-token': return 'Live updates offline';
-    case 'stale': return 'Live updates stale';
+    case 'connected': return 'Connected';
+    case 'connecting': return 'Connecting';
+    case 'offline': return 'Offline';
+    case 'unauthorized': return 'Unauthorized';
   }
 }
 
-export function selectLiveUpdateDetail(state: LiveUpdateState): string {
+export function selectSocketDetail(state: WsConnectionState): string {
   switch (state) {
-    case 'live': return 'WebSocket is connected. REST remains the source of truth after refresh/reconnect.';
-    case 'connecting': return 'Trying to reconnect WebSocket live updates.';
-    case 'offline': return 'Using the last REST snapshot only until live updates reconnect.';
-    case 'unauthorized': return 'Token was rejected for API/WebSocket access.';
-    case 'no-token': return 'Using the last REST snapshot only until live updates reconnect.';
-    case 'stale': return 'Live updates have gone quiet; refresh to confirm current runtime truth.';
+    case 'connected': return 'WebSocket invalidations are connected; displayed runtime data still comes from REST.';
+    case 'connecting': return 'WebSocket is connecting or reconnecting.';
+    case 'offline': return 'WebSocket invalidations are unavailable; accepted REST state remains visible.';
+    case 'unauthorized': return 'WebSocket ticket or connection authorization was rejected.';
   }
 }

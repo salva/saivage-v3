@@ -8,6 +8,11 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
     expect(source).toContain('data-testid="route-debug"');
     expect(source).toContain('debug-tabs');
     expect(source).toContain('Runtime State');
+    expect(source).toContain('No live runtime.');
+    expect(source).toContain('!runtimeLoaded');
+    expect(source).toContain('v-if="runtimeLoaded && !runtime"');
+    expect(source).not.toContain('v-if="!runtime"');
+    expect(source).not.toMatch(/\(stale\)|operatorDataFreshness|runtime state is not initialized|Runtime diagnostics are unavailable|Run the project/);
   });
 
   it('retains diagnostic tabs and refresh controls while removing mutation controls', () => {

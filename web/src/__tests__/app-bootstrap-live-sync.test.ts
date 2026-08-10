@@ -9,7 +9,6 @@ function installBootstrapMocks() {
   const connect = vi.fn();
   const reconfigure = vi.fn();
   const runtimeRefetch = vi.fn(async () => undefined);
-  const markWsSync = vi.fn();
   const ensureRoot = vi.fn(async () => undefined);
   const reset = vi.fn();
   const authRefresh = vi.fn();
@@ -20,7 +19,7 @@ function installBootstrapMocks() {
     useSyncStore: () => ({ registerResource, connect, reconfigure }),
   }));
   vi.doMock('../stores/runtime', () => ({
-    useRuntimeStore: () => ({ refetch: runtimeRefetch, markWsSync }),
+    useRuntimeStore: () => ({ refetch: runtimeRefetch }),
   }));
   vi.doMock('../stores/cards', () => ({
     useCardStore: () => ({ ensureRoot, reset, onInvalidate: vi.fn(), onReconnect: vi.fn() }),
@@ -68,6 +67,7 @@ describe('application bootstrap live sync', () => {
     expect(
       mocks.registerResource.mock.calls.map(([registration]) => registration.resource),
     ).toEqual(['cards', 'runtime']);
+    expect(mocks.registerResource.mock.calls[1]![0]).toEqual({ resource: 'runtime', refetch: mocks.runtimeRefetch });
   });
 
   it('reconfigures runtime and root without bootstrapping hidden Agent state', async () => {

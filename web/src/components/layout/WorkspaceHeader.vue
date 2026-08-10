@@ -8,7 +8,7 @@
       <span
         class="pill header-chip"
         :class="`ws-${connectionState}`"
-        :title="liveUpdateDetail"
+        :title="socketDetail"
       >
         <span class="status-dot"></span>
         {{ wsDisplayLabel }}
@@ -23,7 +23,7 @@
         {{ runtimeModeLabel || runtimeStatusLabel }}
       </span>
 
-      <span v-if="stateCueLabel" class="pill header-chip cue-chip" :class="cueClass" :title="stateCueDetail">
+    <span v-if="stateCueLabel" class="pill header-chip cue-chip" :class="cueClass" :title="stateCueDetail">
         <span class="status-dot"></span>
         {{ stateCueLabel }}
       </span>
@@ -34,17 +34,15 @@
 <script setup lang="ts">
 import { computed, unref } from 'vue';
 import type { WsConnectionState } from '../../types/view-models';
+import { selectSocketDetail } from '../../stores/runtime-read-model';
 
 const props = defineProps<{
   sectionTitle: string;
   connectionState: WsConnectionState;
   runtimeStatus: string | null;
   runtimeStatusLabel: string;
-  liveUpdateLabel?: string;
-  liveUpdateDetail?: string;
   runtimeModeLabel?: string;
   runtimeModeDetail?: string;
-  isStale?: boolean;
   isUnauthorized?: boolean;
 }>();
 
@@ -53,16 +51,13 @@ const wsLabel = computed(() => {
     connected: 'Live',
     connecting: 'Connecting',
     offline: 'Offline',
-    'no-token': 'No token',
     unauthorized: 'Unauthorized',
   };
-  return labels[props.connectionState] ?? 'Offline';
+  return labels[props.connectionState];
 });
 
-const wsDisplayLabel = computed(() => {
-  if (props.connectionState === 'no-token' || props.connectionState === 'unauthorized') return wsLabel.value;
-  return props.liveUpdateLabel || wsLabel.value;
-});
+const wsDisplayLabel = wsLabel;
+const socketDetail = computed(() => selectSocketDetail(props.connectionState));
 
 const runtimeChipClass = computed(() => `rt-${props.runtimeStatus || 'unknown'}`);
 const runtimeChipTitle = computed(() => {
@@ -72,19 +67,16 @@ const runtimeChipTitle = computed(() => {
 });
 const stateCueLabel = computed(() => {
   if (props.isUnauthorized) return 'Unauthorized';
-  if (props.isStale) return 'Stale snapshot';
   if (props.runtimeStatus === 'error') return 'Degraded';
   return null;
 });
 const stateCueDetail = computed(() => {
-  if (props.isUnauthorized) return 'API and WebSocket access were rejected. Re-enter a valid token.';
-  if (props.isStale) return 'You are viewing an older runtime snapshot. Refresh to resync authoritative REST state.';
+  if (props.isUnauthorized) return 'The runtime REST request was rejected. Re-enter a valid API token.';
   if (props.runtimeStatus === 'error') return props.runtimeModeDetail || 'Runtime reported an error state.';
   return '';
 });
 const cueClass = computed(() => {
   if (props.isUnauthorized) return 'cue-unauthorized';
-  if (props.isStale) return 'cue-stale';
   if (props.runtimeStatus === 'error') return 'cue-degraded';
   return 'cue-neutral';
 });
@@ -154,8 +146,7 @@ const cueClass = computed(() => {
   color: var(--warn);
   border-color: var(--entry-warn-border);
 }
-.ws-offline,
-.ws-no-token {
+.ws-offline {
   color: var(--text-muted);
   border-color: var(--border-strong);
 }
@@ -182,11 +173,6 @@ const cueClass = computed(() => {
   border-color: var(--danger);
 }
 
-.cue-chip.cue-no-token,
-.cue-chip.cue-stale {
-  color: var(--warn);
-  border-color: var(--entry-warn-border);
-}
 .cue-chip.cue-unauthorized,
 .cue-chip.cue-degraded {
   color: var(--danger);

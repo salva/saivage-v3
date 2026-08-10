@@ -29,7 +29,7 @@ export function useDebugReadModel(debugStore: ReturnType<typeof useDebugStore>, 
     { id: 'mcp' as const, label: 'MCP' },
   ];
 
-  const runtimeStatusLabel = computed(() => selectRuntimeStatusLabel(runtimeStore.runtime));
+  const runtimeStatusLabel = computed(() => selectRuntimeStatusLabel(runtimeStore.loaded, runtimeStore.runtime));
   const currentCardId = computed(() => selectCurrentCardId(runtimeStore.runtime));
   const operatorPanelBusy = computed(() => runtimeStore.loading || runtimeStore.refreshing);
   const sortedProcesses = computed(() => selectSortedProcesses(debugStore.processes));

@@ -9,7 +9,7 @@ export interface DashboardReadModel {
 }
 
 export function useDashboardReadModel(options: {
-  runtimeRefs: { statusLabel: Ref<string>; isStale: Ref<boolean>; unauthorized: Ref<boolean>; currentCardId: Ref<string | null> };
+  runtimeRefs: { statusLabel: Ref<string>; unauthorized: Ref<boolean>; currentCardId: Ref<string | null> };
   cardsStore: Pick<ReturnType<typeof useCardStore>, 'loadedChildrenFor'>;
 }): DashboardReadModel {
   const displayedGoalId = computed(() => options.runtimeRefs.currentCardId.value);
@@ -17,7 +17,6 @@ export function useDashboardReadModel(options: {
   const runtimeBannerMessage = computed(() => {
     if (options.runtimeRefs.unauthorized.value) return 'Runtime snapshot is unavailable because the API token was rejected.';
     if (options.runtimeRefs.statusLabel.value === 'error') return 'Runtime is degraded. Inspect Debug and current evidence before treating work as healthy.';
-    if (options.runtimeRefs.isStale.value) return 'Runtime snapshot is stale. Refresh to confirm the current REST state.';
     return null;
   });
   const runtimeBannerClass = computed(() => options.runtimeRefs.unauthorized.value || options.runtimeRefs.statusLabel.value === 'error'

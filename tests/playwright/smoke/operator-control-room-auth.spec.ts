@@ -6,7 +6,7 @@ import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenB
 const invalidSyntheticToken = 'synthetic-invalid-playwright-token';
 const savedSyntheticToken = 'synthetic-cycle-037-token';
 
-test('operator control room shows no-token state without leaking secrets when no token is configured', async ({ page, baseURL }) => {
+test('operator control room stays connected without leaking secrets when operator auth is disabled', async ({ page, baseURL }) => {
   if (!baseURL) throw new Error('baseURL required'); const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));

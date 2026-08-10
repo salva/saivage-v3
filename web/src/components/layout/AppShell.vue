@@ -15,11 +15,8 @@
           :connection-state="wsConnectionState"
           :runtime-status="runtimeStatus"
           :runtime-status-label="runtimeStatusLabel"
-          :live-update-label="liveUpdateLabel"
-          :live-update-detail="liveUpdateDetail"
           :runtime-mode-label="runtimeModeLabel"
           :runtime-mode-detail="runtimeDetail"
-          :is-stale="isRuntimeStale"
           :is-unauthorized="runtimeUnauthorized"
         />
 
@@ -150,6 +147,7 @@ import GlobalToaster from '../feedback/GlobalToaster.vue';
 import Button from '../ui/Button.vue';
 import Dialog from '../ui/Dialog.vue';
 import { useRuntimeStore } from '../../stores/runtime';
+import { useSyncStore } from '../../stores/sync';
 import { useAuthStore } from '../../stores/auth';
 import { useAnalystChat } from '../../stores/analystChat';
 import type { WsConnectionState } from '../../types/view-models';
@@ -161,19 +159,17 @@ import {
 import { parseAgentDetailRouteParam } from '../../router/agent-session-route';
 
 const runtimeStore = useRuntimeStore();
+const syncStore = useSyncStore();
 const authStore = useAuthStore();
 const analystChat = useAnalystChat();
 const {
   statusLabel: runtimeStatusLabel,
   status,
-  syncConnectionState,
-  liveUpdateLabel,
-  liveUpdateDetail,
   runtimeModeLabel,
   runtimeDetail,
-  isStale: isRuntimeStale,
   unauthorized: runtimeUnauthorized,
 } = storeToRefs(runtimeStore);
+const { connectionState: syncConnectionState } = storeToRefs(syncStore);
 
 const route = useRoute();
 const router = useRouter();

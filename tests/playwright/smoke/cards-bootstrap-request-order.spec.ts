@@ -107,7 +107,9 @@ test('Cards root settlement precedes exact Analyst acquisition and defers global
 
   await page.goto('/cards');
   await rootObserved.promise;
-  await expect(page.getByText(/Live updates connected/i).first()).toBeVisible();
+  const socketChip = page.locator('.workspace-header .ws-connected');
+  await expect(socketChip).toHaveText('Live');
+  await expect(socketChip).toHaveAttribute('title', 'WebSocket invalidations are connected; displayed runtime data still comes from REST.');
   await expect.poll(() => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBe(1);
   expect(await outboundConversationSubscribe(page, analystSessionId)).toBeNull();
   expect(rootRequests).toBe(1);

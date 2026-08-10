@@ -19,6 +19,8 @@
 
       <div class="console-body">
         <StatusBanner v-if="runtimeBannerMessage" :tone="runtimeBannerTone" :message="runtimeBannerMessage" />
+        <StatusBanner v-if="commandError" tone="danger" :message="commandError" />
+        <StatusBanner v-if="loaded && refreshError" tone="warning" :message="refreshError" />
         <StatusBanner
           v-if="contentPolicyError"
           tone="warning"
@@ -32,8 +34,8 @@
             <RouterLink :to="contentPolicyValue.latest.evidence_url">Open exact Agent entry</RouterLink>
           </span>
         </div>
-        <ViewState v-if="runtimeLoading && !runtime" state="loading" title="Loading runtime state" />
-        <ViewState v-else-if="errorMsg" state="error" title="Failed to load runtime" :message="errorMsg" />
+        <ViewState v-if="!loaded && runtimeLoading" state="loading" title="Loading runtime state" />
+        <ViewState v-else-if="!loaded && runtimeError" state="error" title="Failed to load runtime" :message="runtimeError" />
 
         <template v-else>
           <section v-if="currentCardId" class="status-section">
@@ -53,27 +55,24 @@
                 <span class="status-value">{{ statusLabel }}</span>
               </div>
               <div class="status-item">
-                <span class="status-key">Live State</span>
-                <span class="status-value">{{ liveUpdateLabel }}</span>
+                <span class="status-key">WebSocket</span>
+                <span class="status-value">{{ socketLabel }}</span>
               </div>
             </div>
-            <p class="operator-help">{{ liveUpdateDetail }}</p>
+            <p class="operator-help">{{ runtimeDetail }}</p>
+            <p class="operator-help">{{ socketDetail }}</p>
           </section>
 
           <section class="status-section">
-            <h3 class="section-label">Restart / Recovery Evidence</h3>
+            <h3 class="section-label">Runtime REST Snapshot</h3>
             <div class="status-grid">
               <div class="status-item">
-                <span class="status-key">Last REST Sync</span>
-                <span class="status-value" :title="shortTimeTitle(lastFetchedAt)">{{ shortTime(lastFetchedAt) }}</span>
+                <span class="status-key">REST request</span>
+                <span class="status-value">{{ restRequestLabel }}</span>
               </div>
               <div class="status-item">
-                <span class="status-key">Last WS Event</span>
-                <span class="status-value" :title="shortTimeTitle(lastWsEventAt)">{{ shortTime(lastWsEventAt) }}</span>
-              </div>
-              <div class="status-item">
-                <span class="status-key">Updated By</span>
-                <span class="status-value">{{ lastUpdatedBy }}</span>
+                <span class="status-key">Last successful refresh</span>
+                <span class="status-value" :title="shortTimeTitle(lastFetchedAt)">{{ absoluteTime(lastFetchedAt) }}</span>
               </div>
             </div>
           </section>
@@ -102,6 +101,8 @@ import { useRouter } from 'vue-router';
 import { useRuntimeStore } from '../stores/runtime';
 import { useCardStore } from '../stores/cards';
 import { useContentPolicyStore } from '../stores/contentPolicy';
+import { useSyncStore } from '../stores/sync';
+import { selectSocketDetail, selectSocketLabel } from '../stores/runtime-read-model';
 import { useDashboardReadModel } from '../composables/useDashboardReadModel';
 import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { statusForCard, type Tone } from '../utils/status';
@@ -114,38 +115,52 @@ import ViewState from '../components/ui/ViewState.vue';
 const runtimeStore = useRuntimeStore();
 const cardsStore = useCardStore();
 const contentPolicyStore = useContentPolicyStore();
+const syncStore = useSyncStore();
 const router = useRouter();
 const { value: contentPolicyValue, error: contentPolicyError } = storeToRefs(contentPolicyStore);
 
 const {
   runtime,
+  loaded,
   loading: runtimeLoading,
+  refreshing: runtimeRefreshing,
+  error: runtimeError,
+  refreshError,
   statusLabel,
+  runtimeDetail,
   currentCardId,
-  isStale: runtimeIsStale,
   unauthorized: runtimeUnauthorized,
-  liveUpdateLabel,
-  liveUpdateDetail,
   lastFetchedAt,
-  lastWsEventAt,
-  lastUpdatedBy,
   restartServerAvailable,
   status,
 } = storeToRefs(runtimeStore);
+const { connectionState } = storeToRefs(syncStore);
+const socketLabel = computed(() => selectSocketLabel(connectionState.value ?? 'offline'));
+const socketDetail = computed(() => selectSocketDetail(connectionState.value ?? 'offline'));
 
-const errorMsg = ref<string | null>(null);
-const canStopProject = computed(() => ['starting', 'running', 'pausing', 'paused', 'error'].includes(status.value));
+const commandError = ref<string | null>(null);
+const canStopProject = computed(() => ['starting', 'running', 'pausing', 'paused', 'error'].includes(status.value ?? ''));
+const restRequestLabel = computed(() => {
+  if (!loaded.value && runtimeLoading.value) return 'Loading';
+  if (loaded.value && runtimeRefreshing.value) return 'Refreshing';
+  if (loaded.value && refreshError.value) return 'Refresh failed';
+  if (loaded.value) return 'Loaded';
+  return 'Not loaded';
+});
 
-async function stopProject(): Promise<void> { try { await runtimeStore.stopProject(); } catch (error) { errorMsg.value = error instanceof Error ? error.message : String(error); } }
+async function stopProject(): Promise<void> {
+  commandError.value = null;
+  try { await runtimeStore.stopProject(); } catch (error) { commandError.value = error instanceof Error ? error.message : String(error); }
+}
 async function restartServer(): Promise<void> {
   if (window.prompt('Type RESTART SERVER to confirm server restart:') !== 'RESTART SERVER') return;
-  try { await runtimeStore.restartServer(); } catch (error) { errorMsg.value = error instanceof Error ? error.message : String(error); }
+  commandError.value = null;
+  try { await runtimeStore.restartServer(); } catch (error) { commandError.value = error instanceof Error ? error.message : String(error); }
 }
 
 const { goalChildren, runtimeBannerMessage, runtimeBannerClass } = useDashboardReadModel({
   runtimeRefs: {
     statusLabel,
-    isStale: runtimeIsStale,
     unauthorized: runtimeUnauthorized,
     currentCardId,
   },
@@ -167,19 +182,16 @@ function shortTime(ts?: string | null): string {
 function shortTimeTitle(ts?: string | null): string {
   return ts ? timestampTitle(ts) : '';
 }
+function absoluteTime(ts?: string | null): string {
+  return ts ? formatTimestamp(ts, 'absolute') : 'Never';
+}
 
 function goToCard(id: string): void {
   router.push({ name: 'card-detail', params: { id } });
 }
 
 async function refreshRuntime(): Promise<void> {
-  errorMsg.value = null;
-  try {
-    await runtimeStore.fetchState();
-  } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : 'Failed';
-    errorMsg.value = msg;
-  }
+  await runtimeStore.fetchState().catch(() => {});
 }
 
 </script>

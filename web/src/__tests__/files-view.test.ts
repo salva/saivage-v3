@@ -101,14 +101,12 @@ describe('FilesView', () => {
     expect(wrapper.find('[data-testid="route-files"]').text()).toContain('Metadata');
   });
 
-  it('owns the exact reconnect-only Files registration for its mounted lifetime', async () => {
+  it('owns the exact Files refetch registration for its mounted lifetime', async () => {
     const { wrapper, fileStore } = await mountFilesView();
 
     expect(syncMocks.registerResource).toHaveBeenCalledTimes(1);
     expect(syncMocks.registerResource).toHaveBeenCalledWith({
       resource: 'files',
-      scope: 'active',
-      requestOwnership: 'sync-client',
       refetch: fileStore.refetch,
     });
     expect(syncMocks.unregisterFiles).not.toHaveBeenCalled();

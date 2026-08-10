@@ -16,9 +16,9 @@
       <div v-if="localActiveTab === 'state'" class="debug-tab-content">
         <section class="debug-section" data-testid="debug-runtime-state">
           <h4 class="debug-section-title">Runtime State</h4>
-          <ViewState v-if="runtimeLoading" state="loading" title="Loading runtime state..." />
+          <ViewState v-if="!runtimeLoaded && runtimeLoading" state="loading" title="Loading runtime state..." />
           <ViewState
-            v-else-if="runtimeError"
+            v-else-if="!runtimeLoaded && runtimeError"
             state="error"
             title="Failed to load runtime state"
             :message="runtimeError"
@@ -45,7 +45,8 @@
               ><span class="dg-value mono">{{ currentCardId || 'none' }}</span>
             </div>
           </div>
-          <ViewState v-else state="empty" title="No runtime state." />
+          <ViewState v-else-if="runtimeLoaded" state="empty" title="No live runtime." />
+          <ViewState v-else state="empty" title="Runtime state not loaded." />
         </section>
       </div>
 
@@ -72,18 +73,17 @@
           </div>
 
           <div v-if="runtimeLastFetchedAt" class="operator-freshness" role="status">
-            Last refreshed {{ fmtDate(runtimeLastFetchedAt) }}
-            <span v-if="operatorDataFreshnessLabel === 'stale'">(stale)</span>
+            Last refreshed {{ absoluteDate(runtimeLastFetchedAt) }}
           </div>
           <div v-else class="operator-freshness" role="status">Not refreshed yet.</div>
 
           <ViewState
-            v-if="runtimeLoading && !runtime"
+            v-if="!runtimeLoaded && runtimeLoading"
             state="loading"
             title="Loading runtime control state..."
           />
           <ViewState
-            v-else-if="runtimeError && !runtime"
+            v-else-if="!runtimeLoaded && runtimeError"
             state="error"
             title="Failed to load runtime state"
             :message="runtimeError"
@@ -106,10 +106,9 @@
               :message="runtimeRefreshError"
             />
             <ViewState
-              v-if="!runtime"
+              v-if="runtimeLoaded && !runtime"
               state="empty"
-              title="Runtime state is unavailable."
-              message="Ask the Analyst to Run the project; inspect Debug > Errors for durable failure evidence."
+              title="No live runtime."
             />
 
             <div class="operator-runtime-guidance" role="note">
@@ -117,10 +116,6 @@
               runtime and activation ownership; Debug &gt; Errors is the durable error surface.
             </div>
 
-            <div v-if="!runtime" class="operator-help-text">
-              Runtime diagnostics are unavailable because runtime state is not initialized. Ask the
-              Analyst to Run the project and inspect Debug &gt; Errors for durable evidence.
-            </div>
           </div>
         </section>
 
@@ -658,7 +653,6 @@ import ViewState from '../components/ui/ViewState.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import StatusBadge from '../components/ui/StatusBadge.vue';
 import { statusForRuntimeStatus } from '../utils/status';
-import { selectOperatorDataFreshnessLabel } from '../stores/debug-read-model';
 import type { ProcessView } from '../types/view-models';
 import type { DebugTimelineItem } from '../stores/debug-read-model';
 
@@ -690,6 +684,7 @@ const {
 } = storeToRefs(debugStore);
 const {
   runtime,
+  loaded: runtimeLoaded,
   loading: runtimeLoading,
   refreshing: runtimeRefreshing,
   error: runtimeError,
@@ -719,9 +714,6 @@ const {
   errorSourceEntries,
 } = useDebugReadModel(debugStore, runtimeStore);
 
-const operatorDataFreshnessLabel = computed(() =>
-  selectOperatorDataFreshnessLabel(runtimeLastFetchedAt.value),
-);
 async function refreshOperatorControl(): Promise<void> {
   await runtimeStore.fetchState().catch(() => {});
 }
@@ -793,6 +785,9 @@ function hasProcessLogs(proc: ProcessView): boolean {
 
 function fmtDate(ts: string): string {
   return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
+}
+function absoluteDate(ts: string): string {
+  return formatTimestamp(ts, 'absolute');
 }
 function formatEventKind(kind: string): string {
   return kind.replace(/_/g, ' ');

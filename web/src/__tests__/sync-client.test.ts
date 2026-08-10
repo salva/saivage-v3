@@ -171,34 +171,23 @@ describe('SyncClient', () => {
   });
 
   it('replays the latest complete invocation after public registration replacement', async () => {
-    vi.useFakeTimers();
-    const invalidatedAt = new Date('2026-07-24T12:34:56.789Z');
     const { conn, emitSync } = createConn('connected');
     const client = new SyncClient(conn);
     const first = deferred();
     const second = deferred();
     const refetchA = vi.fn(() => first.promise);
     const refetchB = vi.fn(() => second.promise);
-    const onRefetchA = vi.fn();
-    const onRefetchB = vi.fn();
     client.start();
 
     const disposeA = client.register({
       resource: 'runtime',
-      scope: 'core',
-      requestOwnership: 'sync-client',
       refetch: refetchA,
-      onRefetch: onRefetchA,
     });
     client.register({
       resource: 'runtime',
-      scope: 'core',
-      requestOwnership: 'sync-client',
       refetch: refetchB,
-      onRefetch: onRefetchB,
     });
     disposeA();
-    vi.setSystemTime(invalidatedAt);
     emitSync({ t: 'invalidate', resource: 'runtime' });
 
     expect(refetchA).toHaveBeenCalledTimes(1);
@@ -208,62 +197,54 @@ describe('SyncClient', () => {
     await flush();
     expect(refetchA).toHaveBeenCalledTimes(1);
     expect(refetchB).toHaveBeenCalledTimes(1);
-    expect(onRefetchA).not.toHaveBeenCalled();
-    expect(onRefetchB).not.toHaveBeenCalled();
 
     second.resolve(undefined);
     await flush();
     expect(refetchA).toHaveBeenCalledTimes(1);
     expect(refetchB).toHaveBeenCalledTimes(1);
-    expect(onRefetchA).not.toHaveBeenCalled();
-    expect(onRefetchB).toHaveBeenCalledTimes(1);
-    expect(onRefetchB).toHaveBeenCalledWith(invalidatedAt.toISOString());
   });
 
   it('keeps only the latest complete invocation while a non-Cards refetch is active', async () => {
-    vi.useFakeTimers();
-    const firstInvalidatedAt = new Date('2026-07-24T12:00:00.000Z');
-    const intermediateInvalidatedAt = new Date('2026-07-24T12:00:01.000Z');
-    const latestInvalidatedAt = new Date('2026-07-24T12:00:02.000Z');
     const { conn, emitSync } = createConn();
     const client = new SyncClient(conn);
     const first = deferred();
     const second = deferred();
     const refetch = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-    const onRefetch = vi.fn();
     client.register({
       resource: 'runtime',
-      scope: 'core',
-      requestOwnership: 'sync-client',
       refetch,
-      onRefetch,
     });
     client.start();
 
-    vi.setSystemTime(firstInvalidatedAt);
     emitSync({ t: 'invalidate', resource: 'runtime' });
-    vi.setSystemTime(intermediateInvalidatedAt);
     emitSync({ t: 'invalidate', resource: 'runtime' });
-    vi.setSystemTime(latestInvalidatedAt);
     emitSync({ t: 'invalidate', resource: 'runtime' });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(1);
-    expect(onRefetch).not.toHaveBeenCalled();
 
     first.resolve(undefined);
     await flush();
     expect(refetch).toHaveBeenCalledTimes(2);
-    expect(onRefetch).toHaveBeenCalledTimes(1);
-    expect(onRefetch).toHaveBeenCalledWith(firstInvalidatedAt.toISOString());
 
     second.resolve(undefined);
     await flush();
     expect(refetch).toHaveBeenCalledTimes(2);
-    expect(onRefetch.mock.calls.map(([timestamp]) => timestamp)).toEqual([
-      firstInvalidatedAt.toISOString(),
-      latestInvalidatedAt.toISOString(),
-    ]);
-    expect(onRefetch).not.toHaveBeenCalledWith(intermediateInvalidatedAt.toISOString());
+  });
+
+  it('starts the latest trailing non-Cards refetch after the active refetch rejects', async () => {
+    const { conn, emitSync } = createConn();
+    const client = new SyncClient(conn);
+    const first = deferred();
+    const trailing = vi.fn(async () => undefined);
+    client.register({ resource: 'runtime', refetch: () => first.promise });
+    client.start();
+    emitSync({ t: 'invalidate', resource: 'runtime' });
+    client.register({ resource: 'runtime', refetch: trailing });
+    emitSync({ t: 'invalidate', resource: 'runtime' });
+
+    first.reject(new Error('refresh failed'));
+    await flush();
+    expect(trailing).toHaveBeenCalledTimes(1);
   });
 
   it('uses a Cards-specific registration boundary', () => {
@@ -276,10 +257,7 @@ describe('SyncClient', () => {
     } satisfies SyncResourceRegistration;
     const runtimeRegistration = {
       resource: 'runtime',
-      scope: 'core',
-      requestOwnership: 'sync-client',
       refetch: async () => undefined,
-      onRefetch: (_timestamp: string) => undefined,
     } satisfies SyncResourceRegistration;
     client.register(cardsRegistration)();
     client.register(runtimeRegistration)();
@@ -291,8 +269,6 @@ describe('SyncClient', () => {
     const refetch = vi.fn(async () => undefined);
     client.register({
       resource: 'files',
-      scope: 'active',
-      requestOwnership: 'sync-client',
       refetch,
     });
     client.start();

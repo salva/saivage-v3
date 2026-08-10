@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { DebugErrorRecord, DebugTimelineEvent, ProcessView } from '../api/types';
-import { filterTimelineByKinds, projectErrorRecord, selectErrorsBySource, selectOperatorDataFreshnessLabel, selectSortedProcesses, selectSortedTimeline, selectTimelineKindOptions } from '../stores/debug-read-model';
+import { filterTimelineByKinds, projectErrorRecord, selectErrorsBySource, selectRuntimeStatusLabel, selectSortedProcesses, selectSortedTimeline, selectTimelineKindOptions } from '../stores/debug-read-model';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
 const diagnostic = { id: 'event-diagnostic', kind: 'runtime_diagnostic', timestamp, card_id: 'card-a', goal_id: 'project', phase: 'execute', error_message: 'token=abc1234567890' } as const satisfies DebugTimelineEvent;
@@ -29,8 +29,12 @@ describe('debug-read-model', () => {
     expect(filterTimelineByKinds(sorted, ['mcp_tool_invocation']).map((event) => event.kind)).toEqual(['mcp_tool_invocation']);
   });
 
-  it('projects freshness and process ordering', () => {
-    expect(selectOperatorDataFreshnessLabel(timestamp, new Date('2026-01-01T00:00:30Z').getTime())).toBe('fresh');
+  it('projects process ordering', () => {
     expect(selectSortedProcesses([process({ id: 'old', status: 'exited' }), process({ id: 'run', status: 'running' })]).map((entry) => entry.id)).toEqual(['run', 'old']);
+  });
+
+  it('capitalizes loaded-aware runtime status', () => {
+    expect(selectRuntimeStatusLabel(false, null)).toBe('Unknown');
+    expect(selectRuntimeStatusLabel(true, null)).toBe('Stopped');
   });
 });

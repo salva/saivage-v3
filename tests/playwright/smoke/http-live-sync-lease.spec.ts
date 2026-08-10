@@ -38,7 +38,9 @@ test('conversation leases work on a real non-loopback plain-HTTP origin', async 
     getRandomValues: typeof globalThis.crypto.getRandomValues,
   }))).toEqual({ secure: false, randomUUID: 'undefined', getRandomValues: 'function' });
 
-  await expect(page.getByText(/Live updates connected/i).first()).toBeVisible();
+  const socketChip = page.locator('.workspace-header .ws-connected');
+  await expect(socketChip).toHaveText('Live');
+  await expect(socketChip).toHaveAttribute('title', 'WebSocket invalidations are connected; displayed runtime data still comes from REST.');
   await expect.poll(() => page.evaluate((id) => {
     const frames = (window.__saivageWsFixture?.outbound ?? []).map((frame) => JSON.parse(frame) as Record<string, unknown>);
     return frames.find((frame) => frame.t === 'subscribe' && frame.resource === 'conversation' && frame.id === id) ?? null;

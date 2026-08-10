@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
+import { ref } from 'vue';
 
 function waitForTransition(): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, 250));
@@ -16,7 +17,7 @@ vi.mock('../api/client', async (importOriginal) => ({
   sendChatMessage: vi.fn(),
 }));
 vi.mock('../stores/sync', () => ({
-  useSyncStore: () => ({ connect: vi.fn(), disconnect: vi.fn(), registerResource: vi.fn(() => vi.fn()), openConversation: vi.fn(() => vi.fn()), connectionState: 'connected' }),
+  useSyncStore: () => ({ connect: vi.fn(), disconnect: vi.fn(), registerResource: vi.fn(() => vi.fn()), openConversation: vi.fn(() => vi.fn()), connectionState: ref('connected') }),
 }));
 vi.mock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot: vi.fn(async () => undefined) }) }));
 

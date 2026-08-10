@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { mount } from '@vue/test-utils';
 import WorkspaceHeader from '../components/layout/WorkspaceHeader.vue';
 
-function mountHeader(connectionState: 'connected' | 'connecting' | 'offline' | 'unauthorized' | 'no-token') {
+function mountHeader(connectionState: 'connected' | 'connecting' | 'offline' | 'unauthorized') {
   return mount(WorkspaceHeader, {
     props: {
       sectionTitle: 'Dashboard',
@@ -11,21 +11,11 @@ function mountHeader(connectionState: 'connected' | 'connecting' | 'offline' | '
       runtimeStatusLabel: 'running',
       runtimeModeLabel: 'Running',
       runtimeModeDetail: 'Root run active.',
-      liveUpdateLabel: undefined,
     },
   });
 }
 
 describe('WorkspaceHeader', () => {
-  it('renders missing-token websocket state as neutral instead of unauthorized', () => {
-    const wrapper = mountHeader('no-token');
-    const chip = wrapper.findAll('.header-chip')[0];
-
-    expect(chip.text()).toContain('No token');
-    expect(chip.classes()).toContain('ws-no-token');
-    expect(chip.classes()).not.toContain('ws-unauthorized');
-  });
-
   it('keeps bad-token websocket state visibly unauthorized', () => {
     const wrapper = mountHeader('unauthorized');
     const chip = wrapper.findAll('.header-chip')[0];
@@ -35,20 +25,7 @@ describe('WorkspaceHeader', () => {
   });
 
 
-  it('does not mask auth websocket states with derived live update labels', () => {
-    const noToken = mount(WorkspaceHeader, {
-      props: {
-        sectionTitle: 'Dashboard',
-        connectionState: 'no-token',
-        runtimeStatus: 'running',
-        runtimeStatusLabel: 'running',
-        runtimeModeLabel: 'Running',
-        runtimeModeDetail: 'Root run active.',
-        liveUpdateLabel: 'Live updates offline',
-      },
-    });
-    expect(noToken.findAll('.header-chip')[0].text()).toContain('No token');
-
+  it('does not combine socket authorization with REST authorization', () => {
     const unauthorized = mount(WorkspaceHeader, {
       props: {
         sectionTitle: 'Dashboard',
@@ -58,10 +35,11 @@ describe('WorkspaceHeader', () => {
         runtimeModeLabel: 'Running',
         runtimeModeDetail: 'Root run active.',
         isUnauthorized: true,
-        liveUpdateLabel: 'Live updates unauthorized',
       },
     });
     expect(unauthorized.findAll('.header-chip')[0].text()).toContain('Unauthorized');
+    expect(unauthorized.findAll('.header-chip')[0].attributes('title')).toContain('WebSocket');
+    expect(unauthorized.findAll('.header-chip')[2].attributes('title')).toContain('runtime REST request');
   });
 
   it('keeps runtime status observable without exposing header execution controls', async () => {

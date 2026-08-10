@@ -10,6 +10,11 @@ describe('DashboardView S06 read-only contract', () => {
   it('exposes a route-owned root for browser smoke assertions', () => {
     expect(source).toContain('data-testid="route-dashboard"');
     expect(source).toContain('Runtime Status');
+    expect(source).toContain('Runtime REST Snapshot');
+    expect(source).toContain('Last successful refresh');
+    expect(source).not.toMatch(/Last WS Event|Updated By|Restart \/ Recovery Evidence|stale snapshot/i);
+    expect(source).toContain('commandError');
+    expect(source).toContain('runtimeDetail');
     expect(source).not.toContain('lastActionableError');
     expect(source).toContain('data-testid="content-policy-banner"');
     expect(source).toContain('data-testid="content-policy-unavailable"');
@@ -32,6 +37,7 @@ describe('DashboardView S06 read-only contract', () => {
     expect(source).toContain("window.prompt('Type RESTART SERVER to confirm server restart:') !== 'RESTART SERVER'");
     expect(source).toContain('restartServerAvailable');
     expect(source).not.toMatch(/pauseRuntime|resumeRuntime|freezeRuntime|resumeRuntimeFromFreeze/);
+    expect(source).toContain('await runtimeStore.fetchState().catch(() => {})');
   });
 
   it('renders the child-of-goal panel from the dashboard read-model composable without mutating arms', () => {
@@ -59,7 +65,6 @@ describe('DashboardView S06 read-only contract', () => {
       cardsStore,
       runtimeRefs: {
         statusLabel: ref('running'),
-        isStale: ref(false),
         unauthorized: ref(false),
         currentCardId: ref(goalId),
       },

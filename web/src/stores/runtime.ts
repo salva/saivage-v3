@@ -11,7 +11,6 @@ import type {
   RuntimeState,
   RuntimeStatus,
   ServerAvailability,
-  FreshnessState,
 } from '../api/types';
 import {
   getRuntimeState,
@@ -20,13 +19,9 @@ import {
   restartServer as restartServerRequest,
   OperatorApiError,
 } from '../api/client';
-import { useSyncStore } from './sync';
 import { createLogger } from '../utils/logger';
 import {
   selectAvailabilityDetail,
-  selectLiveUpdateDetail,
-  selectLiveUpdateLabel,
-  selectLiveUpdateState,
   selectRuntimeDetail,
   selectRuntimeModeLabel,
   selectRuntimeStatusLabel,
@@ -34,8 +29,6 @@ import {
 } from './runtime-read-model';
 
 const log = createLogger('store:runtime');
-const STALE_AFTER_MS = 30_000;
-
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -45,71 +38,45 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const projectRoot = ref<string | null>(null);
   const projectId = ref<string | null>(null);
   const serverAvailability = ref<ServerAvailability | null>(null);
+  const loaded = ref(false);
   const loading = ref(false);
   const refreshing = ref(false);
   const refreshError = ref<string | null>(null);
   const error = ref<string | null>(null);
   const lastFetchedAt = ref<string | null>(null);
-  const lastWsEventAt = ref<string | null>(null);
-  const lastUpdatedBy = ref<FreshnessState['lastUpdatedBy']>('unknown');
   const unauthorized = ref(false);
   const restartServerAvailable = ref(false);
   let requestEpoch = 0;
   let requestController: AbortController | null = null;
 
-  const status = computed<RuntimeStatus>(() => runtime.value?.status ?? 'stopped');
+  const status = computed<RuntimeStatus | null>(() => loaded.value ? runtime.value?.status ?? 'stopped' : null);
   const isRunning = computed(() => status.value === 'running');
   const currentCardId = computed(() => selectCurrentCardId(runtime.value));
   const commandDisabledReason = computed(() => {
-    if (loading.value) return 'Runtime state is still loading.';
+    if (!loaded.value || loading.value) return 'Runtime state is still loading.';
     if (unauthorized.value) return 'Runtime commands require a valid API token.';
     return null;
   });
-  const isStale = computed(() => {
-    const latest = lastWsEventAt.value ?? lastFetchedAt.value;
-    if (!latest) return false;
-    return Date.now() - new Date(latest).getTime() > STALE_AFTER_MS;
-  });
-
-  const statusLabel = computed<string>(() => selectRuntimeStatusLabel(runtime.value));
-  const syncConnectionState = computed(() => useSyncStore().connectionState ?? 'offline');
+  const statusLabel = computed<string>(() => selectRuntimeStatusLabel({ loaded: loaded.value, runtime: runtime.value }));
 
   const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ statusLabel: statusLabel.value }));
   const availabilityDetail = computed(() => selectAvailabilityDetail(serverAvailability.value));
   const runtimeDetail = computed(() => selectRuntimeDetail({
+    loaded: loaded.value,
     unauthorized: unauthorized.value,
     runtime: runtime.value,
-    stale: isStale.value,
     status: status.value,
     availabilityDetail: availabilityDetail.value,
   }));
-  const liveUpdateState = computed(() => {
-    const sync = useSyncStore();
-    return selectLiveUpdateState({
-      connectionState: sync.connectionState ?? 'offline',
-      unauthorized: unauthorized.value,
-      stale: isStale.value,
-      wsStale: false,
-    });
-  });
-  const liveUpdateLabel = computed(() => selectLiveUpdateLabel(liveUpdateState.value));
-  const liveUpdateDetail = computed(() => selectLiveUpdateDetail(liveUpdateState.value));
-
   function markRestSync(): void {
     lastFetchedAt.value = nowIso();
-    lastUpdatedBy.value = 'rest';
-  }
-
-  function markWsSync(timestamp = nowIso()): void {
-    lastWsEventAt.value = timestamp;
-    lastUpdatedBy.value = 'ws';
   }
 
   async function fetchState(): Promise<void> {
     const epoch = ++requestEpoch;
     requestController?.abort();
     requestController = new AbortController();
-    const initial = runtime.value === null;
+    const initial = !loaded.value;
     if (initial) loading.value = true; else refreshing.value = true;
     if (initial) error.value = null; else refreshError.value = null;
     unauthorized.value = false;
@@ -121,6 +88,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       projectId.value = response.projectId;
       serverAvailability.value = response.serverAvailability ?? null;
       restartServerAvailable.value = liveStatus.restart_server_available;
+      loaded.value = true;
       markRestSync();
       error.value = null;
       refreshError.value = null;
@@ -129,7 +97,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch runtime state';
       if (initial) error.value = msg; else refreshError.value = msg;
       unauthorized.value = err instanceof OperatorApiError && err.isUnauthorized;
-      if (unauthorized.value) {
+      if (unauthorized.value && initial) {
         projectRoot.value = null;
         projectId.value = null;
       }
@@ -144,7 +112,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
   }
   const refetch = fetchState;
 
-  async function stopProject(): Promise<void> { await stopProjectRequest(); await fetchState(); }
+  async function stopProject(): Promise<void> {
+    await stopProjectRequest();
+    try { await fetchState(); } catch { /* RuntimeStore already classified the resource failure. */ }
+  }
   async function restartServer(): Promise<void> { if (!restartServerAvailable.value) throw new Error('restart unavailable: operator authentication disabled'); await restartServerRequest(); }
 
   return {
@@ -152,30 +123,23 @@ export const useRuntimeStore = defineStore('runtime', () => {
     projectRoot: readonly(projectRoot),
     projectId: readonly(projectId),
     serverAvailability: readonly(serverAvailability),
+    loaded: readonly(loaded),
     restartServerAvailable: readonly(restartServerAvailable),
     loading: readonly(loading),
     refreshing: readonly(refreshing),
     refreshError: readonly(refreshError),
     error: readonly(error),
     lastFetchedAt: readonly(lastFetchedAt),
-    lastWsEventAt: readonly(lastWsEventAt),
-    lastUpdatedBy: readonly(lastUpdatedBy),
     unauthorized: readonly(unauthorized),
     status,
     isRunning,
     currentCardId,
     statusLabel,
-    syncConnectionState,
-    isStale,
     runtimeModeLabel,
     availabilityDetail,
     runtimeDetail,
-    liveUpdateState,
-    liveUpdateLabel,
-    liveUpdateDetail,
     commandDisabledReason,
     fetchState,
-    markWsSync,
     refetch,
     stopProject,
     restartServer,

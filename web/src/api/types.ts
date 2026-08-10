@@ -88,17 +88,8 @@ export type WsConnectionState =
   | 'connected'
   | 'connecting'
   | 'offline'
-  | 'unauthorized'
-  | 'no-token';
+  | 'unauthorized';
 export type { WsEnvelope } from './contracts';
-export type DataAuthority = 'rest' | 'ws' | 'mixed' | 'unknown';
-
-export interface FreshnessState {
-  lastFetchedAt: string | null;
-  lastWsEventAt: string | null;
-  lastUpdatedBy: DataAuthority;
-  isStale: boolean;
-}
 
 export type CardHierarchyRecord = CardHierarchyParent | CardHierarchyChildSummary;
 export type CardChildrenResponse = OperatorApiSuccess<'cards.children'>;

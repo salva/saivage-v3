@@ -15,7 +15,6 @@ import {
 import { useAnalystChat } from '../stores/analystChat';
 import { createLogger } from '../utils/logger';
 
-export type SyncResourceScope = 'core' | 'active';
 export type ReconnectResourceKey = LiveSyncUnscopedResource | 'files';
 export type SyncResourceKey = ReconnectResourceKey | 'cards';
 type LeaseResource = 'agents' | 'card-agent-sessions' | 'conversation' | 'llm-exchange';
@@ -32,21 +31,12 @@ export type SyncResourceRegistration =
     }
   | {
       resource: Exclude<SyncResourceKey, 'cards'>;
-      scope: SyncResourceScope;
-      requestOwnership: 'sync-client' | 'resource-store';
-      refetch: () => Promise<void | boolean>;
-      onRefetch?: (timestamp: string) => void;
+      refetch: () => Promise<void>;
     };
 
 interface FlightState {
   inFlight: boolean;
-  trailing?: SingleFlightInvocation;
-}
-
-interface SingleFlightInvocation {
-  refetch: () => Promise<void | boolean>;
-  refetchedAt?: string;
-  onRefetch?: (timestamp: string) => void;
+  trailing?: () => Promise<void>;
 }
 
 const log = createLogger('sync');
@@ -74,24 +64,17 @@ export class SyncClient {
     }
   >();
   private readonly flights = new Map<string, FlightState>();
-  private readonly resourceStoreBaselineOpenPending = new Set<Exclude<SyncResourceKey, 'cards'>>();
   private started = false;
   private cardsBaselineOpenPending = true;
 
   private readonly connectionStateRef: ReturnType<typeof ref<WsConnectionState>>;
-  private readonly lastConnectedAtRef = ref<string | null>(null);
-  private readonly lastEventAtRef = ref<string | null>(null);
 
   readonly connectionState: Readonly<ReturnType<typeof ref<WsConnectionState>>>;
-  readonly lastConnectedAt: Readonly<ReturnType<typeof ref<string | null>>>;
-  readonly lastEventAt: Readonly<ReturnType<typeof ref<string | null>>>;
 
   constructor(conn: WsConnectionManager = getWsConnection()) {
     this.conn = conn;
     this.connectionStateRef = ref<WsConnectionState>(conn.state.value);
     this.connectionState = readonly(this.connectionStateRef);
-    this.lastConnectedAt = readonly(this.lastConnectedAtRef);
-    this.lastEventAt = readonly(this.lastEventAtRef);
   }
 
   start(): void {
@@ -99,11 +82,8 @@ export class SyncClient {
     this.started = true;
     this.conn.onState((state) => {
       this.connectionStateRef.value = state;
-      if (state !== 'connected') return;
-      this.lastConnectedAtRef.value = new Date().toISOString();
     });
     this.conn.onOpen(() => {
-      this.lastConnectedAtRef.value = new Date().toISOString();
       this.handleResourceOpen();
       const cards = this.resources.get('cards');
       if (this.cardsBaselineOpenPending) this.cardsBaselineOpenPending = false;
@@ -112,7 +92,6 @@ export class SyncClient {
     });
     this.conn.onSyncFrame((frame) => this.handleSyncFrame(frame));
     this.conn.onEvent((envelope) => {
-      this.lastEventAtRef.value = new Date().toISOString();
       const restartAcknowledgement = parseAnalystTurnAcknowledgedStatusContent(envelope.content);
       if (restartAcknowledgement) {
         useAnalystChat().ingestRestartAcknowledgement(restartAcknowledgement.restart);
@@ -127,37 +106,21 @@ export class SyncClient {
   stop(): void {
     this.conn.disconnect();
     this.connectionStateRef.value = 'offline';
-    this.lastConnectedAtRef.value = null;
   }
 
   reconfigure(): void {
     this.cardsBaselineOpenPending = true;
-    for (const registration of this.resources.values()) {
-      if (registration.resource !== 'cards' && registration.requestOwnership === 'resource-store') {
-        this.resourceStoreBaselineOpenPending.add(registration.resource);
-      }
-    }
     this.conn.reconfigure();
   }
 
   register(registration: SyncResourceRegistration): () => void {
     this.resources.set(registration.resource, registration);
-    if (registration.resource !== 'cards') {
-      this.resourceStoreBaselineOpenPending.delete(registration.resource);
-      if (registration.requestOwnership === 'sync-client' && this.conn.state.value === 'connected')
-        this.refetchResource(registration.resource);
-      if (
-        registration.requestOwnership === 'resource-store' &&
-        this.conn.state.value !== 'connected'
-      )
-        this.resourceStoreBaselineOpenPending.add(registration.resource);
-    }
+    if (registration.resource !== 'cards' && this.conn.state.value === 'connected')
+      this.refetchResource(registration.resource);
     return () => {
       const current = this.resources.get(registration.resource);
       if (current === registration) {
         this.resources.delete(registration.resource);
-        if (registration.resource !== 'cards')
-          this.resourceStoreBaselineOpenPending.delete(registration.resource);
       }
     };
   }
@@ -189,8 +152,6 @@ export class SyncClient {
   }
 
   private handleSyncFrame(frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame): void {
-    const timestamp = new Date().toISOString();
-    this.lastEventAtRef.value = timestamp;
     if (frame.t === 'subscribed') {
       const key = leaseKey(frame.resource, 'id' in frame ? frame.id : undefined);
       const entry = this.leases.get(key);
@@ -222,17 +183,12 @@ export class SyncClient {
       return;
     }
     if (frame.resource === 'runtime' || frame.resource === 'timeline')
-      this.refetchResource(frame.resource, timestamp);
+      this.refetchResource(frame.resource);
   }
 
   private handleResourceOpen(): void {
     for (const registration of this.resources.values()) {
       if (registration.resource === 'cards') continue;
-      if (
-        registration.requestOwnership === 'resource-store' &&
-        this.resourceStoreBaselineOpenPending.delete(registration.resource)
-      )
-        continue;
       this.refetchResource(registration.resource);
     }
   }
@@ -247,20 +203,11 @@ export class SyncClient {
     }
   }
 
-  private refetchResource(resource: SyncResourceKey, invalidatedAt?: string): void {
+  private refetchResource(resource: SyncResourceKey): void {
     const registration = this.resources.get(resource);
     if (!registration) return;
     if (registration.resource === 'cards') return;
-    if (registration.requestOwnership === 'sync-client') {
-      this.runSingleFlight(resource, registration.refetch, invalidatedAt, registration.onRefetch);
-      return;
-    }
-    void registration
-      .refetch()
-      .then((completed) => {
-        if (invalidatedAt && completed !== false) registration.onRefetch?.(invalidatedAt);
-      })
-      .catch((error) => log.warn(`Sync refetch failed for ${resource}`, error));
+    this.runSingleFlight(resource, registration.refetch);
   }
 
   private openLease(
@@ -364,33 +311,23 @@ export class SyncClient {
 
   private runSingleFlight(
     key: string,
-    refetch: () => Promise<void | boolean>,
-    refetchedAt?: string,
-    onRefetch?: (timestamp: string) => void,
+    refetch: () => Promise<void>,
   ): void {
     const state = this.flights.get(key) ?? { inFlight: false };
     this.flights.set(key, state);
     if (state.inFlight) {
-      state.trailing = { refetch, refetchedAt, onRefetch };
+      state.trailing = refetch;
       return;
     }
     state.inFlight = true;
     void refetch()
-      .then(() => {
-        if (refetchedAt) onRefetch?.(refetchedAt);
-      })
       .catch((err) => log.warn(`Sync refetch failed for ${key}`, err))
       .finally(() => {
         state.inFlight = false;
         const trailing = state.trailing;
         state.trailing = undefined;
         if (trailing) {
-          this.runSingleFlight(
-            key,
-            trailing.refetch,
-            trailing.refetchedAt,
-            trailing.onRefetch,
-          );
+          this.runSingleFlight(key, trailing);
           return;
         }
         this.flights.delete(key);

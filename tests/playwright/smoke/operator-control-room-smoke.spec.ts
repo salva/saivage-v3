@@ -21,7 +21,9 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect(page.getByText(syntheticToken)).toHaveCount(0);
 
   await expect.poll(async () => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBeGreaterThan(0);
-  await expect(page.getByText(/Live updates connected/i).first()).toBeVisible();
+  const socketChip = page.locator('.workspace-header .ws-connected');
+  await expect(socketChip).toHaveText('Live');
+  await expect(socketChip).toHaveAttribute('title', 'WebSocket invalidations are connected; displayed runtime data still comes from REST.');
 
   await expect(page.locator('.pause-chip')).toHaveCount(0);
 

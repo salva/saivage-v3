@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia } from 'pinia';
 import { createRouter, createMemoryHistory } from 'vue-router';
+import { ref } from 'vue';
 import AppShell from '../components/layout/AppShell.vue';
 
 vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
@@ -18,7 +19,7 @@ vi.mock('../stores/sync', () => ({
     disconnect: vi.fn(),
     registerResource: vi.fn(() => vi.fn()),
     openConversation: vi.fn(() => vi.fn()),
-    connectionState: 'connected',
+    connectionState: ref('connected'),
   }),
 }));
 vi.mock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot: vi.fn(async () => undefined) }) }));
