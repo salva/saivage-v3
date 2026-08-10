@@ -42,11 +42,11 @@ describe('control action audit persistence', () => {
     expect(existsSync(join(projectRoot, '.saivage'))).toBe(false);
   });
 
-  it('commits duplicates physically and fails strict reads without a second effect', () => {
-    recordControlAction(projectRoot, () => input);
-    recordControlAction(projectRoot, () => input);
+  it('rejects a duplicate before publication and retains one readable action', () => {
+    const created = recordControlAction(projectRoot, () => input);
+    expect(() => recordControlAction(projectRoot, () => input)).toThrow(/duplicate logical id 'tok_audit'/);
     const rows = readFileSync(join(projectRoot, '.saivage', 'logs', 'app.jsonl'), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ data: { id: string } }> }).rows);
-    expect(rows.map((row) => row.data.id)).toEqual(['tok_audit', 'tok_audit']);
-    expect(() => listControlActions(projectRoot)).toThrow(/duplicate logical id/);
+    expect(rows.map((row) => row.data.id)).toEqual(['tok_audit']);
+    expect(listControlActions(projectRoot)).toEqual([created]);
   });
 });

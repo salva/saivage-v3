@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,6 +7,7 @@ import { appLogEntrySchema, type AppLogEntry } from '../../src/contracts/app-log
 import { appendAppLogEntry, readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
+import { createEventLog } from '../../src/observability/event-logger.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -48,11 +49,52 @@ describe('strict app-log publication', () => {
     expect(readFileSync(appLogFile(projectRoot))).toEqual(serializeGrowingEnvelope([entry], appLogEntrySchema));
   });
 
-  it('physically commits duplicate logical ids and rejects them before lane filtering', () => {
+  it('rejects a duplicate logical id before publication and preserves strict lane reads', () => {
     const projectRoot = root(); const duplicate = event('same');
-    append(projectRoot, duplicate); append(projectRoot, duplicate);
-    expect(() => readAppLogEntries(projectRoot)).toThrow(/duplicate logical id 'same'/);
-    expect(() => readAppLogEntries(projectRoot, 'control_action')).toThrow(/duplicate logical id 'same'/);
+    append(projectRoot, duplicate);
+    const before = readFileSync(appLogFile(projectRoot));
+
+    expect(() => append(projectRoot, duplicate)).toThrow(/duplicate logical id 'same'/);
+    expect(readFileSync(appLogFile(projectRoot))).toEqual(before);
+    expect(readAppLogEntries(projectRoot)).toEqual([duplicate]);
+    expect(readAppLogEntries(projectRoot, 'event')).toEqual([duplicate]);
+    expect(readAppLogEntries(projectRoot, 'control_action')).toEqual([]);
+  });
+
+  it('rejects a distinct candidate when existing complete rows duplicate an id across lanes', () => {
+    const projectRoot = root();
+    const path = appLogFile(projectRoot);
+    mkdirSync(join(projectRoot, '.saivage'));
+    mkdirSync(join(projectRoot, '.saivage', 'logs'));
+    const duplicateId = 'cross-lane-duplicate';
+    const duplicateRows: AppLogEntry[] = [
+      event(duplicateId),
+      appLogEntrySchema.parse({
+        type: 'control_action',
+        data: {
+          id: duplicateId,
+          actor: 'analyst',
+          surface: 'rest',
+          action: 'get_status',
+          target_kind: 'runtime',
+          target_id: 'project',
+          params_summary: '',
+          outcome: 'ok',
+          outcome_summary: 'complete',
+          created_at: '2026-07-20T00:00:01.000Z',
+        },
+      }),
+    ];
+    const preserved = serializeGrowingEnvelope(duplicateRows, appLogEntrySchema);
+    writeFileSync(path, preserved);
+    const timelineChanged = jest.fn();
+    const log = createEventLog(projectRoot, timelineChanged);
+
+    expect(() => log.appendEvent(event('distinct', '2026-07-20T00:00:02.000Z').data)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
+    expect(readFileSync(path)).toEqual(preserved);
+    expect(timelineChanged).not.toHaveBeenCalled();
+    expect(() => readAppLogEntries(projectRoot)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
+    expect(() => readAppLogEntries(projectRoot, 'provider_exchange')).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
   });
 
   it('truncates only an unterminated final suffix on a strict read', () => {

@@ -16,6 +16,15 @@ export interface AppLogPublicationContext {
   readonly publicationTemporaryId?: PublicationTemporaryIdFactory;
 }
 
+function validateAppLogEntries(path: string, entries: readonly AppLogEntry[]): void {
+  const ids = new Set<string>();
+  for (const entry of entries) {
+    const id = appLogEntryLogicalId(entry);
+    if (ids.has(id)) throw new Error(`App log '${path}' contains duplicate logical id '${id}'.`);
+    ids.add(id);
+  }
+}
+
 export function readAppLogEntries(projectRoot: string): AppLogEntry[];
 export function readAppLogEntries<T extends AppLogEntryType>(projectRoot: string, type: T): AppLogEntryOfType<T>[];
 export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): AppLogEntry[] {
@@ -23,12 +32,7 @@ export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): 
   let entries: AppLogEntry[];
   try { entries = readCanonicalGrowingFile(path, appLogEntrySchema); }
   catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
-  const ids = new Set<string>();
-  for (const entry of entries) {
-    const id = appLogEntryLogicalId(entry);
-    if (ids.has(id)) throw new Error(`App log '${path}' contains duplicate logical id '${id}'.`);
-    ids.add(id);
-  }
+  validateAppLogEntries(path, entries);
   return type === undefined ? entries : entries.filter((entry) => entry.type === type);
 }
 
@@ -39,28 +43,31 @@ export function appendAppLogEntry<T extends AppLogEntryType>(
   context: AppLogPublicationContext = {},
 ): AppLogEntryOfType<T> {
   const candidate: AppLogEntry = prepareEntry();
-    if (candidate.type !== entryType) throw new Error(`App-log preparation returned '${candidate.type}' for '${entryType}'.`);
-    const prepared = prepareGrowingEnvelope([candidate], appLogEntrySchema);
-    const parsed = prepared.rows[0] as AppLogEntryOfType<T>;
-    const path = appLogFile(projectRoot);
-    try { readCanonicalGrowingFile(path, appLogEntrySchema); }
-    catch (error) {
-      throwIfPublicationOutcomeUnknown(error);
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
-    }
-    const result = appendEnvelope(path, prepared.bytes);
+  if (candidate.type !== entryType) throw new Error(`App-log preparation returned '${candidate.type}' for '${entryType}'.`);
+  const prepared = prepareGrowingEnvelope([candidate], appLogEntrySchema);
+  const parsed = prepared.rows[0] as AppLogEntryOfType<T>;
+  const path = appLogFile(projectRoot);
+  let existingEntries: AppLogEntry[];
+  try { existingEntries = readCanonicalGrowingFile(path, appLogEntrySchema); }
+  catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    existingEntries = [];
+  }
+  validateAppLogEntries(path, [...existingEntries, parsed]);
+  const result = appendEnvelope(path, prepared.bytes);
   switch (result.kind) {
-      case 'appended': return parsed;
-      case 'missing':
-        for (const owner of [saivageRoot(projectRoot), saivageLogsRoot(projectRoot)]) {
-          try { mkdirSync(owner); }
-          catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-            const stat = lstatSync(owner);
-            if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`App-log owner '${owner}' must be a real directory.`);
-          }
+    case 'appended': return parsed;
+    case 'missing':
+      for (const owner of [saivageRoot(projectRoot), saivageLogsRoot(projectRoot)]) {
+        try { mkdirSync(owner); }
+        catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          const stat = lstatSync(owner);
+          if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`App-log owner '${owner}' must be a real directory.`);
         }
-        publishFirstEnvelope(path, prepared.bytes, context.publicationTemporaryId);
-        return parsed;
+      }
+      publishFirstEnvelope(path, prepared.bytes, context.publicationTemporaryId);
+      return parsed;
   }
 }
