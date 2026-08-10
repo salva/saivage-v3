@@ -16,7 +16,7 @@ This implementation note is subordinate to [System Architecture](./system-archit
 - `BaseActor` exposes one-use initial-state `start()` and explicit parked-state event activation; no recover or rehydrate entrypoint exists.
 - Configured planning and terminal workflows compile once at startup per family into shared entry/node/terminal definitions. There is no sequence shorthand, wrapper graph loop, or cursor; accepted result events route through the definition, including explicit same-state reentry.
 - Live process position and zero-based node ordinal are process-local projections only. STOPPED recovery constructs a fresh actor and does not rehydrate prior process state.
-- `BaseActor` owns the immutable topology, one pending event, one task slot, and lifecycle settlement. `CardProcessActor` supplies direct transition and state-entry hooks; behavior is not embedded in topology or supplied as generic bindings. Conversation LLM completion and cancellation instead use exact direct phase replacement, operation-local settlement, and provider lifecycle containment.
+- `BaseActor` owns the immutable topology, one pending event, one task slot, and lifecycle settlement. `CardProcessActor` supplies direct transition and state-entry hooks; behavior is not embedded in topology or supplied as generic bindings. Conversation LLM completion and application disposal instead use exact direct phase replacement, operation-local settlement, and provider lifecycle containment; Analyst turns have no cancellation lifecycle.
 - Start assigns the initial parked ready state and invokes state entry directly. Activation sends the selected configured entry event. Node entry fills the sole task slot; settlement clears that slot before the matching completion or failure function runs. The activation tracker owns cancellation of the node operation.
 - A matching tracker consumer stages an accepted result and sends its event. Dispatch assigns the target, runs the direct transition hook, then runs target entry. Same-node reentry therefore orders settled and cleared old task, staged accepted result, accepted event, transition, and one new node entry/task. Unknown events and ordinary non-reentering same-state transitions run no hooks.
 - Ordinary node failure stages `execution:failed` and routes to the code-owned failed terminal. App-log publication failure is distinct: it sends no event, halts the current task state during failure delivery, rejects the process result, and leaves containment joining to Supervisor.
@@ -28,7 +28,7 @@ Cancellation claims the activation before its first await, revokes all late comm
 
 ## Commit Boundaries
 
-Every await-before-Saivage-mutation path checks the exact activation/Analyst/runtime owner signal immediately after its final await and immediately before the synchronous commit. Purely synchronous operations complete in their JavaScript turn. This is lifecycle exclusion only; no global writer gate or persistence currentness is introduced.
+Every await-before-Saivage-mutation path checks the exact active application, operation, activation, or runtime owner signal immediately after its final await and immediately before the synchronous commit. Purely synchronous operations complete in their JavaScript turn. This is lifecycle exclusion only; no Analyst-turn cancellation authority, global writer gate, or persistence currentness is introduced.
 
 ## Session And Notification Flow
 
@@ -40,7 +40,7 @@ Actors call `CardService` and named direct file functions. They do not own repos
 
 ## Validation Focus
 
-Current validation protects exact live-owner cancellation, direct Conversation LLM completion/cancellation ownership, Stop→Run same-session behavior, notification terminal races, local interruption settlement, two-stage progressive compaction, opaque hierarchical card identity, direct file I/O, and lifecycle-lock-only CLI delegation.
+Current validation protects exact live card-activation cancellation, direct Conversation LLM completion/application-disposal ownership and owned-completion joins, Stop→Run same-session behavior, notification terminal races, local interruption settlement, two-stage progressive compaction, opaque hierarchical card identity, direct file I/O, and lifecycle-lock-only CLI delegation.
 
 ## Completed Remediation R1-R4
 

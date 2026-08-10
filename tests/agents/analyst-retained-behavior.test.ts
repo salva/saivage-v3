@@ -65,11 +65,11 @@ describe('audited Analyst mutation settlement', () => {
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'error', error: 'prepare failed' });
   });
 
-  it('audits cancellation after preparation without calling the application', async () => {
+  it('audits application-owner disposal after preparation without calling the application owner', async () => {
     const test = harness();
     const controller = new AbortController();
     const mutate = jest.fn();
-    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate, { prepare: async () => { controller.abort(new Error('turn cancelled')); return {}; } }), controller.signal)).rejects.toThrow('turn cancelled');
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate, { prepare: async () => { controller.abort(new Error('application disposed before mutation')); return {}; } }), controller.signal)).rejects.toThrow('application disposed before mutation');
     expect(mutate).not.toHaveBeenCalled();
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'error' });
   });
@@ -105,11 +105,11 @@ describe('audited Analyst mutation settlement', () => {
     expect(listControlActions(test.root)[0]).toMatchObject({ actor: 'analyst', action, outcome });
   });
 
-  it('keeps a committed success ok when cancellation arrives before the application returns', async () => {
+  it('keeps a committed success ok when operation-owner disposal arrives before the application returns', async () => {
     const test = harness();
     const controller = new AbortController();
-    const mutate = jest.fn(async () => { controller.abort(new Error('late cancellation')); return { kind: 'returned' as const, success: true as const }; });
-    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate), controller.signal)).rejects.toThrow('late cancellation');
+    const mutate = jest.fn(async () => { controller.abort(new Error('operation owner disposed after commit')); return { kind: 'returned' as const, success: true as const }; });
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate), controller.signal)).rejects.toThrow('operation owner disposed after commit');
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(listControlActions(test.root)).toHaveLength(1);
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'ok' });

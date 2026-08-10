@@ -5,7 +5,7 @@ import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, conversationSessionIdentity, pa
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';
 import type { CardId } from '../../schemas/card-id.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
-import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, buildLlmTurnMessage, buildToolResultMessage, readLoggedToolCall } from './llm-delivery-log.js';
+import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
 import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -44,10 +44,8 @@ export interface CompactorPort {
 }
 
 export type LlmTerminalHandoff = (terminal: Readonly<{ input: CanonicalLlmInvocationInput; outcome: Extract<LLMActorOutcome, { type: 'result' | 'blocked' | 'error' }> }>) => void;
-export type AnalystCancellationPublication = Readonly<{ markPublished(): void }>;
-export type AnalystCancellationClaim = (input: CanonicalLlmInvocationInput, reason: string) => AnalystCancellationPublication;
 
-type Callbacks = Readonly<{ terminal: LlmTerminalHandoff; cancellation?: AnalystCancellationClaim }>;
+type Callbacks = Readonly<{ terminal: LlmTerminalHandoff }>;
 type WaitingToolCall = Readonly<{ sourceInputId: string; toolCallId: string; toolName: string; toolCallArguments: string }>;
 type Disposition = { kind: 'open' } | { kind: 'continuation_closed'; reason: unknown } | { kind: 'disposed'; reason: unknown };
 type InvocationOperation = {
@@ -71,20 +69,14 @@ type ParkedOperation = {
   childLease: ChildInvocationLease | null;
 };
 type RetainedOperation = { input: CanonicalLlmInvocationInput; callbacks: Callbacks; outcome: Extract<LLMActorOutcome, { type: 'result' }>; disposition: Disposition };
-type ToolTerminal =
-  | { kind: 'open' }
-  | { kind: 'cancel_claiming'; reason: string; input: CanonicalLlmInvocationInput }
-  | { kind: 'cancel_claimed'; reason: string; input: CanonicalLlmInvocationInput; publication: AnalystCancellationPublication }
-  | { kind: 'dispose_claimed'; reason: unknown };
-type ToolSettlementOperation = {
+type ToolSettlementBase = {
   parked: ParkedOperation;
-  result: Deferred<LLMActorOutcome>;
   settlement: Deferred<void>;
-  mode: 'ordinary_continuation' | 'no_continuation' | 'parked_cancellation';
-  progress: 'before_tool_result' | 'publishing_tool_result' | 'after_tool_result' | 'continuation_ready' | 'publishing_cancellation';
-  currentInput: CanonicalLlmInvocationInput;
-  terminal: ToolTerminal;
+  disposal: { reason: unknown } | null;
 };
+type OrdinaryToolSettlementOperation = ToolSettlementBase & { kind: 'ordinary_continuation'; result: Deferred<LLMActorOutcome> };
+type NoContinuationToolSettlementOperation = ToolSettlementBase & { kind: 'no_continuation'; result: Deferred<void> };
+type ToolSettlementOperation = OrdinaryToolSettlementOperation | NoContinuationToolSettlementOperation;
 type RepairOperation = { retained: RetainedOperation; result: Deferred<LLMActorOutcome>; settlement: Deferred<void>; disposition: Disposition };
 type ConversationPhase =
   | { kind: 'idle'; disposition: Disposition }
@@ -95,11 +87,6 @@ type ConversationPhase =
   | { kind: 'retained_text'; operation: RetainedOperation }
   | { kind: 'repairing_text'; operation: RepairOperation };
 
-const CANCELLED_TOOL_RESULT = Object.freeze({ success: false as const, error: 'The Analyst turn was cancelled before this tool result could continue the conversation.' });
-
-export type ConversationCancellationDisposition =
-  | { kind: 'not_claimed' }
-  | { kind: 'claimed'; input: CanonicalLlmInvocationInput; publicationOwnedByLlm: boolean };
 export type ConversationDisposalDisposition = 'revoked_before_owned_completion' | 'joining_owned_completion';
 export type LLMToolContinuationContextHook = (continuationInputId: string) => { messages: readonly ProviderVisibleUserContextMessage[]; afterAppend?: () => void } | undefined;
 export type ConversationLLMActorPurpose = Readonly<
@@ -142,14 +129,14 @@ export class ConversationLLMActor {
     this.#fatalPort = args.fatalPort;
   }
 
-  turn(input: PreparedLlmInvocationInput, signal: AbortSignal | undefined, terminal: LlmTerminalHandoff, cancellation?: AnalystCancellationClaim): Promise<LLMActorOutcome> {
+  turn(input: PreparedLlmInvocationInput, signal: AbortSignal | undefined, terminal: LlmTerminalHandoff): Promise<LLMActorOutcome> {
     if (!input.preparedCompaction) return rejected(new Error(`LLMActor '${this.agentId}' requires prepared compaction.`));
     if (input.agentId !== this.agentId) return rejected(new Error(`Input ${input.inputId} targets ${input.agentId}, not ${this.agentId}.`));
     const phase = this.#phase;
     if (phase.kind !== 'idle' && phase.kind !== 'retained_text') return rejected(new Error(`LLMActor '${this.agentId}' cannot start a new turn while '${phase.kind}'.`));
     const disposition = phase.kind === 'idle' ? phase.disposition : phase.operation.disposition;
     if (disposition.kind !== 'open') return rejected(new Error(`LLMActor '${this.agentId}' invocation admission is closed.`));
-    return this.#arm(input, signal, { terminal, cancellation }, disposition);
+    return this.#arm(input, signal, { terminal }, disposition);
   }
 
   waitingToolOutcome(): Extract<LLMActorOutcome, { type: 'tool_call' }> {
@@ -203,7 +190,7 @@ export class ConversationLLMActor {
     const parked = this.#claimParked(toolCallId);
     if (parked instanceof Error) return rejected(parked);
     const direct = deferred<LLMActorOutcome>(); observe(direct.promise);
-    const operation: ToolSettlementOperation = { parked, result: direct, settlement: deferred<void>(), mode: 'ordinary_continuation', progress: 'before_tool_result', currentInput: parked.input, terminal: { kind: 'open' } };
+    const operation: OrdinaryToolSettlementOperation = { kind: 'ordinary_continuation', parked, result: direct, settlement: deferred<void>(), disposal: null };
     observe(operation.settlement.promise);
     this.#phase = { kind: 'settling_tool', operation };
     void this.#runToolSettlement(operation, result, signal, continuationContextHook);
@@ -213,20 +200,24 @@ export class ConversationLLMActor {
   settleToolResultWithoutContinuation(toolCallId: string, result: ToolResult): Promise<void> {
     const parked = this.#claimParked(toolCallId, true);
     if (parked instanceof Error) return rejectedVoid(parked);
-    const direct = deferred<LLMActorOutcome>(); observe(direct.promise);
-    const operation: ToolSettlementOperation = { parked, result: direct, settlement: deferred<void>(), mode: 'no_continuation', progress: 'before_tool_result', currentInput: parked.input, terminal: { kind: 'open' } };
+    const direct = deferred<void>(); observe(direct.promise);
+    const operation: NoContinuationToolSettlementOperation = { kind: 'no_continuation', parked, result: direct, settlement: deferred<void>(), disposal: null };
     observe(operation.settlement.promise);
     this.#phase = { kind: 'settling_tool', operation };
     try {
       this.#appendClaimedToolResult(operation, result);
+      if (operation.disposal) {
+        this.#settleDisposedTool(operation);
+        return direct.promise;
+      }
       this.#releaseTool(operation);
-      operation.result.resolve({ type: 'result', agentId: this.agentId, result: { kind: 'message', content: '' } });
+      operation.result.resolve();
       operation.settlement.resolve();
-      return operation.settlement.promise;
-    } catch (error) { this.#deliverPublicationFatal(error); this.#failTool(operation, error); return operation.settlement.promise; }
+      return direct.promise;
+    } catch (error) { this.#deliverPublicationFatal(error); this.#failTool(operation, error); return direct.promise; }
   }
 
-  continueAfterPlainText(repairDirective: string, signal: AbortSignal | undefined, terminal: LlmTerminalHandoff, cancellation?: AnalystCancellationClaim, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
+  continueAfterPlainText(repairDirective: string, signal: AbortSignal | undefined, terminal: LlmTerminalHandoff, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
     if (this.#phase.kind !== 'retained_text' || this.#phase.operation.disposition.kind !== 'open') return rejected(new Error(`LLMActor '${this.agentId}' has no open plain-text result to continue.`));
     const retained = this.#phase.operation;
     const direct = deferred<LLMActorOutcome>(); observe(direct.promise);
@@ -248,7 +239,7 @@ export class ConversationLLMActor {
       const next = { ...input, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, input.sessionId)), episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id } };
       this.#assertRepairOpen(repair);
       repair.settlement.resolve();
-      const nested = this.#arm(next, signal, { terminal, cancellation }, repair.disposition);
+      const nested = this.#arm(next, signal, { terminal }, repair.disposition);
       nested.then(repair.result.resolve, (error: unknown) => repair.result.reject(asError(error)));
     } catch (error) {
       this.#deliverPublicationFatal(error);
@@ -257,66 +248,6 @@ export class ConversationLLMActor {
       }
     }
     return direct.promise;
-  }
-
-  requestCancellation(reason: string): ConversationCancellationDisposition {
-    const phase = this.#phase;
-    if (phase.kind === 'arming' || phase.kind === 'invoking') {
-      const operation = phase.operation;
-      if (operation.completionPersistenceEntered || !operation.callbacks.cancellation) return { kind: 'not_claimed' };
-      operation.callbacks.cancellation(operation.input, reason);
-      this.#invocations.revoke(new Error(reason));
-      this.#phase = { kind: 'idle', disposition: operation.disposition };
-      const interruption = new Error(reason);
-      operation.result.reject(interruption); operation.settlement.reject(interruption);
-      return { kind: 'claimed', input: operation.input, publicationOwnedByLlm: false };
-    }
-    if (phase.kind === 'waiting_tool') {
-      const parked = phase.operation;
-      if (!parked.callbacks.cancellation || parked.disposition.kind !== 'open') return { kind: 'not_claimed' };
-      const direct = deferred<LLMActorOutcome>(); observe(direct.promise);
-      const operation: ToolSettlementOperation = { parked, result: direct, settlement: deferred<void>(), mode: 'parked_cancellation', progress: 'publishing_cancellation', currentInput: parked.input, terminal: { kind: 'cancel_claiming', reason, input: parked.input } };
-      observe(operation.settlement.promise); this.#phase = { kind: 'settling_tool', operation };
-      let publication: AnalystCancellationPublication;
-      try { publication = parked.callbacks.cancellation(parked.input, reason); }
-      catch (error) { this.#deliverPublicationFatal(error); this.#failTool(operation, error); return { kind: 'claimed', input: parked.input, publicationOwnedByLlm: true }; }
-      if (operation.terminal.kind !== 'cancel_claiming') {
-        this.#failTool(operation, new Error('Parked cancellation claim changed during outer handoff.'));
-        return { kind: 'claimed', input: parked.input, publicationOwnedByLlm: true };
-      }
-      operation.terminal = { kind: 'cancel_claimed', reason, input: parked.input, publication };
-      try {
-        appendConversationBatch(this.conversations, [
-          buildToolResultMessage({ session_id: parked.input.sessionId, source_input_id: parked.input.inputId, tool_call_id: parked.waiting.toolCallId, tool_name: parked.waiting.toolName, result: CANCELLED_TOOL_RESULT }),
-          buildLlmTurnMessage(parked.input, `Cancelled: ${reason}`),
-        ]);
-        publication.markPublished();
-        this.#releaseTool(operation);
-        const interruption = new Error(reason); operation.result.reject(interruption); operation.settlement.resolve();
-      } catch (error) { this.#deliverPublicationFatal(error); this.#failTool(operation, error); }
-      return { kind: 'claimed', input: parked.input, publicationOwnedByLlm: true };
-    }
-    if (phase.kind === 'settling_tool' && phase.operation.mode === 'ordinary_continuation' && phase.operation.terminal.kind === 'open') {
-      const operation = phase.operation;
-      const claim = operation.parked.callbacks.cancellation;
-      if (!claim) return { kind: 'not_claimed' };
-      const input = operation.currentInput;
-      operation.terminal = { kind: 'cancel_claiming', reason, input };
-      let publication: AnalystCancellationPublication;
-      try { publication = claim(input, reason); }
-      catch (error) {
-        this.#deliverPublicationFatal(error);
-        this.#failTool(operation, error);
-        return { kind: 'claimed', input, publicationOwnedByLlm: true };
-      }
-      if (operation.terminal.kind !== 'cancel_claiming' || operation.terminal.input !== input || operation.terminal.reason !== reason) {
-        this.#failTool(operation, new Error('Tool cancellation claim changed during outer handoff.'));
-        return { kind: 'claimed', input, publicationOwnedByLlm: true };
-      }
-      operation.terminal = { kind: 'cancel_claimed', reason, input, publication };
-      return { kind: 'claimed', input, publicationOwnedByLlm: true };
-    }
-    return { kind: 'not_claimed' };
   }
 
   claimResultAndCloseContinuation(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>, reason: unknown, claim: () => void): void {
@@ -352,7 +283,12 @@ export class ConversationLLMActor {
       operation.result.reject(asError(reason)); operation.settlement.reject(asError(reason));
       return 'revoked_before_owned_completion';
     }
-    if (phase.kind === 'settling_tool') { if (phase.operation.terminal.kind === 'open') phase.operation.terminal = { kind: 'dispose_claimed', reason }; }
+    if (phase.kind === 'settling_tool') {
+      if (!phase.operation.disposal) {
+        phase.operation.disposal = { reason };
+        phase.operation.parked.disposition = { kind: 'disposed', reason };
+      }
+    }
     else phase.operation.disposition = { kind: 'disposed', reason };
     return 'joining_owned_completion';
   }
@@ -474,25 +410,19 @@ export class ConversationLLMActor {
     operation.result.reject(failure); operation.settlement.reject(failure);
   }
 
-  async #runToolSettlement(operation: ToolSettlementOperation, result: ToolResult, signal?: AbortSignal, hook?: LLMToolContinuationContextHook): Promise<void> {
+  async #runToolSettlement(operation: OrdinaryToolSettlementOperation, result: ToolResult, signal?: AbortSignal, hook?: LLMToolContinuationContextHook): Promise<void> {
     try {
       signal?.throwIfAborted(); this.#appendClaimedToolResult(operation, result);
-      if (toolTerminal(operation).kind === 'cancel_claimed') return this.#publishToolCancellation(operation);
-      if (toolTerminal(operation).kind === 'dispose_claimed') throw asError((toolTerminal(operation) as Extract<ToolTerminal, { kind: 'dispose_claimed' }>).reason);
+      if (operation.disposal) return this.#settleDisposedTool(operation);
       let continuationInput = { ...operation.parked.input, inputId: randomUUID(), episodeContext: { ...operation.parked.input.episodeContext, lastToolResult: { toolCallId: operation.parked.waiting.toolCallId, toolName: operation.parked.waiting.toolName, result } } };
-      operation.currentInput = continuationInput; operation.progress = 'continuation_ready';
       const continuation = hook?.(continuationInput.inputId);
-      if (toolTerminal(operation).kind === 'cancel_claimed') return this.#publishToolCancellation(operation);
-      if (toolTerminal(operation).kind === 'dispose_claimed') throw asError((toolTerminal(operation) as Extract<ToolTerminal, { kind: 'dispose_claimed' }>).reason);
+      if (operation.disposal) return this.#settleDisposedTool(operation);
       const contextRows = (continuation?.messages ?? []).map((message, index) => buildUserContextMessage(continuationInput.sessionId, continuationInput.inputId, 'continuation_hook', index, message));
       if (contextRows.length > 0) appendConversationBatch(this.conversations, contextRows);
-      if (toolTerminal(operation).kind === 'cancel_claimed') return this.#publishToolCancellation(operation);
-      if (toolTerminal(operation).kind === 'dispose_claimed') throw asError((toolTerminal(operation) as Extract<ToolTerminal, { kind: 'dispose_claimed' }>).reason);
+      if (operation.disposal) return this.#settleDisposedTool(operation);
       continuation?.afterAppend?.();
-      if (toolTerminal(operation).kind === 'cancel_claimed') return this.#publishToolCancellation(operation);
-      if (toolTerminal(operation).kind === 'dispose_claimed') throw asError((toolTerminal(operation) as Extract<ToolTerminal, { kind: 'dispose_claimed' }>).reason);
+      if (operation.disposal) return this.#settleDisposedTool(operation);
       continuationInput = { ...continuationInput, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, continuationInput.sessionId)) };
-      operation.currentInput = continuationInput;
       this.#releaseChild(operation.parked); operation.settlement.resolve();
       const nested = this.#arm(continuationInput, signal, operation.parked.callbacks, operation.parked.disposition);
       nested.then(operation.result.resolve, (error: unknown) => operation.result.reject(asError(error)));
@@ -500,17 +430,15 @@ export class ConversationLLMActor {
   }
 
   #appendClaimedToolResult(operation: ToolSettlementOperation, result: ToolResult): void {
-    operation.progress = 'publishing_tool_result';
     appendToolResult(this.conversations, { session_id: operation.parked.input.sessionId, source_input_id: operation.parked.input.inputId, tool_call_id: operation.parked.waiting.toolCallId, tool_name: operation.parked.waiting.toolName, result });
-    operation.progress = 'after_tool_result';
   }
 
-  #publishToolCancellation(operation: ToolSettlementOperation): void {
-    if (operation.terminal.kind !== 'cancel_claimed') throw new Error('Tool cancellation publication has no claim.');
-    const { reason, input, publication } = operation.terminal; operation.progress = 'publishing_cancellation';
-    appendConversationBatch(this.conversations, [buildLlmTurnMessage(input, `Cancelled: ${reason}`)]);
-    publication.markPublished(); this.#releaseTool(operation);
-    operation.result.reject(new Error(reason)); operation.settlement.resolve();
+  #settleDisposedTool(operation: ToolSettlementOperation): void {
+    if (!operation.disposal) throw new Error('Disposed tool settlement has no disposal claim.');
+    const { reason } = operation.disposal;
+    this.#releaseTool(operation);
+    operation.result.reject(reason);
+    operation.settlement.resolve();
   }
 
   #releaseTool(operation: ToolSettlementOperation): void {
@@ -707,7 +635,6 @@ function combineProviderAttempts(inputId: string, ...passes: ProviderExchangeAtt
 function normalContextFailure(message: string, attempts: ProviderExchangeAttempt[], classifiedFailure: LlmRequestError, cause?: unknown): ProviderTurnFailure { const originalFailure = new LlmRequestError({ ...classifiedFailure.failure, message }); if (cause !== undefined) originalFailure.cause = cause; return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: attempts, originalFailure,candidate:null }); }
 function parseToolArguments(raw: string): unknown { try { return JSON.parse(raw) as unknown; } catch { return raw; } }
 function asError(error: unknown): Error { return error instanceof Error ? error : new Error(String(error)); }
-function toolTerminal(operation: ToolSettlementOperation): ToolTerminal { return operation.terminal; }
 function observe<T>(promise: Promise<T>): void { void promise.catch(() => undefined); }
 function rejected(error: Error): Promise<LLMActorOutcome> { const promise = Promise.reject<LLMActorOutcome>(error); observe(promise); return promise; }
 function rejectedVoid(error: Error): Promise<void> { const promise = Promise.reject<void>(error); observe(promise); return promise; }

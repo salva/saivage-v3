@@ -38,7 +38,7 @@ describe('source-derived publication owner inventory', () => {
       'src/runtime/actors/card-process-actor.ts': 2,
       'src/runtime/actors/llm-actor.ts': 1,
     });
-    expect(fileCountInventory(/\bobserve\(/gu)).toEqual({ 'src/runtime/actors/llm-actor.ts': 12 });
+    expect(fileCountInventory(/\bobserve\(/gu)).toEqual({ 'src/runtime/actors/llm-actor.ts': 10 });
     expect(fileCountInventory(/\.finally\([^\n]*\)\.catch\(/gu)).toEqual({
       'src/mcp/mcp-manager.ts': 1,
       'src/runtime/actors/contained-operations.ts': 4,

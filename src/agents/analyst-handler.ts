@@ -13,7 +13,7 @@ import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
 import { buildAnalystIngressRows, buildAnalystRestartRows, providerConversationProjection,
 } from '../runtime/actors/conversation-session.js';
-import { ConversationLLMActor, type AnalystCancellationPublication, type LLMActorOutcome, type LLMProviderPort, type LlmTerminalHandoff,
+import { ConversationLLMActor, type LLMActorOutcome, type LLMProviderPort, type LlmTerminalHandoff,
 } from '../runtime/actors/llm-actor.js';
 import { buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext,
@@ -72,7 +72,6 @@ export function buildWorkspaceContextNote(workspaceContext?: WorkspaceContext): 
 export interface AnalystResponse {
   sessionId: GlobalConversationSessionId;
   restart: RestartChatAcknowledgement | null;
-  cancelled?: boolean;
   toolInvocations?: Array<{
     tool: string;
     params: Record<string, unknown>;
@@ -96,21 +95,16 @@ type TerminalCompletion = Readonly<{ input: CanonicalLlmInvocationInput; outcome
 }>;
 type AnalystTurnStep =
   | { kind: 'preparing' }
-  | { kind: 'starting'; ingress: 'publishing' | 'published'; cancellationRequested: string | null }
+  | { kind: 'starting'; ingress: 'publishing' | 'published' }
   | { kind: 'nested'; input: CanonicalLlmInvocationInput }
   | { kind: 'waiting_tool'; input: CanonicalLlmInvocationInput; outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>;
     }
   | { kind: 'confirmed_restart_preparing' }
-  | { kind: 'confirmed_restart_publishing'; request: { kind: 'cancel'; reason: string } | { kind: 'dispose'; reason: unknown } | null;
+  | { kind: 'confirmed_restart_publishing'; request: { kind: 'dispose'; reason: unknown } | null;
     }
   | { kind: 'confirmed_restart_published' }
   | { kind: 'confirmed_restart_scheduling' }
   | { kind: 'settling_llm'; completion: TerminalCompletion; noticeEntered: boolean };
-type AnalystTurnOutcome =
-  | { kind: 'pending' }
-  | { kind: 'claiming_cancel'; reason: string; publication: 'pending' | 'published' }
-  | { kind: 'completed'; response: AnalystResponse }
-  | { kind: 'failed'; error: unknown };
 type AnalystTurnOperation = {
   readonly input: AnalystTurnInput;
   readonly acceptedOperationId: string;
@@ -118,7 +112,6 @@ type AnalystTurnOperation = {
   readonly caller: Deferred<AnalystTurnResult>;
   readonly abort: AbortController;
   readonly tracker: ActivationOperationTracker;
-  outcome: AnalystTurnOutcome;
   step: AnalystTurnStep;
   readonly toolInvocations: AnalystToolInvocations;
   toolInFlight: string | null;
@@ -205,7 +198,7 @@ export class AnalystSession {
     const caller = deferred<AnalystTurnResult>(); void caller.promise.catch(() => undefined);
     const operation: AnalystTurnOperation = {
       input, acceptedOperationId: randomUUID(), restartConfirmation: this.#phase.restartConfirmation,
-      caller, abort: new AbortController(), tracker: new ActivationOperationTracker(), outcome: { kind: 'pending' },
+      caller, abort: new AbortController(), tracker: new ActivationOperationTracker(),
       step: this.#phase.restartConfirmation && input.userContent === 'RESTART SERVER' ? { kind: 'confirmed_restart_preparing' } : { kind: 'preparing' },
       toolInvocations: [], toolInFlight: null, newlyRequestedRestart: false,
     };
@@ -215,35 +208,6 @@ export class AnalystSession {
     void operation.tracker.trackConsumer(() => this.consumeTurn(operation, wrapper));
     this.#runtimeProjectionChanged();
     return caller.promise;
-  }
-
-  cancel(reason: string): boolean {
-    const operation = this.activePendingOperation(); if (!operation) return false;
-    if (operation.step.kind === 'preparing') return this.claimStartupCancellation(operation, reason, false);
-    if (operation.step.kind === 'starting') {
-      if (operation.step.ingress === 'publishing') { operation.step.cancellationRequested ??= reason; return true; }
-      return this.claimStartupCancellation(operation, reason, true);
-    }
-    if (operation.step.kind === 'confirmed_restart_preparing') return this.claimRestartCancellation(operation, reason, false);
-    if (operation.step.kind === 'confirmed_restart_publishing') { operation.step.request ??= { kind: 'cancel', reason }; return true; }
-    if (operation.step.kind === 'confirmed_restart_published') return this.claimRestartCancellation(operation, reason, true);
-    if (operation.step.kind === 'confirmed_restart_scheduling' || operation.step.kind === 'settling_llm') return false;
-    const claimed = this.#llm.requestCancellation(reason);
-    if (claimed.kind !== 'claimed') return false;
-    if (!claimed.publicationOwnedByLlm) {
-      try {
-        appendConversationBatch(this.#conversations, [buildLlmTurnMessage(claimed.input, `Cancelled: ${reason}`),
-        ]);
-        this.markCancellationPublished(operation, reason);
-        this.finishCancellationRevocation(operation, reason);
-      } catch (error) {
-        this.#deliverPublicationFatal(error);
-        operation.outcome = { kind: 'failed', error };
-        operation.tracker.revoke(error);
-        if (!operation.abort.signal.aborted) operation.abort.abort(error);
-      }
-    }
-    return true;
   }
 
   executingLlmSnapshot(): ExecutingLlmSnapshot | null {
@@ -273,7 +237,7 @@ export class AnalystSession {
     }
     const preparedInput = this.prepareInvocationInput(surface);
     this.assertCurrent(operation, signal);
-    operation.step = { kind: 'starting', ingress: 'publishing', cancellationRequested: null };
+    operation.step = { kind: 'starting', ingress: 'publishing' };
     appendConversationBatch(
       this.#conversations,
       buildAnalystIngressRows(
@@ -286,10 +250,6 @@ export class AnalystSession {
     if (operation.step.kind !== 'starting')
       throw new Error('Analyst ingress ownership changed during publication.');
     operation.step = { ...operation.step, ingress: 'published' };
-    if (operation.step.cancellationRequested !== null) {
-      this.claimStartupCancellation(operation, operation.step.cancellationRequested, true);
-      throw operation.abort.signal.reason;
-    }
     this.assertCurrent(operation, signal);
     const invocationInput: PreparedLlmInvocationInput = {
       ...preparedInput,
@@ -299,9 +259,7 @@ export class AnalystSession {
     };
     operation.step = { kind: 'nested', input: invocationInput };
     const terminal = this.terminalHandoff(operation);
-    let outcome = await this.#llm.turn(invocationInput, signal, terminal, (input, reason) =>
-      this.claimNestedCancellation(operation, input, reason),
-    );
+    let outcome = await this.#llm.turn(invocationInput, signal, terminal);
     for (;;) {
       this.assertCurrentOrSettling(operation, signal);
       if (outcome.type === 'error' || outcome.type === 'result')
@@ -386,11 +344,7 @@ export class AnalystSession {
       throw new Error('Restart publication ownership changed.');
     const request = operation.step.request;
     operation.step = { kind: 'confirmed_restart_published' };
-    if (request?.kind === 'cancel') {
-      this.claimRestartCancellation(operation, request.reason, true);
-      throw operation.abort.signal.reason;
-    }
-    if (request?.kind === 'dispose') throw request.reason;
+    if (request) throw request.reason;
     operation.step = { kind: 'confirmed_restart_scheduling' };
     this.#restartPort.schedule();
     operation.restartConfirmation = null;
@@ -402,7 +356,7 @@ export class AnalystSession {
       const ownsOperation =
         (this.#phase.kind === 'conversing' && this.#phase.operation === operation) ||
         (this.#phase.kind === 'disposed' && this.#phase.settling === operation);
-      if (!ownsOperation || operation.outcome.kind !== 'pending')
+      if (!ownsOperation)
         throw new Error('Analyst terminal handoff lost outer ownership.');
       if (operation.step.kind !== 'nested' && operation.step.kind !== 'waiting_tool')
         throw new Error(`Analyst terminal handoff arrived from '${operation.step.kind}'.`);
@@ -429,139 +383,6 @@ export class AnalystSession {
       ]);
     }
     return this.response(operation);
-  }
-
-  private claimNestedCancellation(
-    operation: AnalystTurnOperation,
-    input: CanonicalLlmInvocationInput,
-    reason: string,
-  ): AnalystCancellationPublication {
-    if (
-      this.#phase.kind !== 'conversing' ||
-      this.#phase.operation !== operation ||
-      operation.outcome.kind !== 'pending'
-    )
-      throw new Error('Analyst nested cancellation lost outer ownership.');
-    if (
-      operation.step.kind === 'nested' &&
-      (operation.step.input.inputId !== input.inputId ||
-        operation.step.input.agentId !== input.agentId ||
-        operation.step.input.sessionId !== input.sessionId)
-    )
-      throw new Error('Analyst nested cancellation input changed.');
-    if (
-      operation.step.kind === 'waiting_tool' &&
-      operation.step.input !== input &&
-      operation.step.input.inputId === input.inputId
-    )
-      throw new Error('Analyst nested cancellation input identity changed.');
-    operation.outcome = { kind: 'claiming_cancel', reason, publication: 'pending' };
-    return Object.freeze({
-      markPublished: () => {
-        if (operation.outcome.kind !== 'claiming_cancel')
-          throw new Error('Analyst cancellation publication lost ownership.');
-        operation.outcome = { ...operation.outcome, publication: 'published' };
-        this.finishCancellationRevocation(operation, reason);
-      },
-    });
-  }
-
-  private claimStartupCancellation(
-    operation: AnalystTurnOperation,
-    reason: string,
-    ingressPublished: boolean,
-  ): boolean {
-    if (!this.claimOuterCancellation(operation, reason)) return false;
-    const rows = ingressPublished
-      ? [buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)]
-      : [
-          ...buildAnalystIngressRows(
-            this.#sessionId,
-            operation.acceptedOperationId,
-            buildWorkspaceContextNote(operation.input.workspaceContext),
-            operation.input.userContent,
-          ),
-          buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`),
-        ];
-    try {
-      appendConversationBatch(this.#conversations, rows);
-      this.markCancellationPublished(operation, reason);
-      this.finishCancellationRevocation(operation, reason);
-    } catch (error) {
-      this.#deliverPublicationFatal(error);
-      operation.outcome = { kind: 'failed', error };
-      operation.tracker.revoke(error);
-      operation.abort.abort(error);
-    }
-    return true;
-  }
-
-  private claimRestartCancellation(
-    operation: AnalystTurnOperation,
-    reason: string,
-    restartPublished: boolean,
-  ): boolean {
-    if (!this.claimOuterCancellation(operation, reason)) return false;
-    const rows = restartPublished
-      ? [buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`)]
-      : [
-          ...buildAnalystRestartRows(
-            this.#sessionId,
-            operation.acceptedOperationId,
-            operation.input.userContent,
-          ),
-          buildLlmTurnMessage(this.acceptedInput(operation), `Cancelled: ${reason}`),
-        ];
-    try {
-      appendConversationBatch(this.#conversations, rows);
-      this.markCancellationPublished(operation, reason);
-      this.finishCancellationRevocation(operation, reason);
-    } catch (error) {
-      this.#deliverPublicationFatal(error);
-      operation.outcome = { kind: 'failed', error };
-      operation.tracker.revoke(error);
-      operation.abort.abort(error);
-    }
-    return true;
-  }
-
-  private claimOuterCancellation(operation: AnalystTurnOperation, reason: string): boolean {
-    if (
-      this.#phase.kind !== 'conversing' ||
-      this.#phase.operation !== operation ||
-      operation.outcome.kind !== 'pending'
-    )
-      return false;
-    operation.outcome = { kind: 'claiming_cancel', reason, publication: 'pending' };
-    return true;
-  }
-  private markCancellationPublished(operation: AnalystTurnOperation, reason: string): void {
-    if (operation.outcome.kind !== 'claiming_cancel' || operation.outcome.reason !== reason)
-      throw new Error('Analyst cancellation publication identity changed.');
-    operation.outcome = { ...operation.outcome, publication: 'published' };
-  }
-  private finishCancellationRevocation(operation: AnalystTurnOperation, reason: string): void {
-    const interruption = new Error(reason);
-    if (!operation.abort.signal.aborted) operation.abort.abort(interruption);
-    operation.tracker.revoke(interruption);
-  }
-
-  private acceptedInput(operation: AnalystTurnOperation): CanonicalLlmInvocationInput {
-    return {
-      inputId: operation.acceptedOperationId,
-      agentId: this.#llm.agentId,
-      agentName: this.#config.analyst_agent,
-      sessionId: this.#sessionId,
-      systemPrompt: '',
-      providerConversation: { sourceSessionId: this.#sessionId, messages: [] },
-      tools: [],
-      terminalToolNames: [],
-      modelParams: {},
-      preparedCompaction: prepareCompaction(this.#compactionPolicy, '', []),
-      capabilityRequest: { requiresTools: false },
-      routePass: { kind: 'ordinary', candidateChain: this.#candidateChain },
-      episodeContext: {},
-    };
   }
 
   private prepareInvocationInput(
@@ -642,11 +463,6 @@ export class AnalystSession {
     );
   }
 
-  private activePendingOperation(): AnalystTurnOperation | null {
-    return this.#phase.kind === 'conversing' && this.#phase.operation.outcome.kind === 'pending'
-      ? this.#phase.operation
-      : null;
-  }
   #deliverPublicationFatal(error: unknown): void {
     if (error instanceof PublicationOutcomeUnknownError)
       this.#fatalPort.publicationOutcomeUnknown(error);
@@ -654,8 +470,7 @@ export class AnalystSession {
   private assertCurrent(operation: AnalystTurnOperation, signal: AbortSignal): void {
     if (
       this.#phase.kind !== 'conversing' ||
-      this.#phase.operation !== operation ||
-      operation.outcome.kind !== 'pending'
+      this.#phase.operation !== operation
     )
       throw signal.aborted
         ? signal.reason
@@ -668,14 +483,10 @@ export class AnalystSession {
       (this.#phase.kind === 'disposed' &&
         this.#phase.settling === operation &&
         operation.step.kind === 'settling_llm');
-    if (
-      !ownsOperation ||
-      (operation.outcome.kind !== 'pending' && operation.outcome.kind !== 'claiming_cancel')
-    )
+    if (!ownsOperation)
       throw signal.aborted
         ? signal.reason
         : new Error('Analyst turn lost exact operation authority.');
-    if (operation.outcome.kind === 'claiming_cancel') signal.throwIfAborted();
   }
 
   private async consumeTurn(
@@ -705,20 +516,7 @@ export class AnalystSession {
     const finalFailure = cleanupFailure ?? failure;
     const disposedPhase = this.#phase.kind === 'disposed' ? this.#phase : null;
     const disposed = disposedPhase !== null;
-    if (
-      operation.outcome.kind === 'claiming_cancel' &&
-      operation.outcome.publication === 'published' &&
-      !cleanupFailure
-    ) {
-      const confirmation =
-        operation.restartConfirmation ??
-        (operation.newlyRequestedRestart
-          ? Object.freeze({ kind: 'restart_confirmation' as const })
-          : null);
-      if (disposedPhase) disposedPhase.settling = null;
-      else this.#phase = { kind: 'idle', restartConfirmation: confirmation };
-      operation.caller.resolve({ ...this.response(operation), cancelled: true });
-    } else if (!rejected && response && !cleanupFailure) {
+    if (!rejected && response && !cleanupFailure) {
       const confirmation =
         operation.restartConfirmation ??
         (operation.newlyRequestedRestart
@@ -768,6 +566,7 @@ export class AnalystSession {
     }
     const operation = this.#phase.operation;
     this.#phase = { kind: 'disposed', reason, settling: operation };
+    operation.tracker.closeAdmission(reason);
     if (operation.step.kind === 'confirmed_restart_publishing') {
       operation.step.request ??= { kind: 'dispose', reason };
       this.#llm.dispose(reason);
@@ -830,10 +629,6 @@ export class AnalystRuntime {
   submit(input: AnalystTurnInput): Promise<AnalystTurnResult> {
     if (!this.#admissionOpen) return Promise.reject(new Error('Analyst admission is closed.'));
     return this.getOrCreateSession(input).submit(input);
-  }
-
-  cancel(reason: string): boolean {
-    return this.#session?.cancel(reason) ?? false;
   }
 
   executingLlmSnapshot(): ExecutingLlmSnapshot | null {
