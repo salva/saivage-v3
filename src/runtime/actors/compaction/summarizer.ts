@@ -23,6 +23,13 @@ export interface SummarizerProviderPort {
 }
 export type MergeSummaryInput = { round_id: string; summary_text: string };
 
+export class SummaryResultValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SummaryResultValidationError';
+  }
+}
+
 export type SummarizerRoundInput = Readonly<{ sourceSessionId: ConversationSessionId;
   roundId: string;
   durableSourceRows: readonly string[];
@@ -62,6 +69,7 @@ export async function summarizeRound(args: {
   summarizerProvider: SummarizerProviderPort;
   signal: AbortSignal;
 }): Promise<string> {
+  args.signal.throwIfAborted();
   const completion = await invokeSummaryTurn(buildSummaryInput(randomUUID(), globalAgentSessionId('compaction-summarizer'), 'Summarize this Saivage conversation round as concise prose. Preserve initial and repair segment order. Do not include recoverable-evidence pointer sections.',
       args.input.providerConversation,args.summarizerProvider.candidate,
     ), args.summarizerProvider, args.signal,
@@ -73,6 +81,7 @@ export async function summarizeRound(args: {
 export async function summarizeMerge(args: { entries: MergeSummaryInput[]; summarizerProvider: SummarizerProviderPort; signal: AbortSignal;
 }): Promise<string> {
   if (args.entries.length === 0) throw new Error('summarizeMerge requires at least one summary.');
+  args.signal.throwIfAborted();
   const orderedSummaries = args.entries.map((entry) => `Round ${entry.round_id}:\n${entry.summary_text}`)
     .join('\n\n');
   const completion = await invokeSummaryTurn(
@@ -143,11 +152,11 @@ function buildSummaryInput(
 
 function validateSummaryResult(result: LlmCompleteResult, caller: string): string {
   if (result.kind !== 'message')
-    throw new Error(`${caller} expected prose summary text, got tool calls.`);
+    throw new SummaryResultValidationError(`${caller} expected prose summary text, got tool calls.`);
   const text = result.content.trim();
-  if (!text) throw new Error(`${caller} returned an empty summary.`);
+  if (!text) throw new SummaryResultValidationError(`${caller} returned an empty summary.`);
   if (/Recoverable evidence/i.test(text))
-    throw new Error(
+    throw new SummaryResultValidationError(
       `${caller} output must be prose only; recoverable evidence is rendered by the compactor.`,
     );
   return text;

@@ -1,11 +1,10 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
-import { prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
+import { compact, CompactionSummaryConstructionError, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands } from '../../src/runtime/actors/compaction/bands.js';
 import { estimateMessageTokens, type ClassifiedRound } from '../../src/runtime/actors/compaction/round-classifier.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, conversationSessionIdentity, parseConversationSessionId, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
-import { compact } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { hashConversationRows } from '../../src/contracts/conversation-validation.js';
@@ -236,6 +235,112 @@ describe('Stage-I compaction contracts', () => {
       if (result.providerConversation.messages.some((row) => row.id === 'private-1')) expect(JSON.stringify(body.input)).toContain('private');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it('admits one summary call at a time in merged-before-individual order and never sends an empty raw projection', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-sequential-'));
+    initProjectTree(root);
+    try {
+      for (let ordinal = 1; ordinal <= 9; ordinal++) appendRawRound(root, ordinal);
+      let active = 0;
+      let maximum = 0;
+      const trace: Array<{ phase: 'start' | 'end'; kind: 'raw' | 'merge'; ids: string[] }> = [];
+      const completeTurn = jest.fn(async (input: LlmInvocationInput) => {
+        const kind = input.systemPrompt.startsWith('Merge these ordered') ? 'merge' as const : 'raw' as const;
+        const ids = input.providerConversation.messages.map((row) => row.id);
+        trace.push({ phase: 'start', kind, ids });
+        active++;
+        maximum = Math.max(maximum, active);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        active--;
+        trace.push({ phase: 'end', kind, ids });
+        return { result: { kind: 'message' as const, content: 'short sequential summary' }, provider_exchanges: [] };
+      });
+      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('agent:planner:project', [], { ...config, input_budget_tokens: 400 }), summarizerProvider: { candidate: TEST_CANDIDATE, completeTurn, projectProviderExchanges: jest.fn() }, signal: new AbortController().signal });
+
+      expect(result.kind).toBe('compacted');
+      expect(maximum).toBe(1);
+      expect(trace.map(({ phase }) => phase)).toEqual(Array.from({ length: trace.length / 2 }, () => ['start', 'end']).flat());
+      expect(trace.filter((entry) => entry.phase === 'start' && entry.kind === 'raw').every((entry) => entry.ids.length > 0)).toBe(true);
+      const starts = trace.filter((entry) => entry.phase === 'start');
+      const firstMerge = starts.findIndex((entry) => entry.kind === 'merge');
+      expect(firstMerge).toBeGreaterThan(0);
+      expect(starts.slice(0, firstMerge).every((entry) => entry.kind === 'raw')).toBe(true);
+      expect(readConversation(root, 'agent:planner:project').compactions).toHaveLength(1);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('coalesces a provider-invisible completed prefix without provider admission', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-invisible-'));
+    initProjectTree(root);
+    try {
+      for (let ordinal = 1; ordinal <= 80; ordinal++) appendInvisibleRound(root, ordinal);
+      appendRawRound(root, 81, 'agent:planner:project', 1_000);
+      appendRawRound(root, 82, 'agent:planner:project', 1_000);
+      const completeTurn = jest.fn(async (_input: LlmInvocationInput) => ({ result: { kind: 'message' as const, content: 'must not run' }, provider_exchanges: [] }));
+      const invisibleConfig: AutonomousCompactionPolicy = { ...config, input_budget_tokens: 10_000, merge_line_fraction: 0.7, summary_line_fraction: 0.8, escalate_merge_line_fraction: 0.7, escalate_summary_line_fraction: 0.8 };
+      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('agent:planner:project', [], invisibleConfig), summarizerProvider: { candidate: TEST_CANDIDATE, completeTurn, projectProviderExchanges: jest.fn() }, signal: new AbortController().signal });
+      if (result.kind !== 'compacted') throw new Error('Expected invisible-prefix compaction.');
+      const payload = contextCompactionContentSchema.parse(JSON.parse(result.compactionMessage.content));
+      expect(completeTurn).toHaveBeenCalledTimes(1);
+      expect(completeTurn.mock.calls[0]![0].providerConversation.messages.length).toBeGreaterThan(0);
+      expect(payload.summaries).toHaveLength(2);
+      expect(payload.summaries[0]).toMatchObject({ kind: 'merged', summary_text: 'These rounds contained no provider-visible conversation content.' });
+      expect(payload.summaries[0]!.rounds.length).toBeGreaterThan(1);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('stops admission on the first failure, appends nothing, and wraps only malformed successful output', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-failure-'));
+    initProjectTree(root);
+    try {
+      for (let ordinal = 1; ordinal <= 9; ordinal++) appendRawRound(root, ordinal);
+      const ownedFailure = new Error('provider publication failed');
+      const failedProvider = { candidate: TEST_CANDIDATE, completeTurn: jest.fn(async () => { throw ownedFailure; }), projectProviderExchanges: jest.fn() };
+      await expect(compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('agent:planner:project', [], { ...config, input_budget_tokens: 400 }), summarizerProvider: failedProvider, signal: new AbortController().signal })).rejects.toBe(ownedFailure);
+      expect(failedProvider.completeTurn).toHaveBeenCalledTimes(1);
+      expect(readConversation(root, 'agent:planner:project').compactions).toHaveLength(0);
+
+      const malformedProvider = { candidate: TEST_CANDIDATE, completeTurn: jest.fn(async () => ({ result: { kind: 'tool_calls' as const, tool_calls: [] }, provider_exchanges: [] })), projectProviderExchanges: jest.fn() };
+      await expect(compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('agent:planner:project', [], { ...config, input_budget_tokens: 400 }), summarizerProvider: malformedProvider, signal: new AbortController().signal })).rejects.toBeInstanceOf(CompactionSummaryConstructionError);
+      expect(malformedProvider.completeTurn).toHaveBeenCalledTimes(1);
+      expect(readConversation(root, 'agent:planner:project').compactions).toHaveLength(0);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('reuses settled raw overlap while an escalated candidate revisits an older expanded merge sequentially', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-escalated-cache-'));
+    initProjectTree(root);
+    try {
+      for (let ordinal = 1; ordinal <= 11; ordinal++) appendRawRound(root, ordinal, 'agent:planner:project', 340);
+      const rawSelections: string[][] = [];
+      const mergePrompts: string[] = [];
+      let active = 0;
+      let maximum = 0;
+      const completeTurn = jest.fn(async (input: LlmInvocationInput) => {
+        active++;
+        maximum = Math.max(maximum, active);
+        try {
+          if (input.systemPrompt.startsWith('Merge these ordered')) {
+            mergePrompts.push(input.systemPrompt);
+            return { result: { kind: 'message' as const, content: 'small merged history' }, provider_exchanges: [] };
+          }
+          rawSelections.push(input.providerConversation.messages.map((row) => row.id));
+          return { result: { kind: 'message' as const, content: 'r'.repeat(1_800) }, provider_exchanges: [] };
+        } finally { active--; }
+      });
+      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocationFor('agent:planner:project', [], config), summarizerProvider: { candidate: TEST_CANDIDATE, completeTurn, projectProviderExchanges: jest.fn() }, signal: new AbortController().signal });
+      if (result.kind !== 'compacted') throw new Error('Expected escalated compaction.');
+      const payload = contextCompactionContentSchema.parse(JSON.parse(result.compactionMessage.content));
+
+      expect(payload.applied_policy.band).toBe('escalated');
+      expect(maximum).toBe(1);
+      expect(mergePrompts.length).toBeGreaterThanOrEqual(2);
+      expect(mergePrompts.at(-1)!.length).toBeGreaterThan(mergePrompts[0]!.length);
+      const rawKeys = rawSelections.map((ids) => JSON.stringify(ids));
+      expect(new Set(rawKeys).size).toBe(rawKeys.length);
+      expect(readConversation(root, 'agent:planner:project').compactions).toHaveLength(1);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
 
 function round(id: string, tokens: number): ClassifiedRound {
@@ -244,10 +349,15 @@ function round(id: string, tokens: number): ClassifiedRound {
   return { round_id: id, activation_marker: positioned, rows: [positioned], sub_rounds: [], estimated_tokens: tokens };
 }
 
-function appendRawRound(root: string, ordinal: number, session_id: ConversationSessionId = 'agent:planner:project'): void {
-  const timestamp = `2026-07-15T00:00:${String(ordinal).padStart(2, '0')}.000Z`;
+function appendRawRound(root: string, ordinal: number, session_id: ConversationSessionId = 'agent:planner:project', contentLength = 400): void {
+  const timestamp = `2026-07-15T${String(Math.floor(ordinal / 60)).padStart(2, '0')}:${String(ordinal % 60).padStart(2, '0')}:30.000Z`;
   const identity=conversationSessionIdentity(session_id);
-  appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name:identity.agentName, card_id: identity.cardId, input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(400)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
+  appendConversationBatch({ projectRoot: root }, [{ id: `activation-${ordinal}`, session_id, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name:identity.agentName, card_id: identity.cardId, input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id, role: 'user', kind: 'text', content: `${ordinal}:${'x'.repeat(contentLength)}`, round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]);
+}
+
+function appendInvisibleRound(root: string, ordinal: number): void {
+  const timestamp = `2026-07-15T${String(Math.floor(ordinal / 60)).padStart(2, '0')}:${String(ordinal % 60).padStart(2, '0')}:00.000Z`;
+  appendConversationBatch({ projectRoot: root }, [{ id: `invisible-activation-${ordinal}`, session_id: 'agent:planner:project', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `10000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }]);
 }
 
 function invocationFor(sessionId: ConversationSessionId, contextMessages: AgentMessage[], compactionConfig: AutonomousCompactionPolicy): PreparedLlmInvocationInput {

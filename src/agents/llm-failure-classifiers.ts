@@ -37,7 +37,7 @@ export function parseResetsAt(headers: Headers): string | undefined {
 const CONTENT_POLICY_TOKENS = new Set(['cyber_policy', 'content_filter']);
 const CONTENT_POLICY_PHRASES = ['content policy', 'safety policy', 'safety refusal', 'request was blocked for safety', 'cannot assist with this request'];
 const RATE_LIMIT_TOKENS = new Set(['rate_limit', 'rate_limit_exceeded', 'usage_limit_reached']);
-const TRANSIENT_TOKENS = new Set(['server_error', 'internal_server_error', 'service_unavailable', 'temporarily_unavailable', 'overloaded']);
+const TRANSIENT_TOKENS = new Set(['server_error', 'internal_server_error', 'service_unavailable', 'temporarily_unavailable', 'overloaded', 'server_is_overloaded']);
 const AUTH_TOKENS = new Set(['auth', 'authentication_error', 'unauthorized', 'forbidden', 'permission_denied']);
 
 function directText(error: Record<string, unknown>, key: 'code' | 'type' | 'message'): string | undefined {

@@ -5,8 +5,11 @@ import { join } from 'node:path';
 
 import { MemoryCandidateAvailability } from '../../src/agents/candidate-availability.js';
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
-import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
+import type { ProviderExchangeAttempt } from '../../src/contracts/provider-exchange.js';
+import { handleOpenAICodexEvent } from '../../src/agents/llm-codex-parser.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
 import { chatSuccess, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
 
@@ -139,6 +142,32 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     expect(bodies[1]).toBe(bodies[0]);
   });
 
+  it('retries exact Codex server_is_overloaded on one fixed candidate and indexes error then success', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-overload-recovery-'));
+    roots.push(projectRoot);
+    const seen: Candidate[] = [];
+    let calls = 0;
+    class ScriptedService extends InvocationService {
+      override async invokeCall(_request: InvocationRequest, selected: Candidate): Promise<ProviderTurnCompletion> {
+        seen.push(selected);
+        calls++;
+        if (calls === 1) {
+          const originalFailure = codexOverloadFailure();
+          throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange('unindexed', 7, 'error')], originalFailure, candidate: selected });
+        }
+        return { result: { kind: 'message', content: 'summary recovered' }, provider_exchanges: [exchange('unindexed', 9, 'ok')] };
+      }
+    }
+    const invocation = new ScriptedService({ projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([candidate]), router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability() });
+    const pending = invocation.invokeWithRecovery(request([candidate]));
+
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    await expect(pending).resolves.toMatchObject({ result: { kind: 'message', content: 'summary recovered' }, provider_exchanges: [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'error' }, { source_input_id: 'agent:planner:card:1', attempt_index: 1, status: 'ok' }] });
+    expect(seen).toEqual([candidate, candidate]);
+  });
+
   it('waits when the only candidate is already cooling, then invokes it after the horizon', async () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
@@ -209,3 +238,18 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     await expect(invocation).rejects.toBe(reason);
   });
 });
+
+function codexOverloadFailure(): LlmRequestError {
+  try {
+    handleOpenAICodexEvent(JSON.stringify({ type: 'error', error: { code: 'server_is_overloaded', message: 'busy' } }), 200, new Map(), new Set(), [], () => undefined);
+  } catch (error) {
+    if (error instanceof LlmRequestError) return error;
+    throw error;
+  }
+  throw new Error('Expected exact Codex overload event to fail.');
+}
+
+function exchange(source_input_id: string, attempt_index: number, status: 'ok' | 'error'): ProviderExchangeAttempt {
+  const common = { contract_id: 'test.v1', contract_name: 'test', transport: 'generic' as const, provider: 'p', model: 'm', source_input_id, attempt_index, request_params: { endpoint: 'https://example.invalid', method: 'POST', stream: false, offered_tools_count: 0, temperature: 0, max_tokens: 10 }, started_at: '2026-08-10T00:00:00.000Z', completed_at: '2026-08-10T00:00:01.000Z', terminal_tool_fired: null };
+  return status === 'ok' ? { ...common, status } : { ...common, status, error: { name: 'LlmRequestError', message: 'busy' } };
+}

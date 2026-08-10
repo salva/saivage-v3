@@ -21,7 +21,8 @@ runtime/build used to recreate target-project state; it is not the reset target.
 - Keep backup artifacts under `/home/salva/g/ml/tmp/`.
 - Do not put new reset notes or operator reminders into the target project's `.saivage/instructions/`; existing `.saivage/instructions/` is durable operator state and must be preserved when applicable.
 - Build or verify the Saivage v3 source tree before using `dist/` helpers if the reset depends on freshly changed runtime code.
-- Every current-format rollout is unconditional: stop, back up, manually correct preserved selected inputs, reset, then start. Never start first to discover whether old generated state happens to work.
+- Reset is authorized only when the operator explicitly requests a reset operation or a named incompatible durable-format/config cutover requires it. Release format knowledge is authoritative; never start first to probe, classify, or normalize old generated state to infer compatibility.
+- An ordinary same-format binary deployment does not authorize reset: stop the old service, deploy and start the new binary, and strictly reopen retained current-format generated state. Unsupported, mixed, or malformed canonical state fails fast; do not reset, migrate, normalize, or choose a compatibility interpretation unless reset is separately authorized.
 
 ## Current Reset Contract
 
@@ -50,6 +51,13 @@ enumerating descendants. Every path outside those four exact roots is preserved.
 classifies, or cleans arbitrary lock siblings and exact-owner release removes only the
 command's `runtime.lock`.
 
+Use this contract only for an explicitly requested reset or a named incompatible
+durable-format/config cutover. The reset-only rule for an incompatible cutover
+remains mandatory for every affected deployment and never permits format probing,
+sampling, compatibility reading, migration, or normalization. A same-format rollout
+uses service stop followed by strict startup of the replacement binary against the
+retained current-format roots and does not enter the workflow below.
+
 Successful reset postcondition:
 
 - Preserved durable inputs still exist, including prompt overrides, skills, instructions, project identity, config, credentials, and source/spec docs.
@@ -65,6 +73,10 @@ Successful reset postcondition:
 - For any other target, verify the bind mount, service name, target path, and API auth mode before making changes.
 
 ## Reset Workflow
+
+Proceed only after confirming the explicit reset request or naming the incompatible
+durable-format/config cutover that requires this destructive workflow. Deployment or
+binary-update approval alone is not reset authority.
 
 1. Verify the target service and bind mount.
 2. Stop only the matching service; do not stop unrelated Saivage deployments.

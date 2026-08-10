@@ -246,6 +246,37 @@ describe('other Analyst mutation facets', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
+  it('applies exact full and unique-terminal stale-safe edits, denies stale/non-unique values, and reopens failed cards as changed', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-stale-safe-brief-'));
+    try {
+      initProjectTree(root);
+      const cards = new CardService(root);
+      const initial = '# Goal\nOld\n# Instructions\nKeep\n# Acceptance Criteria\nTerminal';
+      const child = cards.create({ type: 'code', parent: 'project', title: 'Recovery edit', bootstrap_content: initial, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      cards.setStatus(child.id, 'running');
+      cards.commitActivationOutcome(child.id, { status: 'failed', summary: 'failed', result: runtimeFailure('failed') }, '2026-08-10T00:00:00.000Z');
+      const service = testAnalystMutationServices(root, cards).recordMutations;
+      const target = `record:///brief.md?card=${child.id}&v=next`;
+
+      const fullReplacement = `${initial}\nRecovery note.`;
+      expect(service.edit(target, initial, fullReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { card_id: child.id, path: expect.stringContaining('record:///brief.md'), record_url: expect.stringContaining('record:///brief.md'), bytes: Buffer.byteLength(fullReplacement), written: true, propagation: { ok: true } } });
+      expect(cards.read(child.id)!.lifecycle.status).toBe('changed');
+      expect(cards.readRecord(child.id, 'brief.md', 'latest').artifact.content).toBe(fullReplacement);
+
+      const terminalCard = cards.create({ type: 'code', parent: 'project', title: 'Terminal edit', bootstrap_content: initial, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const terminalTarget = `record:///brief.md?card=${terminalCard.id}&v=next`;
+      const terminalReplacement = 'Recovery note.\nSecond note.';
+      expect(service.edit(terminalTarget, 'Terminal', terminalReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { propagation: { ok: true } } });
+      const settled = cards.readRecord(terminalCard.id, 'brief.md', 'latest').artifact.content;
+      expect(settled.endsWith(terminalReplacement)).toBe(true);
+
+      expect(service.edit(terminalTarget, 'stale missing value', 'no', false)).toEqual({ kind: 'denied', reason: 'old_string was not found.' });
+      expect(cards.readRecord(terminalCard.id, 'brief.md', 'latest').artifact.content).toBe(settled);
+      expect(service.edit(terminalTarget, '#', 'changed', false)).toEqual({ kind: 'denied', reason: 'old_string appears multiple times; set replace_all to true.' });
+      expect(cards.readRecord(terminalCard.id, 'brief.md', 'latest').artifact.content).toBe(settled);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('admits only typed open-record absence and propagates strict read failures', () => {
     const targetCard = card('backlog');
     const base = { read: () => targetCard, workflows: TEST_WORKFLOWS, recordReader: { record: jest.fn(), definition: () => ({ filename: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, writers: ['analyst'] }) } };

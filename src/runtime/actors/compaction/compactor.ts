@@ -22,9 +22,11 @@ import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConve
 import { recoverableEvidenceDescriptors } from './result-dropping.js';
 import {
   buildSummarizerRoundInput,
-  summarizeMerge, summarizeRound, type MergeSummaryInput, type SummarizerProviderPort,
+  summarizeMerge, summarizeRound, SummaryResultValidationError, type MergeSummaryInput, type SummarizerProviderPort,
 } from './summarizer.js';
-import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
+
+const EMPTY_INDIVIDUAL_SUMMARY = 'This round contained no provider-visible conversation content.';
+const EMPTY_MERGED_SUMMARY = 'These rounds contained no provider-visible conversation content.';
 
 export type AutonomousCompactionPolicy = {
   input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
@@ -154,7 +156,10 @@ export type CompactArgs = {
   summarizerProvider: SummarizerProviderPort;
   signal: AbortSignal;
 };
-type ConstructionArgs = CompactArgs & { conversation: ValidatedConversation };
+type ConstructionArgs = CompactArgs & {
+  conversation: ValidatedConversation;
+  rawSummaryCache: Map<string, string>;
+};
 type Candidate = {
   payload: ContextCompactionContent;
   compaction: ValidatedContextCompaction;
@@ -173,21 +178,23 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const sourceRows = conversation.sourceRows;
   const latest = conversation.latestCompaction;
   const classified = classifyConversationRounds(conversation);
-  const constructionArgs: ConstructionArgs = { ...args, conversation };
+  const constructionArgs: ConstructionArgs = { ...args, conversation, rawSummaryCache: new Map() };
   const rejectedEstimatedProviderMessageTokens = estimateProviderConversationTokens(
     args.input.providerConversation,
   );
   let smallestCandidateEstimatedProviderMessageTokens: number | null = null;
-  const normal = computeSlidingCompactionBands(classified.rounds, {
+  const computedNormal = computeSlidingCompactionBands(classified.rounds, {
     tail_budget_tokens: budget.normalTailBudget,
     middle_budget_tokens: budget.normalMiddleBudget,
     snap: budget.snap,
   });
-  const escalated = computeSlidingCompactionBands(classified.rounds, {
+  const computedEscalated = computeSlidingCompactionBands(classified.rounds, {
     tail_budget_tokens: budget.escalatedTailBudget,
     middle_budget_tokens: budget.escalatedMiddleBudget,
     snap: budget.snap,
   });
+  const normal = normalizeInvisibleSummaryPrefix(constructionArgs, computedNormal);
+  const escalated = normalizeInvisibleSummaryPrefix(constructionArgs, computedEscalated);
   assertEscalatedSuffixSubsets(normal, escalated);
 
   const metadataIdentity = {
@@ -342,34 +349,39 @@ async function buildCandidate(
 ): Promise<CandidateFit | null> {
   const preamble = classified.preamble.map((row) => row.message);
   const mergedRounds = partition.merge_rounds;
-  const individual = await Promise.all(
-    partition.summary_rounds.map((round) => summarizeRawRound(args, round)),
-  );
   let mergedHistory: ContextCompactionContent['summaries'][number] | null = null;
   if (mergedRounds.length > 0) {
     const mergedRows = mergedRounds.flatMap(rawRoundRows);
-    const mergeInputs: MergeSummaryInput[] = [];
-    const prior = latest?.groups[0]?.payload.kind === 'merged' ? latest.groups[0] : null;
-    const priorIds = prior?.sourceRows.map((row) => row.id) ?? [];
-    const newIds = mergedRows.map((row) => row.id);
-    let firstNewRound = 0;
-    if (
-      prior &&
-      isExactPrefix(priorIds, newIds) &&
-      hashConversationRows(mergedRows.slice(0, priorIds.length)) === prior.payload.content_hash
-    ) {
-      mergeInputs.push({
-        round_id: prior.rounds.map((round) => round.label).join(','),
-        summary_text: prior.payload.summary_text,
-      });
-      firstNewRound = prior.rounds.length;
+    let summaryText: string;
+    if (mergedRounds.every((round) => !roundHasProviderVisibleContent(args, round))) {
+      summaryText = EMPTY_MERGED_SUMMARY;
+    } else {
+      const mergeInputs: MergeSummaryInput[] = [];
+      const prior = latest?.groups[0]?.payload.kind === 'merged' ? latest.groups[0] : null;
+      const priorIds = prior?.sourceRows.map((row) => row.id) ?? [];
+      const newIds = mergedRows.map((row) => row.id);
+      let firstNewRound = 0;
+      if (
+        prior &&
+        isExactPrefix(priorIds, newIds) &&
+        hashConversationRows(mergedRows.slice(0, priorIds.length)) === prior.payload.content_hash
+      ) {
+        mergeInputs.push({
+          round_id: prior.rounds.map((round) => round.label).join(','),
+          summary_text: prior.payload.summary_text,
+        });
+        firstNewRound = prior.rounds.length;
+      }
+      for (const round of mergedRounds.slice(firstNewRound)) {
+        args.signal.throwIfAborted();
+        mergeInputs.push({
+          round_id: round.round_id,
+          summary_text: (await summarizeRawRound(args, round)).summary_text,
+        });
+        args.signal.throwIfAborted();
+      }
+      summaryText = await mergeSummaryGroups(args, mergeInputs);
     }
-    for (const round of mergedRounds.slice(firstNewRound))
-      mergeInputs.push({
-        round_id: round.round_id,
-        summary_text: (await summarizeRawRound(args, round)).summary_text,
-      });
-    const summaryText = await mergeSummaryGroups(args, mergeInputs);
     args.signal.throwIfAborted();
     mergedHistory = {
       kind: 'merged',
@@ -380,6 +392,12 @@ async function buildCandidate(
       summary_text: summaryText,
       evidence: recoverableEvidenceDescriptors(mergedRows),
     };
+  }
+  const individual: ContextCompactionContent['summaries'] = [];
+  for (const round of partition.summary_rounds) {
+    args.signal.throwIfAborted();
+    individual.push(await summarizeRawRound(args, round));
+    args.signal.throwIfAborted();
   }
   const coveredRounds = [...mergedRounds, ...partition.summary_rounds];
   if (coveredRounds.length === 0) {
@@ -435,7 +453,7 @@ async function fallbackFromScratch(
       kind: 'individual',
       rounds: [buildCoveredRound(args.conversation, prefix, false)],
       content_hash: hashConversationRows(prefix),
-      summary_text: await summarizeRoundForCompaction(args, boundaryRound.round_id, prefix),
+      summary_text: await summarizeRoundForCompaction(args, boundaryRound.round_id, prefix, false),
       evidence: recoverableEvidenceDescriptors(prefix),
     };
     args.signal.throwIfAborted();
@@ -483,7 +501,7 @@ async function applyHardFallback(
     if (latest && cutoffSourceIndex <= latest.cutoffSourceIndex) continue;
     const last = prefix[prefix.length - 1]!;
     const complete = length === boundaryRows.length;
-    const summaryText = await summarizeRoundForCompaction(args, boundaryRound.round_id, prefix);
+    const summaryText = await summarizeRoundForCompaction(args, boundaryRound.round_id, prefix, complete);
     args.signal.throwIfAborted();
     const group: ContextCompactionContent['summaries'][number] = {
       kind: 'individual',
@@ -531,7 +549,7 @@ async function summarizeRawRound(
   round: ClassifiedRound,
 ): Promise<ContextCompactionContent['summaries'][number]> {
   const rows = rawRoundRows(round);
-  const summaryText = await summarizeRoundForCompaction(args, round.round_id, rows);
+  const summaryText = await summarizeRoundForCompaction(args, round.round_id, rows, true);
   args.signal.throwIfAborted();
   return {
     kind: 'individual',
@@ -546,32 +564,41 @@ async function summarizeRoundForCompaction(
   args: ConstructionArgs,
   roundId: string,
   rows: AgentMessage[],
+  complete: boolean,
 ): Promise<string> {
   const input = buildSummarizerRoundInput(args.conversation, roundId, rows);
-  return wrapSummaryConstruction(args.signal, () =>
-    summarizeRound({ input, summarizerProvider: args.summarizerProvider, signal: args.signal }),
-  );
+  if (input.providerConversation.messages.length === 0) return EMPTY_INDIVIDUAL_SUMMARY;
+  const cacheKey = rawSummaryCacheKey(rows, complete);
+  const cached = args.rawSummaryCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  args.signal.throwIfAborted();
+  const summary = await constructSummary(() =>
+    summarizeRound({ input, summarizerProvider: args.summarizerProvider, signal: args.signal }));
+  args.signal.throwIfAborted();
+  args.rawSummaryCache.set(cacheKey, summary);
+  return summary;
 }
 
 async function summarizeMergeForCompaction(
   args: CompactArgs,
   entries: MergeSummaryInput[],
 ): Promise<string> {
-  return wrapSummaryConstruction(args.signal, () =>
-    summarizeMerge({ entries, summarizerProvider: args.summarizerProvider, signal: args.signal }),
-  );
+  args.signal.throwIfAborted();
+  const summary = await constructSummary(() =>
+    summarizeMerge({ entries, summarizerProvider: args.summarizerProvider, signal: args.signal }));
+  args.signal.throwIfAborted();
+  return summary;
 }
 
-async function wrapSummaryConstruction<T>(
-  signal: AbortSignal,
+async function constructSummary<T>(
   construct: () => Promise<T>,
 ): Promise<T> {
   try {
     return await construct();
   } catch (error) {
-    throwIfPublicationOutcomeUnknown(error);
-    signal.throwIfAborted();
-    throw new CompactionSummaryConstructionError(error);
+    if (error instanceof SummaryResultValidationError)
+      throw new CompactionSummaryConstructionError(error);
+    throw error;
   }
 }
 
@@ -643,6 +670,52 @@ function failedResult(row: AgentMessage): boolean {
 }
 function rawRoundRows(round: ClassifiedRound): AgentMessage[] {
   return round.rows.map((row) => row.message);
+}
+function roundHasProviderVisibleContent(args: ConstructionArgs, round: ClassifiedRound): boolean {
+  return buildSummarizerRoundInput(
+    args.conversation,
+    round.round_id,
+    rawRoundRows(round),
+  ).providerConversation.messages.length > 0;
+}
+function normalizeInvisibleSummaryPrefix(
+  args: ConstructionArgs,
+  partition: SlidingBandPartitions,
+): SlidingBandPartitions {
+  let lastInvisible = -1;
+  for (let index = 0; index < partition.summary_rounds.length; index++) {
+    if (!roundHasProviderVisibleContent(args, partition.summary_rounds[index]!))
+      lastInvisible = index;
+  }
+  if (lastInvisible < 0) return partition;
+  const before = partitionRoundIds(partition);
+  const normalized: SlidingBandPartitions = {
+    merge_rounds: [
+      ...partition.merge_rounds,
+      ...partition.summary_rounds.slice(0, lastInvisible + 1),
+    ],
+    summary_rounds: partition.summary_rounds.slice(lastInvisible + 1),
+    tail_rounds: partition.tail_rounds,
+    open_round: partition.open_round,
+  };
+  if (JSON.stringify(partitionRoundIds(normalized)) !== JSON.stringify(before))
+    throw new Error('Invisible compaction-prefix normalization changed source round identity or order.');
+  return normalized;
+}
+function partitionRoundIds(partition: SlidingBandPartitions): string[] {
+  return [
+    ...partition.merge_rounds,
+    ...partition.summary_rounds,
+    ...partition.tail_rounds,
+    ...(partition.open_round ? [partition.open_round] : []),
+  ].map((round) => round.round_id);
+}
+function rawSummaryCacheKey(rows: AgentMessage[], complete: boolean): string {
+  return JSON.stringify({
+    source_row_ids: rows.map((row) => row.id),
+    content_hash: hashConversationRows(rows),
+    complete,
+  });
 }
 function estimateTextTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / 4);

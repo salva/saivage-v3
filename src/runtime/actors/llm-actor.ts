@@ -26,6 +26,13 @@ export type LLMActorOutcome =
   | { type: 'blocked'; agentId: string; result: ContentPolicyRefusalBlockedResult }
   | { type: 'error'; agentId: string; error: string };
 
+export class LastChanceSummaryProviderUnavailableError extends Error {
+  constructor(cause: ProviderTurnFailure) {
+    super('Provider unavailable while constructing the last-chance compaction summary.', { cause });
+    this.name = 'LastChanceSummaryProviderUnavailableError';
+  }
+}
+
 export interface LLMProviderPort {
   completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
   projectProviderExchanges?(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void;
@@ -592,7 +599,13 @@ export class ConversationLLMActor {
       compaction = result;
     } catch (error) {
       this.#deliverPublicationFatal(error);
-      if (error instanceof ProviderTurnFailure) throw error;
+      if (error instanceof ProviderTurnFailure) {
+        this.#projectProviderExchanges(input, firstAttempts, {
+          assistantOutputIds: [],
+          terminalConversationOutputId: null,
+        });
+        throw new LastChanceSummaryProviderUnavailableError(error);
+      }
       if (error instanceof CompactionSummaryConstructionError) throw normalContextFailure(`Provider input context exhausted; last-chance compaction failed while constructing a smaller projection: ${sanitizeRecoveryMessage(error.cause)}. No provider retry was attempted.`, firstAttempts, firstFailure.originalFailure, error.cause);
       if (error instanceof CompactionAppendError) throw error.cause;
       throw error;

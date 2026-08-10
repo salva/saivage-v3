@@ -44,6 +44,26 @@ describe('OpenAI Codex SSE error classification', () => {
     expect(failureFor({ type: 'error', error: { code: 'mystery', message: 'unknown' } })).toMatchObject({ kind: 'provider_protocol_error', status: 200 });
   });
 
+  it.each([
+    { type: 'error', error: { code: 'server_is_overloaded', message: 'busy' } },
+    { type: 'response.failed', response: { status: 'failed', error: { code: 'server_is_overloaded', message: 'busy' } } },
+  ])('classifies exact direct server overload evidence at opened HTTP 200: %#', (event) => {
+    expect(failureFor(event)).toMatchObject({
+      kind: 'server_transient',
+      provider: 'openai-codex',
+      status: 200,
+    });
+  });
+
+  it.each([
+    { type: 'error', error: { message: 'server_is_overloaded' } },
+    { type: 'error', error: { metadata: { code: 'server_is_overloaded' } } },
+    { type: 'error', error: { code: 'server_is_overload' } },
+    { type: 'error', error: { code: 'server_is_overloaded_extra' } },
+  ])('does not infer overload from prose, nesting, or near matches: %#', (event) => {
+    expect(failureFor(event)).toMatchObject({ kind: 'provider_protocol_error', status: 200 });
+  });
+
   it('classifies content evidence with exact normalized event data',()=>{
     const event={type:'response.failed',response:{status:'failed',error:{code:'content_filter',message:'content policy refusal'}}};
     const failure=failureFor(event);
