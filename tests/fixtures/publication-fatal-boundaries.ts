@@ -1,6 +1,6 @@
 import { appendFileSync, closeSync, fstatSync, fsyncSync, mkdtempSync, openSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { z } from 'zod';
 
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
@@ -14,10 +14,13 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner, type ProcessOutputIo } from '../../src/runtime/process-runner.js';
 import { replaceFile, type ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
-import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { defineTool, invokeToolForLlm, type InvocationSurface } from '../../src/tools/invocation.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
+import { AnalystSession } from '../../src/agents/analyst-handler.js';
+import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 const mode = process.argv[2];
 const path = process.argv[3];
@@ -122,6 +125,82 @@ if (mode === 'contract-runtime') {
   const runtime = new ContractRuntime({ fatalPort, authPolicy: {} as never, eventLogger: {} as never });
   runtime.mount({ route(value: unknown) { route = value as never; } } as never, { fatal: { operationId: 'fatal', method: 'GET', path: '/fatal', auth: 'public', success: z.unknown() } as never }, { fatal: async () => { throw new PublicationOutcomeUnknownError(); } });
   void route!.handler({ params: {}, query: {}, body: {}, log: { error() { appendFileSync(path, 'logged'); } } }, { raw: { once() {} }, header() {}, status() { return this; }, send() { appendFileSync(path, 'sent'); } });
+}
+
+if (mode === 'analyst-project-context') {
+  if (!path) throw new Error('marker path required');
+  const root = dirname(path);
+  initProjectTree(root);
+  const mark = (label: string): void => { appendFileSync(path, `${label}\n`); };
+  const contextFailure = new PublicationOutcomeUnknownError();
+  const cardStore = new Proxy({}, {
+    get(_target, property) {
+      if (property === 'list') return () => { throw contextFailure; };
+      return () => {
+        mark(`card-other:${String(property)}`);
+        throw new Error(`Unexpected card operation '${String(property)}'.`);
+      };
+    },
+  }) as unknown as CardService;
+  const tool = defineTool({
+    name: 'forbidden_tool',
+    description: 'Must not run after failed project-context construction.',
+    inputSchema: z.object({}).strict(),
+    executor: async () => {
+      mark('tool');
+      return { success: true, data: null };
+    },
+  });
+  const surface: InvocationSurface = {
+    agentName: 'analyst',
+    tools: new Map([[tool.name, tool]]),
+    providers: [],
+  };
+  const session = new AnalystSession({
+    projectRoot: root,
+    sessionId: 'agent:analyst:global',
+    config: TEST_SAIVAGE_CONFIG,
+    candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+    promptTemplates: { render: () => { mark('prompt'); return 'rendered prompt'; } },
+    restartServerAvailable: false,
+    provider: { completeTurn: async () => { mark('provider'); throw new Error('Provider must not run.'); } },
+    conversations: { projectRoot: root },
+    compactionPolicy: testCompactionPolicy,
+    compactor: { shouldCompact: () => false, compact: async () => { throw new Error('Compaction must not run.'); } },
+    summarizerProvider: unusedSummarizerProvider,
+    cardStore,
+    runtimeProjectionChanged() {},
+    createInvocationSurface: () => surface,
+    shutdownProcesses: async () => {},
+    fatalPort,
+  });
+  const runtimeApplication = {
+    analystSessionId: 'agent:analyst:global',
+    analystRuntime: {
+      submit(input: { userContent: string }) {
+        const submission = session.submit(input);
+        void submission.then(
+          () => mark('caller-resolve'),
+          () => mark('caller-reject'),
+        );
+        return submission;
+      },
+    },
+  };
+  const handler = new AnalystWsHandler({
+    fatalPort,
+    liveSyncSocket: { handleClientFrame: () => false } as never,
+    runtimeApplication: runtimeApplication as never,
+    sendToClient: () => { mark('transport-send'); },
+  });
+  const ws = { OPEN: 1, readyState: 1 } as never;
+  void handler.handleRawMessage(
+    ws,
+    Buffer.from(JSON.stringify({ type: 'message', content: { text: 'inspect project' } })),
+  ).then(
+    () => mark('handler-resolve'),
+    () => mark('handler-reject'),
+  );
 }
 
 if (mode === 'analyst-card' || mode === 'analyst-config' || mode === 'analyst-app-log') {

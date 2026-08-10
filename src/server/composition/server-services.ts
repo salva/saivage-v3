@@ -80,7 +80,7 @@ export async function createServerServices(input: {
   );
   const processRunner = new ProcessRunner(projectRoot, processRegistry, input.fatalPort);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
-  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, workflows,providerRegistry, configAuthority: environment.configAuthority, eventLogger, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined, fatalPort: input.fatalPort,
+  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, workflows,providerRegistry, configAuthority: environment.configAuthority, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined, fatalPort: input.fatalPort,
     analystSessionId,
   });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());

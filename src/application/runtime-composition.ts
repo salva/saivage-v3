@@ -8,7 +8,6 @@ import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../agents
 import { ProviderRegistry } from '../agents/provider.js';
 import { ModelRouter } from '../agents/model-router.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
-import type { EventLog } from '../observability/index.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 
 import { CardService } from '../cards/card-service.js';
@@ -65,7 +64,6 @@ export interface RuntimeApplicationServices {
   workflows: CompiledRuntimeWorkflows;
   providerRegistry: ProviderRegistry;
   configAuthority: ResolvedConfigAuthority;
-  eventLogger: EventLog;
   cardStore: CardService;
   restartServerAvailable?: boolean;
   restartPort?: RestartPort;
@@ -82,7 +80,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const {
     projectRoot,
     config,
-    eventLogger,
     cardStore,
     restartServerAvailable = false,
     restartPort,
@@ -236,7 +233,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       compactionPolicy,
       compactor,
       summarizerProvider,
-      eventLogger,
       cardStore,
       runtimeProjectionChanged: () => {},
       createInvocationSurface,

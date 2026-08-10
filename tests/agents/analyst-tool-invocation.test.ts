@@ -7,7 +7,6 @@ import { z } from 'zod';
 import { AnalystSession, AnalystTurnBusyError } from '../../src/agents/analyst-handler.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
-import { createEventLog } from '../../src/observability/index.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { defineTool, type InvocationSurface } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
@@ -52,7 +51,6 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     compactionPolicy: testCompactionPolicy,
     compactor: { shouldCompact: () => false, compact: () => Promise.reject(new Error('Unexpected compaction.')) },
     summarizerProvider: unusedSummarizerProvider,
-    eventLogger: createEventLog(projectRoot),
     cardStore: new CardService(projectRoot),
     runtimeProjectionChanged() {},
     createInvocationSurface: () => surface,

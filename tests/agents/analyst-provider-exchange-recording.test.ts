@@ -114,7 +114,6 @@ describe('production-composed Analyst provider-exchange recording', () => {
       const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
       const processRunner = new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort);
       const cardStore = new CardService(projectRoot, workflows, hub);
-      const eventLogger = createEventLog(projectRoot, () => hub.timelineChanged());
       const app = createRuntimeApplication({
         projectRoot,
         processIdentity: { pid: 42, startedAt: '2026-07-26T11:00:00.000Z' },
@@ -122,7 +121,6 @@ describe('production-composed Analyst provider-exchange recording', () => {
         workflows,
         providerRegistry: registry,
         configAuthority: createTestConfigAuthority(projectRoot),
-        eventLogger,
         cardStore,
         freshness: hub,
         processRunner,

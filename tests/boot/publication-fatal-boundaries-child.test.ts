@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
-import { runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { appLogFile, globalAgentConversationFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 
 const roots: string[] = [];
@@ -79,6 +80,23 @@ describe('publication fatal owner boundaries', () => {
 
   it('exits ContractRuntime before logging or sending HTTP 500', () => {
     expectFatalOwner('contract-runtime');
+  });
+
+  it('exits Analyst project-context preparation before prompt, ingress, diagnostic, settlement, or transport effects', () => {
+    const root = mkdtempSync(join(tmpdir(), 'publication-analyst-project-context-'));
+    roots.push(root);
+    const marker = join(root, 'marker');
+    writeFileSync(marker, '');
+
+    const result = child('analyst-project-context', marker);
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe(diagnostic);
+    expect(readFileSync(marker, 'utf8')).toBe('');
+    expect(existsSync(globalAgentConversationFile(root, 'analyst'))).toBe(false);
+    expect(existsSync(appLogFile(root))).toBe(false);
+    expect(readAppLogEntries(root)).toEqual([]);
   });
 
   it.each(['analyst-card', 'analyst-config', 'analyst-app-log'] as const)('exits Analyst WebSocket ownership after %s publication without a response or follow-up', (mode) => {

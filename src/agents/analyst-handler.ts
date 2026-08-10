@@ -4,8 +4,6 @@ import {
   AnalystOfflineError,
   formatVocabularySnippet,
 } from './analyst-prompt.js';
-import { buildRuntimeDiagnosticEvent } from '../runtime/runtime-diagnostic-event.js';
-import type { EventLog } from '../observability/index.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
 import { getModelParamsForAgent } from '../schemas/saivage-config.js';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
@@ -153,7 +151,6 @@ export class AnalystSession {
   readonly #restartPort: RestartPort | undefined;
   readonly #conversations: ConversationFileContext;
   readonly #compactionPolicy: AutonomousCompactionPolicy;
-  readonly #eventLogger: EventLog;
   readonly #cardStore: CardService;
   readonly #runtimeProjectionChanged: () => void;
   readonly #createInvocationSurface: () => InvocationSurface;
@@ -176,7 +173,6 @@ export class AnalystSession {
     compactionPolicy: AutonomousCompactionPolicy;
     compactor: CompactorPort;
     summarizerProvider: SummarizerProviderPort;
-    eventLogger: EventLog;
     cardStore: CardService;
     runtimeProjectionChanged(): void;
     createInvocationSurface(): InvocationSurface;
@@ -192,7 +188,6 @@ export class AnalystSession {
     this.#restartPort = input.restartPort;
     this.#conversations = input.conversations;
     this.#compactionPolicy = input.compactionPolicy;
-    this.#eventLogger = input.eventLogger;
     this.#cardStore = input.cardStore;
     this.#runtimeProjectionChanged = input.runtimeProjectionChanged;
     this.#createInvocationSurface = input.createInvocationSurface;
@@ -600,10 +595,6 @@ export class AnalystSession {
     };
   }
 
-  private logBoundaryDiagnostic(phase: string, err: unknown): void {
-    this.#eventLogger.appendEventPrepared(() => buildRuntimeDiagnosticEvent({ phase, error: err }));
-  }
-
   private errorMessage(err: unknown): string {
     const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
     const error = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
@@ -631,30 +622,24 @@ export class AnalystSession {
   }
 
   private buildProjectContext(): string {
-    try {
-      return JSON.stringify(
-        {
-          projectRoot: this.#projectRoot,
-          cards: this.#cardStore
-            .list()
-            .map((card) => ({
-              id: card.id,
-              type: card.type,
-              parent: this.#cardStore.getParent(card.id),
-              status: card.lifecycle.status,
-              title: card.title,
-              priority: card.priority,
-              tags: card.tags,
-            })),
-        },
-        null,
-        2,
-      );
-    } catch (err) {
-      this.#deliverPublicationFatal(err);
-      this.logBoundaryDiagnostic('analyst_project_context_build_failed', err);
-      return `Project root: ${this.#projectRoot}`;
-    }
+    return JSON.stringify(
+      {
+        projectRoot: this.#projectRoot,
+        cards: this.#cardStore
+          .list()
+          .map((card) => ({
+            id: card.id,
+            type: card.type,
+            parent: this.#cardStore.getParent(card.id),
+            status: card.lifecycle.status,
+            title: card.title,
+            priority: card.priority,
+            tags: card.tags,
+          })),
+      },
+      null,
+      2,
+    );
   }
 
   private activePendingOperation(): AnalystTurnOperation | null {
