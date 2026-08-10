@@ -7,7 +7,7 @@ import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contr
 import { cardAgentSessionId, type AgentName, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
-import { describeNodeResultContract, processNodeOutcomes, processNodeTransition, processTransitionPromptKey, type CompiledCardTypeWorkflow, type ProcessNodeMetadata } from '../card-process/card-process-config.js';
+import { describeNodeResultContract, processNodeOutcomes, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition } from '../card-process/card-process-config.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import type { ConversationLLMActor } from './llm-actor.js';
@@ -60,7 +60,7 @@ export interface AgentNodeExecutionHost {
   selectLlm(llm: ConversationLLMActor): void;
   freshInputId(): string;
   assertCurrentActivation(input: CardActivationInput): void;
-  assertPromotionAvailable(process: CompiledCardTypeWorkflow, stateId: string, outcome: string): void;
+  assertPromotionAvailable(transition: CompiledProcessTransition): void;
 }
 
 export interface AgentNodeExecutionDeps {
@@ -85,7 +85,7 @@ export class AgentNodeExecution {
 
   beginActivation(): void { this.#stabilizedAgents.clear(); }
 
-  async execute(args: { process: CompiledCardTypeWorkflow; stateId: string; node: ProcessNodeMetadata; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<NodeExecutionResult> {
+  async execute(args: { process: CompiledCardTypeWorkflow; stateId: string; node: CompiledNodeContract; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<NodeExecutionResult> {
     const { process, stateId, node, input, signal } = args;
     const outcomes = processNodeOutcomes(process, stateId) as [string, ...string[]];
     const nodeResultSchema = z.object({ outcome: z.enum(outcomes), summary: z.string().trim().min(1).max(2000) }).strict();
@@ -133,9 +133,16 @@ export class AgentNodeExecution {
             nodeResult = parsed.data;
           }
           catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(node, [errorMessage(error)]) }), signal); continue; }
-          const route = processNodeTransition(process, stateId, nodeResult.outcome);
-          const target = process.states.get(route.target);
-          if (!target || (target.kind !== 'node' && target.kind !== 'terminal')) throw new Error(`Compiled node '${node.nodeId}' has invalid target '${route.target}'.`);
+          const route = node.on.get(`result:${nodeResult.outcome}`);
+          if (!route || route.semantic.kind !== 'configured-outcome')
+            throw new Error(
+              `Compiled node '${node.nodeId}' has no configured outcome '${nodeResult.outcome}'.`,
+            );
+          const target = process.states.get(route.targetStateId);
+          if (!target || (target.kind !== 'node' && target.kind !== 'terminal'))
+            throw new Error(
+              `Compiled node '${node.nodeId}' has invalid target '${route.targetStateId}'.`,
+            );
           const selected = input.notificationDelivery.selectNotifications();
           if (selected.length > 0) {
             const messages: ProviderVisibleUserContextMessage[] = [
@@ -161,16 +168,33 @@ export class AgentNodeExecution {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
             if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }), signal); continue; }
           }
-           if (target.kind === 'terminal') { this.host.assertPromotionAvailable(process,stateId,nodeResult.outcome);llm.claimResultAndCloseContinuation(terminalOutcome, new Error('Terminal result accepted.'), () => input.claimResult()); }
-           this.host.assertCurrentActivation(input);
-           const acceptedRecords = this.closeAcceptedRecords(node, records.candidates);
-           await llm.settleToolResultWithoutContinuation(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: true, data: { accepted: true } }));
-           this.host.assertCurrentActivation(input);
-           cleanupStatus = target.kind === 'terminal' ? terminalCleanupStatus(target.terminal) : 'done';
-           const accepted = Object.freeze({ nodeId:node.nodeId,agentName:node.agent.name,outcome: nodeResult.outcome, summary: nodeResult.summary, acceptedRecords: Object.freeze(acceptedRecords) });
-           this.host.assertCurrentActivation(input);
-           primaryCompletion = { kind: 'success', value: accepted };
-           break;
+          if (target.kind === 'terminal') {
+            this.host.assertPromotionAvailable(route);
+            llm.claimResultAndCloseContinuation(
+              terminalOutcome,
+              new Error('Terminal result accepted.'),
+              () => input.claimResult(),
+            );
+          }
+          this.host.assertCurrentActivation(input);
+          const acceptedRecords = this.closeAcceptedRecords(node, records.candidates);
+          await llm.settleToolResultWithoutContinuation(
+            terminalOutcome.toolCallId,
+            parseEmitResultSettlement({ success: true, data: { accepted: true } }),
+          );
+          this.host.assertCurrentActivation(input);
+          cleanupStatus =
+            target.kind === 'terminal' ? terminalCleanupStatus(target.terminal) : 'done';
+          const accepted = Object.freeze({
+            nodeId: node.nodeId,
+            agentName: node.agent.name,
+            outcome: nodeResult.outcome,
+            summary: nodeResult.summary,
+            acceptedRecords: Object.freeze(acceptedRecords),
+          });
+          this.host.assertCurrentActivation(input);
+          primaryCompletion = { kind: 'success', value: accepted };
+          break;
         }
         const toolResult = surface.tools.has(outcome.toolName)
           ? await invokeToolForLlm(surface, outcome.toolName, outcome.args, llm.toolInvocationContext(outcome), signal)
@@ -195,7 +219,7 @@ export class AgentNodeExecution {
     return primaryCompletion.value;
   }
 
-  private prepareNodeEntry(process: CompiledCardTypeWorkflow, node: ProcessNodeMetadata, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, reviewerPair: ReviewerContextPair | null): void {
+  private prepareNodeEntry(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, reviewerPair: ReviewerContextPair | null): void {
     if (!this.#stabilizedAgents.has(node.agent.name)) {
       if (!input.alreadyStabilizedAgents.has(node.agent.name)) stabilizeAgentSession({ sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
       this.#stabilizedAgents.add(node.agent.name);
@@ -216,21 +240,38 @@ export class AgentNodeExecution {
 
   private transitionContext(process: CompiledCardTypeWorkflow, card: CardRecord, transition: NodeTransition): ProviderVisibleUserContextMessage | null {
     const { context, acceptedResult } = transition;
-    const promptId = process.transitionPrompts.get(processTransitionPromptKey(context.source, context.event));
-    if (context.source.startsWith('entry:')) {
-      const entry = context.source.slice('entry:'.length);
-      if (entry === 'STOPPED') {
+    const route = process.states.get(context.source)?.on.get(context.event);
+    if (!route || route.targetStateId !== context.target)
+      throw new Error(
+        `Process transition context '${context.source}'/'${context.event}' is not compiled.`,
+      );
+    if (route.semantic.kind === 'entry-route') {
+      const source = process.states.get(context.source)!;
+      if (source.kind !== 'entry')
+        throw new Error(`Entry transition context has non-entry source '${context.source}'.`);
+      const promptId = route.semantic.promptId;
+      if (source.entry === 'STOPPED') {
         if (!promptId) throw new Error('STOPPED process entry has no configured prompt.');
         return { role: 'user', content: `The prior live card process was lost or stopped. Its graph position was discarded; recover from current durable facts.\n\n${this.deps.processPrompts.get(card.type, promptId)}` };
       }
       return promptId ? { role: 'user', content: this.deps.processPrompts.get(card.type, promptId) } : null;
     }
-    if (!acceptedResult || context.event !== `result:${acceptedResult.outcome}` || context.source !== `node:${context.source.slice('node:'.length)}`) throw new Error('Node transition context disagrees with its staged accepted result.');
+    if (route.semantic.kind !== 'configured-outcome')
+      throw new Error(
+        `Node transition context '${context.source}'/'${context.event}' is not a configured outcome.`,
+      );
+    if (
+      !acceptedResult ||
+      context.event !== `result:${acceptedResult.outcome}` ||
+      route.semantic.outcome !== acceptedResult.outcome
+    )
+      throw new Error('Node transition context disagrees with its staged accepted result.');
+    const promptId = route.semantic.promptId;
     const edgePrompt = promptId ? `\n\n${this.deps.processPrompts.get(card.type, promptId)}` : '';
     return { role: 'user', content: `Previous process node: ${context.source.slice('node:'.length)}\nAccepted outcome: ${acceptedResult.outcome}\nSummary: ${acceptedResult.summary}\nRecords:\n${acceptedResult.acceptedRecords.map((record) => `- ${record.url}`).join('\n') || '(none)'}${edgePrompt}` };
   }
 
-  private buildLlmInput(node: ProcessNodeMetadata, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition): PreparedLlmInvocationInput {
+  private buildLlmInput(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition): PreparedLlmInvocationInput {
     const systemPrompt = this.deps.promptTemplates.render(input.card.type, node.agent.name, {
       cardId: input.card.id, cardTitle: input.card.title, cardBrief: cardBootstrapForPrompt(this.deps.store, input.card), contractDescription,
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
@@ -239,7 +280,7 @@ export class AgentNodeExecution {
     const candidateChain=this.deps.candidateChains.get(node.agent.name);if(!candidateChain)throw new Error(`Bound candidate chain for agent '${node.agent.name}' is missing.`);return { inputId, agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:node.agent.model.temperature}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools,node.agent.model.maxTokens), capabilityRequest: { requiresTools: true },routePass:{kind:'ordinary',candidateChain}, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
   }
 
-  private buildSurface(node: ProcessNodeMetadata, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {
+  private buildSurface(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {
     return buildAgentSurface({agentName:node.agent.name,toolNames:node.agent.tools,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation});
   }
 
@@ -248,11 +289,11 @@ export class AgentNodeExecution {
     return this.deps.processRunner.createDirectScope(this.deps.runtimeProcessRootScope, `card-activation:${input.activationId}:node:${ordinal}`, 'runtime_card');
   }
 
-  private correction(node: ProcessNodeMetadata, violations: readonly string[]): string { return `${this.deps.processPrompts.get(this.deps.store.read(this.deps.cardId)!.type, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
+  private correction(node: CompiledNodeContract, violations: readonly string[]): string { return `${this.deps.processPrompts.get(this.deps.store.read(this.deps.cardId)!.type, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
   private ordinaryNotificationContext(input: CardActivationInput, _inputId: string) { const selected = input.notificationDelivery.selectNotifications(); return selected.length === 0 ? undefined : { messages: selected.map((notification) => ({ role: 'user' as const, content: notification.content })), afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }; }
 
   private captureRecord(filename: string): RecordEvidence { const projection = readCandidate(this.deps.store, this.deps.cardId, filename, false); return projection ? evidence(projection) : null; }
-  private validateRecords(node: ProcessNodeMetadata, baseline: ReadonlyMap<string, RecordEvidence>): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
+  private validateRecords(node: CompiledNodeContract, baseline: ReadonlyMap<string, RecordEvidence>): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
     const candidates = new Map<string, RecordProjection>(); const violations: string[] = [];
     for (const required of node.requirements) {
       const filename=required.definition.name;
@@ -266,7 +307,7 @@ export class AgentNodeExecution {
     }
     return violations.length > 0 ? { violations } : { candidates };
   }
-  private closeAcceptedRecords(node: ProcessNodeMetadata, candidates: ReadonlyMap<string, RecordProjection>): Array<{name:string;url:string;version:number}> {
+  private closeAcceptedRecords(node: CompiledNodeContract, candidates: ReadonlyMap<string, RecordProjection>): Array<{name:string;url:string;version:number}> {
     const currentCard = this.deps.store.read(this.deps.cardId); if (!currentCard) throw new Error(`Card '${this.deps.cardId}' disappeared before record closure.`);
     const accepted:Array<{name:string;url:string;version:number}>=[];for(const requirement of node.requirements){const filename=requirement.definition.name;const candidate=candidates.get(filename)!;if(candidate.artifact.state!=='open'){accepted.push({name:filename,url:candidate.recordUrl,version:candidate.version});continue;}const closed=this.deps.store.closeRecord(this.deps.cardId,filename,candidate.version,node.agent.name as never,currentCard.version_seq);accepted.push({name:filename,url:closed.recordUrl,version:closed.version});}return accepted;
   }

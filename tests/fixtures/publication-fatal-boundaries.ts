@@ -47,7 +47,7 @@ if (mode === 'websocket') {
 
 if (mode === 'base-actor-task') {
   class FatalActor extends BaseActor {
-    constructor() { super(compileActorDefinition({ initial: 'run', states: { run: {} } })); }
+    constructor() { const definition=compileActorDefinition({ initial: 'run', states: { run: {} } });super(definition.initial,definition.states); }
     protected onStateEntered(_context: ActorLifecycleContext): void {
       this.runTask(async () => invokeToolForLlm({ agentName: 'planner', providers: [], tools: new Map([['publish', { name: 'publish', description: 'publication owner', inputSchema: z.object({}), executor: async () => { throw new PublicationOutcomeUnknownError(); } }]]) }, 'publish', {}, {} as never), { onDone() {}, onFailed() { process.stdout.write('failed-task'); } });
     }

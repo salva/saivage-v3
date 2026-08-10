@@ -206,7 +206,7 @@ function createPueblicosFixture(root: string) {
   const allCards = [linked, ...children];
   const sessions: ConversationSessionId[] = [globalAgentSessionId(TEST_WORKFLOWS.analyst.name)];
   for (const card of allCards)
-    for (const name of new Set([...TEST_WORKFLOWS.cardTypes.get(card.type)!.nodes.values()].map((node) => node.agent.name)))
+    for (const name of new Set([...TEST_WORKFLOWS.cardTypes.get(card.type)!.states.values()].flatMap((state) => state.kind==='node'?[state.agent.name]:[])))
       sessions.push(cardAgentSessionId(name, card.id));
 
   const longHistorySession = sessions.find((id) => id.includes(children[0]!.id))!;

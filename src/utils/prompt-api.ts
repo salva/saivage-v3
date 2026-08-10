@@ -165,7 +165,7 @@ export function validateCompiledAgentPrompt(cardType: PromptCardTypeKey, agentNa
 export function createPromptTemplateRegistry(workflows:CompiledProjectWorkflows): ProcessAgentPromptTemplateRegistry {
   const templatesByPair = new Map<string, { readonly path: string; readonly template: string; readonly tokens: readonly TemplateToken[] }>();
   const references:Array<{cardType:PromptCardTypeKey;agentName:AgentName;prompt:CompiledAgentPrompt}>=[{cardType:'global',agentName:workflows.analyst.name,prompt:workflows.analystPrompt}];
-  for(const[cardType,workflow]of workflows.cardTypes)for(const node of workflow.nodes.values())references.push({cardType,agentName:node.agent.name,prompt:node.selectedAgentPrompt});
+  for(const[cardType,workflow]of workflows.cardTypes)for(const node of workflow.states.values())if(node.kind==='node')references.push({cardType,agentName:node.agent.name,prompt:node.selectedAgentPrompt});
   for (const {cardType,agentName,prompt} of references) {
     const {path,text:template}=prompt;
     const tokens = tokenizeTemplate(cardType, agentName, template);

@@ -76,7 +76,7 @@ function harness(args: {
     agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } },
     requirements: args.terminalVariant === 'records' ? [{ kind: 'updated', definition: { name: 'status.md' } }] : [],
     descendantContext: args.terminalVariant === 'stale' || args.reviewerPreparationError ? { records: [] } : null,
-    outcomes: ['complete'],
+    on: new Map([['result:complete', Object.freeze({targetStateId:'terminal:DONE',reenter:false,semantic:Object.freeze({kind:'configured-outcome',outcome:'complete',promptId:null,terminalBehavior:Object.freeze({promotion:Object.freeze({kind:'current'}),exportRecords:Object.freeze([])})})})]]),
     childCreationTypes: new Set(),
     childActivationTypes: new Set(),
   };
@@ -87,7 +87,6 @@ function harness(args: {
       [stateId, node],
       ['terminal:DONE', { kind: 'terminal', terminal: 'DONE' }],
     ]),
-    definition: { states: new Map([[stateId, { on: new Map([['result:complete', { target: 'terminal:DONE' }]]) }]]) },
   };
   const selectNotifications = args.terminalVariant === 'pending'
     ? jest.fn().mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])

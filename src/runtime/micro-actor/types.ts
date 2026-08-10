@@ -13,16 +13,20 @@ export type ActorDefinition = {
   readonly states: Readonly<Record<string, StateDefinition>>;
 };
 
-export type CompiledTransitionDefinition = {
-  readonly target: string;
+export type CompiledActorTransition = {
+  readonly targetStateId: string;
   readonly reenter: boolean;
 };
 
-export type CompiledStateDefinition = {
-  readonly on: ReadonlyMap<string, CompiledTransitionDefinition>;
-  readonly terminal?: boolean;
-  readonly parked?: boolean;
+export type CompiledTransitionDefinition = CompiledActorTransition;
+
+export type CompiledActorState<Transition extends CompiledActorTransition = CompiledActorTransition> = {
+  readonly on: ReadonlyMap<string, Transition>;
+  readonly isTerminal: boolean;
+  readonly isParked: boolean;
 };
+
+export type CompiledStateDefinition = CompiledActorState<CompiledTransitionDefinition>;
 
 export type CompiledActorDefinition = {
   readonly initial: string;

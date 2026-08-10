@@ -30,7 +30,7 @@ class TestActor extends BaseActor {
       mainFailed?(error: unknown): void;
     }> = {},
   ) {
-    super(definition);
+    super(definition.initial, definition.states);
     this.#entered = hooks.entered ?? (() => undefined);
     this.#transitioned = hooks.transitioned ?? (() => undefined);
     this.#mainFailed = hooks.mainFailed ?? (() => undefined);
@@ -59,9 +59,9 @@ describe('configured actor definition', () => {
       },
     });
     const ready = compiled.states.get('ready')!;
-    expect(ready.on.get('go')).toEqual({ target: 'done', reenter: false });
-    expect(ready.on.get('stay')).toEqual({ target: 'ready', reenter: false });
-    expect(ready.on.get('again')).toEqual({ target: 'ready', reenter: true });
+    expect(ready.on.get('go')).toEqual({ targetStateId: 'done', reenter: false });
+    expect(ready.on.get('stay')).toEqual({ targetStateId: 'ready', reenter: false });
+    expect(ready.on.get('again')).toEqual({ targetStateId: 'ready', reenter: true });
     expect([compiled, compiled.states, ready, ready.on, ready.on.get('go')].every(Object.isFrozen)).toBe(true);
     expect('set' in compiled.states).toBe(false);
     expect('set' in ready.on).toBe(false);

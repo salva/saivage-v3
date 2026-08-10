@@ -82,7 +82,7 @@ export class AgentOperatorReadModelService {
   ): ConversationSessionId[] {
     const workflow = this.workflows.cardTypes.get(type);
     if (!workflow) throw new Error(`No compiled workflow for '${type}'.`);
-    const names = [...new Set([...workflow.nodes.values()].map((node) => node.agent.name))].sort();
+    const names = [...new Set([...workflow.states.values()].flatMap((state) => state.kind==='node'?[state.agent.name]:[]))].sort();
     return names.map((name) => cardAgentSessionId(name, cardId));
   }
 

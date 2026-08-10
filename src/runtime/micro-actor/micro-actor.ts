@@ -3,6 +3,8 @@ import type {
   ActorLifecycleContext,
   ActorStartContext,
   ActorTransitionContext,
+  CompiledActorState,
+  CompiledActorTransition,
   CompiledActorDefinition,
   CompiledStateDefinition,
   CompiledTransitionDefinition,
@@ -38,7 +40,8 @@ type Task = {
 };
 
 export abstract class BaseActor {
-  readonly #definition: CompiledActorDefinition;
+  readonly #initialStateId: string;
+  readonly #states: ReadonlyMap<string, CompiledActorState>;
   #currentState: string | undefined;
   #nextEvent: { name: string; sequence: number } | undefined;
   #queuedEventSequence = 0;
@@ -51,8 +54,9 @@ export abstract class BaseActor {
   #mainLoopFailed = false;
   #mainLoopFailure: unknown;
 
-  protected constructor(definition: CompiledActorDefinition) {
-    this.#definition = definition;
+  protected constructor(initialStateId: string, states: ReadonlyMap<string, CompiledActorState>) {
+    this.#initialStateId = initialStateId;
+    this.#states = states;
   }
 
   protected abstract onStateEntered(context: ActorLifecycleContext): void;
@@ -66,11 +70,11 @@ export abstract class BaseActor {
 
   start(): void {
     if (this.#currentState !== undefined) throw new InternalActorError(`Cannot start actor more than once from state "${this.#currentState}"`);
-    this.#currentState = this.#definition.initial;
+    this.#currentState = this.#initialStateId;
     const context: ActorStartContext = Object.freeze({
       source: null,
       event: null,
-      target: this.#definition.initial,
+      target: this.#initialStateId,
     });
     try { this.onStateEntered(context); } catch (error) { this.onFatalTaskError(error); throw error; }
     this.#ensureActorMain();
@@ -89,7 +93,7 @@ export abstract class BaseActor {
     if (currentState === undefined) {
       throw new InternalActorError('Cannot send parked event before actor start');
     }
-    if (!this.#definition.states.get(currentState)?.parked) {
+    if (!this.#states.get(currentState)?.isParked) {
       throw new InternalActorError(`Cannot send parked event from non-parked state "${currentState}"`);
     }
     this.sendEvent(name);
@@ -98,10 +102,10 @@ export abstract class BaseActor {
 
   protected runTask<Result>(run: () => Promise<Result>, callbacks: Readonly<{ onDone(result: Result): void; onFailed(error: Error): void }>): void {
     const currentState = this.#currentState!;
-    if (this.#definition.states.get(currentState)?.terminal) {
+    if (this.#states.get(currentState)?.isTerminal) {
       throw new InternalActorError(`Cannot start task in terminal state "${currentState}"`);
     }
-    if (this.#definition.states.get(currentState)?.parked) {
+    if (this.#states.get(currentState)?.isParked) {
       throw new InternalActorError(`Cannot start task in parked state "${currentState}"`);
     }
     if (this.#task !== null) throw new InternalActorError(`Actor already has a task in state "${currentState}"`);
@@ -128,24 +132,24 @@ export abstract class BaseActor {
 
   #dispatchEvent(eventName: string): string {
     const currentState = this.#currentState!;
-    const stateDef = this.#definition.states.get(currentState)!;
+    const stateDef = this.#states.get(currentState)!;
 
     const transition = stateDef.on.get(eventName);
     if (transition === undefined) return currentState;
 
-    if (transition.target === currentState && !transition.reenter) return currentState;
+    if (transition.targetStateId === currentState && !transition.reenter) return currentState;
 
     const context: ActorTransitionContext = Object.freeze({
       source: currentState,
       event: eventName,
-      target: transition.target,
+      target: transition.targetStateId,
       reentered: transition.reenter,
     });
-    this.#currentState = transition.target;
+    this.#currentState = transition.targetStateId;
     this.onTransition(context);
     this.onStateEntered(context);
 
-    return transition.target;
+    return transition.targetStateId;
   }
 
   async #actorMain(): Promise<void> {
@@ -163,11 +167,11 @@ export abstract class BaseActor {
           continue;
         }
 
-        if (this.#definition.states.get(this.#currentState!)?.terminal) {
+        if (this.#states.get(this.#currentState!)?.isTerminal) {
           return;
         }
 
-        if (this.#definition.states.get(this.#currentState!)?.parked) {
+        if (this.#states.get(this.#currentState!)?.isParked) {
           return;
         }
 
@@ -232,56 +236,6 @@ export abstract class BaseActor {
 }
 
 export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition {
-  const stateNames = Object.keys(definition.states);
-  if (stateNames.length === 0) {
-    throw new InvalidActorDefinitionError('Actor definition must declare at least one state');
-  }
-
-  for (const stateName of stateNames) {
-    if (stateName === '') {
-      throw new InvalidActorDefinitionError('State names must be non-empty');
-    }
-  }
-
-  if (!(definition.initial in definition.states)) {
-    throw new InvalidActorDefinitionError(
-      `Initial state "${definition.initial}" does not exist in states`,
-    );
-  }
-
-  for (const [stateName, stateDef] of Object.entries(definition.states)) {
-    if (stateDef.terminal && stateDef.on && Object.keys(stateDef.on).length > 0) {
-      throw new InvalidActorDefinitionError(
-        `Terminal state "${stateName}" cannot have transitions`,
-      );
-    }
-
-    if (stateDef.terminal && stateDef.parked) {
-      throw new InvalidActorDefinitionError(
-        `State "${stateName}" cannot be both terminal and parked`,
-      );
-    }
-
-    for (const [eventName, transition] of Object.entries(stateDef.on ?? {})) {
-      if (eventName === '') {
-        throw new InvalidActorDefinitionError(
-          `Event name must be non-empty in state "${stateName}"`,
-        );
-      }
-      const targetState = transitionTarget(transition);
-      if (!(targetState in definition.states)) {
-        throw new InvalidActorDefinitionError(
-          `Transition target "${targetState}" in state "${stateName}" for event "${eventName}" does not exist in states`,
-        );
-      }
-      if (typeof transition !== 'string' && transition.reenter === true && targetState !== stateName) {
-        throw new InvalidActorDefinitionError(
-          `Transition in state "${stateName}" for event "${eventName}" targets "${targetState}" with reenter:true; reentry requires the source and target state to match`,
-        );
-      }
-    }
-  }
-
   const compiledStates: Array<readonly [string, CompiledStateDefinition]> = [];
   for (const [stateName, stateDef] of Object.entries(definition.states)) {
     const on = new Map<string, CompiledTransitionDefinition>();
@@ -291,15 +245,49 @@ export function compileActorDefinition(definition: ActorDefinition): CompiledAct
 
     compiledStates.push([stateName, Object.freeze({
       on: immutableMap(on),
-      terminal: stateDef.terminal,
-      parked: stateDef.parked,
+      isTerminal: stateDef.terminal === true,
+      isParked: stateDef.parked === true,
     })]);
   }
 
-  return Object.freeze({
+  const compiled = Object.freeze({
     initial: definition.initial,
     states: immutableMap(compiledStates),
   });
+  validateCompiledActorTable(compiled.initial, compiled.states);
+  return compiled;
+}
+
+export function validateCompiledActorTable<Transition extends CompiledActorTransition, State extends CompiledActorState<Transition>>(
+  initialStateId: string,
+  states: ReadonlyMap<string, State>,
+): void {
+  if (states.size === 0) throw new InvalidActorDefinitionError('Actor definition must declare at least one state');
+  for (const stateName of states.keys()) {
+    if (stateName === '') throw new InvalidActorDefinitionError('State names must be non-empty');
+  }
+  if (!states.has(initialStateId)) {
+    throw new InvalidActorDefinitionError(`Initial state "${initialStateId}" does not exist in states`);
+  }
+  for (const [stateName, state] of states) {
+    if (state.isTerminal && state.on.size > 0) {
+      throw new InvalidActorDefinitionError(`Terminal state "${stateName}" cannot have transitions`);
+    }
+    if (state.isTerminal && state.isParked) {
+      throw new InvalidActorDefinitionError(`State "${stateName}" cannot be both terminal and parked`);
+    }
+    for (const [eventName, transition] of state.on) {
+      if (eventName === '') {
+        throw new InvalidActorDefinitionError(`Event name must be non-empty in state "${stateName}"`);
+      }
+      if (!states.has(transition.targetStateId)) {
+        throw new InvalidActorDefinitionError(`Transition target "${transition.targetStateId}" in state "${stateName}" for event "${eventName}" does not exist in states`);
+      }
+      if (transition.reenter && transition.targetStateId !== stateName) {
+        throw new InvalidActorDefinitionError(`Transition in state "${stateName}" for event "${eventName}" targets "${transition.targetStateId}" with reenter:true; reentry requires the source and target state to match`);
+      }
+    }
+  }
 }
 
 function transitionTarget(transition: TransitionDefinition): string {
@@ -308,7 +296,7 @@ function transitionTarget(transition: TransitionDefinition): string {
 
 function compileTransition(transition: TransitionDefinition): CompiledTransitionDefinition {
   return Object.freeze({
-    target: transitionTarget(transition),
+    targetStateId: transitionTarget(transition),
     reenter: typeof transition !== 'string' && transition.reenter === true,
   });
 }

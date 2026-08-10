@@ -12,7 +12,7 @@ import type { ManagedProcessScope } from '../managed-process-group-registry.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
-import { processTerminalRoute, type CompiledCardTypeWorkflow, type CompiledRuntimeWorkflows, type ProcessPosition } from '../card-process/card-process-config.js';
+import { type CompiledCardTypeWorkflow, type CompiledRuntimeWorkflows, type ProcessPosition } from '../card-process/card-process-config.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import { AgentNodeExecution, type AcceptedNodeResult, type NodeExecutionResult, type NodeTransition } from './agent-node-execution.js';
 import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
@@ -54,7 +54,7 @@ export class CardProcessActor extends BaseActor {
   #preJoinFailure: { readonly error: unknown } | null = null;
 
   constructor(args: { projectRoot: string; cardId: string; process: CompiledCardTypeWorkflow; candidateChains:CompiledRuntimeWorkflows['candidateChains']; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; onActorMainFailure(error: unknown): void; fatalPort: ApplicationFatalPort; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
-    super(args.process.definition);
+    super(args.process.initialStateId, args.process.states);
     this.cardId = args.cardId;
     this.process = args.process;
     this.#provider = args.provider;
@@ -65,9 +65,39 @@ export class CardProcessActor extends BaseActor {
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;
     this.#notifyActorMainFailure = args.onActorMainFailure;
     this.#fatalPort = args.fatalPort;
-    this.#runner = new AgentNodeExecution({ projectRoot: args.projectRoot, cardId: args.cardId, store: args.store, parentControl: args.parentControl, notifyCard: args.notifyCard, processRunner: args.processRunner, runtimeProcessRootScope: args.runtimeProcessRootScope, mcpToolInvocation: args.mcpToolInvocation, promptTemplates: args.promptTemplates, processPrompts: args.processPrompts, conversations: args.conversations, compactionConfig: args.compactionConfig,candidateChains:args.candidateChains }, {
-      createLlm: (id) => this.#createMainLlm(id), selectLlm: (llm) => this.#selectExecutingLlm(llm), freshInputId: () => this.#freshSourceInputId(), assertCurrentActivation: (input) => this.#assertCurrentActivation(input), assertPromotionAvailable:(process,stateId,outcome)=>{const route=processTerminalRoute(process,stateId,outcome);if(route?.promotion.kind==='latest-node'&&!this.#acceptedByNode.has(route.promotion.nodeId))throw new Error(`Promoted node '${route.promotion.nodeId}' has no accepted result.`);},
-    });
+    this.#runner = new AgentNodeExecution(
+      {
+        projectRoot: args.projectRoot,
+        cardId: args.cardId,
+        store: args.store,
+        parentControl: args.parentControl,
+        notifyCard: args.notifyCard,
+        processRunner: args.processRunner,
+        runtimeProcessRootScope: args.runtimeProcessRootScope,
+        mcpToolInvocation: args.mcpToolInvocation,
+        promptTemplates: args.promptTemplates,
+        processPrompts: args.processPrompts,
+        conversations: args.conversations,
+        compactionConfig: args.compactionConfig,
+        candidateChains: args.candidateChains,
+      },
+      {
+        createLlm: (id) => this.#createMainLlm(id),
+        selectLlm: (llm) => this.#selectExecutingLlm(llm),
+        freshInputId: () => this.#freshSourceInputId(),
+        assertCurrentActivation: (input) => this.#assertCurrentActivation(input),
+        assertPromotionAvailable: (transition) => {
+          if (
+            transition.semantic.kind !== 'configured-outcome' ||
+            !transition.semantic.terminalBehavior
+          )
+            throw new Error('Terminal acceptance requires configured terminal behavior.');
+          const promotion = transition.semantic.terminalBehavior.promotion;
+          if (promotion.kind === 'latest-node' && !this.#acceptedByNode.has(promotion.nodeId))
+            throw new Error(`Promoted node '${promotion.nodeId}' has no accepted result.`);
+        },
+      },
+    );
   }
 
   activate(input: CardActivationInput, signal: AbortSignal): Promise<ProcessOutcome> {
@@ -220,7 +250,9 @@ export class CardProcessActor extends BaseActor {
       return;
     }
     const event = `result:${accepted.outcome}`;
-    if (!this.process.definition.states.get(sourceState)?.on.has(event)) throw new Error(`Node '${sourceState}' returned unconfigured outcome '${accepted.outcome}'.`);
+    const transition = this.process.states.get(sourceState)?.on.get(event);
+    if (!transition || transition.semantic.kind !== 'configured-outcome')
+      throw new Error(`Node '${sourceState}' returned unconfigured outcome '${accepted.outcome}'.`);
     this.#stagedResult = accepted;
     this.#acceptedByNode.set(accepted.nodeId, accepted);
     this.sendEvent(event);
@@ -232,15 +264,37 @@ export class CardProcessActor extends BaseActor {
 
   #settleTerminal(terminal: 'DONE' | 'BLOCKED' | 'FAILED', context: ActorLifecycleContext): void {
     if (context.source === null) throw new Error(`Process terminal '${terminal}' cannot be an initial state.`);
+    const transition = this.process.states.get(context.source)?.on.get(context.event);
+    if (!transition || transition.targetStateId !== context.target)
+      throw new Error(
+        `Process terminal transition '${context.source}'/'${context.event}' is not compiled.`,
+      );
+    const target = this.process.states.get(transition.targetStateId);
+    if (!target || target.kind !== 'terminal' || target.terminal !== terminal)
+      throw new Error(
+        `Process terminal transition '${context.source}'/'${context.event}' has invalid target.`,
+      );
     const failure = this.#stagedFailure;
     const accepted = this.#stagedResult;
     const blocked = this.#stagedBlocked;
-    if (context.event === 'execution:failed') { if (!failure || accepted) throw new Error(`FAILED terminal has invalid staged failure state.`); }
-    else if (context.event === 'execution:blocked') { if (!blocked || failure || accepted || terminal !== 'BLOCKED') throw new Error(`BLOCKED terminal has invalid staged content-policy state.`); }
-    else {
-      if (!accepted || failure || blocked || context.event !== `result:${accepted.outcome}`) throw new Error(`Process terminal '${terminal}' has invalid staged result state.`);
-      const route = this.process.definition.states.get(context.source)?.on.get(context.event);
-      if (route?.target !== context.target) throw new Error(`Process terminal route disagrees with compiled definition.`);
+    if (transition.semantic.kind === 'runtime-terminal' && transition.semantic.cause === 'failed') {
+      if (!failure || accepted) throw new Error(`FAILED terminal has invalid staged failure state.`);
+    } else if (
+      transition.semantic.kind === 'runtime-terminal' &&
+      transition.semantic.cause === 'blocked'
+    ) {
+      if (!blocked || failure || accepted || terminal !== 'BLOCKED')
+        throw new Error(`BLOCKED terminal has invalid staged content-policy state.`);
+    } else {
+      if (
+        transition.semantic.kind !== 'configured-outcome' ||
+        !accepted ||
+        failure ||
+        blocked ||
+        context.event !== `result:${accepted.outcome}` ||
+        transition.semantic.outcome !== accepted.outcome
+      )
+        throw new Error(`Process terminal '${terminal}' has invalid staged result state.`);
     }
     if (this.#currentExecutingLlm?.executingActivity().mode === 'waiting' && !this.#joiningLlmActors) throw new Error(`Processor '${this.cardId}' settled while its current LLM actor was waiting.`);
     this.#currentExecutingLlm = null;
@@ -253,11 +307,37 @@ export class CardProcessActor extends BaseActor {
     }
     if (failure && isRuntimeStoppedInterruption(failure)) this.#rejectActivation(failure, true);
     else {
-      const route = accepted ? processTerminalRoute(this.process, context.source, accepted.outcome) : null;
-      const promoted = route ? route.promotion.kind === 'current' ? accepted! : this.#acceptedByNode.get(route.promotion.nodeId) : null;
-      if (!failure && !blocked && (!route || !promoted)) throw new Error('Accepted terminal route has no promoted result.');
+      const behavior =
+        transition.semantic.kind === 'configured-outcome'
+          ? transition.semantic.terminalBehavior
+          : null;
+      const promoted = behavior
+        ? behavior.promotion.kind === 'current'
+          ? accepted!
+          : this.#acceptedByNode.get(behavior.promotion.nodeId)
+        : null;
+      if (!failure && !blocked && (!behavior || !promoted)) throw new Error('Accepted terminal route has no promoted result.');
       const summary = blocked?.summary ?? failure?.message ?? promoted!.summary;
-      const result = blocked ?? (failure ? { kind: 'runtime-failure' as const, summary } : { kind: 'workflow-result' as const, terminal, agent_name: promoted!.agentName, node_id: promoted!.nodeId, outcome: promoted!.outcome, summary, records: route!.exportRecords.map((record) => { const projection=accepted!.acceptedRecords.find((value)=>value.name===record.name);if(!projection)throw new Error(`Accepted terminal export '${record.name}' is missing.`);return projection; }) });
+      const result = blocked ?? (
+        failure
+          ? { kind: 'runtime-failure' as const, summary }
+          : {
+              kind: 'workflow-result' as const,
+              terminal,
+              agent_name: promoted!.agentName,
+              node_id: promoted!.nodeId,
+              outcome: promoted!.outcome,
+              summary,
+              records: behavior!.exportRecords.map((record) => {
+                const projection = accepted!.acceptedRecords.find(
+                  (value) => value.name === record.name,
+                );
+                if (!projection)
+                  throw new Error(`Accepted terminal export '${record.name}' is missing.`);
+                return projection;
+              }),
+            }
+      );
       const outcome: ProcessOutcome = terminal === 'DONE'
         ? { status: 'done', summary, result: result as import('../../schemas/index.js').DoneResult }
         : terminal === 'BLOCKED'

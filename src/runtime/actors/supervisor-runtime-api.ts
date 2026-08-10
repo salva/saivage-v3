@@ -569,4 +569,4 @@ export class SupervisorRuntimeApi implements RuntimeApi {
 }
 
 export function createSupervisorRuntimeApi(options: SupervisorRuntimeApiOptions): SupervisorRuntimeApi { return new SupervisorRuntimeApi(options); }
-function eligibleAgents(workflows: CompiledRuntimeWorkflows, card: CardRecord): readonly import('../../schemas/index.js').AgentName[] { const workflow=workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow for '${card.type}'.`);return [...new Set([...workflow.nodes.values()].map((node)=>node.agent.name))]; }
+function eligibleAgents(workflows: CompiledRuntimeWorkflows, card: CardRecord): readonly import('../../schemas/index.js').AgentName[] { const workflow=workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow for '${card.type}'.`);return [...new Set([...workflow.states.values()].flatMap((state)=>state.kind==='node'?[state.agent.name]:[]))]; }

@@ -1,6 +1,7 @@
 export {
   BaseActor,
   compileActorDefinition,
+  validateCompiledActorTable,
   InvalidActorDefinitionError,
   InternalActorError,
 } from './micro-actor.js';
@@ -9,6 +10,8 @@ export type {
   StateDefinition,
   ActorDefinition,
   CompiledTransitionDefinition,
+  CompiledActorTransition,
+  CompiledActorState,
   CompiledStateDefinition,
   CompiledActorDefinition,
   ActorStartContext,

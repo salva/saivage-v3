@@ -34,7 +34,28 @@ describe('compiled Debug graph projection', () => {
       const effective = createTestConfigAuthority(root, { config: TEST_SAIVAGE_CONFIG }).loadEffective();
       const workflows = bindRuntimeWorkflows(effective.workflows, new ModelRouter(effective.config, new ProviderRegistry(effective.config)));
       const graph = projectCompiledGraphs(workflows).graphs.find((candidate) => candidate.card_type === 'project')!;
+      expect(graph.entries).toEqual([
+        { entry: 'BACKLOG', node_id: 'plan', prompt_reference: null },
+        { entry: 'CHANGED', node_id: 'plan', prompt_reference: null },
+        { entry: 'BLOCKED', node_id: 'plan', prompt_reference: null },
+        { entry: 'STOPPED', node_id: 'recover', prompt_reference: 'stopped-recovery' },
+      ]);
+      expect(graph.edges.slice(0, 6).map((edge) => edge.outcome)).toEqual([
+        'complete_direct',
+        'admit_review',
+        'blocked',
+        'failed',
+        'execution:failed',
+        'execution:blocked',
+      ]);
       expect(graph.edges).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          source_node_id: 'plan',
+          outcome: 'admit_review',
+          runtime_owned: false,
+          prompt_reference: 'plan-to-review',
+          target: { kind: 'node', node_id: 'review' },
+        }),
         expect.objectContaining({ source_node_id: 'review', outcome: 'revision_required', target: { kind: 'node', node_id: 'plan' } }),
         expect.objectContaining({ source_node_id: 'review', outcome: 'approved', export_records: ['review.md'], promotion: { kind: 'current' } }),
         expect.objectContaining({ source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, target: { kind: 'terminal', terminal: 'FAILED' } }),

@@ -1,7 +1,9 @@
-import { DebugGraphsResponseSchema, type DebugGraphsResponse } from '../../contracts/operator-api-files-debug.js';
+import {
+  DebugGraphsResponseSchema,
+  type DebugGraphsResponse,
+} from '../../contracts/operator-api-files-debug.js';
 import { cardTypeValues } from '../../schemas/index.js';
 import {
-  processTransitionPromptKey,
   type CardProcessEntry,
   type CompiledCardTypeWorkflow,
   type CompiledRuntimeWorkflows,
@@ -11,11 +13,24 @@ const entries = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
 const terminals = ['DONE', 'BLOCKED', 'FAILED'] as const;
 
 function entryTarget(workflow: CompiledCardTypeWorkflow, entry: CardProcessEntry): string {
-  const transition = workflow.definition.states.get(`entry:${entry}`)?.on.get('entry:route');
-  if (!transition) throw new Error(`Compiled workflow '${workflow.cardType}' is missing entry '${entry}'.`);
-  const target = transition.target;
-  if (!target.startsWith('node:')) throw new Error(`Compiled workflow '${workflow.cardType}' entry '${entry}' does not target a node.`);
-  return target.slice('node:'.length);
+  const transition = workflow.states.get(`entry:${entry}`)?.on.get('entry:route');
+  if (!transition || transition.semantic.kind !== 'entry-route')
+    throw new Error(`Compiled workflow '${workflow.cardType}' is missing entry '${entry}'.`);
+  const target = workflow.states.get(transition.targetStateId);
+  if (!target || target.kind !== 'node')
+    throw new Error(
+      `Compiled workflow '${workflow.cardType}' entry '${entry}' does not target a node.`,
+    );
+  return target.nodeId;
+}
+
+function entryPrompt(workflow: CompiledCardTypeWorkflow, entry: CardProcessEntry) {
+  const route = workflow.states.get(`entry:${entry}`)?.on.get('entry:route');
+  if (!route || route.semantic.kind !== 'entry-route')
+    throw new Error(
+      `Compiled workflow '${workflow.cardType}' entry '${entry}' has invalid semantics.`,
+    );
+  return route.semantic.promptId;
 }
 
 /** Safe operator projection of the already-bound startup artifact. No source or runtime-state reads occur here. */
@@ -26,16 +41,25 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
     const graphEntries = entries.map((entry) => ({
       entry,
       node_id: entryTarget(workflow, entry),
-      prompt_reference: workflow.transitionPrompts.get(processTransitionPromptKey(`entry:${entry}`, 'entry:route')) ?? null,
+      prompt_reference: entryPrompt(workflow, entry),
     }));
-    const nodes = [...workflow.nodes.values()].map((node) => {
+    const nodeStates = [...workflow.states.values()].filter((state) => state.kind === 'node');
+    const nodes = nodeStates.map((node) => {
       const candidates = workflows.candidateChains.get(node.agent.name);
-      if (!candidates) throw new Error(`Compiled startup artifact is missing candidates for agent '${node.agent.name}'.`);
+      if (!candidates)
+        throw new Error(
+          `Compiled startup artifact is missing candidates for agent '${node.agent.name}'.`,
+        );
       return {
         node_id: node.nodeId,
         agent_name: node.agent.name,
         session: { scope: 'card' as const, identity_pattern: `agent:${node.agent.name}:<card-id>` },
-        prompt: { source: node.selectedAgentPrompt.source, reference: node.selectedAgentPrompt.reference, process_reference: node.promptId, correction_reference: node.correctionPromptId },
+        prompt: {
+          source: node.selectedAgentPrompt.source,
+          reference: node.selectedAgentPrompt.reference,
+          process_reference: node.promptId,
+          correction_reference: node.correctionPromptId,
+        },
         model: {
           route: node.agent.modelRoute,
           candidates: candidates.map(({ provider, model }) => ({ provider, model })),
@@ -48,47 +72,64 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         child_activation_types: [...node.childActivationTypes],
         readable_records: [...node.readableRecords.keys()],
         writable_records: [...node.writableRecords.keys()],
-        requirements: node.requirements.map((requirement) => ({ record_name: requirement.definition.name, kind: requirement.kind })),
-        descendant_context: node.descendantContext === null ? null : {
-          records: node.descendantContext.records.map((record) => record.name),
-          require_unchanged_until_accept: node.descendantContext.requireUnchangedUntilAccept,
-        },
-        outcomes: [...node.outcomes],
+        requirements: node.requirements.map((requirement) => ({
+          record_name: requirement.definition.name,
+          kind: requirement.kind,
+        })),
+        descendant_context:
+          node.descendantContext === null
+            ? null
+            : {
+                records: node.descendantContext.records.map((record) => record.name),
+                require_unchanged_until_accept: node.descendantContext.requireUnchangedUntilAccept,
+              },
+        outcomes: [...node.on.values()].flatMap((route) =>
+          route.semantic.kind === 'configured-outcome' ? [route.semantic.outcome] : [],
+        ),
       };
     });
-    const edges = [...workflow.nodes.values()].flatMap((node) => [
-      ...[...node.edges.values()].map((edge) => ({
-        source_node_id: node.nodeId,
-        outcome: edge.outcome,
-        runtime_owned: false,
-        prompt_reference: edge.promptId,
-        target: edge.targetNodeId === null
-          ? { kind: 'terminal' as const, terminal: edge.terminalRoute!.terminal }
-          : { kind: 'node' as const, node_id: edge.targetNodeId },
-        export_records: edge.terminalRoute?.exportRecords.map((record) => record.name) ?? [],
-        promotion: edge.terminalRoute === null ? null : edge.terminalRoute.promotion.kind === 'current'
-          ? { kind: 'current' as const }
-          : { kind: 'latest-node' as const, node_id: edge.terminalRoute.promotion.nodeId },
-      })),
-      {
-        source_node_id: node.nodeId,
-        outcome: 'execution:failed',
-        runtime_owned: true,
-        prompt_reference: null,
-        target: { kind: 'terminal' as const, terminal: 'FAILED' as const },
-        export_records: [],
-        promotion: null,
-      },
-      {
-        source_node_id: node.nodeId,
-        outcome: 'execution:blocked',
-        runtime_owned: true,
-        prompt_reference: null,
-        target: { kind: 'terminal' as const, terminal: 'BLOCKED' as const },
-        export_records: [],
-        promotion: null,
-      },
-    ]);
+    const edges = nodeStates.flatMap((node) =>
+      [...node.on.values()].map((route) => {
+        const target = workflow.states.get(route.targetStateId)!;
+        if (route.semantic.kind === 'configured-outcome') {
+          if (target.kind !== 'node' && target.kind !== 'terminal')
+            throw new Error(
+              `Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid configured target.`,
+            );
+          const behavior = route.semantic.terminalBehavior;
+          return {
+            source_node_id: node.nodeId,
+            outcome: route.semantic.outcome,
+            runtime_owned: false,
+            prompt_reference: route.semantic.promptId,
+            target:
+              target.kind === 'terminal'
+                ? { kind: 'terminal' as const, terminal: target.terminal }
+                : { kind: 'node' as const, node_id: target.nodeId },
+            export_records: behavior?.exportRecords.map((record) => record.name) ?? [],
+            promotion:
+              behavior === null
+                ? null
+                : behavior.promotion.kind === 'current'
+                  ? { kind: 'current' as const }
+                  : { kind: 'latest-node' as const, node_id: behavior.promotion.nodeId },
+          };
+        }
+        if (route.semantic.kind !== 'runtime-terminal' || target.kind !== 'terminal')
+          throw new Error(
+            `Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid runtime target.`,
+          );
+        return {
+          source_node_id: node.nodeId,
+          outcome: route.semantic.cause === 'failed' ? 'execution:failed' : 'execution:blocked',
+          runtime_owned: true,
+          prompt_reference: null,
+          target: { kind: 'terminal' as const, terminal: target.terminal },
+          export_records: [],
+          promotion: null,
+        };
+      }),
+    );
     return {
       card_type: cardType,
       permitted_child_types: [...workflow.permittedChildTypes],
