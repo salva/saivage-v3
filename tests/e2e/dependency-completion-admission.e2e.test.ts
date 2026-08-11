@@ -5,7 +5,6 @@ import { join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { CardService } from '../helpers/canonical-project.js';
-import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
@@ -39,7 +38,6 @@ function runtime(projectRoot: string, cards: CardService, processRunner: Process
     ...testAutonomousCompaction,
     projectRoot,
     actorStore: cards,
-    interventionBinding: new RuntimeInterventionBinding(),
     provider,
     conversations: { projectRoot },
     freshness: { runtimeChanged() {} },

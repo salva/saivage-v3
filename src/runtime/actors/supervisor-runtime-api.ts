@@ -15,7 +15,7 @@ import type { LLMProviderPort, CompactorPort } from './llm-actor.js';
 import type { AutonomousCompactionPolicy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import type { CardService } from '../../cards/card-service.js';
-import type { RuntimeInterventionBinding } from '../../application/intervention-readiness.js';
+import type { InterventionReadinessFacet } from '../../application/intervention-readiness.js';
 import type { ProcessRunner } from '../process-runner.js';
 import type { ManagedProcessScope } from '../managed-process-group-registry.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
@@ -34,7 +34,7 @@ import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../..
 
 export interface SupervisorRuntimeApiOptions {
   projectRoot: string; now?: () => string;
-  actorStore: CardService; interventionBinding: RuntimeInterventionBinding; provider: LLMProviderPort;
+  actorStore: CardService; provider: LLMProviderPort;
   conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged'>;
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry;
@@ -52,7 +52,9 @@ interface RuntimeHalt {
   readonly promise: Promise<void>;
 }
 
-export class SupervisorRuntimeApi implements RuntimeApi {
+type SupervisorStatus = RuntimeStatus | 'uninitialized';
+
+export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   private readonly behavior: Omit<SupervisorRuntimeApiOptions, 'processRunner' | 'runtimeProcessRootScope'>;
   readonly #processRunner: ProcessRunner;
   readonly #runtimeProcessRootScope: ManagedProcessScope;
@@ -60,8 +62,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   private readonly runtimeGate: RuntimeGate;
   private readonly activationOwners = new Map<string, CardActivationOwner>();
   private currentCardId: string | null = null;
-  private started = false;
-  private status: RuntimeStatus = 'stopped';
+  private status: SupervisorStatus = 'uninitialized';
   private preparedLaunch: SupervisorLaunchPlan | null = null;
   private runIdentity: object | null = null;
   private applicationAdmissionOpen = true;
@@ -79,12 +80,29 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   async start(): Promise<void> {
-    if (this.started) return;
+    if (this.status !== 'uninitialized') return;
     const root = this.behavior.actorStore.read(PROJECT_CARD_ID);
     if (!root) throw new Error(`Root card record '${PROJECT_CARD_ID}' is missing.`);
     cardRecordSchema.parse(root);
     this.runtimeGate.close();
-    this.ownershipTransition(false, () => { this.started = true; this.status = 'stopped'; this.behavior.interventionBinding.markStoppedReady(); });
+    this.assertOwnershipInvariants();
+    this.status = 'stopped';
+  }
+
+  assertInterventionReady(): void {
+    const status = this.status;
+    switch (status) {
+      case 'stopped':
+      case 'paused':
+        return;
+      case 'uninitialized':
+      case 'starting':
+      case 'running':
+      case 'pausing':
+      case 'closing':
+      case 'error':
+        throw new Error('Analyst mutation requires an intervention-ready stopped or settled paused runtime.');
+    }
   }
 
   closeApplicationAdmission(): void {
@@ -105,7 +123,11 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   stopProject(): Promise<StopProjectResult> {
-    if (!this.runIdentity && !this.halt) return Promise.resolve({ status: 'stopped', contained: false });
+    if (!this.runIdentity && !this.halt) {
+      const status = this.publicRuntimeStatus();
+      if (status !== 'stopped') throw new Error(`Inactive runtime has unexpected '${status}' status.`);
+      return Promise.resolve({ status, contained: false });
+    }
     return this.beginHalt('stop').then<StopProjectResult>(() => ({ status: 'stopped', contained: true }));
   }
 
@@ -136,7 +158,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       this.status = 'starting';
       this.currentCardId = PROJECT_CARD_ID;
       this.activationOwners.set(PROJECT_CARD_ID, owner);
-      this.behavior.interventionBinding.markNotReady();
     });
 
     if (runningChain.length > 0) {
@@ -179,11 +200,11 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (this.halt) throw this.halt.interruption;
     if (this.status !== 'running' || !this.runIdentity) throw new Error(`Cannot pause runtime from '${this.status}'.`);
     const identity = this.runIdentity;
-    this.ownershipTransition(true, () => { this.status = 'pausing'; this.behavior.interventionBinding.markNotReady(); });
+    this.ownershipTransition(true, () => { this.status = 'pausing'; });
     this.runtimeGate.requestPause(() => {
       if (this.halt) return;
       if (this.runIdentity !== identity || this.status !== 'pausing' || !this.activationOwners.has(PROJECT_CARD_ID)) return;
-      this.ownershipTransition(true, () => { this.status = 'paused'; this.behavior.interventionBinding.markPausedReady(); });
+      this.ownershipTransition(true, () => { this.status = 'paused'; });
     });
   }
 
@@ -196,7 +217,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       if (this.halt) throw this.halt.interruption;
       if (this.runIdentity !== identity || this.status !== 'paused') throw new Error('Paused runtime identity changed while resuming.');
       this.status = 'running';
-      this.behavior.interventionBinding.markNotReady();
     });
   }
 
@@ -209,7 +229,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
   }
 
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> { return this.cancelOwnedOrStored(cardId, reason, null); }
-  getStatus() { return { status: this.status, currentCardId: this.currentCardId, pid: this.behavior.processIdentity.pid, startedAt: this.behavior.processIdentity.startedAt }; }
+  getStatus() { return { status: this.publicRuntimeStatus(), currentCardId: this.currentCardId, pid: this.behavior.processIdentity.pid, startedAt: this.behavior.processIdentity.startedAt }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
     const cards = [...this.activationOwners.values()].map((owner) => ({ cardId: owner.cardId, actorState: toPublicCardActorState(owner.cachedStatus), processState: owner.processor.processPosition() }));
@@ -360,7 +380,7 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (this.status !== 'running' && this.status !== 'pausing' && this.status !== 'paused') throw new Error(`Root cannot naturally release from '${this.status}'.`);
     this.ownershipTransition(true, () => {
       this.requireOwnerAuthority(owner);
-      this.runtimeGate.completeRun(); this.activationOwners.delete(PROJECT_CARD_ID); this.preparedLaunch = null; this.runIdentity = null; this.currentCardId = null; this.status = 'stopped'; this.behavior.interventionBinding.markStoppedReady();
+      this.runtimeGate.completeRun(); this.activationOwners.delete(PROJECT_CARD_ID); this.preparedLaunch = null; this.runIdentity = null; this.currentCardId = null; this.status = 'stopped';
     });
     owner.settlement.resolve(outcome);
   }
@@ -437,7 +457,6 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       this.halt = halt;
       this.status = 'closing';
       this.runtimeGate.close();
-      this.behavior.interventionBinding.markNotReady();
       this.preparedLaunch = null;
     });
 
@@ -474,12 +493,10 @@ export class SupervisorRuntimeApi implements RuntimeApi {
           this.ownershipTransition(true, () => {
             if (this.halt !== halt) throw new Error('Runtime halt identity changed during failed settlement.');
             this.status = 'error';
-            this.behavior.interventionBinding.markNotReady();
           });
         } catch (error) {
           if (this.halt === halt) {
             this.status = 'error';
-            this.behavior.interventionBinding.markNotReady();
           }
           retainFirst(error);
         }
@@ -498,13 +515,11 @@ export class SupervisorRuntimeApi implements RuntimeApi {
           this.currentCardId = null;
           this.halt = null;
           this.status = 'stopped';
-          this.behavior.interventionBinding.markStoppedReady();
         });
         settlement.resolve();
       } catch (error) {
         if (this.halt === halt) {
           this.status = 'error';
-          this.behavior.interventionBinding.markNotReady();
         }
         settlement.reject(error);
       }
@@ -534,8 +549,9 @@ export class SupervisorRuntimeApi implements RuntimeApi {
     if (this.halt) throw new Error(`Card '${owner.cardId}' is outside the frozen runtime halt graph.`);
   }
   private requireKnownCard(owner: CardActivationOwner): CardRecord { const card = owner.store.read(owner.cardId); if (!card) throw new Error(`Card '${owner.cardId}' not found.`); return card; }
-  private startRejected(error: string): StartProjectResult { return { runtime: this.runtimeState(), status: this.status, started: false, stopped: this.status === 'stopped', error }; }
-  private runtimeState(): RuntimeState | null { if (!this.runIdentity) return null; if (!this.currentCardId) throw new Error('Active runtime has no current card.'); return { status: this.status, project_id: 'project', pid: this.behavior.processIdentity.pid, started_at: this.behavior.processIdentity.startedAt, current_card_id: this.currentCardId, updated_at: this.now() }; }
+  private startRejected(error: string): StartProjectResult { const status = this.publicRuntimeStatus(); return { runtime: this.runtimeState(), status, started: false, stopped: status === 'stopped', error }; }
+  private runtimeState(): RuntimeState | null { if (!this.runIdentity) return null; if (!this.currentCardId) throw new Error('Active runtime has no current card.'); return { status: this.publicRuntimeStatus(), project_id: 'project', pid: this.behavior.processIdentity.pid, started_at: this.behavior.processIdentity.startedAt, current_card_id: this.currentCardId, updated_at: this.now() }; }
+  private publicRuntimeStatus(): RuntimeStatus { if (this.status === 'uninitialized') throw new Error('Runtime has not been initialized.'); return this.status; }
 
   private ownershipTransition(invalidate: boolean, mutate: () => void, conversationSessionId?: import('../../schemas/index.js').ConversationSessionId): void {
     if (this.inOwnershipTransition) throw new Error('Nested ownership transition is forbidden.');
@@ -554,10 +570,10 @@ export class SupervisorRuntimeApi implements RuntimeApi {
       if (owner.phase === 'child_admission' && owner.terminalWinner !== 'open') throw new Error('Child admission cannot have a terminal winner.');
     }
     if (roots > 1) throw new Error('Runtime has more than one root activation owner.');
-    const readiness = this.behavior.interventionBinding.interventionReadiness();
-    if (this.status === 'stopped' && readiness !== 'stopped') throw new Error('Stopped runtime is not intervention-ready.');
-    if (this.status === 'paused' && readiness !== 'paused') throw new Error('Paused runtime readiness disagrees.');
-    if (this.status !== 'stopped' && this.status !== 'paused' && readiness !== 'not_ready') throw new Error(`Runtime '${this.status}' must not be intervention-ready.`);
+    if (this.status === 'uninitialized') {
+      if (this.runIdentity || this.currentCardId || this.activationOwners.size || this.preparedLaunch || this.halt) throw new Error('Uninitialized runtime retains ownership state.');
+      return;
+    }
     if (this.status === 'stopped' && (this.runIdentity || this.currentCardId || this.activationOwners.size || this.preparedLaunch || this.halt)) throw new Error('Stopped runtime retains ownership state.');
     if (this.runIdentity && !this.currentCardId) throw new Error('Active runtime has no current card.');
     if (this.halt && (this.status !== 'closing' && this.status !== 'error')) throw new Error('Runtime halt requires closing or error status.');

@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createAppTerminalCoordinator } from '../../../src/boot/app.js';
-import { RuntimeInterventionBinding } from '../../../src/application/intervention-readiness.js';
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
@@ -46,7 +45,6 @@ function harness(provider: LLMProviderPort = { completeTurn: async (_input: unkn
     ...testAutonomousCompaction,
     projectRoot,
     actorStore: cards,
-    interventionBinding: new RuntimeInterventionBinding(),
     provider,
     conversations: { projectRoot },
     freshness: { runtimeChanged() { if (armed && !failureDelivered && new Error().stack?.includes('card-process-actor.')) { failureDelivered = true; throw actorFailure; } } },

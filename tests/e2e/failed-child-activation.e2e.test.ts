@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
-import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { CardService } from '../helpers/canonical-project.js';
 import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
@@ -42,7 +41,7 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
   return new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
-    projectRoot, actorStore: cards, interventionBinding: new RuntimeInterventionBinding(), provider,
+    projectRoot, actorStore: cards, provider,
     conversations: { projectRoot },
     freshness: { runtimeChanged() {} },
     processRunner, runtimeProcessRootScope, promptTemplates: { render: () => 'test prompt' },

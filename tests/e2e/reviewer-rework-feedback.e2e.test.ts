@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
-import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { CardService } from '../helpers/canonical-project.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { workflowResult } from '../helpers/workflow-result.js';
@@ -89,7 +88,6 @@ describe('reviewer rework completion E2E', () => {
       ...testAutonomousCompaction,
       projectRoot,
       actorStore: cards,
-      interventionBinding: new RuntimeInterventionBinding(),
       provider,
       conversations: { projectRoot },
       freshness: { runtimeChanged() {} },

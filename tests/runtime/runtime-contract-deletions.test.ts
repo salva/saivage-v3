@@ -80,12 +80,25 @@ describe('runtime ledger contract deletions', () => {
 
     expect(schemas.activationOutcomeSchema).toBeDefined();
     expect(schemas.runtimeStatusSchema).toBeDefined();
+    expect(schemas.runtimeStatusSchema.safeParse('uninitialized').success).toBe(false);
     expect(schemas.runtimeRunOutcomeSchema).toBeDefined();
     expect(schemas.eventKindValues).toEqual([
       'runtime_diagnostic',
       'runtime_actionable_error',
       'mcp_tool_invocation',
     ]);
+  });
+
+  it('keeps the internal initialization state out of public and web runtime contracts', () => {
+    for (const relativePath of [
+      'src/schemas/types.ts',
+      'src/schemas/validators.ts',
+      'src/contracts/operator-api-runtime-cards.ts',
+      'web/src/api/contracts.ts',
+      'web/src/api/types.ts',
+    ]) {
+      expect(readFileSync(join(process.cwd(), relativePath), 'utf8')).not.toContain('uninitialized');
+    }
   });
 
   it('removes rework results and admits only the exact workflow result in every shared runtime schema', async () => {

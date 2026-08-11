@@ -8,7 +8,6 @@ import type { CardProcessActor } from '../../../src/runtime/actors/card-process-
 import { ChildInvocationLease } from '../../../src/runtime/actors/child-invocation-wait.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
-import { RuntimeInterventionBinding } from '../../../src/application/intervention-readiness.js';
 import type { CardRecord } from '../../../src/schemas/index.js';
 import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
 import type { ProcessStopReport } from '../../../src/runtime/managed-process-group-registry.js';
@@ -64,7 +63,6 @@ function processor(): ProcessorHarness {
 type HaltTrigger = 'stop' | 'application_close' | 'publication_failure' | 'runtime_failure';
 interface SupervisorInternals {
   activationOwners: Map<string, CardActivationOwner>;
-  started: boolean;
   runIdentity: object | null;
   currentCardId: string | null;
   status: 'running' | 'closing' | 'error' | 'stopped';
@@ -80,7 +78,6 @@ function harness(withChild = false) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-halt-harness-')); roots.push(projectRoot); initProjectTree(projectRoot);
   const processTermination = barrier<ProcessStopReport>();
   const terminateScopeTree = jest.fn(() => processTermination.promise);
-  const intervention = new RuntimeInterventionBinding();
   const lifecycle = new Map<string, CardRecord['lifecycle']['status']>([['project', 'running'], ['card-a', 'running']]);
   const store = {
     read: jest.fn((id: string) => ({ ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: lifecycle.get(id)! } })),
@@ -94,7 +91,7 @@ function harness(withChild = false) {
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     projectRoot,
-    actorStore: store, interventionBinding: intervention,
+    actorStore: store,
     provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
     conversations: { projectRoot },
     freshness: { runtimeChanged() {} },
@@ -106,7 +103,6 @@ function harness(withChild = false) {
   root.phase = 'active';
   const internals = supervisor as unknown as SupervisorInternals;
   internals.activationOwners.set('project', root);
-  internals.started = true;
   internals.runIdentity = {};
   internals.currentCardId = 'project';
   internals.status = 'running';
@@ -147,7 +143,6 @@ describe('Supervisor singular runtime halt concurrency', () => {
       projectRoot,
       processIdentity: { pid: 1, startedAt: 'now' },
       actorStore: cards,
-      interventionBinding: new RuntimeInterventionBinding(),
       provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
       conversations: { projectRoot },
       freshness: { runtimeChanged() {} },
@@ -209,6 +204,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
   it('shares one freeze, interruption, joins, and process termination across Stop and application close', async () => {
     const h = harness(true);
     const first = h.supervisor.stopProject();
+    expect(() => h.supervisor.assertInterventionReady()).toThrow('Analyst mutation requires an intervention-ready stopped or settled paused runtime.');
     const interruption = h.internals.halt!.interruption;
     const second = h.supervisor.stopProject();
     h.supervisor.closeApplicationAdmission();
@@ -224,6 +220,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     await expect(within(first)).resolves.toEqual({ status: 'stopped', contained: true });
     await expect(within(second)).resolves.toEqual({ status: 'stopped', contained: true });
     await expect(within(app)).resolves.toBeUndefined();
+    expect(() => h.supervisor.assertInterventionReady()).not.toThrow();
     await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
   });
 
@@ -274,6 +271,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     await expect(within(first)).rejects.toBe(joinFailure);
     await expect(within(concurrent)).rejects.toBe(joinFailure);
     expect(h.supervisor.getStatus().status).toBe('error');
+    expect(() => h.supervisor.assertInterventionReady()).toThrow('Analyst mutation requires an intervention-ready stopped or settled paused runtime.');
     expect(h.internals.activationOwners.get('project')).toBe(h.root);
 
     await expect(h.supervisor.stopProject()).rejects.toBe(joinFailure);

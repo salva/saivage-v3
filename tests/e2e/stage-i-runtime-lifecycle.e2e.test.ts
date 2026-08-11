@@ -5,7 +5,6 @@ import { join } from 'node:path';
 
 import { CardService } from '../helpers/canonical-project.js';
 import { workflowResult } from '../helpers/workflow-result.js';
-import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -31,7 +30,6 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
     ...testAutonomousCompaction,
     projectRoot,
     actorStore: cards,
-    interventionBinding: new RuntimeInterventionBinding(),
     provider,
     conversations: { projectRoot },
     freshness: { runtimeChanged() {} },
@@ -61,22 +59,27 @@ describe('Stage-I runtime lifecycle E2E', () => {
 
     const started = await runtime.startProject();
     if (!started.started) throw new Error('Run was not accepted.');
+    expect(() => runtime.assertInterventionReady()).toThrow('Analyst mutation requires an intervention-ready stopped or settled paused runtime.');
     await waitUntil(() => inputs.length === 1);
     expect(runtime.getActorRuntimeReadModel().cards.map((entry) => entry.cardId)).toEqual(['project']);
     expect(runtime.getActorRuntimeReadModel()).not.toHaveProperty('agents');
 
     runtime.pause();
+    expect(() => runtime.assertInterventionReady()).toThrow('Analyst mutation requires an intervention-ready stopped or settled paused runtime.');
     releaseFirst();
     await waitUntil(() => runtime.getStatus().status === 'paused');
+    expect(() => runtime.assertInterventionReady()).not.toThrow();
     expect(inputs).toHaveLength(1);
     const paused = runtime.getRuntimeState();
     if (!paused) throw new Error('Paused runtime state missing.');
     runtime.resume();
+    expect(() => runtime.assertInterventionReady()).toThrow('Analyst mutation requires an intervention-ready stopped or settled paused runtime.');
     await waitUntil(() => inputs.length === 2);
     expect(inputs[1]!.inputId).not.toBe(inputs[0]!.inputId);
 
     const durableBeforeStop = cards.list().map((card) => ({ id: card.id, status: card.lifecycle.status, version: card.version_seq }));
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(() => runtime.assertInterventionReady()).not.toThrow();
     expect(cards.list().map((card) => ({ id: card.id, status: card.lifecycle.status, version: card.version_seq }))).toEqual(durableBeforeStop);
 
     const restarted = await runtime.startProject();

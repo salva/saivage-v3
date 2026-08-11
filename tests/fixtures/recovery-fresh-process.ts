@@ -1,5 +1,4 @@
 import { CardService } from '../helpers/canonical-project.js';
-import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -17,7 +16,6 @@ const runtime = new SupervisorRuntimeApi({
   ...testAutonomousCompaction,
   projectRoot,
   actorStore: cards,
-  interventionBinding: new RuntimeInterventionBinding(),
   provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
   conversations: { projectRoot },
   freshness: { runtimeChanged() {} },

@@ -23,7 +23,6 @@ describe('termination-first component cleanup', () => {
     if (component === 'runtime') {
       const runtime = new SupervisorRuntimeApi({
         runtimeGate: { close: jest.fn() },
-        interventionBinding: {},
         processRunner: runner,
         runtimeProcessRootScope: rootScope,
       } as never);
@@ -48,7 +47,7 @@ describe('termination-first component cleanup', () => {
     const runner = { terminateScopeTree: jest.fn(async () => emptyReport) };
     const rootScope = {};
     const cleanup = component === 'runtime'
-      ? new SupervisorRuntimeApi({ runtimeGate: { close: jest.fn() }, interventionBinding: {}, processRunner: runner, runtimeProcessRootScope: rootScope } as never).cleanupForApplicationStop()
+      ? new SupervisorRuntimeApi({ runtimeGate: { close: jest.fn() }, processRunner: runner, runtimeProcessRootScope: rootScope } as never).cleanupForApplicationStop()
       : new McpManager({ configAuthority: {}, processRunner: runner, mcpProcessRootScope: rootScope, eventLogger: { appendEvent() {} } } as never).cleanupForApplicationStop();
     await expect(cleanup).resolves.toBeUndefined();
   });

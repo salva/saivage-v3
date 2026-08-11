@@ -7,7 +7,6 @@ import { invokeTool } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { createWebProvider } from '../../src/tools/web-tools.js';
 import { createWorkspaceProvider } from '../../src/tools/workspace-provider.js';
-import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
 describe('WebProvider', () => {
@@ -167,7 +166,7 @@ describe('WebProvider', () => {
     const content = '# Goal\nFetched\n# Instructions\nUse it\n# Acceptance Criteria\nSaved';
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(content, { status: 200, headers: { 'content-type': 'text/plain' } }));
     const write = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { record_url: 'record:///brief.md?card=project&v=2' } }));
-    const readiness = new RuntimeInterventionBinding(); readiness.markStoppedReady();
+    const readiness = Object.freeze({ assertInterventionReady() {} });
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { recordMutations: { write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);

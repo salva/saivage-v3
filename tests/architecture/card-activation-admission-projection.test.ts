@@ -28,7 +28,14 @@ describe('card activation admission projection call graph', () => {
     expect(owner).not.toContain('BaseActor');
     expect(provider).not.toMatch(/readActivationAdmission|beginStructuralWait|endStructuralWait|children\.get/);
     expect(provider).toContain('parentControl.activateChild'); expect(provider).toContain('parentControl.cancelChild');
-    expect(composition).not.toMatch(/markNotReady|markPausedReady|markStoppedReady/);
+    const obsoleteBinding = ['Runtime', 'Intervention', 'Binding'].join('');
+    const obsoleteSynchronization = new RegExp(['markNot', 'markPaused', 'markStopped'].map((prefix) => `${prefix}Ready`).join('|'));
+    expect(supervisor).not.toMatch(/private\s+started\b/);
+    expect(supervisor).not.toContain(obsoleteBinding);
+    expect(supervisor).not.toMatch(obsoleteSynchronization);
+    expect(composition).not.toContain(obsoleteBinding);
+    expect(composition).not.toMatch(obsoleteSynchronization);
+    expect(composition.match(/interventionReadiness: runtimeSupervisor/g)).toHaveLength(2);
   });
 
   it('keeps one required actor-built LLM invocation context contract', () => {

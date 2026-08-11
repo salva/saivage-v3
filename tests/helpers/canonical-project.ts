@@ -5,7 +5,6 @@ import { newProjectRootInput } from '../../src/boot/app.js';
 import { CardService as ProductionCardService } from '../../src/cards/card-service.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../../src/config/index.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../../src/application/freshness-effects.js';
-import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { createAnalystMutationServices, type AnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { publishInitialProjectCard } from '../../src/persistence/card-files.js';
 import { createProjectIdentity, readProjectIdentity } from '../../src/persistence/project-identity.js';
@@ -48,12 +47,6 @@ export class CardService extends ProductionCardService {
     return super.closeRecord(cardId,filename,version,agentName??definition.writers[0]!,cardVersionSeq??this.read(cardId)!.version_seq);
   }
   override discardRecord(cardId:string,filename:string,version:number,reason='test discard'){return super.discardRecord(cardId,filename,version,reason);}
-}
-
-export function testInterventionReadiness(): RuntimeInterventionBinding {
-  const readiness = new RuntimeInterventionBinding();
-  readiness.markStoppedReady();
-  return readiness;
 }
 
 export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService = new CardService(projectRoot), notifyCard?: (...args: any[]) => any): AnalystMutationServices {

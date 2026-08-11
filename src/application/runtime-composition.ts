@@ -25,7 +25,6 @@ import type { RestartPort } from '../boot/restart-port.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { FreshnessEffects } from './freshness-effects.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
-import { RuntimeInterventionBinding } from './intervention-readiness.js';
 import {
   compact,
   shouldCompact,
@@ -84,7 +83,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     restartServerAvailable = false,
     restartPort,
   } = services;
-  const interventionBinding = new RuntimeInterventionBinding();
   const eventQueries = new EventQueryService(projectRoot);
   const candidateAvailability = new MemoryCandidateAvailability();
   const conversations: ConversationFileContext = { projectRoot, changes: services.freshness };
@@ -143,7 +141,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     projectRoot,
     processIdentity: services.processIdentity,
     actorStore: cardStore,
-    interventionBinding,
     provider: createInvocationServiceProvider(invocationService),
     promptTemplates,
     workflows,
@@ -181,7 +178,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       const context: ToolContext = {
         projectRoot,
         configAuthority: services.configAuthority,
-        interventionReadiness: interventionBinding,
+        interventionReadiness: runtimeSupervisor,
         processRunner,
         processScope: directScope,
         store: cardStore,
@@ -258,7 +255,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       const context: ToolContext = {
         projectRoot,
         configAuthority: services.configAuthority,
-        interventionReadiness: interventionBinding,
+        interventionReadiness: runtimeSupervisor,
         processRunner,
         processScope: directScope,
         store: cardStore,

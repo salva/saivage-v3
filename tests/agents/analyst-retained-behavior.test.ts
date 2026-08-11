@@ -5,7 +5,6 @@ import { join } from 'node:path';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CAPABILITY_CLASSES, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
-import { RuntimeInterventionBinding } from '../../src/application/intervention-readiness.js';
 import { listControlActions } from '../../src/persistence/index.js';
 
 const roots: string[] = [];
@@ -14,8 +13,11 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 function harness(options: { ready?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-audit-'));
   roots.push(root);
-  const intervention = new RuntimeInterventionBinding();
-  if (options.ready !== false) intervention.markStoppedReady();
+  const intervention = Object.freeze({
+    assertInterventionReady() {
+      if (options.ready === false) throw new Error('Analyst mutation requires an intervention-ready stopped or settled paused runtime.');
+    },
+  });
   const context = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: intervention, analystPreparation: {}, analystMutations: {} } as never;
   const spec = (mutate: (...args: any[]) => any, extra: Record<string, unknown> = {}) => ({ action: 'card.test', safety_class: 'low' as const, target_kind: 'card' as const, getTargetId: () => 'project', lifecycle: 'intervention_ready' as const, mutate, ...extra });
   return { root, context, spec };
