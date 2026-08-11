@@ -10,7 +10,7 @@ import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/ll
 import { appendConversationBatch } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {
-  buildLlmInput(node: unknown, input: unknown, sessionId: string, inputId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition): PreparedLlmInvocationInput;
+  buildLlmInput(node: unknown, input: unknown, sessionId: string, inputId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown): PreparedLlmInvocationInput;
 };
 
 const roots: string[] = [];
@@ -50,11 +50,11 @@ describe('AgentNodeExecution LLM options', () => {
         escalate_summary_line_fraction: 0.5,
         snap: 'keep_straddler_verbatim',
       },
-      candidateChains: new Map([['planner', [{ provider: 'test', account: null, model: 'planner-model' }]]]),
     } as never, {} as never) as unknown as LlmInputBuilder;
 
     const operationalTool = { name: 'lookup', description: 'Lookup', inputSchema: z.object({ query: z.string() }).strict(), executor: async () => ({ success: true as const }) };
     const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'Emit result', parameters: { type: 'object' } } };
+    const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false } as const;
     const prepared = runner.buildLlmInput(
       { agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
       { card: { id: 'project', type: 'project', title: 'Project' }, caller: 'runtime' },
@@ -63,6 +63,7 @@ describe('AgentNodeExecution LLM options', () => {
       'direct result contract',
       { agentName: 'planner', tools: new Map([['lookup', operationalTool]]), providers: [] },
       terminalToolDefinition,
+      { contract: { model: { temperature: 0.2, maxTokens: 73 } }, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], capabilityRequest: retainedCapabilityRequest },
     );
 
     expect(prepared.preparedCompaction).toMatchObject({
@@ -72,6 +73,8 @@ describe('AgentNodeExecution LLM options', () => {
     expect(prepared.tools.map((tool) => tool.function.name)).toEqual(['lookup', 'emit_result']);
     expect(prepared.tools.filter((tool) => tool.function.name === 'emit_result')).toEqual([terminalToolDefinition]);
     expect(prepared.terminalToolNames).toEqual(['emit_result']);
+    expect(prepared.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true, streaming: false });
+    expect(prepared.capabilityRequest).toBe(retainedCapabilityRequest);
     expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
     expect(String(renderedVariables?.toolList)).toContain('lookup');
     expect(String(renderedVariables?.toolList)).not.toContain('emit_result');

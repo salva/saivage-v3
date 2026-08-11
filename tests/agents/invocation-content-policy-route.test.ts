@@ -14,7 +14,7 @@ const roots:string[]=[];
 afterEach(()=>{jest.restoreAllMocks();while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
 function refusal():Response{const body=JSON.stringify({error:{code:'content_filter',message:'content policy refusal'}});return new Response(body,{status:400,headers:{'content-type':'application/json'}});}
-function service(availability=new MemoryCandidateAvailability()):InvocationService{const projectRoot=mkdtempSync(join(tmpdir(),'content-policy-route-'));roots.push(projectRoot);return new InvocationService({projectRoot,registry:invocationProviderRegistry([first,second]),router:{getLastCapabilitySkips:()=>[]} as never,candidateAvailability:availability,freshness:NO_FRESHNESS_EFFECTS});}
+function service(availability=new MemoryCandidateAvailability()):InvocationService{const projectRoot=mkdtempSync(join(tmpdir(),'content-policy-route-'));roots.push(projectRoot);return new InvocationService({projectRoot,registry:invocationProviderRegistry([first,second]),candidateAvailability:availability,freshness:NO_FRESHNESS_EFFECTS});}
 function request(routePass:InvocationRequest['routePass'],signal?:AbortSignal):InvocationRequest{return {inputId:'00000000-0000-4000-8000-000000000001',agentName:'planner',sessionId:'agent:planner:project',systemPrompt:'system',providerConversation:{sourceSessionId:'agent:planner:project',messages:[]},tools:[],terminalToolNames:[],modelParams:{maxTokens:100},capabilityRequest:{},routePass,abortSignal:signal};}
 
 describe('content-policy route passes',()=>{

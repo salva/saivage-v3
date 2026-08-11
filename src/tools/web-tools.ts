@@ -9,7 +9,7 @@ import type { AgentName } from '../schemas/index.js';
 import { buildScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import { defineTool, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
+import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
@@ -224,21 +224,18 @@ async function fetchAnalystRecord(input: { url: string; read_mode?: ReadMode; ma
   return { content: Buffer.from(fetched.body).toString('utf8'), metadata };
 }
 
-export function createWebProvider(ctx: WebProviderContext): ToolProvider {
-  return {
-    providerName: 'web',
-    tools: [
-      defineTool({
+export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Object.freeze([
+      defineToolBinder({
         name: 'websearch',
         description: 'Search the public web for documentation and data sources.',
         inputSchema: websearchSchema,
-        executor: async (args, signal, invocation) => websearchCore(args, signal, invocation?.waits.waitExternal),
+        executor: async (_ctx, args, signal, invocation) => websearchCore(args, signal, invocation?.waits.waitExternal),
       }),
-      defineTool({
+      defineToolBinder({
         name: 'webfetch',
         description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Oversized text is stashed as stash_url, a work:///tmp/stash/<file> URL readable with read or grep.',
         inputSchema: webfetchSchema,
-        executor: async (args, signal, invocation) => {
+        executor: async (ctx, args, signal, invocation) => {
           const analyst = ctx.analystToolContext;
           if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);
           const preparedContext: ToolContext = { ...analyst, analystPreparation: { web: { fetchText: (input) => {
@@ -257,6 +254,8 @@ export function createWebProvider(ctx: WebProviderContext): ToolProvider {
           }, signal);
         },
       }),
-    ],
-  };
+]);
+
+export function createWebProvider(ctx: WebProviderContext): ToolProvider {
+  return bindToolProvider('web', webToolBinders, ctx);
 }

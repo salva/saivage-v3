@@ -57,12 +57,8 @@ describe('InvocationRecoveryPolicy', () => {
     }), baseContext)).toEqual({ kind: 'terminal' });
   });
 
-  it('returns direct no-candidate messages from only agent and capability diagnostics', () => {
-    expect(policy.decideNoCandidates({
-      agentName: 'planner',
-      capabilitySkips: [{ candidate, reasons: ['unsupported_exclusive_tool_choice'] }],
-    })).toBe("No capability-compatible candidates available for agent 'planner'. Skipped reasons: unsupported_exclusive_tool_choice.");
-    expect(policy.decideNoCandidates({ agentName: 'planner', capabilitySkips: [] }))
+  it('returns the installed-chain no-healthy-candidate message', () => {
+    expect(policy.decideNoCandidates({ agentName: 'planner' }))
       .toBe("No healthy candidates available for agent 'planner'.");
   });
 

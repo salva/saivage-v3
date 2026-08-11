@@ -1,4 +1,4 @@
-import { createAnalystControlTools } from './analyst-tool-registry.js';
+import { createAnalystControlTools, getAnalystControlToolBinders } from './analyst-tool-registry.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import type { ToolProvider } from './invocation.js';
 
@@ -8,3 +8,5 @@ export function createAnalystControlProvider(ctx: ToolContext): ToolProvider {
     tools: createAnalystControlTools(ctx),
   };
 }
+
+export { getAnalystControlToolBinders };

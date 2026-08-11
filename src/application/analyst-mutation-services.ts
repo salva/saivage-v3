@@ -98,7 +98,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     if (!canCreateChildInStatus(parentCard.lifecycle.status) || parentCard.lifecycle.status === 'running') return denied('wrong_state');
     if (input.type === 'project') return denied('Root project card already exists');
     const analyst=this.store.workflows.analyst;
-    if(!analyst.canCreateChildren||!analyst.tools.includes('create_card'))return denied(`agent '${analyst.name}' is not configured to create children`);
+    if(!analyst.canCreateChildren||!analyst.tools.some((tool)=>tool.name==='create_card'))return denied(`agent '${analyst.name}' is not configured to create children`);
     const allowed=this.store.workflows.cardTypes.get(parentCard.type)!.permittedChildTypes;if(!allowed.has(input.type))return denied(`child type '${input.type}' is not permitted under '${parentCard.type}'`);
     const card = this.store.create({ type: input.type, parent, title: input.title, bootstrap_content: input.bootstrap_content, tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: this.store.workflows.analyst.name as never, depends_on: input.depends_on ?? [], related: input.related ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
@@ -207,7 +207,7 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
 
   private resolve(path: string): { cardId: string; filename: string; recordUrl: string; card: CardRecord } {
     const target = resolveRecordWriteTarget({ projectRoot: this.projectRoot, records: this.store.recordReader, agent: { agentName: this.store.workflows.analyst.name }, fail: (message) => { throw new AnalystMutationDeniedError(message); } }, path);
-    const definition=this.store.recordReader.definition(target.cardId,target.filename);const analyst=this.store.workflows.analyst;if(!definition.writers.includes(analyst.name)||!analyst.tools.includes('write')||!analyst.tools.includes('edit'))throw new AnalystMutationDeniedError(`Analyst is not a configured writer for '${target.filename}'.`);
+    const definition=this.store.recordReader.definition(target.cardId,target.filename);const analyst=this.store.workflows.analyst;if(!definition.writers.includes(analyst.name)||!analyst.tools.some((tool)=>tool.name==='write')||!analyst.tools.some((tool)=>tool.name==='edit'))throw new AnalystMutationDeniedError(`Analyst is not a configured writer for '${target.filename}'.`);
     if (target.version !== 'next') throw new AnalystMutationDeniedError('Analyst record writes must use v=next.');
     const card = this.store.read(target.cardId);
     if (!card) throw new AnalystMutationDeniedError(`Card '${target.cardId}' not found.`);

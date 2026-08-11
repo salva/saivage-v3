@@ -1,9 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { ProviderRegistry } from './provider.js';
-import {
-  capabilityRequestForLlmOptions,
-  supportsCapabilityRequest,
-} from './provider-capabilities.js';
+import { supportsCapabilityRequest, type CapabilityRequest } from './provider-capabilities.js';
 import {
   CandidateRequestPlanIntegrityError,
   type CandidateRequestPlan,
@@ -22,6 +19,7 @@ export async function executeLlmProviderAttempt(args: {
   sessionId: string;
   plan: CandidateRequestPlan;
   options: LlmCompleteOptions;
+  capabilityRequest: CapabilityRequest;
 }): Promise<ProviderTurnCompletion> {
   const { plan, options } = args;
   options.signal?.throwIfAborted();
@@ -34,7 +32,7 @@ export async function executeLlmProviderAttempt(args: {
     );
   const match = supportsCapabilityRequest(
     plan.capabilities,
-    capabilityRequestForLlmOptions({ tools: options.tools, stream: options.stream }),
+    args.capabilityRequest,
   );
   if (!match.supported)
     throw new LlmRequestError({

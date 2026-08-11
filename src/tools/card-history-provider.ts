@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { ToolContext } from './analyst-tool-types.js';
-import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
+import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { diffCardInputSchema, getCardHistoryEntryInputSchema, listCardHistoryInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { cardHistoryHeaderSchema } from '../schemas/index.js';
@@ -10,30 +10,14 @@ export interface CardHistoryProviderContext {
   readonly store: ToolContext['store'];
 }
 
+export const cardHistoryToolBinders: readonly ToolBinder<CardHistoryProviderContext, any>[] = Object.freeze([
+  defineToolBinder({ name: 'list_card_history', description: 'List card history headers for a card.', inputSchema: listCardHistoryInputSchema, executor: async (ctx, args) => listCardHistory(ctx, args) }),
+  defineToolBinder({ name: 'get_card_history_entry', description: 'Get a specific card history entry snapshot.', inputSchema: getCardHistoryEntryInputSchema, executor: async (ctx, args) => getCardHistoryEntry(ctx, args) }),
+  defineToolBinder({ name: 'diff_card', description: 'Get a field-level diff between two card versions.', inputSchema: diffCardInputSchema, executor: async (ctx, args) => diffCard(ctx, args) }),
+]);
+
 export function createCardHistoryProvider(ctx: CardHistoryProviderContext): ToolProvider {
-  return {
-    providerName: 'card-history',
-    tools: [
-      defineTool({
-        name: 'list_card_history',
-        description: 'List card history headers for a card.',
-        inputSchema: listCardHistoryInputSchema,
-        executor: async (args) => listCardHistory(ctx, args),
-      }),
-      defineTool({
-        name: 'get_card_history_entry',
-        description: 'Get a specific card history entry snapshot.',
-        inputSchema: getCardHistoryEntryInputSchema,
-        executor: async (args) => getCardHistoryEntry(ctx, args),
-      }),
-      defineTool({
-        name: 'diff_card',
-        description: 'Get a field-level diff between two card versions.',
-        inputSchema: diffCardInputSchema,
-        executor: async (args) => diffCard(ctx, args),
-      }),
-    ],
-  };
+  return bindToolProvider('card-history', cardHistoryToolBinders, ctx);
 }
 
 async function listCardHistory(ctx: CardHistoryProviderContext, params: z.infer<typeof listCardHistoryInputSchema>): Promise<ToolResult> {

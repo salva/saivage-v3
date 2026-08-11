@@ -3,7 +3,6 @@ import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
-import type { ModelRouter } from './model-router.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
@@ -79,13 +78,11 @@ export type InvocationRequest = InvocationRequestBase &
 export interface InvocationServiceConfig {
   projectRoot: string;
   registry: ProviderRegistry;
-  router: ModelRouter;
   candidateAvailability: CandidateAvailability;
   freshness: Pick<FreshnessEffects, 'llmExchangeChanged'>;
 }
 
 export class InvocationService {
-  private readonly router: ModelRouter;
   private readonly projectRoot: string;
   private readonly candidateAvailability: CandidateAvailability;
   private readonly recoveryDelayMs: number;
@@ -96,7 +93,6 @@ export class InvocationService {
   constructor(config: InvocationServiceConfig) {
     this.projectRoot = config.projectRoot;
     this.registry = config.registry;
-    this.router = config.router;
     this.candidateAvailability = config.candidateAvailability;
     this.recoveryDelayMs = INVOCATION_RECOVERY_DELAY_MS;
     this.maxRecoveryRetries = MAX_INVOCATION_RECOVERY_RETRIES;
@@ -157,6 +153,7 @@ export class InvocationService {
       sessionId: request.sessionId,
       plan,
       options,
+      capabilityRequest: request.capabilityRequest,
     });
   }
 
@@ -369,10 +366,7 @@ export class InvocationService {
   }
 
   private throwNoCandidates(request: InvocationRequest, settled: ProviderExchangeAttempt[]): never {
-    const message = defaultInvocationRecoveryPolicy.decideNoCandidates({
-      agentName: request.agentName,
-      capabilitySkips: this.router.getLastCapabilitySkips(),
-    });
+    const message = defaultInvocationRecoveryPolicy.decideNoCandidates({ agentName: request.agentName });
     throw new ProviderTurnFailure({
       failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
       provider_exchanges: settled,

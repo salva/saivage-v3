@@ -28,6 +28,7 @@ describe('compaction summarizer projection boundary', () => {
       signal: new AbortController().signal,
     })).resolves.toBe('summary');
     expect(completeTurn).toHaveBeenCalledTimes(1);
+    expect((completeTurn.mock.calls as unknown as [[{ capabilityRequest: unknown }]])[0][0].capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true, streaming: false });
   });
 
   it('preserves provider, projection-publication, cancellation, and malformed-success identities', async () => {

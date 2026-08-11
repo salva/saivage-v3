@@ -3,7 +3,6 @@ import { unwrapFailure } from './llm-errors.js';
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision } from './candidate-availability.js';
-import type { CapabilitySkipDiagnostic } from './provider-capabilities.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
 interface InvocationFailureContext {
@@ -93,13 +92,8 @@ export class InvocationRecoveryPolicy {
     }
   }
 
-  decideNoCandidates(context: { agentName: AgentName; capabilitySkips?: CapabilitySkipDiagnostic[] }): string {
-    const capabilitySkips = context.capabilitySkips ?? [];
-    const capabilityOnly = capabilitySkips.length > 0;
-    const reasons = Array.from(new Set(capabilitySkips.flatMap((skip) => skip.reasons))).sort();
-    return capabilityOnly
-      ? `No capability-compatible candidates available for agent '${context.agentName}'. Skipped reasons: ${reasons.join(', ') || 'unknown'}.`
-      : `No healthy candidates available for agent '${context.agentName}'.`;
+  decideNoCandidates(context: { agentName: AgentName }): string {
+    return `No healthy candidates available for agent '${context.agentName}'.`;
   }
 }
 

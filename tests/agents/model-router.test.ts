@@ -13,9 +13,9 @@ describe('ModelRouter', () => {
     config.models.failover = { 'base-model': ['failover-model'] };
     config.providers = { test: { models: ['test-model', 'base-model', 'equivalent-model', 'failover-model'] } };
 
-    const router = new ModelRouter(config, new ProviderRegistry(config));
+    const router = new ModelRouter(new ProviderRegistry(config));
 
-    expect(router.resolve('analyst')).toEqual([
+    expect(router.resolveModels(['base-model', 'equivalent-model', 'failover-model'], { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false })).toEqual([
       { provider: 'test', account: null, model: 'base-model' },
       { provider: 'test', account: null, model: 'equivalent-model' },
       { provider: 'test', account: null, model: 'failover-model' },

@@ -8,6 +8,7 @@ import { AnalystSession, AnalystTurnBusyError } from '../../src/agents/analyst-h
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
+import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { defineTool, type InvocationSurface } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
@@ -34,15 +35,16 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     executor,
   });
   const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'demo', tools: [definition] }] };
+  const capabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false } as const;
   let turns = 0;
-  const completeTurn = jest.fn(async (): Promise<ProviderTurnCompletion> => ++turns === 1
+  const completeTurn = jest.fn(async (_input:LlmInvocationInput): Promise<ProviderTurnCompletion> => ++turns === 1
     ? toolCall(argumentsJson)
     : { result: { kind: 'message', content: 'done' }, provider_exchanges: [] });
   const session = new AnalystSession({
     fatalPort: testApplicationFatalPort,
     projectRoot,
     sessionId: 'agent:analyst:global',
-    config: TEST_SAIVAGE_CONFIG,
+    agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest,
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => 'test analyst prompt' },
     restartServerAvailable: false,
@@ -56,7 +58,7 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     createInvocationSurface: () => surface,
     shutdownProcesses: async () => {},
   });
-  return { session, completeTurn };
+  return { session, completeTurn, capabilityRequest };
 }
 
 describe('Analyst parsed tool invocation', () => {
@@ -74,6 +76,7 @@ describe('Analyst parsed tool invocation', () => {
     await expect(loser).rejects.toBeInstanceOf(AnalystTurnBusyError);
     await new Promise((resolve) => setImmediate(resolve));
     expect(test.completeTurn).toHaveBeenCalledTimes(1);
+    expect(test.completeTurn.mock.calls[0]![0].capabilityRequest).toBe(test.capabilityRequest);
 
     release();
     await expect(winner).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });

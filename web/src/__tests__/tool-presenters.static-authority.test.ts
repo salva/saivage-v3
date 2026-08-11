@@ -5,7 +5,7 @@ import { buildToolDisplay, isKnownTool } from '../utils/tool-friendly';
 import type { ToolPair } from '../utils/agent-timeline';
 import { callEnvelope, inlineText } from './tool-presenters/_helpers';
 
-// Oracle derived from buildAgentSurface, provider implementations, autonomous
+// Oracle derived from provider-owned runtime tool specifications, autonomous
 // emit_result composition, and the canonical generated Agent-tools table.
 const CURRENT_TOOL_CALL_FIXTURES = {
   activate_card: { card_id: 'card-a' }, apply_patch: { patch: '*** Begin Patch' },

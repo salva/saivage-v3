@@ -66,7 +66,7 @@ export const testAutonomousCompaction = {
   compactionConfig: testCompactionPolicy,
   summarizerProvider: unusedSummarizerProvider,
   mcpToolInvocation: unusedMcpToolInvocation,
-  workflows: bindRuntimeWorkflows(TEST_WORKFLOWS,new ModelRouter(TEST_SAIVAGE_CONFIG,new ProviderRegistry(TEST_SAIVAGE_CONFIG))),
+  workflows: bindRuntimeWorkflows(TEST_WORKFLOWS,new ModelRouter(new ProviderRegistry(TEST_SAIVAGE_CONFIG))),
   processPrompts: { get: (_cardType: string, promptId: string) => `test process prompt: ${promptId}` },
 };
 

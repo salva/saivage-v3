@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { composeInvocationSurface, defineTool, invokeTool, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
+import { defineTool, invokeTool, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
@@ -18,45 +18,6 @@ describe('tool invocation surface', () => {
         executor: async (args) => ({ success: true, data: { value: args.value } }),
       }),
     ],
-  });
-
-  it('throws on duplicate provider tool names during production composition', () => {
-    expect(() => composeInvocationSurface('executor', ['demo'], [provider('a'), provider('b')])).toThrow("Duplicate tool 'demo' from provider 'b'.");
-  });
-
-  it('composes requested tools and provider projections in their contract orders', () => {
-    const firstProvider = provider('a', 'first');
-    const secondProvider: ToolProvider = {
-      providerName: 'b',
-      tools: [provider('b', 'second').tools[0]!, provider('b', 'fourth').tools[0]!],
-    };
-    const surface = composeInvocationSurface('executor', ['fourth', 'second', 'first'], [firstProvider, secondProvider, provider('unused', 'third')]);
-
-    expect([...surface.tools.keys()]).toEqual(['fourth', 'second', 'first']);
-    expect(surface.providers.map(({ providerName }) => providerName)).toEqual(['a', 'b']);
-    expect(surface.providers.map(({ tools }) => tools.map(({ name }) => name))).toEqual([['first'], ['fourth', 'second']]);
-  });
-
-  it('rejects unknown and duplicate requested tool names', () => {
-    expect(() => composeInvocationSurface('executor', ['missing'], [provider('a')])).toThrow("Unknown requested tool 'missing'.");
-    expect(() => composeInvocationSurface('executor', ['demo', 'demo'], [provider('a')])).toThrow("Duplicate requested tool 'demo'.");
-  });
-
-  it('binds selected-provider cleanup to the original provider', async () => {
-    const reasons: unknown[] = [];
-    const original: ToolProvider & { readonly marker: string } = {
-      ...provider('owned'),
-      marker: 'original',
-      cleanup(reason) {
-        reasons.push({ receiver: this, reason });
-      },
-    };
-    const reason = { kind: 'session_closed' } as const;
-    const surface = composeInvocationSurface('executor', ['demo'], [original]);
-
-    await surface.providers[0]!.cleanup?.(reason);
-
-    expect(reasons).toEqual([{ receiver: original, reason }]);
   });
 
   it('builds complete fixtures with provider and tool identity in supplied order', () => {

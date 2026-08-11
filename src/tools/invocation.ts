@@ -19,6 +19,16 @@ export interface ToolDefinition<Args = unknown> {
   readonly executor: (args: Args, signal: AbortSignal, context?: LlmToolInvocationContext) => Promise<ToolResult>;
 }
 
+export interface ToolSpecification<Args = unknown> {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: z.ZodType<Args>;
+}
+
+export interface ToolBinder<Context, Args = unknown> extends ToolSpecification<Args> {
+  bind(context: Context): ToolDefinition<Args>;
+}
+
 export type ToolProviderCleanupReason =
   | { kind: 'activation_settled'; status: 'done' | 'blocked' | 'failed' | 'cancelled' }
   | { kind: 'session_closed' }
@@ -45,33 +55,27 @@ export function defineTool<Schema extends z.ZodTypeAny>(definition: {
   return definition;
 }
 
-export function composeInvocationSurface(agentName: AgentName, toolNames: readonly string[], providers: readonly ToolProvider[]): InvocationSurface {
-  const definitions = new Map<string, { definition: ToolDefinition<any>; provider: ToolProvider }>();
-  for (const provider of providers) {
-    for (const definition of provider.tools) {
-      if (definitions.has(definition.name)) throw new Error(`Duplicate tool '${definition.name}' from provider '${provider.providerName}'.`);
-      definitions.set(definition.name, { definition, provider });
-    }
-  }
-
-  const tools = new Map<string, ToolDefinition<any>>();
-  const selectedByProvider = new Map<ToolProvider, ToolDefinition<any>[]>();
-  for (const name of toolNames) {
-    if (tools.has(name)) throw new Error(`Duplicate requested tool '${name}'.`);
-    const selected = definitions.get(name);
-    if (!selected) throw new Error(`Unknown requested tool '${name}'.`);
-    tools.set(name, selected.definition);
-    const providerTools = selectedByProvider.get(selected.provider) ?? [];
-    providerTools.push(selected.definition);
-    selectedByProvider.set(selected.provider, providerTools);
-  }
-
-  const selectedProviders = providers.flatMap((provider) => {
-    const selectedTools = selectedByProvider.get(provider);
-    if (!selectedTools) return [];
-    return [{ providerName: provider.providerName, tools: Object.freeze(selectedTools), ...(provider.cleanup ? { cleanup: provider.cleanup.bind(provider) } : {}) } satisfies ToolProvider];
+export function defineToolBinder<Schema extends z.ZodTypeAny, Context = any>(definition: {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: Schema;
+  readonly executor: (context: Context, args: z.infer<Schema>, signal: AbortSignal, invocation?: LlmToolInvocationContext) => Promise<ToolResult>;
+}): ToolBinder<Context, z.infer<Schema>> {
+  return Object.freeze({
+    name: definition.name,
+    description: definition.description,
+    inputSchema: definition.inputSchema,
+    bind: (context: Context) => defineTool({
+      name: definition.name,
+      description: definition.description,
+      inputSchema: definition.inputSchema,
+      executor: (args, signal, invocation) => definition.executor(context, args, signal, invocation),
+    }),
   });
-  return { agentName, tools, providers: selectedProviders };
+}
+
+export function bindToolProvider<Context>(providerName: string, binders: readonly ToolBinder<Context, any>[], context: Context): ToolProvider {
+  return { providerName, tools: binders.map((binder) => binder.bind(context)) };
 }
 
 export async function invokeTool(surface: InvocationSurface, name: string, args: unknown, signal: AbortSignal = new AbortController().signal, context?: LlmToolInvocationContext): Promise<ToolResult> {
@@ -108,7 +112,7 @@ function abortError(signal: AbortSignal): Error {
   return new Error(typeof reason === 'string' ? reason : 'Tool invocation was interrupted.');
 }
 
-export function llmToolDefinition(tool: ToolDefinition<any>): LlmToolDefinition {
+export function llmToolDefinition(tool: ToolSpecification<any>): LlmToolDefinition {
   return {
     type: 'function',
     function: {

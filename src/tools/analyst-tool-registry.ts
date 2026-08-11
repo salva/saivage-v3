@@ -1,9 +1,9 @@
-import { analystCardTools } from './analyst-card-tools.js';
-import { analystMiscTools } from './analyst-misc-tools.js';
-import { analystRuntimeTools } from './analyst-runtime-tools.js';
-import { analystWorkspaceTools } from './analyst-workspace-tools.js';
+import { analystCardToolBinders } from './analyst-card-tools.js';
+import { analystMiscToolBinders } from './analyst-misc-tools.js';
+import { analystRuntimeToolBinders } from './analyst-runtime-tools.js';
+import { analystNavigationToolBinders } from './analyst-workspace-tools.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import type { ToolDefinition } from './invocation.js';
+import type { ToolBinder, ToolDefinition } from './invocation.js';
 
 const analystToolOrder = [
   'create_card',
@@ -30,21 +30,29 @@ const analystToolOrder = [
   'delete_card',
 ] as const;
 
-export function createAnalystControlTools(ctx: ToolContext): readonly ToolDefinition<any>[] {
+let analystControlToolBinderCache: readonly ToolBinder<ToolContext, any>[] | null = null;
+
+export function getAnalystControlToolBinders(): readonly ToolBinder<ToolContext, any>[] {
+  if (analystControlToolBinderCache) return analystControlToolBinderCache;
   const definitions = [
-    ...analystCardTools(ctx),
-    ...analystRuntimeTools(ctx),
-    ...analystWorkspaceTools(ctx),
-    ...analystMiscTools(ctx),
+    ...analystCardToolBinders,
+    ...analystRuntimeToolBinders,
+    ...analystNavigationToolBinders,
+    ...analystMiscToolBinders,
   ];
-  const byName = new Map<string, ToolDefinition<any>>();
+  const byName = new Map<string, ToolBinder<ToolContext, any>>();
   for (const tool of definitions) {
     if (byName.has(tool.name)) throw new Error(`Duplicate Analyst tool definition for ${tool.name}`);
     byName.set(tool.name, tool);
   }
-  return analystToolOrder.map((name) => {
+  analystControlToolBinderCache = Object.freeze(analystToolOrder.map((name) => {
     const tool = byName.get(name);
     if (!tool) throw new Error(`Missing Analyst tool definition for ${name}`);
     return tool;
-  });
+  }));
+  return analystControlToolBinderCache;
+}
+
+export function createAnalystControlTools(ctx: ToolContext): readonly ToolDefinition<any>[] {
+  return getAnalystControlToolBinders().map((binder) => binder.bind(ctx));
 }

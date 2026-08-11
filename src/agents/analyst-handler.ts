@@ -5,11 +5,9 @@ import {
   formatVocabularySnippet,
 } from './analyst-prompt.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
-import { getModelParamsForAgent } from '../schemas/saivage-config.js';
-import type { SaivageConfig } from '../schemas/saivage-config.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { CardService } from '../cards/card-api.js';
-import { capabilityRequestForLlmOptions } from './provider-capabilities.js';
+import type { CapabilityRequest } from './provider-capabilities.js';
 import { buildAgentProtocolViolation, parseProtocolToolArgs } from './agent-protocol-violation.js';
 import { buildAnalystIngressRows, buildAnalystRestartRows, providerConversationProjection,
 } from '../runtime/actors/conversation-session.js';
@@ -137,7 +135,9 @@ export class AnalystTurnBusyError extends Error {
 export class AnalystSession {
   readonly #projectRoot: string;
   readonly #sessionId: GlobalConversationSessionId;
-  readonly #config: SaivageConfig;
+  readonly #agentName: import('../schemas/index.js').AgentName;
+  readonly #modelParams: Readonly<{ temperature: number; maxTokens: number }>;
+  readonly #capabilityRequest: CapabilityRequest;
   readonly #candidateChain:readonly Candidate[];
   readonly #promptTemplates: PromptTemplateRegistry;
   readonly #restartServerAvailable: boolean;
@@ -156,7 +156,9 @@ export class AnalystSession {
   constructor(input: {
     projectRoot: string;
     sessionId: GlobalConversationSessionId;
-    config: SaivageConfig;
+    agentName: import('../schemas/index.js').AgentName;
+    modelParams: Readonly<{ temperature: number; maxTokens: number }>;
+    capabilityRequest: CapabilityRequest;
     candidateChain:readonly Candidate[];
     promptTemplates: PromptTemplateRegistry;
     restartServerAvailable: boolean;
@@ -174,7 +176,9 @@ export class AnalystSession {
   }) {
     this.#projectRoot = input.projectRoot;
     this.#sessionId = input.sessionId;
-    this.#config = input.config;
+    this.#agentName = input.agentName;
+    this.#modelParams = input.modelParams;
+    this.#capabilityRequest = input.capabilityRequest;
     this.#candidateChain=Object.freeze([...input.candidateChain]);
     this.#promptTemplates = input.promptTemplates;
     this.#restartServerAvailable = input.restartServerAvailable;
@@ -215,7 +219,7 @@ export class AnalystSession {
     return Object.freeze({
       sessionId: this.#sessionId,
       agentId: this.#llm.agentId,
-      agentName: this.#config.analyst_agent,
+      agentName: this.#agentName,
       cardId: null,
       activity: this.#llm.executingActivity(),
     });
@@ -285,7 +289,7 @@ export class AnalystSession {
         params = {};
         const violation = buildAgentProtocolViolation({
           session_id: this.#sessionId,
-          agent_name: this.#config.analyst_agent,
+          agent_name: this.#agentName,
           tool_call_id: outcome.toolCallId,
           tool_name: outcome.toolName,
           violation: parsed.violation,
@@ -389,8 +393,7 @@ export class AnalystSession {
     surface: InvocationSurface,
   ): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const tools = surfaceToolDefinitions(surface);
-    const modelParams = getModelParamsForAgent(this.#config, this.#config.analyst_agent);
-    const systemPrompt = this.#promptTemplates.render('global', this.#config.analyst_agent, {
+    const systemPrompt = this.#promptTemplates.render('global', this.#agentName, {
       toolList: formatPromptToolList(tools),
       vocabularySnippet: formatVocabularySnippet(),
       projectContext: this.buildProjectContext(),
@@ -398,19 +401,19 @@ export class AnalystSession {
     return {
       inputId: randomUUID(),
       agentId: this.#llm.agentId,
-      agentName: this.#config.analyst_agent,
+      agentName: this.#agentName,
       sessionId: this.#sessionId,
       systemPrompt,
       tools,
       terminalToolNames: [],
-      modelParams: { temperature: modelParams.temperature },
+      modelParams: { temperature: this.#modelParams.temperature },
       preparedCompaction: prepareCompaction(
         this.#compactionPolicy,
         systemPrompt,
         tools,
-        modelParams.maxTokens,
+        this.#modelParams.maxTokens,
       ),
-      capabilityRequest: capabilityRequestForLlmOptions({ tools, stream: false }),
+      capabilityRequest: this.#capabilityRequest,
       routePass: { kind: 'ordinary', candidateChain: this.#candidateChain },
       episodeContext: { surface: 'web-chat' },
     };

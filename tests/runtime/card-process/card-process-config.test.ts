@@ -101,7 +101,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(Object.isFrozen(review.descendantContext.records)).toBe(true);
     expect(Object.isFrozen(plan.agent.tools)).toBe(true);
     expect(Object.isFrozen(plan.agent.model)).toBe(true);
-    expect(Object.isFrozen(plan.agent.model.candidates)).toBe(true);
+    expect(Object.isFrozen(plan.agent.model.orderedModelIds)).toBe(true);
 
     for (const state of goal.states.values()) {
       expect(Object.isFrozen(state)).toBe(true);
@@ -144,9 +144,9 @@ describe('named-agent card-type workflow compilation',()=>{
     expect((compiled.cardTypes as Map<unknown,unknown>).set).toBeUndefined();
     expect(compiled.cardTypes.get('project')).not.toBe(compiled.cardTypes.get('goal'));
     for(const type of ['architecture','code','test','doc','data','research','ops'] as const)expect(compiled.cardTypes.get(type)?.states.get('node:execute')).toMatchObject({kind:'node',nodeId:'execute'});
-    expect(compiled.agents.get('planner')?.tools).toEqual(['create_card','edit_card','cancel_card','activate_card','reorder_child','queue_notification','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_history','get_card_history_entry','diff_card','websearch','webfetch']);
-    expect(compiled.agents.get('reviewer')?.tools).not.toContain('mcp_tool_call');
-    expect(compiled.agents.get('executor')?.tools).toContain('mcp_tool_call');
+    expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reorder_child','queue_notification','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_history','get_card_history_entry','diff_card','websearch','webfetch']);
+    expect(compiled.agents.get('reviewer')?.tools.map((tool)=>tool.name)).not.toContain('mcp_tool_call');
+    expect(compiled.agents.get('executor')?.tools.map((tool)=>tool.name)).toContain('mcp_tool_call');
     expect(compiled.agents.get('analyst')?.tools).toHaveLength(41);
   });
 
@@ -188,9 +188,9 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('binds configured provider candidates once and fails when a required route has none',()=>{
-    const valid=source();valid.providers={test:{models:['gpt-5.6']}};const structural=compileProjectWorkflows(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(valid,new ProviderRegistry(valid)));
-    expect(bound.runtimeBound).toBe(true);expect(bound.candidateChains.get('reviewer')).toEqual([expect.objectContaining({provider:'test',model:'gpt-5.6'})]);
-    const unavailable=source();const unbound=compileProjectWorkflows(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(unavailable,new ProviderRegistry(unavailable)))).toThrow(/no capability-compatible configured provider candidate/);
+    const valid=source();valid.providers={test:{models:['gpt-5.6']}};const structural=compileProjectWorkflows(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(new ProviderRegistry(valid)));
+    expect(bound.runtimeBound).toBe(true);expect(bound.agentBindings.get('reviewer')?.candidateChain).toEqual([expect.objectContaining({provider:'test',model:'gpt-5.6'})]);
+    const unavailable=source();const unbound=compileProjectWorkflows(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(new ProviderRegistry(unavailable)))).toThrow(/no capability-compatible configured provider candidate/);
   });
 
   it('rejects missing agents, invalid writer capability, invalid child authority, and graph defects',()=>{
@@ -198,6 +198,12 @@ describe('named-agent card-type workflow compilation',()=>{
     failure((value)=>{value.card_types.code!.records['status.md']!.writers=[];},/writer authority/);
     failure((value)=>{value.agents.planner!.can_create_children=false;},/cannot list create_card/);
     failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges={loop:{target:{node:'execute'},prompt:'execute'}};},/no path to a terminal/);
+  });
+
+  it('rejects unknown and wrong-scope tools during offline structural compilation',()=>{
+    failure((value)=>{value.agents.planner!.tools.push('get_status');},/unknown tool 'get_status' for card session scope/);
+    failure((value)=>{value.agents.analyst!.tools.push('activate_card');},/unknown tool 'activate_card' for global session scope/);
+    failure((value)=>{value.agents.reviewer!.tools.push('not_a_tool');},/unknown tool 'not_a_tool' for card session scope/);
   });
 
   it('uses intentionally local export and latest-node promotion validation',()=>{

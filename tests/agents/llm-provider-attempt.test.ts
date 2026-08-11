@@ -10,6 +10,7 @@ import { LlmRequestError } from '../../src/agents/llm-errors.js';
 const candidate = { provider: 'test', account: null, model: 'model' } as const;
 const options = (signal?: AbortSignal): LlmCompleteOptions => ({ inputId: 'input', contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });
 const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, streaming: false, quirks: [] };
+const capabilityRequest = { requiresTools: false, requiresExclusiveToolChoice: true, streaming: false } as const;
 
 function fixture(overrides: Partial<LlmProtocolAdapter> = {}): { plan: CandidateRequestPlan; registry: never; trace: string[] } {
   const trace: string[] = [];
@@ -38,26 +39,38 @@ describe('shared LLM provider attempt', () => {
 
   it('fails an already cancelled attempt before credentials, wire derivation, or fetch', async () => {
     const reason = new Error('already stopped'); const controller = new AbortController(); controller.abort(reason); const value = fixture(); const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options(controller.signal) })).rejects.toBe(reason);
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options(controller.signal) })).rejects.toBe(reason);
     expect(value.trace).toEqual([]); expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('throws the singular integrity error before capability, credentials, wire, recorder, or fetch', async () => {
     const value = fixture(); value.plan.request.serializedBody = '{"corrupt":true}'; const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'summary:test', plan: value.plan, options: options() });
+    const pending = executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'summary:test', plan: value.plan, capabilityRequest, options: options() });
     await expect(pending).rejects.toBeInstanceOf(CandidateRequestPlanIntegrityError); expect(value.trace).toEqual([]); expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('checks capabilities before credentials and attempt start', async () => {
     const value = fixture(); value.plan.capabilities = { ...capabilities, toolsMode: 'unsupported' }; const opts = options(); opts.tools = [{ type: 'function', function: { name: 'x', description: 'x', parameters: {} } }]; const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: opts })).rejects.toMatchObject({ failure: { kind: 'capability_mismatch' } });
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest: { ...capabilityRequest, requiresTools: true }, options: opts })).rejects.toMatchObject({ failure: { kind: 'capability_mismatch' } });
     expect(value.trace).toEqual([]); expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('admits with the explicit retained request instead of recomputing from transport options', async () => {
+    const value = fixture();
+    value.plan.capabilities = { ...capabilities, toolsMode: 'unsupported' };
+    const opts = options();
+    opts.tools = [{ type: 'function', function: { name: 'x', description: 'x', parameters: {} } }];
+    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
+
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: opts }))
+      .resolves.toMatchObject({ result: { kind: 'message', content: 'ok' } });
+    expect(value.trace).toEqual(['credentials', 'wire']);
   });
 
   it('resolves credentials before wire derivation and settles one success with terminal evidence', async () => {
     const value = fixture({ parseSuccess: async () => ({ result: { kind: 'tool_calls', tool_calls: [{ id: '1', type: 'function', function: { name: 'done', arguments: '{}' } }], usage: { total_tokens: 2 } }, finishReason: 'tool_calls' }) });
     jest.spyOn(globalThis, 'fetch').mockImplementation(async () => { value.trace.push('fetch'); return new Response('{}', { status: 200 }); });
-    const result = await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() });
+    const result = await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() });
     expect(value.trace).toEqual(['credentials', 'wire', 'fetch']); expect(result.provider_exchanges).toHaveLength(1); expect(result.provider_exchanges[0]).toMatchObject({ status: 'ok', response_status: 200, terminal_tool_fired: 'done' });
   });
 
@@ -75,20 +88,20 @@ describe('shared LLM provider attempt', () => {
       value.trace.push('fetch');
       return new Response('{}', { status: 200 });
     });
-    await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() });
+    await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() });
     expect(capabilityReads).toBe(1);
     expect(value.trace).toEqual(['credentials', 'wire', 'fetch']);
   });
 
   it('records a raw fetch error before generic recovery classification', async () => {
     const value = fixture(); jest.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('socket closed'));
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() })).rejects.toMatchObject({ provider_exchanges: [{ status: 'error', error: { name: 'TypeError', message: 'socket closed' } }], originalFailure: { failure: { kind: 'unknown' } } });
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() })).rejects.toMatchObject({ provider_exchanges: [{ status: 'error', error: { name: 'TypeError', message: 'socket closed' } }], originalFailure: { failure: { kind: 'unknown' } } });
   });
 
   it('records a non-Error throw with ordinary evidence before classifying it', async () => {
     const value = fixture();
     jest.spyOn(globalThis, 'fetch').mockRejectedValue('socket closed');
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() })).rejects.toMatchObject({
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() })).rejects.toMatchObject({
       provider_exchanges: [{ status: 'error', error: { name: 'Error', message: 'socket closed' } }],
       originalFailure: { failure: { kind: 'unknown', message: 'socket closed' } },
     });
@@ -96,24 +109,24 @@ describe('shared LLM provider attempt', () => {
 
   it('records an identity-equal custom owner reason raw, then types cancellation without generic classification', async () => {
     const value = fixture(); const controller = new AbortController(); const reason = new Error('owner stopped'); jest.spyOn(globalThis, 'fetch').mockImplementation(async () => { controller.abort(reason); throw reason; });
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options(controller.signal) })).rejects.toMatchObject({ provider_exchanges: [{ status: 'error', error: { name: 'Error', message: 'owner stopped' } }], originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } } });
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options(controller.signal) })).rejects.toMatchObject({ provider_exchanges: [{ status: 'error', error: { name: 'Error', message: 'owner stopped' } }], originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } } });
   });
 
   it('does not relabel a distinct error merely because the signal is aborted', async () => {
     const value = fixture(); const controller = new AbortController(); const reason = new Error('same'); const distinct = new Error('same'); jest.spyOn(globalThis, 'fetch').mockImplementation(async () => { controller.abort(reason); throw distinct; });
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options(controller.signal) })).rejects.toMatchObject({ originalFailure: { failure: { kind: 'unknown' } } });
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options(controller.signal) })).rejects.toMatchObject({ originalFailure: { failure: { kind: 'unknown' } } });
   });
 
   it('records typed HTTP status before exposing the same typed recovery failure', async () => {
     const value = fixture(); jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('bad', { status: 503 }));
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() })).rejects.toMatchObject({ provider_exchanges: [{ status: 'error', response_status: 503, error: { name: 'LlmRequestError', status: 503 } }], originalFailure: { failure: { kind: 'server_transient', status: 503 } } });
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() })).rejects.toMatchObject({ provider_exchanges: [{ status: 'error', response_status: 503, error: { name: 'LlmRequestError', status: 503 } }], originalFailure: { failure: { kind: 'server_transient', status: 503 } } });
   });
 
   it('records a parser-produced typed failure exactly once before exposing it unchanged to recovery', async () => {
     const parseFailure = new LlmRequestError({ kind: 'server_transient', provider: 'test', status: 200, message: 'malformed provider payload' });
     const value = fixture({ parseSuccess: async () => { throw parseFailure; } });
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() })).rejects.toMatchObject({
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() })).rejects.toMatchObject({
       provider_exchanges: [{ status: 'error', response_status: 200, error: { name: 'LlmRequestError', message: 'malformed provider payload', status: 200 } }],
       originalFailure: parseFailure,
     });
@@ -127,7 +140,7 @@ describe('shared LLM provider attempt', () => {
     });
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('data: failure\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } }));
     try {
-      await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() });
+      await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() });
       throw new Error('Expected provider attempt to fail.');
     } catch (error) {
       expect(error).toMatchObject({
@@ -170,6 +183,7 @@ describe('shared LLM provider attempt', () => {
       registry: value.registry,
       sessionId: 'agent:planner:project',
       plan: value.plan,
+      capabilityRequest,
       options: options(),
     });
 
@@ -181,7 +195,7 @@ describe('shared LLM provider attempt', () => {
     const value = fixture();
     value.registry = { get: () => undefined } as never;
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() })).rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_provider' } });
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() })).rejects.toMatchObject({ failure: { kind: 'local_setup_error', reason: 'missing_provider' } });
     expect(value.trace).toEqual([]);
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -196,7 +210,7 @@ describe('shared LLM provider attempt', () => {
     });
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('bad', { status: 503 }));
     try {
-      await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, options: options() });
+      await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest, options: options() });
       throw new Error('Expected provider attempt to fail.');
     } catch (error) {
       expect(classifications).toBe(1);

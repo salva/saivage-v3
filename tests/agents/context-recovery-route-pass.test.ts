@@ -38,5 +38,5 @@ describe('authoritative context route-pass ordering', () => {
 function invocationService(candidates: Candidate[]): InvocationService {
   const root = mkdtempSync(join(tmpdir(), 'saivage-context-route-pass-'));
   roots.push(root);
-  return new InvocationService({ projectRoot: root, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry(candidates), router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability() });
+  return new InvocationService({ projectRoot: root, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry(candidates), candidateAvailability: new MemoryCandidateAvailability() });
 }

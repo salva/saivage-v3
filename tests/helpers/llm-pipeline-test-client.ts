@@ -17,6 +17,6 @@ export class LlmPipelineTestClient {
     const implicitAccount = { name: '_implicit', models: [candidate.model], apiKey: undefined, baseUrl: undefined, authProfile: undefined };
     const provider = { name: candidate.provider, models: [candidate.model], apiKey: this.config.apiKey, baseUrl: this.config.baseUrl, authProfile: undefined, implicitAccount, getAllAccounts: () => [] };
     const registry = { get: () => provider, getEffectiveCapabilities: () => capabilities } as unknown as ProviderRegistry;
-    return executeLlmProviderAttempt({ projectRoot: process.cwd(), registry, sessionId, plan, options });
+    return executeLlmProviderAttempt({ projectRoot: process.cwd(), registry, sessionId, plan, options, capabilityRequest: { requiresTools: options.tools.length > 0, requiresExclusiveToolChoice: true, streaming: options.stream === true } });
   }
 }

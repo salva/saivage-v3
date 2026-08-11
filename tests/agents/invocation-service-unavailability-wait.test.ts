@@ -42,7 +42,6 @@ function service(args: { chain?: Candidate[]; availability?: MemoryCandidateAvai
     freshness: NO_FRESHNESS_EFFECTS,
     projectRoot,
     registry: invocationProviderRegistry(chain.length > 0 ? chain : [candidate]),
-    router: { resolve: async () => chain, getLastCapabilitySkips: () => [] } as never,
     candidateAvailability: args.availability ?? new MemoryCandidateAvailability(),
   });
 }
@@ -159,7 +158,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
         return { result: { kind: 'message', content: 'summary recovered' }, provider_exchanges: [exchange('unindexed', 9, 'ok')] };
       }
     }
-    const invocation = new ScriptedService({ projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([candidate]), router: { getLastCapabilitySkips: () => [] } as never, candidateAvailability: new MemoryCandidateAvailability() });
+    const invocation = new ScriptedService({ projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([candidate]), candidateAvailability: new MemoryCandidateAvailability() });
     const pending = invocation.invokeWithRecovery(request([candidate]));
 
     await jest.advanceTimersByTimeAsync(60_000);

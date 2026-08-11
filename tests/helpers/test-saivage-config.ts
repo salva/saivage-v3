@@ -4,7 +4,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config
 export const TEST_SAIVAGE_CONFIG = saivageConfigSchema.parse({
   ...structuredClone(DEFAULT_SAIVAGE_CONFIG),
   models: { routes:Object.fromEntries(Object.keys(DEFAULT_SAIVAGE_CONFIG.models.routes).map((name)=>[name,{candidates:['test-model'],temperature:0.2,max_tokens:200}])),profiles:{},equivalents:[],failover:{} },
-  providers: { test: { models: ['test-model'] } },
+  providers: { test: { models: ['test-model'], capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', streaming: false, contextWindowTokens: 100000, maxOutputTokens: 10000 } } },
   compaction: {
     enabled: true,
     input_budget_tokens: 1000,

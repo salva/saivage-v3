@@ -15,7 +15,7 @@ describe('compiled Debug graph projection', () => {
     try {
       const authority = createTestConfigAuthority(root);
       const current = authority.loadEffective();
-      const bind = (effective: typeof current) => bindRuntimeWorkflows(effective.workflows, new ModelRouter(effective.config, new ProviderRegistry(effective.config)));
+      const bind = (effective: typeof current) => bindRuntimeWorkflows(effective.workflows, new ModelRouter(new ProviderRegistry(effective.config)));
       const startup = bind(current);
       const before = projectCompiledGraphs(startup);
       expect(authority.applyChange({ kind: 'set_agent_model_route', agent: 'planner', modelRoute: 'executor' })).toMatchObject({ success: true, requires_restart: true });
@@ -32,7 +32,7 @@ describe('compiled Debug graph projection', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-graphs-shape-'));
     try {
       const effective = createTestConfigAuthority(root, { config: TEST_SAIVAGE_CONFIG }).loadEffective();
-      const workflows = bindRuntimeWorkflows(effective.workflows, new ModelRouter(effective.config, new ProviderRegistry(effective.config)));
+      const workflows = bindRuntimeWorkflows(effective.workflows, new ModelRouter(new ProviderRegistry(effective.config)));
       const graph = projectCompiledGraphs(workflows).graphs.find((candidate) => candidate.card_type === 'project')!;
       expect(graph.entries).toEqual([
         { entry: 'BACKLOG', node_id: 'plan', prompt_reference: null },

@@ -291,7 +291,6 @@ function invocationService(
     projectRoot: root,
     freshness,
     registry: {} as never,
-    router: {} as never,
     candidateAvailability: {} as never,
   });
 }

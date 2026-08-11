@@ -7,6 +7,7 @@ import {
   type CardProcessEntry,
   type CompiledCardTypeWorkflow,
   type CompiledRuntimeWorkflows,
+  runtimeAgentBinding,
 } from './card-process-config.js';
 
 const entries = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
@@ -45,11 +46,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
     }));
     const nodeStates = [...workflow.states.values()].filter((state) => state.kind === 'node');
     const nodes = nodeStates.map((node) => {
-      const candidates = workflows.candidateChains.get(node.agent.name);
-      if (!candidates)
-        throw new Error(
-          `Compiled startup artifact is missing candidates for agent '${node.agent.name}'.`,
-        );
+      const binding = runtimeAgentBinding(workflows, node.agent.name);
       return {
         node_id: node.nodeId,
         agent_name: node.agent.name,
@@ -62,12 +59,12 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         },
         model: {
           route: node.agent.modelRoute,
-          candidates: candidates.map(({ provider, model }) => ({ provider, model })),
+          candidates: binding.candidateChain.map(({ provider, model }) => ({ provider, model })),
           temperature: node.agent.model.temperature,
           max_tokens: node.agent.model.maxTokens,
         },
         skills: node.agent.skills,
-        tools: [...node.agent.tools],
+        tools: [...binding.toolSet.names],
         child_creation_types: [...node.childCreationTypes],
         child_activation_types: [...node.childActivationTypes],
         readable_records: [...node.readableRecords.keys()],

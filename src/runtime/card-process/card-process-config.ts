@@ -9,6 +9,12 @@ import { validateCompiledActorTable } from '../micro-actor/index.js';
 import { validateCompiledAgentPrompt } from '../../utils/prompt-api.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 import type { ModelRouter } from '../../agents/model-router.js';
+import { capabilityRequestForLlmOptions, type CapabilityRequest } from '../../agents/provider-capabilities.js';
+import { BoundAgentToolSet, resolveRuntimeTool, type CompiledToolReference } from '../../tools/runtime-tool-catalog.js';
+import { z } from 'zod';
+import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
+import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
+import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
 
 export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
 export type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';
@@ -19,7 +25,7 @@ export type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source
 export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly overridePromptRoot?:string }
 
 export type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; writers: readonly AgentName[]; bootstrap: boolean }>;
-export type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly string[]; modelRoute: string; model: Readonly<{ candidates: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
+export type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly CompiledToolReference[]; modelRoute: string; model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
 export type CompiledRecordRequirement = Readonly<{ definition: CompiledRecordDefinition; kind: RecordRequirementKind }>;
 export type CompiledDescendantContext = Readonly<{ records: readonly CompiledRecordDefinition[]; requireUnchangedUntilAccept: boolean }>;
 export type CompiledTerminalBehavior = Readonly<{ promotion: Readonly<{ kind: 'current' } | { kind: 'latest-node'; nodeId: string }>; exportRecords: readonly CompiledRecordDefinition[] }>;
@@ -39,13 +45,13 @@ export type CompiledProcessState =
 export type ProcessPosition = Readonly<{ cardType: CardType; stateId: string; kind: 'ready' }> | Readonly<{ cardType: CardType; stateId: string; kind: 'entry'; entry: CardProcessEntry }> | Readonly<{ cardType: CardType; stateId: string; kind: 'node'; nodeId: string; executionOrdinal: number }> | Readonly<{ cardType: CardType; stateId: string; kind: 'terminal'; terminal: CardProcessTerminal }>;
 export interface CompiledCardTypeWorkflow { readonly cardType: CardType; readonly permittedChildTypes: ReadonlySet<CardType>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly initialStateId: 'lifecycle:ready'; readonly states: ReadonlyMap<string, CompiledProcessState>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
 export interface CompiledProjectWorkflows { readonly analyst: CompiledAgentContract; readonly analystPrompt:CompiledAgentPrompt; readonly agents: ReadonlyMap<AgentName, CompiledAgentContract>; readonly cardTypes: ReadonlyMap<CardType, CompiledCardTypeWorkflow> }
-export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows { readonly runtimeBound: true;readonly candidateChains:ReadonlyMap<AgentName,readonly Candidate[]> }
+export type BoundAgentContract = Readonly<{ contract: CompiledAgentContract; candidateChain: readonly Candidate[]; toolSet: BoundAgentToolSet; capabilityRequest: CapabilityRequest }>;
+export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows { readonly runtimeBound: true;readonly agentBindings:ReadonlyMap<AgentName,BoundAgentContract> }
 
 const IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
 const OUTCOME_IDENTIFIER = /^[a-z][a-z0-9_-]{0,63}$/u;
 const ENTRY_PORTS = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
 const TERMINAL_PORTS = ['DONE', 'BLOCKED', 'FAILED'] as const;
-const knownToolNames = new Set(['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reorder_child', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_history', 'get_card_history_entry', 'diff_card', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']);
 
 class ImmutableMap<K, V> implements ReadonlyMap<K, V> { readonly #values: Map<K,V>; constructor(entries: Iterable<readonly [K,V]>) { this.#values = new Map(entries); Object.freeze(this); } get size(){return this.#values.size;} get(key:K){return this.#values.get(key);} has(key:K){return this.#values.has(key);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:V,key:K,map:ReadonlyMap<K,V>)=>void,thisArg?:unknown){for(const [k,v] of this.#values) callbackfn.call(thisArg,v,k,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableMap';} }
 class ImmutableSet<T> implements ReadonlySet<T> { readonly #values:Set<T>; constructor(values:Iterable<T>){this.#values=new Set(values);Object.freeze(this);} get size(){return this.#values.size;} has(value:T){return this.#values.has(value);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:T,value2:T,set:ReadonlySet<T>)=>void,thisArg?:unknown){for(const value of this.#values)callbackfn.call(thisArg,value,value,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableSet';} }
@@ -111,7 +117,20 @@ const nodeState=(id:string)=>`node:${id}`; const entryState=(entry:CardProcessEn
 export function cardProcessEntryForStatus(status:CardStatus):CardProcessEntry|null{if(status==='backlog')return'BACKLOG';if(status==='changed')return'CHANGED';if(status==='blocked')return'BLOCKED';if(status==='stopped')return'STOPPED';return null;}
 
 function resolveRoute(config:SaivageConfig,name:string):readonly string[]{const route=config.models.routes[name];if(!route)throw new Error(`models.routes.${name} is missing.`);if(route.candidates){if(new Set(route.candidates).size!==route.candidates.length)throw new Error(`models.routes.${name}.candidates contains a duplicate.`);return Object.freeze([...route.candidates]);}const profile=config.models.profiles[route.profile!];if(!profile)throw new Error(`models.routes.${name}.profile references missing profile '${route.profile}'.`);const candidates=[...profile.preferred,...profile.allowed];if(candidates.length===0)throw new Error(`models.routes.${name}.profile resolves to no candidates.`);if(new Set(candidates).size!==candidates.length)throw new Error(`models.profiles.${route.profile} contains a duplicate candidate.`);return Object.freeze(candidates);}
-function compileAgents(config:SaivageConfig):ReadonlyMap<AgentName,CompiledAgentContract>{const result:Array<readonly[AgentName,CompiledAgentContract]>=[];for(const[rawName,source]of Object.entries(config.agents)){const name=rawName as AgentName;const duplicate=new Set<string>();for(const tool of source.tools){if(duplicate.has(tool))throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);duplicate.add(tool);if(!knownToolNames.has(tool))throw new Error(`agents.${name}.tools contains unknown tool '${tool}'.`);}if(source.skills!==source.tools.includes('skill'))throw new Error(`agents.${name}.skills must agree with the skill tool.`);if(source.tools.includes('create_card')&&!source.can_create_children)throw new Error(`agents.${name} cannot list create_card when can_create_children is false.`);const route=config.models.routes[source.model_route];if(!route)throw new Error(`agents.${name}.model_route references missing route '${source.model_route}'.`);result.push([name,Object.freeze({name,prompt:source.prompt,tools:Object.freeze([...source.tools]),modelRoute:source.model_route,model:Object.freeze({candidates:resolveRoute(config,source.model_route),temperature:route.temperature,maxTokens:route.max_tokens}),skills:source.skills,session:source.session,canCreateChildren:source.can_create_children})]);}return immutableMap(result);}
+function expandModelOrder(config: SaivageConfig, routeName: string): readonly string[] {
+  const emitted = new Set<string>();
+  const ordered: string[] = [];
+  const append = (model: string) => { if (!emitted.has(model)) { emitted.add(model); ordered.push(model); } };
+  for (const model of resolveRoute(config, routeName)) {
+    append(model);
+    const group = config.models.equivalents.find((candidate) => candidate.includes(model));
+    if (group) for (const equivalent of group) if (equivalent !== model) append(equivalent);
+    const failover = config.models.failover[model];
+    if (failover) for (const candidate of failover) append(candidate);
+  }
+  return Object.freeze(ordered);
+}
+function compileAgents(config:SaivageConfig):ReadonlyMap<AgentName,CompiledAgentContract>{const result:Array<readonly[AgentName,CompiledAgentContract]>=[];for(const[rawName,source]of Object.entries(config.agents)){const name=rawName as AgentName;const duplicate=new Set<string>();const tools:CompiledToolReference[]=[];for(const tool of source.tools){if(duplicate.has(tool))throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);duplicate.add(tool);try{tools.push(resolveRuntimeTool(source.session,tool));}catch{throw new Error(`agents.${name}.tools contains unknown tool '${tool}' for ${source.session} session scope.`);}}if(source.skills!==tools.some((tool)=>tool.name==='skill'))throw new Error(`agents.${name}.skills must agree with the skill tool.`);if(tools.some((tool)=>tool.name==='create_card')&&!source.can_create_children)throw new Error(`agents.${name} cannot list create_card when can_create_children is false.`);const route=config.models.routes[source.model_route];if(!route)throw new Error(`agents.${name}.model_route references missing route '${source.model_route}'.`);result.push([name,Object.freeze({name,prompt:source.prompt,tools:Object.freeze(tools),modelRoute:source.model_route,model:Object.freeze({orderedModelIds:expandModelOrder(config,source.model_route),temperature:route.temperature,maxTokens:route.max_tokens}),skills:source.skills,session:source.session,canCreateChildren:source.can_create_children})]);}return immutableMap(result);}
 
 type ProcessEdgeDraft = Readonly<{ outcome:string; targetStateId:string; targetNodeId:string|null; promptId:ProcessPromptId|null; terminalBehavior:CompiledTerminalBehavior|null }>;
 type ProcessNodeDraft = Readonly<{
@@ -205,8 +224,8 @@ function compileCardTypeInputs(
       if (
         kind === 'updated' &&
         (!definition.writers.includes(agent.name) ||
-          !agent.tools.includes('write') ||
-          !agent.tools.includes('edit'))
+          !agent.tools.some((tool) => tool.name === 'write') ||
+          !agent.tools.some((tool) => tool.name === 'edit'))
       )
         throw new Error(
           `${location}.workflow.nodes.${nodeId}.records.${name} requires writer authority plus write and edit tools.`,
@@ -312,10 +331,10 @@ function compileCardTypeInputs(
         descendantContext,
         edges: immutableMap(edges),
         childCreationTypes:
-          agent.canCreateChildren && agent.tools.includes('create_card')
+          agent.canCreateChildren && agent.tools.some((tool) => tool.name === 'create_card')
             ? permittedChildTypes
             : immutableSet([]),
-        childActivationTypes: agent.tools.includes('activate_card')
+        childActivationTypes: agent.tools.some((tool) => tool.name === 'activate_card')
           ? permittedChildTypes
           : immutableSet([]),
         writableRecords: immutableMap(
@@ -651,20 +670,42 @@ export function bindRuntimeWorkflows(
   structural: CompiledProjectWorkflows,
   router: ModelRouter,
 ): CompiledRuntimeWorkflows {
-  const chains: Array<readonly [AgentName, readonly Candidate[]]> = [];
-  for (const agent of structural.agents.values()) {
-    const candidates = router.resolve(agent.name, { requiresTools: agent.tools.length > 0 });
+  const participants = new Map<AgentName, Readonly<{ agent: CompiledAgentContract; toolSet: BoundAgentToolSet; request: CapabilityRequest }>>();
+  const analystToolSet = new BoundAgentToolSet(structural.analyst.tools);
+  const analystRequest = Object.freeze(capabilityRequestForLlmOptions({ tools: [...analystToolSet.definitions], stream: false }));
+  participants.set(structural.analyst.name, Object.freeze({ agent: structural.analyst, toolSet: analystToolSet, request: analystRequest }));
+  for (const cardType of cardTypeValues) {
+    const workflow = structural.cardTypes.get(cardType)!;
+    for (const state of workflow.states.values()) {
+      if (state.kind !== 'node') continue;
+      const toolSet = new BoundAgentToolSet(state.agent.tools);
+      const providerDefinitions = [...toolSet.definitions, nodeResultToolDefinition(workflow, `node:${state.nodeId}`)];
+      const request = Object.freeze(capabilityRequestForLlmOptions({ tools: providerDefinitions, stream: false }));
+      const existing = participants.get(state.agent.name);
+      if (existing && JSON.stringify(existing.request) !== JSON.stringify(request))
+        throw new Error(`Agent '${state.agent.name}' has inconsistent node capability requests.`);
+      participants.set(state.agent.name, Object.freeze({ agent: state.agent, toolSet, request }));
+    }
+  }
+  const bindings: Array<readonly [AgentName, BoundAgentContract]> = [];
+  for (const [name, participant] of participants) {
+    const candidates = router.resolveModels(participant.agent.model.orderedModelIds, participant.request);
     if (candidates.length === 0)
       throw new Error(
-        `Agent '${agent.name}' model route '${agent.modelRoute}' has no capability-compatible configured provider candidate.`,
+        `Agent '${name}' model route '${participant.agent.modelRoute}' has no capability-compatible configured provider candidate.`,
       );
-    chains.push([agent.name, Object.freeze([...candidates])]);
+    bindings.push([name, Object.freeze({ contract: participant.agent, candidateChain: Object.freeze([...candidates]), toolSet: participant.toolSet, capabilityRequest: participant.request })]);
   }
   return Object.freeze({
     ...structural,
     runtimeBound: true as const,
-    candidateChains: immutableMap(chains),
+    agentBindings: immutableMap(bindings),
   });
+}
+export function runtimeAgentBinding(workflows: CompiledRuntimeWorkflows, agentName: AgentName): BoundAgentContract {
+  const binding = workflows.agentBindings.get(agentName);
+  if (!binding) throw new Error(`Compiled startup artifact is missing binding for agent '${agentName}'.`);
+  return binding;
 }
 export function processNodeOutcomes(
   process: CompiledCardTypeWorkflow,
@@ -678,6 +719,12 @@ export function processNodeOutcomes(
       route.semantic.kind === 'configured-outcome' ? [route.semantic.outcome] : [],
     ),
   );
+}
+export function nodeResultSchema(process: CompiledCardTypeWorkflow, stateId: string) {
+  return z.object({ outcome: z.enum(processNodeOutcomes(process, stateId) as [string, ...string[]]), summary: z.string().trim().min(1).max(2000) }).strict();
+}
+export function nodeResultToolDefinition(process: CompiledCardTypeWorkflow, stateId: string): LlmToolDefinition {
+  return { type: 'function', function: { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', parameters: zodToJsonSchemaMini(nodeResultSchema(process, stateId)) as Record<string, unknown> } };
 }
 export function describeNodeResultContract(
   process: CompiledCardTypeWorkflow,

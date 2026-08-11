@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import { type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
-import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
+import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
 import { cardParentId } from '../schemas/card-id.js';
@@ -20,31 +20,14 @@ export interface CardInspectionProviderContext {
   readonly store: CardInspectionStore;
 }
 
+export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProviderContext, any>[] = Object.freeze([
+  defineToolBinder({ name: 'list_cards', description: 'List and filter cards in the project.', inputSchema: listCardsInputSchema, executor: async (ctx, args) => listCards(ctx.store, args) }),
+  defineToolBinder({ name: 'get_card', description: 'Get full details of a single card.', inputSchema: getCardInputSchema, executor: async (ctx, args) => getCard(ctx.store, args.id) }),
+  defineToolBinder({ name: 'get_tree', description: 'Show the card tree.', inputSchema: getTreeInputSchema, executor: async (ctx, args) => getTree(ctx.store, args.rootId ?? PROJECT_CARD_ID) }),
+]);
+
 export function createCardInspectionProvider(ctx: CardInspectionProviderContext): ToolProvider {
-  const store = ctx.store;
-  return {
-    providerName: 'card-inspection',
-    tools: [
-      defineTool({
-        name: 'list_cards',
-        description: 'List and filter cards in the project.',
-        inputSchema: listCardsInputSchema,
-        executor: async (args) => listCards(store, args),
-      }),
-      defineTool({
-        name: 'get_card',
-        description: 'Get full details of a single card.',
-        inputSchema: getCardInputSchema,
-        executor: async (args) => getCard(store, args.id),
-      }),
-      defineTool({
-        name: 'get_tree',
-        description: 'Show the card tree.',
-        inputSchema: getTreeInputSchema,
-        executor: async (args) => getTree(store, args.rootId ?? PROJECT_CARD_ID),
-      }),
-    ],
-  };
+  return bindToolProvider('card-inspection', cardInspectionToolBinders, ctx);
 }
 
 function listCards(store: CardInspectionStore, params: z.infer<typeof listCardsInputSchema>): ToolResult {

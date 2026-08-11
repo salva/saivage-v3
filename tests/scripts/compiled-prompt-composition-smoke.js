@@ -69,7 +69,7 @@ try {
   });
   const structuralWorkflows = compileProjectWorkflows(config, { projectRoot });
   const providerRegistry = new ProviderRegistry(config);
-  const workflows = bindRuntimeWorkflows(structuralWorkflows, new ModelRouter(config, providerRegistry));
+  const workflows = bindRuntimeWorkflows(structuralWorkflows, new ModelRouter(providerRegistry));
   const configAuthority = createResolvedConfigAuthority({
     path: join(projectRoot, '.saivage', 'saivage.yaml'),
     source: { kind: 'default' },

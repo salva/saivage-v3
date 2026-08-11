@@ -107,7 +107,7 @@ describe('production-composed Analyst provider-exchange recording', () => {
       const registry = new ProviderRegistry(config);
       const workflows = bindRuntimeWorkflows(
         compileProjectWorkflows(config),
-        new ModelRouter(config, registry),
+        new ModelRouter(registry),
       );
       const processRegistry = new ManagedProcessGroupRegistry();
       const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');

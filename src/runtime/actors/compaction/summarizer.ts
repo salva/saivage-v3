@@ -144,7 +144,7 @@ function buildSummaryInput(
     tools: [],
     terminalToolNames: [],
     modelParams: { temperature: 0, maxTokens: 2000 },
-    capabilityRequest: {},
+    capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true, streaming: false },
     routePass: { kind: 'ordinary', candidateChain: [candidate] },
     episodeContext: { compaction: true },
   };

@@ -35,7 +35,7 @@ describe('card activation admission projection call graph', () => {
     expect(supervisor).not.toMatch(obsoleteSynchronization);
     expect(composition).not.toContain(obsoleteBinding);
     expect(composition).not.toMatch(obsoleteSynchronization);
-    expect(composition.match(/interventionReadiness: runtimeSupervisor/g)).toHaveLength(2);
+    expect(composition.match(/interventionReadiness: runtimeSupervisor/g)).toHaveLength(1);
   });
 
   it('keeps one required actor-built LLM invocation context contract', () => {

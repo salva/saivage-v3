@@ -12,7 +12,7 @@ import { queueNotification } from '../notifications/index.js';
 import { cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
-import { defineTool, type ToolProvider, type ToolResult } from './invocation.js';
+import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import type { PlannerChildControlPort } from '../runtime/actors/card-activation-owner.js';
 import { cardParentId } from '../schemas/card-id.js';
@@ -40,18 +40,17 @@ export interface PlannerControlProviderContext {
   readonly childActivationTypes:ReadonlySet<CardType>;
 }
 
+export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProviderContext, any>[] = Object.freeze([
+  defineToolBinder({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: plannerCreateCardInputSchema, executor: async (ctx, args) => createCard(ctx, args) }),
+  defineToolBinder({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: plannerEditCardInputSchema, executor: async (ctx, args) => editCard(ctx, args) }),
+  defineToolBinder({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: plannerCancelCardInputSchema, executor: async (ctx, args) => cancelCard(ctx, args) }),
+  defineToolBinder({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardArgumentsSchema, executor: async (ctx, args, _signal, invocation) => activateCard(ctx, args, invocation) }),
+  defineToolBinder({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: plannerReorderChildInputSchema, executor: async (ctx, args) => reorderChild(ctx, args) }),
+  defineToolBinder({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: plannerQueueNotificationInputSchema, executor: async (ctx, args) => queueNotificationTool(ctx, args) }),
+]);
+
 export function createPlannerControlProvider(ctx: PlannerControlProviderContext): ToolProvider {
-  return {
-    providerName: 'planner-control',
-    tools: [
-      defineTool({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: plannerCreateCardInputSchema, executor: async (args) => createCard(ctx, args) }),
-      defineTool({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: plannerEditCardInputSchema, executor: async (args) => editCard(ctx, args) }),
-      defineTool({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: plannerCancelCardInputSchema, executor: async (args) => cancelCard(ctx, args) }),
-      defineTool({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardArgumentsSchema, executor: async (args, _signal, invocation) => activateCard(ctx, args, invocation) }),
-      defineTool({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: plannerReorderChildInputSchema, executor: async (args) => reorderChild(ctx, args) }),
-      defineTool({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: plannerQueueNotificationInputSchema, executor: async (args) => queueNotificationTool(ctx, args) }),
-    ],
-  };
+  return bindToolProvider('planner-control', plannerControlToolBinders, ctx);
 }
 
 function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolResult {

@@ -159,7 +159,7 @@ if (mode === 'analyst-project-context') {
   const session = new AnalystSession({
     projectRoot: root,
     sessionId: 'agent:analyst:global',
-    config: TEST_SAIVAGE_CONFIG,
+    agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false },
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => { mark('prompt'); return 'rendered prompt'; } },
     restartServerAvailable: false,

@@ -7,7 +7,7 @@ import { redactForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
-import { defineTool, type ToolProvider, type ToolProviderCleanupReason, type ToolResult } from './invocation.js';
+import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolProviderCleanupReason, type ToolResult } from './invocation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface ProcessProviderContext {
@@ -126,20 +126,12 @@ function cleanupReasonLabel(reason: ToolProviderCleanupReason): string {
   }
 }
 
-export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider {
-  return {
-    providerName: 'process',
-    async cleanup(reason) {
-      const label = cleanupReasonLabel(reason);
-      const report = await ctx.processRunner.closeAndTerminateDirectScope({ directScope: ctx.directScope, category: ctx.category, reason: label, graceMs: 5000 });
-      if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
-    },
-    tools: [
-      defineTool({
+export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any>[] = Object.freeze([
+      defineToolBinder({
         name: 'run_command',
         description: 'Run a Bash command. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
         inputSchema: runCommandInputSchema,
-        executor: async (args, signal, invocation) => {
+        executor: async (ctx, args, signal, invocation) => {
           try {
             throwIfAborted(signal);
             const record = ctx.processRunner.spawn({
@@ -170,11 +162,11 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
           }
         },
       }),
-      defineTool({
+      defineToolBinder({
         name: 'wait_process',
         description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
         inputSchema: waitProcessInputSchema,
-        executor: async (args, signal, invocation) => {
+        executor: async (ctx, args, signal, invocation) => {
           try {
             throwIfAborted(signal);
             const current = assertOwned(ctx, args.process_id);
@@ -191,11 +183,11 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
           }
         },
       }),
-      defineTool({
+      defineToolBinder({
         name: 'kill_process',
         description: 'Signal a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep.',
         inputSchema: killProcessInputSchema,
-        executor: async (args) => {
+        executor: async (ctx, args) => {
           try {
             assertOwned(ctx, args.process_id);
             const record = await ctx.processRunner.kill(args.process_id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool kill_process' });
@@ -207,6 +199,14 @@ export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider
           }
         },
       }),
-    ],
-  };
+]);
+
+export async function cleanupProcessProvider(ctx: ProcessProviderContext, reason: ToolProviderCleanupReason): Promise<void> {
+  const label = cleanupReasonLabel(reason);
+  const report = await ctx.processRunner.closeAndTerminateDirectScope({ directScope: ctx.directScope, category: ctx.category, reason: label, graceMs: 5000 });
+  if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
+}
+
+export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider {
+  return { ...bindToolProvider('process', processToolBinders, ctx), cleanup: (reason) => cleanupProcessProvider(ctx, reason) };
 }

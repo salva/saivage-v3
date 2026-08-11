@@ -51,7 +51,7 @@ describe('Analyst project-context failure', () => {
     const session = new AnalystSession({
       projectRoot,
       sessionId: 'agent:analyst:global',
-      config: TEST_SAIVAGE_CONFIG,
+      agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false },
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
       promptTemplates: { render },
       restartServerAvailable: false,

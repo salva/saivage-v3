@@ -177,7 +177,7 @@ function createFixture(options: {
     fatalPort: testApplicationFatalPort,
     projectRoot,
     sessionId,
-    config: TEST_SAIVAGE_CONFIG,
+    agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false },
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => 'test analyst prompt' },
     restartServerAvailable: true,

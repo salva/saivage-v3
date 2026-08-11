@@ -109,6 +109,7 @@ function harness(args: {
     processRunner: { createDirectScope },
     runtimeProcessRootScope: {},
     processPrompts: { get: () => 'correct the result' },
+    workflows: { agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false } }]]) },
   } as never, {
     createLlm: () => llm,
     selectLlm: () => undefined,

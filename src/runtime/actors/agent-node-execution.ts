@@ -2,12 +2,11 @@ import { createHash } from 'node:crypto';
 import { cardParentId } from '../../schemas/card-id.js';
 import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
-import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
 import { cardAgentSessionId, type AgentName, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
-import { describeNodeResultContract, processNodeOutcomes, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition } from '../card-process/card-process-config.js';
+import { describeNodeResultContract, nodeResultSchema, nodeResultToolDefinition, runtimeAgentBinding, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition, type CompiledRuntimeWorkflows } from '../card-process/card-process-config.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import type { ConversationLLMActor } from './llm-actor.js';
@@ -19,13 +18,11 @@ import { cardBootstrapForPrompt } from '../records/card-bootstrap.js';
 import { appendActivationMarker, appendUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { stabilizeAgentSession } from './conversation-recovery.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
-import { buildAgentSurface } from '../../tools/agent-invocation-surface.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
 import { PublicationOutcomeUnknownError, throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
-import type { Candidate } from '../../contracts/provider-candidate.js';
 
 export interface AcceptedNodeResult {
   readonly nodeId: string;
@@ -76,7 +73,7 @@ export interface AgentNodeExecutionDeps {
   processPrompts: ProcessPromptRegistry;
   conversations: ConversationFileContext;
   compactionConfig: AutonomousCompactionPolicy;
-  candidateChains:ReadonlyMap<AgentName,readonly Candidate[]>;
+  workflows: CompiledRuntimeWorkflows;
 }
 
 export class AgentNodeExecution {
@@ -87,15 +84,15 @@ export class AgentNodeExecution {
 
   async execute(args: { process: CompiledCardTypeWorkflow; stateId: string; node: CompiledNodeContract; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<NodeExecutionResult> {
     const { process, stateId, node, input, signal } = args;
-    const outcomes = processNodeOutcomes(process, stateId) as [string, ...string[]];
-    const nodeResultSchema = z.object({ outcome: z.enum(outcomes), summary: z.string().trim().min(1).max(2000) }).strict();
-    const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', parameters: zodToJsonSchemaMini(nodeResultSchema) as Record<string, unknown> } };
+    const resultSchema = nodeResultSchema(process, stateId);
+    const terminalToolDefinition = nodeResultToolDefinition(process, stateId);
     const contractDescription = describeNodeResultContract(process, stateId);
     const sessionId = cardAgentSessionId(node.agent.name, this.deps.cardId);
     const llm = this.host.createLlm(sessionId);
     this.host.selectLlm(llm);
     let reviewerPair = node.descendantContext ? this.captureReviewerPair(input.card.id, node.descendantContext.records.map((record)=>record.name)) : null;
-    const needsProcessScope = node.agent.tools.some((name) => name === 'run_command' || name === 'wait_process' || name === 'kill_process');
+    const binding = runtimeAgentBinding(this.deps.workflows, node.agent.name);
+    const needsProcessScope = binding.toolSet.requiresProcessScope;
     const scope = needsProcessScope ? this.executorScope(input, args.nodeOrdinal) : null;
     const surface = this.buildSurface(node, input, sessionId, scope, args.nodeOrdinal);
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
@@ -104,7 +101,7 @@ export class AgentNodeExecution {
       const inputId = this.host.freshInputId();
       this.prepareNodeEntry(process, node, args.transition, input, sessionId, inputId, reviewerPair);
       const baseline = new Map(node.requirements.map((record) => [record.definition.name, this.captureRecord(record.definition.name)]));
-      const prepared = this.buildLlmInput(node, input, sessionId, inputId, contractDescription, surface, terminalToolDefinition);
+      const prepared = this.buildLlmInput(node, input, sessionId, inputId, contractDescription, surface, terminalToolDefinition, binding);
       const terminalHandoff = () => this.host.assertCurrentActivation(input);
       let outcome = await llm.turn(prepared, signal, terminalHandoff);
       this.host.assertCurrentActivation(input);
@@ -128,7 +125,7 @@ export class AgentNodeExecution {
             if (!outcome.args || typeof outcome.args !== 'object' || Array.isArray(outcome.args)) {
               throw new Error(`Terminal tool '${outcome.toolName}' arguments must be a JSON object.`);
             }
-            const parsed = nodeResultSchema.safeParse(outcome.args);
+            const parsed = resultSchema.safeParse(outcome.args);
             if (!parsed.success) throw new Error(parsed.error.message);
             nodeResult = parsed.data;
           }
@@ -271,17 +268,17 @@ export class AgentNodeExecution {
     return { role: 'user', content: `Previous process node: ${context.source.slice('node:'.length)}\nAccepted outcome: ${acceptedResult.outcome}\nSummary: ${acceptedResult.summary}\nRecords:\n${acceptedResult.acceptedRecords.map((record) => `- ${record.url}`).join('\n') || '(none)'}${edgePrompt}` };
   }
 
-  private buildLlmInput(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition): PreparedLlmInvocationInput {
+  private buildLlmInput(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition, binding: import('../card-process/card-process-config.js').BoundAgentContract): PreparedLlmInvocationInput {
     const systemPrompt = this.deps.promptTemplates.render(input.card.type, node.agent.name, {
       cardId: input.card.id, cardTitle: input.card.title, cardBrief: cardBootstrapForPrompt(this.deps.store, input.card), contractDescription,
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
     });
     const tools = [...surfaceToolDefinitions(surface), terminalToolDefinition];
-    const candidateChain=this.deps.candidateChains.get(node.agent.name);if(!candidateChain)throw new Error(`Bound candidate chain for agent '${node.agent.name}' is missing.`);return { inputId, agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:node.agent.model.temperature}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools,node.agent.model.maxTokens), capabilityRequest: { requiresTools: true },routePass:{kind:'ordinary',candidateChain}, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
+    return { inputId, agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:binding.contract.model.temperature}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools,binding.contract.model.maxTokens), capabilityRequest: binding.capabilityRequest,routePass:{kind:'ordinary',candidateChain:binding.candidateChain}, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
   }
 
   private buildSurface(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {
-    return buildAgentSurface({agentName:node.agent.name,toolNames:node.agent.tools,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation});
+    return runtimeAgentBinding(this.deps.workflows, node.agent.name).toolSet.bind({scope:'card',agentName:node.agent.name,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation});
   }
 
   private executorScope(input: CardActivationInput, ordinal: number): ManagedProcessScope {

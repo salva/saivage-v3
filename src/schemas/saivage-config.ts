@@ -315,13 +315,3 @@ export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
 export type CardTypesSource = z.infer<typeof cardTypesSchema>;
 export type CardTypeSource = NonNullable<CardTypesSource[keyof CardTypesSource]>;
 export type CardProcessSource = CardTypeSource['workflow'];
-
-// ── Model Params ──────────────────────────────────────────────
-
-export function getModelParamsForAgent(config: SaivageConfig, agentName: string): { temperature: number; maxTokens: number } {
-  const agent = config.agents[agentName];
-  if (!agent) throw new Error(`Unknown agent '${agentName}'.`);
-  const route = config.models.routes[agent.model_route];
-  if (!route) throw new Error(`Unknown model route '${agent.model_route}'.`);
-  return { temperature: route.temperature, maxTokens: route.max_tokens };
-}

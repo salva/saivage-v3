@@ -8,7 +8,7 @@ import type { CardService } from '../../src/cards/card-api.js';
 import type { PromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 import type { RestartPort } from '../../src/boot/restart-port.js';
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
-import { buildAgentSurface } from '../../src/tools/agent-invocation-surface.js';
+import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import type { TestProcessRunnerComposition } from './test-process-runner.js';
 import { testApplicationFatalPort } from './test-application-fatal-port.js';
 
@@ -38,6 +38,10 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
   const directScopes: object[] = [];
   const sessionOperations: Function[] = [];
   const sessionConstructionInputs: object[] = [];
+  const agentName=options.config.analyst_agent;
+  const agent=options.config.agents[agentName]!;
+  const route=options.config.models.routes[agent.model_route]!;
+  const toolSet=new BoundAgentToolSet(agent.tools.map((name)=>resolveRuntimeTool('global',name)));
   const createSession = (_turn: AnalystTurnInput): AnalystSession => {
     const directScope = options.processes.processRunner.createDirectScope(options.processes.analystProcessRootScope, 'analyst-session:agent:analyst:global', 'operator_session');
     directScopes.push(directScope);
@@ -60,8 +64,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         eventQueries: options.eventQueries,
         analystMutations,
       };
-      const agentName=options.config.analyst_agent;
-      return buildAgentSurface({agentName,toolNames:options.config.agents[agentName]!.tools,projectRoot:options.projectRoot,store:options.cardStore as never,analystToolContext:context,processRunner:options.processes.processRunner,processScope:directScope,processOwnerId:'agent:analyst:global',mcpToolInvocation:options.mcpToolInvocation});
+       return toolSet.bind({scope:'global',agentName,projectRoot:options.projectRoot,store:options.cardStore as never,analystToolContext:context,processRunner:options.processes.processRunner,processScope:directScope,processOwnerId:'agent:analyst:global',mcpToolInvocation:options.mcpToolInvocation});
     };
     const shutdownProcesses = async () => {
       const report = await options.processes.processRunner.closeAndTerminateDirectScope({ directScope, category: 'operator_session', reason: 'session closed', graceMs: 5_000 });
@@ -71,7 +74,9 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
     const sessionInput = {
       projectRoot: options.projectRoot,
       sessionId: 'agent:analyst:global' as const,
-      config: options.config,
+      agentName,
+      modelParams:{temperature:route.temperature,maxTokens:route.max_tokens},
+      capabilityRequest:{requiresTools:toolSet.names.length>0,requiresExclusiveToolChoice:true,streaming:false},
       candidateChain:[{provider:'test',account:null,model:'test-model'}],
       promptTemplates: options.promptTemplates,
       restartServerAvailable: options.restartServerAvailable ?? false,

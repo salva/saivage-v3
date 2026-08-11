@@ -1,4 +1,3 @@
-import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderCapabilities } from '../schemas/saivage-config.js';
 
 export type TransportProtocol = NonNullable<ProviderCapabilities['transportProtocol']>;
@@ -32,11 +31,6 @@ export type CapabilitySkipReason =
 export type CapabilityMatch =
   | { supported: true }
   | { supported: false; reasons: CapabilitySkipReason[] };
-
-export interface CapabilitySkipDiagnostic {
-  candidate: Candidate;
-  reasons: CapabilitySkipReason[];
-}
 
 export const GLOBAL_DEFAULT_CAPABILITIES: EffectiveProviderCapabilities = {
   transportProtocol: 'openai-chat-completions',

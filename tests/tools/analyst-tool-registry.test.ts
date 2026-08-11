@@ -1,10 +1,17 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { createAnalystControlTools } from '../../src/tools/analyst-tool-registry.js';
+import { createAnalystControlTools, getAnalystControlToolBinders } from '../../src/tools/analyst-tool-registry.js';
 import type { ToolDefinition } from '../../src/tools/invocation.js';
 import { createAnalystControlProvider } from '../../src/tools/analyst-control-provider.js';
 
 describe('registered Analyst card mutation catalog', () => {
+  it('lazily installs one stable immutable binder order after circular module initialization',()=>{
+    const first=getAnalystControlToolBinders();
+    expect(getAnalystControlToolBinders()).toBe(first);
+    expect(Object.isFrozen(first)).toBe(true);
+    expect(first.map((binder)=>binder.name)).toEqual(createAnalystControlTools({} as never).map((tool)=>tool.name));
+  });
+
   it('selects type only during creation and exposes no post-creation edit or update input', () => {
     const tools: readonly ToolDefinition<any>[] = createAnalystControlTools({} as never);
     expect(tools.map(({ name }) => name)).toEqual([
