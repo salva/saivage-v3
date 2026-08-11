@@ -134,8 +134,13 @@
       </div>
 
       <div v-if="localActiveTab === 'errors'" class="debug-tab-content">
-        <ViewState v-if="loading" state="loading" title="Loading errors..." />
-        <ViewState v-else-if="error" state="error" title="Failed to load" :message="error" />
+        <ViewState v-if="errorsLoading" state="loading" title="Loading errors..." />
+        <ViewState
+          v-else-if="errorsError"
+          state="error"
+          title="Failed to load"
+          :message="errorsError"
+        />
         <ViewState
           v-else-if="errorsTotal === 0 && errors.length === 0"
           state="empty"
@@ -165,8 +170,13 @@
       </div>
 
       <div v-if="localActiveTab === 'timeline'" class="debug-tab-content">
-        <ViewState v-if="loading" state="loading" title="Loading timeline..." />
-        <ViewState v-else-if="error" state="error" title="Failed to load" :message="error" />
+        <ViewState v-if="timelineLoading" state="loading" title="Loading timeline..." />
+        <ViewState
+          v-else-if="timelineError"
+          state="error"
+          title="Failed to load"
+          :message="timelineError"
+        />
         <template v-else>
           <div class="timeline-filter">
             <label class="timeline-filter-label" for="timeline-kind-filter">Event kinds</label>
@@ -666,8 +676,10 @@ const router = useRouter();
 const {
   errors,
   errorsTotal,
-  loading,
-  error,
+  errorsLoading,
+  errorsError,
+  timelineLoading,
+  timelineError,
   processes,
   processesLoading,
   processesError,

@@ -42,8 +42,12 @@ const log = createLogger('store:debug');
 
 export const useDebugStore = defineStore('debug', () => {
   const errors = ref<DebugErrorRecord[]>([]);
+  const errorsLoading = ref(false);
+  const errorsError = ref<string | null>(null);
   const timelineEvents = ref<DebugTimelineEvent[]>([]);
   const timelineTotal = ref(0);
+  const timelineLoading = ref(false);
+  const timelineError = ref<string | null>(null);
 
   const processes = ref<ProcessView[]>([]);
   const processesLoading = ref(false);
@@ -62,45 +66,41 @@ export const useDebugStore = defineStore('debug', () => {
   const graphsRefreshError = ref<string | null>(null);
   let graphsRequest: { controller: AbortController } | null = null;
 
-  const loading = ref(false);
-  const error = ref<string | null>(null);
-
-
   const projectedErrors = computed<DebugErrorItem[]>(() => errors.value.map(projectErrorRecord));
   const errorsBySource = computed<Map<string, DebugErrorItem[]>>(() => selectErrorsBySource(projectedErrors.value));
 
   const sortedTimeline = computed<DebugTimelineItem[]>(() => selectSortedTimeline(timelineEvents.value));
 
   async function fetchErrors(): Promise<void> {
-    loading.value = true;
-    error.value = null;
+    errorsLoading.value = true;
+    errorsError.value = null;
     try {
       const response: DebugErrorsResponse = await getDebugErrors();
       errors.value = response.errors;
     } catch (err) {
       const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch debug errors';
-      error.value = msg;
+      errorsError.value = msg;
       log.error('fetchErrors', msg);
       throw err;
     } finally {
-      loading.value = false;
+      errorsLoading.value = false;
     }
   }
 
   async function fetchTimeline(): Promise<void> {
-    loading.value = true;
-    error.value = null;
+    timelineLoading.value = true;
+    timelineError.value = null;
     try {
       const response: EventsResponse = await getNewestEvents();
       timelineEvents.value = response.events;
       timelineTotal.value = response.total;
     } catch (err) {
       const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch debug timeline';
-      error.value = msg;
+      timelineError.value = msg;
       log.error('fetchTimeline', msg);
       throw err;
     } finally {
-      loading.value = false;
+      timelineLoading.value = false;
     }
   }
 
@@ -173,8 +173,12 @@ export const useDebugStore = defineStore('debug', () => {
   return {
     errors: readonly(projectedErrors),
     errorsTotal: readonly(computed(() => projectedErrors.value.length)),
+    errorsLoading: readonly(errorsLoading),
+    errorsError: readonly(errorsError),
     timelineEvents: readonly(timelineEvents),
     timelineTotal: readonly(timelineTotal),
+    timelineLoading: readonly(timelineLoading),
+    timelineError: readonly(timelineError),
     processes: readonly(processes),
     processesLoading: readonly(processesLoading),
     processesError: readonly(processesError),
@@ -188,8 +192,6 @@ export const useDebugStore = defineStore('debug', () => {
     graphsRefreshing: readonly(graphsRefreshing),
     graphsError: readonly(graphsError),
     graphsRefreshError: readonly(graphsRefreshError),
-    loading: readonly(loading),
-    error: readonly(error),
     errorsBySource,
     sortedTimeline,
     fetchErrors,

@@ -15,6 +15,16 @@ vi.mock('../api/client', async (importOriginal) => ({
 const live = vi.hoisted(() => ({ openAgents: vi.fn(() => vi.fn()) }));
 vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 async function mountDebug(path: string) {
   const pinia = createPinia();
   setActivePinia(pinia);
@@ -69,6 +79,52 @@ describe('Debug selected-tab ownership', () => {
     await wrapper.get('button.sv-fetch-btn').trigger('click');
     await flushPromises();
     expect(api.getDoctor).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it('presents only the selected Errors or Timeline request state', async () => {
+    const errorsRequest = deferred<{ errors: []; total: 0 }>();
+    const timelineRequest = deferred<{ events: []; total: 0 }>();
+    api.getDebugErrors.mockReturnValue(errorsRequest.promise);
+    api.getNewestEvents.mockReturnValue(timelineRequest.promise);
+    const wrapper = await mountDebug('/debug?tab=errors');
+    const tabButton = (label: string) =>
+      wrapper.findAll('button.debug-tab-button').find((button) => button.text() === label)!;
+
+    expect(api.getDebugErrors).toHaveBeenCalledTimes(1);
+    expect(api.getNewestEvents).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('Loading errors...');
+    expect(wrapper.text()).not.toContain('Loading timeline...');
+    expect(wrapper.text()).not.toContain('Failed to fetch debug timeline');
+
+    await tabButton('Timeline').trigger('click');
+    await flushPromises();
+
+    expect(api.getDebugErrors).toHaveBeenCalledTimes(1);
+    expect(api.getNewestEvents).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('Loading timeline...');
+    expect(wrapper.text()).not.toContain('Loading errors...');
+    expect(wrapper.text()).not.toContain('Failed to fetch debug errors');
+
+    errorsRequest.reject(new Error('errors unavailable'));
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Loading timeline...');
+    expect(wrapper.text()).not.toContain('Failed to fetch debug errors');
+
+    timelineRequest.reject(new Error('timeline unavailable'));
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Failed to fetch debug timeline');
+    expect(wrapper.text()).not.toContain('Failed to fetch debug errors');
+
+    await tabButton('Errors').trigger('click');
+    await flushPromises();
+
+    expect(api.getDebugErrors).toHaveBeenCalledTimes(2);
+    expect(api.getNewestEvents).toHaveBeenCalledTimes(1);
+    expect(wrapper.text()).toContain('Failed to fetch debug errors');
+    expect(wrapper.text()).not.toContain('Failed to fetch debug timeline');
     wrapper.unmount();
   });
 });

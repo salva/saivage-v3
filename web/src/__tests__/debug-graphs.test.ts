@@ -37,7 +37,7 @@ describe('Debug Graphs', () => {
     await pending;
     expect(store.graphs).toEqual([graph]);
     expect(store.graphsRefreshError).toBe('Failed to fetch compiled graphs');
-    expect(store.loading).toBe(false);
+    expect(store.graphsRefreshing).toBe(false);
   });
 
   it('renders a deterministic accessible SVG with cycle, terminal export, and selectable details', async () => {
