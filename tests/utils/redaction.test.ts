@@ -25,33 +25,18 @@ describe('outbound redaction', () => {
   });
 
   describe('WebSocket status envelopes', () => {
-    it('preserves admitted connected passthrough keys while redacting secret-bearing values', () => {
-      const projected = redactForOutbound({
-        source: 'ws-envelope',
-        value: {
-          type: 'status',
-          content: {
-            event: 'connected',
-            sessionId: 'agent:analyst:global',
-            timestamp: '2026-07-24T12:00:00.000Z',
-            clientCount: 1,
-            safeExtension: 'visible',
-            apiKey: 'synthetic-connected-secret',
-          },
-        },
-      });
-
-      expect(projected).toEqual({
+    it('projects connected status to the exact strict contract', () => {
+      const connected = {
         type: 'status',
         content: {
           event: 'connected',
           sessionId: 'agent:analyst:global',
           timestamp: '2026-07-24T12:00:00.000Z',
           clientCount: 1,
-          safeExtension: 'visible',
-          apiKey: SECRET_REDACTION_PLACEHOLDER,
         },
-      });
+      } as const;
+
+      expect(redactForOutbound({ source: 'ws-envelope', value: connected })).toEqual(connected);
     });
 
     it('preserves acknowledged status exactly', () => {

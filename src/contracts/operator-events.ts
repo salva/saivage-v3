@@ -173,7 +173,7 @@ export const ConnectedStatusContentSchema = z
     timestamp: z.string().datetime(),
     clientCount: z.number().int().nonnegative(),
   })
-  .passthrough();
+  .strict();
 
 export const ConnectedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
@@ -209,7 +209,7 @@ export const CardHistoryAppendedContentSchema = z
     changed_fields: z.array(z.string()),
     changed_at: z.string().min(1),
   })
-  .passthrough();
+  .strict();
 
 export const NotificationAddedContentSchema = z
   .object({
@@ -217,7 +217,7 @@ export const NotificationAddedContentSchema = z
     session_id: z.string().nullable(),
     kind: z.string().min(1),
   })
-  .passthrough();
+  .strict();
 
 export const ControlActionRecordedContentSchema = z
   .object({
@@ -231,7 +231,7 @@ export const ControlActionRecordedContentSchema = z
     actor: optionalStringSchema,
     surface: optionalStringSchema,
   })
-  .passthrough();
+  .strict();
 
 export const AnalystToolInvokedContentSchema = z
   .object({
@@ -245,7 +245,7 @@ export const AnalystToolInvokedContentSchema = z
     related_note_id: optionalStringSchema,
     related_process_id: optionalStringSchema,
   })
-  .passthrough();
+  .strict();
 
 export const ToolInvocationContentSchema = z
   .object({
@@ -255,7 +255,7 @@ export const ToolInvocationContentSchema = z
     params: z.unknown().optional(),
     result: z.unknown().optional(),
   })
-  .passthrough();
+  .strict();
 
 export const ClassifiedToolInvocationActivityContentSchema = z
   .object({
@@ -284,7 +284,7 @@ export const InboundAnalystMessageContentSchema = z
   .object({
     text: z.string().min(1),
   })
-  .passthrough();
+  .strict();
 
 export const InboundAnalystMessageEnvelopeSchema = z.object({
   type: z.literal('message'),

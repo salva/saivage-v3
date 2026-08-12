@@ -2,7 +2,6 @@ import {
   KnownWsEnvelopeWithClassifiedToolActivitySchema,
   type KnownWsEnvelopeWithClassifiedToolActivity,
 } from '../contracts/operator-events.js';
-import { projectDynamicForOutbound } from './dynamic.js';
 import { redactTextForOutbound } from './text.js';
 
 export function projectWsEnvelopeForOutbound(
@@ -13,7 +12,6 @@ export function projectWsEnvelopeForOutbound(
       return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
         type: 'message',
         content: {
-          ...projectPassthrough(envelope.content, ['text']),
           text: redactTextForOutbound(envelope.content.text),
         },
       });
@@ -25,8 +23,6 @@ export function projectWsEnvelopeForOutbound(
           return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
             type: 'status',
             content: {
-              ...projectPassthrough(envelope.content, ['event', 'sessionId', 'timestamp', 'clientCount',
-              ]),
               event: 'connected',
               sessionId: envelope.content.sessionId,
               timestamp: envelope.content.timestamp,
@@ -55,8 +51,6 @@ function projectActivityEnvelope(
       return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
         type: 'activity',
         content: {
-          ...projectPassthrough(content, ['event', 'sessionId', 'tool', 'success', 'summary', 'classified_as', 'related_card_id', 'related_note_id', 'related_process_id',
-          ]),
           event: content.event,
           sessionId: content.sessionId,
           tool: content.tool,
@@ -70,8 +64,6 @@ function projectActivityEnvelope(
       return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
         type: 'activity',
         content: {
-          ...projectPassthrough(content, ['event', 'card_id', 'version_seq', 'changed_fields', 'changed_at',
-          ]),
           event: content.event,
           card_id: content.card_id,
           version_seq: content.version_seq,
@@ -83,7 +75,6 @@ function projectActivityEnvelope(
       return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
         type: 'activity',
         content: {
-          ...projectPassthrough(content, ['event', 'session_id', 'kind']),
           event: content.event,
           session_id: content.session_id,
           kind: content.kind,
@@ -93,8 +84,6 @@ function projectActivityEnvelope(
       return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
         type: 'activity',
         content: {
-          ...projectPassthrough(content, ['event', 'id', 'action', 'target_kind', 'target_id', 'outcome', 'created_at', 'actor', 'surface',
-          ]),
           event: content.event,
           id: content.id,
           action: content.action,
@@ -106,13 +95,6 @@ function projectActivityEnvelope(
         },
       });
   }
-}
-
-function projectPassthrough(value: Record<string, unknown>, ownedKeys: readonly string[],
-): Record<string, unknown> {
-  const owned = new Set(ownedKeys);
-  const passthrough = Object.fromEntries(Object.entries(value).filter(([key]) => !owned.has(key)));
-  return projectDynamicForOutbound(passthrough) as Record<string, unknown>;
 }
 
 function copyOptional(value: Record<string, unknown>, keys: readonly string[],
