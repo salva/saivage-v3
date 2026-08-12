@@ -27,7 +27,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
 
   it('closes updated requirements in declaration order and retains close returns without rereading',()=>{
     const trace:string[]=[];
-    const store={read:jest.fn(()=>({version_seq:7})),readCurrentRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string,version:number)=>{trace.push(name);const sourceVersion=version+1;return{headVersion:sourceVersion,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:sourceVersion}}};})};
+    const store={readCurrentRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string,version:number)=>{trace.push(name);const sourceVersion=version+1;return{headVersion:sourceVersion,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:sourceVersion}}};})};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({kind:'updated',definition:{name}}));
     const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,headVersion:index+1,artifact:{state:'open',draft:{content:'accepted'}}}]));
@@ -41,7 +41,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
 
   it('stops on the first outcome-unknown close and never reads or closes a later requirement',()=>{
     const failure=new PublicationOutcomeUnknownError();
-    const store={read:jest.fn(()=>({version_seq:7})),readCurrentRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string)=>{if(name==='alpha.md')throw failure;throw new Error('LATER_CLOSE_REACHED');})};
+    const store={readCurrentRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string)=>{if(name==='alpha.md')throw failure;throw new Error('LATER_CLOSE_REACHED');})};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({kind:'updated',definition:{name}}));
     const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,headVersion:index+1,artifact:{state:'open',draft:{content:'accepted'}}}]));

@@ -92,7 +92,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
     const next = cards.openRecord(child.id, 'status.md', 3);
     const edited = cards.editRecord(child.id, 'status.md', next.headVersion, 'closed');
-    cards.closeRecord(child.id, 'status.md', edited.headVersion, 'executor', cards.read(child.id)!.version_seq);
+    cards.closeRecord(child.id, 'status.md', edited.headVersion, 'executor');
     expect(flush()).toEqual([{ t: 'invalidate', resource: 'cards', scope: 'record', card_id: child.id, record_name: 'status.md' }]);
   });
 
@@ -150,7 +150,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     };
     const failingCards = new CardService(root, hub, failingIo);
 
-    expect(() => failingCards.closeRecord(child.id, 'status.md', edited.headVersion, 'executor', cards.read(child.id)!.version_seq)).toThrow(failure);
+    expect(() => failingCards.closeRecord(child.id, 'status.md', edited.headVersion, 'executor')).toThrow(failure);
     expect(flush()).toEqual([]);
   });
 

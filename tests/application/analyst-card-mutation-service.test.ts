@@ -203,7 +203,7 @@ describe('other Analyst mutation facets', () => {
       const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const open = cards.openRecord(card.id, 'brief.md', 1);
       const edited = cards.editRecord(card.id, 'brief.md', open.headVersion, '# Goal\nFresh current\n# Instructions\nFresh current\n# Acceptance Criteria\nFresh current');
-      const closed = cards.closeRecord(card.id, 'brief.md', edited.headVersion, 'analyst', card.version_seq);
+      const closed = cards.closeRecord(card.id, 'brief.md', edited.headVersion, 'analyst');
       const service = testAnalystMutationServices(root, cards).recordMutations;
       expect(service.edit(`record:///brief.md?card=${card.id}&expected_head=${closed.headVersion}`, 'Fresh current', 'Newest', true)).toMatchObject({ kind: 'returned', success: true });
       expect(cards.readCurrentRecord(card.id, 'brief.md').artifact.accepted?.content).toContain('Newest');

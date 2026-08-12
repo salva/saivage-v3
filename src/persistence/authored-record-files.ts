@@ -153,10 +153,11 @@ export function editOpenAuthoredRecord(projectRoot: string, cardId: string, defi
   return publishArtifact(projectRoot, cardId, definition, index, artifact, io);
 }
 
-export function closeOpenAuthoredRecord(projectRoot: string, cardId: string, definition: RecordDefinition, expectedHead: number, writer: AgentName, cardVersionSeq: number, io?: ImmutableVersionFileIo): RecordProjection {
+export function closeOpenAuthoredRecord(projectRoot: string, cardId: string, definition: RecordDefinition, expectedHead: number, writer: AgentName, io?: ImmutableVersionFileIo): RecordProjection {
   const { index, current } = currentForWrite(projectRoot, cardId, definition, expectedHead); if (!current || current.state !== 'open' || !current.draft) throw new Error(`Record '${cardId}/${definition.filename}' is not open.`); if (!definition.writers.includes(writer)) throw new Error(`Agent '${writer}' is not a configured writer for '${definition.filename}'.`);
   if (isEmptyRecordContent(current.draft.content)) throw new Error('Record content must not be empty.');
-  const stamp = new Date().toISOString(); const version = current.version + 1; const accepted: AcceptedRecordSnapshot = { source_version: version, source_entry_id: randomUUID(), committed_at: stamp, writer_agent: writer, card_version_seq: cardVersionSeq, content: current.draft.content, content_sha256: current.draft.content_sha256, size_bytes: Buffer.byteLength(current.draft.content, 'utf8') };
+  const card = readCard(projectRoot, cardId); if (!card) throw new AuthoredRecordNotFoundError();
+  const stamp = new Date().toISOString(); const version = current.version + 1; const accepted: AcceptedRecordSnapshot = { source_version: version, source_entry_id: randomUUID(), committed_at: stamp, writer_agent: writer, card_version_seq: card.version_seq, content: current.draft.content, content_sha256: current.draft.content_sha256, size_bytes: Buffer.byteLength(current.draft.content, 'utf8') };
   const artifact = authoredRecordVersionArtifactSchema.parse({ ...current, entry_id: accepted.source_entry_id, version, published_at: stamp, state: 'closed', accepted, draft: null, discarded: null });
   return publishArtifact(projectRoot, cardId, definition, index, artifact, io);
 }

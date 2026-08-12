@@ -184,8 +184,8 @@ export class CardService {
   listRecordVersions(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation) { return listAuthoredRecordVersions(this.projectRoot, cardId, this.recordDefinition(cardId, filename), instrumentation); }
   openRecord(cardId: string, filename: string, expectedHead: number | null): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, this.cardAppendIo); }
   editRecord(cardId: string, filename: string, expectedHead: number, content: string): RecordProjection { return editOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, content, this.cardAppendIo); }
-  closeRecord(cardId: string, filename: string, expectedHead: number, agentName: AgentName, cardVersionSeq: number): RecordProjection {
-    const closed = closeOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, agentName, cardVersionSeq, this.cardAppendIo);
+  closeRecord(cardId: string, filename: string, expectedHead: number, agentName: AgentName): RecordProjection {
+    const closed = closeOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, agentName, this.cardAppendIo);
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name: filename as never });
     return closed;
   }

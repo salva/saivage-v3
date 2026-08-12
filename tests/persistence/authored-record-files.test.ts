@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { AuthoredRecordNotFoundError, RecordHeadMismatchError } from '../../src/persistence/authored-record-files.js';
-import { cardRecordVersionIndexFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
+import { cardRecordVersionFile, cardRecordVersionIndexFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -26,9 +26,14 @@ describe('authored record version files', () => {
     expect(opened).toMatchObject({ headVersion: 1, currentUrl: `record:///status.md?card=${encodeURIComponent(card.id)}`, versionUrl: `record:///status.md?card=${encodeURIComponent(card.id)}&v=1`, artifact: { state: 'open' } });
 
     const edited = cards.editRecord(card.id, 'status.md', opened.headVersion, 'closed content');
-    const closed = cards.closeRecord(card.id, 'status.md', edited.headVersion, 'executor', card.version_seq);
+    const earlierCardVersion = cards.read(card.id)!.version_seq;
+    const advanced = cards.editCard(card.id, { title: 'advanced before close' });
+    expect(advanced.version_seq).toBe(earlierCardVersion + 1);
+    const closed = cards.closeRecord(card.id, 'status.md', edited.headVersion, 'executor');
     expect(closed.headVersion).toBe(3);
     expect(closed.artifact.accepted?.content).toBe('closed content');
+    expect(closed.artifact.accepted?.card_version_seq).toBe(advanced.version_seq);
+    expect(closed.artifact.accepted?.card_version_seq).not.toBe(earlierCardVersion);
     expect(cards.readHistoricalRecord(card.id, 'status.md', 1).artifact.state).toBe('open');
     expect(cards.readCurrentRecord(card.id, 'status.md').artifact).toEqual(closed.artifact);
 
@@ -50,6 +55,20 @@ describe('authored record version files', () => {
     expect(() => cards.editRecord(card.id, 'status.md', opened.headVersion + 1, 'content')).toThrow(RecordHeadMismatchError);
     expect(cards.readCurrentRecord(card.id, 'status.md').headVersion).toBe(opened.headVersion);
     expect(() => cards.openRecord(card.id, 'status.md', null)).toThrow(RecordHeadMismatchError);
+  });
+
+  it('rejects a stale close from the valid index before opening its malformed indexed head artifact', () => {
+    const { cards, card } = setup();
+    const definition = cards.recordReader.definition(card.id, 'status.md');
+    const opened = cards.openRecord(card.id, 'status.md', null);
+    const edited = cards.editRecord(card.id, 'status.md', opened.headVersion, 'content');
+    const indexPath = cardRecordVersionIndexFile(cards.projectRoot, card.id, definition);
+    const indexBytes = readFileSync(indexPath);
+    const index = JSON.parse(indexBytes.toString('utf8')) as { current_filename: string };
+    writeFileSync(cardRecordVersionFile(cards.projectRoot, card.id, definition, index.current_filename), 'complete malformed artifact\n');
+
+    expect(() => cards.closeRecord(card.id, 'status.md', edited.headVersion - 1, 'executor')).toThrow(RecordHeadMismatchError);
+    expect(readFileSync(indexPath)).toEqual(indexBytes);
   });
 
   it('uses typed absence only for unknown cards, empty current records, and unlisted history', () => {

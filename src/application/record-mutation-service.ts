@@ -18,7 +18,7 @@ export interface RecordMutationRequest {
   requiredTools: readonly ('write' | 'edit' | 'webfetch')[];
 }
 
-type Admission = { parsed: ReturnType<typeof parseRecordMutationUrl>; card: NonNullable<ReturnType<CardService['read']>>; current: RecordProjection | null };
+type Admission = { parsed: ReturnType<typeof parseRecordMutationUrl>; current: RecordProjection | null };
 
 function failure(value: RecordMutationFailure): RecordMutationFailure { return RecordMutationFailureSchema.parse(value); }
 function denied(parsed: ReturnType<typeof parseRecordMutationUrl>, operation: 'write' | 'edit', reason: z.infer<typeof reasonSchema>): RecordMutationFailure {
@@ -44,7 +44,7 @@ export function admitRecordMutation(store: CardService, request: RecordMutationR
   const currentHead = current?.headVersion ?? null; const expected = parsed.expectedHead === 'absent' ? null : parsed.expectedHead;
   if (currentHead !== expected) return failure({ success: false, error: 'Record mutation is stale.', data: { code: 'record_mutation_stale', card_id: parsed.cardId, name: parsed.name as never, operation: request.operation, expected_head: parsed.expectedHead, current_head: currentHead } });
   if (request.surface === 'analyst' && current?.artifact.state === 'open') return failure({ success: false, error: 'Record already has an open workflow draft.', data: { code: 'record_open_conflict', card_id: parsed.cardId, name: parsed.name as never, current_head: current.headVersion, operation: request.operation } });
-  return { parsed, card, current };
+  return { parsed, current };
 }
 
 export function preflightAnalystRecordWrite(store: CardService, request: Omit<RecordMutationRequest, 'content' | 'oldString' | 'newString' | 'replaceAll'>): AnalystPreNetworkAdmission {
@@ -55,7 +55,7 @@ export function preflightAnalystRecordWrite(store: CardService, request: Omit<Re
 
 export function mutateRecord(store: CardService, request: RecordMutationRequest, propagate?: () => { ok: true } | { ok: false; partial: true; error: string }): RecordMutationResult {
   const admitted = admitRecordMutation(store, request); if ('success' in admitted) return admitted;
-  const { parsed, card, current } = admitted; const currentHead = current?.headVersion ?? null; const effective = current ? effectiveRecordContent(current.artifact) : null;
+  const { parsed, current } = admitted; const currentHead = current?.headVersion ?? null; const effective = current ? effectiveRecordContent(current.artifact) : null;
   let nextContent: string;
   if (request.operation === 'edit') {
     if (!effective) return failure({ success: false, error: 'Record has no content to edit.', data: { code: 'record_content_absent', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead } });
@@ -71,7 +71,7 @@ export function mutateRecord(store: CardService, request: RecordMutationRequest,
     if (current?.artifact.state === 'open') open = current;
     else open = store.openRecord(parsed.cardId, parsed.name, currentHead);
     const edited = store.editRecord(parsed.cardId, parsed.name, open.headVersion, nextContent);
-    const result = request.surface === 'analyst' ? store.closeRecord(parsed.cardId, parsed.name, edited.headVersion, request.agentName, card.version_seq) : edited;
+    const result = request.surface === 'analyst' ? store.closeRecord(parsed.cardId, parsed.name, edited.headVersion, request.agentName) : edited;
     const success: RecordMutationSuccess = { success: true, data: { card_id: parsed.cardId, name: parsed.name as never, state: request.surface === 'analyst' ? 'closed' : 'open', head_version: result.headVersion, head_entry_id: result.artifact.entry_id, current_url: result.currentUrl, version_url: result.versionUrl, mutation_url: buildRecordMutationUrl(parsed.cardId, parsed.name, result.headVersion), bytes: Buffer.byteLength(nextContent), written: true, surface: request.surface, ...(request.surface === 'analyst' ? { propagation: propagate ? propagate() : { ok: true as const } } : {}) } };
     return RecordMutationSuccessSchema.parse(success);
   } catch (error) {
