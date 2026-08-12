@@ -56,8 +56,6 @@ describe('AppShell persistent analyst panel', () => {
     expect(wrapper.find('[aria-controls="analyst-chat-panel"]').exists()).toBe(false);
     expect(localStorage.getItem('analyst-chat:drawer-state')).toBeNull();
 
-    const composer = wrapper.get<HTMLTextAreaElement>('textarea[aria-label="Analyst chat composer"]');
-    expect(composer.element.disabled).toBe(false);
     wrapper.unmount();
   });
 

@@ -67,8 +67,7 @@
         rows="3"
         placeholder="Ask the analyst…"
         aria-label="Analyst chat composer"
-        :disabled="!activeSessionWritable"
-        :title="composerTitle"
+        title="Ask the analyst…"
         @input="handleDraftInput"
         @keydown="handleComposerKeydown"
       />
@@ -87,8 +86,8 @@
         <button
           type="submit"
           class="chat-send-button"
-          :disabled="!activeSessionWritable || sending || !draft.trim()"
-          :title="composerTitle"
+          :disabled="sending || !draft.trim()"
+          title="Ask the analyst…"
         >
           {{ sending ? 'Sending…' : 'Send' }}
         </button>
@@ -125,7 +124,6 @@ const {
   sending,
   sendError,
   restartAcknowledgement,
-  activeSessionWritable,
 } = storeToRefs(chat);
 
 const composerRef = ref<HTMLTextAreaElement | null>(null);
@@ -135,10 +133,6 @@ const childrenOnScreen = computed(() =>
   workspaceRoute.view === 'cards' && workspaceRoute.entityId
     ? (cards.loadedChildrenFor(workspaceRoute.entityId) ?? [])
     : [],
-);
-const READ_ONLY_TOOLTIP = 'Read-only — switch to analyst to send messages';
-const composerTitle = computed(() =>
-  activeSessionWritable.value ? 'Ask the analyst…' : READ_ONLY_TOOLTIP,
 );
 const messagesErrorLabel = computed(() => {
   if (!messagesError.value) return '';
@@ -175,7 +169,6 @@ function handleComposerKeydown(event: KeyboardEvent): void {
 }
 
 async function submitMessage(): Promise<void> {
-  if (!activeSessionWritable.value) return;
   await chat.sendMessage();
   await nextTick();
   focusComposer();

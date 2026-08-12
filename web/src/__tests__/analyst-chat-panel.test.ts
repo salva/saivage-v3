@@ -215,12 +215,11 @@ describe('AnalystChatPanel', () => {
     wrapper.unmount();
   });
 
-  it('renders one writable singleton without a session picker or new-chat control', async () => {
+  it('renders one singleton surface without a session picker or new-chat control', async () => {
     const wrapper = mountPanel();
     await flushPromises();
     expect(wrapper.find('select').exists()).toBe(false);
     expect(wrapper.find('button.secondary-btn').exists()).toBe(false);
-    expect(wrapper.find('textarea').attributes('disabled')).toBeUndefined();
     wrapper.unmount();
   });
 

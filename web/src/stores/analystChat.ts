@@ -22,14 +22,6 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function isWritableSession(
-  session: AnalystSession | null,
-  sessionId: ConversationSessionId | null,
-): boolean {
-  if (!session) return true;
-  return session.id === sessionId && session.session_scope === 'global';
-}
-
 function buildErrorState(err: unknown, fallback: string): DetailErrorState {
   if (err instanceof OperatorApiError) {
     if (err.isUnauthorized) {
@@ -189,15 +181,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     const content = draft.value.trim();
     if (!content) return;
     if (!activeSessionId.value) throw new Error('Analyst session identity is not loaded.');
-    if (!isWritableSession(activeSession.value, activeSessionId.value)) {
-      sendError.value = {
-        kind: 'unknown',
-        status: null,
-        message: 'Read-only — switch to analyst to send messages',
-      };
-      return;
-    }
-
     sending.value = true;
     sendError.value = null;
     const previousDraft = draft.value;
@@ -301,9 +284,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     sending,
     sendError,
     restartAcknowledgement,
-    activeSessionWritable: computed(() =>
-      isWritableSession(activeSession.value, activeSessionId.value),
-    ),
     setDraft,
     fetchMessages,
     createNewChat,
