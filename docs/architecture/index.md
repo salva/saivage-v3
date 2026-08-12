@@ -7,7 +7,6 @@ The canonical main documentation set is `docs/spec/system-specification.md`, `do
 ## Current architecture authority
 
 - [System architecture](./system-architecture.md) — current design summary and canonical architecture entry point.
-- [Prompt handling](./prompts.md) — in-depth reference for prompt discovery, validation, rendering, and the startup-only prompt compilation stage.
 
 Ordinary activation state, transition, persistence, and lease coordination is plain callback-free supervisor state in one map. `CardProcessActor` remains the micro-actor, while `ConversationLLMActor` is the direct provider/tool phase owner; they remain connected to supervisor structure through one concrete invocation-bound child lease and one exact parent-bound planner port. The sole callback exception reports terminal CardProcess actor-main failure to its exact current/frozen owner, which starts or joins the singular halt used by Stop and application close. Outcome-unknown publication exits before that halt. [System architecture](./system-architecture.md) is authoritative for those ownership boundaries.
 ## Publication fatal boundary
