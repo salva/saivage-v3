@@ -73,7 +73,6 @@ export const useFileStore = defineStore('files', () => {
   const viewerState = ref<'idle' | 'ready' | 'blocked' | 'missing' | 'binary' | 'too-large' | 'directory' | 'error'>('idle');
 
   // Shared
-  const error = ref<string | null>(null);
   const listError = ref<string | null>(null);
   const viewerError = ref<string | null>(null);
   const unauthorized = ref(false);
@@ -126,7 +125,6 @@ export const useFileStore = defineStore('files', () => {
 
   async function fetchMetaFiles(path?: string): Promise<void> {
     metaLoading.value = true;
-    error.value = null;
     listError.value = null;
     const p = path || metaPath.value;
     try {
@@ -136,7 +134,6 @@ export const useFileStore = defineStore('files', () => {
       markRestSync('meta');
     } catch (err) {
       const msg = handleApiError(err, 'Failed to list metadata files');
-      error.value = msg;
       listError.value = msg;
       log.error('fetchMetaFiles', msg);
     } finally {
@@ -150,19 +147,10 @@ export const useFileStore = defineStore('files', () => {
     await fetchMetaFiles(path);
   }
 
-  async function navigateMetaUp(): Promise<void> {
-    if (metaPath.value === METADATA_ROOT) return;
-    const parts = metaPath.value.split('/');
-    parts.pop();
-    const parent = parts.join('/') || METADATA_ROOT;
-    await navigateMeta(parent);
-  }
-
   // ── Actions: Output Browser ─────────────────────────────────
 
   async function fetchOutputFiles(path?: string): Promise<void> {
     outputLoading.value = true;
-    error.value = null;
     listError.value = null;
     const p = path || outputPath.value;
     try {
@@ -172,7 +160,6 @@ export const useFileStore = defineStore('files', () => {
       markRestSync('output');
     } catch (err) {
       const msg = handleApiError(err, 'Failed to list output files');
-      error.value = msg;
       listError.value = msg;
       log.error('fetchOutputFiles', msg);
     } finally {
@@ -186,20 +173,11 @@ export const useFileStore = defineStore('files', () => {
     await fetchOutputFiles(path);
   }
 
-  async function navigateOutputUp(): Promise<void> {
-    if (outputPath.value === OUTPUT_ROOT) return;
-    const parts = outputPath.value.split('/');
-    parts.pop();
-    const parent = parts.join('/') || OUTPUT_ROOT;
-    await navigateOutput(parent);
-  }
-
   // ── Actions: File Content ──────────────────────────────────
 
   async function fetchFileContent(path: string): Promise<void> {
     const requestSeq = ++fileContentRequestSeq;
     contentLoading.value = true;
-    error.value = null;
     viewerError.value = null;
     viewerState.value = 'idle';
     viewedFile.value = null;
@@ -213,7 +191,6 @@ export const useFileStore = defineStore('files', () => {
     } catch (err) {
       if (requestSeq !== fileContentRequestSeq || viewedFilePath.value !== path) return;
       const msg = handleApiError(err, 'Failed to fetch file content');
-      error.value = msg;
       viewerError.value = msg;
       if (err instanceof OperatorApiError) {
         if (err.status === 403) viewerState.value = 'blocked';
@@ -254,7 +231,6 @@ export const useFileStore = defineStore('files', () => {
     viewedFile,
     viewedFilePath,
     contentLoading,
-    error,
     listError,
     viewerError,
     viewerState,
@@ -274,10 +250,8 @@ export const useFileStore = defineStore('files', () => {
     // Actions
     fetchMetaFiles,
     navigateMeta,
-    navigateMetaUp,
     fetchOutputFiles,
     navigateOutput,
-    navigateOutputUp,
     fetchFileContent,
     clearViewedFile,
     refetch,

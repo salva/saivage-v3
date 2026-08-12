@@ -45,7 +45,6 @@ export const useDebugStore = defineStore('debug', () => {
   const errorsLoading = ref(false);
   const errorsError = ref<string | null>(null);
   const timelineEvents = ref<DebugTimelineEvent[]>([]);
-  const timelineTotal = ref(0);
   const timelineLoading = ref(false);
   const timelineError = ref<string | null>(null);
 
@@ -93,7 +92,6 @@ export const useDebugStore = defineStore('debug', () => {
     try {
       const response: EventsResponse = await getNewestEvents();
       timelineEvents.value = response.events;
-      timelineTotal.value = response.total;
     } catch (err) {
       const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch debug timeline';
       timelineError.value = msg;
@@ -176,7 +174,6 @@ export const useDebugStore = defineStore('debug', () => {
     errorsLoading: readonly(errorsLoading),
     errorsError: readonly(errorsError),
     timelineEvents: readonly(timelineEvents),
-    timelineTotal: readonly(timelineTotal),
     timelineLoading: readonly(timelineLoading),
     timelineError: readonly(timelineError),
     processes: readonly(processes),

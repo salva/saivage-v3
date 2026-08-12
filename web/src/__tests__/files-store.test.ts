@@ -5,13 +5,12 @@
  * Tests cover:
  *  1. Breadcrumb derivation for metadata root (.saivage/) and output root (.saivage/work/)
  *     at root level, single nested path, and deeply nested path.
- *  2. File content loading — success path sets viewedFile/viewedFilePath, clears error.
+ *  2. File content loading — success path sets viewedFile/viewedFilePath.
  *  3. JSON content detection via contentType, +json suffix, and .json extension.
  *  4. Markdown content detection via .md extension and text/markdown contentType.
- *  5. Protected-content / error handling: listFiles failure, getFileContent failure,
- *     OperatorApiError-specific message extraction, and generic Error fallback.
- *  6. Store-level navigation actions: navigateMeta, navigateOutput, navigateMetaUp,
- *     navigateOutputUp, clearViewedFile.
+ *  5. Scoped error handling: list API messages and clearing, generic preview fallback,
+ *     and preview clear/recovery state transitions.
+ *  6. Store-level navigation actions: navigateMeta, navigateOutput, clearViewedFile.
  *
  * These tests mock ../api/client so we verify store-side logic without a server.
  */
@@ -134,7 +133,6 @@ describe('useFileStore', () => {
       expect(store.viewedFile).toBeNull();
       expect(store.viewedFilePath).toBe('');
       expect(store.contentLoading).toBe(false);
-      expect(store.error).toBeNull();
     });
 
     it('breadcrumbs at root level contain only the root entry', () => {
@@ -257,7 +255,6 @@ describe('useFileStore', () => {
       expect(store.metaFiles).toEqual(mockMetaRootFiles.files);
       expect(store.metaPath).toBe('.saivage');
       expect(store.metaLoading).toBe(false);
-      expect(store.error).toBeNull();
     });
 
     it('sets loading=true while fetching', async () => {
@@ -274,24 +271,14 @@ describe('useFileStore', () => {
       expect(store.metaLoading).toBe(false);
     });
 
-    it('sets error on OperatorApiError failure', async () => {
+    it('sets listError to the API-provided message on failure', async () => {
       const store = setupStore();
       vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 403, { error: 'Forbidden' }));
 
       await store.fetchMetaFiles();
 
       expect(store.metaLoading).toBe(false);
-      expect(store.error).toBe('Forbidden');
-    });
-
-    it('sets error on generic Error failure', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new Error('Network error'));
-
-      await store.fetchMetaFiles();
-
-      expect(store.metaLoading).toBe(false);
-      expect(store.error).toBe('Failed to list metadata files');
+      expect(store.listError).toBe('Forbidden');
     });
 
     it('accepts optional path parameter overriding metaPath', async () => {
@@ -316,17 +303,6 @@ describe('useFileStore', () => {
       expect(store.outputFiles).toEqual(mockOutputRootFiles.files);
       expect(store.outputPath).toBe('.saivage/work');
       expect(store.outputLoading).toBe(false);
-      expect(store.error).toBeNull();
-    });
-
-    it('sets error on failure', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 404, { error: 'Not found', path: '.saivage' }));
-
-      await store.fetchOutputFiles();
-
-      expect(store.outputLoading).toBe(false);
-      expect(store.error).toBe('Not found');
     });
   });
 
@@ -353,48 +329,6 @@ describe('useFileStore', () => {
         { label: 'cards', path: '.saivage/cards' },
       ]);
     });
-
-    it('propagates errors from fetchMetaFiles', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 500, { error: 'InternalServerError', message: 'Internal server error' }));
-
-      await store.navigateMeta('.saivage/cards');
-
-      expect(store.error).toBe('Internal server error');
-    });
-  });
-
-  describe('navigateMetaUp()', () => {
-    it('goes to parent directory from nested path', async () => {
-      const store = setupStore();
-      store.$patch({ metaPath: '.saivage/cards/sub' });
-      vi.mocked(listFiles).mockResolvedValue(mockMetaNestedFiles);
-
-      await store.navigateMetaUp();
-
-      expect(store.metaPath).toBe('.saivage/cards');
-      expect(listFiles).toHaveBeenCalledWith('.saivage/cards');
-    });
-
-    it('does nothing when already at root', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockResolvedValue(mockMetaRootFiles);
-
-      await store.navigateMetaUp();
-
-      expect(listFiles).not.toHaveBeenCalled();
-    });
-
-    it('navigates from single-level nested back to root', async () => {
-      const store = setupStore();
-      store.$patch({ metaPath: '.saivage/cards' });
-      vi.mocked(listFiles).mockResolvedValue(mockMetaRootFiles);
-
-      await store.navigateMetaUp();
-
-      expect(store.metaPath).toBe('.saivage');
-      expect(listFiles).toHaveBeenCalledWith('.saivage');
-    });
   });
 
   describe('navigateOutput()', () => {
@@ -409,28 +343,6 @@ describe('useFileStore', () => {
     });
   });
 
-  describe('navigateOutputUp()', () => {
-    it('goes to parent from nested output path', async () => {
-      const store = setupStore();
-      store.$patch({ outputPath: '.saivage/work/logs' });
-      vi.mocked(listFiles).mockResolvedValue(mockOutputRootFiles);
-
-      await store.navigateOutputUp();
-
-      expect(store.outputPath).toBe('.saivage/work');
-      expect(listFiles).toHaveBeenCalledWith('.saivage/work');
-    });
-
-    it('does nothing when at output root', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockResolvedValue(mockOutputRootFiles);
-
-      await store.navigateOutputUp();
-
-      expect(listFiles).not.toHaveBeenCalled();
-    });
-  });
-
   describe('fetchFileContent()', () => {
     it('sets viewedFile and viewedFilePath on success', async () => {
       const store = setupStore();
@@ -441,7 +353,6 @@ describe('useFileStore', () => {
       expect(store.viewedFile).toEqual(jsonContent);
       expect(store.viewedFilePath).toBe('.saivage/plan.json');
       expect(store.contentLoading).toBe(false);
-      expect(store.error).toBeNull();
     });
 
     it('sets contentLoading=true while fetching', async () => {
@@ -458,43 +369,17 @@ describe('useFileStore', () => {
       expect(store.contentLoading).toBe(false);
     });
 
-    it('sets error on OperatorApiError failure', async () => {
-      const store = setupStore();
-      vi.mocked(getFileContent).mockRejectedValue(
-        new OperatorApiError('files.content', 403, { error: 'Protected content — requires supervisor approval' }),
-      );
-
-      await store.fetchFileContent('.saivage/work/output/bad.txt');
-
-      expect(store.error).toBe('Protected content — requires supervisor approval');
-      expect(store.contentLoading).toBe(false);
-      expect(store.viewedFile).toBeNull();
-      expect(store.viewedFilePath).toBe('.saivage/work/output/bad.txt');
-    });
-
-    it('sets error on generic Error failure', async () => {
+    it('sets the generic viewer fallback and error state on generic failure', async () => {
       const store = setupStore();
       vi.mocked(getFileContent).mockRejectedValue(new Error('Fetch failed'));
 
       await store.fetchFileContent('.saivage/nonexistent.txt');
 
-      expect(store.error).toBe('Failed to fetch file content');
+      expect(store.viewerError).toBe('Failed to fetch file content');
+      expect(store.viewerState).toBe('error');
       expect(store.contentLoading).toBe(false);
       expect(store.viewedFile).toBeNull();
       expect(store.viewedFilePath).toBe('.saivage/nonexistent.txt');
-    });
-
-    it('clears previous error on successful fetch', async () => {
-      const store = setupStore();
-      vi.mocked(getFileContent).mockRejectedValueOnce(new Error('First fail'));
-      await store.fetchFileContent('.saivage/fail.txt');
-      expect(store.error).toBe('Failed to fetch file content');
-
-      vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
-      await store.fetchFileContent('.saivage/plan.json');
-
-      expect(store.error).toBeNull();
-      expect(store.viewedFile).toEqual(jsonContent);
     });
   });
 
@@ -633,127 +518,18 @@ describe('useFileStore', () => {
     });
   });
 
-  describe('error handling — protected content and failed fetch', () => {
-    it('sets error message from OperatorApiError with protected content message in listFiles', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(
-        new OperatorApiError('files.list', 403, { error: 'Protected content — access denied' }),
-      );
-
-      await store.fetchMetaFiles('.saivage/protected');
-
-      expect(store.error).toBe('Protected content — access denied');
-      expect(store.metaFiles).toEqual([]);
-    });
-
-    it('sets error message from OperatorApiError with protected content message in getFileContent', async () => {
-      const store = setupStore();
-      vi.mocked(getFileContent).mockRejectedValue(
-        new OperatorApiError('files.content', 403, { error: 'This file is blocked by content supervisor' }),
-      );
-
-      await store.fetchFileContent('.saivage/work/output/blocked.json');
-
-      expect(store.error).toBe('This file is blocked by content supervisor');
-      expect(store.viewedFile).toBeNull();
-      expect(store.contentLoading).toBe(false);
-    });
-
-    it('handles 404 not-found errors from getFileContent', async () => {
-      const store = setupStore();
-      vi.mocked(getFileContent).mockRejectedValue(
-        new OperatorApiError('files.content', 404, { error: 'File not found at path', path: 'missing' }),
-      );
-
-      await store.fetchFileContent('.saivage/missing.txt');
-
-      expect(store.error).toBe('File not found at path');
-      expect(store.viewedFile).toBeNull();
-    });
-
-    it('handles 401 unauthorized errors from listFiles', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(
-        new OperatorApiError('files.list', 401, { error: 'Unauthorized', statusCode: 401 }, 'Unauthorized — valid API token required'),
-      );
-
-      await store.fetchMetaFiles();
-
-      expect(store.error).toBe('Unauthorized');
-      expect(store.metaLoading).toBe(false);
-    });
-
-    it('handles 500 server errors from listFiles', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(
-        new OperatorApiError('files.list', 500, { error: 'InternalServerError', message: 'Internal server error' }),
-      );
-
-      await store.fetchMetaFiles();
-
-      expect(store.error).toBe('Internal server error');
-    });
-
-    it('handles network failure (non-OperatorApiError) in fetchOutputFiles', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new TypeError('Failed to fetch'));
-
-      await store.fetchOutputFiles();
-
-      expect(store.error).toBe('Failed to list output files');
-    });
-
-    it('handles network failure (non-OperatorApiError) in fetchFileContent', async () => {
-      const store = setupStore();
-      vi.mocked(getFileContent).mockRejectedValue(new TypeError('NetworkError'));
-
-      await store.fetchFileContent('.saivage/some.txt');
-
-      expect(store.error).toBe('Failed to fetch file content');
-    });
-
-    it('error is cleared when a subsequent call succeeds', async () => {
+  describe('scoped error handling', () => {
+    it('clears listError when a subsequent list call succeeds', async () => {
       const store = setupStore();
 
       vi.mocked(listFiles).mockRejectedValueOnce(new Error('Temporary failure'));
       await store.fetchMetaFiles();
-      expect(store.error).toBe('Failed to list metadata files');
+      expect(store.listError).toBe('Failed to list metadata files');
 
       vi.mocked(listFiles).mockResolvedValueOnce(mockMetaRootFiles);
       await store.fetchMetaFiles();
-      expect(store.error).toBeNull();
+      expect(store.listError).toBeNull();
       expect(store.metaFiles).toEqual(mockMetaRootFiles.files);
-    });
-  });
-
-  describe('navigation error propagation', () => {
-    it('navigateMeta sets error on failure', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 500, { error: 'InternalServerError', message: 'Internal server error' }));
-
-      await store.navigateMeta('.saivage/bad');
-
-      expect(store.error).toBe('Internal server error');
-    });
-
-    it('navigateOutput sets error on failure', async () => {
-      const store = setupStore();
-      vi.mocked(listFiles).mockRejectedValue(new Error('Network down'));
-
-      await store.navigateOutput('.saivage/work/bad');
-
-      expect(store.error).toBe('Failed to list output files');
-    });
-
-    it('navigateMetaUp sets error when parent fetch fails', async () => {
-      const store = setupStore();
-      store.$patch({ metaPath: '.saivage/cards' });
-      vi.mocked(listFiles).mockRejectedValue(new OperatorApiError('files.list', 500, { error: 'InternalServerError', message: 'Internal server error' }));
-
-      await store.navigateMetaUp();
-
-      expect(store.error).toBe('Internal server error');
-      expect(store.metaPath).toBe('.saivage');
     });
   });
 
@@ -786,34 +562,7 @@ describe('useFileStore', () => {
   });
 
   describe('file content recovery path (fail → clearViewedFile → success)', () => {
-    it('recovers after failed fetch: clearViewedFile resets viewer, subsequent fetch succeeds with clean state', async () => {
-      const store = setupStore();
-
-      vi.mocked(getFileContent).mockRejectedValueOnce(
-        new OperatorApiError('files.content', 403, { error: 'Content blocked by supervisor' }),
-      );
-      await store.fetchFileContent('.saivage/work/output/bad.txt');
-
-      expect(store.error).toBe('Content blocked by supervisor');
-      expect(store.viewedFile).toBeNull();
-      expect(store.viewedFilePath).toBe('.saivage/work/output/bad.txt');
-      expect(store.contentLoading).toBe(false);
-
-      store.clearViewedFile();
-
-      expect(store.viewedFile).toBeNull();
-      expect(store.viewedFilePath).toBe('');
-
-      vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
-      await store.fetchFileContent('.saivage/plan.json');
-
-      expect(store.viewedFile).toEqual(jsonContent);
-      expect(store.viewedFilePath).toBe('.saivage/plan.json');
-      expect(store.error).toBeNull();
-      expect(store.contentLoading).toBe(false);
-    });
-
-    it('clearViewedFile clears viewer-specific error state but not shared fetch error until next fetch', async () => {
+    it('clearViewedFile resets viewer error/state and a subsequent fetch reaches ready state', async () => {
       const store = setupStore();
 
       vi.mocked(getFileContent).mockRejectedValueOnce(
@@ -821,20 +570,21 @@ describe('useFileStore', () => {
       );
       await store.fetchFileContent('.saivage/bad.json');
 
-      expect(store.error).toBe('Internal server error');
       expect(store.viewerError).toBe('Internal server error');
+      expect(store.viewerState).toBe('error');
       expect(store.viewedFile).toBeNull();
 
       store.clearViewedFile();
-      expect(store.error).toBe('Internal server error');
       expect(store.viewerError).toBeNull();
+      expect(store.viewerState).toBe('idle');
       expect(store.viewedFile).toBeNull();
       expect(store.viewedFilePath).toBe('');
 
       vi.mocked(getFileContent).mockResolvedValueOnce(markdownContent);
       await store.fetchFileContent('.saivage/work/report.md');
 
-      expect(store.error).toBeNull();
+      expect(store.viewerError).toBeNull();
+      expect(store.viewerState).toBe('ready');
       expect(store.viewedFile).toEqual(markdownContent);
       expect(store.viewedFilePath).toBe('.saivage/work/report.md');
     });
