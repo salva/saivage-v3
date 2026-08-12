@@ -264,3 +264,12 @@ export type {
 } from './operator-events.js';
 
 export { TERMINAL_RESULT_TOOL_NAME } from './result-envelope.js';
+
+export {
+  workspaceNavigationIntentSchema,
+  workspaceNavigationTargetSchema,
+} from './workspace-navigation.js';
+export type {
+  WorkspaceNavigationIntent,
+  WorkspaceNavigationTarget,
+} from './workspace-navigation.js';

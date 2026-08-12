@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { cardIdSchema, cardStatusValues, cardTypeValues, ConversationSessionIdSchema, eventKindValues, positiveSafeIntegerSchema, urgencyValues } from '../schemas/index.js';
+import { workspaceNavigationTargetSchema } from './workspace-navigation.js';
 
 export const EVENT_QUERY_MAX_LIMIT = 1000;
 export const emptyToolInputSchema = z.object({}).strict();
@@ -26,7 +27,8 @@ export const readRuntimeEventsInputSchema = z.object({ limit: z.number().int().p
 export const readRuntimeErrorsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional() }).strict();
 export const readControlActionsInputSchema = z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict();
 export const listProcessesInputSchema = z.object({ status: z.string().optional(), cardId: z.string().optional() }).strict();
-export const navigateWorkspaceInputSchema = z.object({ target: z.object({ kind: z.enum(['card', 'transcript', 'process', 'process_list', 'agent_session_list', 'config']), id: z.string().optional().describe('Optional target id.'), refinement: z.string().optional().describe('Optional view refinement.') }).strict() }).strict();
+export const navigateWorkspaceInputSchema = z.object({ target: workspaceNavigationTargetSchema }).strict();
+export type NavigateWorkspaceInput = z.infer<typeof navigateWorkspaceInputSchema>;
 
 export const listCardsInputSchema = z.object({
   status: z.union([z.enum(cardStatusValues), z.array(z.enum(cardStatusValues))]).optional(),

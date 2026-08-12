@@ -112,6 +112,15 @@ export type {
 export { providerExchangePayloadSchema } from '@saivage/contracts/provider-exchange';
 export type { ProviderExchangePayload } from '@saivage/contracts/provider-exchange';
 
+export {
+  workspaceNavigationIntentSchema,
+  workspaceNavigationTargetSchema,
+} from '@saivage/contracts/workspace-navigation';
+export type {
+  WorkspaceNavigationIntent,
+  WorkspaceNavigationTarget,
+} from '@saivage/contracts/workspace-navigation';
+
 export type {
   CardAction,
   CardHistoryHeader,

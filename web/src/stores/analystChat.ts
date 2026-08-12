@@ -17,6 +17,7 @@ import {
 import { useWorkspaceRouteStore } from './workspaceRoute';
 import { useFeedbackStore } from './feedback';
 import type { ConversationSessionId } from '../api/contracts';
+import { workspaceNavigationIntentSchema } from '../api/contracts';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -36,12 +37,6 @@ function buildErrorState(err: unknown, fallback: string): DetailErrorState {
     return { kind: 'network', status: null, message: err.message || fallback };
   }
   return { kind: 'unknown', status: null, message: fallback };
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
 }
 
 function optimisticUserMessage(
@@ -208,17 +203,17 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       sendAccepted = true;
       presentRestartAcknowledgement(response.restart);
 
-      for (const rawInvocation of response.toolInvocations) {
-        const invocation = asRecord(rawInvocation);
+      for (const invocation of response.toolInvocations) {
         if (
-          !invocation ||
           (invocation.tool !== 'navigate_workspace' && invocation.tool !== 'navigate_back')
         )
           continue;
-        const result = asRecord(invocation.result);
-        if (!result || result.success !== true || !result.data || typeof result.data !== 'object')
-          continue;
-        workspaceRoute.apply(result.data as Parameters<typeof workspaceRoute.apply>[0]);
+        if (invocation.result.success !== true) continue;
+        const intent = workspaceNavigationIntentSchema.parse(invocation.result.data);
+        if (intent.intent !== invocation.tool) {
+          throw new Error(`Navigation tool ${invocation.tool} returned ${intent.intent} intent.`);
+        }
+        workspaceRoute.apply(intent);
       }
 
       try {

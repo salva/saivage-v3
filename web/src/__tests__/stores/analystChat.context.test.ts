@@ -66,6 +66,21 @@ describe('analyst chat workspace context', () => {
     expect(applySpy).toHaveBeenCalledWith(payload);
   });
 
+  it('dispatches a successful navigate_back invocation', async () => {
+    const payload = { intent: 'navigate_back' as const };
+    apiMocks.sendChatMessage.mockResolvedValueOnce({
+      toolInvocations: [{ tool: 'navigate_back', params: {}, result: { success: true, data: payload } }],
+      restart: null,
+    });
+    const workspaceRoute = useWorkspaceRouteStore();
+    const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
+    const chat = useAnalystChat();
+    chat.activeSessionId = 'agent:analyst:global';
+    chat.setDraft('go back');
+    await chat.sendMessage();
+    expect(applySpy).toHaveBeenCalledWith(payload);
+  });
+
   it('does not dispatch failed navigation invocations', async () => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       toolInvocations: [{ tool: 'navigate_back', params: {}, result: { success: false, error: 'denied' } }],
@@ -77,6 +92,43 @@ describe('analyst chat workspace context', () => {
     chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('go back');
     await chat.sendMessage();
+    expect(applySpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed successful navigation after accepting the send and before applying it', async () => {
+    apiMocks.sendChatMessage.mockResolvedValueOnce({
+      toolInvocations: [{ tool: 'navigate_workspace', params: {}, result: { success: true, data: { intent: 'navigate_workspace' } } }],
+      restart: null,
+    });
+    const workspaceRoute = useWorkspaceRouteStore();
+    const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
+    const chat = useAnalystChat();
+    chat.activeSessionId = 'agent:analyst:global';
+    chat.setDraft('open a card');
+
+    await expect(chat.sendMessage()).rejects.toThrow();
+
+    expect(applySpy).not.toHaveBeenCalled();
+    expect(chat.draft).toBe('');
+    expect(chat.sendError).toBeNull();
+    expect(chat.messages).toHaveLength(1);
+  });
+
+  it.each([
+    ['navigate_workspace', { intent: 'navigate_back' }],
+    ['navigate_back', { intent: 'navigate_workspace', target: { kind: 'config' } }],
+  ] as const)('rejects cross-wired %s results before applying them', async (tool, data) => {
+    apiMocks.sendChatMessage.mockResolvedValueOnce({
+      toolInvocations: [{ tool, params: {}, result: { success: true, data } }],
+      restart: null,
+    });
+    const workspaceRoute = useWorkspaceRouteStore();
+    const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
+    const chat = useAnalystChat();
+    chat.activeSessionId = 'agent:analyst:global';
+    chat.setDraft('navigate');
+
+    await expect(chat.sendMessage()).rejects.toThrow(`Navigation tool ${tool} returned ${data.intent} intent.`);
     expect(applySpy).not.toHaveBeenCalled();
   });
 });

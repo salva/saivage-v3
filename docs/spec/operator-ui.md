@@ -232,6 +232,8 @@ Navigation can be combined with mutation in one Analyst turn. For example, the A
 
 Analyst Back owns logical workspace history rather than browser transport history. Restoration replaces the displayed route without re-recording it, so Back cannot oscillate between two views. REST remains the source of read models: card, history, agent-session, transcript, and LLM-exchange reads carry local request ownership, and a stale resolve, rejection, or completion cannot overwrite a newer card, version, or session selection.
 
+Only a successful navigation result whose opaque data strictly parses as the shared workspace-navigation intent and whose intent exactly matches `navigate_workspace` or `navigate_back` may change the route. Failed navigation results are inert. Malformed or cross-wired successful results are contract failures after send acceptance and produce no navigation effect.
+
 ## 7. Forbidden UI Mutations
 
 Except for the Section 3 Dashboard **Stop project** and confirmed **Restart server** controls, the UI must not expose buttons, menus, context menus, drag/drop gestures, or keyboard shortcuts that perform Analyst-only mutations directly.

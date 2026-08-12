@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import type { RouteLocationNormalizedLoaded, RouteLocationRaw, Router } from 'vue-router';
-import { useWorkspaceRouteStore, type NavigateTarget } from '../../stores/workspaceRoute';
+import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
+import type { WorkspaceNavigationTarget } from '../../api/contracts';
 
 function route(name: string, params: Record<string, unknown> = {}, query: Record<string, unknown> = {}): RouteLocationNormalizedLoaded {
   return {
@@ -60,7 +61,7 @@ describe('workspaceRoute store', () => {
     const router = makeRouter();
     const store = useWorkspaceRouteStore();
     store.registerRouterListener(router);
-    const rows: Array<{ target: NavigateTarget; expected: RouteLocationRaw }> = [
+    const rows: Array<{ target: WorkspaceNavigationTarget; expected: RouteLocationRaw }> = [
       { target: { kind: 'card', id: '11111111-1111-4111-8111-111111111111' }, expected: { name: 'card-detail', params: { id: '11111111-1111-4111-8111-111111111111' }, query: undefined } },
       { target: { kind: 'transcript', id: 'agent:planner:project' }, expected: { name: 'agent-detail', params: { id: 'agent:planner:project' }, query: undefined } },
       { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'debug', query: { tab: 'processes', process: 'pid-1' } } },

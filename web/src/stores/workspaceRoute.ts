@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import type { RouteLocationNormalizedLoaded, RouteLocationRaw, Router } from 'vue-router';
 import { parseAgentDetailRouteParam } from '../router/agent-session-route';
+import type { WorkspaceNavigationIntent, WorkspaceNavigationTarget } from '../api/contracts';
 
 const BACK_STACK_LIMIT = 16;
 
@@ -12,24 +13,6 @@ export interface WorkspaceContext {
   entityId: string | null;
   refinement: Record<string, string> | null;
 }
-
-export type NavigateTargetKind =
-  | 'card'
-  | 'transcript'
-  | 'process'
-  | 'process_list'
-  | 'agent_session_list'
-  | 'config';
-
-export interface NavigateTarget {
-  kind: NavigateTargetKind;
-  id?: string;
-  refinement?: string;
-}
-
-export type WorkspaceNavigationIntent =
-  | { intent: 'navigate_workspace'; target: NavigateTarget }
-  | { intent: 'navigate_back' };
 
 function emptyContext(): WorkspaceContext {
   return { view: null, entityId: null, refinement: null };
@@ -115,7 +98,7 @@ function routeForSnapshot(snapshot: WorkspaceContext): RouteLocationRaw {
   return { name: 'dashboard', query };
 }
 
-function routeForTarget(target: NavigateTarget): RouteLocationRaw | null {
+function routeForTarget(target: WorkspaceNavigationTarget): RouteLocationRaw | null {
   switch (target.kind) {
     case 'card':
       return { name: 'card-detail', params: { id: target.id ?? '' }, query: refinementStringToQuery(target.refinement) };
