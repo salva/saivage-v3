@@ -7,7 +7,7 @@ import type { ProviderConversationProjection } from '../../agents/llm-contracts.
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
 import { appendConversationBatch, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
-import { generateRoundId } from '../../schemas/round-id-server.js';
+import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
 import type { SummarizerProviderRow } from './compaction/result-dropping.js';
 
 export type UserContextMessageCategory =
@@ -62,7 +62,7 @@ export function buildUserContextMessage(
     role: 'user',
     kind: 'text',
     content,
-    round_id: roundId('user', seed),
+    round_id: deterministicRoundId('user', seed),
     message_index: 1,
     block_index: 0,
     timestamp,
@@ -151,7 +151,7 @@ export function appendRecoveryNotice(
     kind: 'model_recovered',
     content:
       'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.',
-    round_id: roundId('pre', inputId),
+    round_id: deterministicRoundId('pre', inputId),
     message_index: 0,
     block_index: 1,
     timestamp: new Date().toISOString(),
@@ -172,7 +172,7 @@ export function isExactRecoveryNotice(
     message.kind === 'model_recovered' &&
     message.content ===
       'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.' &&
-    message.round_id === roundId('pre', inputId) &&
+    message.round_id === deterministicRoundId('pre', inputId) &&
     message.message_index === 0 &&
     message.block_index === 1
   );
@@ -191,7 +191,7 @@ export function buildContextTextMessage(
     role,
     kind: 'text',
     content,
-    round_id: roundId(role === 'system' ? 'pre' : 'user', seed),
+    round_id: deterministicRoundId(role === 'system' ? 'pre' : 'user', seed),
     message_index: role === 'system' ? 0 : 1,
     block_index: 0,
     timestamp,
@@ -312,8 +312,4 @@ function projectProviderConversationMessage(message: AgentMessage): AgentMessage
       }),
     ];
   return [message];
-}
-
-function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
-  return `r-${kind}-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
 }

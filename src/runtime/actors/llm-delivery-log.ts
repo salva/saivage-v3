@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, ConversationSessionId } from '../../schemas/index.js';
+import { deterministicRoundId } from '../../schemas/round-id-server.js';
 import type { ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
 import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
@@ -36,7 +36,7 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
     role: 'system',
     kind: 'activity',
     content: JSON.stringify({ event: 'llm_turn_started', inputId: input.inputId, agent_name: input.agentName }),
-    round_id: roundId('pre', input.inputId),
+    round_id: deterministicRoundId('pre', input.inputId),
     message_index: 0,
     block_index: 0,
     timestamp: new Date().toISOString(),
@@ -58,7 +58,7 @@ export function buildLlmTurnMessage(input: CanonicalLlmInvocationInput, content:
       role: 'assistant',
       kind: 'text',
       content,
-      round_id: roundId('assistant', input.inputId),
+      round_id: deterministicRoundId('assistant', input.inputId),
       message_index: 1,
       block_index: 0,
       timestamp,
@@ -74,7 +74,7 @@ function providerPrivateResponsesMessage(input: CanonicalLlmInvocationInput, pro
     role: 'system',
     kind: 'provider_private',
     content: JSON.stringify({ transport: 'openai-responses', source_input_id: input.inputId, projection_message_id: projectionMessageId, provider: privateContext.provider, model: privateContext.model, output: privateContext.output }),
-    round_id: roundId('assistant', `${input.inputId}:provider-private`),
+    round_id: deterministicRoundId('assistant', `${input.inputId}:provider-private`),
     message_index: 1,
     block_index: 0,
     timestamp: new Date().toISOString(),
@@ -98,7 +98,7 @@ export function appendLlmTurnError(conversations: ConversationFileContext, input
     role: 'assistant',
     kind: 'model_issue',
     content: error,
-    round_id: roundId('assistant', input.inputId),
+    round_id: deterministicRoundId('assistant', input.inputId),
     message_index: 1,
     block_index: 0,
     timestamp: new Date().toISOString(),
@@ -139,7 +139,7 @@ function toolCallAgentMessage(input: CanonicalLlmInvocationInput, toolCall: Tool
     content: JSON.stringify(toolCallAgentContent(toolCall)),
     tool: toolCall.function.name,
     tool_call_id: toolCall.id,
-    round_id: roundId('assistant', input.inputId),
+    round_id: deterministicRoundId('assistant', input.inputId),
     message_index: 1,
     block_index: index,
     timestamp,
@@ -166,7 +166,7 @@ export function buildToolResultMessage(record: Omit<ToolSettlementRecord, 'creat
     content: JSON.stringify(complete.result),
     tool: complete.tool_name,
     tool_call_id: complete.tool_call_id,
-    round_id: roundId('user', complete.source_input_id),
+    round_id: deterministicRoundId('user', complete.source_input_id),
     message_index: 2,
     block_index: 0,
     timestamp: complete.created_at,
@@ -184,7 +184,7 @@ export function appendProviderVisibleSyntheticFailedToolResult(conversations: Co
     content: JSON.stringify(payload),
     tool: record.toolName,
     tool_call_id: record.toolCallId,
-    round_id: roundId('user', record.sourceInputId),
+    round_id: deterministicRoundId('user', record.sourceInputId),
     message_index: 2,
     block_index: 0,
     timestamp: new Date().toISOString(),
@@ -225,17 +225,13 @@ export function appendModelRepairMessage(conversations: ConversationFileContext,
     role: 'user',
     kind: 'model_repair',
     content,
-    round_id: roundId('user', input.inputId),
+    round_id: deterministicRoundId('user', input.inputId),
     message_index: 3,
     block_index: 0,
     timestamp: new Date().toISOString(),
   });
   appendOne(conversations, message);
   return message;
-}
-
-function roundId(kind: 'pre' | 'user' | 'assistant', seed: string): string {
-  return `r-${kind}-${createHash('sha256').update(seed).digest('hex').slice(0, 32)}`;
 }
 
 function appendOne(conversations: ConversationFileContext, message: AgentMessage): void {
