@@ -16,19 +16,49 @@ export const ConfigGetResponseSchema = z.object({
   warnings: z.array(z.string()),
 }).strict();
 
+const EffectiveProviderCapabilitiesSchema = z.object({
+  transportProtocol: z.enum(['openai-chat-completions', 'openai-codex-backend', 'openai-responses']),
+  toolsMode: z.enum(['native', 'unsupported']),
+  exclusiveToolChoiceSupport: z.enum(['native', 'parallel_off', 'unsupported']),
+  streaming: z.boolean(),
+  responsesReasoning: z.object({ effort: z.enum(['minimal', 'low', 'medium', 'high']).optional() }).strict().optional(),
+  contextWindowTokens: z.number().int().positive().optional(),
+  maxOutputTokens: z.number().int().positive().optional(),
+  quirks: z.array(z.string()),
+}).strict();
+
+const ProviderCandidateSchema = z.object({
+  provider: z.string(),
+  account: z.string().nullable(),
+  model: z.string(),
+}).strict();
+
+const HealthyProviderAvailabilitySchema = z.object({
+  candidate: ProviderCandidateSchema,
+  state: z.literal('HEALTHY'),
+  reason: z.string().optional(),
+}).strict();
+
+const UnavailableProviderAvailabilitySchema = (state: 'BLOCKED_UNTIL' | 'COOLING') => z.object({
+  candidate: ProviderCandidateSchema,
+  state: z.literal(state),
+  untilMs: z.number().finite().positive(),
+  reason: z.string().optional(),
+}).strict();
+
+const ProviderAvailabilitySchema = z.discriminatedUnion('state', [
+  HealthyProviderAvailabilitySchema,
+  UnavailableProviderAvailabilitySchema('BLOCKED_UNTIL'),
+  UnavailableProviderAvailabilitySchema('COOLING'),
+]);
+
 export const ProviderSummarySchema = z.object({
-  priority: z.number(),
+  priority: z.number().int(),
   models: z.array(z.string()),
-  baseUrl: z.string().optional(),
   candidateCount: z.number().int().nonnegative(),
   availableCandidateCount: z.number().int().nonnegative(),
-  capabilitiesByModel: z.record(z.string(), z.unknown()),
-  availability: z.array(z.object({
-    candidate: z.object({ provider: z.string(), account: z.string().nullable(), model: z.string() }).strict(),
-    state: z.string(),
-    reason: z.string().optional(),
-    untilMs: z.number().optional(),
-  }).strict()),
+  capabilitiesByModel: z.record(z.string(), EffectiveProviderCapabilitiesSchema),
+  availability: z.array(ProviderAvailabilitySchema),
 }).strict();
 
 export const ProvidersListResponseSchema = z.object({

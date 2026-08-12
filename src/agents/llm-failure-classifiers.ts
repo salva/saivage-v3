@@ -9,6 +9,12 @@ export interface ClassifierContext {
 export type KnownProvider = 'openai-codex' | 'opencode-go' | 'openai-chat' | 'opencode' | 'github-copilot' | 'nvidia-nim';
 export type LlmHttpTransport = 'chat' | 'responses' | 'codex';
 
+export function parseFiniteRetryAfterMs(value: unknown, millisecondsPerUnit: number): number | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) return undefined;
+  const milliseconds = Math.round(value * millisecondsPerUnit);
+  return Number.isFinite(milliseconds) && milliseconds >= 0 ? milliseconds : undefined;
+}
+
 function detail(bodyText: string): string {
   if (!bodyText) return '';
   return `: ${redactTextForOutbound(bodyText.slice(0, 500))}`;
@@ -18,7 +24,8 @@ export function parseRetryAfterMs(headers: Headers): number | undefined {
   const raw = headers.get('retry-after');
   if (!raw) return undefined;
   const seconds = Number(raw);
-  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const numericMilliseconds = parseFiniteRetryAfterMs(seconds, 1000);
+  if (numericMilliseconds !== undefined) return numericMilliseconds;
   const dateMs = Date.parse(raw);
   if (Number.isFinite(dateMs)) {
     const delta = dateMs - Date.now();

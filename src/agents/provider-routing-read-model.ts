@@ -17,14 +17,26 @@ export function buildProviderRoutingReadModel(input: {
     for (const candidate of candidates) {
       if (input.availability.isAvailable(candidate)) availableCandidateCount += 1;
       const entry = input.availability.getEntry(candidate);
-      availability.push(entry
-        ? { candidate, state: entry.state, ...(entry.reason ? { reason: entry.reason } : {}), ...(entry.untilMs ? { untilMs: entry.untilMs } : {}) }
-        : { candidate, state: 'HEALTHY' });
+      if (!entry) {
+        availability.push({ candidate, state: 'HEALTHY' });
+        continue;
+      }
+      const reason = entry.reason !== undefined ? { reason: entry.reason } : {};
+      switch (entry.state) {
+        case 'HEALTHY':
+          availability.push({ candidate, state: 'HEALTHY', ...reason });
+          break;
+        case 'BLOCKED_UNTIL':
+          availability.push({ candidate, state: 'BLOCKED_UNTIL', untilMs: entry.untilMs, ...reason });
+          break;
+        case 'COOLING':
+          availability.push({ candidate, state: 'COOLING', untilMs: entry.untilMs, ...reason });
+          break;
+      }
     }
     providers[provider.name] = {
       priority: provider.priority,
       models: Array.from(provider.models),
-      ...(provider.baseUrl ? { baseUrl: provider.baseUrl } : {}),
       candidateCount: candidates.length,
       availableCandidateCount,
       capabilitiesByModel: Object.fromEntries(Array.from(provider.models).map((model) => [model, provider.getEffectiveCapabilities(model, null)])),

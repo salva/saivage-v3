@@ -1,7 +1,7 @@
 import type { LlmCompleteResult, ToolCall } from './llm-contracts.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 import { LlmRequestError } from './llm-errors.js';
-import { classifyDirectProviderFailure } from './llm-failure-classifiers.js';
+import { classifyDirectProviderFailure, parseFiniteRetryAfterMs } from './llm-failure-classifiers.js';
 import { IncrementalSseReader, SSE_DONE, type SseOutput } from './llm-sse.js';
 
 export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, responseStatus: number): Promise<LlmCompleteResult> {
@@ -170,9 +170,11 @@ function statusFromCodexPayload(...payloads: Record<string, unknown>[]): number 
 function retryAfterMsFromCodexPayload(...payloads: Record<string, unknown>[]): number | undefined {
   for (const payload of payloads) {
     const ms = payload['retry_after_ms'];
-    if (typeof ms === 'number' && Number.isFinite(ms) && ms >= 0) return Math.round(ms);
+    const parsedMs = parseFiniteRetryAfterMs(ms, 1);
+    if (parsedMs !== undefined) return parsedMs;
     const seconds = payload['retry_after'];
-    if (typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+    const parsedSeconds = parseFiniteRetryAfterMs(seconds, 1000);
+    if (parsedSeconds !== undefined) return parsedSeconds;
   }
   return undefined;
 }

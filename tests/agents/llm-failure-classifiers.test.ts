@@ -106,6 +106,13 @@ describe('common HTTP and transport classification', () => {
     expect(classify('chat', 418, 'teapot').kind).toBe('provider_protocol_error');
   });
 
+  it('declines numeric Retry-After seconds whose millisecond conversion overflows', () => {
+    const overflowSeconds = Number.MAX_VALUE.toString();
+    const limited = classifyHttpFailure('chat', mockResponse(429, { 'Retry-After': overflowSeconds }), '', { provider: 'openai-chat', model: 'm' });
+    expect(limited).toMatchObject({ kind: 'rate_limit' });
+    expect(limited).not.toHaveProperty('retryAfterMs');
+  });
+
   it('preserves transport cancellation and timeout classification', () => {
     const ctx = { provider: 'openai-chat', model: 'm' };
     expect(classifyTransportFailure(Object.assign(new Error('aborted'), { name: 'AbortError' }), ctx).kind).toBe('cancelled');

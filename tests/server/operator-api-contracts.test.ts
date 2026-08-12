@@ -261,18 +261,44 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(operatorApiModule.ProcessListResponseSchema.safeParse({ processes: [], unexpected: true }).success).toBe(false);
     expect(operatorApiModule.EventsListResponseSchema.safeParse({ events: [], total: 0, unexpected: true }).success).toBe(false);
 
+    const candidate = { provider: 'provider', account: null, model: 'model' };
+    const capabilities = {
+      transportProtocol: 'openai-responses',
+      toolsMode: 'native',
+      exclusiveToolChoiceSupport: 'parallel_off',
+      streaming: true,
+      responsesReasoning: { effort: 'high' },
+      contextWindowTokens: 128000,
+      maxOutputTokens: 16000,
+      quirks: ['strict-output'],
+    };
     const provider = {
       priority: 1,
       models: ['model'],
-      candidateCount: 1,
+      candidateCount: 3,
       availableCandidateCount: 1,
-      capabilitiesByModel: { model: { deliberatelyOpaque: true } },
-      availability: [{ candidate: { provider: 'provider', account: null, model: 'model' }, state: 'available' }],
+      capabilitiesByModel: { model: capabilities },
+      availability: [
+        { candidate, state: 'HEALTHY' },
+        { candidate: { ...candidate, account: 'blocked' }, state: 'BLOCKED_UNTIL', untilMs: 1000, reason: 'rate_limit' },
+        { candidate: { ...candidate, account: 'cooling' }, state: 'COOLING', untilMs: 2000 },
+      ],
     };
-    expect(operatorApiModule.ProviderSummarySchema.parse(provider).capabilitiesByModel).toEqual(provider.capabilitiesByModel);
+    expect(operatorApiModule.ProviderSummarySchema.parse(provider)).toEqual(provider);
     expect(operatorApiModule.ProviderSummarySchema.safeParse({ ...provider, unexpected: true }).success).toBe(false);
     expect(operatorApiModule.ProviderSummarySchema.safeParse({ ...provider, availability: [{ ...provider.availability[0], unexpected: true }] }).success).toBe(false);
     expect(operatorApiModule.ProviderSummarySchema.safeParse({ ...provider, availability: [{ ...provider.availability[0], candidate: { ...provider.availability[0]!.candidate, unexpected: true } }] }).success).toBe(false);
+    for (const invalid of [
+      { ...provider, capabilitiesByModel: { model: { deliberatelyOpaque: true } } },
+      { ...provider, capabilitiesByModel: { model: { ...capabilities, unexpected: true } } },
+      { ...provider, capabilitiesByModel: { model: { ...capabilities, responsesReasoning: { effort: 'high', unexpected: true } } } },
+      { ...provider, availability: [{ candidate, state: 'available' }] },
+      { ...provider, availability: [{ candidate, state: 'HEALTHY', untilMs: 1000 }] },
+      { ...provider, availability: [{ candidate, state: 'BLOCKED_UNTIL' }] },
+      { ...provider, availability: [{ candidate, state: 'BLOCKED_UNTIL', untilMs: 0 }] },
+      { ...provider, availability: [{ candidate, state: 'COOLING', untilMs: Number.POSITIVE_INFINITY }] },
+      { ...provider, baseUrl: 'https://provider.example' },
+    ]) expect(operatorApiModule.ProviderSummarySchema.safeParse(invalid).success).toBe(false);
 
     const mcp = { servers: [{ name: 'server', transport: 'stdio', status: 'running', toolCount: 1, tools: [{ name: 'tool', stats: { total: 1, success: 1, error: 0 } }] }] };
     expect(operatorApiModule.McpToolsResponseSchema.safeParse({ ...mcp, unexpected: true }).success).toBe(false);

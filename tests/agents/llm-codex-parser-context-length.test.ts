@@ -40,8 +40,15 @@ describe('OpenAI Codex SSE error classification', () => {
     expect(failureFor({ type: 'error', error: { code: 'server_error', message: 'server failed' } })).toMatchObject({ kind: 'server_transient', status: 200 });
     expect(failureFor({ type: 'response.failed', response: { status: 503, error: { message: 'unavailable' } } })).toMatchObject({ kind: 'server_transient', status: 200 });
     expect(failureFor({ type: 'error', retry_after: 2, error: { code: 'rate_limit_exceeded', message: 'slow down' } }, 201)).toMatchObject({ kind: 'rate_limit', status: 201, retryAfterMs: 2000 });
+    expect(failureFor({ type: 'error', retry_after_ms: 1250.4, error: { code: 'rate_limit_exceeded', message: 'slow down' } }, 201)).toMatchObject({ kind: 'rate_limit', status: 201, retryAfterMs: 1250 });
     expect(failureFor({ type: 'error', status: 401, error: { code: 'unauthorized', message: 'bad auth' } })).toMatchObject({ kind: 'auth_permanent', status: 200 });
     expect(failureFor({ type: 'error', error: { code: 'mystery', message: 'unknown' } })).toMatchObject({ kind: 'provider_protocol_error', status: 200 });
+  });
+
+  it('declines overflowing retry_after seconds without discarding explicit rate-limit evidence', () => {
+    const failure = failureFor({ type: 'error', retry_after: Number.MAX_VALUE, error: { code: 'rate_limit_exceeded', message: 'slow down' } }, 201);
+    expect(failure).toMatchObject({ kind: 'rate_limit', status: 201 });
+    expect(failure).not.toHaveProperty('retryAfterMs');
   });
 
   it.each([
