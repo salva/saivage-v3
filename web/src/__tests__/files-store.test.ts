@@ -590,20 +590,4 @@ describe('useFileStore', () => {
     });
   });
 
-  describe('refetch()', () => {
-    it('refreshes current views through the sync refetch hook', async () => {
-      const store = setupStore();
-      store.viewedFilePath = '.saivage/plan.json';
-      vi.mocked(listFiles)
-        .mockResolvedValueOnce(mockMetaRootFiles)
-        .mockResolvedValueOnce(mockOutputRootFiles);
-      vi.mocked(getFileContent).mockResolvedValueOnce(jsonContent);
-
-      await store.refetch();
-
-      expect(listFiles).toHaveBeenNthCalledWith(1, '.saivage');
-      expect(listFiles).toHaveBeenNthCalledWith(2, '.saivage/work');
-      expect(getFileContent).toHaveBeenCalledWith('.saivage/plan.json');
-    });
-  });
 });

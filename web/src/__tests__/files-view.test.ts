@@ -101,19 +101,67 @@ describe('FilesView', () => {
     expect(wrapper.find('[data-testid="route-files"]').text()).toContain('Metadata');
   });
 
-  it('owns the exact Files refetch registration for its mounted lifetime', async () => {
-    const { wrapper, fileStore } = await mountFilesView();
-
-    expect(syncMocks.registerResource).toHaveBeenCalledTimes(1);
-    expect(syncMocks.registerResource).toHaveBeenCalledWith({
-      resource: 'files',
-      refetch: fileStore.refetch,
+  it.each([
+    { root: 'meta', path: '.saivage', hiddenPath: '.saivage/work' },
+    { root: 'output', path: '.saivage/work', hiddenPath: '.saivage' },
+  ])('refetches only the $root root selected when the callback is invoked', async ({ root, path, hiddenPath }) => {
+    const initialRoot = root === 'meta' ? 'output' : 'meta';
+    const initialPath = initialRoot === 'meta' ? '.saivage' : '.saivage/work';
+    const { wrapper, router } = await mountFilesView({
+      initialRoute: `/files?root=${initialRoot}&path=${encodeURIComponent(initialPath)}`,
     });
-    expect(syncMocks.unregisterFiles).not.toHaveBeenCalled();
+    const refetch = syncMocks.registerResource.mock.calls[0]![0].refetch as () => Promise<void>;
 
+    vi.mocked(listFiles).mockClear();
+    await router.push({ name: 'files', query: { root, path } });
+    await flushPromises();
+    vi.mocked(listFiles).mockClear();
+
+    await refetch();
+
+    expect(listFiles).toHaveBeenCalledWith(path);
+    expect(listFiles).not.toHaveBeenCalledWith(hiddenPath);
     wrapper.unmount();
+  });
 
-    expect(syncMocks.unregisterFiles).toHaveBeenCalledTimes(1);
+  it('refetches the represented parent and preview on reconnect from a direct deep-file route', async () => {
+    const filePath = '.saivage/logs/app.jsonl';
+    const parentPath = '.saivage/logs';
+    vi.mocked(getFileContent).mockResolvedValue({
+      path: filePath,
+      size: 128,
+      contentType: 'application/x-ndjson',
+      content: '{"message":"ready"}\n',
+      redacted: false,
+      sensitivity: 'normal',
+    });
+    const { wrapper } = await mountFilesView({
+      initialRoute: `/files?root=meta&path=${encodeURIComponent(filePath)}`,
+      listFilesImpl: async (path?: string) => {
+        if (path === filePath) {
+          throw new OperatorApiError('files.list', 400, { error: 'ValidationError', message: 'Path is not a directory', issues: [] });
+        }
+        if (path === parentPath) {
+          return {
+            path: parentPath,
+            files: [{ name: 'app.jsonl', path: filePath, type: 'file', size: 128, modifiedAt: '2025-06-01T12:00:00Z' }],
+          };
+        }
+        if (path === '.saivage/work') return mockOutputRootFiles;
+        return { path: path ?? '', files: [] };
+      },
+    });
+    const refetch = syncMocks.registerResource.mock.calls[0]![0].refetch as () => Promise<void>;
+
+    vi.mocked(listFiles).mockClear();
+    vi.mocked(getFileContent).mockClear();
+    await refetch();
+
+    expect(listFiles).toHaveBeenCalledWith(parentPath);
+    expect(getFileContent).toHaveBeenCalledWith(filePath);
+    expect(listFiles).not.toHaveBeenCalledWith('.saivage/work');
+    expect(listFiles).not.toHaveBeenCalledWith(filePath);
+    wrapper.unmount();
   });
 
   it.each([

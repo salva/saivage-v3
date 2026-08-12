@@ -215,11 +215,6 @@ export const useFileStore = defineStore('files', () => {
     viewerError.value = null;
   }
 
-  async function refetch(): Promise<void> {
-    await Promise.all([fetchMetaFiles(), fetchOutputFiles()]);
-    if (viewedFilePath.value) await fetchFileContent(viewedFilePath.value);
-  }
-
   return {
     // State
     metaPath,
@@ -254,6 +249,5 @@ export const useFileStore = defineStore('files', () => {
     navigateOutput,
     fetchFileContent,
     clearViewedFile,
-    refetch,
   };
 });

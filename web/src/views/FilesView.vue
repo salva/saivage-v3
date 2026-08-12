@@ -233,6 +233,12 @@ async function refreshActiveRoot(): Promise<void> {
   else await fileStore.fetchOutputFiles(path);
 }
 
+async function refetchActiveFilesView(): Promise<void> {
+  if (activeRoot.value === 'meta') await fileStore.fetchMetaFiles();
+  else await fileStore.fetchOutputFiles();
+  if (viewedFilePath.value) await fileStore.fetchFileContent(viewedFilePath.value);
+}
+
 function applyQueryPath(): void {
   const rootName = activeRoot.value;
   const path = canonicalPathForRoot(rootName, route.query.path);
@@ -270,7 +276,7 @@ function applyQueryPath(): void {
 
 let unregisterFiles: (() => void) | null = null;
 onMounted(() => {
-  unregisterFiles = liveSyncStore.registerResource({ resource: 'files', refetch: fileStore.refetch });
+  unregisterFiles = liveSyncStore.registerResource({ resource: 'files', refetch: refetchActiveFilesView });
 });
 
 onUnmounted(() => {
