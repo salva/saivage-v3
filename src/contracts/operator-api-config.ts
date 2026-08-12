@@ -1,6 +1,9 @@
 import { z } from 'zod';
-import { cardIdSchema } from '../schemas/index.js';
-import { controlActionAuditEntrySchema } from '../schemas/index.js';
+import {
+  cardIdSchema,
+  controlActionAuditEntrySchema,
+  outboundEffectiveSaivageConfigSchema,
+} from '../schemas/index.js';
 import {
   operatorSessionContract,
   UnauthorizedErrorSchema,
@@ -8,10 +11,8 @@ import {
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
-import { effectiveSaivageConfigSchema } from '../schemas/saivage-config.js';
-
 export const ConfigGetResponseSchema = z.object({
-  config: effectiveSaivageConfigSchema,
+  config: outboundEffectiveSaivageConfigSchema,
   warnings: z.array(z.string()),
 }).strict();
 

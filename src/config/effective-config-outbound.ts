@@ -1,14 +1,41 @@
-import { effectiveSaivageConfigSchema, type SaivageConfig } from '../schemas/saivage-config.js';
-import { SECRET_REDACTION_PLACEHOLDER } from '../redaction/text.js';
+import {
+  outboundEffectiveSaivageConfigSchema,
+  type OutboundEffectiveSaivageConfig,
+  type SaivageConfig,
+} from '../schemas/index.js';
+import { redactUrl, SECRET_REDACTION_PLACEHOLDER } from '../redaction/text.js';
 
-export function projectEffectiveConfigForOutbound(value: SaivageConfig): SaivageConfig {
-  const projected = structuredClone(effectiveSaivageConfigSchema.parse(value));
-  for (const provider of Object.values(projected.providers)) {
-    if (provider.apiKey !== undefined) provider.apiKey = SECRET_REDACTION_PLACEHOLDER;
-    for (const account of Object.values(provider.accounts ?? {})) if (account.apiKey !== undefined) account.apiKey = SECRET_REDACTION_PLACEHOLDER;
-  }
-  for (const server of Object.values(projected.mcpServers ?? {})) {
-    if (server.transport === 'stdio' && server.env) for (const key of Object.keys(server.env)) server.env[key] = SECRET_REDACTION_PLACEHOLDER;
-  }
-  return effectiveSaivageConfigSchema.parse(projected);
+export function projectEffectiveConfigForOutbound(value: SaivageConfig): OutboundEffectiveSaivageConfig {
+  const providers = Object.fromEntries(Object.entries(value.providers).map(([name, provider]) => {
+    const { baseUrl: _baseUrl, accounts, ...providerFields } = provider;
+    const projectedAccounts = accounts === undefined ? undefined : Object.fromEntries(
+      Object.entries(accounts).map(([accountName, account]) => {
+        const { baseUrl: _accountBaseUrl, ...accountFields } = account;
+        return [accountName, {
+          ...accountFields,
+          apiKey: account.apiKey === undefined ? undefined : SECRET_REDACTION_PLACEHOLDER,
+        }];
+      }),
+    );
+    return [name, {
+      ...providerFields,
+      apiKey: provider.apiKey === undefined ? undefined : SECRET_REDACTION_PLACEHOLDER,
+      accounts: projectedAccounts,
+    }];
+  }));
+  const mcpServers = value.mcpServers === undefined ? undefined : Object.fromEntries(
+    Object.entries(value.mcpServers).map(([name, server]) => server.transport === 'stdio'
+      ? [name, {
+          ...server,
+          env: server.env === undefined
+            ? undefined
+            : Object.fromEntries(Object.keys(server.env).map((key) => [key, SECRET_REDACTION_PLACEHOLDER])),
+        }]
+      : [name, { ...server, url: redactUrl(server.url) }]),
+  );
+  return outboundEffectiveSaivageConfigSchema.parse({
+    ...value,
+    providers,
+    mcpServers,
+  });
 }

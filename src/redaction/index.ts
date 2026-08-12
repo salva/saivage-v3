@@ -4,6 +4,8 @@ import type {
   ControlActionAuditEntry,
   CardHistoryEntry,
   CardHistoryHeader,
+  OutboundEffectiveSaivageConfig,
+  SaivageConfig,
 } from '../schemas/index.js';
 import type { CardDiffEntry } from '../cards/card-service.js';
 import { projectProviderExchange } from '../agents/provider-exchange-outbound.js';
@@ -14,7 +16,6 @@ import {
   projectCardDiff,
   projectCardHistory,
 } from '../application/read-models/card-outbound.js';
-import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
 import type { ProcessOutboundValue } from '../application/read-models/process-outbound.js';
 import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';
@@ -59,7 +60,7 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> = 
             : Request extends { source: 'card-diff' }
               ? CardDiffEntry[]
               : Request extends { source: 'config' }
-                ? SaivageConfig
+                ? OutboundEffectiveSaivageConfig
                 : Request extends { source: 'process-view'; value: infer Value }
                   ? Value
                   : Request extends { source: 'tool-invocation' }

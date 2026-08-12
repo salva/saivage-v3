@@ -269,7 +269,7 @@ Configuration projection and Analyst mutation address the exact file selected wh
 
 ## 9. Secret Display
 
-The Analyst may inspect secrets when authorized and necessary. Operator responses are nevertheless projected by the backend's typed owner contracts before the UI receives them; provider/account API keys and stdio MCP environment values have authoritative container-based guarantees.
+The Analyst may inspect secrets when authorized and necessary. Operator responses are nevertheless projected by the backend's narrowed typed owner contracts before the UI receives them; the frontend performs no effective-config redaction. The shared backend contract structurally omits provider/account `baseUrl`, replaces provider/account API keys and every stdio MCP environment value, and retains streamable-HTTP MCP URLs only after removal of userinfo credentials, query contents, and fragments.
 
 If the Analyst needs to discuss or use a secret, it should avoid unnecessary disclosure and should summarize where possible. Frontend token/key/path heuristics are defense in depth for accidental display only. They do not define identity, do not replace backend owner projection, and cannot guarantee detection of arbitrary unmarked secrets in free text.
 

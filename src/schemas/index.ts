@@ -151,3 +151,8 @@ export {
 } from './validators.js';
 export { cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';
 export { cardVersionChangeSchema, type CardVersionChange } from './card-version-change.js';
+export {
+  outboundEffectiveSaivageConfigSchema,
+  type OutboundEffectiveSaivageConfig,
+  type SaivageConfig,
+} from './saivage-config.js';

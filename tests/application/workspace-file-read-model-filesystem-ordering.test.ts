@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import * as realFs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { outboundEffectiveSaivageConfigSchema } from '../../src/schemas/index.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 type TracedOperation = 'existsSync' | 'lstatSync' | 'readlinkSync' | 'realpathSync' | 'statSync' | 'readdirSync' | 'readFileSync';
 type Trace = { operation: TracedOperation; path: string };
@@ -273,23 +275,43 @@ describe('WorkspaceFileReadModelService pre-I/O admission ordering', () => {
     expect(projectionTracesFor(cards, join(cards, 'project'), join(cards, 'project/card.jsonl'))).toEqual([]);
   });
 
-  it('reads direct and aliased redacted YAML exactly once and never returns its synthetic secret', () => {
+  it('reads direct and aliased selected config through the shared safe projection', () => {
     const root = temporaryRoot('saivage-workspace-ordering-');
     const yamlPath = join(root, '.saivage/saivage.yaml');
     const aliasPath = join(root, 'safe-redacted-alias');
     const syntheticSecret = 'synthetic-redaction-value';
+    const config = structuredClone(TEST_SAIVAGE_CONFIG);
+    config.providers.test = {
+      ...config.providers.test,
+      apiKey: syntheticSecret,
+      baseUrl: 'https://provider-user:provider-pass@provider.example.test/v1?token=secret#private',
+    };
+    config.mcpServers = {
+      remote: {
+        transport: 'streamable-http',
+        url: 'https://mcp-user:mcp-pass@mcp.example.test/rpc?token=secret#private',
+        disabled: false,
+        autostart: true,
+      },
+    };
     realFs.mkdirSync(join(root, '.saivage'), { recursive: true });
     realFs.writeFileSync(yamlPath, `apiKey: ${syntheticSecret}\nname: visible-name\n`);
     realFs.symlinkSync('.saivage/saivage.yaml', aliasPath);
-    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root));
+    const service = new WorkspaceFileReadModelService(root, records, createTestConfigAuthority(root, { relativePath: '.saivage/saivage.yaml', config }));
 
     const direct = service.readFileContent('.saivage/saivage.yaml');
     const alias = service.readFileContent('safe-redacted-alias');
     for (const result of [direct, alias]) {
       expect(result.body).toEqual(expect.objectContaining({ redacted: true, sensitivity: 'sensitive-redacted' }));
-      if ('content' in result.body) expect(result.body.content).not.toContain(syntheticSecret);
+      if ('content' in result.body) {
+        const projected = outboundEffectiveSaivageConfigSchema.parse(JSON.parse(result.body.content));
+        expect(JSON.stringify(projected)).not.toContain(syntheticSecret);
+        expect(JSON.stringify(projected)).not.toContain('baseUrl');
+        expect(JSON.stringify(projected)).not.toContain('provider-user');
+        expect(JSON.stringify(projected)).not.toContain('mcp-user');
+      }
     }
-    expect(projectionTracesFor(yamlPath).filter((trace) => trace.operation === 'readFileSync')).toHaveLength(1);
+    expect(projectionTracesFor(yamlPath).filter((trace) => trace.operation === 'readFileSync')).toHaveLength(3);
     expect(projectionTracesFor(aliasPath).filter((trace) => trace.operation === 'readFileSync')).toHaveLength(1);
   });
 });

@@ -226,6 +226,10 @@ const effectiveProviderEntrySchema = z.object({
   modelCapabilities: z.record(z.string(), providerCapabilitySchema).optional(),
   accounts: z.record(z.string(), effectiveProviderAccountSchema).optional(),
 }).strict();
+const outboundEffectiveProviderAccountSchema = effectiveProviderAccountSchema.omit({ baseUrl: true });
+const outboundEffectiveProviderEntrySchema = effectiveProviderEntrySchema
+  .omit({ baseUrl: true, accounts: true })
+  .extend({ accounts: z.record(z.string(), outboundEffectiveProviderAccountSchema).optional() });
 const effectiveServerSectionSchema = z.object({
   port: z.number().int().positive(),
   host: z.string(),
@@ -270,7 +274,7 @@ export const saivageConfigSchema = z.object({
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
 }).strict().superRefine(validateAnalystReserve);
 
-export const effectiveSaivageConfigSchema = z.object({
+const effectiveSaivageConfigShape = {
   agents: z.record(agentNameSchema, agentDefinitionSchema),
   analyst_agent: agentNameSchema,
   models: effectiveModelsSectionSchema,
@@ -279,6 +283,13 @@ export const effectiveSaivageConfigSchema = z.object({
   compaction: effectiveCompactionSectionSchema,
   card_types: cardTypesSchema,
   mcpServers: z.record(z.string(), effectiveMcpServerEntrySchema).optional(),
+};
+
+export const effectiveSaivageConfigSchema = z.object(effectiveSaivageConfigShape).strict().superRefine(validateAnalystReserve);
+
+export const outboundEffectiveSaivageConfigSchema = z.object({
+  ...effectiveSaivageConfigShape,
+  providers: z.record(z.string(), outboundEffectiveProviderEntrySchema),
 }).strict().superRefine(validateAnalystReserve);
 
 function validateAnalystReserve(value: {
@@ -306,6 +317,7 @@ function validateAnalystReserve(value: {
 // ── Derived Types ─────────────────────────────────────────────
 
 export type SaivageConfig = z.infer<typeof effectiveSaivageConfigSchema>;
+export type OutboundEffectiveSaivageConfig = z.infer<typeof outboundEffectiveSaivageConfigSchema>;
 export type McpServerConfig = z.infer<typeof effectiveMcpServerEntrySchema>;
 export type StdioMcpServerConfig = z.infer<typeof effectiveStdioMcpServerSchema>;
 export type StreamableHttpMcpServerConfig = z.infer<typeof effectiveStreamableHttpMcpServerSchema>;
