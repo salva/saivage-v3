@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ConversationSessionIdSchema, cardIdSchema, recordNameSchema } from '../schemas/index.js';
+import { ConversationSessionIdSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema } from '../schemas/index.js';
 import {
   AnalystTurnBusyErrorSchema,
   RestartChatAcknowledgementSchema,
@@ -80,7 +80,8 @@ export const LiveSyncInvalidateFrameSchema = z.union([
       t: z.literal('invalidate'),
       resource: z.literal('conversation'),
       id: ConversationSessionIdSchema,
-      through_message_id: z.string().min(1),
+      segment_version: positiveSafeIntegerSchema,
+      visible_message_id: z.string().min(1).nullable(),
     })
     .strict(),
   z

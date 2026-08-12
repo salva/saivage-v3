@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AnalystSession } from '../../src/agents/analyst-handler.js';
 import type { CardService } from '../../src/cards/card-api.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
-import { appLogFile, globalAgentConversationFile } from '../../src/persistence/layout.js';
+import { appLogFile, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
 import { defineTool, type InvocationSurface } from '../../src/tools/invocation.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -76,7 +76,7 @@ describe('Analyst project-context failure', () => {
     expect(render).not.toHaveBeenCalled();
     expect(completeTurn).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
-    expect(existsSync(globalAgentConversationFile(projectRoot, 'analyst'))).toBe(false);
+    expect(existsSync(globalAgentConversationVersionIndexFile(projectRoot, 'analyst'))).toBe(true);
     expect(existsSync(appLogFile(projectRoot))).toBe(false);
     expect(readAppLogEntries(projectRoot)).toEqual([]);
 

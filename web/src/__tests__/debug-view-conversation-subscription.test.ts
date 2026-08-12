@@ -48,7 +48,7 @@ function session(id: ConversationSessionId): AgentSession {
   });
 }
 function conversation(id: ConversationSessionId): AgentConversationResponse {
-  return { session_id: id, entries: [], cursor: 'empty-cursor' };
+  return { session_id: id, segment_version: 1, segment_context: null, entries: [], cursor: { segment_version: 1, message_id: null } };
 }
 
 async function mountDebug() {

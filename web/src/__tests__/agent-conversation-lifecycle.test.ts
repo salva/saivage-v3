@@ -87,7 +87,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(lifecycle.events).toEqual(['subscribe:agent:planner:project']);
     expect(store.selectedConversationSessionId).toBe('agent:planner:project');
     await lifecycle.callbacks.get('agent:planner:project')?.();
-    expect(refetch).toHaveBeenCalledWith(token);
+    expect(refetch).toHaveBeenCalledWith(token, undefined);
 
     wrapper.unmount();
     expect(lifecycle.events.slice(-2)).toEqual(['unsubscribe:agent:planner:project', 'clear:agent:planner:project']);

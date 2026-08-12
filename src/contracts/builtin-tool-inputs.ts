@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { cardIdSchema, cardStatusValues, cardTypeValues, eventKindValues, positiveSafeIntegerSchema, urgencyValues } from '../schemas/index.js';
+import { cardIdSchema, cardStatusValues, cardTypeValues, ConversationSessionIdSchema, eventKindValues, positiveSafeIntegerSchema, urgencyValues } from '../schemas/index.js';
 
 export const EVENT_QUERY_MAX_LIMIT = 1000;
 export const emptyToolInputSchema = z.object({}).strict();
@@ -21,7 +21,7 @@ export const analystCancelCardInputSchema = z.object({ cardId: z.string().descri
 export const analystDeleteCardInputSchema = z.object({ ids: z.array(z.string()).min(1).describe('Card ids to delete.') }).strict();
 
 export const queueNotificationInputSchema = z.object({ card_id: cardIdSchema.describe('The exact card id.'), kind: z.string().min(1).describe('A short categorical label.'), body: z.string().min(1).describe('The context text to inject.') }).strict();
-export const readAgentSessionInputSchema = z.object({ sessionId: z.string(), lastN: z.number().int().optional() }).strict();
+export const readAgentSessionInputSchema = z.object({ session_id: ConversationSessionIdSchema, last_n: z.number().int().min(1).max(1000).optional() }).strict();
 export const readRuntimeEventsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(), kind: z.enum(eventKindValues).optional() }).strict();
 export const readRuntimeErrorsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional() }).strict();
 export const readControlActionsInputSchema = z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict();
@@ -36,9 +36,9 @@ export const listCardsInputSchema = z.object({
 }).strict();
 export const getCardInputSchema = z.object({ id: z.string() }).strict();
 export const getTreeInputSchema = z.object({ rootId: z.string().optional() }).strict();
-export const listCardHistoryInputSchema = z.object({ cardId: cardIdSchema }).strict();
-export const getCardHistoryEntryInputSchema = z.object({ cardId: cardIdSchema, version_seq: positiveSafeIntegerSchema }).strict();
-export const diffCardInputSchema = z.object({ cardId: cardIdSchema, fromSeq: positiveSafeIntegerSchema.optional(), toSeq: positiveSafeIntegerSchema.optional() }).strict();
+export const listCardVersionsInputSchema = z.object({ card_id: cardIdSchema }).strict();
+export const getCardVersionInputSchema = z.object({ card_id: cardIdSchema, version: positiveSafeIntegerSchema }).strict();
+export const diffCardVersionsInputSchema = z.object({ card_id: cardIdSchema, from_version: positiveSafeIntegerSchema, to_version: z.union([positiveSafeIntegerSchema, z.literal('current')]).optional() }).strict();
 
 export const readWorkspaceInputSchema = z.object({ path: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional(), read_mode: z.enum(['auto', 'text']).optional(), metadata_only: z.boolean().optional() }).strict();
 export const writeWorkspaceInputSchema = z.object({ path: z.string(), content: z.string() }).strict();

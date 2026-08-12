@@ -46,7 +46,6 @@ function buildToolPairs(entries: TimelineEntry[]): ToolPair[] {
 
 function isDisplayTextEntry(entry: TimelineEntry): boolean {
   if (entry.kind === 'text') return entry.content.trim().length > 0;
-  if (entry.kind === 'system_prompt') return entry.content.trim().length > 0;
   if (entry.kind === 'content_policy_refusal') return true;
   return false;
 }
@@ -129,7 +128,6 @@ export function entriesToTimeline(entries: readonly AgentConversationEntry[]): A
         (entry) =>
           entry.kind === 'model_issue' ||
           entry.kind === 'model_repair' ||
-          entry.kind === 'context_compaction' ||
           entry.kind === 'model_recovered',
       ),
       toolPairs,

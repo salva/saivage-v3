@@ -140,7 +140,7 @@ describe('operator chat route request contracts', () => {
           metadata_only: false,
           max_bytes: 123,
           max_inline_bytes: 45,
-          save_as: 'record:///brief.md?card=card-a&v=next',
+          save_as: 'record:///brief.md?card=card-a&expected_head=1',
         },
         result: {
           success: true as const,
@@ -318,7 +318,7 @@ describe('operator chat route request contracts', () => {
         store: new CardService(projectRoot),
         captureExecutingLlmSnapshots: () => [],
       } as unknown as ToolContext,
-      { sessionId: 'agent:analyst:global', lastN: 2 },
+      { session_id: 'agent:analyst:global', last_n: 2 },
     );
     if (!bounded.success) throw new Error(bounded.error);
     expect((bounded.data as { messages: unknown[] }).messages).toEqual(agentRows);

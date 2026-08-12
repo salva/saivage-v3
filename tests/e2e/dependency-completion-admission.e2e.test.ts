@@ -77,7 +77,7 @@ describe('dependency-completion activation admission E2E', () => {
         if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
-          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Dependency workflow complete.' }));
+          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Dependency workflow complete.' }));
           return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete.' }));
         }
         if (input.sessionId === `agent:planner:${parent.id}`) {
@@ -96,12 +96,12 @@ describe('dependency-completion activation admission E2E', () => {
             await allowDependent.promise;
             return complete(tool('activate-b-second', 'activate_card', { card_id: dependent.id }));
           }
-          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: 'record:///status.md?v=next', content: 'Dependencies complete.' }));
+          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: `record:///status.md?card=${parent.id}&expected_head=absent`, content: 'Dependencies complete.' }));
           return complete(tool('complete-parent', 'emit_result', { outcome: 'complete_direct', summary: 'Parent complete.' }));
         }
         if (input.sessionId === `agent:executor:${dependency.id}`) {
           dependencyCalls += 1;
-          if (dependencyCalls === 1) return complete(tool('write-a', 'write', { path: 'record:///status.md?v=next', content: 'A completed first.' }));
+          if (dependencyCalls === 1) return complete(tool('write-a', 'write', { path: `record:///status.md?card=${dependency.id}&expected_head=absent`, content: 'A completed first.' }));
           return complete(tool('done-a', 'emit_result', { outcome: 'done', summary: 'A complete.' }));
         }
         if (input.sessionId === `agent:executor:${dependent.id}`) {
@@ -109,7 +109,7 @@ describe('dependency-completion activation admission E2E', () => {
           if (dependentCalls === 1) {
             dependentProviderStarted.resolve();
             await allowDependentTool.promise;
-            return complete(tool('write-b', 'write', { path: 'record:///status.md?v=next', content: 'B admitted after A.' }));
+            return complete(tool('write-b', 'write', { path: `record:///status.md?card=${dependent.id}&expected_head=absent`, content: 'B admitted after A.' }));
           }
           if (dependentCalls === 2) {
             dependentToolCompleted.resolve();
@@ -143,14 +143,14 @@ describe('dependency-completion activation admission E2E', () => {
     expect(supervisor.getRuntimeState()?.current_card_id).toBe(parent.id);
     expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id]);
     expect(dependentCalls).toBe(0);
-    expect(() => readConversation(projectRoot, `agent:executor:${dependent.id}`)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
-    expect(() => cards.readRecord(dependent.id, 'status.md')).toThrow();
+    expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual([]);
+    expect(() => cards.readCurrentRecord(dependent.id, 'status.md')).toThrow();
     expect(processRunner.list({ cardId: dependent.id })).toEqual([]);
 
     allowDependency.resolve();
     await settleWithin(dependencyDoneBeforeSecondRequest.promise, 'A completion');
     expect(cards.read(dependency.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'A complete.' } } });
-    expect(cards.readRecord(dependency.id, 'status.md').artifact.content).toBe('A completed first.');
+    expect(cards.readCurrentRecord(dependency.id, 'status.md').artifact.accepted?.content).toBe('A completed first.');
     expect(dependencyCalls).toBe(2);
     expect(cards.read(dependent.id)?.lifecycle.status).toBe('backlog');
 
@@ -165,7 +165,7 @@ describe('dependency-completion activation admission E2E', () => {
 
     allowDependentTool.resolve();
     await settleWithin(dependentToolCompleted.promise, 'B tool completion');
-    expect(cards.readRecord(dependent.id, 'status.md', 'open').artifact.content).toBe('B admitted after A.');
+    expect(cards.readCurrentRecord(dependent.id, 'status.md').artifact.draft?.content).toBe('B admitted after A.');
     expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'tool_call', tool: 'write', tool_call_id: 'write-b' }),
       expect.objectContaining({ kind: 'tool_result', tool: 'write', tool_call_id: 'write-b' }),
@@ -174,7 +174,7 @@ describe('dependency-completion activation admission E2E', () => {
     allowDependentCompletion.resolve();
     await waitUntil(() => cards.read(dependent.id)?.lifecycle.status === 'done');
     expect(cards.read(dependent.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'B complete.' } } });
-    expect(cards.readRecord(dependent.id, 'status.md').artifact.content).toBe('B admitted after A.');
+    expect(cards.readCurrentRecord(dependent.id, 'status.md').artifact.accepted?.content).toBe('B admitted after A.');
     expect(dependentCalls).toBe(2);
     expect(ownership.activationOwners.has(dependent.id)).toBe(false);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');

@@ -13,12 +13,14 @@ import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider,
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/analyst-prepare/webfetch.js';
+import { admitAnalystRecordWebfetch, prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/analyst-prepare/webfetch.js';
 import { redactUrl } from '../redaction/text.js';
-import { WebfetchInvocationSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
+import { WebfetchInvocationSchema, WebfetchResultSchema, WorkspaceWriteSuccessSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
+import { RecordMutationResultSchema, RecordMutationSuccessSchema } from '../contracts/record-mutation.js';
 import { websearchInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { replaceFile } from '../persistence/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { admitRecordMutation } from '../application/record-mutation-service.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
@@ -171,7 +173,14 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
     const url = parseHttpUrl(params.url);
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
     if (params.metadata_only && params.save_as) return { success: false, error: 'metadata_only cannot be combined with save_as.' };
-    if (params.save_as) authorizeWriteProject(ctx, { path: params.save_as });
+    if (params.save_as) {
+      authorizeWriteProject(ctx, { path: params.save_as });
+      if (params.save_as.startsWith('record:///')) {
+        if (!ctx.store || !ctx.cardId) throw new Error('Card record Webfetch requires a bound card store.');
+        const admission = admitRecordMutation(ctx.store, { path: params.save_as, operation: 'write', surface: 'card_agent', agentName: ctx.agentName, cardId: ctx.cardId, requiredTools: ['write', 'webfetch'] });
+        if ('success' in admission) return admission;
+      }
+    }
     if (params.metadata_only) {
       const fetchPromise = fetchPublic(url, { kind: 'metadata' }, signal);
       const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
@@ -190,9 +199,13 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
     if (!isText) return { success: true, data: { ...metadata, bytes: fetched.body.byteLength, content: null, binary: true } };
     const text = Buffer.from(fetched.body).toString('utf8');
     if (params.save_as) {
-      const write = await writeProject(ctx, { path: params.save_as, content: text }) as Record<string, unknown>;
-      const savedAs = typeof write.record_url === 'string' ? write.record_url : String(write.path);
-      return { success: true, data: { ...metadata, saved_as: savedAs, write, bytes: Buffer.byteLength(text, 'utf8') } };
+      const rawWrite = await writeProject(ctx, { path: params.save_as, content: text });
+      if (params.save_as.startsWith('record:///')) {
+        const result = RecordMutationResultSchema.parse(rawWrite); if (!result.success) return result;
+        return WebfetchResultSchema.parse({ success: true, data: { ...metadata, saved_as: result.data.current_url, write: { kind: 'record', result }, bytes: Buffer.byteLength(text, 'utf8') } });
+      }
+      const result = WorkspaceWriteSuccessSchema.parse(rawWrite);
+      return WebfetchResultSchema.parse({ success: true, data: { ...metadata, saved_as: result.data.target, write: { kind: 'workspace_file', result }, bytes: Buffer.byteLength(text, 'utf8') } });
     }
     const inlineCap = Math.min(Math.max(params.max_inline_bytes ?? DEFAULT_MAX_INLINE_BYTES, 1), maxBytes);
     if (Buffer.byteLength(text, 'utf8') <= inlineCap) return { success: true, data: { ...metadata, text, bytes: Buffer.byteLength(text, 'utf8'), truncated: false } };
@@ -238,18 +251,19 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
         executor: async (ctx, args, signal, invocation) => {
           const analyst = ctx.analystToolContext;
           if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);
-          const preparedContext: ToolContext = { ...analyst, analystPreparation: { web: { fetchText: (input) => {
+          const preparedContext: ToolContext = { ...analyst, analystPreparation: { records: analyst.analystMutations!.recordMutations, web: { fetchText: (input) => {
             const pending = fetchAnalystRecord(input, signal);
             return invocation ? invocation.waits.waitExternal(pending) : pending;
           } } } };
           return runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
-            action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: 'intervention_ready',
+            action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: { kind: 'intervention_ready', timing: 'before_pre_network_admission_and_immediate_before_mutation' },
+            admitBeforePrepare: admitAnalystRecordWebfetch,
             prepare: prepareAnalystRecordWebfetch,
             mutate: (prepared, input, mutation) => {
-              const outcome = mutation.services.recordMutations.write(input.save_as, prepared.content);
+              const outcome = mutation.services.recordMutations.write(input.save_as, prepared.content, ['write', 'webfetch']);
               if (outcome.kind === 'denied' || !outcome.success) return outcome;
-              const data = outcome.data as Record<string, unknown>;
-              return { kind: 'returned', success: true, data: { ...prepared.metadata, saved_as: data['record_url'], write: data, bytes: Buffer.byteLength(prepared.content, 'utf8') } };
+               const result = RecordMutationSuccessSchema.parse({ success: true, data: outcome.data });
+               return { kind: 'returned', success: true, data: { ...prepared.metadata, saved_as: result.data.current_url, write: { kind: 'record', result }, bytes: Buffer.byteLength(prepared.content, 'utf8') } };
             },
           }, signal);
         },

@@ -27,7 +27,7 @@ const canonicalCard = {
 } as const;
 const canonicalCardDetail = { id:'project',type:'project',title:'Project',lifecycle:canonicalCard.lifecycle,version_seq:1,urgency:'normal',created_at:canonicalCard.created_at,updated_at:canonicalCard.updated_at,allowedActions:[] } as const;
 const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog' } as const;
-const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['analyst', 'planner'], bootstrap: true }] as const;
+const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['analyst', 'planner'], bootstrap: true, current: null }] as const;
 const canonicalCardKeys = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const;
 const validOperatorApiRow: OperatorApiCardDiffRow = { field: 'title', before: null, after: 'new' };
 // @ts-expect-error CardDiffRow requires before through operator-api.ts.
@@ -288,10 +288,15 @@ describe('operator API runtime contract without runtime ledgers', () => {
       { operationId: 'cards.get', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.records.list', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.records.get', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.records.history.list', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.records.versions.get', identity: { kind: 'card', parameter: 'id' } },
+      { operationId: 'cards.records.diff', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.history.list', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.history.get', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'cards.diff', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'agents.detail', identity: { kind: 'session', parameter: 'id' } },
+      { operationId: 'agents.conversationVersions.list', identity: { kind: 'session', parameter: 'id' } },
+      { operationId: 'agents.conversationVersions.get', identity: { kind: 'session', parameter: 'id' } },
       { operationId: 'agents.cardSessions', identity: { kind: 'card', parameter: 'id' } },
       { operationId: 'agents.conversation', identity: { kind: 'session', parameter: 'id' } },
       { operationId: 'agents.llmExchange', identity: { kind: 'session', parameter: 'id' } },
@@ -420,8 +425,11 @@ describe('operator API runtime contract without runtime ledgers', () => {
       expect.objectContaining({ operationId: 'cards.get', method: 'GET', path: '/api/cards/:id' }),
       expect.objectContaining({ operationId: 'cards.records.list', method: 'GET', path: '/api/cards/:id/records' }),
       expect.objectContaining({ operationId: 'cards.records.get', method: 'GET', path: '/api/cards/:id/records/:name' }),
+      expect.objectContaining({ operationId: 'cards.records.history.list', method: 'GET', path: '/api/cards/:id/records/:name/history' }),
+      expect.objectContaining({ operationId: 'cards.records.versions.get', method: 'GET', path: '/api/cards/:id/records/:name/versions/:version' }),
+      expect.objectContaining({ operationId: 'cards.records.diff', method: 'GET', path: '/api/cards/:id/records/:name/diff' }),
       expect.objectContaining({ operationId: 'cards.history.list', method: 'GET', path: '/api/cards/:id/history' }),
-      expect.objectContaining({ operationId: 'cards.history.get', method: 'GET', path: '/api/cards/:id/history/:seq' }),
+      expect.objectContaining({ operationId: 'cards.history.get', method: 'GET', path: '/api/cards/:id/history/:version' }),
       expect.objectContaining({ operationId: 'cards.diff', method: 'GET', path: '/api/cards/:id/diff' }),
       expect.objectContaining({ operationId: 'agents.cardSessions', method: 'GET', path: '/api/cards/:id/agent-sessions' }),
     ]);
@@ -432,7 +440,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(parseOperatorResponse('cards.get', 200, { card: canonicalCardDetail }).card).toEqual(canonicalCardDetail);
     expect(parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [] }).parent).toEqual(canonicalHierarchyCard);
     expect(parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:canonicalRecordDescriptors }).records).toEqual(canonicalRecordDescriptors);
-    expect(parseOperatorResponse('cards.records.get', 200, { card_id:'project',record:{name:'brief.md',version:1,committed_at:canonicalCard.created_at,content:'Brief'} }).record.content).toBe('Brief');
+    const record = parseOperatorResponse('cards.records.get', 200, { card_id:'project',record:{name:'brief.md',head_version:1,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:canonicalCard.created_at,writer_agent:'runtime:bootstrap',card_version_seq:1,content:'Brief',content_sha256:'a'.repeat(64),size_bytes:5},draft:null,discarded:null,effective_content_source:'accepted'} }).record;
+    expect(record.accepted?.content).toBe('Brief');
     for (const forbidden of ['children','depends_on','assigned_to','started_at','records','operator_summary']) expect(() => parseOperatorResponse('cards.get', 200, { card: { ...canonicalCardDetail, [forbidden]: null } })).toThrow();
     for (const forbidden of ['children','has_children','descendant_count']) expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code',[forbidden]:[] }] })).toThrow();
     expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code' },{ ...canonicalHierarchyCard,id:'card-a',type:'code' }] })).toThrow();
@@ -446,31 +455,20 @@ describe('operator API runtime contract without runtime ledgers', () => {
       {error:'Card record not found',cardId:'project',name:'brief.md'},
     ]) expect(record404.parse(body)).toEqual(body);
     expect(() => record404.parse({error:'Card record not found',cardId:'project',name:'brief.md',extra:true})).toThrow();
-    const entry = { entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'agent edit_card', changed_fields: ['title'], change_summary: 'title updated', snapshot: canonicalCard } as const;
-    expect(parseOperatorResponse('cards.history.get', 200, { entry }).entry.snapshot).toEqual(canonicalCard);
+    const entry = { card_id: 'project', version: 1, entry_id: '11111111-1111-4111-8111-111111111111', published_at: '2026-01-01T00:00:00.000Z', artifact: { kind: 'card-version', card: canonicalCard, change: null } } as const;
+    expect((parseOperatorResponse('cards.history.get', 200, entry) as any).artifact.card).toEqual(canonicalCard);
 
     for (const key of canonicalCardKeys) {
       const incompleteSnapshot = { ...canonicalCard } as Record<string, unknown>;
       delete incompleteSnapshot[key];
-      expect(() => parseOperatorResponse('cards.history.get', 200, { entry: { ...entry, snapshot: incompleteSnapshot } })).toThrow();
+      expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, card: incompleteSnapshot } })).toThrow();
     }
   });
 
-  it('correlates every history kind with its one fixed provenance and rejects Analyst web-chat rows', () => {
-    const kinds = ['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete'] as const;
-    for (const kind of kinds) {
-      const provenance = kind === 'update'
-        ? { changed_by_actor: 'planner', changed_by_surface: 'runtime' }
-        : kind === 'delete'
-          ? { changed_by_actor: 'analyst', changed_by_surface: 'runtime' }
-          : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };
-      const header = { entry_id: '11111111-1111-4111-8111-111111111111', kind, card_id: 'project', version_seq: 1, changed_at: '2026-01-01T00:00:00.000Z', ...provenance, change_reason: 'reason', changed_fields: ['field'], change_summary: 'summary' };
-      expect(parseOperatorResponse('cards.history.list', 200, { history: [header], total: 1 }).history[0]).toEqual(header);
-      expect(parseOperatorResponse('cards.history.get', 200, { entry: { ...header, snapshot: canonicalCard } }).entry.kind).toBe(kind);
-      const analystWebChat = { ...header, changed_by_actor: 'analyst', changed_by_surface: 'web-chat' };
-      expect(() => parseOperatorResponse('cards.history.list', 200, { history: [analystWebChat], total: 1 })).toThrow();
-      expect(() => parseOperatorResponse('cards.history.get', 200, { entry: { ...analystWebChat, snapshot: canonicalCard } })).toThrow();
-    }
+  it('uses resulting-version metadata and rejects embedded prior-snapshot history rows', () => {
+    const version = { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: '2026-01-01T00:00:00.000Z', content_availability: 'unchecked', artifact_kind: 'card-version', change: null };
+    expect((parseOperatorResponse('cards.history.list', 200, { card_id: 'project', versions: [version], total: 1 }) as any).versions[0]).toEqual(version);
+    expect(() => parseOperatorResponse('cards.history.list', 200, { history: [{ ...version, version_seq: 1, snapshot: canonicalCard }], total: 1 })).toThrow();
   });
 
   it('uses one canonical positive safe integer wire grammar', () => {
@@ -479,27 +477,27 @@ describe('operator API runtime contract without runtime ledgers', () => {
     const accepted = ['1', String(Number.MAX_SAFE_INTEGER)];
     for (const raw of accepted) {
       expect(contractsModule.canonicalPositiveSafeIntegerStringSchema.parse(raw)).toBe(Number(raw));
-      expect(contractsModule.CardHistoryEntryParamsSchema.parse({ id: 'project', seq: raw }).seq).toBe(Number(raw));
+      expect(contractsModule.CardHistoryEntryParamsSchema.parse({ id: 'project', version: raw }).version).toBe(Number(raw));
       expect(contractsModule.CardDiffQuerySchema.parse({ from: raw, to: raw })).toEqual({ from: Number(raw), to: Number(raw) });
     }
     for (const raw of ['', '0', '+1', '-1', '1.0', '1.5', '1suffix', ' 1', '1 ', '01', '1e2', '１', '9007199254740992']) {
       expect(contractsModule.canonicalPositiveSafeIntegerStringSchema.safeParse(raw).success).toBe(false);
-      expect(contractsModule.CardHistoryEntryParamsSchema.safeParse({ id: 'project', seq: raw }).success).toBe(false);
+      expect(contractsModule.CardHistoryEntryParamsSchema.safeParse({ id: 'project', version: raw }).success).toBe(false);
       expect(contractsModule.CardDiffQuerySchema.safeParse({ from: raw }).success).toBe(false);
       expect(contractsModule.CardDiffQuerySchema.safeParse({ to: raw }).success).toBe(false);
     }
-    expect(contractsModule.CardDiffQuerySchema.parse({ from: 'last', to: 'current' })).toEqual({ from: 'last', to: 'current' });
+    expect(contractsModule.CardDiffQuerySchema.parse({ from: '1', to: 'current' })).toEqual({ from: 1, to: 'current' });
   });
 
   it('keeps card, history-entry, and diff-source 404 contracts exact and disjoint', () => {
     const card = { error: 'Card not found', cardId: 'project' };
-    const entry = { error: 'Card history entry not found', cardId: 'project', version_seq: 1 };
-    const diff = { error: 'Card diff source not found', cardId: 'project', from: 1, to: 2, missing_version_seq: 1 };
+    const entry = { error: 'historical_version_not_found', resource: 'card', owner_id: 'project', version: 1 };
+    const diff = { error: 'historical_version_not_found', resource: 'card', owner_id: 'project', version: 2 };
     expect(contractsModule.CardNotFoundErrorSchema.parse(card)).toEqual(card);
     expect(contractsModule.CardHistoryEntryNotFoundUnionSchema.parse(entry)).toEqual(entry);
     expect(contractsModule.CardDiffNotFoundUnionSchema.parse(diff)).toEqual(diff);
-    expect(contractsModule.CardHistoryEntryNotFoundUnionSchema.safeParse(diff).success).toBe(false);
-    expect(contractsModule.CardDiffNotFoundUnionSchema.safeParse(entry).success).toBe(false);
+    expect(contractsModule.CardHistoryEntryNotFoundUnionSchema.parse(diff)).toEqual(diff);
+    expect(contractsModule.CardDiffNotFoundUnionSchema.parse(entry)).toEqual(entry);
     for (const invalid of [{ error: 'Card not found' }, { ...card, message: 'missing' }, { error: 'anything', message: 'missing' }]) {
       expect(contractsModule.CardNotFoundErrorSchema.safeParse(invalid).success).toBe(false);
     }

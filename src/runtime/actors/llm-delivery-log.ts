@@ -29,22 +29,8 @@ interface LoggedToolCall {
   args: unknown;
 }
 
-export function appendLlmTurnStarted(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, options: { includeSystemPrompt?: boolean } = {}): AgentMessage[] {
-  const messages: AgentMessage[] = [];
-  if (options.includeSystemPrompt ?? true) {
-    messages.push(agentMessageSchema.parse({
-      id: `${input.inputId}:system-prompt`,
-      session_id: input.sessionId,
-      role: 'system',
-      kind: 'system_prompt',
-      content: input.systemPrompt,
-      round_id: roundId('pre', `${input.inputId}:system-prompt`),
-      message_index: 0,
-      block_index: 0,
-      timestamp: new Date().toISOString(),
-    }));
-  }
-  messages.push(agentMessageSchema.parse({
+export function appendLlmTurnStarted(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput): AgentMessage[] {
+  const messages: AgentMessage[] = [agentMessageSchema.parse({
     id: `${input.inputId}:started`,
     session_id: input.sessionId,
     role: 'system',
@@ -54,7 +40,7 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
     message_index: 0,
     block_index: 0,
     timestamp: new Date().toISOString(),
-  }));
+  })];
   appendConversationBatch(conversations, messages);
   return messages;
 }

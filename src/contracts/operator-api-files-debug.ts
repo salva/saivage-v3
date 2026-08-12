@@ -7,6 +7,7 @@ import {
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
+import { CurrentStateUnavailableSchema } from './operator-api-agents.js';
 
 export const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() }).strict();
 export const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() }).strict();
@@ -39,6 +40,11 @@ export const WorkspaceFileTooLargeErrorSchema = z.object({
   size: z.number().int().nonnegative(),
   maxSize: z.number().int().positive(),
 }).strict();
+const HistoricalVersionNotListedSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.enum(['card', 'authored_record', 'conversation']), owner_id: z.string().min(1), version: z.number().int().positive() }).strict();
+const HistoricalVersionUnavailableSchema = z.object({ error: z.literal('historical_version_content_unavailable'), resource: z.enum(['card', 'authored_record', 'conversation']), owner_id: z.string().min(1), version: z.number().int().positive(), reason: z.enum(['missing', 'corrupt', 'io_error']) }).strict();
+export const WorkspaceHistoricalVersionNotFoundSchema = z.object({ error: z.literal('workspace_historical_version_not_found'), path: z.string(), historical: HistoricalVersionNotListedSchema }).strict();
+export const WorkspaceHistoricalVersionUnavailableSchema = z.object({ error: z.literal('workspace_historical_version_unavailable'), path: z.string(), historical: HistoricalVersionUnavailableSchema }).strict();
+export const WorkspaceCurrentStateUnavailableSchema = z.object({ error: z.literal('workspace_current_state_unavailable'), path: z.string(), current: CurrentStateUnavailableSchema }).strict();
 export const WorkspaceFilesListBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFilePathErrorSchema]);
 export const WorkspaceFileContentBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);
 export const WorkspaceFileContentForbiddenSchema = z.union([WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);
@@ -163,8 +169,8 @@ export const filesDebugOperatorApiContracts = {
     path: '/api/files/content',
     query: WorkspaceFileContentQuerySchema,
     success: WorkspaceFileContentResponseSchema,
-    error: z.union([WorkspaceFileContentBadRequestSchema, WorkspaceFileContentForbiddenSchema, WorkspaceFilePathErrorSchema, WorkspaceFileTooLargeErrorSchema]),
-    response: { 200: WorkspaceFileContentResponseSchema, 400: WorkspaceFileContentBadRequestSchema, 401: UnauthorizedErrorSchema, 403: WorkspaceFileContentForbiddenSchema, 404: WorkspaceFilePathErrorSchema, 413: WorkspaceFileTooLargeErrorSchema, 415: WorkspaceFilePathErrorSchema, 500: UnexpectedInternalServerErrorSchema },
+    error: z.union([WorkspaceFileContentBadRequestSchema, WorkspaceFileContentForbiddenSchema, WorkspaceFilePathErrorSchema, WorkspaceFileTooLargeErrorSchema, WorkspaceHistoricalVersionNotFoundSchema, WorkspaceHistoricalVersionUnavailableSchema, WorkspaceCurrentStateUnavailableSchema]),
+    response: { 200: WorkspaceFileContentResponseSchema, 400: WorkspaceFileContentBadRequestSchema, 401: UnauthorizedErrorSchema, 403: WorkspaceFileContentForbiddenSchema, 404: z.union([WorkspaceFilePathErrorSchema, WorkspaceHistoricalVersionNotFoundSchema, WorkspaceHistoricalVersionUnavailableSchema]), 409: WorkspaceHistoricalVersionUnavailableSchema, 413: WorkspaceFileTooLargeErrorSchema, 415: WorkspaceFilePathErrorSchema, 500: UnexpectedInternalServerErrorSchema, 503: z.union([WorkspaceCurrentStateUnavailableSchema, WorkspaceHistoricalVersionUnavailableSchema]) },
     ...operatorSessionContract,
     successSchemaName: 'WorkspaceFileContentResponse',
   },

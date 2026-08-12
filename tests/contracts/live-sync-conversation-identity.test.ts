@@ -31,7 +31,8 @@ describe('live-sync conversation identity contracts', () => {
         t: 'invalidate',
         resource: 'conversation',
         id,
-        through_message_id: 'opaque-watermark',
+        segment_version: 1,
+        visible_message_id: 'opaque-watermark',
       }),
     ).toMatchObject({ id });
   });
@@ -45,7 +46,8 @@ describe('live-sync conversation identity contracts', () => {
         t: 'invalidate',
         resource: 'conversation',
         id,
-        through_message_id: 'opaque-watermark',
+        segment_version: 1,
+        visible_message_id: 'opaque-watermark',
       }).success,
     ).toBe(false);
   });

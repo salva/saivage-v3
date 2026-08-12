@@ -142,7 +142,7 @@ credential is supplied. Offline structural compilation does not contact a
 provider.
 
 **Constraints and actions.** From `<TARGET_GUEST_PATH>`, run the current built
-`saivage init` as the runtime user. Explain its six ordered phases:
+`saivage init` as the runtime user. Explain its current initialization contract:
 
 1. read project identity before acquisition to select a bound or
    bootstrap-unbound lock record;
@@ -150,9 +150,14 @@ provider.
 3. publish `.saivage/saivage.yaml` only when it is missing;
 4. load and validate the effective configuration and selected workflows;
 5. read identity again and, only when absent, create it and bind the held lock;
-6. classify generated state, accepting a valid project card or publishing
-   initial state only when all four generated roots—`.saivage/cards`,
-   `.saivage/agents`, `.saivage/logs`, and `.saivage/work`—are absent.
+6. classify generated state: all four generated roots absent permits current-format
+   first publication; required current-format project/card/bootstrap authorities
+   enter initialization; partial required publication and every old or mixed format
+   fail reset-required without compatibility probing;
+7. publish the root card/bootstrap version indexes and artifacts plus strict empty
+   indexes for every configured optional root record and deterministic global/root
+   Agent session; then perform initialization-only recovery and validate the whole
+   current graph before startup may succeed.
 
 The first identity read is non-mutating. A known-unsuccessful exclusive lock open
 publishes no new lock; failure after that open is outcome-unknown, halts, and may
@@ -163,12 +168,15 @@ completes and lock binding fails, the identity remains. Publication uncertainty
 is fatal, may retain its target and lock, and authorizes no inspection, retry,
 repair, or rollback.
 
-Classification performs no generated-state publication, deletion, selective
-repair, or rollback. Its strict canonical project-card read may truncate only
-an identifiable unterminated final suffix before parsing. If truncation
-completion cannot be confirmed, the outcome is fatal/unknown and authorizes no
-follow-up read, retry, repair, or recovery. Earlier config or identity effects
-remain; generated-publication failure may retain partial state and the lock.
+Existing current state is derived only from the project, committed child links,
+configured record names, and configured active/global/retained-tombstone session
+identities—never directory enumeration. Initialization may recreate one exact
+missing deterministic optional record/session index as strict empty without
+adopting old files, remove one invalid exact head per confirmed index replacement,
+repair only the current conversation segment to its maximum valid terminable
+prefix, and truncate only an identifiable unterminated suffix of non-versioned
+app logs. Unindexed files remain ignored forever. Ordinary runtime/API/tool reads
+perform none of these corrections.
 
 `saivage reset` is a separate explicit destructive decision, run with the
 service confirmed stopped. It replaces the four generated roots wholesale;
@@ -205,6 +213,12 @@ loader must succeed before the enabled listener can start after reboot.
 **Constraints and actions.** This baseline applies only after inspection proves
 a clean Ubuntu guest with no operator or custom nftables policy and positively
 identifies the source address by which the deployment host reaches the guest.
+Before the first `systemctl enable --now`, require either all generated roots
+absent or an already current-format installation. Stop and reset an old, mixed,
+or partially published installation under Stage 7 first. `saivage start`
+completes strict initialization, recovery, and whole-current-graph validation
+before constructing actors or opening the listener. Startup failure authorizes
+neither selective file edits nor a compatibility start.
 Never guess that address. If firewall state is existing or custom, stop this
 baseline and use the deliberate network-design option in Stage 7; do not merge,
 replace, or normalize it.
@@ -322,6 +336,10 @@ After that actual restart, prove all of the following again:
 - `saivage.service` is active with its required unit satisfied;
 - guest-loopback and deployment-host health/readiness/UI/API probes succeed;
 - any naturally available non-host probe is still rejected.
+- root current card/bootstrap content is available; configured optional records
+  appear as absent-current with empty history rather than missing authority;
+  deterministic configured sessions appear as known empty or populated catalogs;
+  and no current-state restart-required error exists.
 
 If the restart cannot be performed, or any mandatory rule, dependency, or
 positive reachability check fails, use classic `lxc-attach` to stop and disable
@@ -329,8 +347,11 @@ positive reachability check fails, use classic `lxc-attach` to stop and disable
 tokenless service as durable.
 
 Require one real provider-backed Analyst interaction. Explain Dashboard runtime
-state, the root card and children, Analyst conversation, and Files, Agents, and
-Debug. The Analyst is the ordinary mutation surface. Inspect existing project
+state, the root card and children, current-segment Analyst conversation, immutable
+segment/card/record history, semantic `card.json` Files views, and mutation URLs
+with exact `expected_head`. Never teach physical indexes/version filenames,
+`card.jsonl`, whole-history reconstructed sessions, or `v=next`. The Analyst is
+the ordinary mutation surface. Inspect existing project
 authority and ask only the unresolved goal, constraint, and acceptance
 questions. Have the Analyst align the root brief to that accepted authority and
 obtain user approval before autonomous work begins.
@@ -356,6 +377,17 @@ maintenance. `saivage stop` stops the project runtime; systemd controls the
 server process; classic LXC controls the guest. In tokenless mode, confirmed
 application-level `restart_server` is unavailable, so restart the server through
 `saivage.service`.
+
+For an incompatible-format reset, first stop the service and positively establish
+that no live lifecycle owner remains. Run the current built `saivage reset` to
+replace the complete four generated roots wholesale while preserving configuration,
+credentials, operator inputs, source, and documentation; then start only the
+current binary and repeat Stage 6 verification. Reset permanently destroys
+generated cards, records, conversations, and history. There is no migration,
+selective repair, index reconstruction, orphan adoption, mixed-version rollback,
+or copying retained version files into new state. For runtime current corruption,
+restart once to permit initialization-only correction; if required current
+authority remains unrecoverable, use the same stopped wholesale reset.
 
 Only now offer compact, deliberate alternatives: bearer authentication and
 remote access; custom firewall, bridge, proxy, or TLS design; guest SSH using

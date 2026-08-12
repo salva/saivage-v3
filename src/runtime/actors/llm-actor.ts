@@ -104,7 +104,6 @@ export class ConversationLLMActor {
   readonly runtimeProjectionChanged?: () => void;
   readonly #fatalPort: ApplicationFatalPort;
   readonly #invocations = new InvocationLifecycle();
-  readonly #systemPromptLoggedSessionIds = new Set<string>();
   #phase: ConversationPhase = { kind: 'idle', disposition: { kind: 'open' } };
   #executingActivity: ExecutingLlmActivity = Object.freeze({ mode: 'active', barrier: null });
 
@@ -352,9 +351,7 @@ export class ConversationLLMActor {
       input = { ...input, providerConversation: compacted.providerConversation }; operation.input = input;
     }
     this.#assertPersistenceOwnership(input);
-    const includeSystemPrompt = !this.#systemPromptLoggedSessionIds.has(input.sessionId);
-    appendLlmTurnStarted(this.conversations, input, { includeSystemPrompt });
-    if (includeSystemPrompt) this.#systemPromptLoggedSessionIds.add(input.sessionId);
+    appendLlmTurnStarted(this.conversations, input);
     await this.gate.waitUntilOpen(signal); this.#invocations.assertCurrent(operation.lease!); operation.providerBoundaryEntered = true;
     const completion = await this.#callProvider(operation, input, signal); this.#invocations.assertCurrent(operation.lease!);
     if (completion.kind === 'content-policy-blocked') return completion;

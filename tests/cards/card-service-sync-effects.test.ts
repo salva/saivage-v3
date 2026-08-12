@@ -7,7 +7,6 @@ import type { WebSocket } from 'ws';
 import { CardService } from '../helpers/canonical-project.js';
 import type { LiveSyncInvalidateFrame } from '../../src/contracts/index.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
-import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { SyncHub } from '../../src/server/sync-hub.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -86,14 +85,14 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const child = cards.create(input());
     flush(); clear();
 
-    const draft = cards.openRecord(child.id, 'status.md');
-    cards.editRecord(child.id, 'status.md', draft.version, 'working');
-    cards.discardRecord(child.id, 'status.md', draft.version, 'not ready');
+    const draft = cards.openRecord(child.id, 'status.md', null);
+    const working = cards.editRecord(child.id, 'status.md', draft.headVersion, 'working');
+    cards.discardRecord(child.id, 'status.md', working.headVersion, 'not ready');
     expect(flush()).toEqual([]);
 
-    const next = cards.openRecord(child.id, 'status.md');
-    cards.editRecord(child.id, 'status.md', next.version, 'closed');
-    cards.closeRecord(child.id, 'status.md', next.version, 'executor', cards.read(child.id)!.version_seq);
+    const next = cards.openRecord(child.id, 'status.md', 3);
+    const edited = cards.editRecord(child.id, 'status.md', next.headVersion, 'closed');
+    cards.closeRecord(child.id, 'status.md', edited.headVersion, 'executor', cards.read(child.id)!.version_seq);
     expect(flush()).toEqual([{ t: 'invalidate', resource: 'cards', scope: 'record', card_id: child.id, record_name: 'status.md' }]);
   });
 
@@ -131,14 +130,14 @@ describe('CardService scoped mutation-to-frame effects', () => {
       close: closeSync,
     };
     const failingCards = new CardService(root, hub, failingIo);
-    expect(() => failingCards.editCard(child.id, { title: 'outcome unknown' })).toThrow(PublicationOutcomeUnknownError);
+    expect(() => failingCards.editCard(child.id, { title: 'version publication failed' })).toThrow(failure);
     expect(flush()).toEqual([]);
   });
 
   it('emits no record hint when close reports an outcome-unknown append failure', () => {
     const child = cards.create(input());
-    const draft = cards.openRecord(child.id, 'status.md');
-    cards.editRecord(child.id, 'status.md', draft.version, 'review');
+    const draft = cards.openRecord(child.id, 'status.md', null);
+    const edited = cards.editRecord(child.id, 'status.md', draft.headVersion, 'review');
     flush(); clear();
 
     const failure = new Error('injected record close failure');
@@ -151,22 +150,22 @@ describe('CardService scoped mutation-to-frame effects', () => {
     };
     const failingCards = new CardService(root, hub, failingIo);
 
-    expect(() => failingCards.closeRecord(child.id, 'status.md', draft.version, 'executor', cards.read(child.id)!.version_seq)).toThrow(PublicationOutcomeUnknownError);
+    expect(() => failingCards.closeRecord(child.id, 'status.md', edited.headVersion, 'executor', cards.read(child.id)!.version_seq)).toThrow(failure);
     expect(flush()).toEqual([]);
   });
 
-  it('fails fast without effects when a required existing card or record stream is missing at append open', () => {
+  it('fails fast without effects when immutable card or record version creation fails', () => {
     const child = cards.create(input());
-    const draft = cards.openRecord(child.id, 'status.md');
+    const draft = cards.openRecord(child.id, 'status.md', null);
     flush(); clear();
     const missingIo: GrowingFileIo = {
       open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
       stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
     };
     const missingCards = new CardService(root, hub, missingIo);
-    expect(() => missingCards.editCard(child.id, { title: 'not published' })).toThrow(/disappeared before version append/);
+    expect(() => missingCards.editCard(child.id, { title: 'not published' })).toThrow('missing');
     expect(flush()).toEqual([]);
-    expect(() => missingCards.editRecord(child.id, 'status.md', draft.version, 'not published')).toThrow(/disappeared before append/);
+    expect(() => missingCards.editRecord(child.id, 'status.md', draft.headVersion, 'not published')).toThrow('missing');
     expect(flush()).toEqual([]);
   });
 });

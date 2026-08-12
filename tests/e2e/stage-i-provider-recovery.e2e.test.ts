@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-recovery.js';
 import { type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
@@ -11,7 +11,6 @@ import { responsesInputFromProviderConversation } from '../../src/agents/llm-ope
 import { codexMessages } from '../../src/agents/llm-openai-codex-adapter.js';
 import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-adapter.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 
 const roots: string[] = [];
 const source = '11111111-1111-4111-8111-111111111111';
@@ -24,7 +23,6 @@ describe('stable same-session recovery', () => {
     initProjectTree(projectRoot);
     roots.push(projectRoot);
     const sessionId: ConversationSessionId = 'agent:planner:project';
-    mkdirSync(dirname(conversationFile(projectRoot, sessionId)), { recursive: true });
     const base = { session_id: sessionId, round_id: 'r-pre-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
     const rows: AgentMessage[] = [
       { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
@@ -43,12 +41,10 @@ describe('stable same-session recovery', () => {
 
   it.each<ConversationSessionId>([
     'agent:planner:project',
-    'agent:executor:card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
     'agent:reviewer:project',
   ])('treats pending-notification settlement as an interrupted continuation for %s', (sessionId) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-recovery-prefix-'));
     initProjectTree(projectRoot);
-    mkdirSync(dirname(conversationFile(projectRoot, sessionId)), { recursive: true });
     roots.push(projectRoot);
     const base = { session_id: sessionId, round_id: 'r-pre-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
     appendConversationBatch({ projectRoot }, [

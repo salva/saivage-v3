@@ -215,7 +215,7 @@ describe('operator API client contracts after S06 mutation removal', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(client.getCardDiff({ cardId: 'card-a', fromSeq: 2, to: 'current' })).resolves.toEqual(diffResponse);
     const controller = new AbortController();
-    await client.getFileContent('record:///brief.md?card=card-a&v=latest', controller.signal);
+    await client.getFileContent('record:///brief.md?card=card-a', controller.signal);
     expect(new URL(fetchMock.mock.calls[0]![0]).searchParams.get('to')).toBe('current');
     expect(new URL(fetchMock.mock.calls[0]![0]).searchParams.get('from')).toBe('2');
     expect(fetchMock.mock.calls[1]![1].signal).toBe(controller.signal);

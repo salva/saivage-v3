@@ -8,7 +8,7 @@ export {
   publicCardActorStates,
   toPublicCardActorState,
 } from './actor-vocabulary.js';
-export { canonicalJson, contextCompactionContentSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
+export { canonicalJson, contextCompactionAppliedPolicySchema, contextCompactionContentSchema, contextCompactionSummaryGroupSchema, contextCompactionSummaryRoundSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
 export { CONTENT_POLICY_RETRY_TEXT, contentPolicyRefusalContentSchema, parseCanonicalContentPolicyRefusal, type ContentPolicyRefusalContent } from './content-policy.js';
 export {
   ConversationSessionIdSchema,
@@ -150,3 +150,4 @@ export {
   eventKindSchema,
 } from './validators.js';
 export { cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';
+export { cardVersionChangeSchema, type CardVersionChange } from './card-version-change.js';

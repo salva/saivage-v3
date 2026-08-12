@@ -19,7 +19,7 @@ function harness(options: { ready?: boolean } = {}) {
     },
   });
   const context = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: intervention, analystPreparation: {}, analystMutations: {} } as never;
-  const spec = (mutate: (...args: any[]) => any, extra: Record<string, unknown> = {}) => ({ action: 'card.test', safety_class: 'low' as const, target_kind: 'card' as const, getTargetId: () => 'project', lifecycle: 'intervention_ready' as const, mutate, ...extra });
+  const spec = (mutate: (...args: any[]) => any, extra: Record<string, unknown> = {}) => ({ action: 'card.test', safety_class: 'low' as const, target_kind: 'card' as const, getTargetId: () => 'project', lifecycle: { kind: 'intervention_ready' as const, timing: 'immediate_before_mutation' as const }, mutate, ...extra });
   return { root, context, spec };
 }
 
@@ -107,11 +107,11 @@ describe('audited Analyst mutation settlement', () => {
     expect(listControlActions(test.root)[0]).toMatchObject({ actor: 'analyst', action, outcome });
   });
 
-  it('keeps a committed success ok when operation-owner disposal arrives before the application returns', async () => {
+  it('does not perform a post-mutation cancellation check after committed success', async () => {
     const test = harness();
     const controller = new AbortController();
     const mutate = jest.fn(async () => { controller.abort(new Error('operation owner disposed after commit')); return { kind: 'returned' as const, success: true as const }; });
-    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate), controller.signal)).rejects.toThrow('operation owner disposed after commit');
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate), controller.signal)).resolves.toEqual({ success: true });
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(listControlActions(test.root)).toHaveLength(1);
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'ok' });

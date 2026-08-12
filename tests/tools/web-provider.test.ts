@@ -165,17 +165,99 @@ describe('WebProvider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     const content = '# Goal\nFetched\n# Instructions\nUse it\n# Acceptance Criteria\nSaved';
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(content, { status: 200, headers: { 'content-type': 'text/plain' } }));
-    const write = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { record_url: 'record:///brief.md?card=project&v=2' } }));
+    const mutationPath = 'record:///brief.md?card=project&expected_head=1';
+    const write = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { card_id: 'project', name: 'brief.md', state: 'closed', head_version: 4, head_entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', current_url: 'record:///brief.md?card=project', version_url: 'record:///brief.md?card=project&v=4', mutation_url: 'record:///brief.md?card=project&expected_head=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }));
+    const admitWrite = jest.fn(() => ({ ok: true as const }));
     const readiness = Object.freeze({ assertInterventionReady() {} });
     try {
-      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { recordMutations: { write } } } as never;
+      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { recordMutations: { admitWrite, write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
-      const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/path?raw-query-marker=yes', save_as: 'record:///brief.md?card=project&v=next' });
-      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://example.com/path?[REDACTED]', saved_as: 'record:///brief.md?card=project&v=2' } });
+      const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/path?raw-query-marker=yes', save_as: mutationPath });
+      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://example.com/path?[REDACTED]', saved_as: 'record:///brief.md?card=project', write: { kind: 'record', result: { data: { mutation_url: 'record:///brief.md?card=project&expected_head=4' } } } } });
       expect(JSON.stringify(result)).not.toContain('raw-query-marker');
       expect(result).not.toHaveProperty('data.url');
       expect(write).toHaveBeenCalledTimes(1);
-      expect(write).toHaveBeenCalledWith('record:///brief.md?card=project&v=next', content);
+      expect(admitWrite).toHaveBeenCalledWith(mutationPath);
+      expect(write).toHaveBeenCalledWith(mutationPath, content, ['write', 'webfetch']);
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('orders audited record save preflight and readiness around the sole fetch before fresh mutation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-order-'));
+    const events: string[] = [];
+    const content = 'ordered content';
+    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => { events.push('fetch'); return new Response(content, { status: 200, headers: { 'content-type': 'text/plain' } }); });
+    let readinessCount = 0;
+    const mutationPath = 'record:///brief.md?card=project&expected_head=1';
+    const admitWrite = jest.fn(() => { events.push('preflight'); return { ok: true as const }; });
+    const write = jest.fn(() => { events.push('mutate'); return { kind: 'returned' as const, success: true as const, data: { card_id: 'project', name: 'brief.md', state: 'closed', head_version: 4, head_entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', current_url: 'record:///brief.md?card=project', version_url: 'record:///brief.md?card=project&v=4', mutation_url: 'record:///brief.md?card=project&expected_head=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }; });
+    try {
+      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() { readinessCount += 1; events.push(`readiness-${readinessCount}`); } }, analystMutations: { recordMutations: { admitWrite, write } } } as never;
+      const surface = buildInvocationSurfaceFixture('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
+      await expect(invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: mutationPath })).resolves.toMatchObject({ success: true });
+      expect(events).toEqual(['readiness-1', 'preflight', 'fetch', 'readiness-2', 'mutate']);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('returns the exact record preflight failure without fetching or mutating', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-denied-'));
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    const write = jest.fn();
+    const stale = { success: false as const, error: 'Record mutation is stale.' as const, data: { code: 'record_mutation_stale' as const, card_id: 'project', name: 'brief.md', operation: 'write' as const, expected_head: 1, current_head: 2 } };
+    try {
+      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() {} }, analystMutations: { recordMutations: { admitWrite: () => ({ ok: false as const, result: stale, audit_outcome: 'error' as const }), write } } } as never;
+      const surface = buildInvocationSurfaceFixture('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
+      await expect(invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'record:///brief.md?card=project&expected_head=1' })).resolves.toEqual(stale);
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('discards the one fetched body when intervention readiness is lost before fresh mutation', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-readiness-loss-'));
+    const events:string[]=[]; let readiness=0;
+    const fetchSpy=jest.spyOn(globalThis,'fetch').mockImplementation(async()=>{events.push('fetch');return new Response('discarded',{status:200,headers:{'content-type':'text/plain'}});});
+    const write=jest.fn();
+    try {
+      const analystToolContext={projectRoot:root,actor:'analyst',surface:'web-chat',interventionReadiness:{assertInterventionReady(){readiness+=1;events.push(`readiness-${readiness}`);if(readiness===2)throw new Error('intervention unavailable');}},analystMutations:{recordMutations:{admitWrite:()=>{events.push('preflight');return {ok:true as const};},write}}} as never;
+      const surface=buildInvocationSurfaceFixture('analyst',[createWebProvider({projectRoot:root,agentName:'analyst',analystToolContext})]);
+      await expect(invokeTool(surface,'webfetch',{url:'https://example.com',save_as:'record:///brief.md?card=project&expected_head=1'})).rejects.toThrow('intervention unavailable');
+      expect(events).toEqual(['readiness-1','preflight','fetch','readiness-2']);
+      expect(fetchSpy).toHaveBeenCalledTimes(1);expect(write).not.toHaveBeenCalled();
+    } finally {fetchSpy.mockRestore();rmSync(root,{recursive:true,force:true});}
+  });
+
+  it('returns exact destination-specific saved-write identities', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-web-destinations-'));
+    const cardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const systemTarget = `${root}/system.txt`;
+    const systemUrl = `system:///${systemTarget.replace(/^\/+/, '')}`;
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    fetchSpy.mockImplementation(async () => new Response('saved', { status: 200, headers: { 'content-type': 'text/plain' } }));
+    try {
+      const surface = buildInvocationSurfaceFixture('executor', [createWebProvider({ projectRoot: root, agentName: 'executor', cardId, filesystemWrite: true })]);
+      const cases = [
+        { save_as: './nested/./plain.txt', kind: 'project_relative', target: 'nested/plain.txt' },
+        { save_as: 'project:///nested/project.txt', kind: 'project_url', target: 'project:///nested/project.txt' },
+        { save_as: `tmp:///${cardId}/tmp.txt`, kind: 'tmp_url', target: `tmp:///${cardId}/tmp.txt` },
+        { save_as: systemUrl, kind: 'system_url', target: systemUrl },
+      ] as const;
+      for (const expected of cases) {
+        const result = await invokeTool(surface, 'webfetch', { url: 'https://93.184.216.34/file', save_as: expected.save_as });
+        if (!result.success) throw new Error(`${expected.kind}: ${result.error}`);
+        expect(result).toMatchObject({ success: true, data: { saved_as: expected.target, write: { kind: 'workspace_file', result: { success: true, data: { destination_kind: expected.kind, target: expected.target, bytes: 5, written: true } } } } });
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(cases.length);
     } finally {
       fetchSpy.mockRestore();
       rmSync(root, { recursive: true, force: true });
@@ -219,7 +301,7 @@ describe('WebProvider', () => {
 
       expect(inline).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/inline?[REDACTED]', text: 'inline', truncated: false } });
       expect(binary).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/binary?[REDACTED]', content: null, binary: true } });
-      expect(saved).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/saved?[REDACTED]', saved_as: 'saved.txt', write: { path: 'saved.txt', written: true } } });
+      expect(saved).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/saved?[REDACTED]', saved_as: 'saved.txt', write: { kind: 'workspace_file', result: { success: true, data: { destination_kind: 'project_relative', target: 'saved.txt', bytes: 5, written: true } } } } });
       expect(JSON.stringify([inline, binary, saved])).not.toContain('raw-query-marker');
       for (const result of [inline, binary, saved]) expect(result).not.toHaveProperty('data.url');
     } finally {

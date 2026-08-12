@@ -165,9 +165,9 @@ onMounted(() => {
   if (props.kind === 'conversation') {
     conversationToken = agentStore.beginConversationSelection(props.sessionId);
     const token = conversationToken;
-    unregisterConversation = liveSyncStore.openConversation(props.sessionId, () => {
+    unregisterConversation = liveSyncStore.openConversation(props.sessionId, (frame) => {
       conversationLeaseReady.value = true;
-      return agentStore.refetchConversation(token);
+      return agentStore.refetchConversation(token, frame);
     });
     return;
   }

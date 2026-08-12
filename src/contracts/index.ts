@@ -86,6 +86,7 @@ export {
   operatorRouteInventory,
   parseOperatorResponse,
 } from './operator-api.js';
+export * from './record-mutation.js';
 
 export { appLogEntrySchema } from './app-log.js';
 export type { AppLogEntry, AppLogEntryOfType, AppLogEntryType } from './app-log.js';

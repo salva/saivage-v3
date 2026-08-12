@@ -16,15 +16,15 @@ export async function create_card(ctx: ToolContext, params: z.infer<typeof analy
   const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
   const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(getStore(ctx), typeCheck.value!) ?? null;
   const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: typeCheck.value!, parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: urgencyCheck.value, depends_on: params.depends_on, related: params.related };
-  return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: 'intervention_ready', mutate: (_prepared, value, mutation) => mutation.services.cards.create(value) }, signal);
+  return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, value, mutation) => mutation.services.cards.create(value) }, signal);
 }
 
 export async function delete_card(ctx: ToolContext, params: { ids: string[] }, signal?: AbortSignal): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), lifecycle: 'intervention_ready', mutate: (_prepared, input, mutation) => mutation.services.cards.delete(input.ids) }, signal);
+  return runAuditedAnalystTool(ctx, params, { action: 'card.delete', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.ids.join(','), lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.cards.delete(input.ids) }, signal);
 }
 
 export async function cancel_card(ctx: ToolContext, params: { cardId: string; reason?: string }, signal?: AbortSignal): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: 'runtime_cancellation', mutate: (_prepared, input, mutation) => mutation.services.cards.cancel(input.cardId, input.reason) }, signal);
+  return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: { kind: 'runtime_cancellation' }, mutate: (_prepared, input, mutation) => mutation.services.cards.cancel(input.cardId, input.reason) }, signal);
 }
 
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
@@ -34,7 +34,7 @@ export async function get_status(ctx: ToolContext, _params: Record<string, never
 }
 
 export async function reorder_child(ctx: ToolContext, params: { parentId: string; orderedChildIds: string[] }, signal?: AbortSignal): Promise<ToolResult> {
-  return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, lifecycle: 'intervention_ready', mutate: (_prepared, input, mutation) => mutation.services.cards.reorder(input.parentId, input.orderedChildIds) }, signal);
+  return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.cards.reorder(input.parentId, input.orderedChildIds) }, signal);
 }
 
 export const analystCardToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([

@@ -327,7 +327,7 @@ describe('SyncClient', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
-      through_message_id: 'z',
+      segment_version: 1, visible_message_id: 'z',
     });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(2);
@@ -508,7 +508,7 @@ describe('SyncClient', () => {
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:analyst:global',
-      through_message_id: 'a',
+      segment_version: 1, visible_message_id: 'a',
     });
     await flush();
     expect(refetch).toHaveBeenCalledTimes(1);

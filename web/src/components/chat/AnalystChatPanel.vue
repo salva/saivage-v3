@@ -181,12 +181,12 @@ async function submitMessage(): Promise<void> {
   focusComposer();
 }
 
-async function refreshConversation(): Promise<void> {
+async function refreshConversation(frame?: { segment_version: number; visible_message_id: string | null } | null): Promise<void> {
   if (!rootSettled) {
     refreshPending = true;
     return;
   }
-  await chat.fetchMessages();
+  await chat.fetchMessages(frame);
   await nextTick();
   timelineControls.scrollToLatest();
 }

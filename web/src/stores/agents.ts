@@ -1,14 +1,16 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AgentConversationEntry, AgentSession } from '../api/types';
+import type { AgentConversationEntry, AgentConversationResponse, AgentConversationVersionListResponse, AgentConversationVersionResponse, AgentSession } from '../api/types';
 import {
   OperatorApiError,
   getAgentConversation,
   getAgentLlmExchange,
   getAgentSession,
   getCardAgentSessions,
+  getAgentConversationVersion,
   isOperatorApiError,
   listAgentSessions,
+  listAgentConversationVersions,
 } from '../api/client';
 import type { ConversationSessionId, ProviderExchangePayload } from '../api/contracts';
 import type { LeaseInvalidation } from '../sync/client';
@@ -41,9 +43,16 @@ export const useAgentStore = defineStore('agents', () => {
   const conversationError = ref<string | null>(null);
   const conversationRefreshError = ref<string | null>(null);
   const conversationUnauthorized = ref(false);
+  const conversationSegmentContext = ref<AgentConversationResponse['segment_context']>(null);
+  const conversationVersions = ref<AgentConversationVersionListResponse['versions']>([]);
+  const conversationVersionsLoading = ref(false);
+  const conversationVersionsError = ref<string | null>(null);
+  const selectedConversationVersion = ref<AgentConversationVersionResponse | null>(null);
+  const selectedConversationVersionLoading = ref(false);
+  const selectedConversationVersionError = ref<string | null>(null);
   let conversationController: AbortController | null = null;
   let conversationGeneration = 0;
-  let conversationCursor: string | null = null;
+  let conversationCursor: { segment_version: number; message_id: string | null } | null = null;
   let activeConversationToken: ConversationSelectionToken | null = null;
   const conversationIds = new WeakMap<object, ConversationSessionId>();
   const llmExchangeSessionId = ref<ConversationSessionId | null>(null);
@@ -188,10 +197,14 @@ export const useAgentStore = defineStore('agents', () => {
     entries.value = [];
     conversationCursor = null;
     conversationError.value = null;
+    conversationSegmentContext.value = null;
+    conversationVersions.value = [];
+    selectedConversationVersion.value = null;
     return token;
   }
-  async function fetchConversation(token: ConversationSelectionToken): Promise<void> {
+  async function fetchConversation(token: ConversationSelectionToken, frame?: { segment_version: number; visible_message_id: string | null } | null): Promise<void> {
     if (token !== activeConversationToken) return;
+    if (frame && conversationCursor) { if (frame.segment_version !== conversationCursor.segment_version) conversationCursor = null; else if (frame.visible_message_id === conversationCursor.message_id) return; }
     const id = conversationIds.get(token)!;
     const generation = ++conversationGeneration;
     conversationController?.abort();
@@ -201,13 +214,14 @@ export const useAgentStore = defineStore('agents', () => {
     try {
       const [detail, response] = await Promise.all([
         getAgentSession(id, controller.signal),
-        getAgentConversation(id, controller.signal, conversationCursor ?? undefined),
+        getAgentConversation(id, controller.signal, conversationCursor?.message_id ? { segmentVersion: conversationCursor.segment_version, messageId: conversationCursor.message_id } : undefined),
       ]);
       if (token !== activeConversationToken || generation !== conversationGeneration) return;
       currentSession.value = detail.session;
-      if (conversationCursor === null) entries.value = response.entries;
+      if (conversationCursor === null || conversationCursor.segment_version !== response.segment_version) entries.value = response.entries;
       else entries.value = [...entries.value, ...response.entries];
       conversationCursor = response.cursor;
+      conversationSegmentContext.value = response.segment_context;
       conversationWarning.value = entries.value.some((entry) => entry.kind === 'model_issue')
         ? 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.'
         : null;
@@ -220,6 +234,13 @@ export const useAgentStore = defineStore('agents', () => {
         abortError(error)
       )
         return;
+      if (isOperatorApiError(error, 'agents.conversation', 409)) {
+        entries.value = [];
+        conversationCursor = null;
+        conversationSegmentContext.value = null;
+        await fetchConversation(token);
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       conversationCursor
         ? (conversationRefreshError.value = message)
@@ -234,6 +255,40 @@ export const useAgentStore = defineStore('agents', () => {
     }
   }
   const refetchConversation = fetchConversation;
+  async function fetchConversationVersions(token: ConversationSelectionToken): Promise<void> {
+    if (token !== activeConversationToken) return;
+    const id = conversationIds.get(token)!;
+    conversationVersionsLoading.value = true;
+    try {
+      const response = await listAgentConversationVersions(id);
+      if (token !== activeConversationToken) return;
+      conversationVersions.value = response.versions;
+      conversationVersionsError.value = null;
+    } catch (error) {
+      if (token !== activeConversationToken) return;
+      conversationVersionsError.value = error instanceof Error ? error.message : String(error);
+    } finally { if (token === activeConversationToken) conversationVersionsLoading.value = false; }
+  }
+  async function selectConversationVersion(token: ConversationSelectionToken, version: number): Promise<void> {
+    if (token !== activeConversationToken) return;
+    const id = conversationIds.get(token)!;
+    if (conversationCursor?.segment_version === version) {
+      selectedConversationVersion.value = null;
+      selectedConversationVersionError.value = null;
+      return;
+    }
+    selectedConversationVersionLoading.value = true;
+    try {
+      const response = await getAgentConversationVersion(id, version);
+      if (token !== activeConversationToken) return;
+      selectedConversationVersion.value = response;
+      selectedConversationVersionError.value = null;
+    } catch (error) {
+      if (token !== activeConversationToken) return;
+      selectedConversationVersion.value = null;
+      selectedConversationVersionError.value = error instanceof Error ? error.message : String(error);
+    } finally { if (token === activeConversationToken) selectedConversationVersionLoading.value = false; }
+  }
   function clearConversationSelection(token: ConversationSelectionToken) {
     if (token !== activeConversationToken) return;
     ++conversationGeneration;
@@ -243,6 +298,9 @@ export const useAgentStore = defineStore('agents', () => {
     currentSession.value = null;
     entries.value = [];
     conversationCursor = null;
+    conversationSegmentContext.value = null;
+    conversationVersions.value = [];
+    selectedConversationVersion.value = null;
   }
 
   function beginLlmExchangeSelection(id: ConversationSessionId): LlmExchangeSelectionToken {
@@ -278,9 +336,13 @@ export const useAgentStore = defineStore('agents', () => {
       if (token !== activeExchangeToken || generation !== exchangeGeneration || abortError(error))
         return;
       if (isOperatorApiError(error, 'agents.llmExchange', 404)) {
-        currentLlmExchange.value = null;
-        llmExchangeLoaded.value = true;
-        return;
+        if (error.data.error === 'No LLM exchange recorded for this session yet.') {
+          currentLlmExchange.value = null;
+          llmExchangeLoaded.value = true;
+          llmExchangeError.value = null;
+          llmExchangeRefreshError.value = null;
+          return;
+        }
       }
       const message = error instanceof Error ? error.message : String(error);
       llmExchangeLoaded.value
@@ -324,9 +386,18 @@ export const useAgentStore = defineStore('agents', () => {
     conversationError,
     conversationRefreshError,
     conversationUnauthorized,
+    conversationSegmentContext,
+    conversationVersions,
+    conversationVersionsLoading,
+    conversationVersionsError,
+    selectedConversationVersion,
+    selectedConversationVersionLoading,
+    selectedConversationVersionError,
     beginConversationSelection,
     fetchConversation,
     refetchConversation,
+    fetchConversationVersions,
+    selectConversationVersion,
     clearConversationSelection,
     llmExchangeSessionId,
     currentLlmExchange,

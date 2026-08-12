@@ -15,7 +15,6 @@ import {
 
 export type ConversationImplicitState =
   | 'empty'
-  | 'system_prompt_only'
   | 'awaiting_tool_result'
   | 'settled_terminal'
   | 'assistant_text_pending'
@@ -32,9 +31,7 @@ const recoveryVisibilityByKind = {
   model_repair: 'visible',
   content_policy_retry: 'visible',
   content_policy_refusal: 'visible',
-  context_compaction: 'visible',
   model_recovered: 'visible',
-  system_prompt: 'visible',
   provider_private: 'ignored',
 } as const satisfies Record<MessageKind, RecoveryVisibility>;
 
@@ -46,7 +43,6 @@ export function classifyConversation(messages: readonly AgentMessage[], terminal
   const recoveryVisible = messages.filter((_message, index) => recoveryVisibilities[index] === 'visible',
   );
   if (recoveryVisible.length === 0) return 'empty';
-  if (recoveryVisible.length === 1 && recoveryVisible[0]?.kind === 'system_prompt') return 'system_prompt_only';
 
   if (unmatchedToolCall && recoveryVisible.some((message) => message.id === unmatchedToolCall.id))
     return 'awaiting_tool_result';
@@ -80,19 +76,18 @@ export function stabilizeAgentSession(args: {
   }
   const messages = conversation.physicalRows;
   const sourceRows = conversation.sourceRows;
-  const activationIndexes = sourceRows.flatMap((message, index) => activationMarker(message) ? [index] : [],
-  );
-  if (activationIndexes.length === 0) {
+  const latestRound = conversation.rounds.at(-1);
+  if (!latestRound) {
     validateCallSettlementPairs(conversation, null, false);
     const state = classifyConversation(sourceRows, args.terminalToolNames,
       conversation.unmatchedCall?.message ?? null,
     );
-    if (state !== 'empty' && state !== 'system_prompt_only' && state !== 'settled_terminal') throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
+    if (state !== 'empty' && state !== 'settled_terminal') throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
     return { disposition: 'clean', messages };
   }
-  const latestActivationIndex = activationIndexes.at(-1)!;
-  const marker = requireAssociatedActivationMarker(sourceRows[latestActivationIndex]!, args.sessionId,
-  );
+  const latestActivationIndex = sourceRows.findIndex((row) => row.id === latestRound.rows[0]?.id);
+  if (latestActivationIndex < 0) throw new Error(`Activation '${latestRound.label}' has no retained source rows.`);
+  const marker = latestRound.activation.source === 'compacted_genesis' ? { inputId: latestRound.activation.input_id } : requireAssociatedActivationMarker(latestRound.activation.message, args.sessionId);
   const activationRows = sourceRows.slice(latestActivationIndex);
   const final = activationRows.at(-1)!;
   const refusalMarkers = activationRows.filter((message) => message.kind === 'content_policy_refusal',
@@ -196,7 +191,7 @@ function parseResultPayload(message: AgentMessage): { success?: unknown; data?: 
 
 function lastModelVisibleExchangeIsSettledTerminal(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>,
 ): boolean {
-  const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'content_policy_retry' || message.kind === 'content_policy_refusal' || message.kind === 'context_compaction' || message.kind === 'model_recovered',
+  const modelVisible = messages.filter((message) => message.kind === 'text' || message.kind === 'tool_call' || message.kind === 'tool_result' || message.kind === 'model_repair' || message.kind === 'content_policy_retry' || message.kind === 'content_policy_refusal' || message.kind === 'model_recovered',
   );
   if (modelVisible.at(-1)?.kind === 'content_policy_refusal') return true;
   const last = modelVisible.at(-1);

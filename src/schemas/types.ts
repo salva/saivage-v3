@@ -59,7 +59,7 @@ export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as cons
 export interface AnalystIssue { summary: string; severity?: typeof analystIssueSeverityValues[number]; evidence_path?: string; }
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
-export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'model_issue' | 'model_repair' | 'content_policy_retry' | 'content_policy_refusal' | 'context_compaction' | 'model_recovered' | 'system_prompt' | 'provider_private';
+export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'model_issue' | 'model_repair' | 'content_policy_retry' | 'content_policy_refusal' | 'model_recovered' | 'provider_private';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
 export interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; source_input_id: string; private_message_id: string; projection_kind: 'assistant_message' | 'assistant_tool_call'; }
 export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }

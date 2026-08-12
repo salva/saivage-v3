@@ -47,7 +47,7 @@ describe('operator files and debug contract handlers', () => {
 
   it('short-circuits authentication before CardService or Files work', async () => {
     const list = await fastify.inject({ method: 'GET', url: '/api/files?path=.saivage%2Fcards' });
-    const content = await fastify.inject({ method: 'GET', url: '/api/files/content?path=.saivage%2Fcards%2Fproject%2Fcard.jsonl' });
+    const content = await fastify.inject({ method: 'GET', url: '/api/files/content?path=.saivage%2Fcards%2Fproject%2Fcard.json' });
 
     expect(list.statusCode).toBe(401);
     expect(content.statusCode).toBe(401);
@@ -283,23 +283,34 @@ describe('operator files and debug contract handlers', () => {
     expect(cardsRoot.json()).toEqual({ path: '.saivage/cards', files: [expect.objectContaining({ name: 'project', path: '.saivage/cards/project' })] });
     expect(project.json().files).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: 'children', path: '.saivage/cards/project/children', type: 'directory' }),
-      expect.objectContaining({ name: 'card.jsonl', path: '.saivage/cards/project/card.jsonl', type: 'file' }),
+      expect.objectContaining({ name: 'card.json', path: '.saivage/cards/project/card.json', type: 'file' }),
     ]));
     expect(children.json().files).toEqual([expect.objectContaining({ name: 'a', path: '.saivage/cards/project/children/a' })]);
     expect(leafChildren.json()).toEqual({ path: '.saivage/cards/project/children/a/children', files: [] });
   });
 
   it('returns declared content and opaque reserved-path envelopes', async () => {
-    const content = await fastify.inject({ method: 'GET', url: '/api/files/content?path=.saivage%2Fcards%2Fproject%2Fbrief.jsonl', headers: authHeaders });
+    const content = await fastify.inject({ method: 'GET', url: '/api/files/content?path=.saivage%2Fcards%2Fproject%2Fbrief.md', headers: authHeaders });
     const malformedLayout = await fastify.inject({ method: 'GET', url: '/api/files?path=.saivage%2Fcards%2Fproject%2Fconversations', headers: authHeaders });
     const aliasSpelling = await fastify.inject({ method: 'GET', url: '/api/files?path=.%2F.saivage%2Fcards', headers: authHeaders });
 
     expect(content.statusCode).toBe(200);
-    expect(content.json()).toEqual(expect.objectContaining({ path: '.saivage/cards/project/brief.jsonl', contentType: 'text/plain', redacted: false, modifiedAt: expect.any(String) }));
+    expect(content.json()).toEqual(expect.objectContaining({ path: '.saivage/cards/project/brief.md', contentType: 'text/markdown', redacted: true, modifiedAt: expect.any(String) }));
     expect(malformedLayout.statusCode).toBe(404);
     expect(malformedLayout.json()).toEqual({ error: 'Path not found', path: '.saivage/cards/project/conversations' });
     expect(aliasSpelling.statusCode).toBe(404);
     expect(aliasSpelling.json()).toEqual({ error: 'Path not found', path: './.saivage/cards' });
+  });
+
+  it('wraps semantic current and explicit card-version documents without exposing physical layout', async () => {
+    const current = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent('.saivage/cards/project/card.json')}`, headers: authHeaders });
+    const historical = await fastify.inject({ method: 'GET', url: `/api/files/content?path=${encodeURIComponent('.saivage/cards/project/card.json?v=1')}`, headers: authHeaders });
+    for (const [response,version] of [[current,2],[historical,1]] as const) {
+      expect(response.statusCode).toBe(200); const body=response.json(); const document=JSON.parse(body.content);
+      expect(body).toMatchObject({contentType:'application/json',redacted:true,sensitivity:'sensitive-redacted',version});
+      expect(document).toMatchObject({format_version:1,kind:'card-version',card_id:'project',version});
+      expect(body.content.endsWith('\n')).toBe(true); expect(body.content).not.toContain('filename');
+    }
   });
 
   it('lists and reads adjacent-dot filenames while rejecting exact parent segments', async () => {
@@ -323,15 +334,14 @@ describe('operator files and debug contract handlers', () => {
     }
   });
 
-  it('lists malformed optional stream metadata but returns 500 for its explicit strict read', async () => {
+  it('ignores a noncanonical legacy record file in listing and explicit semantic reads', async () => {
     writeFileSync(join(cardNamespace(projectRoot, 'project'), 'status.jsonl'), 'complete malformed envelope\n', 'utf8');
     const listing = await fastify.inject({ method: 'GET', url: '/api/files?path=.saivage%2Fcards%2Fproject', headers: authHeaders });
-    const content = await fastify.inject({ method: 'GET', url: '/api/files/content?path=.saivage%2Fcards%2Fproject%2Fstatus.jsonl', headers: authHeaders });
+    const content = await fastify.inject({ method: 'GET', url: '/api/files/content?path=.saivage%2Fcards%2Fproject%2Fstatus.md', headers: authHeaders });
 
     expect(listing.statusCode).toBe(200);
-    expect(listing.json().files).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'status.jsonl', type: 'file' })]));
-    expect(content.statusCode).toBe(500);
-    expect(content.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
+    expect(listing.json().files).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: 'status.md', type: 'file' })]));
+    expect(content.statusCode).toBe(404);
   });
 
   it('keeps project and work card aliases opaque while lexical blocked aliases retain 403 and omission', async () => {

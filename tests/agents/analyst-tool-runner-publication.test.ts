@@ -18,7 +18,7 @@ function context(projectRoot: string): any {
 }
 const spec = (mutate: () => any) => ({
   action: 'test.mutate', safety_class: 'low' as const, target_kind: 'runtime' as const,
-  getTargetId: () => 'project', lifecycle: 'intervention_ready' as const, mutate,
+  getTargetId: () => 'project', lifecycle: { kind: 'intervention_ready' as const, timing: 'immediate_before_mutation' as const }, mutate,
 });
 
 describe('audited Analyst mutation publication ordering', () => {

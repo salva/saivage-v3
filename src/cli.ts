@@ -11,6 +11,8 @@ import { readRuntimeLockStatus } from './runtime/lock.js';
 import { resetOwnedGeneratedRoots, saivageCardsRoot } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
 import { publishInitialProjectCard } from './persistence/card-files.js';
+import { initializeConversation } from './persistence/conversation-file.js';
+import { globalAgentSessionId } from './schemas/index.js';
 import { readProjectIdentity } from './persistence/project-identity.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from './persistence/generated-state.js';
 import { OperatorRuntimeHttpClient } from './application/operator-runtime-http-client.js';
@@ -18,6 +20,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from './agents/default-workflow-config.js';
 import { replaceConfigYaml } from './config/config-file.js';
 import { createResolvedConfigAuthority } from './config/resolved-config-authority.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
+import { initializeConfiguredOptionalState, validateCurrentGeneratedGraph } from './persistence/current-generated-graph.js';
 
 const fatalPort = createApplicationFatalPort();
 
@@ -54,11 +57,16 @@ async function handleInit(): Promise<void> {
     if(!existsSync(configPath))replaceConfigYaml(configPath,DEFAULT_SAIVAGE_CONFIG);
     const workflows=loadCanonicalWorkflows(canonicalProjectRoot);
     if (readProjectIdentity(canonicalProjectRoot) === null) composition.createAndBindProjectIdentity();
-    if (readProjectCardOrAssertInitialPublicationAllowed(canonicalProjectRoot) !== null) { console.log(`Project already initialized at ${canonicalProjectRoot}`); return; }
-    mkdirSync(join(canonicalProjectRoot, '.saivage', 'cards'), { recursive: true });
-    const root = newProjectRootInput(canonicalProjectRoot);
-    publishInitialProjectCard(canonicalProjectRoot, root,workflows.cardTypes.get('project')!);
-    console.log(`Project initialized at ${canonicalProjectRoot}`);
+    const projectCard = readProjectCardOrAssertInitialPublicationAllowed(canonicalProjectRoot);
+    if (projectCard === null) {
+      mkdirSync(join(canonicalProjectRoot, '.saivage', 'cards'), { recursive: true });
+      const root = newProjectRootInput(canonicalProjectRoot);
+      publishInitialProjectCard(canonicalProjectRoot, root,workflows.cardTypes.get('project')!);
+      initializeConversation(canonicalProjectRoot, globalAgentSessionId(workflows.analyst.name));
+    }
+    initializeConfiguredOptionalState(canonicalProjectRoot, workflows);
+    validateCurrentGeneratedGraph(canonicalProjectRoot, workflows);
+    console.log(projectCard === null ? `Project initialized at ${canonicalProjectRoot}` : `Project already initialized at ${canonicalProjectRoot}`);
   });
 }
 async function handleStart(_options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
@@ -109,6 +117,7 @@ async function handleReset(): Promise<void> {
     mkdirSync(saivageCardsRoot(canonicalProjectRoot), { recursive: true });
     const root = newProjectRootInput(canonicalProjectRoot);
     publishInitialProjectCard(canonicalProjectRoot, root,workflows.cardTypes.get('project')!);
+    initializeConversation(canonicalProjectRoot, globalAgentSessionId(workflows.analyst.name));
     console.log('Project reset with a new root project card. Every path outside the four reset-owned generated roots was preserved.');
   });
 }

@@ -14,13 +14,13 @@ import { getCardRecord } from '../api/client';
 describe('CardRecordsSection', () => {
   it('keeps accepted content mounted with an exact Retry affordance', async () => {
     setActivePinia(createPinia());
-    vi.mocked(getCardRecord).mockResolvedValue({ card_id: 'card-a', record: { name: 'brief.md', content: 'accepted brief', version: 2, committed_at: '2026-07-18T00:00:00Z' } });
+    vi.mocked(getCardRecord).mockResolvedValue({ card_id: 'card-a', record: { name: 'brief.md', head_version:2,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed',accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-18T00:00:00Z',writer_agent:'analyst',card_version_seq:1,content:'accepted brief',content_sha256:'a'.repeat(64),size_bytes:14},draft:null,discarded:null,effective_content_source:'accepted' } });
     const store = useCardStore();
-    const descriptor = { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true };
+    const descriptor = { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true, current:null };
     store.selectedCardId = 'card-a';
     store.selectedDetail = { cardId: 'card-a', card: cardView('card-a') };
     store.recordDescriptors = [descriptor];
-    store.cardRecords = { 'brief.md': { name: 'brief.md', descriptor, loading: false, error: null, accepted: null, refreshing: false, stale: false, staleReason: null, refreshError: null } };
+    store.cardRecords = { 'brief.md': { name: 'brief.md', descriptor, loading: false, error: null,current:null, accepted: null,history:null,historyLoading:false,historyError:null,selectedVersion:null,selected:null,selectedLoading:false,selectedError:null,diff:null,diffLoading:false,diffError:null,refreshing: false, stale: false, staleReason: null, refreshError: null } };
     const wrapper = mount(CardRecordsSection, { props: { cardId: 'card-a' } });
     await Promise.resolve(); await Promise.resolve();
     store.cardRecords['brief.md'] = { ...store.cardRecords['brief.md']!, stale: true, staleReason: 'refresh-failed', refreshError: 'brief refresh failed' };

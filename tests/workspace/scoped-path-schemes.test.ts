@@ -16,7 +16,7 @@ function ctx(): ResolveScopedPathContext {
     projectRoot: '/tmp/saivage-workspace-resolver-test',
     agent: { cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentName: 'planner' },
     fail,
-    records:{record:()=>{throw new AuthoredRecordNotFoundError();},definition:(_cardId,filename)=>testRecordDefinition(filename)},
+    records:{current:()=>{throw new AuthoredRecordNotFoundError();},historical:()=>{throw new AuthoredRecordNotFoundError();},definition:(_cardId,filename)=>testRecordDefinition(filename)},
   };
 }
 
@@ -33,8 +33,8 @@ async function expectWorkspaceToolInputError(action: () => unknown): Promise<voi
 
 describe('scoped path resolvers', () => {
   it('classifies unsupported write record slots through the fail callback', async () => {
-    await expectWorkspaceToolInputError(() => resolveRecordWriteTarget(ctx(), 'record:///bogus.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=next'));
-    await expectWorkspaceToolInputError(() => resolveRecordWriteTarget(ctx(), 'record:///card.json?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=next'));
+    await expectWorkspaceToolInputError(() => resolveRecordWriteTarget(ctx(), 'record:///bogus.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&expected_head=absent'));
+    await expectWorkspaceToolInputError(() => resolveRecordWriteTarget(ctx(), 'record:///card.json?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&expected_head=absent'));
   });
 
   it('classifies malformed write record URLs through the fail callback', async () => {
@@ -104,13 +104,14 @@ describe('scoped path resolvers', () => {
   });
 
   it('translates only concrete authored-record absence into a tool-facing rejection', async () => {
-    for (const version of ['latest', 'next', '1']) {
+    for (const suffix of ['', '&v=1']) {
       const absent = ctx();
-      await expectWorkspaceToolInputError(() => resolveRecordReadTarget(absent, `record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=${version}`));
+      await expectWorkspaceToolInputError(() => resolveRecordReadTarget(absent, `record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa${suffix}`));
 
-      const hostile = new Error(`HOSTILE_STRICT_READ_${version}`);
-      const failed = { ...ctx(), records: { ...ctx().records!, record: () => { throw hostile; } } };
-      expect(() => resolveRecordReadTarget(failed, `record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=${version}`)).toThrow(hostile);
+      const hostile = new Error(`HOSTILE_STRICT_READ_${suffix}`);
+      const failed = { ...ctx(), records: { ...ctx().records!, current: () => { throw hostile; }, historical: () => { throw hostile; } } };
+      expect(() => resolveRecordReadTarget(failed, `record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa${suffix}`)).toThrow(hostile);
     }
+    for (const selector of ['latest', 'next', 'open']) await expectWorkspaceToolInputError(() => resolveRecordReadTarget(ctx(), `record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=${selector}`));
   });
 });

@@ -21,7 +21,7 @@ export type ClassifiedSubRound = {
 
 export type ClassifiedRound = {
   round_id: string;
-  activation_marker: ClassifiedMessage;
+  activation_marker: ClassifiedMessage | null;
   rows: ClassifiedMessage[];
   sub_rounds: ClassifiedSubRound[];
   estimated_tokens: number;
@@ -58,10 +58,10 @@ function buildRound(
   source: SourceRound,
   byId: ReadonlyMap<string, ClassifiedMessage>,
 ): ClassifiedRound {
-  const marker = byId.get(source.activationMarker.id)!;
+  const marker = source.activation.source === 'row' ? byId.get(source.activation.message.id)! : null;
   const rows = source.rows.map((row) => byId.get(row.id)!);
   if (rows.length === 0) throw new Error('Cannot classify an empty activation round.');
-  const roundId = marker.message.id;
+  const roundId = source.label;
   return {
     round_id: roundId,
     activation_marker: marker,

@@ -27,7 +27,7 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
   const emittedFunctionCalls = new Map<string, { sourceInputId: string; callId: string }>();
   const settled = new Set<string>();
   for (const message of providerConversation.messages) {
-    if (message.kind === 'system_prompt' || message.kind === 'activity' || message.kind === 'model_issue' || message.kind === 'model_recovered') continue;
+    if (message.kind === 'activity' || message.kind === 'model_issue' || message.kind === 'model_recovered') continue;
     if (message.kind === 'provider_private') continue;
     if (message.provider_projection?.kind === 'openai_responses') {
       const row = privateByProjection.get(message.id);
@@ -56,7 +56,6 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
       input.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments });
       continue;
     }
-    if (message.kind === 'context_compaction') throw new Error(`Responses provider conversation contains compaction metadata row '${message.id}'.`);
     if (message.kind === 'text' && message.role === 'system') continue;
     if (message.kind === 'text' || message.kind === 'model_repair') {
       input.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content: [{ type: message.role === 'assistant' ? 'output_text' : 'input_text', text: message.content }] });

@@ -17,11 +17,12 @@ describe('LiveSyncSocket conversation leases', () => {
     live.invalidate({
       resource: 'conversation',
       id: 'agent:planner:project',
-      through_message_id: 'opaque-watermark',
+      segment_version: 1,
+      visible_message_id: 'opaque-watermark',
     });
 
     expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toContainEqual({
-      t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', through_message_id: 'opaque-watermark',
+      t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'opaque-watermark',
     });
   });
 
@@ -45,9 +46,10 @@ describe('LiveSyncSocket conversation leases', () => {
     live.invalidate({
       resource: 'conversation',
       id: 'agent:planner:project',
-      through_message_id: 'opaque-watermark',
+      segment_version: 1,
+      visible_message_id: 'opaque-watermark',
     });
-    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', through_message_id: 'opaque-watermark' }]);
+    expect(jest.mocked(ws.send).mock.calls.map(([payload]) => JSON.parse(payload as string))).toEqual([{ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'opaque-watermark' }]);
   });
 });
 

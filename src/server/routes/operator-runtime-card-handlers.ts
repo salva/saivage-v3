@@ -49,8 +49,11 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
     'cards.get': ({ params }) => getCardsReadModel().getCard(params.id),
     'cards.records.list': ({ params }) => getCardsReadModel().listRecords(params.id),
     'cards.records.get': ({ params }) => getCardsReadModel().getRecord(params.id, params.name),
+    'cards.records.history.list': ({ params }) => getCardsReadModel().listRecordHistory(params.id, params.name),
+    'cards.records.versions.get': ({ params }) => getCardsReadModel().getRecordVersion(params.id, params.name, params.version),
+    'cards.records.diff': ({ params, query }) => getCardsReadModel().diffRecord(params.id, params.name, query),
     'cards.history.list': ({ params }) => getCardsReadModel().listHistory(params.id),
-    'cards.history.get': ({ params }) => getCardsReadModel().getHistoryEntry(params.id, params.seq),
+    'cards.history.get': ({ params }) => getCardsReadModel().getHistoryEntry(params.id, params.version),
     'cards.diff': ({ params, query }) => getCardsReadModel().diffCard(params.id, query),
     'runtime.status': () => {
       if (!options.runtimeApplication) throw new Error('Runtime application is required for runtime status.');

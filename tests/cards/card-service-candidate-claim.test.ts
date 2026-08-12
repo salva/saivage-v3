@@ -51,7 +51,7 @@ jest.unstable_mockModule('node:fs', () => ({
 }));
 
 const { CardService } = await import('../helpers/canonical-project.js');
-const { cardStreamFile } = await import('../../src/persistence/layout.js');
+const { cardVersionIndexFile } = await import('../../src/persistence/layout.js');
 const { initProjectTree } = await import('../helpers/canonical-project.js');
 
 const roots: string[] = [];
@@ -92,7 +92,7 @@ describe('direct child namespace claims', () => {
     childrenPath = join(root, '.saivage', 'cards', 'project', 'children');
     injectedCandidatePath = join(childrenPath, 'a');
     injectedFailure = Object.assign(new Error('candidate denied'), { code: 'EACCES' });
-    const parentBytes = realFs.readFileSync(cardStreamFile(root, 'project'));
+    const parentBytes = realFs.readFileSync(cardVersionIndexFile(root, 'project'));
     const appendOperations: string[] = [];
     const io = {
       open: ((...args: unknown[]) => { appendOperations.push('open'); return Reflect.apply(realFs.openSync, undefined, args); }) as typeof realFs.openSync,
@@ -111,7 +111,7 @@ describe('direct child namespace claims', () => {
     expect(candidateMkdirPaths).toEqual([injectedCandidatePath]);
     expect(realFs.existsSync(join(childrenPath, 'b'))).toBe(false);
     expect(realFs.existsSync(injectedCandidatePath)).toBe(false);
-    expect(realFs.readFileSync(cardStreamFile(root, 'project'))).toEqual(parentBytes);
+    expect(realFs.readFileSync(cardVersionIndexFile(root, 'project'))).toEqual(parentBytes);
     expect(appendOperations).toEqual([]);
     expect(cardChanged).not.toHaveBeenCalled();
     expect(runtimeChanged).not.toHaveBeenCalled();

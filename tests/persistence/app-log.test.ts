@@ -97,26 +97,22 @@ describe('strict app-log publication', () => {
     expect(() => readAppLogEntries(projectRoot, 'provider_exchange')).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
   });
 
-  it('truncates only an unterminated final suffix on a strict read', () => {
+  it('keeps ordinary reads correction-free for an unterminated final suffix', () => {
     const projectRoot = root(); append(projectRoot, event('first'));
     const path = appLogFile(projectRoot); const canonical = readFileSync(path);
     writeFileSync(path, Buffer.concat([canonical, Buffer.from('partial')]));
-    expect(readAppLogEntries(projectRoot, 'event').map((entry) => entry.data.id)).toEqual(['first']);
-    expect(readFileSync(path)).toEqual(canonical);
+    expect(() => readAppLogEntries(projectRoot, 'event')).toThrow(/incomplete final envelope/);
+    expect(readFileSync(path)).toEqual(Buffer.concat([canonical, Buffer.from('partial')]));
   });
 
-  it('removes an interrupted invalid-byte suffix before appending the next envelope', () => {
+  it('rejects append admission without correcting an interrupted invalid-byte suffix', () => {
     const projectRoot = root(); const first = event('first'); append(projectRoot, first);
     const path = appLogFile(projectRoot); const firstBytes = readFileSync(path);
     writeFileSync(path, Buffer.concat([firstBytes, Buffer.from([0x7b, 0xff, 0x7d])]));
     const second = event('second', '2026-07-20T00:00:01.000Z');
 
-    expect(append(projectRoot, second)).toEqual(second);
-    expect(readAppLogEntries(projectRoot, 'event').map((entry) => entry.data.id)).toEqual(['first', 'second']);
-    expect(readFileSync(path)).toEqual(Buffer.concat([
-      serializeGrowingEnvelope([first], appLogEntrySchema),
-      serializeGrowingEnvelope([second], appLogEntrySchema),
-    ]));
+    expect(() => append(projectRoot, second)).toThrow(/incomplete final envelope/);
+    expect(readFileSync(path)).toEqual(Buffer.concat([firstBytes, Buffer.from([0x7b, 0xff, 0x7d])]));
   });
 
   it('fails before appending to complete malformed data and leaves the bytes unchanged', () => {

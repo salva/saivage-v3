@@ -27,9 +27,9 @@ describe('changeset C contracts', () => {
       false,
     );
     expect(
-      AgentConversationResponseSchema.parse({ session_id: summary.id, entries: [], cursor: 'z' })
+      AgentConversationResponseSchema.parse({ session_id: summary.id, segment_version: 1, segment_context: null, entries: [], cursor: { segment_version: 1, message_id: 'z' } })
         .cursor,
-    ).toBe('z');
+    ).toEqual({ segment_version: 1, message_id: 'z' });
     expect(ChatIdentityResponseSchema.parse({ session_id: summary.id })).toEqual({
       session_id: summary.id,
     });
@@ -68,7 +68,8 @@ describe('changeset C contracts', () => {
         t: 'invalidate',
         resource: 'conversation',
         id: summary.id,
-        through_message_id: 'a',
+        segment_version: 1,
+        visible_message_id: 'a',
       }).success,
     ).toBe(true);
   });

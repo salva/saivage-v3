@@ -56,6 +56,28 @@
         :key="props.sessionId"
         :session-id="props.sessionId"
       />
+      <section v-if="conversationSegmentContext" class="segment-context" data-testid="conversation-segment-context">
+        <strong>Compacted segment {{ conversationSegmentContext.source_version + 1 }}</strong>
+        <span>History covered through {{ conversationSegmentContext.covered_through_message_id }}</span>
+        <span v-if="conversationSegmentContext.continuation.kind === 'inherited_open_round'">
+          Inherited open activation {{ conversationSegmentContext.continuation.activation.marker_id }} · input {{ conversationSegmentContext.continuation.activation.input_id }} · {{ conversationSegmentContext.continuation.active_segment_kind }}
+        </span>
+        <span v-else>Compacted between rounds</span>
+      </section>
+      <details class="version-history" @toggle="onVersionHistoryToggle">
+        <summary>Segment history</summary>
+        <ViewState v-if="conversationVersionsLoading" state="loading" title="Loading segment history" />
+        <StatusBanner v-else-if="conversationVersionsError" tone="warning" :message="conversationVersionsError" />
+        <div v-else class="version-list">
+          <button v-for="version in conversationVersions" :key="version.entry_id" class="conv-tb-btn" @click="selectVersion(version.version)">Segment {{ version.version }} · {{ version.genesis_kind }}</button>
+        </div>
+        <ViewState v-if="selectedConversationVersionLoading" state="loading" title="Loading selected segment" />
+        <StatusBanner v-else-if="selectedConversationVersionError" tone="warning" :message="selectedConversationVersionError" />
+        <div v-else-if="selectedConversationVersion" class="selected-version">
+          <strong>Historical segment {{ selectedConversationVersion.version }}</strong>
+          <ConversationTimeline :timeline="historicalTimeline" :expanded-ids="historicalExpandedIds" @toggle="toggleHistoricalExpanded" />
+        </div>
+      </details>
       <StatusBanner v-if="conversationWarning" tone="warning" :message="conversationWarning" />
       <StatusBanner
         v-if="conversationRefreshError"
@@ -89,7 +111,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../../stores/agents';
@@ -101,6 +123,7 @@ import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
 import type { ConversationSessionId } from '../../api/contracts';
+import { entriesToTimeline } from '../../utils/agent-timeline/timeline';
 const props = defineProps<{ sessionId: ConversationSessionId; entryId: string | null }>();
 const agentStore = useAgentStore();
 const liveSyncStore = useSyncStore();
@@ -113,20 +136,32 @@ const {
   conversationRefreshing,
   conversationUnauthorized,
   conversationWarning,
+  conversationSegmentContext,
+  conversationVersions,
+  conversationVersionsLoading,
+  conversationVersionsError,
+  selectedConversationVersion,
+  selectedConversationVersionLoading,
+  selectedConversationVersionError,
 } = storeToRefs(agentStore);
 const rawPanelOpen = ref(false);
 const timelineControls = useAgentTimeline(entries);
 const entryTargetState = ref<'idle' | 'found' | 'missing'>('idle');
 let unsubscribeConversation: (() => void) | null = null;
 let conversationToken: ReturnType<typeof agentStore.beginConversationSelection> | null = null;
+const historicalExpandedIds = ref(new Set<string>());
+const historicalTimeline = computed(() => entriesToTimeline(selectedConversationVersion.value?.entries ?? []));
+function toggleHistoricalExpanded(id: string): void { const next = new Set(historicalExpandedIds.value); next.has(id) ? next.delete(id) : next.add(id); historicalExpandedIds.value = next; }
+function onVersionHistoryToggle(event: Event): void { if ((event.currentTarget as HTMLDetailsElement).open && conversationToken) void agentStore.fetchConversationVersions(conversationToken); }
+function selectVersion(version: number): void { if (conversationToken) void agentStore.selectConversationVersion(conversationToken, version); }
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
   timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
 }
 onMounted(async () => {
   conversationToken = agentStore.beginConversationSelection(props.sessionId);
   const token = conversationToken;
-  unsubscribeConversation = liveSyncStore.openConversation(props.sessionId, async () => {
-    await agentStore.refetchConversation(token);
+  unsubscribeConversation = liveSyncStore.openConversation(props.sessionId, async (frame) => {
+    await agentStore.refetchConversation(token, frame);
     await focusRequestedEntry();
   });
 });
@@ -220,6 +255,10 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 12px;
 }
+.segment-context, .version-history { margin:10px 16px 0; padding:10px; border:1px solid var(--border); border-radius:6px; background:var(--surface-2); }
+.segment-context { display:flex; flex-direction:column; gap:4px; font-size:12px; }
+.version-list { display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; }
+.selected-version { margin-top:10px; }
 .conv-rounds :deep(.targeted-conversation-entry) { outline:2px solid var(--warn); outline-offset:2px; }
 .conv-jump-latest {
   align-self: center;

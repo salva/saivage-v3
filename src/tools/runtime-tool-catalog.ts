@@ -5,7 +5,7 @@ import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import { getAnalystControlToolBinders } from './analyst-control-provider.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import { cardHistoryToolBinders, type CardHistoryProviderContext } from './card-history-provider.js';
+import { cardVersionToolBinders, type CardVersionProviderContext } from './card-version-provider.js';
 import { cardInspectionToolBinders, type CardInspectionProviderContext } from './card-inspection-provider.js';
 import { mcpToolBinders, type McpProviderContext } from './mcp-provider.js';
 import { plannerControlToolBinders, type PlannerControlProviderContext } from './planner-control-provider.js';
@@ -105,8 +105,8 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
   { key: 'global:analyst', providerName: 'analyst', scope: 'global', binders: getAnalystControlToolBinders(), context: (runtime) => global(runtime).analystToolContext },
   { key: 'card:planner-control', providerName: 'planner-control', scope: 'card', binders: plannerControlToolBinders, context: (runtime) => { const value = card(runtime); return { agentName: value.agentName, projectRoot: value.projectRoot, parentCardId: value.cardId, sessionId: value.sessionId, store: value.store, parentControl: value.parentControl, notifyCard: value.notifyCard, childCreationTypes: value.childCreationTypes, childActivationTypes: value.childActivationTypes }; } },
   ...(['global', 'card'] as const).flatMap((scope): AnyProviderGroup[] => [
-    { key: `${scope}:card-inspection`, providerName: 'card-inspection', scope, binders: cardInspectionToolBinders, context: (runtime): CardInspectionProviderContext => ({ store: runtime.store }) },
-    { key: `${scope}:card-history`, providerName: 'card-history', scope, binders: cardHistoryToolBinders, context: (runtime): CardHistoryProviderContext => ({ store: runtime.store }) },
+    { key: `${scope}:card-inspection`, providerName: 'card-inspection', scope, binders: cardInspectionToolBinders, context: (runtime): CardInspectionProviderContext => ({ store: runtime.store, agentName: runtime.agentName, ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) }) },
+    { key: `${scope}:card-version`, providerName: 'card-version', scope, binders: cardVersionToolBinders, context: (runtime): CardVersionProviderContext => ({ store: runtime.store }) },
     { key: `${scope}:workspace`, providerName: 'workspace', scope, binders: scope === 'global' ? analystWorkspaceToolBinders : workspaceToolBinders, context: (runtime) => scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)) },
     { key: `${scope}:patch`, providerName: 'patch', scope, binders: scope === 'global' ? analystPatchToolBinders : patchToolBinders, context: (runtime) => scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)) },
     { key: `${scope}:process`, providerName: 'process', scope, binders: processToolBinders, context: process, cleanup: cleanupProcessProvider },

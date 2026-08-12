@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
-import { appLogFile, globalAgentConversationFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
+import { appLogFile, globalAgentConversationVersionIndexFile, runtimeProcessLockFile } from '../../src/persistence/layout.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 
@@ -94,7 +94,7 @@ describe('publication fatal owner boundaries', () => {
     expect(result.stdout).toBe('');
     expect(result.stderr).toBe(diagnostic);
     expect(readFileSync(marker, 'utf8')).toBe('');
-    expect(existsSync(globalAgentConversationFile(root, 'analyst'))).toBe(false);
+    expect(existsSync(globalAgentConversationVersionIndexFile(root, 'analyst'))).toBe(true);
     expect(existsSync(appLogFile(root))).toBe(false);
     expect(readAppLogEntries(root)).toEqual([]);
   });

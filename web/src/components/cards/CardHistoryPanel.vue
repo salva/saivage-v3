@@ -22,20 +22,20 @@
         <div class="history-list">
           <button
             v-for="entry in cardHistory"
-            :key="entry.version_seq"
+            :key="entry.entry_id"
             type="button"
             class="history-item"
-            :class="{ selected: cardHistorySelectedSeq === entry.version_seq }"
-            @click="selectVersion(entry.version_seq)"
+            :class="{ selected: cardHistorySelectedVersion === entry.version }"
+            @click="selectVersion(entry.version)"
           >
             <div class="history-item-top">
-              <span class="badge subtle">v{{ entry.version_seq }}</span>
-              <span class="badge">{{ entry.changed_by_actor }}</span>
-              <span class="badge subtle">{{ entry.changed_by_surface }}</span>
+              <span class="badge subtle">v{{ entry.version }}</span>
+              <span class="badge">{{ entry.change?.changed_by_actor ?? 'runtime' }}</span>
+              <span class="badge subtle">{{ entry.change?.changed_by_surface ?? 'runtime' }}</span>
             </div>
-            <div class="history-summary">{{ entry.change_summary }}</div>
-            <div class="history-fields">Changed: {{ entry.changed_fields.join(', ') || 'none recorded' }}</div>
-            <div class="history-time" :title="timestampTitle(entry.changed_at)">{{ fmtDate(entry.changed_at) }}</div>
+            <div class="history-summary">{{ entry.change?.change_summary ?? 'Initial card version' }}</div>
+            <div class="history-fields">Changed: {{ entry.change?.changed_fields.join(', ') || 'none recorded' }}</div>
+            <div class="history-time" :title="timestampTitle(entry.published_at)">{{ fmtDate(entry.published_at) }}</div>
           </button>
         </div>
 
@@ -52,10 +52,10 @@
           <div v-else-if="!cardHistoryEntry" class="empty-evidence">Select a version to inspect its snapshot and diff.</div>
           <template v-else>
             <div class="history-meta-grid">
-              <div class="meta-item"><span class="meta-key">Snapshot version</span><span class="meta-value">v{{ cardHistoryEntry.version_seq }}</span></div>
-              <div class="meta-item"><span class="meta-key">Changed by</span><span class="meta-value">{{ cardHistoryEntry.changed_by_actor }} via {{ cardHistoryEntry.changed_by_surface }}</span></div>
-              <div class="meta-item"><span class="meta-key">Changed at</span><span class="meta-value" :title="timestampTitle(cardHistoryEntry.changed_at)">{{ fmtDate(cardHistoryEntry.changed_at) }}</span></div>
-              <div class="meta-item"><span class="meta-key">Reason</span><span class="meta-value">{{ cardHistoryEntry.change_reason || 'No reason recorded' }}</span></div>
+              <div class="meta-item"><span class="meta-key">Snapshot version</span><span class="meta-value">v{{ cardHistoryEntry.version }}</span></div>
+              <div class="meta-item"><span class="meta-key">Changed by</span><span class="meta-value">{{ cardHistoryEntry.artifact.change?.changed_by_actor ?? 'runtime' }} via {{ cardHistoryEntry.artifact.change?.changed_by_surface ?? 'runtime' }}</span></div>
+              <div class="meta-item"><span class="meta-key">Changed at</span><span class="meta-value" :title="timestampTitle(cardHistoryEntry.published_at)">{{ fmtDate(cardHistoryEntry.published_at) }}</span></div>
+              <div class="meta-item"><span class="meta-key">Reason</span><span class="meta-value">{{ cardHistoryEntry.artifact.change?.change_reason ?? 'Initial card version' }}</span></div>
             </div>
 
             <div class="history-subsection">
@@ -72,7 +72,7 @@
 
             <div class="history-subsection">
               <div class="history-subheading">Snapshot body</div>
-              <CodeBlock :code="formatJson(cardHistoryEntry.snapshot, { redactor: sanitizeCardHistoryValue })" language="json" copyable />
+              <CodeBlock :code="formatJson(cardHistoryEntry.artifact.kind === 'card-version' ? cardHistoryEntry.artifact.card : cardHistoryEntry.artifact.final_card, { redactor: sanitizeCardHistoryValue })" language="json" copyable />
             </div>
           </template>
         </div>
@@ -97,7 +97,7 @@ const {
   cardHistoryLoading,
   cardHistoryError,
   cardHistoryFreshness,
-  cardHistorySelectedSeq,
+  cardHistorySelectedVersion,
   cardHistoryEntry,
   cardHistoryEntryLoading,
   cardHistoryEntryError,
@@ -116,8 +116,8 @@ function fmtDate(ts: string): string {
 
 async function loadHistory(): Promise<void> {
   await cardStore.openCardHistory(props.cardId);
-  const firstSeq = cardHistory.value[0]?.version_seq;
-  if (firstSeq && cardStore.cardHistorySelectedSeq !== firstSeq) {
+  const firstSeq = cardHistory.value[0]?.version;
+  if (firstSeq && cardStore.cardHistorySelectedVersion !== firstSeq) {
     await cardStore.selectCardHistoryVersion(props.cardId, firstSeq);
   }
 }

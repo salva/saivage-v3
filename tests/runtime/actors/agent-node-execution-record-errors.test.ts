@@ -12,14 +12,14 @@ type RecordMethods = {
 
 describe('AgentNodeExecution authored-record absence handling', () => {
   it('treats only the concrete type as an absent candidate or cleanup target', () => {
-    const absentStore = { readRecord: jest.fn(() => { throw new AuthoredRecordNotFoundError(); }), discardRecord: jest.fn() };
+    const absentStore = { readCurrentRecord: jest.fn(() => { throw new AuthoredRecordNotFoundError(); }), discardRecord: jest.fn() };
     const absent = new AgentNodeExecution({ cardId: 'project', store: absentStore } as never, {} as never) as unknown as RecordMethods;
     expect(absent.captureRecord('status.md')).toBeNull();
     expect(() => absent.discardOpenRecord('review.md', 'stale')).not.toThrow();
     expect(absentStore.discardRecord).not.toHaveBeenCalled();
 
     const hostile = new Error('HOSTILE_AGENT_RECORD_READ');
-    const failedStore = { readRecord: jest.fn(() => { throw hostile; }), discardRecord: jest.fn() };
+    const failedStore = { readCurrentRecord: jest.fn(() => { throw hostile; }), discardRecord: jest.fn() };
     const failed = new AgentNodeExecution({ cardId: 'project', store: failedStore } as never, {} as never) as unknown as RecordMethods;
     expect(() => failed.captureRecord('status.md')).toThrow(hostile);
     expect(() => failed.discardOpenRecord('review.md', 'stale')).toThrow(hostile);
@@ -27,26 +27,26 @@ describe('AgentNodeExecution authored-record absence handling', () => {
 
   it('closes updated requirements in declaration order and retains close returns without rereading',()=>{
     const trace:string[]=[];
-    const store={read:jest.fn(()=>({version_seq:7})),readRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string,version:number)=>{trace.push(name);return{recordUrl:`record:///${name}?card=project&v=${version}`,version};})};
+    const store={read:jest.fn(()=>({version_seq:7})),readCurrentRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string,version:number)=>{trace.push(name);const sourceVersion=version+1;return{headVersion:sourceVersion,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:sourceVersion}}};})};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({kind:'updated',definition:{name}}));
-    const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{recordUrl:'open',version:index+1,artifact:{state:'open'}}]));
+    const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,headVersion:index+1,artifact:{state:'open',draft:{content:'accepted'}}}]));
     expect(runner.closeAcceptedRecords({nodeId:'work',agent:{name:'worker'},requirements},candidates)).toEqual([
-      {name:'alpha.md',url:'record:///alpha.md?card=project&v=1',version:1},
-      {name:'beta.md',url:'record:///beta.md?card=project&v=2',version:2},
+      {name:'alpha.md',url:'record:///alpha.md?card=project&v=2',version:2},
+      {name:'beta.md',url:'record:///beta.md?card=project&v=3',version:3},
     ]);
     expect(trace).toEqual(['alpha.md','beta.md']);
-    expect(store.readRecord).not.toHaveBeenCalled();
+    expect(store.readCurrentRecord).not.toHaveBeenCalled();
   });
 
   it('stops on the first outcome-unknown close and never reads or closes a later requirement',()=>{
     const failure=new PublicationOutcomeUnknownError();
-    const store={read:jest.fn(()=>({version_seq:7})),readRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string)=>{if(name==='alpha.md')throw failure;throw new Error('LATER_CLOSE_REACHED');})};
+    const store={read:jest.fn(()=>({version_seq:7})),readCurrentRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string)=>{if(name==='alpha.md')throw failure;throw new Error('LATER_CLOSE_REACHED');})};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({kind:'updated',definition:{name}}));
-    const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{recordUrl:'open',version:index+1,artifact:{state:'open'}}]));
+    const candidates=new Map(requirements.map(({definition},index)=>[definition.name,{currentUrl:`record:///${definition.name}?card=project`,headVersion:index+1,artifact:{state:'open',draft:{content:'accepted'}}}]));
     expect(()=>runner.closeAcceptedRecords({nodeId:'work',agent:{name:'worker'},requirements},candidates)).toThrow(failure);
     expect(store.closeRecord).toHaveBeenCalledTimes(1);
-    expect(store.readRecord).not.toHaveBeenCalled();
+    expect(store.readCurrentRecord).not.toHaveBeenCalled();
   });
 });

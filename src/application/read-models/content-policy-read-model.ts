@@ -7,15 +7,15 @@ export function buildContentPolicyReadModel(
   instrumentation?: CanonicalReadInstrumentation,
 ): ContentPolicyRuntimeResponse {
   const refusals = readCanonicalLinkedCardHistoryTree(projectRoot, instrumentation).flatMap(({ versions }) =>
-    versions.flatMap(({ resultingCard, history, version }) => {
-      if (history?.kind !== 'terminal' || resultingCard.lifecycle.status !== 'blocked' || resultingCard.lifecycle.result.kind !== 'content-policy-refusal') return [];
-      const result = resultingCard.lifecycle.result;
+    versions.flatMap(({ change, version }) => {
+      const policy = change?.terminal_summary?.content_policy;
+      if (!policy) return [];
       return [{
-        card_id: resultingCard.id,
-        session_id: result.session_id,
-        marker_id: result.marker_id,
-        evidence_url: result.evidence_url,
-        blocked_at: history.changed_at,
+        card_id: change.card_id,
+        session_id: policy.session_id,
+        marker_id: policy.marker_id,
+        evidence_url: policy.evidence_url,
+        blocked_at: policy.blocked_at,
         version,
       }];
     }),

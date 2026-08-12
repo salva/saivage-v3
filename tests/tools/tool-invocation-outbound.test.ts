@@ -37,9 +37,9 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   list_processes_tool: { status: 'running', cardId: 'card-a' },
   list_agent_sessions: {}, read_agent_session: { sessionId: 'agent:planner:project', lastN: 1 },
   list_cards: { tag: OUTBOUND_IDENTITY }, get_card: { id: 'card-a' }, get_tree: { rootId: 'card-a' },
-  list_card_history: { cardId: 'card-a' },
-  get_card_history_entry: { cardId: 'card-a', version_seq: 1 },
-  diff_card: { cardId: 'card-a', fromSeq: 1, toSeq: 2 },
+  list_card_versions: { card_id: 'card-a' },
+  get_card_version: { card_id: 'card-a', version: 1 },
+  diff_card_versions: { card_id: 'card-a', from_version: 1, to_version: 2 },
   read: { path: 'project:///tok_primary', offset: 0, limit: 1 },
   write: { path: 'project:///tok_primary', content: marker },
   edit: { path: 'project:///tok_primary', old_string: marker, new_string: marker, replace_all: false },
@@ -56,7 +56,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
     metadata_only: false,
     max_bytes: 123,
     max_inline_bytes: 45,
-    save_as: 'record:///brief.md?card=tok_primary&v=next',
+    save_as: 'record:///brief.md?card=tok_primary&expected_head=1',
   },
   skill: { name: 'tok_primary' },
   mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
@@ -99,7 +99,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
       metadata_only: false,
       max_bytes: 123,
       max_inline_bytes: 45,
-      save_as: 'record:///brief.md?card=tok_primary&v=next',
+      save_as: 'record:///brief.md?card=tok_primary&expected_head=1',
     });
     expect(complete('mcp_tool_call').arguments).toEqual({ serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: '[REDACTED]', identity: 'stable_value' } });
     expect(complete('emit_result').arguments).toMatchObject({ outcome: 'tok_primary' });

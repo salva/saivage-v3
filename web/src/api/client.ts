@@ -223,6 +223,18 @@ export function getCardRecord(id: string, name: string, signal?: AbortSignal): P
   return operatorRequest('cards.records.get', { params: { id, name }, signal });
 }
 
+export function listRecordHistory(id: string, name: string, signal?: AbortSignal) {
+  return operatorRequest('cards.records.history.list', { params: { id, name }, signal });
+}
+
+export function getRecordVersion(id: string, name: string, version: number, signal?: AbortSignal) {
+  return operatorRequest('cards.records.versions.get', { params: { id, name, version }, signal });
+}
+
+export function getRecordDiff(id: string, name: string, from: number, to: number | 'current' = 'current', view: 'effective' | 'accepted' | 'draft' = 'effective', signal?: AbortSignal) {
+  return operatorRequest('cards.records.diff', { params: { id, name }, query: { from: String(from), to: typeof to === 'number' ? String(to) : to, view }, signal });
+}
+
 export function listCardHistory(
   id: string,
   signal?: AbortSignal,
@@ -232,10 +244,10 @@ export function listCardHistory(
 
 export function getCardHistoryEntry(
   id: string,
-  seq: number,
+  version: number,
   signal?: AbortSignal,
 ): Promise<CardHistoryEntryResponse> {
-  return operatorRequest('cards.history.get', { params: { id, seq }, signal });
+  return operatorRequest('cards.history.get', { params: { id, version }, signal });
 }
 
 export interface CurrentCardDiffKey {
@@ -296,14 +308,16 @@ export function getAgentSession(
 export function getAgentConversation(
   sessionId: ConversationSessionId,
   signal?: AbortSignal,
-  since?: string,
+  cursor?: { segmentVersion: number; messageId: string },
 ): Promise<AgentConversationResponse> {
   return operatorRequest('agents.conversation', {
     params: { id: sessionId },
-    query: since ? { since } : undefined,
+    query: cursor ? { segment_version: String(cursor.segmentVersion), since: cursor.messageId } : undefined,
     signal,
   });
 }
+export function listAgentConversationVersions(sessionId: ConversationSessionId, signal?: AbortSignal) { return operatorRequest('agents.conversationVersions.list', { params: { id: sessionId }, signal }); }
+export function getAgentConversationVersion(sessionId: ConversationSessionId, version: number, signal?: AbortSignal) { return operatorRequest('agents.conversationVersions.get', { params: { id: sessionId, version }, signal }); }
 
 export function getAgentLlmExchange(
   sessionId: ConversationSessionId,

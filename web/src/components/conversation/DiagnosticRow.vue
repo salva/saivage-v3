@@ -21,7 +21,6 @@ const label = computed(() => {
   if (props.entry.kind === 'model_issue') return 'Issue';
   if (props.entry.kind === 'model_recovered') return 'Recovered';
   if (props.entry.kind === 'model_repair') return 'Repaired';
-  if (props.entry.kind === 'context_compaction') return 'Compacted';
   return props.entry.kind;
 });
 </script>

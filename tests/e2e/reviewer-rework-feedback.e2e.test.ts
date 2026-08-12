@@ -17,7 +17,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
-const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=1\n\ntest process prompt: review-to-plan';
+const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\ntest process prompt: review-to-plan';
 const REVISED_EVIDENCE = 'Revised remediation evidence addressing the concrete review.';
 const roots: string[] = [];
 
@@ -58,24 +58,24 @@ describe('reviewer rework completion E2E', () => {
       completeTurn: jest.fn(async (input: LlmInvocationInput) => {
         if (input.agentName === 'planner') {
           plannerCalls += 1;
-          if (plannerCalls === 1) return complete(tool('planner-write-initial', 'write', { path: 'record:///status.md?v=next', content: 'Initial completion evidence.' }));
+          if (plannerCalls === 1) return complete(tool('planner-write-initial', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Initial completion evidence.' }));
           if (plannerCalls === 2) return complete(tool('planner-done-initial', 'emit_result', { outcome: 'admit_review', summary: 'Initial submission.' }));
           if (plannerCalls === 3) {
             remediationProjection = input.providerConversation;
             const feedbackRows = input.providerConversation.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK);
             if (feedbackRows.length !== 1) throw new Error(`Expected one projected reviewer feedback row, received ${feedbackRows.length}.`);
-            return complete(tool('planner-write-revised', 'write', { path: 'record:///status.md?v=next', content: REVISED_EVIDENCE }));
+            return complete(tool('planner-write-revised', 'write', { path: 'record:///status.md?card=project&expected_head=3', content: REVISED_EVIDENCE }));
           }
           if (plannerCalls === 4) return complete(tool('planner-done-revised', 'emit_result', { outcome: 'admit_review', summary: 'Concrete remediation complete.' }));
           throw new Error(`Unexpected planner provider call ${plannerCalls}.`);
         }
 
         reviewerCalls += 1;
-        if (reviewerCalls === 1) return complete(tool('reviewer-write-rework', 'write', { path: 'record:///review.md?v=next', content: 'Rework required: add explicit remediation evidence.' }));
+        if (reviewerCalls === 1) return complete(tool('reviewer-write-rework', 'write', { path: 'record:///review.md?card=project&expected_head=absent', content: 'Rework required: add explicit remediation evidence.' }));
         if (reviewerCalls === 2) return complete(tool('reviewer-request-rework', 'emit_result', { outcome: 'revision_required', summary: REVIEW_SUMMARY }));
         if (reviewerCalls === 3) {
-          if (cards.readRecord('project', 'status.md', 'latest').artifact.content !== REVISED_EVIDENCE) throw new Error('Reviewer did not observe revised remediation evidence.');
-          return complete(tool('reviewer-write-done', 'write', { path: 'record:///review.md?v=next', content: 'Approved after concrete remediation.' }));
+          if (cards.readCurrentRecord('project', 'status.md').artifact.accepted?.content !== REVISED_EVIDENCE) throw new Error('Reviewer did not observe revised remediation evidence.');
+          return complete(tool('reviewer-write-done', 'write', { path: 'record:///review.md?card=project&expected_head=3', content: 'Approved after concrete remediation.' }));
         }
         if (reviewerCalls === 4) return complete(tool('reviewer-done', 'emit_result', { outcome: 'approved', summary: 'Approved after concrete remediation.' }));
         throw new Error(`Unexpected reviewer provider call ${reviewerCalls}.`);
@@ -111,8 +111,8 @@ describe('reviewer rework completion E2E', () => {
     expect(remediationProjection!.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
     const plannerRows = readConversation(projectRoot, 'agent:planner:project').physicalRows;
     expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
-    expect(cards.readRecord('project', 'status.md', 2).artifact.content).toBe(REVISED_EVIDENCE);
-    expect(cards.readRecord('project', 'review.md', 1)).toMatchObject({ recordUrl: 'record:///review.md?card=project&v=1', artifact: { content: 'Rework required: add explicit remediation evidence.' } });
-    expect(cards.readRecord('project', 'review.md', 2)).toMatchObject({ recordUrl: 'record:///review.md?card=project&v=2', artifact: { content: 'Approved after concrete remediation.' } });
+    expect(cards.readHistoricalRecord('project', 'status.md', 6).artifact.accepted?.content).toBe(REVISED_EVIDENCE);
+    expect(cards.readHistoricalRecord('project', 'review.md', 2)).toMatchObject({ versionUrl: 'record:///review.md?card=project&v=2', artifact: { draft: { content: 'Rework required: add explicit remediation evidence.' } } });
+    expect(cards.readHistoricalRecord('project', 'review.md', 6)).toMatchObject({ versionUrl: 'record:///review.md?card=project&v=6', artifact: { accepted: { content: 'Approved after concrete remediation.' } } });
   });
 });

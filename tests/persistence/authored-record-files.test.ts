@@ -1,65 +1,83 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CardService,initProjectTree } from '../helpers/canonical-project.js';
-import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
-import { cardNamespace, cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
+
+import { AuthoredRecordNotFoundError, RecordHeadMismatchError } from '../../src/persistence/authored-record-files.js';
+import { cardRecordVersionIndexFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
+import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
-function setup() { const root = mkdtempSync(join(tmpdir(), 'saivage-record-stream-')); roots.push(root); initProjectTree(root); const cards = new CardService(root); const card = cards.create({ type: 'code', parent: 'project', title: 'card', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }); return { cards, card }; }
 
-describe('authored record revision streams', () => {
-  it('preserves logical-version URLs across edit, close, discard, and new open versions', () => {
+function setup() {
+  const root = mkdtempSync(join(tmpdir(), 'saivage-record-version-'));
+  roots.push(root);
+  initProjectTree(root);
+  const cards = new CardService(root);
+  const card = cards.create({ type: 'code', parent: 'project', title: 'card', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+  return { cards, card };
+}
+
+describe('authored record version files', () => {
+  it('publishes immutable open, edit, close, discard, and reopen versions with singular URLs', () => {
     const { cards, card } = setup();
-    const first = cards.openRecord(card.id, 'status.md');
-    expect(first.recordUrl).toContain(`card=${encodeURIComponent(card.id)}&v=1`);
-    cards.editRecord(card.id, 'status.md', 1, 'closed content');
-    cards.closeRecord(card.id, 'status.md', 1, 'executor', card.version_seq);
-    expect(cards.readRecord(card.id, 'status.md', 'latest').artifact.content).toBe('closed content');
-    expect(cards.readRecord(card.id, 'status.md', 1).artifact.state).toBe('closed');
-    cards.openRecord(card.id, 'status.md');
-    cards.discardRecord(card.id, 'status.md', 2, 'not needed');
-    expect(cards.readRecord(card.id, 'status.md', 2).artifact.state).toBe('discarded');
-    expect(cards.openRecord(card.id, 'status.md').version).toBe(3);
+    const opened = cards.openRecord(card.id, 'status.md', null);
+    expect(opened).toMatchObject({ headVersion: 1, currentUrl: `record:///status.md?card=${encodeURIComponent(card.id)}`, versionUrl: `record:///status.md?card=${encodeURIComponent(card.id)}&v=1`, artifact: { state: 'open' } });
+
+    const edited = cards.editRecord(card.id, 'status.md', opened.headVersion, 'closed content');
+    const closed = cards.closeRecord(card.id, 'status.md', edited.headVersion, 'executor', card.version_seq);
+    expect(closed.headVersion).toBe(3);
+    expect(closed.artifact.accepted?.content).toBe('closed content');
+    expect(cards.readHistoricalRecord(card.id, 'status.md', 1).artifact.state).toBe('open');
+    expect(cards.readCurrentRecord(card.id, 'status.md').artifact).toEqual(closed.artifact);
+
+    const reopened = cards.openRecord(card.id, 'status.md', closed.headVersion);
+    expect(reopened.artifact.accepted).toEqual(closed.artifact.accepted);
+    const discarded = cards.discardRecord(card.id, 'status.md', reopened.headVersion, 'not needed');
+    expect(discarded).toMatchObject({ headVersion: 5, artifact: { state: 'discarded', accepted: closed.artifact.accepted } });
+    expect(cards.openRecord(card.id, 'status.md', discarded.headVersion).headVersion).toBe(6);
+
+    const index = JSON.parse(readFileSync(cardRecordVersionIndexFile(cards.projectRoot, card.id, cards.recordReader.definition(card.id, 'status.md')), 'utf8')) as { versions: Array<{ filename: string }> };
+    expect(index.versions).toHaveLength(6);
+    expect(new Set(index.versions.map((entry) => entry.filename)).size).toBe(6);
+    expect(index.versions.every((entry, offset) => entry.filename.startsWith(`${offset + 1}-`) && entry.filename.endsWith('.json'))).toBe(true);
   });
 
-  it('uses one typed signal for clean card and selector absence', () => {
+  it('requires the exact expected head and does not publish on mismatch', () => {
     const { cards, card } = setup();
-    for (const read of [
-      () => cards.readRecord('card-z', 'status.md', 'latest'),
-      () => cards.readRecord(card.id, 'status.md', 'latest'),
-      () => cards.readRecord(card.id, 'status.md', 'open'),
-      () => cards.readRecord(card.id, 'status.md', 7),
-      () => cards.recordReader.record(card.id, 'status.md', 'latest'),
-    ]) expect(read).toThrow(AuthoredRecordNotFoundError);
+    const opened = cards.openRecord(card.id, 'status.md', null);
+    expect(() => cards.editRecord(card.id, 'status.md', opened.headVersion + 1, 'content')).toThrow(RecordHeadMismatchError);
+    expect(cards.readCurrentRecord(card.id, 'status.md').headVersion).toBe(opened.headVersion);
+    expect(() => cards.openRecord(card.id, 'status.md', null)).toThrow(RecordHeadMismatchError);
+  });
+
+  it('uses typed absence only for unknown cards, empty current records, and unlisted history', () => {
+    const { cards, card } = setup();
+    expect(() => cards.readCurrentRecord('card-z', 'status.md')).toThrow(AuthoredRecordNotFoundError);
+    expect(() => cards.readCurrentRecord(card.id, 'status.md')).toThrow(AuthoredRecordNotFoundError);
+    expect(cards.readCurrentRecordOrNull(card.id, 'status.md')).toBeNull();
+    expect(() => cards.readHistoricalRecord(card.id, 'status.md', 7)).toThrow(AuthoredRecordNotFoundError);
+    expect(() => cards.recordReader.current(card.id, 'status.md')).toThrow(AuthoredRecordNotFoundError);
   });
 
   it('preserves malformed canonical and I/O failures instead of classifying them as absence', () => {
     const malformed = setup();
-    writeFileSync(join(cardNamespace(malformed.cards.projectRoot, malformed.card.id), 'status.jsonl'), 'complete malformed record\n');
-    expect(() => malformed.cards.readRecord(malformed.card.id, 'status.md')).toThrow(/malformed/);
+    writeFileSync(cardRecordVersionIndexFile(malformed.cards.projectRoot, malformed.card.id, malformed.cards.recordReader.definition(malformed.card.id, 'status.md')), 'complete malformed record\n');
+    expect(() => malformed.cards.readCurrentRecord(malformed.card.id, 'status.md')).toThrow(/malformed/);
 
     const malformedCard = setup();
-    writeFileSync(cardStreamFile(malformedCard.cards.projectRoot, malformedCard.card.id), 'complete malformed card\n');
-    expect(() => malformedCard.cards.readRecord(malformedCard.card.id, 'status.md')).toThrow(/malformed/);
+    writeFileSync(cardVersionIndexFile(malformedCard.cards.projectRoot, malformedCard.card.id), 'complete malformed card\n');
+    expect(() => malformedCard.cards.readCurrentRecord(malformedCard.card.id, 'status.md')).toThrow(/malformed/);
 
     const missingBrief = setup();
-    rmSync(cardRecordStreamFile(missingBrief.cards.projectRoot, missingBrief.card.id, missingBrief.cards.recordReader.definition(missingBrief.card.id,'brief.md')));
-    let missingBriefError: unknown;
-    try { missingBrief.cards.readRecord(missingBrief.card.id, 'brief.md'); } catch (error) { missingBriefError = error; }
-    expect(missingBriefError).not.toBeInstanceOf(AuthoredRecordNotFoundError);
-    expect((missingBriefError as NodeJS.ErrnoException).code).toBe('ENOENT');
+    rmSync(cardRecordVersionIndexFile(missingBrief.cards.projectRoot, missingBrief.card.id, missingBrief.cards.recordReader.definition(missingBrief.card.id, 'brief.md')));
+    expect(() => missingBrief.cards.readCurrentRecord(missingBrief.card.id, 'brief.md')).toThrow(expect.objectContaining({ code: 'ENOENT' }));
 
     const ioFailure = setup();
-    mkdirSync(join(cardNamespace(ioFailure.cards.projectRoot, ioFailure.card.id), 'status.jsonl'));
-    try { ioFailure.cards.readRecord(ioFailure.card.id, 'status.md'); }
-    catch (error) {
-      expect(error).not.toBeInstanceOf(AuthoredRecordNotFoundError);
-      expect((error as NodeJS.ErrnoException).code).toBe('EISDIR');
-      return;
-    }
-    throw new Error('Expected strict record I/O failure.');
+    const indexPath = cardRecordVersionIndexFile(ioFailure.cards.projectRoot, ioFailure.card.id, ioFailure.cards.recordReader.definition(ioFailure.card.id, 'status.md'));
+    rmSync(indexPath);
+    mkdirSync(indexPath);
+    expect(() => ioFailure.cards.readCurrentRecord(ioFailure.card.id, 'status.md')).toThrow(expect.objectContaining({ code: expect.stringMatching(/EISDIR|EACCES/) }));
   });
 });

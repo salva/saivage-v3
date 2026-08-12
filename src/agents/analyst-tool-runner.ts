@@ -4,6 +4,7 @@ import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
 import type { AnalystMutationOutcome } from '../application/analyst-mutation-services.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import type { AnalystPreNetworkAdmission } from '../contracts/record-mutation.js';
 
 export interface AnalystMutationReadContext {
   readonly projectRoot: string;
@@ -19,16 +20,19 @@ export interface AnalystMutationContext {
   readonly services: NonNullable<ToolContext['analystMutations']>;
 }
 
-export interface MutatingSpec<P, Prepared = undefined> {
+export type AnalystLifecycleChecks = { kind: 'runtime_cancellation' } | { kind: 'intervention_ready'; timing: 'immediate_before_mutation' } | { kind: 'intervention_ready'; timing: 'before_pre_network_admission_and_immediate_before_mutation' };
+interface MutatingSpecBase<P, Prepared> {
   readonly action: string;
   readonly safety_class: NonNullable<ControlActionAuditEntry['safety_class']>;
   readonly target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null;
   readonly getTargetId: (params: P) => string | null;
-  readonly lifecycle: 'intervention_ready' | 'runtime_cancellation';
-  readonly prepare?: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>;
+  readonly lifecycle: AnalystLifecycleChecks;
   readonly mutate: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => AnalystMutationOutcome | Promise<AnalystMutationOutcome>;
   readonly successSummary?: string;
 }
+export type MutatingSpec<P, Prepared = undefined> =
+  | (MutatingSpecBase<P, Prepared> & { lifecycle: { kind: 'intervention_ready'; timing: 'before_pre_network_admission_and_immediate_before_mutation' }; prepare: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>; admitBeforePrepare: (params: P, ctx: AnalystMutationReadContext) => AnalystPreNetworkAdmission })
+  | (MutatingSpecBase<P, Prepared> & { lifecycle: { kind: 'intervention_ready'; timing: 'immediate_before_mutation' } | { kind: 'runtime_cancellation' }; prepare?: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>; admitBeforePrepare?: never });
 
 function paramsSummary(params: unknown): string {
   if (typeof params !== 'object' || params === null || Array.isArray(params)) return stableStringify(params);
@@ -57,9 +61,21 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
     const readServices = ctx.analystPreparation;
     if (spec.prepare && !readServices) throw new Error('Analyst preparation services are required for prepared mutations.');
     const readContext: AnalystMutationReadContext = { projectRoot: ctx.projectRoot, actor: ctx.actor, surface: ctx.surface, services: readServices!, ...(ctx.sessionId === undefined ? {} : { sessionId: ctx.sessionId }) };
-    const prepared = spec.prepare ? await spec.prepare(params, readContext) : undefined as Prepared;
-    signal?.throwIfAborted();
-    if (spec.lifecycle === 'intervention_ready') ctx.interventionReadiness.assertInterventionReady();
+    let prepared: Prepared;
+    if ('admitBeforePrepare' in spec && spec.admitBeforePrepare) {
+      signal?.throwIfAborted(); ctx.interventionReadiness.assertInterventionReady();
+      const admission = spec.admitBeforePrepare(params, readContext);
+      if (!admission.ok) {
+        settle({ outcome: admission.audit_outcome, outcome_summary: admission.result.error, ...(admission.audit_outcome === 'error' ? { error: admission.result.error } : {}) });
+        return admission.result;
+      }
+      prepared = await spec.prepare!(params, readContext);
+      signal?.throwIfAborted(); ctx.interventionReadiness.assertInterventionReady();
+    } else {
+      prepared = spec.prepare ? await spec.prepare(params, readContext) : undefined as Prepared;
+      signal?.throwIfAborted();
+      if (spec.lifecycle.kind === 'intervention_ready') ctx.interventionReadiness.assertInterventionReady();
+    }
     if (!ctx.analystMutations) throw new Error('Analyst mutation services are required for mutating tools.');
     const mutationContext: AnalystMutationContext = { actor: ctx.actor, surface: ctx.surface, services: ctx.analystMutations };
     const outcome = await spec.mutate(prepared, params, mutationContext);
@@ -70,8 +86,9 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       result = outcome.success
         ? { success: true, ...(outcome.data === undefined ? {} : { data: outcome.data }) }
         : { success: false, error: outcome.error, ...(outcome.data === undefined ? {} : { data: outcome.data }) };
+      const classifiedDenied = !result.success && typeof result.data === 'object' && result.data !== null && (result.data as { code?: string }).code === 'record_mutation_denied';
       settle({
-        outcome: result.success ? 'ok' : 'error',
+        outcome: result.success ? 'ok' : classifiedDenied ? 'denied' : 'error',
         outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,
         ...(result.success ? {} : { error: result.error }),
       });
@@ -83,7 +100,6 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
     settle({ outcome: 'error', outcome_summary: summary, error: summary });
     throw error;
   }
-  signal?.throwIfAborted();
   return result;
 }
 

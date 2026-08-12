@@ -1,6 +1,6 @@
 import { basename } from 'node:path';
 import type { CardService } from '../../cards/card-api.js';
-import { cardHistoryEntrySchema, cardHistoryHeaderSchema, positiveSafeIntegerSchema, type CardHistoryEntry, type CardHistoryHeader, type CardLifecycleState, type CardRecord } from '../../schemas/index.js';
+import { positiveSafeIntegerSchema, type CardLifecycleState, type CardRecord } from '../../schemas/index.js';
 import { allowedOperatorCardActions } from '../../permissions/index.js';
 import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import { redactForOutbound } from '../../redaction/index.js';
@@ -24,6 +24,7 @@ import {
 import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
 import type { CanonicalReadInstrumentation } from '../../persistence/growing-file.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
+import { projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from './card-outbound.js';
 
 function projectLifecycle(lifecycle: CardLifecycleState): CardLifecycleState {
   switch (lifecycle.status) {
@@ -40,29 +41,14 @@ function detail(card: CardRecord) {
   return CardDetailSchema.parse({ id: card.id, title: redactTextForOutbound(card.title), type: card.type, lifecycle: projectLifecycle(card.lifecycle), version_seq: card.version_seq, urgency: card.urgency, created_at: card.created_at, updated_at: card.updated_at, allowedActions: allowedOperatorCardActions(card.lifecycle.status) });
 }
 
-function invalidNumberBody(path: 'seq' | 'from' | 'to'): OperatorApiResponse<'cards.history.get', 400> {
-  const subject = path === 'seq' ? 'History sequence' : `Diff ${path} pivot`;
+function invalidNumberBody(path: 'version' | 'from' | 'to'): OperatorApiResponse<'cards.history.get', 400> {
+  const subject = path === 'version' ? 'History version' : `Diff ${path} pivot`;
   const message = `${subject} must be a positive safe integer`;
   return {
     error: 'ValidationError',
     message,
     issues: [{ path, message }],
   };
-}
-
-function historyHeader(entry: CardHistoryEntry): CardHistoryHeader {
-  return cardHistoryHeaderSchema.parse({
-    entry_id: entry.entry_id,
-    kind: entry.kind,
-    card_id: entry.card_id,
-    version_seq: entry.version_seq,
-    changed_at: entry.changed_at,
-    changed_by_actor: entry.changed_by_actor,
-    changed_by_surface: entry.changed_by_surface,
-    change_reason: entry.change_reason,
-    changed_fields: entry.changed_fields,
-    change_summary: entry.change_summary,
-  });
 }
 
 export class CardsReadModelService {
@@ -92,7 +78,10 @@ export class CardsReadModelService {
   listRecords(id: string, instrumentation?: CanonicalReadInstrumentation): OperatorApiHandlerResult<'cards.records.list'> {
     const active = this.store.getCardDetail(id, instrumentation);
     if (active.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const records = this.store.recordReader.definitions(id).map(({ filename, writers, format, schema, bootstrap }) => ({ name: filename, writers: [...writers], format, schema: redactTextForOutbound(schema), bootstrap }));
+    const records = this.store.recordReader.definitions(id).map(({ filename, writers, format, schema, bootstrap }) => {
+      const catalog = this.store.listRecordVersions(id, filename, instrumentation); const entry = catalog.versions.at(-1);
+      return { name: filename, writers: [...writers], format, schema: redactTextForOutbound(schema), bootstrap, current: entry ? { head_version: entry.version, head_entry_id: entry.entry_id, state: entry.state, accepted_source_version: entry.accepted?.source_version ?? null, draft_present: entry.draft !== null } : null };
+    });
     return { body: CardRecordListResponseSchema.parse({ card_id: id, records }) };
   }
 
@@ -107,9 +96,8 @@ export class CardsReadModelService {
       throw error;
     }
     try {
-      const projection = this.store.readRecord(id, name, 'latest', instrumentation);
-      if (projection.artifact.committed_at === null) throw new Error(`Closed record '${id}/${name}' has no committed timestamp.`);
-      return { body: CardRecordContentResponseSchema.parse({ card_id: id, record: { name, version: projection.version, committed_at: projection.artifact.committed_at, content: redactTextForOutbound(projection.artifact.content) } }) };
+      const projection = this.store.readCurrentRecord(id, name, instrumentation);
+      return { body: CardRecordContentResponseSchema.parse({ card_id: id, record: projectRecord(projection) }) };
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
       if (error instanceof AuthoredRecordNotFoundError && !definition.bootstrap) return { statusCode: 404, body: { error: 'Card record not found', cardId: id, name } };
@@ -117,33 +105,65 @@ export class CardsReadModelService {
     }
   }
 
-  listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {
-    const result = this.store.listCardHistory(id);
-    if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const history = result.value.map((entry) => cardHistoryHeaderSchema.parse(redactForOutbound({ source: 'card-history', value: historyHeader(entry) })));
-    return { body: CardHistoryListResponseSchema.parse({ history, total: history.length }) };
+  listRecordHistory(id: string, name: string): OperatorApiHandlerResult<'cards.records.history.list'> {
+    const unavailable = this.requireRecordDefinition(id, name); if (unavailable) return unavailable;
+    const catalog = this.store.listRecordVersions(id, name); const versions = catalog.versions.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.published_at, content_availability: 'unchecked' as const, state: entry.state, accepted_source_version: entry.accepted?.source_version ?? null, draft_present: entry.draft !== null, discarded_at: entry.discarded?.discarded_at ?? null }));
+    return { body: { card_id: id, name, versions, total: versions.length } };
   }
 
-  getHistoryEntry(id: string, versionSeq: number): OperatorApiHandlerResult<'cards.history.get'> {
-    if (!positiveSafeIntegerSchema.safeParse(versionSeq).success) return { statusCode: 400, body: invalidNumberBody('seq') };
-    const result = this.store.getCardHistoryEntry(id, versionSeq);
+  getRecordVersion(id: string, name: string, version: number): OperatorApiHandlerResult<'cards.records.versions.get'> {
+    const unavailable = this.requireRecordDefinition(id, name); if (unavailable) return unavailable;
+    try { const projection = this.store.readHistoricalRecord(id, name, version); return { body: { card_id: id, name, version, entry_id: projection.artifact.entry_id, published_at: projection.artifact.published_at, artifact: projectRecordArtifact(projection.artifact) } }; }
+    catch (error) { return this.recordHistoryFailure(id, name, version, error); }
+  }
+
+  diffRecord(id: string, name: string, query: OperatorApiQuery<'cards.records.diff'>): OperatorApiHandlerResult<'cards.records.diff'> {
+    const unavailable = this.requireRecordDefinition(id, name); if (unavailable) return unavailable;
+    const catalog = this.store.listRecordVersions(id, name); const to = query.to === undefined || query.to === 'current' ? catalog.versions.at(-1)?.version ?? 0 : query.to; if (query.from > to) return { statusCode: 400, body: { error: 'ValidationError', message: 'Diff from pivot must not exceed to pivot', issues: [{ path: 'from', message: 'Diff from pivot must not exceed to pivot' }] } };
+    const view = query.view ?? 'effective'; const read = (version: number, side: 'from' | 'to'): { projection: import('../../persistence/authored-record-files.js').RecordProjection } | { failure: OperatorApiHandlerResult<'cards.records.diff'> } => { try { return { projection: this.store.readHistoricalRecord(id, name, version) }; } catch (error) { return { failure: this.recordDiffFailure(id, name, version, side, error) }; } };
+    const from = read(query.from, 'from'); if ('failure' in from) return from.failure; const toRead = read(to, 'to'); if ('failure' in toRead) return toRead.failure;
+    const before = recordView(from.projection.artifact, view); if (before === null) return { statusCode: 400, body: { error: 'record_diff_view_unavailable', card_id: id, name, side: 'from', view } }; const after = recordView(toRead.projection.artifact, view); if (after === null) return { statusCode: 400, body: { error: 'record_diff_view_unavailable', card_id: id, name, side: 'to', view } };
+    const hunks = before === after ? [] : [{ old_start: 0, old_lines: before.split('\n').length, new_start: 0, new_lines: after.split('\n').length, lines: [...before.split('\n').map((line) => `-${line}`), ...after.split('\n').map((line) => `+${line}`)] }];
+    return { body: { card_id: id, name, from: query.from, to, view, hunks } };
+  }
+
+  private requireRecordDefinition(id: string, name: string): Extract<OperatorApiHandlerResult<'cards.records.history.list'>, { statusCode: 404 }> | null { const active = this.store.getCardDetail(id); if (active.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } }; try { this.store.recordReader.definition(id, name); return null; } catch (error) { if (error instanceof AuthoredRecordDefinitionNotFoundError) return { statusCode: 404, body: { error: 'Card record definition not found', cardId: id, name } }; throw error; } }
+  private recordHistoryFailure(id: string, name: string, version: number, error: unknown): OperatorApiHandlerResult<'cards.records.versions.get'> { const imported = error as { name?: string; reason?: 'missing' | 'corrupt' | 'io_error' }; if (error instanceof AuthoredRecordNotFoundError) return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${id}/${name}`, version } }; if (imported.name === 'AuthoredRecordHistoricalUnavailableError' && imported.reason) return { statusCode: imported.reason === 'missing' ? 404 : imported.reason === 'corrupt' ? 409 : 503, body: { error: 'historical_version_content_unavailable', resource: 'authored_record', owner_id: `${id}/${name}`, version, reason: imported.reason } }; throw error; }
+  private recordDiffFailure(id: string, name: string, version: number, side: 'from' | 'to', error: unknown): OperatorApiHandlerResult<'cards.records.diff'> { const imported = error as { name?: string; reason?: 'missing' | 'corrupt' | 'io_error' }; if (error instanceof AuthoredRecordNotFoundError) return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${id}/${name}`, version } }; if (imported.name === 'AuthoredRecordHistoricalUnavailableError' && imported.reason) return { statusCode: imported.reason === 'missing' ? 404 : imported.reason === 'corrupt' ? 409 : 503, body: { error: 'historical_diff_side_unavailable', resource: 'authored_record', owner_id: `${id}/${name}`, version, side, reason: imported.reason } }; throw error; }
+
+  listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {
+    const result = this.store.listCardVersions(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    if (result.kind === 'history-entry-not-found') return { statusCode: 404, body: { error: 'Card history entry not found', cardId: id, version_seq: versionSeq } };
-    const entry = cardHistoryEntrySchema.parse(redactForOutbound({ source: 'card-history', value: result.value }));
-    return { body: CardHistoryEntryResponseSchema.parse({ entry }) };
+    const versions = result.value.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.committed_at, content_availability: 'unchecked' as const, artifact_kind: entry.artifact_kind, change: projectCardVersionChangeForOutbound(entry.change) }));
+    return { body: CardHistoryListResponseSchema.parse({ card_id: id, versions, total: versions.length }) };
+  }
+
+  getHistoryEntry(id: string, version: number): OperatorApiHandlerResult<'cards.history.get'> {
+    if (!positiveSafeIntegerSchema.safeParse(version).success) return { statusCode: 400, body: invalidNumberBody('version') };
+    const result = this.store.readCardVersion(id, version);
+    if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
+    if (result.kind === 'version-not-found') return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version } };
+    if (result.kind === 'historical-unavailable') return { statusCode: result.reason === 'missing' ? 404 : result.reason === 'corrupt' ? 409 : 503, body: { error: 'historical_version_content_unavailable', resource: 'card', owner_id: id, version, reason: result.reason } };
+    const value = result.value; const artifact = value.kind === 'card-version' ? { kind: value.kind, card: projectCardRecordForOutbound(value.card), change: projectCardVersionChangeForOutbound(value.change) } : { kind: value.kind, final_card: projectCardRecordForOutbound(value.final_card), change: projectCardVersionChangeForOutbound(value.change)! };
+    return { body: CardHistoryEntryResponseSchema.parse({ card_id: id, version, entry_id: value.entry_id, published_at: value.committed_at, artifact }) };
   }
 
   diffCard(id: string, query: OperatorApiQuery<'cards.diff'>): OperatorApiHandlerResult<'cards.diff'> {
     for (const [path, pivot] of [['from', query.from], ['to', query.to]] as const) {
-      if (pivot !== undefined && pivot !== 'last' && pivot !== 'current' && !positiveSafeIntegerSchema.safeParse(pivot).success) {
+      if (pivot !== undefined && pivot !== 'current' && !positiveSafeIntegerSchema.safeParse(pivot).success) {
         return { statusCode: 400, body: invalidNumberBody(path) };
       }
     }
-    const result = this.store.diffCardHistory(id, { fromSeq: query.from, toSeq: query.to });
+    const result = this.store.diffCardVersions(id, { fromVersion: query.from, toVersion: query.to });
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     if (result.kind === 'invalid-pivots') return { statusCode: 400, body: { error: 'Invalid diff pivots', from: result.from, to: result.to } };
-    if (result.kind === 'diff-source-not-found') return { statusCode: 404, body: { error: 'Card diff source not found', cardId: id, from: result.from, to: result.to, missing_version_seq: result.missingVersionSeq } };
+    if (result.kind === 'version-not-found') return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version: result.version } };
+    if (result.kind === 'historical-unavailable') return { statusCode: result.reason === 'missing' ? 404 : result.reason === 'corrupt' ? 409 : 503, body: { error: 'historical_diff_side_unavailable', resource: 'card', owner_id: id, version: result.version, side: result.side, reason: result.reason } };
     const diff = redactForOutbound({ source: 'card-diff', value: result.diff });
     return { body: CardDiffResponseSchema.parse({ diff, from: result.from, to: result.to, card_id: id }) };
   }
 }
+
+function projectRecordArtifact(artifact: import('../../persistence/canonical-record-artifacts.js').AuthoredRecordVersionArtifact) { return { state: artifact.state, published_at: artifact.published_at, accepted: artifact.accepted ? { ...artifact.accepted, content: redactTextForOutbound(artifact.accepted.content) } : null, draft: artifact.draft ? { ...artifact.draft, content: redactTextForOutbound(artifact.draft.content) } : null, discarded: artifact.discarded ? { ...artifact.discarded, reason: redactTextForOutbound(artifact.discarded.reason) } : null }; }
+function projectRecord(projection: import('../../persistence/authored-record-files.js').RecordProjection) { const artifact = projectRecordArtifact(projection.artifact); return { name: projection.filename, head_version: projection.headVersion, head_entry_id: projection.artifact.entry_id, state: projection.artifact.state, accepted: artifact.accepted, draft: artifact.draft, discarded: artifact.discarded, effective_content_source: projection.artifact.state === 'open' ? 'draft' as const : projection.artifact.accepted ? 'accepted' as const : null }; }
+function recordView(artifact: import('../../persistence/canonical-record-artifacts.js').AuthoredRecordVersionArtifact, view: 'effective' | 'accepted' | 'draft'): string | null { if (view === 'accepted') return artifact.accepted?.content ?? null; if (view === 'draft') return artifact.draft?.content ?? null; return artifact.state === 'open' ? artifact.draft?.content ?? null : artifact.accepted?.content ?? null; }

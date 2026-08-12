@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { stringify } from 'yaml';
 
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
@@ -15,6 +15,11 @@ const TSX = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
 const TOKEN = 'disposable-e2e-token';
 const roots: string[] = [];
 const apps = new Set<App>();
+
+function readCurrentArtifact(indexPath: string): string {
+  const index = JSON.parse(readFileSync(indexPath, 'utf8')) as { current_filename: string };
+  return readFileSync(join(dirname(indexPath), 'versions', index.current_filename), 'utf8');
+}
 
 type ChatMessage = { role: string; content: string; tool_call_id?: string };
 type ChatRequest = {
@@ -196,7 +201,7 @@ describe('disposable production-composition smoke', () => {
     const requestedMaxTokens = new Map<string, number>();
     const providerUrls: string[] = [];
     const analystTools: Array<{ name: string; args: object }> = [
-      { name: 'write', args: { path: 'record:///brief.md?card=project&v=next', content: 'Disposable Analyst bootstrap edit.' } },
+      { name: 'write', args: { path: 'record:///brief.md?card=project&expected_head=1', content: 'Disposable Analyst bootstrap edit.' } },
       { name: 'create_card', args: { type: 'code', parent: 'project', title: 'Promoted child', bootstrap_content: 'Produce and review child evidence.', tags: [], priority: 0, urgency: 'normal', depends_on: [], related: [] } },
       { name: 'create_card', args: { type: 'goal', parent: 'card-a', title: 'Forbidden nested goal', bootstrap_content: 'Must be rejected by parent narrowing.', tags: [], priority: 0, urgency: 'normal', depends_on: [], related: [] } },
       { name: 'reconfigure', args: { action: 'set_agent_model_route', agent: 'planner', model_route: 'executor' } },
@@ -232,7 +237,7 @@ describe('disposable production-composition smoke', () => {
       if (isPlanner && body.model === 'planner-model') {
         oldPlannerCalls += 1;
         if (oldPlannerCalls === 1) {
-          toolCall(response, 100, 'write', { path: 'record:///status.md?v=next', content: 'Pre-restart open planning status.' });
+          toolCall(response, 100, 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Pre-restart open planning status.' });
           return;
         }
         oldPlannerBlocked = true;
@@ -243,7 +248,7 @@ describe('disposable production-composition smoke', () => {
       if (isPlanner && body.model === 'executor-model') {
         recoveryPlannerCalls += 1;
         if (recoveryPlannerCalls === 1) {
-          toolCall(response, 200, 'write', { path: 'record:///status.md?v=next', content: 'Recovered plan with closed child evidence.' });
+          toolCall(response, 200, 'write', { path: 'record:///status.md?card=project&expected_head=2', content: 'Recovered plan with closed child evidence.' });
         } else if (recoveryPlannerCalls === 2) {
           toolCall(response, 201, 'activate_card', { card_id: 'card-a' });
         } else if (recoveryPlannerCalls === 3) {
@@ -255,19 +260,19 @@ describe('disposable production-composition smoke', () => {
 
       if (isExecutor) {
         executorCalls += 1;
-        if (executorCalls === 1) toolCall(response, 300, 'write', { path: 'record:///status.md?v=next', content: 'Ordered child status export.' });
+        if (executorCalls === 1) toolCall(response, 300, 'write', { path: 'record:///status.md?card=card-a&expected_head=absent', content: 'Ordered child status export.' });
         else if (executorCalls === 2) toolCall(response, 301, 'emit_result', { outcome: 'verify', summary: 'Promoted executor summary.' });
         else throw new Error(`Unexpected Executor call ${executorCalls}.`);
         return;
       }
 
       reviewerCalls += 1;
-      if (reviewerCalls === 1) toolCall(response, 400, 'write', { path: 'record:///review.md?v=next', content: 'Child review export.' });
+      if (reviewerCalls === 1) toolCall(response, 400, 'write', { path: 'record:///review.md?card=card-a&expected_head=absent', content: 'Child review export.' });
       else if (reviewerCalls === 2) toolCall(response, 401, 'emit_result', { outcome: 'approved', summary: 'Verifier summary must not be promoted.' });
       else if (reviewerCalls === 3) {
         const cards = app!.server.runtimeApplication.cardStore;
-        rootStatusClosedBeforeReview = cards.readRecord('project', 'status.md', 'latest').artifact.content === 'Recovered plan with closed child evidence.';
-        toolCall(response, 402, 'write', { path: 'record:///review.md?v=next', content: 'Root review after closed plan status.' });
+        rootStatusClosedBeforeReview = cards.readCurrentRecord('project', 'status.md').artifact.accepted?.content === 'Recovered plan with closed child evidence.';
+        toolCall(response, 402, 'write', { path: 'record:///review.md?card=project&expected_head=absent', content: 'Root review after closed plan status.' });
       } else if (reviewerCalls === 4) toolCall(response, 403, 'emit_result', { outcome: 'approved', summary: 'Root review approved.' });
       else throw new Error(`Unexpected Reviewer call ${reviewerCalls}.`);
     });
@@ -275,7 +280,7 @@ describe('disposable production-composition smoke', () => {
 
     try {
       expect(runCli(root, 'init')).toContain('Project initialized');
-      expect(readFileSync(join(root, '.saivage', 'cards', 'project', 'card.jsonl'), 'utf8')).toContain('"id":"project"');
+      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card', 'index.json'))).toContain('"id":"project"');
       writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(testConfig(providerPort, appPort)));
       writeCustomPrompts(root);
 
@@ -297,7 +302,7 @@ describe('disposable production-composition smoke', () => {
         throw new Error(`Missing Analyst tool invocation: ${JSON.stringify(edited)} conversation=${JSON.stringify(conversation.body)} urls=${JSON.stringify(providerUrls)} offered=${JSON.stringify([...offeredTools])} counts=${JSON.stringify({ analystPlan, executorCalls, reviewerCalls })}`);
       }
       expect(edited.toolInvocations[0].result.success).toBe(true);
-      expect(app.server.runtimeApplication.cardStore.readRecord('project', 'brief.md', 'latest').artifact.content).toBe('Disposable Analyst bootstrap edit.');
+      expect(app.server.runtimeApplication.cardStore.readCurrentRecord('project', 'brief.md').artifact.accepted?.content).toBe('Disposable Analyst bootstrap edit.');
       await chat(app, 'Create the permitted code child under project.');
       expect(app.server.runtimeApplication.cardStore.read('card-a')).toMatchObject({ type: 'code', lifecycle: { status: 'backlog' } });
       const narrowed = await chat(app, 'Attempt a goal under the code parent; it must be narrowed away.');
@@ -354,8 +359,8 @@ describe('disposable production-composition smoke', () => {
       expect(runCli(root, 'init')).toContain('Project already initialized');
       const resetConfig = readFileSync(join(root, '.saivage', 'saivage.yaml'), 'utf8');
       expect(resetConfig).toContain('model_route: executor');
-      expect(readFileSync(join(root, '.saivage', 'cards', 'project', 'card.jsonl'), 'utf8')).toContain('"status":"backlog"');
-      expect(readFileSync(join(root, '.saivage', 'cards', 'project', 'brief.jsonl'), 'utf8')).toContain('runtime:bootstrap');
+      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card', 'index.json'))).toContain('"status":"backlog"');
+      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'records', 'brief.md', 'index.json'))).toContain('runtime:bootstrap');
     } finally {
       if (app) await stop(app);
       await new Promise<void>((resolve) => provider.close(() => resolve()));

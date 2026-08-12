@@ -46,13 +46,13 @@ function contractRuntimeDependencyTypeFixtures(): void {
 
 const handlers = defineOperatorContractHandlers({
   'cards.history.get': ({ params }) => {
-    const parsed: { id: string; seq: number } = params;
-    void parsed.seq;
+    const parsed: { id: string; version: number } = params;
+    void parsed.version;
     return { statusCode: 500, body: { error: 'InternalServerError', message: 'Internal server error' } };
   },
   'cards.diff': ({ params, query }) => {
     const parsedParams: { id: string } = params;
-    const parsedQuery: { from?: number | 'last' | 'current'; to?: number | 'last' | 'current' } = query;
+    const parsedQuery: { from: number; to?: number | 'current' } = query;
     void `${parsedParams.id}:${String(parsedQuery.from)}`;
     return { statusCode: 500, body: { error: 'InternalServerError', message: 'Internal server error' } };
   },

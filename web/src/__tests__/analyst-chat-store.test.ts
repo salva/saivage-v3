@@ -48,7 +48,7 @@ function deferred<T>() {
 }
 
 function chat(entries: AgentConversationEntry[] = []) {
-  return { session_id: analystSessionId, entries, cursor: entries.at(-1)?.id ?? 'empty' };
+  return { session_id: analystSessionId, segment_version: 1, segment_context: null, entries, cursor: { segment_version: 1, message_id: entries.at(-1)?.id ?? null } };
 }
 
 describe('analyst chat store', () => {

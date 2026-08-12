@@ -142,7 +142,7 @@ test('Cards root settlement precedes exact Analyst acquisition and defers global
   await acknowledgeCurrentConversationLease(page, analystSessionId, analystSubscribe.lease);
   await expect.poll(() => analystConversationReads).toBe(1);
   eventLedger.push('analyst:invalidate:settled');
-  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id, through_message_id: 'newer-opaque-id' }), analystSessionId);
+  await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id, segment_version: 1, visible_message_id: 'newer-opaque-id' }), analystSessionId);
   await expect.poll(() => analystConversationReads).toBe(2);
   expect(eventLedger).toEqual([
     'cards:root:release',

@@ -100,15 +100,18 @@ describe('Analyst agent-session tools', () => {
     const expected = service.getConversation('agent:planner:project');
     const detail = service.getSession('agent:planner:project');
     const result = await read_agent_session(context(projectRoot), {
-      sessionId: 'agent:planner:project',
-      lastN: 1,
+      session_id: 'agent:planner:project',
+      last_n: 1,
     });
     expect(result).toEqual({
       success: true,
       data: {
         session: detail.session,
-        total_messages: 3,
-        returned: 1,
+        ownership: 'active',
+        segment_version: 1,
+        segment_context: null,
+        total_visible_entries: 3,
+        returned_visible_entries: 1,
         messages: [expected.entries[2]],
       },
     });
@@ -128,8 +131,8 @@ describe('Analyst agent-session tools', () => {
     if (nested.shape !== 'result-row' || !nested.result.success)
       throw new Error('Expected nested successful read_agent_session result.');
     expect(nested.result.data).toMatchObject({
-      total_messages: 3,
-      returned: 1,
+      total_visible_entries: 3,
+      returned_visible_entries: 1,
       messages: [{ id: rows()[2]!.id, kind: 'tool_call' }],
     });
     expect(JSON.stringify(nested.result.data)).not.toContain(OUTBOUND_RAW_MARKER);
@@ -153,10 +156,10 @@ describe('Analyst agent-session tools', () => {
     });
     appendConversationBatch({ projectRoot }, complete);
     const direct = await read_agent_session(context(projectRoot), {
-      sessionId: 'agent:planner:project',
-      lastN: 1,
+      session_id: 'agent:planner:project',
+      last_n: 1,
     });
-    expect(direct).toMatchObject({ success: true, data: { total_messages: 4, returned: 1 } });
+    expect(direct).toMatchObject({ success: true, data: { total_visible_entries: 4, returned_visible_entries: 1 } });
     if (!direct.success) throw new Error(direct.error);
     expect((direct.data as { messages: AgentMessage[] }).messages[0]!.kind).toBe('tool_result');
     expect(JSON.stringify(direct)).not.toContain('synthetic-result-secret');
@@ -174,8 +177,8 @@ describe('Analyst agent-session tools', () => {
     if (nested.shape !== 'result-row' || !nested.result.success)
       throw new Error('Expected nested successful read_agent_session result.');
     expect(nested.result.data).toMatchObject({
-      total_messages: 4,
-      returned: 1,
+      total_visible_entries: 4,
+      returned_visible_entries: 1,
       messages: [{ kind: 'tool_result' }],
     });
     const nestedMessage = (nested.result.data as { messages: AgentMessage[] }).messages[0]!;
@@ -201,14 +204,14 @@ describe('Analyst agent-session tools', () => {
     });
     appendConversationBatch({ projectRoot }, complete);
     const projected = await read_agent_session(context(projectRoot), {
-      sessionId: 'agent:planner:project',
-      lastN: 2,
+      session_id: 'agent:planner:project',
+      last_n: 2,
     });
     expect(projected).toMatchObject({
       success: true,
       data: {
-        total_messages: 4,
-        returned: 2,
+        total_visible_entries: 4,
+        returned_visible_entries: 2,
         messages: [{ kind: 'tool_call' }, { kind: 'tool_result' }],
       },
     });
@@ -218,13 +221,14 @@ describe('Analyst agent-session tools', () => {
     const projectRoot = setup();
     const toolContext = context(projectRoot);
     await expect(
-      read_agent_session(toolContext, { sessionId: 'planner:not_valid' }),
-    ).resolves.toMatchObject({ success: false, error: 'sessionId is not canonical.' });
+      read_agent_session(toolContext, { session_id: 'planner:not_valid' as never }),
+    ).rejects.toThrow();
     await expect(
-      read_agent_session(toolContext, { sessionId: 'agent:planner:project' }),
+      read_agent_session(toolContext, { session_id: 'agent:planner:project' }),
     ).resolves.toMatchObject({
       success: false,
-      error: "Agent session 'agent:planner:project' was not found.",
+      error: 'Agent session has no current conversation segment.',
+      data: { code: 'agent_session_empty', session_id: 'agent:planner:project' },
     });
   });
 
@@ -268,7 +272,7 @@ describe('Analyst agent-session tools', () => {
       success: true,
       data: { sessions: [] },
     });
-    await expect(read_agent_session(toolContext, { sessionId })).resolves.toMatchObject({
+    await expect(read_agent_session(toolContext, { session_id: sessionId })).resolves.toMatchObject({
       success: true,
       data: { session: { id: sessionId } },
     });
@@ -291,8 +295,8 @@ describe('Analyst agent-session tools', () => {
         data: {
           session: {},
           activity_status: {},
-          total_messages: 0,
-          returned: 0,
+          total_visible_entries: 0,
+          returned_visible_entries: 0,
           parse_errors: 0,
           messages: [],
         },

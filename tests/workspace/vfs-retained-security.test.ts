@@ -64,11 +64,11 @@ describe('workspace VFS and project-file security', () => {
     expect(() => authorizeWriteProject(ctx, { path: systemUrl(internalFile) })).toThrow(/internal state/);
 
     const siblingFile = resolve(root, '.saivage-other', 'file.txt');
-    await expect(writeProject(ctx, { path: systemUrl(siblingFile), content: 'sibling-content' })).resolves.toEqual(expect.objectContaining({ written: true }));
+    await expect(writeProject(ctx, { path: systemUrl(siblingFile), content: 'sibling-content' })).resolves.toMatchObject({ success: true, data: { destination_kind: 'system_url', target: systemUrl(siblingFile), written: true } });
     expect(readFileSync(siblingFile, 'utf8')).toBe('sibling-content');
 
     const tmpFile = resolve(root, '.saivage', 'work', 'cards', 'card-a', 'tmp', 'scratch.txt');
-    await expect(writeProject(ctx, { path: 'tmp:///card-a/scratch.txt', content: 'tmp-content' })).resolves.toEqual(expect.objectContaining({ written: true }));
+    await expect(writeProject(ctx, { path: 'tmp:///card-a/scratch.txt', content: 'tmp-content' })).resolves.toMatchObject({ success: true, data: { destination_kind: 'tmp_url', target: 'tmp:///card-a/scratch.txt', written: true } });
     expect(readFileSync(tmpFile, 'utf8')).toBe('tmp-content');
     await expect(writeProject(ctx, { path: systemUrl(tmpFile), content: 'replacement' })).rejects.toThrow(/internal state/);
     expect(readFileSync(tmpFile, 'utf8')).toBe('tmp-content');

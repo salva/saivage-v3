@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import CardHistoryPanel from '../components/cards/CardHistoryPanel.vue';
 import { useCardStore } from '../stores/cards';
-import { cardView, historyEntry, historyHeader, rawCard } from './card-view-fixtures';
+import { cardView, rawCard } from './card-view-fixtures';
 vi.mock('../api/client', async (importOriginal) => ({ ...(await importOriginal<typeof import('../api/client')>()), getCard: vi.fn(), listCardHistory: vi.fn(), getCardHistoryEntry: vi.fn(), getCardDiff: vi.fn() }));
 import { listCardHistory, getCardHistoryEntry, getCardDiff } from '../api/client';
 const CARD = 'card-a';
@@ -12,10 +12,11 @@ describe('CardHistoryPanel order', () => {
   beforeEach(() => { vi.clearAllMocks(); pinia = createPinia(); setActivePinia(pinia); useCardStore().selectedDetail = { cardId: CARD, card: cardView(CARD, { version_seq: 3 }) }; });
   it('renders snapshot child IDs in backend order without resorting', async () => {
     const children = ['card-a-c', 'card-a-a', 'card-a-b'];
-    const header = historyHeader({ kind: 'reorder', card_id: CARD, version_seq: 2, change_reason: 'children reordered', changed_fields: ['children'], change_summary: 'children reordered' });
+    const change = { entry_id: '11111111-1111-4111-8111-111111111111', kind: 'reorder' as const, card_id: CARD, resulting_version: 2, changed_at: '2026-01-01T00:00:01.000Z', changed_by_actor: 'planner' as const, changed_by_surface: 'runtime' as const, changed_fields: ['children'], change_summary: 'children reordered', change_reason: 'children reordered', terminal_summary: null };
+    const header = { entry_id: change.entry_id, version: 2, published_at: change.changed_at, content_availability: 'unchecked' as const, artifact_kind: 'card-version' as const, change };
     const snapshot = rawCard(CARD, { children, version_seq: 2 });
-    vi.mocked(listCardHistory).mockResolvedValue({ history: [header], total: 1 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ entry: historyEntry({ ...header, snapshot }) });
+    vi.mocked(listCardHistory).mockResolvedValue({ card_id: CARD, versions: [header], total: 1 });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ card_id: CARD, version: 2, entry_id: change.entry_id, published_at: change.changed_at, artifact: { kind: 'card-version', card: snapshot, change } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: CARD, from: 2, to: 3, diff: [{ field: 'children', before: children, after: [] }] });
     const wrapper = mount(CardHistoryPanel, { props: { cardId: CARD }, global: { plugins: [pinia] } }); await flushPromises();
     const text = wrapper.text(); expect(text.indexOf('card-a-c')).toBeLessThan(text.indexOf('card-a-a')); expect(text.indexOf('card-a-a')).toBeLessThan(text.indexOf('card-a-b'));

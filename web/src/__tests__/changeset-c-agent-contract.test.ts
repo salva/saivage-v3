@@ -26,8 +26,10 @@ describe('changeset C browser contracts', () => {
     expect(
       AgentConversationResponseSchema.safeParse({
         session_id: session.id,
+        segment_version: 1,
+        segment_context: null,
         entries: [],
-        cursor: 'z',
+        cursor: { segment_version: 1, message_id: 'z' },
       }).success,
     ).toBe(true);
     expect(
@@ -55,7 +57,7 @@ describe('changeset C browser contracts', () => {
         t: 'invalidate',
         resource: 'conversation',
         id: session.id,
-        through_message_id: 'a',
+        segment_version: 1, visible_message_id: 'a',
       }).success,
     ).toBe(true);
   });

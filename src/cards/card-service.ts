@@ -1,24 +1,23 @@
 import { randomUUID } from 'node:crypto';
 
 import {
-  cardHistoryEntrySchema,
   cardRecordSchema,
   positiveSafeIntegerSchema,
   type AgentName,
-  type CardHistoryEntry,
   type CardRecord,
   type CardStatus,
 } from '../schemas/index.js';
 import {
-  closeAuthoredRecord,
-  discardAuthoredRecord,
+  closeOpenAuthoredRecord,
+  discardOpenAuthoredRecord,
   openAuthoredRecord,
-  readAuthoredRecord,
-  replaceOpenAuthoredRecord,
+  readCurrentAuthoredRecord,
+  readHistoricalAuthoredRecord,
+  editOpenAuthoredRecord,
   type RecordProjection,
 } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
+import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError, listAuthoredRecordVersions } from '../persistence/authored-record-files.js';
 import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 import {
   listCards,
@@ -32,10 +31,11 @@ import {
   readCanonicalCardFileContent,
   readCanonicalCardFilesMetadata,
   readCardDetail,
-  readCardDiffIndex,
   readCardHierarchy,
-  readCardHistoryEntry,
-  readCardHistoryList,
+  readCardVersion,
+  readCurrentCardArtifact,
+  listCardVersions,
+  cardDiffValue,
   readLinkedChildren,
   readLinkedChildrenProjection,
   type CardTargetRead,
@@ -45,6 +45,7 @@ import {
   type CanonicalCardFileSlot,
   type CanonicalCardFilesMetadataProjection,
 } from '../persistence/card-files.js';
+import { cardVersionChangeSchema, type CardArtifact, type CardVersionChange, type CardVersionEntry } from '../persistence/canonical-card-artifacts.js';
 import type { CanonicalReadInstrumentation, GrowingFileIo } from '../persistence/growing-file.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../application/freshness-effects.js';
 import type { LiveSyncCardRecordName } from '../contracts/index.js';
@@ -77,14 +78,15 @@ export type CardActivationAdmissionProjection = {
 };
 
 export interface CardDiffEntry { field: string; before: unknown; after: unknown }
-export type CardHistoryListResult = CardTargetRead<CardHistoryEntry[]>;
+export type CardVersionListResult = CardTargetRead<readonly CardVersionEntry[]>;
 export type { CanonicalCardFileContentRead, CanonicalCardFileSlot };
-export type CardHistoryEntryResult = CardTargetRead<CardHistoryEntry> | { readonly kind: 'history-entry-not-found'; readonly versionSeq: number };
-export type CardHistoryDiffResult =
+export type CardVersionContentResult = ReturnType<typeof readCardVersion>;
+export type CardVersionDiffResult =
   | { readonly kind: 'found'; readonly from: number; readonly to: number; readonly diff: CardDiffEntry[] }
   | { readonly kind: 'card-not-found' }
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
-  | { readonly kind: 'diff-source-not-found'; readonly from: number; readonly to: number; readonly missingVersionSeq: number };
+  | { readonly kind: 'version-not-found'; readonly version: number; readonly side: 'from' | 'to' }
+  | { readonly kind: 'historical-unavailable'; readonly version: number; readonly side: 'from' | 'to'; readonly reason: 'missing' | 'corrupt' | 'io_error' };
 
 export type { CardEditPatch, NewChildCardInput, RecordProjection, SetStatusTarget };
 type TerminalActivationOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
@@ -96,21 +98,27 @@ type TerminalPublication = {
 
 function clone<T>(value: T): T { return structuredClone(value); }
 
-function diffSnapshots(from: CardRecord, to: CardRecord): CardDiffEntry[] {
-  const fields = new Set<keyof CardRecord>([
-    ...(Object.keys(from) as Array<keyof CardRecord>),
-    ...(Object.keys(to) as Array<keyof CardRecord>),
-  ]);
-  return [...fields]
-    .filter((field) => !valuesEqual(from[field], to[field]))
-    .map((field) => ({ field, before: from[field], after: to[field] }));
+function diffArtifacts(from: CardArtifact, to: CardArtifact): CardDiffEntry[] {
+  const before = cardDiffValue(from); const after = cardDiffValue(to);
+  const fields: Array<'deleted' | keyof CardRecord> = ['deleted', 'id', 'type', 'children', 'title', 'lifecycle', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'];
+  return fields.flatMap((field) => {
+    const left = field === 'deleted' ? before.deleted : before.card[field]; const right = field === 'deleted' ? after.deleted : after.card[field];
+    return valuesEqual(left, right) ? [] : [{ field, before: left, after: right }];
+  });
 }
 
-function historyEntry(prior: CardRecord, kind: CardHistoryEntry['kind'], fields: string[], summary: string, reason: string,agentName?:AgentName): CardHistoryEntry {
+function versionChange(prior: CardRecord, next: CardRecord | null, kind: CardVersionChange['kind'], fields: string[], summary: string, reason: string,agentName?:AgentName): CardVersionChange {
   const provenance = kind === 'update' ? { changed_by_actor: agentName!, changed_by_surface: 'runtime' }
     : kind === 'delete' ? { changed_by_actor: agentName!, changed_by_surface: 'runtime' }
       : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };
-  return cardHistoryEntrySchema.parse({ entry_id: randomUUID(), kind, card_id: prior.id, version_seq: prior.version_seq, snapshot: prior, changed_at: new Date().toISOString(), ...provenance, change_reason: reason, changed_fields: fields, change_summary: summary });
+  const changedAt = kind === 'terminal' ? next?.status_text_updated_at : new Date().toISOString();
+  if (!changedAt) throw new Error('Terminal card change requires status_text_updated_at.');
+  const terminalSummary = kind === 'terminal' ? (() => {
+    if (!next || (next.lifecycle.status !== 'done' && next.lifecycle.status !== 'failed' && next.lifecycle.status !== 'blocked')) throw new Error('Terminal card change requires terminal lifecycle.');
+    const result = next.lifecycle.result;
+    return { status: next.lifecycle.status, result_kind: result.kind, summary: result.summary, content_policy: result.kind === 'content-policy-refusal' ? { session_id: result.session_id, marker_id: result.marker_id, evidence_url: result.evidence_url, blocked_at: changedAt } : null };
+  })() : null;
+  return cardVersionChangeSchema.parse({ entry_id: randomUUID(), kind, card_id: prior.id, resulting_version: kind === 'delete' ? prior.version_seq + 1 : next!.version_seq, changed_at: changedAt, ...provenance, change_reason: reason, changed_fields: fields, change_summary: summary, terminal_summary: terminalSummary });
 }
 
 function assertChildParentAdmission(parent: CardRecord, message: string, workflows:CompiledProjectWorkflows): void {
@@ -131,7 +139,7 @@ export class CardService {
   }
   private recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,writers:definition.writers,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap}));}
 
-  get recordReader() { return { record: (cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest') => this.readRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
+  get recordReader() { return { current: (cardId: string, filename: string) => this.readCurrentRecord(cardId, filename), historical: (cardId: string, filename: string, version: number) => this.readHistoricalRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
 
   private state(): CardIndex {
     const state = new CardIndex();
@@ -139,8 +147,8 @@ export class CardService {
     return state;
   }
 
-  private publishCardVersionEffects(history: CardHistoryEntry, parentId: string | null, runtimeChanged: boolean, recordNames: readonly LiveSyncCardRecordName[] = []): void {
-    const cardId = history.card_id;
+  private publishCardVersionEffects(change: CardVersionChange, parentId: string | null, runtimeChanged: boolean, recordNames: readonly LiveSyncCardRecordName[] = []): void {
+    const cardId = change.card_id;
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'detail', card_id: cardId });
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'history', card_id: cardId });
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'diff', card_id: cardId });
@@ -170,15 +178,18 @@ export class CardService {
   getDescendantIds(id: string): string[] { const state = this.state(); const out: string[] = []; const visit = (parent: string): void => { for (const child of state.childrenOf(parent)) { out.push(child); visit(child); } }; visit(id); return out; }
   blocksFor(id: string): string[] { return this.list().filter((card) => card.depends_on.includes(id)).map((card) => card.id); }
 
-  readRecord(cardId: string, filename: string, version: number | 'latest' | 'open' = 'latest', instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, instrumentation); }
-  openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), undefined, this.cardAppendIo); }
-  editRecord(cardId: string, filename: string, version: number, content: string): RecordProjection { return replaceOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, content, this.cardAppendIo); }
-  closeRecord(cardId: string, filename: string, version: number, agentName: AgentName, cardVersionSeq: number): RecordProjection {
-    const closed = closeAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, agentName, cardVersionSeq, this.cardAppendIo);
+  readCurrentRecord(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection { const current = readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); if (!current) throw new AuthoredRecordNotFoundError(); return current; }
+  readCurrentRecordOrNull(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection | null { return readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); }
+  readHistoricalRecord(cardId: string, filename: string, version: number, instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readHistoricalAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, instrumentation); }
+  listRecordVersions(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation) { return listAuthoredRecordVersions(this.projectRoot, cardId, this.recordDefinition(cardId, filename), instrumentation); }
+  openRecord(cardId: string, filename: string, expectedHead: number | null): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, this.cardAppendIo); }
+  editRecord(cardId: string, filename: string, expectedHead: number, content: string): RecordProjection { return editOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, content, this.cardAppendIo); }
+  closeRecord(cardId: string, filename: string, expectedHead: number, agentName: AgentName, cardVersionSeq: number): RecordProjection {
+    const closed = closeOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, agentName, cardVersionSeq, this.cardAppendIo);
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name: filename as never });
     return closed;
   }
-  discardRecord(cardId: string, filename: string, version: number, reason: string): RecordProjection { return discardAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, reason, this.cardAppendIo); }
+  discardRecord(cardId: string, filename: string, expectedHead: number, reason: string): RecordProjection { return discardOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, reason, this.cardAppendIo); }
 
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
     return clone(readCardDetail(this.projectRoot, id, instrumentation));
@@ -200,30 +211,25 @@ export class CardService {
   getCardChildren(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<{ parent: CardRecord; activeChildren: CardRecord[] }> {
     return clone(readCardHierarchy(this.projectRoot, id, instrumentation));
   }
-  listCardHistory(id: string, instrumentation?: CanonicalReadInstrumentation): CardHistoryListResult {
-    return clone(readCardHistoryList(this.projectRoot, id, instrumentation));
+  listCardVersions(id: string, instrumentation?: CanonicalReadInstrumentation): CardVersionListResult {
+    return clone(listCardVersions(this.projectRoot, id, instrumentation));
   }
-  getCardHistoryEntry(id: string, versionSeq: number, instrumentation?: CanonicalReadInstrumentation): CardHistoryEntryResult {
-    positiveSafeIntegerSchema.parse(versionSeq);
-    return clone(readCardHistoryEntry(this.projectRoot, id, versionSeq, instrumentation));
+  readCardVersion(id: string, version: number, instrumentation?: CanonicalReadInstrumentation): CardVersionContentResult {
+    positiveSafeIntegerSchema.parse(version);
+    return clone(readCardVersion(this.projectRoot, id, version, instrumentation));
   }
-  diffCardHistory(id: string, pivots: { fromSeq?: number | 'last' | 'current'; toSeq?: number | 'last' | 'current' }, instrumentation?: CanonicalReadInstrumentation): CardHistoryDiffResult {
-    const validatePivot = (pivot: number | 'last' | 'current' | undefined): void => {
-      if (pivot !== undefined && pivot !== 'last' && pivot !== 'current') positiveSafeIntegerSchema.parse(pivot);
-    };
-    validatePivot(pivots.fromSeq);
-    validatePivot(pivots.toSeq);
-    const target = readCardDiffIndex(this.projectRoot, id, instrumentation);
-    if (target.kind === 'card-not-found') return target;
-    const current = target.value.current.card.version_seq;
-    const resolve = (pivot: number | 'last' | 'current' | undefined, fallback: number): number => typeof pivot === 'number' ? pivot : pivot === undefined ? fallback : current;
-    const to = resolve(pivots.toSeq, current);
-    const from = resolve(pivots.fromSeq, Math.max(1, to - 1));
+  diffCardVersions(id: string, pivots: { fromVersion: number; toVersion?: number | 'current' }, instrumentation?: CanonicalReadInstrumentation): CardVersionDiffResult {
+    positiveSafeIntegerSchema.parse(pivots.fromVersion); if (pivots.toVersion !== undefined && pivots.toVersion !== 'current') positiveSafeIntegerSchema.parse(pivots.toVersion);
+    const listed = listCardVersions(this.projectRoot, id, instrumentation); if (listed.kind === 'card-not-found') return listed;
+    const to = typeof pivots.toVersion === 'number' ? pivots.toVersion : listed.value.at(-1)?.version ?? 0; const from = pivots.fromVersion;
     if (from > to) return { kind: 'invalid-pivots', from, to };
-    const fromCard = target.value.artifacts.find((artifact) => artifact.version === from)?.card;
-    const toCard = target.value.artifacts.find((artifact) => artifact.version === to)?.card;
-    if (!fromCard || !toCard) return { kind: 'diff-source-not-found', from, to, missingVersionSeq: !fromCard ? from : to };
-    return { kind: 'found', from, to, diff: clone(diffSnapshots(fromCard, toCard)) };
+    const readSide = (version: number, side: 'from' | 'to') => { const result = readCardVersion(this.projectRoot, id, version, instrumentation); if (result.kind === 'version-not-found') return { kind: 'version-not-found' as const, version, side }; if (result.kind === 'historical-unavailable') return { ...result, side }; return result; };
+    const fromResult = readSide(from, 'from'); if (fromResult.kind !== 'found') return fromResult;
+    const toResult = pivots.toVersion === undefined || pivots.toVersion === 'current'
+      ? readCurrentCardArtifact(this.projectRoot, id, instrumentation)
+      : readSide(to, 'to');
+    if (toResult.kind !== 'found') return toResult;
+    return { kind: 'found', from, to, diff: clone(diffArtifacts(fromResult.value, toResult.value)) };
   }
 
   create(input: NewChildCardInput): CardRecord {
@@ -245,17 +251,17 @@ export class CardService {
     if (!freshParent || freshParent.children.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
     assertChildParentAdmission(freshParent, 'Cannot link a child under', this.workflows);
     const linked = cardRecordSchema.parse({ ...freshParent, children: [...freshParent.children, card.id], version_seq: freshParent.version_seq + 1, updated_at: new Date().toISOString() });
-    const linkHistory = historyEntry(freshParent, 'child_link', ['children'], `linked child ${card.id}`, 'child linked');
-    publishCardVersion(this.projectRoot, linked, linkHistory, this.cardAppendIo);
-    this.publishCardVersionEffects(linkHistory, cardParentId(freshParent.id), true);
+    const linkChange = versionChange(freshParent, linked, 'child_link', ['children'], `linked child ${card.id}`, 'child linked');
+    publishCardVersion(this.projectRoot, linked, linkChange, this.cardAppendIo);
+    this.publishCardVersionEffects(linkChange, cardParentId(freshParent.id), true);
     this.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id });
     return clone(card);
   }
 
-  private publishVersion(existing: CardRecord, candidate: CardRecord, kind: CardHistoryEntry['kind'], fields: string[], reason: string, summary = summarizeChangedFields(fields),agentName?:AgentName): CardRecord {
-    const history = historyEntry(existing, kind, fields, summary, reason,agentName);
-    publishCardVersion(this.projectRoot, cardRecordSchema.parse(candidate), history, this.cardAppendIo);
-    this.publishCardVersionEffects(history, cardParentId(existing.id), fields.includes('lifecycle'));
+  private publishVersion(existing: CardRecord, candidate: CardRecord, kind: CardVersionChange['kind'], fields: string[], reason: string, summary = summarizeChangedFields(fields),agentName?:AgentName): CardRecord {
+    const parsed = cardRecordSchema.parse(candidate); const change = versionChange(existing, parsed, kind, fields, summary, reason,agentName);
+    publishCardVersion(this.projectRoot, parsed, change, this.cardAppendIo);
+    this.publishCardVersionEffects(change, cardParentId(existing.id), fields.includes('lifecycle'));
     return clone(candidate);
   }
 
@@ -351,7 +357,7 @@ export class CardService {
     const ready = [...intended].filter((id) => indegree.get(id) === 0).sort(); const order: string[] = [];
     while (ready.length) { const id = ready.shift()!; order.push(id); for (const next of outgoing.get(id)!) { indegree.set(next, indegree.get(next)! - 1); if (indegree.get(next) === 0) { ready.push(next); ready.sort(); } } }
     if (order.length !== intended.size) throw new Error('Deletion dependency and hierarchy constraints conflict.');
-    for (const id of order) { const card = state.get(id)!;const recordNames=[...this.workflows.cardTypes.get(card.type)!.records.keys()]; const entry = historyEntry(card, 'delete', ['__deleted__'], 'card deleted', 'analyst subtree deletion',agentName); publishCardTombstone(this.projectRoot, id, card, entry, this.cardAppendIo); this.publishCardVersionEffects(entry, cardParentId(card.id), true, recordNames); this.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id }); }
+    for (const id of order) { const card = state.get(id)!;const recordNames=[...this.workflows.cardTypes.get(card.type)!.records.keys()]; const change = versionChange(card, null, 'delete', ['__deleted__'], 'card deleted', 'analyst subtree deletion',agentName); publishCardTombstone(this.projectRoot, id, card, change, this.cardAppendIo); this.publishCardVersionEffects(change, cardParentId(card.id), true, recordNames); this.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id }); }
     return { deleted: order, requested: roots };
   }
 }

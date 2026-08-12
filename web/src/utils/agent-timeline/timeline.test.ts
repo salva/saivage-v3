@@ -297,7 +297,7 @@ describe('entriesToTimeline display filtering', () => {
     const systemPrompt = entry({
       id: 'system-prompt',
       role: 'system',
-      kind: 'system_prompt',
+      kind: 'text',
       content: 'system prompt',
       round_id: 'r-pre-00000000000000000000000000000033',
       message_index: 0,

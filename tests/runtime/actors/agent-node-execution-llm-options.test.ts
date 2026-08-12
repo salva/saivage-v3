@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/llm-contracts.js';
-import { appendConversationBatch } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, initializeConversation } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {
   buildLlmInput(node: unknown, input: unknown, sessionId: string, inputId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown): PreparedLlmInvocationInput;
@@ -22,6 +22,7 @@ describe('AgentNodeExecution LLM options', () => {
     roots.push(projectRoot);
     mkdirSync(join(projectRoot, '.saivage', 'cards', 'project', 'conversations'), { recursive: true });
     const sessionId = 'agent:planner:project';
+    initializeConversation(projectRoot, sessionId);
     appendConversationBatch({ projectRoot }, [{
       id: 'activation', session_id: sessionId, role: 'system', kind: 'activity',
       content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-07-23T00:00:00.000Z' }),
@@ -30,7 +31,7 @@ describe('AgentNodeExecution LLM options', () => {
 
     const store = {
       workflows: { cardTypes: new Map([['project', { bootstrapRecord: { name: 'brief.md' } }]]) },
-      readRecord: () => ({ artifact: { content: 'brief' } }),
+      readCurrentRecord: () => ({ artifact: { accepted: { content: 'brief' } } }),
       listChildren: () => [],
     };
     let renderedVariables: Record<string, unknown> | undefined;

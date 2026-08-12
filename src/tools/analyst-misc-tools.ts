@@ -1,6 +1,5 @@
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { z } from 'zod';
-import { parseConversationSessionId } from '../schemas/index.js';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
@@ -19,9 +18,10 @@ import {
 } from '../contracts/builtin-tool-inputs.js';
 import {
   AgentConversationEntrySchema,
+  ConversationSegmentContextSchema,
   AgentSessionSummarySchema,
 } from '../contracts/operator-api-agents.js';
-import { AgentSessionNotFoundError } from '../application/read-models/agent-operator-read-model.js';
+import { AgentCurrentStateUnavailableError, AgentSessionNotFoundError } from '../application/read-models/agent-operator-read-model.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 const JSONL_TAIL_MAX = 1000;
@@ -31,19 +31,22 @@ export const ListAgentSessionsToolDataSchema = z
 export const ReadAgentSessionToolDataSchema = z
   .object({
     session: AgentSessionSummarySchema,
-    total_messages: z.number().int().nonnegative(),
-    returned: z.number().int().nonnegative(),
+    ownership: z.enum(['active', 'retained_tombstone']),
+    segment_version: z.number().int().positive(),
+    segment_context: ConversationSegmentContextSchema,
+    total_visible_entries: z.number().int().nonnegative(),
+    returned_visible_entries: z.number().int().nonnegative(),
     messages: z.array(AgentConversationEntrySchema),
   })
   .strict()
   .superRefine((value, ctx) => {
-    if (value.returned !== value.messages.length)
+    if (value.returned_visible_entries !== value.messages.length)
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['returned'],
         message: 'Returned must equal messages length.',
       });
-    if (value.total_messages < value.returned)
+    if (value.total_visible_entries < value.returned_visible_entries)
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['total_messages'],
@@ -66,7 +69,9 @@ export const ListAgentSessionsToolResultSchema = z.union([
 ]);
 export const ReadAgentSessionToolResultSchema = z.union([
   z.object({ success: z.literal(true), data: ReadAgentSessionToolDataSchema }).strict(),
-  toolFailureSchema,
+  z.object({ success: z.literal(false), error: z.literal('Agent session not found.'), data: z.object({ code: z.literal('agent_session_not_found'), session_id: z.string().min(1) }).strict() }).strict(),
+  z.object({ success: z.literal(false), error: z.literal('Agent session has no current conversation segment.'), data: z.object({ code: z.literal('agent_session_empty'), session_id: z.string().min(1) }).strict() }).strict(),
+  z.object({ success: z.literal(false), error: z.literal('Current Agent session state unavailable; restart required.'), data: z.object({ code: z.literal('current_state_unavailable'), resource: z.enum(['card', 'conversation']), owner_id: z.string().min(1), restart_required: z.literal(true) }).strict() }).strict(),
 ]);
 
 export async function queue_notification(
@@ -82,7 +87,7 @@ export async function queue_notification(
       safety_class: 'low',
       target_kind: 'card',
       getTargetId: () => params.card_id,
-      lifecycle: 'intervention_ready',
+      lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' },
       mutate: (_prepared, input, mutation) =>
         mutation.services.notifications.queue(input.card_id, input.kind, input.body),
     },
@@ -119,7 +124,7 @@ export async function reconfigure(
       safety_class: 'low',
       target_kind: 'config',
       getTargetId: () => targetId(params),
-      lifecycle: 'intervention_ready',
+      lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' },
       mutate: (_prepared, input, mutation) => {
         const change = reconfigureMutation(input);
         return mutation.services.config.apply(change);
@@ -188,44 +193,32 @@ export async function list_agent_sessions(
 
 export async function read_agent_session(
   ctx: ToolContext,
-  params: { sessionId: string; lastN?: number },
+  params: z.infer<typeof readAgentSessionInputSchema>,
 ): Promise<ToolResult> {
   try {
-    if (typeof params.sessionId !== 'string' || params.sessionId.length === 0)
-      return ReadAgentSessionToolResultSchema.parse({
-        success: false,
-        error: 'sessionId is required.',
-      });
-    let sessionId;
-    try {
-      sessionId = parseConversationSessionId(params.sessionId);
-    } catch {
-      return ReadAgentSessionToolResultSchema.parse({
-        success: false,
-        error: 'sessionId is not canonical.',
-      });
-    }
-    const limit = Math.min(Math.max(1, params.lastN ?? JSONL_TAIL_DEFAULT), JSONL_TAIL_MAX);
+    const parsed = readAgentSessionInputSchema.parse(params);
+    const sessionId = parsed.session_id;
+    const limit = parsed.last_n ?? JSONL_TAIL_DEFAULT;
     const service = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store.workflows);
-    const detail = service.getSession(sessionId);
-    const response = service.readBoundedConversation(sessionId, limit);
+    const response = service.readCurrentSegmentTail(sessionId, limit);
+    if (response.kind === 'empty') return ReadAgentSessionToolResultSchema.parse({ success: false, error: 'Agent session has no current conversation segment.', data: { code: 'agent_session_empty', session_id: sessionId } });
+    const conversation = response.conversation;
     return ReadAgentSessionToolResultSchema.parse({
       success: true,
       data: {
-        session: detail.session,
-        total_messages: response.totalEntries,
-        returned: response.entries.length,
-        messages: response.entries,
+        session: response.session,
+        ownership: response.ownership,
+        segment_version: conversation.segmentVersion,
+        segment_context: conversation.segmentContext,
+        total_visible_entries: conversation.totalEntries,
+        returned_visible_entries: conversation.entries.length,
+        messages: conversation.entries,
       },
     });
   } catch (err) {
-    return ReadAgentSessionToolResultSchema.parse(
-      toolFailureFromError(
-        err instanceof AgentSessionNotFoundError
-          ? new Error(`Agent session '${params.sessionId}' was not found.`)
-          : err,
-      ),
-    );
+    if (err instanceof AgentSessionNotFoundError) return ReadAgentSessionToolResultSchema.parse({ success: false, error: 'Agent session not found.', data: { code: 'agent_session_not_found', session_id: params.session_id } });
+    if (err instanceof AgentCurrentStateUnavailableError) return ReadAgentSessionToolResultSchema.parse({ success: false, error: 'Current Agent session state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: err.resource, owner_id: err.ownerId, restart_required: true } });
+    throw err;
   }
 }
 

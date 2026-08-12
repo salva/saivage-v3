@@ -20,12 +20,15 @@ describe('durable growing-schema and writer inventory', () => {
     expect(messages).toMatch(/agentMessageSchema = z\.object\([\s\S]*?\)\.strict\(\)\.superRefine/);
 
     expect(appLog).toContain('prepareGrowingEnvelope');
-    expect(conversations).toContain('serializeGrowingEnvelope');
-    for (const owner of [appLog, conversations]) {
+    expect(conversations).toContain("type: 'conversation-segment'");
+    expect(conversations).toContain('createImmutableVersionFile');
+    expect(conversations).toContain('appendEnvelope');
+    for (const owner of [appLog]) {
       expect(owner).toContain('publishFirstEnvelope');
       expect(owner).toContain('appendEnvelope');
       expect(owner).not.toContain('appendFileSync');
     }
+    expect(conversations).not.toContain('appendFileSync');
   });
 
   it('keeps app-log consumers on typed payloads without parse/drop or payload casts', () => {

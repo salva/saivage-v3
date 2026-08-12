@@ -7,6 +7,8 @@ import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from '../
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../../src/application/freshness-effects.js';
 import { createAnalystMutationServices, type AnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { publishInitialProjectCard } from '../../src/persistence/card-files.js';
+import { initializeConversation } from '../../src/persistence/conversation-file.js';
+import { globalAgentSessionId } from '../../src/schemas/index.js';
 import { createProjectIdentity, readProjectIdentity } from '../../src/persistence/project-identity.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { bindRuntimeWorkflows, compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
@@ -20,10 +22,11 @@ export const TEST_RUNTIME_WORKFLOWS=bindRuntimeWorkflows(compileProjectWorkflows
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
   if (readProjectIdentity(projectRoot) === null) createProjectIdentity(projectRoot, projectRoot.split('/').at(-1) || 'saivage-project');
-  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card.jsonl'))) {
+  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card', 'index.json'))) {
     mkdirSync(join(projectRoot, '.saivage', 'cards'), { recursive: true });
     const root = newProjectRootInput(projectRoot);
     publishInitialProjectCard(projectRoot, root,TEST_WORKFLOWS.cardTypes.get('project')!);
+    initializeConversation(projectRoot, globalAgentSessionId(TEST_WORKFLOWS.analyst.name));
   }
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
   const skills = join(projectRoot, '.saivage', 'skills', 'index.json');

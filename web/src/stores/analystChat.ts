@@ -106,7 +106,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const sending = ref(false);
   const sendError = ref<DetailErrorState | null>(null);
   const restartAcknowledgement = ref<RestartChatAcknowledgement | null>(null);
-  let cursor: string | null = null;
+  let cursor: { segment_version: number; message_id: string | null } | null = null;
 
   const activeSession = computed(() => detailSession.value);
 
@@ -126,7 +126,8 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
   }
 
-  async function fetchMessages(): Promise<void> {
+  async function fetchMessages(frame?: { segment_version: number; visible_message_id: string | null } | null): Promise<void> {
+    if (frame && cursor) { if (frame.segment_version !== cursor.segment_version) cursor = null; else if (frame.visible_message_id === cursor.message_id) return; }
     const requestSeq = ++messagesRequestSeq;
     messagesAbort?.abort();
     const abort = new AbortController();
@@ -142,7 +143,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       const sessionId = activeSessionId.value;
       const [detail, response] = await Promise.all([
         getAgentSession(sessionId, abort.signal),
-        getAgentConversation(sessionId, abort.signal, cursor ?? undefined),
+        getAgentConversation(sessionId, abort.signal, cursor?.message_id ? { segmentVersion: cursor.segment_version, messageId: cursor.message_id } : undefined),
       ]);
       if (requestSeq !== messagesRequestSeq) return;
       const reconciled = pendingMessages.value.filter(
@@ -150,7 +151,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       );
       detailSession.value = detail.session;
       authoritativeMessages.value =
-        cursor === null
+        cursor === null || cursor.segment_version !== response.segment_version
           ? [...response.entries]
           : [...authoritativeMessages.value, ...response.entries];
       cursor = response.cursor;
@@ -158,6 +159,12 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       messagesError.value = null;
     } catch (err) {
       if (requestSeq !== messagesRequestSeq) return;
+      if (isOperatorApiError(err, 'agents.conversation', 409)) {
+        authoritativeMessages.value = [];
+        cursor = null;
+        await fetchMessages();
+        return;
+      }
       detailSession.value = null;
       authoritativeMessages.value = [];
       cursor = null;

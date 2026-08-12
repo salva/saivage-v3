@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { agentMessageSchema, conversationSessionIdentity, CONTENT_POLICY_RETRY_TEXT, type AgentMessage, type MessageRole, type ConversationSessionId,
   type CardConversationSessionId,
 } from '../../schemas/index.js';
-import type { ValidatedConversation } from '../../contracts/conversation-validation.js';
+import { renderContextCompactionPayload, type ValidatedConversation } from '../../contracts/conversation-validation.js';
 import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
 import { appendConversationBatch, type ConversationFileContext,
@@ -202,7 +202,9 @@ export function providerConversationProjection(
   conversation: ValidatedConversation,
 ): ProviderConversationProjection {
   const latest = conversation.latestCompaction;
-  const messages = !latest
+  const messages = conversation.compactedGenesis
+    ? projectGenesisCompactedConversation(conversation)
+    : !latest
     ? conversation.sourceRows.flatMap(projectProviderConversationMessage)
     : projectCompactedConversation(conversation, latest);
   const wrongSession = messages.find(
@@ -216,6 +218,13 @@ export function providerConversationProjection(
   return { sourceSessionId: conversation.sourceSessionId, messages };
 }
 
+function projectGenesisCompactedConversation(conversation: ValidatedConversation): AgentMessage[] {
+  const genesis = conversation.compactedGenesis!;
+  const retained = conversation.sourceRows.slice(0, genesis.retainedStaticRowCount).flatMap(projectProviderConversationMessage);
+  const synthetic = agentMessageSchema.parse({ id: `${genesis.id}:rendered`, session_id: conversation.sourceSessionId, role: 'system', kind: 'text', content: renderContextCompactionPayload(genesis.payload), round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: genesis.timestamp });
+  return [...retained, synthetic, ...conversation.sourceRows.slice(genesis.retainedStaticRowCount).flatMap(projectProviderConversationMessage)];
+}
+
 export type SummarizerConversationProjection = Readonly<{
   kind: 'summarizer_projection';
   sourceSessionId: ConversationSessionId;
@@ -226,8 +235,6 @@ export function summarizerConversationProjection(
   sourceSessionId: ConversationSessionId,
   transformedSourceRows: readonly SummarizerProviderRow[],
 ): SummarizerConversationProjection {
-  if (transformedSourceRows.some((row) => row.kind === 'context_compaction'))
-    throw new Error('Summarizer projection does not accept compaction metadata.');
   const messages = transformedSourceRows.flatMap(projectProviderConversationMessage);
   validateResponsesPairs(sourceSessionId, messages);
   return Object.freeze({ kind: 'summarizer_projection', sourceSessionId, messages });

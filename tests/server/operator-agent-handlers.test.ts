@@ -23,6 +23,7 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
+import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
@@ -62,7 +63,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     expect(AgentListResponseSchema.parse({ sessions: [session] }).sessions[0]!.id).toBe(id);
     expect(AgentDetailResponseSchema.parse({ session }).session.id).toBe(id);
     expect(
-      AgentConversationResponseSchema.parse({ session_id: id, entries: [entry(id)], cursor: 'm1' })
+      AgentConversationResponseSchema.parse({ session_id: id, segment_version: 1, segment_context: null, entries: [entry(id)], cursor: { segment_version: 1, message_id: 'm1' } })
         .session_id,
     ).toBe(id);
     expect(
@@ -140,10 +141,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
       message: 'agents.conversation query did not match the operator API contract',
       issues: [{ path: 'since', message: 'Required' }],
     };
-    const cursorValidation = {
-      error: 'ValidationError',
-      issues: [{ path: 'since', message: 'Cursor is not present in this conversation.' }],
-    };
+    const cursorValidation = { error: 'conversation_cursor_not_found', session_id: 'agent:planner:project', segment_version: 1, since: 'missing' };
     const sessionNotFound = { error: 'Agent session not found' };
     const exchangeNotFound = { error: 'No LLM exchange recorded for this session yet.' };
 
@@ -157,17 +155,15 @@ describe('operator Agent exact identity contracts and handlers', () => {
     for (const invalid of [
       { ...runtimeValidation, error: 'Request validation failed' },
       { error: 'ValidationError', issues: [] },
-      { ...cursorValidation, issues: [{ path: 'since', message: 'different' }] },
+      { ...cursorValidation, since: '' },
       { ...cursorValidation, unexpected: true },
     ]) expect(agentOperatorApiContracts['agents.conversation'].response[400].safeParse(invalid).success).toBe(false);
     for (const invalid of [
       { error: 'missing' },
       { ...sessionNotFound, unexpected: true },
     ]) expect(agentOperatorApiContracts['agents.detail'].response[404].safeParse(invalid).success).toBe(false);
-    for (const invalid of [
-      { error: 'Agent session not found' },
-      { ...exchangeNotFound, unexpected: true },
-    ]) expect(agentOperatorApiContracts['agents.llmExchange'].response[404].safeParse(invalid).success).toBe(false);
+    expect(agentOperatorApiContracts['agents.llmExchange'].response[404].parse(sessionNotFound)).toEqual(sessionNotFound);
+    expect(agentOperatorApiContracts['agents.llmExchange'].response[404].safeParse({ ...exchangeNotFound, unexpected: true }).success).toBe(false);
   });
 
   it.each(invalid)(
@@ -203,6 +199,8 @@ describe('operator Agent exact identity contracts and handlers', () => {
     'independently redacts canonical %s exchanges without rewriting persistence',
     async (status) => {
       const root = projectRoot();
+      initProjectTree(root);
+      populatePlannerConversation(root);
       const payload = sensitiveExchange(status);
       appendAppLogEntry(root, 'provider_exchange', () =>
         providerExchangeEntry({
@@ -267,8 +265,11 @@ describe('operator Agent exact identity contracts and handlers', () => {
   );
 
   it('returns only the exact no-exchange 404 for an absent latest exchange', async () => {
+    const root = projectRoot();
+    initProjectTree(root);
+    populatePlannerConversation(root);
     const handlers = buildAgentOperatorContractHandlers({
-      projectRoot: projectRoot(),
+      projectRoot: root,
       workflows: TEST_RUNTIME_WORKFLOWS,
     });
 
@@ -285,6 +286,8 @@ describe('operator Agent exact identity contracts and handlers', () => {
   it('lets a canonical read failure reach ContractRuntime for one strict non-sensitive response', async () => {
     const secret = 'tok_malformed_duplicate_secret';
     const root = projectRoot('saivage-secret-project-path-');
+    initProjectTree(root);
+    populatePlannerConversation(root);
     const payload = { ...sensitiveExchange('ok'), source_input_id: secret, attempt_index: 0 };
     const entry = providerExchangeEntry({
       session_id: 'agent:planner:project',
@@ -312,17 +315,17 @@ describe('operator Agent exact identity contracts and handlers', () => {
     );
 
     try {
-      await expect(
-        handlers['agents.llmExchange']!({ params: { id: 'agent:planner:project' } } as never),
-      ).rejects.toThrow();
+      await expect(handlers['agents.llmExchange']!({ params: { id: 'agent:planner:project' } } as never)).resolves.toEqual({ statusCode: 503, body: { error: 'current_state_unavailable', resource: 'provider_exchange_log', owner_id: 'agent:planner:project', restart_required: true } });
       const response = await fastify.inject({
         method: 'GET',
         url: '/api/agents/agent%3Aplanner%3Aproject/llm-exchange',
       });
-      expect(response.statusCode).toBe(500);
+      expect(response.statusCode).toBe(503);
       expect(response.json()).toEqual({
-        error: 'InternalServerError',
-        message: 'Internal server error',
+        error: 'current_state_unavailable',
+        resource: 'provider_exchange_log',
+        owner_id: 'agent:planner:project',
+        restart_required: true,
       });
       const output = response.body;
       expect(output).not.toContain(secret);
@@ -452,4 +455,8 @@ function projectRoot(prefix = 'saivage-operator-agent-handler-'): string {
   const root = mkdtempSync(join(tmpdir(), prefix));
   roots.push(root);
   return root;
+}
+
+function populatePlannerConversation(root: string): void {
+  appendConversationBatch({ projectRoot: root }, [entry('agent:planner:project') as never]);
 }

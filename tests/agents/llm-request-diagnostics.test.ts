@@ -53,7 +53,7 @@ describe('LLM request section diagnostics', () => {
       'small system prompt',
       [
         message({ id: 'small', content: 'short' }),
-        message({ id: 'large', role: 'assistant', kind: 'context_compaction', content: 'x'.repeat(9000) }),
+        message({ id: 'large', role: 'assistant', kind: 'text', content: 'x'.repeat(9000) }),
       ],
       opts,
     );
@@ -63,7 +63,7 @@ describe('LLM request section diagnostics', () => {
     expect(sizes.largest_message).toMatchObject({
       index: 1,
       role: 'assistant',
-      kind: 'context_compaction',
+      kind: 'text',
       chars: 9000,
     });
   });

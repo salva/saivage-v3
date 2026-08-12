@@ -27,11 +27,6 @@ describe('OpenAI Responses provider conversation mapper', () => {
     expect(() => responsesInputFromProviderConversation({ sourceSessionId: 'agent:analyst:global', messages: [visible] })).toThrow(/missing private row/);
   });
 
-  it('rejects compaction metadata instead of filtering it at the gateway', () => {
-    const metadata: AgentMessage = { ...base, id: 'c1', role: 'system', kind: 'context_compaction', content: '{}' };
-    expect(() => responsesInputFromProviderConversation({ sourceSessionId: 'agent:analyst:global', messages: [metadata] })).toThrow(/contains compaction metadata/);
-  });
-
   it('fails on orphan private rows, duplicate private rows, and mismatched bidirectional ids', () => {
     const output = [{ type: 'message', content: [{ type: 'output_text', text: 'x' }] }];
     const privateRow: AgentMessage = { ...base, id: 'input-1:provider-private:openai-responses', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: 'input-1', projection_message_id: 'input-1:message', provider: 'openai', model: 'gpt-5.6', output }) };

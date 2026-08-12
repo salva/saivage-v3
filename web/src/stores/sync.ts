@@ -1,6 +1,6 @@
 import { computed } from 'vue';
 import { defineStore } from 'pinia';
-import { syncClient, type LeaseInvalidation, type SyncResourceRegistration } from '../sync/client';
+import { syncClient, type ConversationInvalidation, type LeaseInvalidation, type SyncResourceRegistration } from '../sync/client';
 import type { ConversationSessionId } from '../api/contracts';
 
 export const useSyncStore = defineStore('sync', () => {
@@ -23,7 +23,7 @@ export const useSyncStore = defineStore('sync', () => {
 
   function openConversation(
     sessionId: ConversationSessionId,
-    refetch: () => Promise<void>,
+    refetch: (frame: ConversationInvalidation) => Promise<void>,
   ): () => void {
     return syncClient.openConversation(sessionId, refetch);
   }

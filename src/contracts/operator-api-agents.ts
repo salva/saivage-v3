@@ -6,6 +6,9 @@ import {
   cardIdSchema,
   ConversationSessionIdSchema,
   conversationSessionIdentity,
+  contextCompactionAppliedPolicySchema,
+  contextCompactionSummaryGroupSchema,
+  positiveSafeIntegerSchema,
 } from '../schemas/index.js';
 import {
   operatorSessionContract,
@@ -21,8 +24,7 @@ export const AgentConversationParamsSchema = AgentSessionParamsSchema;
 export const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
 export const CardAgentSessionsParamsSchema = z.object({ id: cardIdSchema }).strict();
 export const AgentConversationQuerySchema = z
-  .object({ since: z.string().min(1).optional() })
-  .strict();
+  .union([z.object({ segment_version: z.undefined().optional(), since: z.undefined().optional() }).strict(), z.object({ segment_version: z.string().regex(/^[1-9][0-9]*$/).transform(Number).pipe(positiveSafeIntegerSchema), since: z.string().min(1) }).strict()]);
 const agentSessionBase = z
   .object({
     id: ConversationSessionIdSchema,
@@ -58,6 +60,8 @@ function requireMatchingIdentity(
 }
 export const AgentSessionSummarySchema = agentSessionBase.superRefine(requireMatchingIdentity);
 export const AgentConversationEntrySchema = agentMessageSchema;
+const continuationSchema = z.union([z.object({ kind: z.literal('between_rounds') }).strict(), z.object({ kind: z.literal('inherited_open_round'), activation: z.object({ marker_id: z.string().min(1), input_id: z.string().uuid() }).strict(), active_segment_kind: z.enum(['initial','repair']) }).strict()]);
+export const ConversationSegmentContextSchema = z.object({ kind: z.literal('compacted'), source_version: positiveSafeIntegerSchema, covered_through_message_id: z.string().min(1), boundary: z.enum(['round','repair','exchange','message']), summaries: z.array(contextCompactionSummaryGroupSchema).min(1), applied_policy: contextCompactionAppliedPolicySchema, continuation: continuationSchema }).strict().nullable();
 export const AgentListResponseSchema = z
   .object({
     sessions: z.array(AgentSessionSummarySchema),
@@ -89,8 +93,10 @@ export const AgentDetailResponseSchema = z
 export const AgentConversationResponseSchema = z
   .object({
     session_id: ConversationSessionIdSchema,
+    segment_version: positiveSafeIntegerSchema,
+    segment_context: ConversationSegmentContextSchema,
     entries: z.array(AgentConversationEntrySchema),
-    cursor: z.string().min(1),
+    cursor: z.object({ segment_version: positiveSafeIntegerSchema, message_id: z.string().min(1).nullable() }).strict(),
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -115,14 +121,25 @@ export const AgentLlmExchangeNotFoundErrorSchema = z.object({
   error: z.literal('No LLM exchange recorded for this session yet.'),
 }).strict();
 export const AgentConversationCursorNotFoundErrorSchema = z.object({
-  error: z.literal('ValidationError'),
-  issues: z.tuple([
-    z.object({
-      path: z.literal('since'),
-      message: z.literal('Cursor is not present in this conversation.'),
-    }).strict(),
-  ]),
+  error: z.literal('conversation_cursor_not_found'), session_id: ConversationSessionIdSchema, segment_version: positiveSafeIntegerSchema, since: z.string().min(1),
 }).strict();
+export const ConversationSegmentChangedErrorSchema = z.object({ error: z.literal('conversation_segment_changed'), session_id: ConversationSessionIdSchema, requested_segment_version: positiveSafeIntegerSchema, current_segment_version: positiveSafeIntegerSchema }).strict();
+export const ConversationVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), content_availability: z.literal('unchecked'), genesis_kind: z.enum(['ordinary','compacted']), source_version: positiveSafeIntegerSchema.nullable() }).strict();
+export const ConversationVersionListResponseSchema = z.object({ session_id: ConversationSessionIdSchema, versions: z.array(ConversationVersionMetadataSchema), total: z.number().int().safe().nonnegative() }).strict().superRefine((value, ctx) => {
+  if (value.total !== value.versions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['total'], message: 'Conversation version total must equal the catalog length.' });
+  value.versions.forEach((entry, index) => {
+    if (entry.version !== index + 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['versions', index, 'version'], message: 'Conversation versions must be contiguous.' });
+    if ((entry.genesis_kind === 'ordinary') !== (entry.version === 1) || (entry.source_version === null) !== (entry.genesis_kind === 'ordinary') || (entry.source_version !== null && entry.source_version !== entry.version - 1)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['versions', index], message: 'Conversation version genesis metadata is inconsistent.' });
+  });
+});
+export const ConversationVersionParamsSchema = z.object({ id: ConversationSessionIdSchema, version: z.string().regex(/^[1-9][0-9]*$/).transform(Number).pipe(positiveSafeIntegerSchema) }).strict();
+export const ConversationVersionContentResponseSchema = z.object({ session_id: ConversationSessionIdSchema, version: positiveSafeIntegerSchema, entry_id: z.string().uuid(), published_at: z.string().datetime(), segment_context: ConversationSegmentContextSchema, entries: z.array(AgentConversationEntrySchema) }).strict().superRefine((value, ctx) => {
+  value.entries.forEach((entry, index) => { if (entry.session_id !== value.session_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries', index, 'session_id'], message: 'Conversation entry session must match the enclosing session.' }); });
+  if ((value.version === 1) !== (value.segment_context === null)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['segment_context'], message: 'Conversation segment context must match the selected version.' });
+});
+export const ConversationHistoricalNotFoundSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.literal('conversation'), owner_id: ConversationSessionIdSchema, version: positiveSafeIntegerSchema }).strict();
+export const ConversationHistoricalUnavailableSchema = z.object({ error: z.literal('historical_version_content_unavailable'), resource: z.literal('conversation'), owner_id: ConversationSessionIdSchema, version: positiveSafeIntegerSchema, reason: z.enum(['missing','corrupt','io_error']) }).strict();
+export const CurrentStateUnavailableSchema = z.object({ error: z.literal('current_state_unavailable'), resource: z.enum(['card', 'authored_record', 'conversation', 'provider_exchange_log']), owner_id: z.string().min(1), restart_required: z.literal(true) }).strict();
 export const AgentConversationBadRequestSchema = z.union([
   ValidationErrorSchema,
   AgentConversationCursorNotFoundErrorSchema,
@@ -170,6 +187,8 @@ export const agentOperatorApiContracts = {
     ...operatorSessionContract,
     successSchemaName: 'AgentDetailResponse',
   },
+  'agents.conversationVersions.list': { operationId: 'agents.conversationVersions.list', method: 'GET', path: '/api/agents/:id/conversation/versions', params: AgentConversationParamsSchema, success: ConversationVersionListResponseSchema, error: z.union([AgentSessionNotFoundErrorSchema, CurrentStateUnavailableSchema]), response: { 200: ConversationVersionListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: AgentSessionNotFoundErrorSchema, 503: CurrentStateUnavailableSchema, 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'ConversationVersionListResponse' },
+  'agents.conversationVersions.get': { operationId: 'agents.conversationVersions.get', method: 'GET', path: '/api/agents/:id/conversation/versions/:version', params: ConversationVersionParamsSchema, success: ConversationVersionContentResponseSchema, error: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalNotFoundSchema, ConversationHistoricalUnavailableSchema, CurrentStateUnavailableSchema]), response: { 200: ConversationVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalNotFoundSchema, ConversationHistoricalUnavailableSchema]), 409: ConversationHistoricalUnavailableSchema, 503: z.union([CurrentStateUnavailableSchema, ConversationHistoricalUnavailableSchema]), 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'ConversationVersionContentResponse' },
   'agents.cardSessions': {
     operationId: 'agents.cardSessions',
     method: 'GET',
@@ -195,12 +214,14 @@ export const agentOperatorApiContracts = {
     params: AgentConversationParamsSchema,
     query: AgentConversationQuerySchema,
     success: AgentConversationResponseSchema,
-    error: z.union([AgentConversationBadRequestSchema, AgentSessionNotFoundErrorSchema]),
+    error: z.union([AgentConversationBadRequestSchema, AgentSessionNotFoundErrorSchema, CurrentStateUnavailableSchema]),
     response: {
       200: AgentConversationResponseSchema,
       400: AgentConversationBadRequestSchema,
       401: UnauthorizedErrorSchema,
       404: AgentSessionNotFoundErrorSchema,
+      409: ConversationSegmentChangedErrorSchema,
+      503: CurrentStateUnavailableSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     failureIdentity: { kind: 'session', parameter: 'id' },
@@ -213,12 +234,13 @@ export const agentOperatorApiContracts = {
     path: '/api/agents/:id/llm-exchange',
     params: AgentLlmExchangeParamsSchema,
     success: AgentLlmExchangeResponseSchema,
-    error: AgentLlmExchangeNotFoundErrorSchema,
+    error: z.union([AgentLlmExchangeNotFoundErrorSchema, AgentSessionNotFoundErrorSchema, CurrentStateUnavailableSchema]),
     response: {
       200: AgentLlmExchangeResponseSchema,
       400: ValidationErrorSchema,
       401: UnauthorizedErrorSchema,
-      404: AgentLlmExchangeNotFoundErrorSchema,
+      404: z.union([AgentLlmExchangeNotFoundErrorSchema, AgentSessionNotFoundErrorSchema]),
+      503: CurrentStateUnavailableSchema,
       500: UnexpectedInternalServerErrorSchema,
     },
     failureIdentity: { kind: 'session', parameter: 'id' },

@@ -362,6 +362,18 @@ function readCanonicalGrowingFileSnapshotInternal<Row>(
   }
 }
 
+export function readStrictCanonicalGrowingFile<Row>(path: string, rowSchema: z.ZodType<Row>, instrumentation?: CanonicalReadInstrumentation): Row[] {
+  instrumentation?.onRead(path);
+  const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    if (!fstatSync(descriptor).isFile()) throw new Error(`Canonical growing file '${path}' must be a regular file.`);
+    const bytes = readAll(canonicalGrowingFileReadIo, descriptor);
+    if (bytes.byteLength === 0) throw new Error(`Growing file '${path}' is empty.`);
+    if (bytes.at(-1) !== 0x0a) throw new Error(`Growing file '${path}' has an incomplete final envelope.`);
+    return parseGrowingFile(path, bytes, rowSchema);
+  } finally { closeSync(descriptor); }
+}
+
 export function readCanonicalGrowingFileSnapshot<Row>(
   path: string,
   rowSchema: z.ZodType<Row>,

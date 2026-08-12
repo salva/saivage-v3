@@ -10,6 +10,7 @@ import {
   type CardRecord,
 } from '../../schemas/index.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
+import type { CardVersionChange } from '../../persistence/canonical-card-artifacts.js';
 
 export function projectCardRecordForOutbound(card: CardRecord): CardRecord {
   const parsed = cardRecordSchema.parse(card);
@@ -41,6 +42,16 @@ export function projectCardRecordForOutbound(card: CardRecord): CardRecord {
     metadata: parsed.metadata,
     pending_notifications: parsed.pending_notifications.map(projectNotification),
   });
+}
+
+export function projectCardVersionChangeForOutbound(change: CardVersionChange | null): CardVersionChange | null {
+  if (!change) return null;
+  return {
+    ...change,
+    change_summary: redactTextForOutbound(change.change_summary),
+    change_reason: redactTextForOutbound(change.change_reason),
+    terminal_summary: change.terminal_summary ? { ...change.terminal_summary, summary: redactTextForOutbound(change.terminal_summary.summary) } : null,
+  };
 }
 
 export function projectCardHistory(value: CardHistoryHeader | CardHistoryEntry): CardHistoryHeader | CardHistoryEntry {

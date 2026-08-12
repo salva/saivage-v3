@@ -22,6 +22,7 @@ export type LeaseInvalidation = Extract<
   LiveSyncInvalidateFrame,
   { resource: 'agent-membership' | 'conversation' | 'llm-exchange' }
 > | null;
+export type ConversationInvalidation = Extract<LiveSyncInvalidateFrame, { resource: 'conversation' }> | null;
 
 export type SyncResourceRegistration =
   | {
@@ -136,9 +137,12 @@ export class SyncClient {
   }
   openConversation(
     sessionId: ConversationSessionId,
-    callback: (frame: LeaseInvalidation) => Promise<void>,
+    callback: (frame: ConversationInvalidation) => Promise<void>,
   ): () => void {
-    return this.openLease('conversation', sessionId, callback);
+    return this.openLease('conversation', sessionId, async (frame) => {
+      if (frame !== null && frame.resource !== 'conversation') throw new Error('Conversation lease received a non-conversation invalidation.');
+      await callback(frame);
+    });
   }
   openLlmExchange(
     sessionId: ConversationSessionId,
@@ -285,6 +289,7 @@ export class SyncClient {
     frame: LeaseInvalidation,
   ): void {
     if (!entry.acknowledged || entry.inFlight) {
+      if (frame?.resource === 'conversation' && entry.trailingFrame?.resource === 'conversation' && frame.segment_version < entry.trailingFrame.segment_version) return;
       entry.trailingFrame = frame;
       return;
     }
@@ -334,6 +339,7 @@ export class SyncClient {
       });
   }
 }
+
 
 function leaseKey(resource: LeaseResource, id?: string): string {
   return id === undefined ? resource : `${resource}\u0000${id}`;

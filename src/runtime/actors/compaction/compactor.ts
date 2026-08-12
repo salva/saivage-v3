@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import { appendConversationBatch, readConversation, type ConversationFileContext,
+import { publishCompactedConversationSegment, readConversation, type ConversationFileContext,
 } from '../../../persistence/conversation-file.js';
-import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage, type ContextCompactionContent,
+import { canonicalJson, contextCompactionContentSchema, type AgentMessage, type ContextCompactionContent,
 } from '../../../schemas/index.js';
 import { hashConversationRows,
   isSafeValidatedSourcePrefix,
+  validateProspectiveContextCompaction,
   validateConversation,
   validatedSourceSegmentsForPrefix,
   type ValidatedContextCompaction,
@@ -126,7 +127,6 @@ export type CompactionResult =
   | {
       kind: 'compacted';
       providerConversation: ProviderConversationProjection;
-      compactionMessage: AgentMessage;
       estimatedProviderMessageTokens: number;
     }
   | {
@@ -163,7 +163,7 @@ type ConstructionArgs = CompactArgs & {
 type Candidate = {
   payload: ContextCompactionContent;
   compaction: ValidatedContextCompaction;
-  message: AgentMessage;
+  metadata: import('../../../contracts/conversation-validation.js').ContextCompactionMetadata;
   providerConversation: ProviderConversationProjection;
   estimatedProviderMessageTokens: number;
 };
@@ -205,7 +205,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   };
   const candidateFitFor: CandidateFitFactory = (payload) => {
     const parsed = contextCompactionContentSchema.parse(payload);
-    const message = agentMessageSchema.parse({
+    const metadata = Object.freeze({
       ...metadataIdentity,
       role: 'system',
       kind: 'context_compaction',
@@ -213,9 +213,9 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       message_index: 0,
       block_index: 0,
     });
-    const prospective = validateConversation(sessionId, [...conversation.physicalRows, message]);
+    const prospective = validateProspectiveContextCompaction(conversation, metadata);
     const compaction = prospective.latestCompaction;
-    if (!compaction || compaction.metadataRow.id !== message.id)
+    if (!compaction || compaction.metadataRow.id !== metadata.id)
       throw new Error(
         'Prospective compaction validation did not derive the candidate metadata row.',
       );
@@ -228,7 +228,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     const candidate = {
       payload: parsed,
       compaction,
-      message,
+      metadata,
       providerConversation,
       estimatedProviderMessageTokens,
     };
@@ -326,14 +326,21 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   }
   args.signal.throwIfAborted();
   try {
-    appendConversationBatch(args.conversations, [candidate.message]);
+    const finalRound = candidate.compaction.groups.at(-1)!.rounds.at(-1)!;
+    const finalSegment = finalRound.segments.at(-1)!;
+    publishCompactedConversationSegment(args.conversations, sessionId, {
+      payload: candidate.payload,
+      cutoffSourceIndex: candidate.compaction.cutoffSourceIndex,
+      cutoffMessageId: candidate.compaction.cutoffMessageId,
+      finalCoveredRoundComplete: finalRound.complete,
+      finalCoveredSegmentKind: finalSegment.kind,
+    });
   } catch (error) {
     throw new CompactionAppendError(error);
   }
   return {
     kind: 'compacted',
     providerConversation: candidate.providerConversation,
-    compactionMessage: candidate.message,
     estimatedProviderMessageTokens: candidate.estimatedProviderMessageTokens,
   };
 }

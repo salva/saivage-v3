@@ -1,8 +1,6 @@
 import type {
   AgentConversationEntry,
   AgentSessionSummary,
-  CardHistoryEntry,
-  CardHistoryHeader,
   CardDetail,
   CardHierarchyParent,
   CardHierarchyChildSummary,
@@ -22,8 +20,6 @@ export type {
   AgentConversationEntry,
   ChatWorkspaceContext,
   CardAction,
-  CardHistoryEntry,
-  CardHistoryHeader,
   CardHistoryKind,
   CardStatus,
   CardType,
@@ -96,13 +92,20 @@ export type CardChildrenResponse = OperatorApiSuccess<'cards.children'>;
 export type CardDetailResponse = OperatorApiSuccess<'cards.get'>;
 export type CardRecordListResponse = OperatorApiSuccess<'cards.records.list'>;
 export type CardRecordContentResponse = OperatorApiSuccess<'cards.records.get'>;
+export type RecordHistoryListResponse = OperatorApiSuccess<'cards.records.history.list'>;
+export type RecordVersionContentResponse = OperatorApiSuccess<'cards.records.versions.get'>;
+export type RecordDiffResponse = OperatorApiSuccess<'cards.records.diff'>;
 export type CardHistoryListResponse = OperatorApiSuccess<'cards.history.list'>;
 export type CardHistoryEntryResponse = OperatorApiSuccess<'cards.history.get'>;
+export type CardHistoryHeader = CardHistoryListResponse['versions'][number];
+export type CardHistoryEntry = CardHistoryEntryResponse;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'>;
 export type RuntimeStateResponse = OperatorApiSuccess<'runtime.getState'>;
 export type ContentPolicyRuntimeResponse = OperatorApiSuccess<'runtime.contentPolicy'>;
 export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type AgentConversationResponse = OperatorApiSuccess<'agents.conversation'>;
+export type AgentConversationVersionListResponse = OperatorApiSuccess<'agents.conversationVersions.list'>;
+export type AgentConversationVersionResponse = OperatorApiSuccess<'agents.conversationVersions.get'>;
 export type AgentDetailResponse = OperatorApiSuccess<'agents.detail'>;
 export type CardAgentSessionsResponse = OperatorApiSuccess<'agents.cardSessions'>;
 export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;

@@ -7,7 +7,7 @@ import {
   type AppLogEntryOfType,
   type AppLogEntryType,
 } from '../contracts/app-log.js';
-import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFile } from './growing-file.js';
+import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, readStrictCanonicalGrowingFile } from './growing-file.js';
 import { appLogFile, saivageLogsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
@@ -30,10 +30,16 @@ export function readAppLogEntries<T extends AppLogEntryType>(projectRoot: string
 export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): AppLogEntry[] {
   const path = appLogFile(projectRoot);
   let entries: AppLogEntry[];
-  try { entries = readCanonicalGrowingFile(path, appLogEntrySchema); }
+  try { entries = readStrictCanonicalGrowingFile(path, appLogEntrySchema); }
   catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
   validateAppLogEntries(path, entries);
   return type === undefined ? entries : entries.filter((entry) => entry.type === type);
+}
+
+export function initializeAppLog(projectRoot: string): void {
+  const path = appLogFile(projectRoot);
+  try { validateAppLogEntries(path, readCanonicalGrowingFile(path, appLogEntrySchema)); }
+  catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error instanceof Error && error.message === `Growing file '${path}' is empty.`)) return; throw error; }
 }
 
 export function appendAppLogEntry<T extends AppLogEntryType>(
@@ -48,7 +54,7 @@ export function appendAppLogEntry<T extends AppLogEntryType>(
   const parsed = prepared.rows[0] as AppLogEntryOfType<T>;
   const path = appLogFile(projectRoot);
   let existingEntries: AppLogEntry[];
-  try { existingEntries = readCanonicalGrowingFile(path, appLogEntrySchema); }
+  try { existingEntries = readStrictCanonicalGrowingFile(path, appLogEntrySchema); }
   catch (error) {
     throwIfPublicationOutcomeUnknown(error);
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;

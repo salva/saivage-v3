@@ -17,7 +17,7 @@ const listings = new Map<string, { path: string; files: Array<Record<string, unk
     path: '.saivage/cards/project',
     files: [
       { name: 'children', path: '.saivage/cards/project/children', type: 'directory', modifiedAt: now },
-      { name: 'card.jsonl', path: '.saivage/cards/project/card.jsonl', type: 'file', size: 256, modifiedAt: now },
+      { name: 'card.json', path: '.saivage/cards/project/card.json', type: 'file', size: 256, modifiedAt: now },
       { name: 'brief.jsonl', path: '.saivage/cards/project/brief.jsonl', type: 'file', size: 128, modifiedAt: now },
     ],
   }],
@@ -29,7 +29,7 @@ const listings = new Map<string, { path: string; files: Array<Record<string, unk
     path: '.saivage/cards/project/children/a',
     files: [
       { name: 'children', path: '.saivage/cards/project/children/a/children', type: 'directory', modifiedAt: now },
-      { name: 'card.jsonl', path: '.saivage/cards/project/children/a/card.jsonl', type: 'file', size: 256, modifiedAt: now },
+      { name: 'card.json', path: '.saivage/cards/project/children/a/card.json', type: 'file', size: 256, modifiedAt: now },
       { name: 'brief.jsonl', path: '.saivage/cards/project/children/a/brief.jsonl', type: 'file', size: 128, modifiedAt: now },
     ],
   }],

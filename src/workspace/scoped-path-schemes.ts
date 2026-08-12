@@ -1,14 +1,15 @@
 import { relative, resolve } from 'node:path';
 
 import type { AgentName } from '../schemas/index.js';
-import type { RecordDefinition } from '../records/record-definition.js';
-import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
+import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
 import { cardIdSchema } from '../schemas/index.js';
-type AuthoredRecordReader = { record(cardId: string, filename: string, version?: number | 'latest' | 'open'): RecordProjection;definition(cardId:string,filename:string):RecordDefinition };
+import type { RecordDefinition } from '../records/record-definition.js';
+export type AuthoredRecordReader = { current(cardId: string, filename: string): RecordProjection; historical(cardId: string, filename: string, version: number): RecordProjection;definition(cardId:string,filename:string):RecordDefinition };
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/layout.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { parseRecordMutationUrl, type ParsedRecordMutationTarget } from '../contracts/record-mutation.js';
 
 export type ScopedPathMode = 'read' | 'write' | 'search';
 export type ScopedPathErrorFactory = (message: string) => Error;
@@ -43,12 +44,6 @@ function resolveContained(ctx: ResolveScopedPathContext, rel: string, label: str
   return { absolutePath: resolved.absolutePath, relativePath: resolved.relativePath };
 }
 
-function assertOnlyRecordQuery(raw: string, parsed: ParsedScopedPathUrl, fail: ScopedPathErrorFactory): void {
-  if (!parsed.query) return;
-  for (const key of parsed.query.keys()) if (key !== 'card' && key !== 'v') throw fail(`Invalid record URL '${raw}' query parameter '${key}'.`);
-  if ((parsed.query.getAll('card')).length > 1 || (parsed.query.getAll('v')).length > 1) throw fail(`Invalid record URL '${raw}' duplicate query parameter.`);
-}
-
 function toolFacingErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -57,7 +52,7 @@ function readRecordOrNotFound(ctx: ResolveScopedPathContext, read: () => RecordP
   try { return read(); }
   catch (error) {
     throwIfPublicationOutcomeUnknown(error);
-    if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
+    if (error instanceof AuthoredRecordNotFoundError || error instanceof AuthoredRecordDefinitionNotFoundError) throw ctx.fail('Record not found.');
     throw error;
   }
 }
@@ -66,66 +61,38 @@ function recordDefinitionOrNotFound(ctx: ResolveScopedPathContext, cardId: strin
   try { return ctx.records!.definition(cardId, filename); }
   catch (error) {
     throwIfPublicationOutcomeUnknown(error);
-    if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
+    if (error instanceof AuthoredRecordNotFoundError || error instanceof AuthoredRecordDefinitionNotFoundError) throw ctx.fail('Record not found.');
     throw error;
   }
 }
 
-export function assertRecordWrite(agentName: AgentName | undefined, currentCardId: string | undefined, cardId: string, definition:RecordDefinition, version: string, fail: ScopedPathErrorFactory): void {
+export function assertRecordWrite(agentName: AgentName | undefined, currentCardId: string | undefined, cardId: string, definition:RecordDefinition, _expectedHead: number | 'absent', fail: ScopedPathErrorFactory): void {
   if (!currentCardId) throw fail('Record writes require an active card context.');
   if (cardId !== currentCardId) throw fail('Agents may write records only for their current card.');
   if (!agentName || !definition.writers.includes(agentName)) throw fail(`${agentName} cannot write record '${definition.filename}'.`);
-  if (version !== 'next') throw fail('Record writes must use v=next.');
 }
 
-export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: string): { agent: ScopedAgentContext; filename: string; cardId: string; version: string; recordUrl: string } {
+export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: string): ParsedRecordMutationTarget & { agent: ScopedAgentContext; filename: string; recordUrl: string } {
   const agent = requireAgent(ctx, 'record:///');
-  let parsed: ParsedScopedPathUrl;
-  try {
-    parsed = parseScopedPathUrl(raw, 'record');
-  } catch (error) {
-    throw ctx.fail(toolFacingErrorMessage(error));
-  }
-  if (parsed.hadFragment) throw ctx.fail(`record URL '${raw}' must not include a fragment.`);
-  assertOnlyRecordQuery(raw, parsed, ctx.fail);
-  if (parsed.segments.length !== 1) throw ctx.fail(`Invalid record URL '${raw}'.`);
-  const filename = parsed.segments[0]!;
-  const cardId = cardIdSchema.parse(validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail));
+  let parsed: ParsedRecordMutationTarget; try { parsed = parseRecordMutationUrl(raw); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
+  const filename = parsed.name; const cardId = parsed.cardId;
   if(!ctx.records)throw ctx.fail('Record writes require an injected persistence reader.');
   recordDefinitionOrNotFound(ctx, cardId, filename);
-  const version = parsed.query?.get('v') ?? 'next';
-  return { agent, filename, cardId, version, recordUrl: `${buildScopedPathUrl('record', [filename])}?card=${encodeURIComponent(cardId)}&v=${encodeURIComponent(version)}` };
+  return { ...parsed, agent, filename, recordUrl: parsed.currentUrl };
 }
 
 export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): RecordProjection {
   if (!ctx.records) throw ctx.fail('Record reads require an injected persistence reader.');
-  const agent = requireAgent(ctx, 'record:///');
-  let parsed: ParsedScopedPathUrl;
-  try {
-    parsed = parseScopedPathUrl(raw, 'record');
-  } catch (error) {
-    throw ctx.fail(toolFacingErrorMessage(error));
-  }
-  if (parsed.hadFragment) throw ctx.fail(`record URL '${raw}' must not include a fragment.`);
-  assertOnlyRecordQuery(raw, parsed, ctx.fail);
-  if (parsed.segments.length !== 1) throw ctx.fail(`Invalid record URL '${raw}'.`);
-  const filename = parsed.segments[0]!;
-  const cardId = cardIdSchema.parse(validRecordSegment(parsed.query?.get('card') ?? agent.cardId ?? '', 'card id', raw, ctx.fail));
+  requireAgent(ctx, 'record:///');
+  const match=/^record:\/\/\/([^/?#]+)\?card=([^&#]+)(?:&v=([1-9][0-9]*))?$/.exec(raw);if(!match)throw ctx.fail(`Invalid record URL '${raw}'.`);
+  let filename:string;let decodedCardId:string;try{filename=decodeURIComponent(match[1]!);decodedCardId=decodeURIComponent(match[2]!);}catch{throw ctx.fail(`Invalid record URL '${raw}'.`);}
+  if(/%[0-9a-f]{2}/i.test(filename)||/%[0-9a-f]{2}/i.test(decodedCardId))throw ctx.fail(`Invalid record URL '${raw}'.`);
+  const cardId = cardIdSchema.parse(validRecordSegment(decodedCardId, 'card id', raw, ctx.fail));
   recordDefinitionOrNotFound(ctx, cardId, filename);
-  const version = parsed.query?.get('v') ?? 'latest';
-  if (version === 'next') {
-    const open = readRecordOrNotFound(ctx, () => ctx.records!.record(cardId, filename, 'open'));
-    if (!agent.cardId || cardId !== agent.cardId || !recordDefinitionOrNotFound(ctx, cardId, filename).writers.includes(agent.agentName!)) throw ctx.fail('Only the owning agent may read its current open record.');
-    return open;
-  }
-  if (version === 'latest') {
-    return readRecordOrNotFound(ctx, () => ctx.records!.record(cardId, filename, 'latest'));
-  }
-  const numeric = Number(version);
-  if (!Number.isInteger(numeric) || numeric < 1) throw ctx.fail(`Invalid record version '${version}'.`);
-  const record = readRecordOrNotFound(ctx, () => ctx.records!.record(cardId, filename, numeric));
-  if (record.artifact.state !== 'closed' && !(record.artifact.state === 'open' && cardId === agent.cardId && recordDefinitionOrNotFound(ctx, cardId, filename).writers.includes(agent.agentName!))) throw ctx.fail('Only closed records are readable outside the owning open record.');
-  return record;
+  const version = match[3];
+  if (version === undefined) return readRecordOrNotFound(ctx, () => ctx.records!.current(cardId, filename));
+  const numeric = Number(version); if (!Number.isSafeInteger(numeric)) throw ctx.fail(`Invalid record version '${version}'.`);
+  return readRecordOrNotFound(ctx, () => ctx.records!.historical(cardId, filename, numeric));
 }
 
 export const scopedPathResolvers = {

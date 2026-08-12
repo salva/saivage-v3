@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { appendConversationBatch, readConversation } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
 import { CONTENT_POLICY_RETRY_TEXT, parseCanonicalContentPolicyRefusal } from '../../../src/schemas/index.js';
@@ -29,11 +29,13 @@ describe('content-policy conversation rows', () => {
   it('appends the marker in one rows envelope and never projects physical evidence', () => {
     const root = mkdtempSync(join(tmpdir(), 'content-policy-conversation-')); roots.push(root); initProjectTree(root);
     const sessionId = 'agent:executor:project' as const;
+    initializeConversation(root, sessionId);
     const sourceInputId = '00000000-0000-4000-8000-000000000001';
     const marker = buildContentPolicyRefusalMessage({ sessionId, sourceInputId, candidate: { provider: 'test', account: 'account', model: 'model' }, providerResponse: 'RAW-TERMINAL-EVIDENCE' });
     appendConversationBatch({ projectRoot: root }, [marker]);
     const envelope = JSON.parse(readFileSync(conversationFile(root, sessionId), 'utf8').trim());
-    expect(envelope).toEqual({ version: 1, type: 'rows', rows: [marker] });
+    expect(envelope.type).toBe('conversation-segment');
+    expect(envelope.rows.slice(1)).toEqual([marker]);
     const projected = providerConversationProjection(readConversation(root, sessionId));
     expect(projected.messages).toHaveLength(1);
     expect(projected.messages[0]).toMatchObject({ role: 'user', kind: 'text', content: expect.stringContaining(`/agents/${encodeURIComponent(sessionId)}?entry=${encodeURIComponent(marker.id)}`) });

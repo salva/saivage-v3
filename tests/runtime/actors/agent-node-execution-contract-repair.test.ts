@@ -103,7 +103,7 @@ function harness(args: {
     cardId: 'project',
     store: {
       read: (id: string) => id === 'card-a' ? { id, lifecycle: { status: 'running' } } : card,
-      readRecord: () => ({ version: 1, recordUrl: 'record:///status.md?card=project&v=1', artifact: { state: 'closed', revision_seq: 1, content: 'status' } }),
+      readCurrentRecord: () => ({ headVersion: 1, currentUrl: 'record:///status.md?card=project', versionUrl: 'record:///status.md?card=project&v=1', artifact: { state: 'closed', accepted: { source_version: 1, content: 'status', content_sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, draft: null } }),
       listChildren: args.terminalVariant === 'incomplete' ? jest.fn().mockReturnValueOnce(['card-a']).mockReturnValue([]) : () => [],
     },
     processRunner: { createDirectScope },

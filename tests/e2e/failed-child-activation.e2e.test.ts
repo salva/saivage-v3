@@ -28,7 +28,7 @@ function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { 
 function tool(id: string, name: string, args: object): LlmCompleteResult { return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }; }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((done) => { resolve = done; }); return { promise, resolve }; }
 async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
-function history(cards: CardService, cardId: string) { const result = cards.listCardHistory(cardId); if (result.kind !== 'found') throw new Error(`missing ${cardId}`); return result.value; }
+function history(cards: CardService, cardId: string) { const result = cards.listCardVersions(cardId); if (result.kind !== 'found') throw new Error(`missing ${cardId}`); return result.value.flatMap((entry) => entry.change ? [entry.change] : []); }
 
 type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
@@ -92,7 +92,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (plannerCalls === 2) {
             const row = [...input.providerConversation.messages].reverse().find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-refusal-child');
             parentResult = row ? JSON.parse(row.content) : null;
-            return complete(tool('write-refusal-status', 'write', { path: 'record:///status.md?v=next', content: 'Child blocked; parent safely continued.' }));
+            return complete(tool('write-refusal-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Child blocked; parent safely continued.' }));
           }
           return complete(tool('finish-after-refusal', 'emit_result', { outcome: 'failed', summary: 'Parent continued after blocked child.' }));
         }
@@ -146,7 +146,7 @@ describe('failed child activation lifecycle E2E', () => {
         if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
-          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Parent workflow complete.' }));
+          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Parent workflow complete.' }));
           return complete(tool('fail-project', 'emit_result', { outcome: 'failed', summary: 'Project failed after child failure.' }));
         }
         if (input.sessionId === `agent:planner:${parent.id}`) {
@@ -164,7 +164,7 @@ describe('failed child activation lifecycle E2E', () => {
             await continueParent.promise;
             return complete(tool('activate-b', 'activate_card', { card_id: sibling.id }));
           }
-          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: 'record:///status.md?v=next', content: 'Sibling complete; failed child retained.' }));
+          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: `record:///status.md?card=${parent.id}&expected_head=absent`, content: 'Sibling complete; failed child retained.' }));
           return complete(tool('fail-parent', 'emit_result', { outcome: 'failed', summary: 'Parent failed after child failure.' }));
         }
         if (input.sessionId === `agent:executor:${failedChild.id}`) {
@@ -180,7 +180,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (siblingCalls === 1) {
             siblingAdmitted.resolve();
             await releaseSibling.promise;
-            return complete(tool('write-b', 'write', { path: 'record:///status.md?v=next', content: 'B complete.' }));
+            return complete(tool('write-b', 'write', { path: `record:///status.md?card=${sibling.id}&expected_head=absent`, content: 'B complete.' }));
           }
           return complete(tool('done-b', 'emit_result', { outcome: 'done', summary: 'B complete.' }));
         }
@@ -254,7 +254,7 @@ describe('failed child activation lifecycle E2E', () => {
             return complete(tool('edit-failed-child', 'edit_card', { card_id: child.id, title: 'Retry child changed' }));
           }
           if (projectCalls === 3) return complete(tool('activate-child-second', 'activate_card', { card_id: child.id }));
-          if (projectCalls === 4) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?v=next', content: 'Changed child retry complete.' }));
+          if (projectCalls === 4) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Changed child retry complete.' }));
           return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete after changed retry.' }));
         }
         if (input.sessionId === `agent:executor:${child.id}`) {
@@ -263,7 +263,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (childCalls === 2) {
             retryAdmitted.resolve();
             await releaseRetry.promise;
-            return complete(tool('write-child-status', 'write', { path: 'record:///status.md?v=next', content: 'Retry succeeded.' }));
+            return complete(tool('write-child-status', 'write', { path: `record:///status.md?card=${child.id}&expected_head=absent`, content: 'Retry succeeded.' }));
           }
           if (childCalls === 3) return complete(tool('complete-child', 'emit_result', { outcome: 'done', summary: 'Changed child completed.' }));
         }
@@ -307,11 +307,11 @@ describe('failed child activation lifecycle E2E', () => {
       if (input.agentName === 'planner') {
         plannerCalls += 1;
         if (plannerCalls === 1) return complete(tool('activate-cleanup-child', 'activate_card', { card_id: child.id }));
-        if (plannerCalls === 2) return complete(tool('write-project-failure', 'write', { path: 'record:///status.md?v=next', content: 'Child cleanup failed.' }));
+        if (plannerCalls === 2) return complete(tool('write-project-failure', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Child cleanup failed.' }));
         return complete(tool('fail-project', 'emit_result', { outcome: 'failed', summary: 'Child cleanup failed.' }));
       }
       if (input.agentName === 'executor') return complete(++executorCalls === 1
-        ? tool('write', 'write', { path: 'record:///status.md?v=next', content: 'Accepted output.' })
+        ? tool('write', 'write', { path: `record:///status.md?card=${child.id}&expected_head=absent`, content: 'Accepted output.' })
         : tool('accepted', 'emit_result', { outcome: 'done', summary: 'Accepted before cleanup.' }));
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     }) };
@@ -323,8 +323,8 @@ describe('failed child activation lifecycle E2E', () => {
 
     expect(cards.read(child.id)).toMatchObject({ version_seq: initialVersion + 2, lifecycle: { status: 'failed', result: { kind: 'runtime-failure', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
-    expect(cards.readRecord(child.id, 'status.md', 'latest').artifact.content).toBe('Accepted output.');
-    expect(() => cards.readRecord(child.id, 'status.md', 'open')).toThrow();
+    expect(cards.readCurrentRecord(child.id, 'status.md').artifact.accepted?.content).toBe('Accepted output.');
+    expect(cards.readCurrentRecord(child.id, 'status.md').artifact.state).toBe('closed');
     const terminalRows = readConversation(projectRoot, `agent:executor:${child.id}`).physicalRows.filter((row) => row.tool_call_id === 'accepted');
     expect(terminalRows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool_result', content: JSON.stringify({ success: true, data: { accepted: true } }) })]));
     expect((supervisor as unknown as RuntimeOwnership).activationOwners.has(child.id)).toBe(false);

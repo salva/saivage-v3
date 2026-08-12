@@ -43,17 +43,17 @@ const project = card('project', 'Cards fixture project', [sourceId, goalId, ...o
 const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status});
 const detailProjection=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
 const recordsFor = (id: string) => id === targetId ? [
-  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true },
-  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['executor'], bootstrap: false },
-  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', writers: ['reviewer'], bootstrap: false },
-  { name: 'decision.md', format: 'markdown' as const, schema: 'decision.v1', writers: ['reviewer'], bootstrap: false },
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true,current:null },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['executor'], bootstrap: false,current:null },
+  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', writers: ['reviewer'], bootstrap: false,current:null },
+  { name: 'decision.md', format: 'markdown' as const, schema: 'decision.v1', writers: ['reviewer'], bootstrap: false,current:null },
 ] : id === goalId ? [
-  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst', 'planner'], bootstrap: true },
-  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['planner'], bootstrap: false },
-  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', writers: ['reviewer'], bootstrap: false },
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst', 'planner'], bootstrap: true,current:null },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['planner'], bootstrap: false,current:null },
+  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', writers: ['reviewer'], bootstrap: false,current:null },
 ] : [
-  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true },
-  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['executor'], bootstrap: false },
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true,current:null },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['executor'], bootstrap: false,current:null },
 ];
 
 type RecordReply = { status: number; content?: string };
@@ -79,19 +79,21 @@ async function install(page: Page): Promise<Fixture> {
     }
     if (url.pathname === `/api/cards/${targetId}/history`) {
       await fixture.historyDelay.get(targetId);
-      return json(route, parseOperatorResponse('cards.history.list', 200, { history: [{
-        entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: targetId, version_seq: 2,
+      const change = {
+        entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update' as const, card_id: targetId, resulting_version: 2,
         changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card',
-        changed_fields: ['title'], change_summary: 'title updated',
-      }], total: 1 }));
+        changed_fields: ['title'], change_summary: 'title updated', terminal_summary: null,
+      };
+      return json(route, parseOperatorResponse('cards.history.list', 200, { card_id: targetId, versions: [{ entry_id: change.entry_id, version: 2, published_at: now, content_availability: 'unchecked', artifact_kind: 'card-version', change }], total: 1 }));
     }
     if (url.pathname === `/api/cards/${targetId}/history/2`) {
       const { operator_summary: _operatorSummary, allowedActions: _allowedActions, ...snapshot } = targetPrior;
-      return json(route, parseOperatorResponse('cards.history.get', 200, { entry: {
-        entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update', card_id: targetId, version_seq: 2,
+      const change = {
+        entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update' as const, card_id: targetId, resulting_version: 2,
         changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card',
-        changed_fields: ['title'], change_summary: 'title updated', snapshot,
-      } }));
+        changed_fields: ['title'], change_summary: 'title updated', terminal_summary: null,
+      };
+      return json(route, parseOperatorResponse('cards.history.get', 200, { card_id: targetId, version: 2, entry_id: change.entry_id, published_at: now, artifact: { kind: 'card-version', card: snapshot, change } }));
     }
     if (url.pathname === `/api/cards/${targetId}/diff`) {
       return json(route, parseOperatorResponse('cards.diff', 200, { card_id: targetId, from: 2, to: 3, diff: [{ field: 'title', before: 'Earlier target', after: target.title }] }));
@@ -103,7 +105,7 @@ async function install(page: Page): Promise<Fixture> {
       return found ? json(route, parseOperatorResponse('cards.children', 200, { parent: hierarchy(found), children: [] })) : json(route, { error: 'Card not found', cardId: id }, 404);
     }
     const recordMatch=url.pathname.match(/^\/api\/cards\/([^/]+)\/records\/([^/]+)$/);
-    if(recordMatch){const cardId=decodeURIComponent(recordMatch[1]!);const name=decodeURIComponent(recordMatch[2]!);const stem=name.replace(/\.md$/,'');const key=`${cardId}:${stem}`;await fixture.recordDelay.get(key);const queued=fixture.recordReplies.get(key)?.shift();if(queued&&queued.status!==200)return json(route,queued.status===404?{error:'Card record not found',cardId,name}:{error:'InternalServerError',message:'Internal server error'},queued.status);if(!queued&&name!=='brief.md')return json(route,{error:'Card record not found',cardId,name},404);const content=queued?.content??(cardId===targetId?`Continue with [[card:${sourceId}|Source card]].`:'Brief content');return json(route,parseOperatorResponse('cards.records.get',200,{card_id:cardId,record:{name,version:2,committed_at:now,content}}));}
+    if(recordMatch){const cardId=decodeURIComponent(recordMatch[1]!);const name=decodeURIComponent(recordMatch[2]!);const stem=name.replace(/\.md$/,'');const key=`${cardId}:${stem}`;await fixture.recordDelay.get(key);const queued=fixture.recordReplies.get(key)?.shift();if(queued&&queued.status!==200)return json(route,queued.status===404?{error:'Card record not found',cardId,name}:{error:'InternalServerError',message:'Internal server error'},queued.status);if(!queued&&name!=='brief.md')return json(route,{error:'Card record not found',cardId,name},404);const content=queued?.content??(cardId===targetId?`Continue with [[card:${sourceId}|Source card]].`:'Brief content');return json(route,parseOperatorResponse('cards.records.get',200,{card_id:cardId,record:{name,head_version:2,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed',accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:now,writer_agent:'analyst',card_version_seq:1,content,content_sha256:'a'.repeat(64),size_bytes:content.length},draft:null,discarded:null,effective_content_source:'accepted'}}));}
     const recordsMatch=url.pathname.match(/^\/api\/cards\/([^/]+)\/records$/);
     if(recordsMatch){const id=decodeURIComponent(recordsMatch[1]!);return json(route,parseOperatorResponse('cards.records.list',200,{card_id:id,records:recordsFor(id)}));}
     const detailMatch = url.pathname.match(/^\/api\/cards\/([^/]+)$/);

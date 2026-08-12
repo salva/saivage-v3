@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -7,7 +7,7 @@ import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from '../../../src/runtime/actors/compaction/compactor.js';
 import { agentMessageSchema } from '../../../src/schemas/index.js';
-import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
+import { readConversation } from '../../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 
@@ -107,7 +107,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       await expect(actor.turn(malformed, undefined, terminalHandoff)).rejects.toThrow(/does not match provider conversation source session/);
       expect(compact).not.toHaveBeenCalled();
       expect(providerCall).not.toHaveBeenCalled();
-      expect(existsSync(conversationFile(root, 'agent:planner:project'))).toBe(false);
+      expect(readConversation(root, 'agent:planner:project').physicalRows).toEqual([]);
       expect(malformed.providerConversation.sourceSessionId).toBe('agent:reviewer:project');
     } finally { consoleError.mockRestore(); rmSync(root, { recursive: true, force: true }); }
   });
@@ -122,7 +122,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: { completeTurn: providerCall }, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
       await expect(actor.turn(input(), undefined, terminalHandoff)).rejects.toThrow(/Compaction changed provider conversation source session/);
       expect(providerCall).not.toHaveBeenCalled();
-      expect(existsSync(conversationFile(root, 'agent:planner:project'))).toBe(false);
+      expect(readConversation(root, 'agent:planner:project').physicalRows).toEqual([]);
     } finally { consoleError.mockRestore(); rmSync(root, { recursive: true, force: true }); }
   });
 });

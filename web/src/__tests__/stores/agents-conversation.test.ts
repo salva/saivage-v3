@@ -59,7 +59,7 @@ function deferred<T>() {
 }
 
 function conversation(entries: AgentConversationEntry[] = [entry], cursor = 'm1') {
-  return { session_id: S1, entries, cursor };
+  return { session_id: S1, segment_version: 1, segment_context: null, entries, cursor: { segment_version: 1, message_id: cursor } };
 }
 
 describe('useAgentStore singular agent resource ownership', () => {
@@ -193,7 +193,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     const token = store.beginConversationSelection(S1);
     await store.fetchConversation(token);
     await store.fetchConversation(token);
-    expect(getAgentConversation).toHaveBeenNthCalledWith(2, S1, expect.any(AbortSignal), 'm1');
+    expect(getAgentConversation).toHaveBeenNthCalledWith(2, S1, expect.any(AbortSignal), { segmentVersion: 1, messageId: 'm1' });
     expect(store.entries.map(({ id }) => id)).toEqual(['m1', 'm2']);
   });
 
@@ -204,7 +204,7 @@ describe('useAgentStore singular agent resource ownership', () => {
       .mockResolvedValueOnce({
         session_id: S2,
         entries: [{ ...entry, session_id: S2 }],
-        cursor: 'm2',
+        cursor: { segment_version: 1, message_id: 'm2' }, segment_version: 1, segment_context: null,
       });
     vi.mocked(getAgentSession)
       .mockResolvedValueOnce({ session })

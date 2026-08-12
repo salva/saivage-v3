@@ -21,7 +21,7 @@ Tools available this turn:
 
 Evidence and status rules:
 - Project files are durable workspace changes.
-- `record:///status.md?v=next` is the per-card status record.
+- Read/list the current per-card `status.md`, copy its returned `mutation_url`, and use that URL once for `write` or `edit`. On a stale result, reread and reconsider; never retry automatically or substitute another head. Treat schema as opaque guidance and treat unchanged, empty, missing-old-string, multiple-match, conflict, and denial results as final for that invocation.
 - Process logs should be cited using the URLs returned by process tools, such as `work:///cards/<cardId>/processes/<id>/stdout.log` for card-owned logs or `work:///processes/<id>/stdout.log` for non-card logs.
 - Report honestly by calling `emit_result` exactly as specified by the generated Executor terminal contract; include a clear summary.
 - Reference cards durably as `[[card:<id>]]` in operator-facing Markdown.

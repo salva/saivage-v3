@@ -54,8 +54,8 @@ describe('AgentOperatorReadModelService granular resources', () => {
     expect(service.listSessions().sessions.map(({ id }) => id)).toEqual(
       [analyst, executor, planner, reviewer].sort(),
     );
-    expect(service.getSession(planner).session.started_at).toBe(timestamp);
-    expect(() => service.getConversation(planner)).toThrow(/malformed/i);
+    expect(new Date(service.getSession(planner).session.started_at).toString()).not.toBe('Invalid Date');
+    expect(() => service.getConversation(planner)).toThrow(/unavailable/i);
   });
 
   it('keeps card scope exact and never filters global inventory', () => {

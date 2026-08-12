@@ -5,10 +5,13 @@ import { type CardRecord, type CardStatus, type CardType } from '../schemas/inde
 import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
+import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
 import { cardParentId } from '../schemas/card-id.js';
 import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
 import { redactSnippetForOutbound, redactTextForOutbound } from '../redaction/index.js';
 import { getCardInputSchema, getTreeInputSchema, listCardsInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { analystRecordEditEffect } from '../cards/status-api.js';
+import { buildRecordMutationUrl, ModelRecordTargetWireSchema } from '../contracts/record-mutation.js';
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
@@ -18,11 +21,13 @@ interface CardInspectionStore {
 
 export interface CardInspectionProviderContext {
   readonly store: CardInspectionStore;
+  readonly agentName?: string;
+  readonly cardId?: string;
 }
 
 export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProviderContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'list_cards', description: 'List and filter cards in the project.', inputSchema: listCardsInputSchema, executor: async (ctx, args) => listCards(ctx.store, args) }),
-  defineToolBinder({ name: 'get_card', description: 'Get full details of a single card.', inputSchema: getCardInputSchema, executor: async (ctx, args) => getCard(ctx.store, args.id) }),
+  defineToolBinder({ name: 'get_card', description: 'Get full details of a single card.', inputSchema: getCardInputSchema, executor: async (ctx, args) => getCard(ctx, args.id) }),
   defineToolBinder({ name: 'get_tree', description: 'Show the card tree.', inputSchema: getTreeInputSchema, executor: async (ctx, args) => getTree(ctx.store, args.rootId ?? PROJECT_CARD_ID) }),
 ]);
 
@@ -51,7 +56,8 @@ function listCards(store: CardInspectionStore, params: z.infer<typeof listCardsI
   return { success: true, data: cards.map((card) => cardSummary(store, card)) };
 }
 
-function getCard(store: CardInspectionStore, cardId: string): ToolResult {
+function getCard(ctx: CardInspectionProviderContext, cardId: string): ToolResult {
+  const store = ctx.store;
   const card = store.read(cardId);
   if (!card) return { success: false, error: `Card '${cardId}' not found.` };
   const children = childIds(store, cardId)
@@ -60,10 +66,10 @@ function getCard(store: CardInspectionStore, cardId: string): ToolResult {
     .map((child) => cardSummary(store, child));
   const projectedCard = projectCardRecordForOutbound(card);
   if (!isFullStore(store)) return { success: true, data: { card: projectedCard, status: card.lifecycle.status, parent: cardParentId(card.id), logical_path: projectedLogicalPath(store, card), children } };
-  const records = cardRecordSummaries(store, cardId);
+  const records = cardRecordSummaries(ctx, store, cardId);
   const view = toCardView(store, card);
   const operatorSummary = { ...view.operator_summary, error: view.operator_summary.error === null ? null : redactTextForOutbound(view.operator_summary.error) };
-  return { success: true, data: { ...view, card: projectedCard, operator_summary: operatorSummary, effective_updated_at: effectiveUpdatedAt(store, cardId), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.filename, record])) } };
+  return { success: true, data: { ...view, card: projectedCard, operator_summary: operatorSummary, effective_updated_at: effectiveUpdatedAt(store, cardId), children, records, records_by_filename: Object.fromEntries(records.map((record) => [record.name, record])) } };
 }
 
 function getTree(store: CardInspectionStore, rootId: string): ToolResult {
@@ -122,15 +128,28 @@ function isFullStore(store: CardInspectionStore): store is CardService {
 }
 
 function effectiveUpdatedAt(store: CardService, cardId: string): string | null {
-  const committedTimes = [store.recordReader.cardArtifacts(cardId).current.committed_at, ...store.recordReader.definitions(cardId).map((definition) => { try { return store.readRecord(cardId, definition.filename).artifact.committed_at; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return null; throw error; } })].filter((value): value is string => Boolean(value));
+  const committedTimes = [store.recordReader.cardArtifacts(cardId).current.committed_at, ...store.recordReader.definitions(cardId).map((definition) => { try { return effectiveRecordContent(store.readCurrentRecord(cardId, definition.filename).artifact)?.modifiedAt ?? null; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return null; throw error; } })].filter((value): value is string => Boolean(value));
   if (committedTimes.length === 0) return null;
   return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }
 
-function cardRecordSummaries(store: CardService, cardId: string): Array<Record<string, unknown>> {
+function canMutateRecord(ctx: CardInspectionProviderContext, store: CardService, cardId: string, writerNames: readonly string[]): boolean {
+  if (!ctx.agentName || !writerNames.includes(ctx.agentName)) return false;
+  const card = store.read(cardId); if (!card) return false;
+  if (ctx.cardId !== undefined) {
+    const agent = store.workflows.agents.get(ctx.agentName as never);
+    return ctx.cardId === cardId && agent !== undefined && agent.tools.some((tool) => tool.name === 'write' || tool.name === 'edit');
+  }
+  const analyst = store.workflows.analyst;
+  return analyst.name === ctx.agentName && analystRecordEditEffect(card.lifecycle.status) !== null && analyst.tools.some((tool) => tool.name === 'write' || tool.name === 'edit');
+}
+
+function cardRecordSummaries(ctx: CardInspectionProviderContext, store: CardService, cardId: string): Array<Record<string, unknown>> {
   return store.recordReader.definitions(cardId)
     .map((definition) => {
-      try { const record = store.readRecord(cardId, definition.filename); const content = record.artifact.content; const max = 4000; return { filename: definition.filename, path: `record:///${definition.filename}`, url: record.recordUrl, latest: record.version, format: definition.format, schema: definition.schema, writers: definition.writers, size: Buffer.byteLength(content), modifiedAt: record.artifact.committed_at, writer: record.artifact.writer_agent, inline: { content: redactSnippetForOutbound(content, max), truncated: content.length > max } }; }
-      catch (error) { if (!(error instanceof AuthoredRecordNotFoundError)) throw error; return { filename: definition.filename, path: `record:///${definition.filename}`, url: `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`, latest: null, format: definition.format, schema: definition.schema, writers: definition.writers, size: null, modifiedAt: null, writer: null }; }
+      const currentUrl = `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`;
+      const authorized = canMutateRecord(ctx, store, cardId, definition.writers);
+      try { const record = store.readCurrentRecord(cardId, definition.filename); const effective = effectiveRecordContent(record.artifact); const target = ModelRecordTargetWireSchema.parse({ card_id: cardId, name: definition.filename, format: definition.format, schema: definition.schema, state: record.artifact.state, head_version: record.headVersion, current_url: record.currentUrl, version_url: record.versionUrl, mutation_url: authorized ? buildRecordMutationUrl(cardId, definition.filename, record.headVersion) : null }); if (!effective) return target; const content = effective.content; const max = 4000; return { ...target, effective: { size: Buffer.byteLength(content), modified_at: effective.modifiedAt, writer: effective.writer, inline: { content: redactSnippetForOutbound(content, max), truncated: content.length > max } } }; }
+      catch (error) { if (!(error instanceof AuthoredRecordNotFoundError)) throw error; return ModelRecordTargetWireSchema.parse({ card_id: cardId, name: definition.filename, format: definition.format, schema: definition.schema, state: 'absent', head_version: null, current_url: currentUrl, version_url: null, mutation_url: authorized ? buildRecordMutationUrl(cardId, definition.filename, 'absent') : null }); }
     });
 }

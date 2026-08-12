@@ -12,7 +12,7 @@ function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEnt
     id: 'entry-1',
     session_id: 'agent:planner:card-a',
     role: 'system',
-    kind: 'system_prompt',
+    kind: 'text',
     content: 'Plan and coordinate card 11111111-1111-4111-8111-111111111111',
     round_id: 'r-pre-00000000000000000000000000000001',
     message_index: 0,
@@ -23,14 +23,13 @@ function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEnt
 }
 
 describe('ContextBlock', () => {
-  it('collapses system prompt entries by default', async () => {
+  it('renders system text as an ordinary durable block', async () => {
     const r = router(); await r.push('/'); await r.isReady();
     const wrapper = mount(ContextBlock, { props: { entry: entry({}) }, global: { plugins: [createPinia(), r] } });
 
-    const details = wrapper.find('details.context-block');
-    expect(details.exists()).toBe(true);
-    expect((details.element as HTMLDetailsElement).open).toBe(false);
-    expect(wrapper.find('summary').text()).toBe('System prompt');
+    expect(wrapper.find('details.context-block').exists()).toBe(false);
+    expect(wrapper.find('article.context-block').exists()).toBe(true);
+    expect(wrapper.text()).toContain('Plan and coordinate');
   });
 
   it('renders non-system prompt entries expanded as normal blocks', async () => {

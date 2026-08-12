@@ -11,7 +11,7 @@ const evidenceSchema = z.discriminatedUnion('flavor', [
   z.object({ flavor: z.literal('source_recallable'), tool: z.string(), args: jsonValueSchema, label: z.string() }).strict(),
 ]);
 
-const summaryRoundSchema = z.object({
+export const contextCompactionSummaryRoundSchema = z.object({
   complete: z.boolean(),
   segments: z.array(z.object({
     kind: z.enum(['initial', 'repair']),
@@ -19,24 +19,26 @@ const summaryRoundSchema = z.object({
   }).strict()).min(1),
 }).strict();
 
-const summaryGroupSchema = z.object({
+export const contextCompactionSummaryGroupSchema = z.object({
   kind: z.enum(['merged', 'individual']),
-  rounds: z.array(summaryRoundSchema).min(1),
+  rounds: z.array(contextCompactionSummaryRoundSchema).min(1),
   content_hash: z.string().regex(/^[0-9a-f]{64}$/),
   summary_text: z.string().min(1),
   evidence: z.array(evidenceSchema),
 }).strict();
 
+export const contextCompactionAppliedPolicySchema = z.object({
+  mode: z.enum(['normal', 'escalated', 'hard_limit_fallback']), band: z.enum(['normal', 'escalated']),
+  input_budget_tokens: z.number().int().positive(), canonical_estimated_static_tokens: z.number().int().nonnegative(),
+  trigger_fraction: z.number(), completion_reserve_fraction: z.number(), merge_line_fraction: z.number(), summary_line_fraction: z.number(),
+  snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']),
+}).strict();
+
 export const contextCompactionContentSchema = z.object({
   boundary: z.enum(['round', 'repair', 'exchange', 'message']),
   retained_static_message_ids: z.array(z.string().min(1)),
-  summaries: z.array(summaryGroupSchema).min(1),
-  applied_policy: z.object({
-    mode: z.enum(['normal', 'escalated', 'hard_limit_fallback']), band: z.enum(['normal', 'escalated']),
-    input_budget_tokens: z.number().int().positive(), canonical_estimated_static_tokens: z.number().int().nonnegative(),
-    trigger_fraction: z.number(), completion_reserve_fraction: z.number(), merge_line_fraction: z.number(), summary_line_fraction: z.number(),
-    snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']),
-  }).strict(),
+  summaries: z.array(contextCompactionSummaryGroupSchema).min(1),
+  applied_policy: contextCompactionAppliedPolicySchema,
 }).strict().superRefine((payload, ctx) => {
   const mergedIndexes = payload.summaries.flatMap((group, index) => group.kind === 'merged' ? [index] : []);
   if (mergedIndexes.length > 1 || mergedIndexes.some((index) => index !== 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A merged summary group may occur only once and first.', path: ['summaries'] });

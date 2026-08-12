@@ -56,7 +56,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
     await expect(fixture.runtime.submit({ userContent: 'run the demo tool' })).rejects.toBe(reason);
 
     fixture.observer.expectOnePublication();
-    expect(envelopes(fixture.projectRoot).map((envelope) => envelope.rows.length)).toEqual([3, 2, 1, 1]);
+    expect(envelopes(fixture.projectRoot).map((envelope) => envelope.rows.length)).toEqual([3, 1, 1, 1]);
     expectToolSequence(fixture.projectRoot, 'demo', suppliedResult, 'run the demo tool');
     expect(fixture.completeTurn).toHaveBeenCalledTimes(1);
     await fixture.expectDisposedAndCleaned();
@@ -75,7 +75,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
     await expect(fixture.runtime.submit({ userContent: 'restart when confirmed' })).rejects.toBe(reason);
 
     fixture.observer.expectOnePublication();
-    expect(envelopes(fixture.projectRoot).map((envelope) => envelope.rows.length)).toEqual([3, 2, 1, 1]);
+    expect(envelopes(fixture.projectRoot).map((envelope) => envelope.rows.length)).toEqual([3, 1, 1, 1]);
     expectToolSequence(fixture.projectRoot, 'restart_server', suppliedResult, 'restart when confirmed');
     expect(fixture.completeTurn).toHaveBeenCalledTimes(1);
     expect(fixture.restartPort.schedule).not.toHaveBeenCalled();
@@ -93,7 +93,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
     await expect(fixture.runtime.submit({ userContent: 'RESTART SERVER' })).rejects.toBe(reason);
 
     fixture.observer.expectOnePublication();
-    expect(envelopes(fixture.projectRoot).map((envelope) => envelope.rows.length)).toEqual([3, 2, 1, 1, 2]);
+    expect(envelopes(fixture.projectRoot).map((envelope) => envelope.rows.length)).toEqual([3, 1, 1, 1, 2]);
     expect(sequence(fixture.projectRoot).slice(-2)).toEqual([
       ['system', 'activity', 'activation_open'],
       ['user', 'text', 'RESTART SERVER'],
@@ -120,7 +120,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
     });
 
     fixture.observer.expectOnePublication();
-    expect(envelopes(fixture.projectRoot).map((envelope) => envelope.rows.length)).toEqual([3, 2, 1, 1, 2]);
+    expect(envelopes(fixture.projectRoot).map((envelope) => envelope.rows.length)).toEqual([3, 1, 1, 1, 2]);
     expect(sequence(fixture.projectRoot).slice(-2)).toEqual([
       ['system', 'activity', 'activation_open'],
       ['user', 'text', 'RESTART SERVER'],
@@ -247,10 +247,12 @@ function publicationObserver() {
 }
 
 function envelopes(projectRoot: string): Array<{ rows: Array<Record<string, unknown>> }> {
-  return readFileSync(conversationFile(projectRoot, sessionId), 'utf8')
+  const parsed = readFileSync(conversationFile(projectRoot, sessionId), 'utf8')
     .trimEnd()
     .split('\n')
     .map((line) => JSON.parse(line) as { rows: Array<Record<string, unknown>> });
+  parsed[0]!.rows.shift();
+  return parsed.filter((envelope) => envelope.rows.length > 0);
 }
 
 function sequence(projectRoot: string): Array<[unknown, unknown, unknown]> {
@@ -267,14 +269,13 @@ function expectToolSequence(projectRoot: string, toolName: string, result: ToolR
     ['system', 'activity', 'activation_open'],
     ['system', 'text', undefined],
     ['user', 'text', undefined],
-    ['system', 'system_prompt', undefined],
     ['system', 'activity', 'llm_turn_started'],
     ['assistant', 'tool_call', undefined],
     ['tool', 'tool_result', undefined],
   ]);
   expect(rows[2]!.content).toBe(userContent);
-  const toolCall = rows[5]!;
-  const toolResult = rows[6]!;
+  const toolCall = rows[4]!;
+  const toolResult = rows[5]!;
   expect(toolCall).toMatchObject({ tool: toolName, tool_call_id: 'call-1' });
   const sourceInputId = toolCall.id.slice(0, -':tool-call:call-1'.length);
   expect(toolResult).toMatchObject({

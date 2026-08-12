@@ -3,9 +3,9 @@ import { z, type ZodTypeAny } from 'zod';
 import { reconfigureParamsSchema } from '../config/index.js';
 import {
   analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReorderChildInputSchema,
-  applyPatchInputSchema, diffCardInputSchema, editWorkspaceInputSchema, emptyToolInputSchema,
-  getCardHistoryEntryInputSchema, getCardInputSchema, getTreeInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema,
-  killProcessInputSchema, listCardHistoryInputSchema, listCardsInputSchema, listProcessesInputSchema,
+  applyPatchInputSchema, diffCardVersionsInputSchema, editWorkspaceInputSchema, emptyToolInputSchema,
+  getCardVersionInputSchema, getCardInputSchema, getTreeInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema,
+  killProcessInputSchema, listCardVersionsInputSchema, listCardsInputSchema, listProcessesInputSchema,
   navigateWorkspaceInputSchema, plannerCancelCardInputSchema, plannerCreateCardInputSchema, plannerEditCardInputSchema,
   plannerQueueNotificationInputSchema, plannerReorderChildInputSchema, queueNotificationInputSchema,
   readAgentSessionInputSchema, readControlActionsInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema,
@@ -32,7 +32,7 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure',
   'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool',
   'list_agent_sessions', 'read_agent_session', 'list_cards', 'get_card', 'get_tree',
-  'list_card_history', 'get_card_history_entry', 'diff_card',
+  'list_card_versions', 'get_card_version', 'diff_card_versions',
   'read', 'write', 'edit', 'glob', 'grep', 'apply_patch',
   'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call',
   'edit_card', 'activate_card', TERMINAL_RESULT_TOOL_NAME,
@@ -137,7 +137,7 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'resume_runtime': case 'stop_project': case 'restart_server': case 'mcp_reconcile': case 'navigate_back':
     case 'show_config': case 'read_runtime_events': case 'read_runtime_errors': case 'read_control_actions':
     case 'list_processes_tool': case 'list_agent_sessions': case 'read_agent_session': case 'list_cards':
-    case 'get_card': case 'get_tree': case 'list_card_history': case 'get_card_history_entry': case 'diff_card':
+    case 'get_card': case 'get_tree': case 'list_card_versions': case 'get_card_version': case 'diff_card_versions':
     case 'read': case 'wait_process': case 'kill_process': case 'skill': case 'activate_card':
       return structuredClone(value);
   }
@@ -185,9 +185,9 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
     case 'list_cards': return listCardsInputSchema;
     case 'get_card': return getCardInputSchema;
     case 'get_tree': return getTreeInputSchema;
-    case 'list_card_history': return listCardHistoryInputSchema;
-    case 'get_card_history_entry': return getCardHistoryEntryInputSchema;
-    case 'diff_card': return diffCardInputSchema;
+    case 'list_card_versions': return listCardVersionsInputSchema;
+    case 'get_card_version': return getCardVersionInputSchema;
+    case 'diff_card_versions': return diffCardVersionsInputSchema;
     case 'read': return readWorkspaceInputSchema;
     case 'write': return writeWorkspaceInputSchema;
     case 'edit': return editWorkspaceInputSchema;

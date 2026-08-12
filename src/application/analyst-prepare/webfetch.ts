@@ -1,5 +1,7 @@
 import type { AnalystMutationReadContext } from '../../agents/analyst-tool-runner.js';
 import type { WebfetchMetadata } from '../../contracts/webfetch.js';
+import type { AnalystPreNetworkAdmission } from '../../contracts/record-mutation.js';
+import type { AnalystRecordMutationService } from '../analyst-mutation-services.js';
 
 export interface PreparedFetchedRecord { readonly content: string; readonly metadata: WebfetchMetadata; }
 
@@ -9,7 +11,10 @@ export interface AnalystWebReadClient {
 
 export interface AnalystPreparationReadServices {
   readonly web: AnalystWebReadClient;
+  readonly records: Pick<AnalystRecordMutationService, 'admitWrite'>;
 }
+
+export function admitAnalystRecordWebfetch(input: AnalystWebfetchRecordInput, ctx: AnalystMutationReadContext): AnalystPreNetworkAdmission { return ctx.services.records.admitWrite(input.save_as); }
 
 export interface AnalystWebfetchRecordInput {
   readonly url: string;

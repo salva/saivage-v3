@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { RecordMutationFailureSchema, RecordMutationSuccessSchema } from './record-mutation.js';
 
 export const WebfetchInvocationSchema = z.object({
   url: z.string(),
@@ -21,25 +22,8 @@ export const WebfetchMetadataSchema = z.object({
 
 export type WebfetchMetadata = z.infer<typeof WebfetchMetadataSchema>;
 
-const WebfetchWriteSchema = z.union([
-  z.object({
-    path: z.string(),
-    record_url: z.string().optional(),
-    bytes: z.number().int().nonnegative(),
-    written: z.literal(true),
-  }).strict(),
-  z.object({
-    card_id: z.string(),
-    path: z.string(),
-    record_url: z.string(),
-    bytes: z.number().int().nonnegative(),
-    written: z.literal(true),
-    propagation: z.union([
-      z.object({ ok: z.literal(true) }).strict(),
-      z.object({ ok: z.literal(false), partial: z.literal(true), error: z.string() }).strict(),
-    ]),
-  }).strict(),
-]);
+export const WorkspaceWriteSuccessSchema = z.object({ success: z.literal(true), data: z.object({ destination_kind: z.enum(['project_relative', 'project_url', 'tmp_url', 'system_url']), target: z.string().min(1), bytes: z.number().int().safe().nonnegative(), written: z.literal(true) }).strict() }).strict();
+const WebfetchSavedWriteSchema = z.union([z.object({ kind: z.literal('workspace_file'), result: WorkspaceWriteSuccessSchema }).strict(), z.object({ kind: z.literal('record'), result: RecordMutationSuccessSchema }).strict()]);
 
 const WebfetchMetadataOnlyDataSchema = WebfetchMetadataSchema.extend({ metadata_only: z.literal(true) }).strict();
 const WebfetchBinaryDataSchema = WebfetchMetadataSchema.extend({
@@ -59,12 +43,13 @@ const WebfetchStashDataSchema = WebfetchMetadataSchema.extend({
 }).strict();
 const WebfetchSavedDataSchema = WebfetchMetadataSchema.extend({
   saved_as: z.string(),
-  write: WebfetchWriteSchema,
+  write: WebfetchSavedWriteSchema,
   bytes: z.number().int().nonnegative(),
 }).strict();
 
 export const WebfetchResultSchema = z.union([
   z.object({ success: z.literal(false), error: z.string() }).strict(),
+  RecordMutationFailureSchema,
   z.object({
     success: z.literal(true),
     data: z.union([

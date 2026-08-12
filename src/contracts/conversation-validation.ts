@@ -17,9 +17,10 @@ export type SourceSegment = {
   readonly kind: 'initial' | 'repair';
   readonly rows: readonly AgentMessage[];
 };
+export type ActivationCheckpoint = { readonly source: 'row'; readonly message: AgentMessage } | { readonly source: 'compacted_genesis'; readonly marker_id: string; readonly input_id: string };
 export type SourceRound = {
   readonly label: string;
-  readonly activationMarker: AgentMessage;
+  readonly activation: ActivationCheckpoint;
   readonly rows: readonly AgentMessage[];
   readonly segments: readonly SourceSegment[];
 };
@@ -44,7 +45,7 @@ export type ValidatedCompactionGroup = {
 };
 
 export type ValidatedContextCompaction = {
-  readonly metadataRow: AgentMessage;
+  readonly metadataRow: ContextCompactionMetadata;
   readonly payload: ContextCompactionContent;
   readonly groups: readonly ValidatedCompactionGroup[];
   readonly cutoffSourceIndex: number;
@@ -52,6 +53,7 @@ export type ValidatedContextCompaction = {
   readonly boundary: ContextCompactionContent['boundary'];
   readonly renderedContext: string;
 };
+export interface ContextCompactionMetadata { readonly id: string; readonly session_id: ConversationSessionId; readonly role: 'system'; readonly kind: 'context_compaction'; readonly content: string; readonly round_id: string; readonly message_index: number; readonly block_index: number; readonly timestamp: string }
 
 export type CanonicalConversationCall = {
   readonly sessionId: ConversationSessionId;
@@ -76,6 +78,7 @@ export type ValidatedConversation = {
   readonly latestCompaction: ValidatedContextCompaction | null;
   readonly calls: readonly CanonicalConversationCall[];
   readonly unmatchedCall: CanonicalConversationCall | null;
+  readonly compactedGenesis: ConversationCompactedGenesisSeed | null;
 };
 
 export interface CanonicalConversationSourceCheckpoint {
@@ -101,6 +104,8 @@ export interface CanonicalConversationSegmentCheckpoint {
 }
 export interface CanonicalConversationRoundCheckpoint {
   readonly label: string;
+  readonly activationInputId: string;
+  readonly activationOrdinal: number | null;
   readonly start: number;
   end: number;
   readonly segments: CanonicalConversationSegmentCheckpoint[];
@@ -122,6 +127,7 @@ interface CanonicalCompactionRoundCheckpoint {
 }
 interface CanonicalCompactionCheckpoint {
   readonly physicalOrdinal: number;
+  readonly metadata: ContextCompactionMetadata;
   readonly payload: ContextCompactionContent;
   readonly groups: readonly {
     payload: ContextCompactionContent['summaries'][number];
@@ -143,12 +149,27 @@ export interface CanonicalConversationValidationState {
   readonly compactions: CanonicalCompactionCheckpoint[];
   replayBytesRead: number;
   unmatchedCallKey: string | null;
+  readonly pendingInheritedActivation: InheritedConversationActivation | null;
+}
+
+export interface InheritedConversationActivation {
+  readonly markerId: string;
+  readonly inputId: string;
+  readonly activeSegmentKind: 'initial' | 'repair';
+  readonly startOrdinal: number;
+}
+export interface ConversationCompactedGenesisSeed {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly payload: ContextCompactionContent;
+  readonly retainedStaticRowCount: number;
 }
 
 export function createCanonicalConversationValidationState(
   sessionId: ConversationSessionId,
+  inheritedActivation?: InheritedConversationActivation,
 ): CanonicalConversationValidationState {
-  return {
+  const state: CanonicalConversationValidationState = {
     sessionId,
     physicalIds: new Set(),
     sources: [],
@@ -160,7 +181,9 @@ export function createCanonicalConversationValidationState(
     compactions: [],
     replayBytesRead: 0,
     unmatchedCallKey: null,
+    pendingInheritedActivation: inheritedActivation ?? null,
   };
+  return state;
 }
 
 export function reduceCanonicalConversationRow(
@@ -176,10 +199,9 @@ export function reduceCanonicalConversationRow(
   if (state.physicalIds.has(row.id))
     throw new Error('Conversation contains duplicate message ids.');
   state.physicalIds.add(row.id);
-  if (row.kind === 'context_compaction') {
-    state.compactions.push(validateCompaction(state, row, checkpoint.rowOrdinal, replay));
-    return state;
-  }
+  const ordinal = state.sources.length;
+  const inherited = state.pendingInheritedActivation;
+  if (inherited && ordinal === inherited.startOrdinal) state.rounds.push({ label: inherited.markerId, activationInputId: inherited.inputId, activationOrdinal: null, start: ordinal, end: ordinal, segments: [{ kind: inherited.activeSegmentKind, start: ordinal, end: ordinal }] });
 
   const toolFacts = validateToolContent(row);
   const repairAnchor =
@@ -194,10 +216,11 @@ export function reduceCanonicalConversationRow(
       `Global-agent conversation '${state.sessionId}' must start with an exact activation_open marker and have an empty preamble.`,
     );
   }
-  const ordinal = state.sources.length;
   if (opensRound)
     state.rounds.push({
       label: row.id,
+      activationInputId: JSON.parse(row.content).input_id as string,
+      activationOrdinal: ordinal,
       start: ordinal,
       end: ordinal + 1,
       segments: [{ kind: 'initial', start: ordinal, end: ordinal + 1 }],
@@ -248,8 +271,10 @@ export function finishCanonicalConversationValidation(
 export function validateConversation(
   sessionId: ConversationSessionId,
   physicalRows: readonly AgentMessage[],
+  inheritedActivation?: InheritedConversationActivation,
+  compactedGenesis?: ConversationCompactedGenesisSeed,
 ): ValidatedConversation {
-  const state = createCanonicalConversationValidationState(sessionId);
+  const state = createCanonicalConversationValidationState(sessionId, inheritedActivation);
   const replayRows = (checkpoints: readonly GrowingFileRowCheckpoint[]): readonly AgentMessage[] =>
     checkpoints.map((checkpoint) => {
       const row = physicalRows[checkpoint.rowOrdinal];
@@ -264,7 +289,19 @@ export function validateConversation(
     reduceCanonicalConversationRow(state, row, { lineStart: 0, lineEnd: 1, rowOrdinal }, replay),
   );
   finishCanonicalConversationValidation(state);
-  return materializeValidatedConversation(state, physicalRows);
+  return { ...materializeValidatedConversation(state, physicalRows), compactedGenesis: compactedGenesis ?? null };
+}
+
+export function validateProspectiveContextCompaction(conversation: ValidatedConversation, metadata: ContextCompactionMetadata): ValidatedConversation {
+  const physicalRows = conversation.physicalRows;
+  const seeds = conversation.compactedGenesis;
+  const inheritedRound = conversation.rounds.find((round) => round.activation.source === 'compacted_genesis');
+  const inherited = inheritedRound ? { markerId: inheritedRound.activation.source === 'compacted_genesis' ? inheritedRound.activation.marker_id : '', inputId: inheritedRound.activation.source === 'compacted_genesis' ? inheritedRound.activation.input_id : '', activeSegmentKind: inheritedRound.segments.at(-1)!.kind, startOrdinal: inheritedRound.rows.length === 0 ? 0 : physicalRows.findIndex((row) => row.id === inheritedRound.rows[0]!.id) } : undefined;
+  const state = createCanonicalConversationValidationState(conversation.sourceSessionId, inherited);
+  const replay: GrowingFileReplay<AgentMessage> = { replayRow: (checkpoint) => physicalRows[checkpoint.rowOrdinal]!, replayRows: (checkpoints) => checkpoints.map((checkpoint) => physicalRows[checkpoint.rowOrdinal]!) };
+  physicalRows.forEach((row, rowOrdinal) => reduceCanonicalConversationRow(state, row, { lineStart: 0, lineEnd: 1, rowOrdinal }, replay));
+  state.compactions.push(validateCompaction(state, metadata, physicalRows.length, replay)); finishCanonicalConversationValidation(state);
+  return { ...materializeValidatedConversation(state, physicalRows), compactedGenesis: seeds };
 }
 
 export function estimateCanonicalConversationValidationBytes(
@@ -339,7 +376,7 @@ function materializeValidatedConversation(
       (round): SourceRound =>
         Object.freeze({
           label: round.label,
-          activationMarker: sourceRows[round.start]!,
+          activation: round.activationOrdinal === null ? { source: 'compacted_genesis' as const, marker_id: round.label, input_id: round.activationInputId } : { source: 'row' as const, message: sourceRows[round.activationOrdinal]! },
           rows: Object.freeze(sourceRows.slice(round.start, round.end)),
           segments: Object.freeze(
             round.segments.map((segment) =>
@@ -394,13 +431,13 @@ function materializeValidatedConversation(
       );
       const cutoff = sourceRows[compaction.cutoffSourceOrdinal]!;
       return Object.freeze({
-        metadataRow: physical[compaction.physicalOrdinal]!,
+        metadataRow: compaction.metadata,
         payload: compaction.payload,
         groups,
         cutoffSourceIndex: compaction.cutoffSourceOrdinal,
         cutoffMessageId: cutoff.id,
         boundary: compaction.payload.boundary,
-        renderedContext: renderCompactionContext(groups),
+        renderedContext: renderContextCompactionPayload(compaction.payload),
       });
     }),
   );
@@ -442,6 +479,7 @@ function materializeValidatedConversation(
     latestCompaction: compactions.at(-1) ?? null,
     calls,
     unmatchedCall,
+    compactedGenesis: null,
   });
 }
 
@@ -483,10 +521,11 @@ function validateToolOrdering(
 
 function validateCompaction(
   state: CanonicalConversationValidationState,
-  row: AgentMessage,
+  row: ContextCompactionMetadata,
   physicalOrdinal: number,
   replay: GrowingFileReplay<AgentMessage>,
 ): CanonicalCompactionCheckpoint {
+  if (row.session_id !== state.sessionId || row.role !== 'system' || row.kind !== 'context_compaction' || state.physicalIds.has(row.id)) throw new Error('Compaction metadata identity is invalid.');
   const payload = parseCanonicalContextCompaction(row.content);
   const groups: CanonicalCompactionCheckpoint['groups'][number][] = [];
   let roundIndex = 0;
@@ -592,6 +631,7 @@ function validateCompaction(
     throw new Error('Compaction cutoff retreats behind the preceding canonical compaction.');
   return Object.freeze({
     physicalOrdinal,
+    metadata: row,
     payload,
     groups: Object.freeze(groups),
     cutoffSourceOrdinal: cutoffOrdinal,
@@ -754,16 +794,14 @@ function isSafeFallbackBoundary(
 }
 
 export function renderCompactionContext(groups: readonly ValidatedCompactionGroup[]): string {
-  return groups
-    .map((group) => {
-      const labels = group.rounds.map((round) => round.label);
-      const heading =
-        group.payload.kind === 'merged'
-          ? `Merged history rounds ${labels.join(', ')}`
-          : `Round ${labels[0]}${group.rounds[0]!.complete ? '' : ' (partial prefix)'}`;
-      return `${heading}:\n${group.payload.summary_text}${renderEvidence(group.payload.evidence)}`;
-    })
-    .join('\n\n');
+  return renderContextCompactionPayload({ summaries: groups.map((group) => group.payload) });
+}
+export function renderContextCompactionPayload(payload: Pick<ContextCompactionContent, 'summaries'>): string {
+  return payload.summaries.map((group, index) => {
+    const partial = group.rounds.some((round) => !round.complete);
+    const heading = group.kind === 'merged' ? 'Merged history' : `History summary ${index + 1}${partial ? ' (partial prefix)' : ''}`;
+    return `${heading}:\n${group.summary_text}${renderEvidence(group.evidence)}`;
+  }).join('\n\n');
 }
 
 function renderEvidence(evidence: readonly unknown[]): string {

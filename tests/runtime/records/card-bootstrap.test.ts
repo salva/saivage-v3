@@ -4,13 +4,13 @@ import { cardBootstrapForPrompt } from '../../../src/runtime/records/card-bootst
 
 describe('workflow bootstrap prompt projection',()=>{
   it('reads the configured bootstrap record by exact name',()=>{
-    const readRecord=jest.fn(()=>({artifact:{content:'Configured bootstrap'}}));
-    const store={workflows:{cardTypes:new Map([['research',{bootstrapRecord:{name:'research-question.md'}}]])},readRecord};
+    const readCurrentRecord=jest.fn(()=>({artifact:{accepted:{content:'Configured bootstrap'}}}));
+    const store={workflows:{cardTypes:new Map([['research',{bootstrapRecord:{name:'research-question.md'}}]])},readCurrentRecord};
     expect(cardBootstrapForPrompt(store as never,{id:'card-a',type:'research'} as never)).toBe('Configured bootstrap');
-    expect(readRecord).toHaveBeenCalledWith('card-a','research-question.md','latest');
+    expect(readCurrentRecord).toHaveBeenCalledWith('card-a','research-question.md');
   });
 
   it('fails when the card type has no compiled workflow',()=>{
-    expect(()=>cardBootstrapForPrompt({workflows:{cardTypes:new Map()},readRecord:jest.fn()} as never,{id:'card-a',type:'research'} as never)).toThrow(/No workflow/);
+    expect(()=>cardBootstrapForPrompt({workflows:{cardTypes:new Map()},readCurrentRecord:jest.fn()} as never,{id:'card-a',type:'research'} as never)).toThrow(/No workflow/);
   });
 });

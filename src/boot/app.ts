@@ -2,6 +2,9 @@ import { mkdirSync, realpathSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 import { loadEnvironment, type Environment } from '../config/index.js';
 import { publishInitialProjectCard } from '../persistence/card-files.js';
+import { initializeConversation } from '../persistence/conversation-file.js';
+import { initializeConfiguredOptionalState, validateCurrentGeneratedGraph } from '../persistence/current-generated-graph.js';
+import { globalAgentSessionId } from '../schemas/index.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/generated-state.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../runtime/lock.js';
 import { startServer, type ServerInstance } from '../server/server.js';
@@ -153,7 +156,10 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       mkdirSync(resolve(prelock.projectRoot, '.saivage', 'cards'), { recursive: true });
       const root = newProjectRootInput(prelock.projectRoot);
        publishInitialProjectCard(prelock.projectRoot, root,environment.workflows.cardTypes.get('project')!);
+       initializeConversation(prelock.projectRoot, globalAgentSessionId(environment.workflows.analyst.name));
     }
+    initializeConfiguredOptionalState(prelock.projectRoot, environment.workflows);
+    validateCurrentGeneratedGraph(prelock.projectRoot, environment.workflows);
     const restartPort = createRestartPort({
       onAcknowledgedRestart: () => terminal.stop(),
       exit: (code) => process.exit(code),

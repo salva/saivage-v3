@@ -13,11 +13,11 @@ import { cardView, hierarchyView } from './card-view-fixtures';
 
 const A='card-a';
 const descriptors=[
-  {name:'brief.md',format:'markdown' as const,schema:'brief.v1',writers:['analyst'],bootstrap:true},
-  {name:'research-findings.md',format:'markdown' as const,schema:'research.v1',writers:['researcher'],bootstrap:false},
-  {name:'decision.md',format:'markdown' as const,schema:'decision.v1',writers:['reviewer'],bootstrap:false},
+  {name:'brief.md',format:'markdown' as const,schema:'brief.v1',writers:['analyst'],bootstrap:true,current:null},
+  {name:'research-findings.md',format:'markdown' as const,schema:'research.v1',writers:['researcher'],bootstrap:false,current:null},
+  {name:'decision.md',format:'markdown' as const,schema:'decision.v1',writers:['reviewer'],bootstrap:false,current:null},
 ];
-const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,version:2,committed_at:'2026-07-22T00:00:00.000Z',content:text}});
+const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,record:{name,head_version:2,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed' as const,accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-22T00:00:00.000Z',writer_agent:'analyst',card_version_seq:1,content:text,content_sha256:'a'.repeat(64),size_bytes:text.length},draft:null,discarded:null,effective_content_source:'accepted' as const}});
 
 describe('CardStore exact card resources',()=>{
   beforeEach(()=>{setActivePinia(createPinia());vi.clearAllMocks();});

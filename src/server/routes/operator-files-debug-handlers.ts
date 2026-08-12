@@ -11,13 +11,15 @@ export function buildFilesDebugOperatorContractHandlers(options: OperatorProject
   const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, () => {
     const cards = options.cardServiceProvider();
     return {
-      record: cards.recordReader.record,
+      current: cards.recordReader.current,
+      historical: cards.recordReader.historical,
       definition: cards.recordReader.definition,
       definitions: cards.recordReader.definitions,
       getCanonicalCard: (cardId: string) => cards.getCanonicalCard(cardId),
       getCanonicalCardChildren: (cardId: string) => cards.getCanonicalCardChildren(cardId),
       getCanonicalCardFilesMetadata: (cardId: string) => cards.getCanonicalCardFilesMetadata(cardId),
       getCanonicalCardFileContent: (cardId, slot, maximumBytes) => cards.getCanonicalCardFileContent(cardId, slot, maximumBytes),
+      readCardVersion: (cardId, version) => cards.readCardVersion(cardId, version),
     };
   }, options.configAuthority);
   const eventQueries = new EventQueryService(options.projectRoot);

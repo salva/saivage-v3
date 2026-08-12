@@ -1,14 +1,15 @@
 import type { CardService } from '../cards/card-api.js';
-import { AuthoredRecordNotFoundError, PROJECT_CARD_ID } from '../cards/card-api.js';
-import { analystRecordEditEffect, canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
+import { PROJECT_CARD_ID } from '../cards/card-api.js';
+import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { CardRecord, CardType } from '../schemas/index.js';
 import { propagateAnalystRecordEdit, propagateChange } from '../runtime/changed-propagation.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { toCardView } from './read-models/card-view.js';
-import { resolveRecordWriteTarget } from '../workspace/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import type { AnalystPreNetworkAdmission } from '../contracts/record-mutation.js';
+import { mutateRecord, preflightAnalystRecordWrite } from './record-mutation-service.js';
 
 export type AnalystMutationOutcome =
   | { kind: 'denied'; reason: string }
@@ -43,7 +44,8 @@ export interface AnalystNotificationMutationService {
 }
 
 export interface AnalystRecordMutationService {
-  write(path: string, content: string): AnalystMutationOutcome;
+  admitWrite(path: string): AnalystPreNetworkAdmission;
+  write(path: string, content: string, requiredTools?: readonly ('write' | 'webfetch')[]): AnalystMutationOutcome;
   edit(path: string, oldString: string, newString: string, replaceAll: boolean): AnalystMutationOutcome;
 }
 
@@ -73,14 +75,6 @@ function success(data?: unknown): AnalystMutationOutcome {
 }
 
 function denied(reason: string): AnalystMutationOutcome { return { kind: 'denied', reason }; }
-
-class AnalystMutationDeniedError extends Error {}
-
-function denialFrom(error: unknown): AnalystMutationOutcome {
-  throwIfPublicationOutcomeUnknown(error);
-  if (error instanceof AnalystMutationDeniedError) return denied(error.message);
-  throw error;
-}
 
 function subtree(store: CardService, rootId: string): CardRecord[] {
   return [rootId, ...store.getDescendantIds(rootId)].map((id) => store.read(id)).filter((card): card is CardRecord => card !== null);
@@ -171,58 +165,30 @@ class AnalystNotificationMutationImplementation implements AnalystNotificationMu
 class AnalystRecordMutationImplementation implements AnalystRecordMutationService {
   constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
 
-  write(path: string, content: string): AnalystMutationOutcome {
-    let target;
-    try { target = this.resolve(path); this.validateBriefContent(content); }
-    catch (error) { return denialFrom(error); }
-    return this.commit(target, content);
+  admitWrite(path: string): AnalystPreNetworkAdmission {
+    return preflightAnalystRecordWrite(this.store, { path, operation: 'write', surface: 'analyst', agentName: this.store.workflows.analyst.name, requiredTools: ['write', 'webfetch'] });
+  }
+
+  write(path: string, content: string, requiredTools: readonly ('write' | 'webfetch')[] = ['write']): AnalystMutationOutcome {
+    const result = mutateRecord(this.store, { path, operation: 'write', content, surface: 'analyst', agentName: this.store.workflows.analyst.name, requiredTools }, () => this.propagate(path));
+    return { kind: 'returned', ...result };
   }
 
   edit(path: string, oldString: string, newString: string, replaceAll: boolean): AnalystMutationOutcome {
-    let target;
-    try { target = this.resolve(path); }
-    catch (error) { return denialFrom(error); }
-    const content = this.store.readRecord(target.cardId, target.filename, 'latest').artifact.content;
-    const occurrences = content.split(oldString).length - 1;
-    if (occurrences === 0) return denied('old_string was not found.');
-    if (occurrences > 1 && !replaceAll) return denied('old_string appears multiple times; set replace_all to true.');
-    const next = replaceAll ? content.split(oldString).join(newString) : content.replace(oldString, newString);
-    try { this.validateBriefContent(next); }
-    catch (error) { return denialFrom(error); }
-    return this.commit(target, next);
+    const result = mutateRecord(this.store, { path, operation: 'edit', oldString, newString, replaceAll, surface: 'analyst', agentName: this.store.workflows.analyst.name, requiredTools: ['edit'] }, () => this.propagate(path));
+    return { kind: 'returned', ...result };
   }
 
-  private commit(target: { cardId: string; filename: string; recordUrl: string; card: CardRecord }, content: string): AnalystMutationOutcome {
-    const open = this.store.openRecord(target.cardId, target.filename);
-    this.store.editRecord(target.cardId, target.filename, open.version, content);
-    const closed = this.store.closeRecord(target.cardId, target.filename, open.version, this.store.workflows.analyst.name, target.card.version_seq);
+  private propagate(path: string): { ok: true } | { ok: false; partial: true; error: string } {
+    const parsed = (awaitImportParse(path));
     try {
-      propagateAnalystRecordEdit(this.store, target.cardId, { kind: 'analyst_edit', summary: `Analyst updated ${target.filename}` }, this.notifyCard);
-      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: true } });
+      propagateAnalystRecordEdit(this.store, parsed.cardId, { kind: 'analyst_edit', summary: `Analyst updated ${parsed.name}` }, this.notifyCard);
+      return { ok: true };
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
-      return success({ card_id: target.cardId, path: closed.recordUrl, record_url: closed.recordUrl, bytes: Buffer.byteLength(content), written: true, propagation: { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) } });
+      return { ok: false, partial: true, error: error instanceof Error ? error.message : String(error) };
     }
-  }
-
-  private resolve(path: string): { cardId: string; filename: string; recordUrl: string; card: CardRecord } {
-    const target = resolveRecordWriteTarget({ projectRoot: this.projectRoot, records: this.store.recordReader, agent: { agentName: this.store.workflows.analyst.name }, fail: (message) => { throw new AnalystMutationDeniedError(message); } }, path);
-    const definition=this.store.recordReader.definition(target.cardId,target.filename);const analyst=this.store.workflows.analyst;if(!definition.writers.includes(analyst.name)||!analyst.tools.some((tool)=>tool.name==='write')||!analyst.tools.some((tool)=>tool.name==='edit'))throw new AnalystMutationDeniedError(`Analyst is not a configured writer for '${target.filename}'.`);
-    if (target.version !== 'next') throw new AnalystMutationDeniedError('Analyst record writes must use v=next.');
-    const card = this.store.read(target.cardId);
-    if (!card) throw new AnalystMutationDeniedError(`Card '${target.cardId}' not found.`);
-    if (analystRecordEditEffect(card.lifecycle.status) === null) throw new AnalystMutationDeniedError(`Analyst record edits do not support target card status ${card.lifecycle.status}.`);
-    try {
-      this.store.readRecord(target.cardId, target.filename, 'open');
-      throw new AnalystMutationDeniedError(`Cannot write '${target.recordUrl}': latest record version is open.`);
-    } catch (error) {
-      if (error instanceof AnalystMutationDeniedError) throw error;
-      if (!(error instanceof AuthoredRecordNotFoundError)) throw error;
-    }
-    return { cardId: target.cardId, filename: target.filename, recordUrl: target.recordUrl, card };
-  }
-
-  private validateBriefContent(content: string): void {
-    if (content.trim().length === 0) throw new AnalystMutationDeniedError('Record content must not be empty.');
   }
 }
+
+import { parseRecordMutationUrl as awaitImportParse } from '../contracts/record-mutation.js';
