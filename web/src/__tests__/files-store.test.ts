@@ -381,6 +381,40 @@ describe('useFileStore', () => {
       expect(store.viewedFile).toBeNull();
       expect(store.viewedFilePath).toBe('.saivage/nonexistent.txt');
     });
+
+    it('replaces the stale deadline with the latest accepted Files REST completion', async () => {
+      vi.useFakeTimers();
+      const startedAt = new Date('2026-08-11T12:00:00.000Z');
+      vi.setSystemTime(startedAt);
+      const store = setupStore();
+
+      try {
+        vi.mocked(getFileContent).mockResolvedValue(jsonContent);
+        await store.fetchFileContent('.saivage/plan.json');
+
+        expect(store.lastFetchedAt).toBe(startedAt.toISOString());
+        expect(store.isStale).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(20_000);
+        vi.mocked(listFiles).mockResolvedValue(mockMetaRootFiles);
+        await store.fetchMetaFiles();
+
+        const metadataCompletedAt = new Date(startedAt.getTime() + 20_000).toISOString();
+        expect(store.lastFetchedAt).toBe(metadataCompletedAt);
+        expect(store.isStale).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(store.lastFetchedAt).toBe(metadataCompletedAt);
+        expect(store.isStale).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(20_000);
+        expect(store.lastFetchedAt).toBe(metadataCompletedAt);
+        expect(store.isStale).toBe(true);
+      } finally {
+        store.$dispose();
+        vi.useRealTimers();
+      }
+    });
   });
 
   describe('clearViewedFile()', () => {

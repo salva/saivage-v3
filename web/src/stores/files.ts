@@ -7,7 +7,7 @@
  */
 
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
+import { ref, computed, onScopeDispose } from 'vue';
 import type { FileEntry, FileContent, FilesListResponse } from '../api/types';
 import { listFiles, getFileContent, OperatorApiError } from '../api/client';
 import { createLogger } from '../utils/logger';
@@ -57,25 +57,25 @@ export const useFileStore = defineStore('files', () => {
   const metaPath = ref<string>(METADATA_ROOT);
   const metaFiles = ref<FileEntry[]>([]);
   const metaLoading = ref(false);
-  const metaLastFetchedAt = ref<string | null>(null);
 
   // Work browser (.saivage/work/)
   const outputPath = ref<string>(OUTPUT_ROOT);
   const outputFiles = ref<FileEntry[]>([]);
   const outputLoading = ref(false);
-  const outputLastFetchedAt = ref<string | null>(null);
 
   // File content viewer
   const viewedFile = ref<FileContent | null>(null);
   const viewedFilePath = ref<string>('');
   const contentLoading = ref(false);
-  const viewerLastFetchedAt = ref<string | null>(null);
   const viewerState = ref<'idle' | 'ready' | 'blocked' | 'missing' | 'binary' | 'too-large' | 'directory' | 'error'>('idle');
 
   // Shared
   const listError = ref<string | null>(null);
   const viewerError = ref<string | null>(null);
   const unauthorized = ref(false);
+  const lastFetchedAt = ref<string | null>(null);
+  const isStale = ref(false);
+  let staleTimer: ReturnType<typeof setTimeout> | undefined;
 
   // ── Getters ────────────────────────────────────────────────
 
@@ -102,18 +102,19 @@ export const useFileStore = defineStore('files', () => {
       || viewedFile.value?.contentType === 'text/markdown';
   });
 
-  const lastFetchedAt = computed(() => viewerLastFetchedAt.value ?? outputLastFetchedAt.value ?? metaLastFetchedAt.value);
-  const isStale = computed(() => {
-    if (!lastFetchedAt.value) return false;
-    return Date.now() - new Date(lastFetchedAt.value).getTime() > STALE_AFTER_MS;
-  });
-
-  function markRestSync(target: 'meta' | 'output' | 'viewer'): void {
-    const now = nowIso();
-    if (target === 'meta') metaLastFetchedAt.value = now;
-    if (target === 'output') outputLastFetchedAt.value = now;
-    if (target === 'viewer') viewerLastFetchedAt.value = now;
+  function markRestSnapshotCompleted(): void {
+    lastFetchedAt.value = nowIso();
+    isStale.value = false;
+    if (staleTimer !== undefined) clearTimeout(staleTimer);
+    staleTimer = setTimeout(() => {
+      staleTimer = undefined;
+      isStale.value = true;
+    }, STALE_AFTER_MS);
   }
+
+  onScopeDispose(() => {
+    if (staleTimer !== undefined) clearTimeout(staleTimer);
+  });
 
   function handleApiError(err: unknown, fallback: string): string {
     unauthorized.value = err instanceof OperatorApiError && err.isUnauthorized;
@@ -131,7 +132,7 @@ export const useFileStore = defineStore('files', () => {
       const response: FilesListResponse = await listFiles(p);
       metaFiles.value = response.files;
       metaPath.value = response.path;
-      markRestSync('meta');
+      markRestSnapshotCompleted();
     } catch (err) {
       const msg = handleApiError(err, 'Failed to list metadata files');
       listError.value = msg;
@@ -157,7 +158,7 @@ export const useFileStore = defineStore('files', () => {
       const response: FilesListResponse = await listFiles(p);
       outputFiles.value = response.files;
       outputPath.value = response.path;
-      markRestSync('output');
+      markRestSnapshotCompleted();
     } catch (err) {
       const msg = handleApiError(err, 'Failed to list output files');
       listError.value = msg;
@@ -187,7 +188,7 @@ export const useFileStore = defineStore('files', () => {
       if (requestSeq !== fileContentRequestSeq || viewedFilePath.value !== path) return;
       viewedFile.value = response;
       viewerState.value = 'ready';
-      markRestSync('viewer');
+      markRestSnapshotCompleted();
     } catch (err) {
       if (requestSeq !== fileContentRequestSeq || viewedFilePath.value !== path) return;
       const msg = handleApiError(err, 'Failed to fetch file content');
@@ -230,9 +231,6 @@ export const useFileStore = defineStore('files', () => {
     viewerError,
     viewerState,
     lastFetchedAt,
-    metaLastFetchedAt,
-    outputLastFetchedAt,
-    viewerLastFetchedAt,
     unauthorized,
     isStale,
 
