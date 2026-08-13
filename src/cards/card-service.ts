@@ -69,7 +69,7 @@ import { canCreateChildInStatus } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 import type { CardNotification } from '../schemas/types.js';
 import { CardServiceInvariantError } from './errors.js';
-import { cardDepth, cardParentId } from '../schemas/card-id.js';
+import { cardDepth, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
 import type { CardActivationOutcome } from '../contracts/tool-api.js';
 
 export type CardActivationAdmissionProjection = {
@@ -126,8 +126,6 @@ function assertChildParentAdmission(parent: CardRecord, message: string, workflo
 }
 
 export class CardService {
-  readonly maxDepth = 5;
-
   constructor(readonly projectRoot: string, readonly workflows: CompiledProjectWorkflows, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged' | 'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
 
   private recordDefinition(cardId:string,filename:string):RecordDefinition {
@@ -237,14 +235,15 @@ export class CardService {
     if(input.title.length===0||!Number.isInteger(input.priority))throw new Error('Child title and priority are invalid.');
     const parent = this.read(input.parent);
     if (!parent) throw new Error(`Parent card '${input.parent}' does not exist.`);
-    assertChildParentAdmission(parent, 'Cannot create a child under', this.workflows);
     const depth = cardDepth(parent.id) + 1;
-    if (depth > this.maxDepth) throw new Error(`Cannot create card at depth ${depth}. Maximum allowed depth is ${this.maxDepth}.`);
+    if (depth > MAX_CARD_DEPTH) throw new Error(`Cannot create card at depth ${depth}. Maximum allowed depth is ${MAX_CARD_DEPTH}.`);
+    assertChildParentAdmission(parent, 'Cannot create a child under', this.workflows);
+    const childWorkflow=this.workflows.cardTypes.get(input.type);if(!childWorkflow)throw new Error(`No workflow for child type '${input.type}'.`);
+    if(depth===MAX_CARD_DEPTH&&childWorkflow.permittedChildTypes.size!==0)throw new Error(`Cannot create non-leaf child type '${input.type}' at maximum card depth ${MAX_CARD_DEPTH}.`);
     for (const dependencyId of input.depends_on) if (!this.read(dependencyId)) throw new Error(`Dependency card '${dependencyId}' does not exist.`);
     const parentBeforeClaim = this.read(parent.id);
     if (!parentBeforeClaim) throw new Error(`Parent '${parent.id}' changed before child namespace claim.`);
     assertChildParentAdmission(parentBeforeClaim, 'Cannot claim a child namespace under', this.workflows);
-    const childWorkflow=this.workflows.cardTypes.get(input.type);if(!childWorkflow)throw new Error(`No workflow for child type '${input.type}'.`);
     const card = publishInitialChildCard(this.projectRoot, input,childWorkflow);
     if (cardParentId(card.id) !== parentBeforeClaim.id || cardDepth(card.id) !== depth) throw new Error(`Claimed card '${card.id}' does not belong to requested parent '${parentBeforeClaim.id}'.`);
     const freshParent = this.read(parent.id);

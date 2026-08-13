@@ -3,6 +3,7 @@ import { defineStore } from 'pinia';
 import type { CardDetail, CardDiffRow, CardHierarchyRecord, CardHistoryEntry, CardHistoryHeader, CardRecordContentResponse, CardRecordDescriptor, DetailErrorState, LiveSyncCardInvalidateTarget, LiveSyncCardRecordName, RecordDiffResponse, RecordHistoryListResponse, RecordVersionContentResponse } from '../api/types';
 import { OperatorApiError, getCard, getCardChildren, getCardDiff, getCardHistoryEntry, getCardRecord, getRecordDiff, getRecordVersion, isOperatorApiError, listCardHistory, listCardRecords, listRecordHistory, type CurrentCardDiffKey } from '../api/client';
 import { abortRequestOwner, abortRequestOwners, releaseRequestOwner, replaceRequestOwner, withKey } from './keyed-containers';
+import { cardIdSchema, cardIdSegments } from '@saivage/schemas';
 
 export type ChildrenLoadStatus = 'undiscovered' | 'loading' | 'error' | 'loaded-nonempty' | 'confirmed-leaf';
 export type StaleReason = 'invalidated' | 'reconnect' | 'refresh-failed';
@@ -36,9 +37,9 @@ export function buildDetailError(err: unknown, fallback: string): DetailErrorSta
 const message = (error: unknown, fallback: string) => error instanceof Error ? error.message || fallback : fallback;
 const aborted = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 export function cardRouteChain(cardId: string): string[] {
+  if (!cardIdSchema.safeParse(cardId).success) return [];
   if (cardId === 'project') return ['project'];
-  const parts = cardId.startsWith('card-') ? cardId.slice(5).split('-') : [];
-  if (!parts.length || parts.length > 5 || parts.some((part) => !/^[a-z]+$/.test(part))) return [];
+  const parts = cardIdSegments(cardId);
   return ['project', ...parts.map((_part, index) => `card-${parts.slice(0, index + 1).join('-')}`)];
 }
 export function routeAncestorParentIds(cardId: string): readonly string[] { return cardRouteChain(cardId).slice(0, -1); }

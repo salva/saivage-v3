@@ -1,11 +1,10 @@
 import type { CardRecord } from '../schemas/index.js';
 import { PROJECT_CARD_ID } from './project-card.js';
 import { CardServiceInvariantError } from './errors.js';
-import { cardDepth, cardParentId } from '../schemas/card-id.js';
+import { cardDepth, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
 
 export interface ValidateParsedCardsInput {
   cards: CardRecord[];
-  maxDepth: number;
 }
 
 export interface ValidateParsedCardsResult {
@@ -13,7 +12,7 @@ export interface ValidateParsedCardsResult {
   cardsInDepthOrder: CardRecord[];
 }
 
-export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInput): ValidateParsedCardsResult {
+export function validateParsedCards({ cards }: ValidateParsedCardsInput): ValidateParsedCardsResult {
   const byId = new Map(cards.map((c) => [c.id, c] as const));
   const projectCards = cards.filter((c) => c.type === 'project');
   if (projectCards.length > 1) {
@@ -45,7 +44,7 @@ export function validateParsedCards({ cards, maxDepth }: ValidateParsedCardsInpu
     const cached = depthById.get(id);
     if (cached !== undefined) return cached;
     const depth = cardDepth(id);
-    if (depth > maxDepth) throw new CardServiceInvariantError(`Card '${id}' depth ${depth} exceeds maximum ${maxDepth}.`);
+    if (depth > MAX_CARD_DEPTH) throw new CardServiceInvariantError(`Card '${id}' depth ${depth} exceeds maximum ${MAX_CARD_DEPTH}.`);
     depthById.set(id, depth);
     return depth;
   };

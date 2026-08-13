@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { cardIdSchema, nextCardSegment } from '../../src/schemas/card-id.js';
+import { cardDepth, cardIdSchema, childCardId, MAX_CARD_DEPTH, nextCardSegment } from '../../src/schemas/card-id.js';
 
 describe('card identity allocation', () => {
   it('uses spreadsheet-style successors', () => {
@@ -17,10 +17,24 @@ describe('card identity allocation', () => {
     expect(cardIdSchema.parse(`card-${'a'.repeat(29)}`)).toBe(`card-${'a'.repeat(29)}`);
   });
 
-  it('accepts one to five alphabetic hierarchy segments only', () => {
+  it('accepts one to twelve alphabetic hierarchy segments only', () => {
+    const twelve = `card-${Array.from({ length: MAX_CARD_DEPTH }, () => 'a').join('-')}`;
+    const thirteen = `${twelve}-a`;
     expect(cardIdSchema.parse('project')).toBe('project');
-    expect(cardIdSchema.parse('card-a-b-c-d-e')).toBe('card-a-b-c-d-e');
-    expect(() => cardIdSchema.parse('card-a-b-c-d-e-f')).toThrow();
+    expect(cardDepth('project')).toBe(0);
+    expect(cardIdSchema.parse('card-a')).toBe('card-a');
+    expect(cardIdSchema.parse(twelve)).toBe(twelve);
+    expect(cardDepth(twelve)).toBe(MAX_CARD_DEPTH);
+    expect(() => cardIdSchema.parse(thirteen)).toThrow('Expected a hierarchical card id with one to 12 alphabetic segments.');
     expect(() => cardIdSchema.parse('card-a-1')).toThrow();
+    expect(() => cardIdSchema.parse('card-A')).toThrow();
+    expect(() => cardIdSchema.parse('card-a-')).toThrow();
+  });
+
+  it('creates the twelfth segment and rejects a thirteenth', () => {
+    let id = 'project';
+    for (let depth = 1; depth <= MAX_CARD_DEPTH; depth += 1) id = childCardId(id, 'a');
+    expect(cardDepth(id)).toBe(MAX_CARD_DEPTH);
+    expect(() => childCardId(id, 'a')).toThrow('Expected a hierarchical card id with one to 12 alphabetic segments.');
   });
 });

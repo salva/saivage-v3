@@ -238,7 +238,7 @@ export function listCards(projectRoot: string): CardRecord[] {
   const realProjectRoot = proveCanonicalBase(projectRoot); if (!realProjectRoot) return [];
   const root = exactCurrent(realProjectRoot, 'project'); if (root.tombstone) throw new Error('The project card cannot be tombstoned.');
   const cards: CardRecord[] = []; const visit = (artifacts: CardArtifactIndex): void => { cards.push(artifacts.current.card); for (const child of readCanonicalChildrenOfReached(realProjectRoot, artifacts.current.card.id, artifacts)) visit(child); };
-  visit(root); validateParsedCards({ cards, maxDepth: 5 }); return cards;
+  visit(root); validateParsedCards({ cards }); return cards;
 }
 
 export function readCanonicalLinkedCardHistoryTree(projectRoot: string, instrumentation?: CanonicalReadInstrumentation): readonly CanonicalLinkedCardHistoryProjection[] {

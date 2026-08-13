@@ -8,7 +8,7 @@ vi.mock('../api/client', async (importOriginal) => ({
 }));
 
 import { OperatorApiError, getCard, getCardChildren, getCardRecord, listCardRecords } from '../api/client';
-import { useCardStore } from '../stores/cards';
+import { cardRouteChain, useCardStore } from '../stores/cards';
 import { cardView, hierarchyView } from './card-view-fixtures';
 
 const A='card-a';
@@ -21,6 +21,14 @@ const content=(cardId:string,name:string,text='accepted')=>({card_id:cardId,reco
 
 describe('CardStore exact card resources',()=>{
   beforeEach(()=>{setActivePinia(createPinia());vi.clearAllMocks();});
+
+  it('builds route chains through depth twelve and rejects invalid deeper routes',()=>{
+    const parts=Array.from({length:12},()=> 'a');
+    const id=`card-${parts.join('-')}`;
+    expect(cardRouteChain(id)).toEqual(['project',...parts.map((_part,index)=>`card-${parts.slice(0,index+1).join('-')}`)]);
+    expect(cardRouteChain(`${id}-a`)).toEqual([]);
+    expect(cardRouteChain('card-a-1')).toEqual([]);
+  });
 
   it('accepts one hierarchy slice without child lookahead and confirms leaves only after discovery',async()=>{
     vi.mocked(getCardChildren).mockResolvedValueOnce({parent:hierarchyView('project'),children:[hierarchyView('card-b'),hierarchyView(A)]}).mockResolvedValueOnce({parent:hierarchyView(A),children:[]});

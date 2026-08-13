@@ -3,7 +3,7 @@ import type {
   CardService,
   CanonicalCardFileSlot,
 } from '../../cards/card-api.js';
-import { cardIdSchema, childCardId } from '../../schemas/card-id.js';
+import { cardIdSchema, childCardId, MAX_CARD_DEPTH } from '../../schemas/card-id.js';
 import { redactTextForOutbound } from '../../redaction/index.js';
 import type { WorkspaceFileContentResult, WorkspaceFilesListResult } from './workspace-file-read-model.js';
 import { AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
@@ -35,7 +35,7 @@ function parseCanonicalCardPath(path: string): ParsedCardPath | null {
   let index = 1;
   let depth = 0;
   while (index + 1 < components.length && components[index] === 'children' && /^[a-z]+$/.test(components[index + 1]!)) {
-    if (depth === 5) return null;
+    if (depth === MAX_CARD_DEPTH) return null;
     cardId = childCardId(cardId, components[index + 1]!);
     depth += 1;
     index += 2;

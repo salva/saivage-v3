@@ -150,6 +150,7 @@ export {
   eventKindSchema,
 } from './validators.js';
 export { cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';
+export { cardIdSegments, MAX_CARD_DEPTH } from './card-id.js';
 export { cardVersionChangeSchema, type CardVersionChange } from './card-version-change.js';
 export {
   outboundEffectiveSaivageConfigSchema,
