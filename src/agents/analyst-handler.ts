@@ -33,6 +33,7 @@ import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snaps
 import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { randomUUID } from 'node:crypto';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
+import { cardParentId } from '../schemas/card-id.js';
 
 
 export interface WorkspaceContext {
@@ -454,7 +455,7 @@ export class AnalystSession {
           .map((card) => ({
             id: card.id,
             type: card.type,
-            parent: this.#cardStore.getParent(card.id),
+            parent: cardParentId(card.id),
             status: card.lifecycle.status,
             title: card.title,
             priority: card.priority,

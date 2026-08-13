@@ -69,7 +69,7 @@ import { canCreateChildInStatus } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 import type { CardNotification } from '../schemas/types.js';
 import { CardServiceInvariantError } from './errors.js';
-import { cardDepth, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
+import { cardDepth, cardIdSchema, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
 import type { CardActivationOutcome } from '../contracts/tool-api.js';
 
 export type CardActivationAdmissionProjection = {
@@ -139,7 +139,7 @@ export class CardService {
 
   get recordReader() { return { current: (cardId: string, filename: string) => this.readCurrentRecord(cardId, filename), historical: (cardId: string, filename: string, version: number) => this.readHistoricalRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
 
-  private state(): CardIndex {
+  private buildFullIndex(): CardIndex {
     const state = new CardIndex();
     for (const card of listCards(this.projectRoot).sort((left, right) => cardDepth(left.id) - cardDepth(right.id))) state.upsert(card);
     return state;
@@ -168,13 +168,27 @@ export class CardService {
   }
 
   read(id: string): CardRecord | null { const card = readCard(this.projectRoot, id); return card ? clone(card) : null; }
-  list(): CardRecord[] { return clone(this.state().list()); }
+  list(): CardRecord[] { return clone(this.buildFullIndex().list()); }
   listChildren(parentId: string): string[] { return readLinkedChildren(this.projectRoot, parentId).map((card) => card.id); }
-  getParent(id: string): string | null { return this.state().get(id) ? cardParentId(id) : null; }
-  getAncestors(id: string): string[] { const state = this.state(); if (!state.get(id)) return []; const out: string[] = []; let parent = cardParentId(id); while (parent) { if (!state.get(parent)) throw new CardServiceInvariantError(`Card '${id}' has missing linked ancestor '${parent}'.`); out.unshift(parent); parent = cardParentId(parent); } return out; }
-  isDescendantOf(id: string, ancestorId: string): boolean { return this.getAncestors(id).includes(ancestorId); }
-  getDescendantIds(id: string): string[] { const state = this.state(); const out: string[] = []; const visit = (parent: string): void => { for (const child of state.childrenOf(parent)) { out.push(child); visit(child); } }; visit(id); return out; }
-  blocksFor(id: string): string[] { return this.list().filter((card) => card.depends_on.includes(id)).map((card) => card.id); }
+  getParent(id: string): string | null { return readCanonicalCard(this.projectRoot, id).kind === 'found' ? cardParentId(id) : null; }
+  getAncestors(id: string): string[] { if (readCanonicalCard(this.projectRoot, id).kind === 'card-not-found') return []; const out: string[] = []; let parent = cardParentId(id); while (parent) { out.unshift(parent); parent = cardParentId(parent); } return out; }
+  isDescendantOf(id: string, ancestorId: string): boolean { cardIdSchema.parse(ancestorId); return this.getAncestors(id).includes(ancestorId); }
+  getDescendantIds(id: string): string[] {
+    const root = readCanonicalCardHierarchy(this.projectRoot, id);
+    if (root.kind === 'card-not-found') return [];
+    const out: string[] = [];
+    const visit = (children: readonly CanonicalCardProjection[]): void => {
+      for (const child of children) {
+        out.push(child.card.id);
+        const hierarchy = readCanonicalCardHierarchy(this.projectRoot, child.card.id);
+        if (hierarchy.kind === 'card-not-found') throw new CardServiceInvariantError(`Reached active card '${child.card.id}' became unavailable during descendant traversal.`);
+        visit(hierarchy.value.activeChildren);
+      }
+    };
+    visit(root.value.activeChildren);
+    return out;
+  }
+  blocksFor(id: string): string[] { cardIdSchema.parse(id); return this.list().filter((card) => card.depends_on.includes(id)).map((card) => card.id); }
 
   readCurrentRecord(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection { const current = readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); if (!current) throw new AuthoredRecordNotFoundError(); return current; }
   readCurrentRecordOrNull(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection | null { return readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); }
@@ -346,7 +360,7 @@ export class CardService {
 
   deleteSubtrees(requestedIds: readonly string[], allowed: (card: CardRecord) => boolean,agentName:AgentName): { deleted: string[]; requested: string[] } {
     if (requestedIds.length === 0) throw new Error('Deletion requires at least one card id.');
-    const state = this.state(); const roots = [...new Set(requestedIds)]; const intended = new Set<string>();
+    const state = this.buildFullIndex(); const roots = [...new Set(requestedIds)]; const intended = new Set<string>();
     for (const id of roots) { const card = state.get(id); if (!card || id === 'project') throw new Error(`Card '${id}' cannot be deleted.`); intended.add(id); for (const child of state.descendantsOf(id)) intended.add(child); }
     for (const id of intended) if (!allowed(state.get(id)!)) throw new Error(`Deletion denied for card '${id}'.`);
     for (const survivor of state.list()) for (const dependency of survivor.depends_on) if (!intended.has(survivor.id) && intended.has(dependency)) throw new Error(`Surviving card '${survivor.id}' depends on deleted card '${dependency}'.`);
