@@ -49,9 +49,10 @@ const projectCard = {
   type: 'project',
   title: 'Synthetic Project',
   status: 'running',
+  permitted_child_types: ['goal', 'code'],
 };
 
-const hierarchyCard={id:smokeCardId,type:'code',title:card.title,status:'done'} as const;
+const hierarchyCard={id:smokeCardId,type:'code',title:card.title,status:'done',permitted_child_types:[]} as const;
 const rootChildren = parseOperatorResponse('cards.children', 200, { parent: projectCard, children: [hierarchyCard] });
 export const cardRecords = [
   { name: 'brief.md', format: 'markdown' as const, schema: 'card-brief.v1', writers: ['analyst', 'executor'], bootstrap: true, current: null },

@@ -40,7 +40,7 @@ const target = { ...card(targetId, 'Deep linked target'), version_seq: 3 };
 const targetPrior = { ...target, title: 'Earlier target', version_seq: 2 };
 const newlyLinked = card(newId, 'Current detail outside retained slice');
 const project = card('project', 'Cards fixture project', [sourceId, goalId, ...overflow.map((entry) => entry.id)], 'running');
-const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status});
+const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status,permitted_child_types:value.type==='project'||value.type==='goal'?['code'] as const:[]});
 const detailProjection=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
 const recordsFor = (id: string) => id === targetId ? [
   { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true,current:null },

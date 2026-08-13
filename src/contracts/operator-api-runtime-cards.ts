@@ -66,7 +66,7 @@ const refineHierarchyIdentity = (value: { id: string; type: string }, ctx: z.Ref
   if (value.id === 'project' && value.type !== 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['type'], message: 'The project card is the fixed root.' });
   if (value.id !== 'project' && value.type === 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['type'], message: 'Only the fixed project card may have type project.' });
 };
-const hierarchyShape = { id: cardIdSchema, title: z.string().min(1), type: cardTypeSchema, status: cardStatusSchema };
+const hierarchyShape = { id: cardIdSchema, title: z.string().min(1), type: cardTypeSchema, status: cardStatusSchema, permitted_child_types: z.array(cardTypeSchema) };
 export const CardHierarchyParentSchema = z.object(hierarchyShape).strict().superRefine(refineHierarchyIdentity);
 export const CardHierarchyChildSummarySchema = z.object(hierarchyShape).strict().superRefine(refineHierarchyIdentity);
 export const CardChildrenResponseSchema = z.object({ parent: CardHierarchyParentSchema, children: z.array(CardHierarchyChildSummarySchema) }).strict().superRefine((value, ctx) => {

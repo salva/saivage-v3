@@ -26,7 +26,8 @@ const canonicalCard = {
   status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
 } as const;
 const canonicalCardDetail = { id:'project',type:'project',title:'Project',lifecycle:canonicalCard.lifecycle,version_seq:1,urgency:'normal',created_at:canonicalCard.created_at,updated_at:canonicalCard.updated_at,allowedActions:[] } as const;
-const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog' } as const;
+const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog',permitted_child_types:['goal','code'] } as const;
+const canonicalHierarchyChild = { id:'card-a',type:'code',title:'Card',status:'backlog',permitted_child_types:[] } as const;
 const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['analyst', 'planner'], bootstrap: true, current: null }] as const;
 const canonicalCardKeys = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const;
 const validOperatorApiRow: OperatorApiCardDiffRow = { field: 'title', before: null, after: 'new' };
@@ -469,8 +470,14 @@ describe('operator API runtime contract without runtime ledgers', () => {
     const record = parseOperatorResponse('cards.records.get', 200, { card_id:'project',record:{name:'brief.md',head_version:1,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:canonicalCard.created_at,writer_agent:'runtime:bootstrap',card_version_seq:1,content:'Brief',content_sha256:'a'.repeat(64),size_bytes:5},draft:null,discarded:null,effective_content_source:'accepted'} }).record;
     expect(record.accepted?.content).toBe('Brief');
     for (const forbidden of ['children','depends_on','assigned_to','started_at','records','operator_summary']) expect(() => parseOperatorResponse('cards.get', 200, { card: { ...canonicalCardDetail, [forbidden]: null } })).toThrow();
-    for (const forbidden of ['children','has_children','descendant_count']) expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code',[forbidden]:[] }] })).toThrow();
-    expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyCard,id:'card-a',type:'code' },{ ...canonicalHierarchyCard,id:'card-a',type:'code' }] })).toThrow();
+    for (const forbidden of ['children','has_children','descendant_count']) expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [{ ...canonicalHierarchyChild,[forbidden]:[] }] })).toThrow();
+    expect(() => parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [canonicalHierarchyChild,canonicalHierarchyChild] })).toThrow();
+    const missingPolicy={...canonicalHierarchyChild} as Record<string,unknown>;delete missingPolicy.permitted_child_types;
+    expect(()=>parseOperatorResponse('cards.children',200,{parent:canonicalHierarchyCard,children:[missingPolicy]})).toThrow();
+    const missingParentPolicy={...canonicalHierarchyCard} as Record<string,unknown>;delete missingParentPolicy.permitted_child_types;
+    expect(()=>parseOperatorResponse('cards.children',200,{parent:missingParentPolicy,children:[]})).toThrow();
+    expect(()=>parseOperatorResponse('cards.children',200,{parent:{...canonicalHierarchyCard,permitted_child_types:['unknown']},children:[]})).toThrow();
+    expect(()=>parseOperatorResponse('cards.children',200,{parent:canonicalHierarchyCard,children:[{...canonicalHierarchyChild,permitted_child_types:['unknown']}]})).toThrow();
     expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[...canonicalRecordDescriptors,...canonicalRecordDescriptors] })).toThrow();
     expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],writers:['analyst','analyst']}] })).toThrow();
     expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],bootstrap:false}] })).toThrow();

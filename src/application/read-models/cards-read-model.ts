@@ -65,7 +65,11 @@ export class CardsReadModelService {
     const result = this.store.getCardChildren(id, instrumentation);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     if (result.value.parent.id !== id) throw new Error(`Hierarchy parent '${result.value.parent.id}' does not match requested card '${id}'.`);
-    const hierarchy = (card: CardRecord) => ({ id: card.id, title: redactTextForOutbound(card.title), type: card.type, status: card.lifecycle.status });
+    const hierarchy = (card: CardRecord) => {
+      const workflow = this.store.workflows.cardTypes.get(card.type);
+      if (!workflow) throw new Error(`No compiled workflow for card type '${card.type}'.`);
+      return { id: card.id, title: redactTextForOutbound(card.title), type: card.type, status: card.lifecycle.status, permitted_child_types: [...workflow.permittedChildTypes] };
+    };
     return { body: CardChildrenResponseSchema.parse({ parent: hierarchy(result.value.parent), children: result.value.activeChildren.map(hierarchy) }) };
   }
 

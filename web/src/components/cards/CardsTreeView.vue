@@ -11,7 +11,7 @@
           @select="emit('select', node.card.id)"
         >
           <button
-            v-if="loadStateFor(node.card.id).status !== 'confirmed-leaf'"
+            v-if="canDiscoverChildren(node)"
             type="button"
             class="node-toggle"
             :disabled="isRouteForced(node.card.id) || loadStateFor(node.card.id).status === 'loading'"
@@ -51,6 +51,7 @@ const emit = defineEmits<{ toggle: [id: string]; retry: [id: string]; select: [i
 interface RenderedNode extends CardTreeNode { depth: number }
 function isEffectivelyExpanded(id: string): boolean { return props.expandedIds.has(id); }
 function isRouteForced(id: string): boolean { return props.forcedExpandedIds.has(id); }
+function canDiscoverChildren(node: RenderedNode): boolean { return node.card.permitted_child_types.length > 0 && props.loadStateFor(node.card.id).status !== 'confirmed-leaf'; }
 function toggleLabel(node: RenderedNode): string {
   if (isRouteForced(node.card.id)) return `${node.card.title}: Expanded to show selected card`;
   return isEffectivelyExpanded(node.card.id) ? `Collapse ${node.card.title}` : `Expand ${node.card.title}`;

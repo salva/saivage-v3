@@ -23,10 +23,18 @@ describe('exact Card operator resources',()=>{
     const removed=cards.create(input('project','Removed'));const removedDescendant=cards.create(input(removed.id,'Removed descendant','code'));
     cards.deleteSubtrees([removed.id],()=>true);writeFileSync(cardVersionIndexFile(root,removedDescendant.id),'{descendant-must-not-be-read}\n');
     const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});const read=paths();const response=model.getChildren('project',read.instrumentation);
-    expect(response.body).toEqual({parent:{id:'project',title:expect.any(String),type:'project',status:'backlog'},children:[{id:parent.id,title:'Parent',type:'goal',status:'backlog'}]});
-    expect(Object.keys((response.body as {children:object[]}).children[0]!)).toEqual(['id','title','type','status']);
+    expect(response.body).toEqual({parent:{id:'project',title:expect.any(String),type:'project',status:'backlog',permitted_child_types:['goal','architecture','code','test','doc','data','research','ops']},children:[{id:parent.id,title:'Parent',type:'goal',status:'backlog',permitted_child_types:['goal','architecture','code','test','doc','data','research','ops']}]});
+    expect(Object.keys((response.body as {children:object[]}).children[0]!)).toEqual(['id','title','type','status','permitted_child_types']);
     expect(read.value).toContain(cardVersionIndexFile(root,'project')); expect(read.value).toContain(cardVersionIndexFile(root,parent.id)); expect(read.value).toContain(cardVersionIndexFile(root,removed.id));
     expect(read.value).not.toContain(cardVersionIndexFile(root,grandchild.id));expect(read.value).not.toContain(cardVersionIndexFile(root,removedDescendant.id));
+  });
+
+  it('projects empty compiled child policy and fails fast when a card workflow is missing',()=>{
+    const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);
+    const leaf=cards.create(input('project','Leaf','code'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
+    expect(model.getChildren(leaf.id).body).toMatchObject({parent:{id:leaf.id,permitted_child_types:[]}});
+    const missing={getCardChildren:()=>({kind:'found',value:{parent:cards.read(leaf.id),activeChildren:[]}}),workflows:{cardTypes:new Map()}};
+    expect(()=>new CardsReadModelService(root,missing as never,{getRuntimeState:()=>null}).getChildren(leaf.id)).toThrow("No compiled workflow for card type 'code'.");
   });
 
   it('separates detail, definitions, and one latest closed record read',()=>{

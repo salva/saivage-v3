@@ -97,7 +97,7 @@ describe('AnalystChatPanel', () => {
       entries,
       cursor: '3',
     });
-    api.getCardChildren.mockResolvedValue({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog' }, children: [] });
+    api.getCardChildren.mockResolvedValue({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog', permitted_child_types: ['goal'] }, children: [] });
     api.sendChatMessage.mockResolvedValue({
       toolInvocations: [],
       restart: null,
@@ -118,7 +118,7 @@ describe('AnalystChatPanel', () => {
     expect(api.getChatEntries).not.toHaveBeenCalled();
     expect(live.openConversation).not.toHaveBeenCalled();
 
-    resolveRoot({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog' }, children: [] });
+    resolveRoot({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog', permitted_child_types: ['goal'] }, children: [] });
     await existingRoot;
     await flushPromises();
     expect(api.getChatEntries).toHaveBeenCalledTimes(1);
@@ -181,7 +181,7 @@ describe('AnalystChatPanel', () => {
     const wrapper = mountPanel();
     await flushPromises();
     wrapper.unmount();
-    resolveRoot({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog' }, children: [] });
+    resolveRoot({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog', permitted_child_types: ['goal'] }, children: [] });
     await flushPromises();
     expect(api.getChatEntries).not.toHaveBeenCalled();
     expect(live.openConversation).not.toHaveBeenCalled();

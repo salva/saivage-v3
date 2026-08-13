@@ -44,7 +44,7 @@ const children = [
 ];
 const goal = card(goalId, 'Representative status goal', 'running', children.map((child) => child.id));
 const project = card('project', 'Status fixture project', 'running', [goalId]);
-const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status});
+const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status,permitted_child_types:value.type==='project'||value.type==='goal'?['code'] as const:[]});
 const detailProjection=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
 const descriptors=[{name:'brief.md',format:'markdown' as const,schema:'brief.v1',writers:['analyst'],bootstrap:true,current:null}];
 

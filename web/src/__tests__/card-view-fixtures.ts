@@ -30,7 +30,7 @@ export function cardView(id: string, overrides: Partial<CardDetail> = {}): CardD
   return { id, type: id === 'project' ? 'project' : 'code', title: id === 'project' ? 'Project' : 'Card', lifecycle, version_seq: 1, urgency: 'normal', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', allowedActions: [], ...overrides };
 }
 
-export function hierarchyView(id: string, overrides: Partial<CardHierarchyRecord> = {}): CardHierarchyRecord { return { id, type: id === 'project' ? 'project' : 'code', title: id === 'project' ? 'Project' : 'Card', status: 'backlog', ...overrides }; }
+export function hierarchyView(id: string, overrides: Partial<CardHierarchyRecord> = {}): CardHierarchyRecord { return { id, type: id === 'project' ? 'project' : 'code', title: id === 'project' ? 'Project' : 'Card', status: 'backlog', permitted_child_types: id === 'project' ? ['goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] : [], ...overrides }; }
 
 export function historyHeader(overrides: Partial<CardHistoryHeader> & Pick<CardHistoryHeader, 'kind' | 'card_id' | 'version_seq'>): CardHistoryHeader {
   const provenance = overrides.kind === 'update' ? { changed_by_actor: 'planner', changed_by_surface: 'runtime' } : overrides.kind === 'delete' ? { changed_by_actor: 'analyst', changed_by_surface: 'runtime' } : { changed_by_actor: 'runtime', changed_by_surface: 'runtime' };

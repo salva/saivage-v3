@@ -25,17 +25,23 @@ describe('CardsTreeView hierarchy slices', () => {
     expect(wrapper.emitted('retry')).toEqual([['card-a']]);
   });
 
-  it('presents undiscovered children as discovery and removes the affordance only for a confirmed leaf', () => {
-    const states: Record<string, ChildrenLoadState> = { project: loaded(), 'card-a': state('undiscovered'), 'card-b': state('confirmed-leaf') };
-    const tree = [node('project', null, [node('card-a', '1'), node('card-b', '2')])];
+  it('offers discovery only for configured non-leaves that are not confirmed empty', () => {
+    const states: Record<string, ChildrenLoadState> = { project: loaded(), 'card-a': state('undiscovered'), 'card-b': state('undiscovered'), 'card-c': state('confirmed-leaf') };
+    const tree = [node('project', null, [
+      { ...node('card-a', '1'), card: hierarchyView('card-a', { title: 'card-a', type: 'goal', permitted_child_types: ['code'] }) },
+      node('card-b', '2'),
+      { ...node('card-c', '3'), card: hierarchyView('card-c', { title: 'card-c', type: 'goal', permitted_child_types: ['code'] }) },
+    ])];
     const wrapper = mount(CardsTreeView, { props: { tree, expandedIds: new Set(['project']), forcedExpandedIds: new Set<string>(), selectedCardId: null, loadStateFor: (id) => states[id] ?? loaded() } });
     const rows = wrapper.findAll('.tree-node');
     expect(rows[1]!.find('button.node-toggle').attributes('aria-label')).toBe('Expand card-a');
     expect(rows[2]!.find('button.node-toggle').exists()).toBe(false);
+    expect(rows[3]!.find('button.node-toggle').exists()).toBe(false);
   });
 
   it('selects only a represented exact row and route-forces represented ancestors', () => {
-    const tree = [node('project', null, [node('card-a', '1', [node('card-a-b', '1.1')])])];
+    const child = { ...node('card-a', '1', [node('card-a-b', '1.1')]), card: hierarchyView('card-a', { title: 'card-a', type: 'goal', permitted_child_types: ['code'] }) };
+    const tree = [node('project', null, [child])];
     const wrapper = mount(CardsTreeView, { props: { tree, expandedIds: new Set(['project', 'card-a']), forcedExpandedIds: new Set(['project', 'card-a']), selectedCardId: 'card-a-b', loadStateFor: loaded } });
     expect(wrapper.findAll('.tree-node.selected')).toHaveLength(1);
     expect(wrapper.find('.tree-node.selected').text()).toContain('card-a-b');
