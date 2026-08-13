@@ -29,17 +29,15 @@ describe('runtime ledger contract deletions', () => {
   });
 
   it('removes obsolete runtime lock and conversation-barrel exports', async () => {
-    const [lock, control, inventory, actors] = await Promise.all([
+    const [lock, control, actors] = await Promise.all([
       import('../../src/runtime/lock.js'),
       import('../../src/runtime/control-api.js'),
-      import('../../src/runtime/actors/conversation-inventory.js'),
       import('../../src/runtime/actors/index.js'),
     ]);
 
     expect('parseRuntimeLockOwnerRecord' in lock).toBe(false);
     expect('isLocked' in lock).toBe(false);
     expect('isLocked' in control).toBe(false);
-    expect('parseConversationSessionId' in inventory).toBe(false);
     expect('parseConversationSessionId' in actors).toBe(false);
   });
 

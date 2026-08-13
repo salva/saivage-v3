@@ -9,7 +9,6 @@ import {
   CardAgentScopeNotFoundError,
 } from '../../src/application/read-models/agent-operator-read-model.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
-import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 import {
   agentMessageSchema,
   cardAgentSessionId,
@@ -18,6 +17,7 @@ import {
   type ConversationSessionId,
 } from '../../src/schemas/index.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-24T00:00:00.000Z';
@@ -27,7 +27,7 @@ afterEach(() => {
 });
 
 describe('AgentOperatorReadModelService granular resources', () => {
-  it('derives compiled-workflow candidates and reads only their first envelopes for summaries', () => {
+  it('derives compiled-workflow candidates and reads index metadata for summaries', () => {
     const projectRoot = createRoot();
     const cards = new CardService(projectRoot);
     const child = cards.create({
@@ -48,7 +48,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const executor = cardAgentSessionId('executor', child.id);
     for (const sessionId of [analyst, planner, reviewer, executor]) publishMarker(projectRoot, sessionId);
 
-    appendFileSync(conversationFile(projectRoot, planner), '{malformed later envelope}\n');
+    appendFileSync(currentConversationSegmentPath(projectRoot, planner), '{malformed later envelope}\n');
     const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS);
 
     expect(service.listSessions().sessions.map(({ id }) => id)).toEqual(

@@ -7,7 +7,7 @@ import {
   type AppLogEntryOfType,
   type AppLogEntryType,
 } from '../contracts/app-log.js';
-import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, readStrictCanonicalGrowingFile } from './growing-file.js';
+import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile } from './growing-file.js';
 import { appLogFile, saivageLogsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
@@ -38,7 +38,7 @@ export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): 
 
 export function initializeAppLog(projectRoot: string): void {
   const path = appLogFile(projectRoot);
-  try { validateAppLogEntries(path, readCanonicalGrowingFile(path, appLogEntrySchema)); }
+  try { validateAppLogEntries(path, readStrictCanonicalGrowingFile(path, appLogEntrySchema)); }
   catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error instanceof Error && error.message === `Growing file '${path}' is empty.`)) return; throw error; }
 }
 

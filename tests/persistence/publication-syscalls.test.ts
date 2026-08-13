@@ -2,10 +2,9 @@ import { describe, expect, it } from '@jest/globals';
 import { constants, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { z } from 'zod';
 
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
-import { appendEnvelope, readCanonicalGrowingFileSnapshot, readCappedCanonicalGrowingFileSnapshot, serializeGrowingEnvelope, type CanonicalGrowingFileReadIo, type GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { appendEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { replaceFile, type ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { appendProcessOutputChunk, type ProcessOutputIo } from '../../src/runtime/process-runner.js';
 import { acquireRuntimeLifecycleLock, type RuntimeLockPublicationIo } from '../../src/runtime/lock.js';
@@ -15,10 +14,6 @@ const zeroEintr = Object.assign(new Error('interrupted before transfer'), { code
 const unknownEintr = Object.assign(new Error('interrupted with unknown transfer'), { code: 'EINTR' });
 const failure = new Error('injected failure');
 
-function captureError(operation: () => unknown): unknown {
-  try { operation(); } catch (error) { return error; }
-  throw new Error('Expected operation to throw.');
-}
 
 function replacementIo(failAt?: string, trace: string[] = []): ReplacementFileIo {
   let opens = 0;
@@ -149,213 +144,6 @@ describe('publication syscall boundaries', () => {
       const io: ProcessOutputIo = { open() { trace.push('open'); return 1; }, stat() { trace.push('stat'); return regular; }, write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => { operation('write'); return stage === 'write' ? 0 : length; }) as never, fsync() { operation('fsync'); }, close() { operation('close'); } };
       expect(() => appendProcessOutputChunk('/owner/stdout.log', Buffer.from('x'), io)).toThrow(PublicationOutcomeUnknownError);
       expect(trace.at(-1)).toBe(stage);
-    }
-  });
-
-  it.each(['stat', 'read', 'instrumentation'] as const)('closes the growing-file descriptor once while preserving pre-truncate %s failure', (stage) => {
-    const trace: string[] = [];
-    const content = Buffer.from('{}\n');
-    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { trace.push('stat'); if (stage === 'stat') throw failure; return regular; }, read(_fd, buffer, offset, length, position) { trace.push('read'); if (stage === 'read') throw failure; return content.copy(buffer, offset, position, Math.min(content.length, position + length)); }, truncate() {}, fsync() {}, close() { trace.push('close'); } };
-    expect(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io, stage === 'instrumentation' ? { onRead() { trace.push('instrumentation'); throw failure; } } : undefined)).toThrow(failure);
-    expect(trace.filter((entry) => entry === 'close')).toHaveLength(1);
-  });
-
-  it('preserves the growing-file pre-truncate error when its sole close also fails', () => {
-    let closes = 0;
-    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { throw failure; }, read() { return 0; }, truncate() {}, fsync() {}, close() { closes += 1; throw new Error('close failed'); } };
-    expect(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io)).toThrow(failure);
-    expect(closes).toBe(1);
-  });
-
-  it('does not repeat the ordinary non-truncating success-path close', () => {
-    const closeFailure = new Error('close failed'); let closes = 0;
-    const content = Buffer.from('{"version":1,"type":"rows","rows":[{}]}\n');
-    const io: CanonicalGrowingFileReadIo = { open() { return 1; }, stat() { return { isFile: () => true, size: 40, mtime: new Date(0) } as never; }, read(_fd, buffer, offset, length, position) { return content.copy(buffer, offset, position, Math.min(content.length, position + length)); }, truncate() {}, fsync() {}, close() { closes += 1; throw closeFailure; } };
-    expect(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io)).toThrow(closeFailure);
-    expect(closes).toBe(1);
-  });
-
-  it.each(['truncate', 'fsync'] as const)('abandons a growing-file snapshot after uncertain suffix %s', (stage) => {
-    const trace: string[] = [];
-    const retained = serializeGrowingEnvelope([{ id: 'retained' }], z.unknown());
-    const content = Buffer.concat([retained, Buffer.from('X')]);
-    const io: CanonicalGrowingFileReadIo = {
-      open() { trace.push('open'); return 1; },
-      stat() { trace.push('initial-stat'); return { isFile: () => true, size: content.byteLength, mtime: new Date(0) } as never; },
-      read(_fd, buffer, offset, length, position) { trace.push(`read:${position}`); return content.copy(buffer, offset, position, Math.min(content.length, position + length)); },
-      truncate(_fd, length) { trace.push(`truncate:${length}`); if (stage === 'truncate') { trace[trace.length - 1] = 'truncate'; throw failure; } },
-      fsync() { trace.push('fsync'); if (stage === 'fsync') throw failure; },
-      close() { trace.push('close'); },
-    };
-    expect(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io)).toThrow(PublicationOutcomeUnknownError);
-    expect(trace).toEqual(stage === 'truncate'
-      ? ['open', 'initial-stat', 'read:0', `read:${content.byteLength}`, 'truncate']
-      : ['open', 'initial-stat', 'read:0', `read:${content.byteLength}`, `truncate:${retained.byteLength}`, 'fsync']);
-  });
-
-  it('propagates the exact snapshot final-stat failure after suffix publication and preserves it over cleanup-close failure', () => {
-    const trace: string[] = [];
-    const retained = serializeGrowingEnvelope([{ id: 'retained' }], z.unknown());
-    let content = Buffer.concat([retained, Buffer.from('X')]);
-    let stats = 0;
-    const closeFailure = new Error('close failed');
-    const io: CanonicalGrowingFileReadIo = {
-      open() { trace.push('open'); return 1; },
-      stat() { stats += 1; trace.push(stats === 1 ? 'initial-stat' : 'final-stat'); if (stats === 2) throw failure; return { isFile: () => true, size: content.byteLength, mtime: new Date(0) } as never; },
-      read(_fd, buffer, offset, length, position) { trace.push(`read:${position}`); return content.copy(buffer, offset, position, Math.min(content.length, position + length)); },
-      truncate(_fd, length) { trace.push(`truncate:${length}`); content = content.subarray(0, length); },
-      fsync() { trace.push('fsync'); },
-      close() { trace.push('close'); throw closeFailure; },
-    };
-    expect(captureError(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io))).toBe(failure);
-    expect(trace).toEqual(['open', 'initial-stat', 'read:0', `read:${retained.byteLength + 1}`, `truncate:${retained.byteLength}`, 'fsync', 'final-stat', 'close']);
-  });
-
-  it('propagates one exact ordinary close failure after suffix publication, parsing, and final stat', () => {
-    const trace: string[] = [];
-    const retained = serializeGrowingEnvelope([{ id: 'retained' }], z.unknown());
-    let content = Buffer.concat([retained, Buffer.from('X')]);
-    let stats = 0;
-    const closeFailure = new Error('close failed');
-    const io: CanonicalGrowingFileReadIo = {
-      open() { trace.push('open'); return 1; },
-      stat() { stats += 1; trace.push(stats === 1 ? 'initial-stat' : 'final-stat'); return { isFile: () => true, size: content.byteLength, mtime: new Date(0) } as never; },
-      read(_fd, buffer, offset, length, position) { trace.push(`read:${position}`); return content.copy(buffer, offset, position, Math.min(content.length, position + length)); },
-      truncate(_fd, length) { trace.push(`truncate:${length}`); content = content.subarray(0, length); },
-      fsync() { trace.push('fsync'); },
-      close() { trace.push('close'); throw closeFailure; },
-    };
-    expect(captureError(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io))).toBe(closeFailure);
-    expect(trace).toEqual(['open', 'initial-stat', 'read:0', `read:${retained.byteLength + 1}`, `truncate:${retained.byteLength}`, 'fsync', 'final-stat', 'close']);
-  });
-
-  it('preserves the ordinary empty snapshot failure over one cleanup-close failure after zero truncation', () => {
-    const trace: string[] = [];
-    let content = Buffer.from('partial');
-    const closeFailure = new Error('close failed');
-    const io: CanonicalGrowingFileReadIo = {
-      open() { trace.push('open'); return 1; },
-      stat() { trace.push('initial-stat'); return { isFile: () => true, size: content.byteLength, mtime: new Date(0) } as never; },
-      read(_fd, buffer, offset, length, position) { trace.push(`read:${position}`); return content.copy(buffer, offset, position, Math.min(content.length, position + length)); },
-      truncate(_fd, length) { trace.push(`truncate:${length}`); content = content.subarray(0, length); },
-      fsync() { trace.push('fsync'); },
-      close() { trace.push('close'); throw closeFailure; },
-    };
-    const thrown = captureError(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io));
-    expect(thrown).toEqual(new Error("Growing file '/owner/app.jsonl' is empty."));
-    expect(thrown).not.toBe(closeFailure);
-    expect(trace).toEqual(['open', 'initial-stat', 'read:0', 'read:7', 'truncate:0', 'fsync', 'close']);
-  });
-
-  it('preserves malformed retained-envelope failure over cleanup-close failure after suffix publication', () => {
-    const trace: string[] = [];
-    let content = Buffer.from('{bad}\nX');
-    const closeFailure = new Error('close failed');
-    const io: CanonicalGrowingFileReadIo = {
-      open() { trace.push('open'); return 1; },
-      stat() { trace.push('initial-stat'); return { isFile: () => true, size: content.byteLength, mtime: new Date(0) } as never; },
-      read(_fd, buffer, offset, length, position) { trace.push(`read:${position}`); return content.copy(buffer, offset, position, Math.min(content.length, position + length)); },
-      truncate(_fd, length) { trace.push(`truncate:${length}`); content = content.subarray(0, length); },
-      fsync() { trace.push('fsync'); },
-      close() { trace.push('close'); throw closeFailure; },
-    };
-    const thrown = captureError(() => readCanonicalGrowingFileSnapshot('/owner/app.jsonl', z.unknown(), io));
-    expect(thrown).toBeInstanceOf(Error);
-    expect((thrown as Error).message).toMatch(/envelope 1 is malformed/);
-    expect(thrown).not.toBe(closeFailure);
-    expect(trace).toEqual(['open', 'initial-stat', 'read:0', 'read:7', 'truncate:6', 'fsync', 'close']);
-  });
-
-  it('rejects an initial over-cap stat without reading or mutating and closes once', () => {
-    const trace: string[] = [];
-    const io: CanonicalGrowingFileReadIo = {
-      open() { trace.push('open'); return 1; },
-      stat() { trace.push('stat'); return { isFile: () => true, size: 6 } as never; },
-      read() { trace.push('read'); return 0; }, truncate() { trace.push('truncate'); }, fsync() { trace.push('fsync'); }, close() { trace.push('close'); },
-    };
-    expect(readCappedCanonicalGrowingFileSnapshot('/owner/status.jsonl', z.unknown(), 5, io)).toEqual({ kind: 'too-large', size: 6 });
-    expect(trace).toEqual(['open', 'stat', 'close']);
-  });
-
-  it.each([-1, 1.5, Number.MAX_SAFE_INTEGER, Number.POSITIVE_INFINITY])('rejects invalid capped size %s before opening', (maximumBytes) => {
-    let opens = 0;
-    const io = { open() { opens += 1; return 1; } } as never;
-    expect(() => readCappedCanonicalGrowingFileSnapshot('/owner/status.jsonl', z.unknown(), maximumBytes, io)).toThrow(/maximum byte count/);
-    expect(opens).toBe(0);
-  });
-
-  it('uses only the maximum-plus-one proof buffer and advances forced short reads by actual bytes', () => {
-    const source = Buffer.from([0xff, 1, 2, 3, 4, 5, 6, 7]);
-    const requests: Array<{ offset: number; length: number; position: number }> = [];
-    const returns = [2, 3, 1];
-    let stats = 0;
-    const trace: string[] = [];
-    const io: CanonicalGrowingFileReadIo = {
-      open() { trace.push('open'); return 1; },
-      stat() { stats += 1; trace.push('stat'); return { isFile: () => true, size: 5, mtime: new Date(0) } as never; },
-      read(_descriptor, buffer, offset, length, position) {
-        expect(buffer.byteLength).toBe(6);
-        expect(offset + length).toBeLessThanOrEqual(buffer.byteLength);
-        requests.push({ offset, length, position }); trace.push('read');
-        const count = returns.shift()!;
-        source.copy(buffer, offset, position, position + count);
-        return count;
-      },
-      truncate() { trace.push('truncate'); }, fsync() { trace.push('fsync'); }, close() { trace.push('close'); },
-    };
-    expect(readCappedCanonicalGrowingFileSnapshot('/owner/status.jsonl', z.unknown(), 5, io)).toEqual({ kind: 'too-large', size: 6 });
-    expect(requests).toEqual([
-      { offset: 0, length: 6, position: 0 },
-      { offset: 2, length: 4, position: 2 },
-      { offset: 5, length: 1, position: 5 },
-    ]);
-    expect(stats).toBe(1);
-    expect(trace).toEqual(['open', 'stat', 'read', 'read', 'read', 'close']);
-  });
-
-  it('preserves capped pre-mutation failures and treats either too-large close failure as authoritative', () => {
-    const readFailure = new Error('read failed');
-    let closes = 0;
-    const readIo: CanonicalGrowingFileReadIo = {
-      open() { return 1; }, stat() { return { isFile: () => true, size: 1 } as never; },
-      read() { throw readFailure; }, truncate() {}, fsync() {}, close() { closes += 1; throw new Error('close failed'); },
-    };
-    expect(() => readCappedCanonicalGrowingFileSnapshot('/owner/status.jsonl', z.unknown(), 5, readIo)).toThrow(readFailure);
-    expect(closes).toBe(1);
-
-    for (const initialSize of [6, 5]) {
-      const closeFailure = new Error(`close failed at ${initialSize}`);
-      let reads = 0; let closeCalls = 0;
-      const tooLargeIo: CanonicalGrowingFileReadIo = {
-        open() { return 1; }, stat() { return { isFile: () => true, size: initialSize } as never; },
-        read(_descriptor, buffer, offset, length) { reads += 1; buffer.fill(0xff, offset, offset + length); return length; },
-        truncate() { throw new Error('must not truncate'); }, fsync() { throw new Error('must not fsync'); },
-        close() { closeCalls += 1; throw closeFailure; },
-      };
-      expect(() => readCappedCanonicalGrowingFileSnapshot('/owner/status.jsonl', z.unknown(), 5, tooLargeIo)).toThrow(closeFailure);
-      expect(reads).toBe(initialSize > 5 ? 0 : 1);
-      expect(closeCalls).toBe(1);
-    }
-  });
-
-  it('takes a final stat only after capped EOF and retains canonical suffix handling', () => {
-    const complete = Buffer.from('{"version":1,"type":"rows","rows":[{}]}\n');
-    for (const source of [complete, Buffer.concat([complete, Buffer.from('partial')])]) {
-      const trace: string[] = []; let stats = 0; let bytes = Buffer.from(source);
-      const io: CanonicalGrowingFileReadIo = {
-        open() { trace.push('open'); return 1; },
-        stat() { stats += 1; trace.push(stats === 1 ? 'initial-stat' : 'final-stat'); return { isFile: () => true, size: bytes.byteLength, mtime: new Date(0) } as never; },
-        read(_descriptor, buffer, offset, length, position) { trace.push(`read:${position}:${length}`); return bytes.copy(buffer, offset, position, Math.min(bytes.byteLength, position + length)); },
-        truncate(_descriptor, length) { trace.push(`truncate:${length}`); bytes = bytes.subarray(0, length); },
-        fsync() { trace.push('fsync'); }, close() { trace.push('close'); },
-      };
-      const result = readCappedCanonicalGrowingFileSnapshot('/owner/status.jsonl', z.unknown(), source.byteLength, io);
-      expect(result.kind).toBe('found');
-      if (result.kind !== 'found') throw new Error('Expected capped canonical snapshot.');
-      expect(result.snapshot.bytes).toEqual(complete);
-      expect(stats).toBe(2);
-      expect(trace.at(-1)).toBe('close');
-      expect(trace.filter((entry) => entry.startsWith('truncate'))).toHaveLength(source === complete ? 0 : 1);
     }
   });
 

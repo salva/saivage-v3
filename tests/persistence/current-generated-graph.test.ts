@@ -21,10 +21,11 @@ describe('current generated graph initialization',()=>{
     validateCurrentGeneratedGraph(root,TEST_WORKFLOWS);
   });
 
-  it('repairs a non-versioned app-log suffix only during initialization',()=>{
+  it('rejects a non-versioned app-log suffix during initialization without changing bytes',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-current-app-log-'));roots.push(root);initProjectTree(root);
     const path=appLogFile(root);mkdirSync(join(root,'.saivage','logs'));appendFileSync(path,'partial');
-    expect(()=>initializeConfiguredOptionalState(root,TEST_WORKFLOWS)).not.toThrow();
-    expect(readFileSync(path)).toHaveLength(0);
+    const before=readFileSync(path);
+    expect(()=>initializeConfiguredOptionalState(root,TEST_WORKFLOWS)).toThrow(/incomplete final envelope/);
+    expect(readFileSync(path)).toEqual(before);
   });
 });

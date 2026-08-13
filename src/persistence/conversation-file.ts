@@ -33,7 +33,6 @@ import { versionFilename } from './version-index.js';
 
 export interface ConversationFileContext { readonly projectRoot: string; readonly changes?: Pick<FreshnessEffects, 'conversationChanged' | 'agentMembershipChanged'> }
 export interface ConversationAppendOptions { readonly publicationTemporaryId?: PublicationTemporaryIdFactory; readonly io?: GrowingFileIo }
-export interface ConversationSummary { readonly sessionId: ConversationSessionId; readonly startedAt: string; readonly segmentVersion: number; readonly throughMessageId: string | null }
 export interface FoldedConversation { readonly sessionId: ConversationSessionId; readonly entries: readonly AgentMessage[]; readonly cursor: string | null; readonly totalEntries: number; readonly segmentVersion: number; readonly segmentContext: ConversationSegmentContext }
 export type ConversationSegmentContext = null | { readonly kind: 'compacted'; readonly source_version: number; readonly covered_through_message_id: string; readonly boundary: import('../schemas/index.js').ContextCompactionContent['boundary']; readonly summaries: import('../schemas/index.js').ContextCompactionContent['summaries']; readonly applied_policy: import('../schemas/index.js').ContextCompactionContent['applied_policy']; readonly continuation: import('./canonical-conversation-artifacts.js').ConversationContinuation };
 export interface ConversationCatalog { readonly sessionId: ConversationSessionId; readonly createdAt: string; readonly versions: readonly ConversationVersionEntry[]; readonly currentVersion: number | null }
@@ -123,10 +122,6 @@ export function readHistoricalConversationSegment(projectRoot: string, sessionId
   catch (error) { if (error instanceof ConversationHistoricalVersionNotFoundError) throw error; const code = (error as NodeJS.ErrnoException).code; throw new ConversationHistoricalVersionUnavailableError(version, code === 'ENOENT' ? 'missing' : code ? 'io_error' : 'corrupt'); }
 }
 export function readConversation(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation { return readSegment(projectRoot, sessionId)?.conversation ?? validateConversation(sessionId, []); }
-export function readConversationSummary(projectRoot: string, sessionId: ConversationSessionId): ConversationSummary {
-  const index = parseIndex(location(projectRoot, sessionId).indexPath); const segment = readSegment(projectRoot, sessionId, undefined, index); if (!segment) return Object.freeze({ sessionId, startedAt: index.created_at, segmentVersion: 0, throughMessageId: null });
-  return Object.freeze({ sessionId, startedAt: segment.rows[0]?.timestamp ?? segment.genesis.timestamp, segmentVersion: segment.entry.version, throughMessageId: segment.rows.at(-1)?.id ?? null });
-}
 export function foldConversation(projectRoot: string, sessionId: ConversationSessionId, options: { segmentVersion?: number; since?: string; lastN?: number } = {}): FoldedConversation {
   const segment = readSegment(projectRoot, sessionId); if (!segment) throw new ConversationHistoricalVersionNotFoundError();
   if (options.segmentVersion !== undefined && options.segmentVersion !== segment.entry.version) throw new ConversationSegmentChangedError(options.segmentVersion, segment.entry.version);

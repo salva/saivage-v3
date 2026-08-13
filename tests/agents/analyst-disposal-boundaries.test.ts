@@ -6,7 +6,6 @@ import { z } from 'zod';
 
 import { AnalystRuntime, AnalystSession } from '../../src/agents/analyst-handler.js';
 import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
-import { conversationFile } from '../../src/runtime/actors/conversation-inventory.js';
 import type { InvocationJoinOutcome } from '../../src/runtime/actors/invocation-lifecycle.js';
 import type { RestartPort } from '../../src/boot/restart-port.js';
 import { readConversation, type ConversationFileContext } from '../../src/persistence/conversation-file.js';
@@ -15,6 +14,7 @@ import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
 
 const sessionId = 'agent:analyst:global' as const;
 const emptyStopReport = { selected: [], stopped: [], failed: [] };
@@ -211,7 +211,7 @@ function createFixture(options: {
       joins = session.joinSession();
     },
     async expectDisposedAndCleaned(expectedJoinCount = 2) {
-      const durableConversation = readFileSync(conversationFile(projectRoot, sessionId), 'utf8');
+      const durableConversation = readFileSync(currentConversationSegmentPath(projectRoot, sessionId), 'utf8');
       await expect(runtime.submit({ userContent: 'later' })).rejects.toThrow('Analyst admission is closed.');
       if (!cleanup || !joins || !disposalReason) throw new Error('Fixture disposal did not start.');
       await expect(session.submit({ userContent: 'later through session' })).rejects.toBe(disposalReason);
@@ -219,7 +219,7 @@ function createFixture(options: {
       await expect(cleanup).resolves.toBeUndefined();
       expect(shutdownProcesses).toHaveBeenCalledTimes(1);
       expect(terminateRoot).toHaveBeenCalledTimes(1);
-      expect(readFileSync(conversationFile(projectRoot, sessionId), 'utf8')).toBe(durableConversation);
+      expect(readFileSync(currentConversationSegmentPath(projectRoot, sessionId), 'utf8')).toBe(durableConversation);
     },
   };
 }
@@ -247,7 +247,7 @@ function publicationObserver() {
 }
 
 function envelopes(projectRoot: string): Array<{ rows: Array<Record<string, unknown>> }> {
-  const parsed = readFileSync(conversationFile(projectRoot, sessionId), 'utf8')
+  const parsed = readFileSync(currentConversationSegmentPath(projectRoot, sessionId), 'utf8')
     .trimEnd()
     .split('\n')
     .map((line) => JSON.parse(line) as { rows: Array<Record<string, unknown>> });

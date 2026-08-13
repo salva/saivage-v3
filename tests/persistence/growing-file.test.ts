@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { z } from 'zod';
-import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstEnvelope, readCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
@@ -59,7 +59,7 @@ describe('strict growing-file boundaries', () => {
     expect(operations[1]).toBe('stat');
     expect(operations.filter((operation) => operation === 'write').length).toBeGreaterThan(1);
     expect(operations.slice(-2)).toEqual(['fsync', 'close']);
-    expect(readCanonicalGrowingFile(path, row)).toEqual([{ value: 1 }, { value: 2 }]);
+    expect(readStrictCanonicalGrowingFile(path, row)).toEqual([{ value: 1 }, { value: 2 }]);
   });
 
   it('rejects final symlinks without changing either target', () => {
@@ -231,10 +231,23 @@ describe('strict growing-file boundaries', () => {
     expect(child.status).toBe(0);
   });
 
-  it('truncates only an unterminated final suffix on a later owning read', () => {
-    const path = target(); writeFileSync(path, `${bytes(1).toString()}partial`);
-    expect(readCanonicalGrowingFile(path, row)).toEqual([{ value: 1 }]);
-    expect(readFileSync(path, 'utf8')).toBe(bytes(1).toString());
+  it('strictly reads complete rows and rejects an incomplete suffix without changing bytes', () => {
+    const path = target();
+    writeFileSync(path, bytes(1));
+    expect(readStrictCanonicalGrowingFile(path, row)).toEqual([{ value: 1 }]);
+    const incomplete = Buffer.concat([bytes(1), Buffer.from('partial')]);
+    writeFileSync(path, incomplete);
+    expect(() => readStrictCanonicalGrowingFile(path, row)).toThrow(/incomplete final envelope/);
+    expect(readFileSync(path)).toEqual(incomplete);
+  });
+
+  it('rejects final symlinks and non-regular read targets', () => {
+    const link = target();
+    const destination = join(link, '..', 'read-destination.jsonl');
+    writeFileSync(destination, bytes(1));
+    symlinkSync(destination, link);
+    expect(() => readStrictCanonicalGrowingFile(link, row)).toThrow();
+    expect(() => readStrictCanonicalGrowingFile('/dev/null', row)).toThrow(/regular file/);
   });
 
   it('stops after a post-rename parent-open failure with an unknown outcome', () => {

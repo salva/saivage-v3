@@ -174,8 +174,8 @@ identities—never directory enumeration. Initialization may recreate one exact
 missing deterministic optional record/session index as strict empty without
 adopting old files, remove one invalid exact head per confirmed index replacement,
 repair only the current conversation segment to its maximum valid terminable
-prefix, and truncate only an identifiable unterminated suffix of non-versioned
-app logs. Unindexed files remain ignored forever. Ordinary runtime/API/tool reads
+prefix. App-log initialization strictly rejects nonempty incomplete content without
+mutation. Unindexed files remain ignored forever. Ordinary runtime/API/tool reads
 perform none of these corrections.
 
 `saivage reset` is a separate explicit destructive decision, run with the

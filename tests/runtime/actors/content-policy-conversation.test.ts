@@ -4,11 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
-import { conversationFile } from '../../../src/runtime/actors/conversation-inventory.js';
 import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
 import { CONTENT_POLICY_RETRY_TEXT, parseCanonicalContentPolicyRefusal } from '../../../src/schemas/index.js';
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from '../../../src/runtime/actors/content-policy-messages.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
+import { currentConversationSegmentPath } from '../../helpers/current-conversation-segment-path.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -33,7 +33,7 @@ describe('content-policy conversation rows', () => {
     const sourceInputId = '00000000-0000-4000-8000-000000000001';
     const marker = buildContentPolicyRefusalMessage({ sessionId, sourceInputId, candidate: { provider: 'test', account: 'account', model: 'model' }, providerResponse: 'RAW-TERMINAL-EVIDENCE' });
     appendConversationBatch({ projectRoot: root }, [marker]);
-    const envelope = JSON.parse(readFileSync(conversationFile(root, sessionId), 'utf8').trim());
+    const envelope = JSON.parse(readFileSync(currentConversationSegmentPath(root, sessionId), 'utf8').trim());
     expect(envelope.type).toBe('conversation-segment');
     expect(envelope.rows.slice(1)).toEqual([marker]);
     const projected = providerConversationProjection(readConversation(root, sessionId));
