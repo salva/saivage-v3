@@ -41,7 +41,7 @@ interface ProcessorHarness {
   dispose: ReturnType<typeof jest.fn>;
 }
 
-function processor(): ProcessorHarness {
+function processor(snapshot: ReturnType<CardProcessActor['executingLlmSnapshot']> = null): ProcessorHarness {
   const join = barrier<readonly []>();
   const dispose = jest.fn();
   let activationJoin: Promise<readonly []> | null = null;
@@ -55,7 +55,7 @@ function processor(): ProcessorHarness {
       suppressContinuationAndPrepareJoin: jest.fn(),
       joinActivation: jest.fn(() => activationJoin ??= join.promise),
       processPosition: () => ({ cardType: 'project', stateId: 'ready', kind: 'ready' }),
-      executingLlmSnapshot: () => null,
+      executingLlmSnapshot: () => snapshot,
     } as unknown as CardProcessActor,
   };
 }
@@ -70,6 +70,7 @@ interface SupervisorInternals {
   beginHalt(trigger: HaltTrigger, publicationOwner?: CardActivationOwner, publicationFailure?: Error): Promise<void>;
   publish<T>(owner: CardActivationOwner, write: () => T): T | null;
   activateChild(parent: CardActivationOwner, childCardId: string, lease: ChildInvocationLease): Promise<CardActivationOutcome>;
+  createOwner(...args: never[]): CardActivationOwner;
   settleResult(owner: CardActivationOwner, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): Promise<void>;
   onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void;
 }
@@ -81,12 +82,14 @@ function harness(withChild = false) {
   const lifecycle = new Map<string, CardRecord['lifecycle']['status']>([['project', 'running'], ['card-a', 'running']]);
   const store = {
     read: jest.fn((id: string) => ({ ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: lifecycle.get(id)! } })),
+    readActivationAdmission: jest.fn((id: string) => id === 'card-a' ? { child: { ...card('card-a'), lifecycle: { ...card('card-a').lifecycle, status: lifecycle.get(id)! } }, dependencies: [] } : null),
     commitActivationOutcome: jest.fn((_id: string, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => ({ ...card('project'), lifecycle: { ...card('project').lifecycle, status: outcome.status } })),
     setStatus: jest.fn(() => card('project')),
     listChildren: jest.fn((id: string) => withChild && id === 'project' ? ['card-a'] : []),
     stopRunningForRecovery: jest.fn((id: string) => { lifecycle.set(id, 'stopped'); return { ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: 'stopped' as const } }; }),
     activateStopped: jest.fn((id: string) => { lifecycle.set(id, 'running'); return { ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: 'running' as const } }; }),
   };
+  const runtimeChanged = jest.fn();
   const supervisor = new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
@@ -94,7 +97,7 @@ function harness(withChild = false) {
     actorStore: store,
     provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
     conversations: { projectRoot },
-    freshness: { runtimeChanged() {} },
+    freshness: { runtimeChanged },
     processRunner: { terminateScopeTree }, runtimeProcessRootScope: {}, processIdentity: { pid: 1, startedAt: 'now' },
     promptTemplates: createTestPromptTemplateRegistry(),
   } as never);
@@ -121,7 +124,7 @@ function harness(withChild = false) {
     internals.activationOwners.set(child.cardId, child);
     internals.currentCardId = child.cardId;
   }
-  return { supervisor, internals, root, rootProcessor, child, childProcessor, lease, store, processTermination, terminateScopeTree };
+  return { supervisor, internals, root, rootProcessor, child, childProcessor, lease, store, lifecycle, runtimeChanged, processTermination, terminateScopeTree };
 }
 
 async function nextTurn(): Promise<void> { await new Promise<void>((resolve) => setImmediate(resolve)); }
@@ -133,6 +136,53 @@ async function within<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe('Supervisor singular runtime halt concurrency', () => {
+  it('reports a blocked durable parent before rejecting a durable running child as non-activatable and installs no work', () => {
+    const h = harness();
+    h.lifecycle.set('project', 'blocked');
+    const snapshot = { sessionId: interruptionIdentity.sessionId, sourceInputId: interruptionIdentity.sourceInputId, toolCallId: interruptionIdentity.toolCallId, toolName: interruptionIdentity.toolName } as never;
+    jest.spyOn(h.rootProcessor.actor, 'executingLlmSnapshot').mockReturnValue(snapshot);
+    const createOwner = jest.spyOn(h.internals, 'createOwner');
+    const lease = new ChildInvocationLease(interruptionIdentity as never, 'card-a');
+    void lease.activation.catch(() => undefined);
+
+    expect(() => h.internals.activateChild(h.root, 'card-a', lease)).toThrow(new Error('Runtime invariant failed: operation=activate_child parent=project parent_status=blocked child=card-a child_status=running parent_activation=root-activation.'));
+    expect(h.store.readActivationAdmission).toHaveBeenCalledTimes(1);
+    expect(h.internals.activationOwners.has('card-a')).toBe(false);
+    expect(createOwner).not.toHaveBeenCalled();
+    expect(h.root.childCardId).toBeNull();
+    expect(lease.phase()).toBe('reserved');
+    expect(h.store.activateStopped).not.toHaveBeenCalled();
+    expect(h.store.setStatus).not.toHaveBeenCalled();
+    expect(h.runtimeChanged).not.toHaveBeenCalled();
+  });
+
+  it('reports exact durable owner and child statuses before result settlement effects', async () => {
+    const h = harness(true);
+    h.root.cachedStatus = 'blocked';
+    const outcome = { status: 'done' as const, summary: 'done', result: workflowResult('DONE', 'done') };
+
+    await expect(h.internals.settleResult(h.root, outcome)).rejects.toThrow(new Error('Runtime invariant failed: operation=settle_result card=project card_status=running activation=root-activation child=card-a child_status=running.'));
+    expect(h.root.phase).toBe('active');
+    expect(h.root.terminalWinner).toBe('open');
+    expect(h.lease!.phase()).toBe('admitted');
+    expect(h.store.read).toHaveBeenNthCalledWith(1, 'project');
+    expect(h.store.read).toHaveBeenNthCalledWith(2, 'card-a');
+    expect(h.store.read).toHaveBeenCalledTimes(2);
+    expect(h.store.commitActivationOutcome).not.toHaveBeenCalled();
+  });
+
+  it('reports a missing recorded child without inventing a status before result settlement effects', async () => {
+    const h = harness(true);
+    h.store.read.mockImplementation((id: string) => id === 'card-a' ? null as never : card('project'));
+    const outcome = { status: 'done' as const, summary: 'done', result: workflowResult('DONE', 'done') };
+
+    await expect(h.internals.settleResult(h.root, outcome)).rejects.toThrow(new Error("Runtime invariant failed: operation=settle_result card=project activation=root-activation; owned child card 'card-a' not found."));
+    expect(h.root.phase).toBe('active');
+    expect(h.root.terminalWinner).toBe('open');
+    expect(h.lease!.phase()).toBe('admitted');
+    expect(h.store.commitActivationOutcome).not.toHaveBeenCalled();
+  });
+
   it.each([false, true])('halts a running publication whose canonical append is visible=%s, then uses normal recovery', async (canonical) => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-halt-prefix-')); roots.push(projectRoot); initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);

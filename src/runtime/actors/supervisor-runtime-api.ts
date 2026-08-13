@@ -273,6 +273,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     const admission = this.behavior.actorStore.readActivationAdmission(childCardId);
     if (!admission) return this.rejectLease(lease, new Error(`Child card '${childCardId}' not found.`));
     if (cardParentId(admission.child.id) !== parent.cardId) return this.rejectLease(lease, new Error(`Planner can activate only immediate children of '${parent.cardId}'.`));
+    this.assertDurableParentRunning(parent, admission.child);
     const incomplete = admission.dependencies.filter(({ status }) => status !== 'done');
     if (incomplete.length) return this.rejectLease(lease, new Error(`Child card '${childCardId}' has incomplete dependencies: ${incomplete.map(({ id, status }) => `${id} (${status})`).join(', ')}.`));
     const entry = cardProcessEntryForStatus(admission.child.lifecycle.status);
@@ -343,6 +344,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     if (this.halt?.owners.includes(owner)) return;
     this.requireOwnerAuthority(owner);
     if (owner.terminalWinner === 'cancel') return;
+    this.assertNoOwnedChildAtResultSettlement(owner);
     this.ownershipTransition(true, () => {
       this.requireOwnerAuthority(owner);
       if (owner.terminalWinner === 'open') owner.terminalWinner = 'result';
@@ -549,6 +551,18 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     if (this.halt) throw new Error(`Card '${owner.cardId}' is outside the frozen runtime halt graph.`);
   }
   private requireKnownCard(owner: CardActivationOwner): CardRecord { const card = owner.store.read(owner.cardId); if (!card) throw new Error(`Card '${owner.cardId}' not found.`); return card; }
+  private assertDurableParentRunning(parent: CardActivationOwner, child: CardRecord): void {
+    const durableParent = this.requireKnownCard(parent);
+    if (durableParent.lifecycle.status !== 'running') throw new Error(`Runtime invariant failed: operation=activate_child parent=${parent.cardId} parent_status=${durableParent.lifecycle.status} child=${child.id} child_status=${child.lifecycle.status} parent_activation=${parent.activationId}.`);
+  }
+  private assertNoOwnedChildAtResultSettlement(owner: CardActivationOwner): void {
+    const childCardId = owner.childCardId;
+    if (childCardId === null) return;
+    const card = this.requireKnownCard(owner);
+    const child = owner.store.read(childCardId);
+    if (!child) throw new Error(`Runtime invariant failed: operation=settle_result card=${owner.cardId} activation=${owner.activationId}; owned child card '${childCardId}' not found.`);
+    throw new Error(`Runtime invariant failed: operation=settle_result card=${owner.cardId} card_status=${card.lifecycle.status} activation=${owner.activationId} child=${childCardId} child_status=${child.lifecycle.status}.`);
+  }
   private startRejected(error: string): StartProjectResult { const status = this.publicRuntimeStatus(); return { runtime: this.runtimeState(), status, started: false, stopped: status === 'stopped', error }; }
   private runtimeState(): RuntimeState | null { if (!this.runIdentity) return null; if (!this.currentCardId) throw new Error('Active runtime has no current card.'); return { status: this.publicRuntimeStatus(), project_id: 'project', pid: this.behavior.processIdentity.pid, started_at: this.behavior.processIdentity.startedAt, current_card_id: this.currentCardId, updated_at: this.now() }; }
   private publicRuntimeStatus(): RuntimeStatus { if (this.status === 'uninitialized') throw new Error('Runtime has not been initialized.'); return this.status; }
