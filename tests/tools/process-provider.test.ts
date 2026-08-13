@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -9,6 +9,7 @@ import { createProcessProvider } from '../../src/tools/process-provider.js';
 import { cleanupTestProcessRunners, createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
+import { cardWorkRoot } from '../../src/persistence/layout.js';
 
 function executorProvider(root: string, processes: TestProcessRunnerComposition, ownerId = 'activation-1') {
   return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });
@@ -104,6 +105,39 @@ describe('process provider', () => {
       expect(result.data).not.toHaveProperty('log_path');
       expect(result.data).not.toHaveProperty('truncated');
     }
+  }));
+
+  it('supplies the existing card work root to card commands without changing default cwd', async () => withRoot(async (root) => {
+    const processes = createTestProcessRunner(root);
+    const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
+
+    const result = await invokeTool(surface, 'run_command', {
+      command: `printf '%s\\n%s\\n' "$SAIVAGE_CARD_WORK_ROOT" "$PWD"; test -d "$SAIVAGE_CARD_WORK_ROOT"`,
+      timeout_ms: 1000,
+    });
+
+    expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ exit_code: 0 }) }));
+    if (!result.success) return;
+    const processId = (result.data as { process_id: string }).process_id;
+    const record = processes.processRunner.get(processId)!;
+    expect(readFileSync(record.stdout_path, 'utf8')).toBe(`${cardWorkRoot(root, 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa')}\n${root}\n`);
+    expect(record.cwd).toBe(root);
+  }));
+
+  it('does not supply a card work root to global Analyst commands', async () => withRoot(async (root) => {
+    const processes = createTestProcessRunner(root);
+    const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processes)]);
+
+    const result = await invokeTool(surface, 'run_command', {
+      command: `printf '%s\\n%s\\n' "\${SAIVAGE_CARD_WORK_ROOT+set}" "$PWD"`,
+      timeout_ms: 1000,
+    });
+
+    expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ exit_code: 0 }) }));
+    if (!result.success) return;
+    const record = processes.processRunner.get((result.data as { process_id: string }).process_id)!;
+    expect(readFileSync(record.stdout_path, 'utf8')).toBe(`\n${root}\n`);
+    expect(record.cwd).toBe(root);
   }));
 
   it('rejects the removed inactivity timeout before launching a process', async () => withRoot(async (root) => {

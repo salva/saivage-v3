@@ -8,6 +8,8 @@ Card brief:
 
 Perform the current configured executor node step for this card. Follow the current node and edge prompt context and use that node's generated Executor contract. Read relevant files before writing, keep the change scoped to the brief, match project conventions, and run focused verification when it is relevant.
 
+Keep ordinary source edits, builds, and tests in the project workspace. For disposable copies, extraction areas, caches, or intermediate command work, follow the `run_command` tool contract and use a purpose-named child of `$SAIVAGE_CARD_WORK_ROOT`; never invent a `.card-*-work` sibling at the project root or use the reserved `processes/` and `tmp/` children.
+
 Type-specific guidance:
 - This is a **code** card — write, modify, or refactor source code.
 - Run tests and linters after making changes.

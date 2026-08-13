@@ -9,6 +9,7 @@ import { saivageConfigSchema,type SaivageConfig } from '../../../src/schemas/sai
 import type { CardStatus } from '../../../src/schemas/index.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
+import { BoundAgentToolSet } from '../../../src/tools/runtime-tool-catalog.js';
 
 function source():SaivageConfig{return saivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));}
 function failure(change:(value:SaivageConfig)=>void,message:RegExp):void{const value=source();change(value);expect(()=>compileProjectWorkflows(value)).toThrow(message);}
@@ -155,7 +156,8 @@ describe('named-agent card-type workflow compilation',()=>{
     roots.push(projectRoot);
     const path=join(projectRoot,'.saivage','config','prompts','code','agents');
     mkdirSync(path,{recursive:true});
-    writeFileSync(join(path,'executor.md'),'Card override {{contractDescription}}');
+    const override='UNIQUE EXECUTOR OVERRIDE {{contractDescription}}';
+    writeFileSync(join(path,'executor.md'),override);
     const processPath=join(projectRoot,'.saivage','config','prompts','code','process');
     mkdirSync(processPath,{recursive:true});
     writeFileSync(join(processPath,'execute.md'),'Selected node prompt');
@@ -164,7 +166,18 @@ describe('named-agent card-type workflow compilation',()=>{
     const process=compiled.cardTypes.get('code')!;
     const node=process.states.get('node:execute')!;
     if(node.kind!=='node') throw new Error('missing execute node');
-    expect(node.selectedAgentPrompt).toMatchObject({source:'card-specific',text:'Card override {{contractDescription}}'});
+    expect(node.selectedAgentPrompt).toMatchObject({source:'card-specific',text:override});
+    expect(node.selectedAgentPrompt.text).not.toContain('SAIVAGE_CARD_WORK_ROOT');
+    const cardRunCommand=new BoundAgentToolSet(node.agent.tools).definitions.find((tool)=>tool.function.name==='run_command');
+    const analystRunCommand=new BoundAgentToolSet(compiled.agents.get('analyst')!.tools).definitions.find((tool)=>tool.function.name==='run_command');
+    expect(cardRunCommand?.function.description).toContain('For a card-scoped run_command');
+    expect(cardRunCommand?.function.description).toContain('SAIVAGE_CARD_WORK_ROOT is supplied');
+    expect(cardRunCommand?.function.description).toContain('disposable copies');
+    expect(cardRunCommand?.function.description).toContain('purpose-named child');
+    expect(cardRunCommand?.function.description).toContain('.card-*-work sibling');
+    expect(cardRunCommand?.function.description).toContain('reserved processes/ or tmp/ children');
+    expect(analystRunCommand?.function.description).toContain('A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it.');
+    expect(cardRunCommand?.function.description).toBe(analystRunCommand?.function.description);
     expect(node.promptId).toBe('execute');
     expect(node.correctionPromptId).toBe('correct-execution-result');
     expect(process.processPrompts.get(node.promptId)).toMatchObject({
@@ -180,7 +193,7 @@ describe('named-agent card-type workflow compilation',()=>{
     writeFileSync(join(path,'executor.md'),'changed after compile');
     writeFileSync(join(processPath,'execute.md'),'changed node after compile');
     writeFileSync(join(processPath,'correct-execution-result.md'),'changed correction after compile');
-    expect(node.selectedAgentPrompt.text).toBe('Card override {{contractDescription}}');
+    expect(node.selectedAgentPrompt.text).toBe(override);
     expect(process.processPrompts.get(node.promptId)!.text).toBe('Selected node prompt');
     expect(process.processPrompts.get(node.correctionPromptId)!.text).toBe(
       'Selected correction prompt',

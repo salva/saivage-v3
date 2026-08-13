@@ -6,6 +6,7 @@ import { killProcessInputSchema, runCommandInputSchema, waitProcessInputSchema }
 import { redactForOutbound } from '../redaction/index.js';
 import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/command-policy.js';
 import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
+import { cardWorkRoot } from '../persistence/layout.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
 import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolProviderCleanupReason, type ToolResult } from './invocation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
@@ -129,7 +130,7 @@ function cleanupReasonLabel(reason: ToolProviderCleanupReason): string {
 export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any>[] = Object.freeze([
       defineToolBinder({
         name: 'run_command',
-        description: 'Run a Bash command. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
+        description: 'Run a Bash command. For a card-scoped run_command, ordinary source edits, builds, and tests stay in the project workspace; SAIVAGE_CARD_WORK_ROOT is supplied and disposable copies, extraction areas, caches, and intermediate command work must use a purpose-named child of that directory. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT. A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
         inputSchema: runCommandInputSchema,
         executor: async (ctx, args, signal, invocation) => {
           try {
@@ -142,6 +143,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               ownerId: ctx.ownerId,
               agentSessionId: ctx.ownerId,
               cwd: scopedCwd(ctx.projectRoot, args.cwd),
+              ...(ctx.cardId ? { env: { SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(ctx.projectRoot, ctx.cardId) } } : {}),
               ownerKind: ctx.ownerKind,
             });
             if (args.wait === false) return { success: true, data: processResult(ctx, record.id) };
