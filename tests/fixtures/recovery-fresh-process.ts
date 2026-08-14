@@ -5,6 +5,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
+import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const projectRoot = process.argv[2];
 if (!projectRoot) throw new Error('project root is required');
@@ -14,6 +15,7 @@ const runtimeProcessRootScope = processRegistry.createContainerScope(processRegi
 const runtime = new SupervisorRuntimeApi({
   fatalPort: testApplicationFatalPort,
   ...testAutonomousCompaction,
+  runtimeGate: new RuntimeGate(),
   projectRoot,
   actorStore: cards,
   provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },

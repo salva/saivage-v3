@@ -89,9 +89,7 @@ const global = (runtime: RuntimeToolBindingContext): GlobalToolBindingContext =>
   if (runtime.scope !== 'global') throw new Error('Global tool group received card context.');
   return runtime;
 };
-const workspace = (runtime: RuntimeToolBindingContext): WorkspaceProviderContext => runtime.scope === 'global'
-  ? { projectRoot: runtime.projectRoot, agentName: runtime.agentName, filesystemWrite: true, store: runtime.store, notifyCard: runtime.analystToolContext.runtime?.notifyCard }
-  : { projectRoot: runtime.projectRoot, cardId: runtime.cardId, agentName: runtime.agentName, filesystemWrite: true, store: runtime.store, notifyCard: runtime.notifyCard };
+const workspace = (runtime: CardToolBindingContext): WorkspaceProviderContext => ({ projectRoot: runtime.projectRoot, cardId: runtime.cardId, agentName: runtime.agentName, filesystemWrite: true, store: runtime.store, notifyCard: runtime.notifyCard });
 const process = (runtime: RuntimeToolBindingContext): ProcessProviderContext => {
   if (!runtime.processScope || !runtime.processOwnerId) throw new Error(`Agent '${runtime.agentName}' process tools require a bound process scope.`);
   return { projectRoot: runtime.projectRoot, processRunner: runtime.processRunner, directScope: runtime.processScope, category: runtime.scope === 'global' ? 'operator_session' : 'runtime_card', ownerId: runtime.processOwnerId, ownerKind: runtime.scope === 'global' ? 'operator' : 'agent', ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) };

@@ -70,9 +70,9 @@ export type InvocationRequest = InvocationRequestBase &
   (
     | {
         preparedCompaction: PreparedCompaction;
-        modelParams: { temperature?: number; maxTokens?: never };
+        modelParams: { temperature: number; maxTokens?: never };
       }
-    | { preparedCompaction?: never; modelParams: { temperature?: number; maxTokens?: number } }
+    | { preparedCompaction?: never; modelParams: { temperature: number; maxTokens: number } }
   );
 
 export interface InvocationServiceConfig {
@@ -105,8 +105,9 @@ export class InvocationService {
     plans?: Array<{ candidate: Candidate; plan: CandidateRequestPlan }>,
   ): Promise<ProviderTurnCompletion> {
     assertProviderConversationSourceRows(request.providerConversation);
-    const outputTokens =
-      request.preparedCompaction?.requestedCompletionTokens ?? request.modelParams.maxTokens;
+    const outputTokens = request.preparedCompaction !== undefined
+      ? request.preparedCompaction.requestedCompletionTokens
+      : request.modelParams.maxTokens;
     const options = buildLlmOptions(
       request.agentName,
       request.tools,

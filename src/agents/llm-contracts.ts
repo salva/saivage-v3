@@ -31,8 +31,8 @@ export interface ToolCall {
 }
 
 export interface LlmModelParams {
-  temperature?: number;
-  max_tokens?: number;
+  temperature: number;
+  max_tokens: number;
 }
 
 export interface LlmCompleteOptions extends LlmModelParams {

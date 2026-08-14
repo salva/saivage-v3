@@ -63,6 +63,8 @@ function makeRouter() {
 async function mountFilesView(opts?: {
   initialRoute?: string;
   listFilesImpl?: (path?: string) => Promise<FilesListResponse>;
+  configureStore?: (store: ReturnType<typeof useFileStore>) => void;
+  errorHandler?: (error: unknown) => void;
 }) {
   vi.mocked(listFiles).mockImplementation(opts?.listFilesImpl ?? (async (path?: string) => {
     if (path === '.saivage/work') return mockOutputRootFiles;
@@ -73,12 +75,13 @@ async function mountFilesView(opts?: {
 
   const pinia = createPinia();
   const fileStore = useFileStore(pinia);
+  opts?.configureStore?.(fileStore);
   const router = makeRouter();
   await router.push(opts?.initialRoute ?? '/files');
   await router.isReady();
 
   const wrapper = mount(FilesView, {
-    global: { plugins: [pinia, router] },
+    global: { plugins: [pinia, router], config: { errorHandler: opts?.errorHandler } },
   });
   await flushPromises();
   return { wrapper, router, fileStore };
@@ -161,6 +164,21 @@ describe('FilesView', () => {
     expect(getFileContent).toHaveBeenCalledWith(filePath);
     expect(listFiles).not.toHaveBeenCalledWith('.saivage/work');
     expect(listFiles).not.toHaveBeenCalledWith(filePath);
+    wrapper.unmount();
+  });
+
+  it('reports unexpected browse rejection to Vue without compensating root browse or file fetch', async () => {
+    const failure = new Error('unexpected browse rejection');
+    const errors: unknown[] = [];
+    const { wrapper } = await mountFilesView({
+      initialRoute: `/files?root=meta&path=${encodeURIComponent('.saivage/logs/app.jsonl')}`,
+      configureStore: (store) => { vi.spyOn(store, 'navigateMeta').mockRejectedValueOnce(failure); },
+      errorHandler: (error) => { errors.push(error); },
+    });
+
+    expect(errors).toEqual([failure]);
+    expect(listFiles).not.toHaveBeenCalled();
+    expect(getFileContent).not.toHaveBeenCalled();
     wrapper.unmount();
   });
 

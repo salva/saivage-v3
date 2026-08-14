@@ -45,8 +45,8 @@ interface LlmInvocationInputBase {
 }
 
 export type LlmInvocationInput = LlmInvocationInputBase & (
-  | { preparedCompaction: PreparedCompaction; modelParams: { temperature?: number; maxTokens?: never } }
-  | { preparedCompaction?: never; modelParams: { temperature?: number; maxTokens?: number } }
+  | { preparedCompaction: PreparedCompaction; modelParams: { temperature: number; maxTokens?: never } }
+  | { preparedCompaction?: never; modelParams: { temperature: number; maxTokens: number } }
 );
 
 export type CanonicalLlmInvocationInput = LlmInvocationInput & { sessionId: ConversationSessionId };

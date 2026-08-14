@@ -25,7 +25,7 @@ function request(chain: Candidate[] = [candidate], signal?: AbortSignal): Invoca
     providerConversation: { sourceSessionId: 'agent:planner:card', messages: [] },
     tools: [],
     terminalToolNames: [],
-    modelParams: {},
+    modelParams: { temperature: 0, maxTokens: 2000 },
     capabilityRequest: {},
     routePass: {kind:'ordinary',candidateChain:chain},
     abortSignal: signal,

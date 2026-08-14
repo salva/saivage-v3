@@ -14,6 +14,7 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -36,6 +37,7 @@ function runtime(projectRoot: string, cards: CardService, processRunner: Process
   return new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
+    runtimeGate: new RuntimeGate(),
     projectRoot,
     actorStore: cards,
     provider,

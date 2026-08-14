@@ -8,6 +8,14 @@ import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
 import { allRepresentativeLoggedEvents } from '../helpers/logged-events.js';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
+const serverAvailability = {
+  generatedAt: timestamp,
+  components: {
+    api: { state: 'available' as const, source: 'health-check' as const, checkedAt: timestamp },
+    runtime: { state: 'unavailable' as const, source: 'runtime-application' as const, checkedAt: timestamp, diagnostic: { code: 'runtime-unavailable', summary: 'Runtime is unavailable.' } },
+    mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: timestamp },
+  },
+};
 
 const runtimeState = {
   status: 'running',
@@ -352,7 +360,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('parses runtime state/status without command/run/activation projections', () => {
-    expect(parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState }).runtime).toEqual(runtimeState);
+    expect(parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, serverAvailability }).runtime).toEqual(runtimeState);
     const status = parseOperatorResponse('runtime.status', 200, {
       runtime: 'running',
       currentCardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -360,6 +368,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
       restart_server_available: false,
       pid: 123,
       actorRuntime: { pauseMode: 'running', cards: [] },
+      serverAvailability,
     });
     expect(status).not.toHaveProperty('lastCommand');
     expect(status).not.toHaveProperty('activeRun');
@@ -368,17 +377,17 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('rejects removed runtime ledger fields and public schema exports are absent', () => {
-    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] } })).toThrow();
-    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] }, serverAvailability })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, serverAvailability, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
     expect(operatorApiContracts['runtime.status'].success.keyof().options).not.toEqual(expect.arrayContaining(['lastCommand', 'activeRun', 'latestRun']));
-    for (const removed of ['active_card_run', 'last_tick_at']) expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, [removed]: null } })).toThrow();
-    const validStatus = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [] } };
+    for (const removed of ['active_card_run', 'last_tick_at']) expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, [removed]: null }, serverAvailability })).toThrow();
+    const validStatus = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [] }, serverAvailability };
     for (const removed of ['goalCount', 'lastTickAt']) expect(() => parseOperatorResponse('runtime.status', 200, { ...validStatus, [removed]: null })).toThrow();
     for (const removed of ['activeWork', 'diagnostics']) expect(() => parseOperatorResponse('runtime.status', 200, { ...validStatus, actorRuntime: { ...validStatus.actorRuntime, [removed]: removed === 'diagnostics' ? [] : 'none' } })).toThrow();
   });
 
   it('requires strict live process state and a nonnegative safe node ordinal', () => {
-    const base = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [{ cardId: 'project', actorState: 'running', processState: { cardType: 'project', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] } };
+    const base = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [{ cardId: 'project', actorState: 'running', processState: { cardType: 'project', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] }, serverAvailability };
     expect(parseOperatorResponse('runtime.status', 200, base)).toEqual(base);
     expect(() => parseOperatorResponse('runtime.status', 200, { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ cardId: 'project', actorState: 'running' }] } })).toThrow();
     for (const executionOrdinal of [-1, Number.MAX_SAFE_INTEGER + 1, 0.5]) expect(() => parseOperatorResponse('runtime.status', 200, { ...base, actorRuntime: { ...base.actorRuntime, cards: [{ ...base.actorRuntime.cards[0], processState: { ...base.actorRuntime.cards[0]!.processState, executionOrdinal } }] } })).toThrow();
@@ -413,6 +422,18 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(statusSchema.keyof().options).toEqual(['runtime', 'currentCardId', 'started_at', 'restart_server_available', 'pid', 'actorRuntime', 'serverAvailability']);
     expect(statusSchema.shape).not.toHaveProperty('summary');
     expect(statusSchema.shape).not.toHaveProperty('runtimeSummary');
+  });
+
+  it('requires concrete availability while preserving unavailable, null, and stopped domain values', () => {
+    const state = { projectRoot: '/work/test', projectId: 'test', runtime: null, serverAvailability };
+    const status = { runtime: 'stopped', currentCardId: null, started_at: timestamp, restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'idle', cards: [] }, serverAvailability };
+    expect(parseOperatorResponse('health.readiness', 503, { status: 'not_ready', serverAvailability })).toEqual({ status: 'not_ready', serverAvailability });
+    expect(parseOperatorResponse('runtime.getState', 200, state)).toEqual(state);
+    expect(parseOperatorResponse('runtime.status', 200, status)).toEqual(status);
+    expect(() => parseOperatorResponse('health.readiness', 200, { status: 'ready' })).toThrow();
+    expect(() => parseOperatorResponse('health.readiness', 503, { status: 'not_ready' })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: null })).toThrow();
+    expect(() => parseOperatorResponse('runtime.status', 200, { ...status, serverAvailability: undefined })).toThrow();
   });
 
   it('does not expose the removed debug state operation or response schemas', () => {

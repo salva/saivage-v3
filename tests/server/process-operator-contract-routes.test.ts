@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { registerOperatorContractRoutes } from '../../src/server/routes/operator-contracts.js';
-import { initProjectTree, testConfigAuthority, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
+import { CardService, initProjectTree, testConfigAuthority, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
 import type { RuntimeApplication } from '../../src/application/runtime-composition.js';
 import { ProcessLogRefsSchema, ProcessViewSchema } from '../../src/contracts/operator-api-processes.js';
@@ -16,11 +16,13 @@ import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { buildProcessOperatorContractHandlers } from '../../src/server/routes/operator-process-handlers.js';
+import { McpManager } from '../../src/mcp/mcp-manager.js';
 
 const providerRoutingReadModelProvider = () => ({ availabilityScope: 'process_local_reset_on_restart' as const, providers: {} });
-function runtimeApplication(processRunner: ProcessRunner): RuntimeApplication {
+function runtimeApplication(processRunner: ProcessRunner, cardStore: CardService): RuntimeApplication {
   return {
     processRunner,
+    cardStore,
     analystRuntime: { submit: async () => { throw new Error('Analyst runtime is not used by process route tests.'); } },
   } as unknown as RuntimeApplication;
 }
@@ -52,10 +54,12 @@ describe('contract-backed process routes', () => {
     try {
       const processes = createTestProcessRunner(projectRoot);
       const processRunner = processes.processRunner;
+      const cardStore = new CardService(projectRoot);
+      const mcpManager = new McpManager({ configAuthority: testConfigAuthority(projectRoot), processRunner, mcpProcessRootScope: processes.mcpProcessRootScope, eventLogger: createEventLog(projectRoot) });
       const processScope = processRunner.createDirectScope(processes.runtimeProcessRootScope, 'route-test', 'runtime_card');
       const record = processRunner.spawn({ command: 'echo hello', directScope: processScope, category: 'runtime_card', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerId: 'runtime-owner', ownerKind: 'runtime' });
       await processRunner.waitForSettlement(record.id);
-      registerOperatorContractRoutes({ fastify, projectRoot, configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner), saivageConfig: TEST_SAIVAGE_CONFIG, workflows: TEST_RUNTIME_WORKFLOWS, providerRoutingReadModelProvider, authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort });
+      registerOperatorContractRoutes({ fastify, projectRoot, cardStore, mcpManager, serverAvailabilityProvider: () => ({ generatedAt: '2026-01-01T00:00:00.000Z', components: { api: { state: 'available', source: 'health-check', checkedAt: '2026-01-01T00:00:00.000Z' }, runtime: { state: 'available', source: 'runtime-application', checkedAt: '2026-01-01T00:00:00.000Z' }, mcp: { state: 'idle', source: 'mcp-manager', checkedAt: '2026-01-01T00:00:00.000Z' } } }), configAuthority: testConfigAuthority(projectRoot), runtimeApplication: runtimeApplication(processRunner, cardStore), saivageConfig: TEST_SAIVAGE_CONFIG, workflows: TEST_RUNTIME_WORKFLOWS, providerRoutingReadModelProvider, authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort });
 
       const list = await fastify.inject({ method: 'GET', url: '/api/processes' });
       expect(list.statusCode).toBe(200);

@@ -4,11 +4,11 @@ import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
 
 describe('LLM options authority', () => {
   it('builds the exact provider options contract', () => {
-    const options = buildLlmOptions('planner', [], [], {}, undefined, 'input');
+    const options = buildLlmOptions('planner', [], [], { temperature: 0.2, max_tokens: 1234 }, undefined, 'input');
     expect(options).toEqual({
       inputId: 'input',
-      temperature: undefined,
-      max_tokens: undefined,
+      temperature: 0.2,
+      max_tokens: 1234,
       signal: undefined,
       stream: false,
       contract_id: 'planner.v1',
@@ -21,7 +21,7 @@ describe('LLM options authority', () => {
 
   it('rejects recorder authority at the type boundary', () => {
     const value: LlmCompleteOptions = {
-      inputId: 'input', contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto',
+      inputId: 'input', temperature: 0, max_tokens: 2000, contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto',
       // @ts-expect-error recorder ownership belongs exclusively to the attempt runner
       recorder: {},
     };

@@ -11,21 +11,18 @@ import { listProcessesInputSchema, readControlActionsInputSchema, readRuntimeErr
 const JSONL_TAIL_DEFAULT = 50;
 
 export async function start_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  if (!ctx.runtime) return toolFailure('Active runtime is not available.');
   const data = await ctx.runtime.startProject();
   if (!data.error) return { success: true, data };
   return toolFailure(data.error, { status: data.status, started: data.started, stopped: data.stopped });
 }
 
 export async function pause_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  if (!ctx.runtime) return toolFailure('Active runtime is not available.');
   ctx.runtime.pause();
   const state = ctx.runtime.getStatus();
   return { success: true, data: { status: state.status } };
 }
 
 export async function resume_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  if (!ctx.runtime) return toolFailure('Active runtime is not available.');
   const state = ctx.runtime.getStatus();
   if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
   ctx.runtime.resume();
@@ -34,7 +31,6 @@ export async function resume_runtime(ctx: ToolContext, _params: Record<string, n
 }
 
 export async function stop_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  if (!ctx.runtime) return toolFailure('Active runtime is not available.');
   return { success: true, data: await ctx.runtime.stopProject() };
 }
 

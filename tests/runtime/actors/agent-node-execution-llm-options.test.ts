@@ -71,6 +71,7 @@ describe('AgentNodeExecution LLM options', () => {
       reservedCompletionTokens: 200,
       requestedCompletionTokens: 73,
     });
+    expect(prepared.modelParams).toEqual({ temperature: 0.2 });
     expect(prepared.tools.map((tool) => tool.function.name)).toEqual(['lookup', 'emit_result']);
     expect(prepared.tools.filter((tool) => tool.function.name === 'emit_result')).toEqual([terminalToolDefinition]);
     expect(prepared.terminalToolNames).toEqual(['emit_result']);

@@ -11,6 +11,7 @@ import { readConversation } from '../../../src/persistence/conversation-file.js'
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const CANDIDATE = { provider: 'test', account: null, model: 'test-model' } as const;
@@ -79,6 +80,7 @@ function actorFixture(plannerPublicationFailure?: Error) {
   const publicationOutcomeUnknown = jest.fn((_error: PublicationOutcomeUnknownError) => undefined);
   const actor = new ConversationLLMActor({
     purpose: { kind: 'autonomous-card', cardId: 'project' },
+    gate: new RuntimeGate(),
     agentId: input.sessionId,
     provider: { completeTurn: jest.fn(async () => { throw firstFailure; }), projectProviderExchanges: plannerProjection },
     conversations: { projectRoot: root },
@@ -93,7 +95,7 @@ function invocation(): PreparedLlmInvocationInput {
   const sessionId = 'agent:planner:project' as const;
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: 'planner', sessionId,
-    systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], terminalToolNames: [], modelParams: {},
+    systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], terminalToolNames: [], modelParams: { temperature: 0 },
     preparedCompaction: prepareCompaction({ input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', []),
     capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
   };

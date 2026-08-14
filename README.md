@@ -151,7 +151,11 @@ Direct public OpenAI GPT-5.6 through the Responses API is selected by provider c
 
 ```yaml
 models:
-  default: ["gpt-5.6"]
+  routes:
+    analyst:
+      candidates: ["gpt-5.6"]
+      temperature: 0.7
+      max_tokens: 4096
 providers:
   openai:
     models: ["gpt-5.6"]
@@ -173,7 +177,7 @@ compaction:
     model: "gpt-5.6"
 ```
 
-Compaction is a boot requirement, not an optional feature. `init` publishes the complete default with all nine workflows, named model-route/profile scaffolding, enabled compaction, and a summarizer candidate, but its `providers` map is empty and it supplies no credential. This default can be structurally compiled offline without contacting a provider; the operator must configure a real provider, credential, and exact candidate identities before startup. `start --create-runtime` does not synthesize those choices. Omitted, `enabled: false`, incomplete, or non-configured summarizer candidates fail startup. The candidate is an exact structured identity: `account: null` selects the provider-level implicit account, while `account: "_implicit"` and `account: "_"` select those exact explicit account names and remain distinct. Model IDs may contain slashes; there is no flattened compatibility spelling or fallback summarizer route. Autonomous static preparation uses the final ordered provider array—operational tools followed by the sole terminal `emit_result`—rather than the operational-only prompt array; Analyst prompt, provider, and preparation use one terminal-free operational array. The effective Analyst output request (`models.max_tokens.analyst`, then `models.max_tokens.default`, then 4096) must not exceed `floor(compaction.input_budget_tokens * compaction.completion_reserve_fraction)`. Startup acquires the lifecycle lock before full selected-config/environment validation, but completes that validation before any `--create-runtime` generated root-card read or publication; invalid configuration therefore creates or changes no generated root-card state. The operator must select a positive budget appropriate to the configured routes.
+Compaction is a boot requirement, not an optional feature. `init` publishes the complete default with all nine workflows, named model-route/profile scaffolding, enabled compaction, and a summarizer candidate, but its `providers` map is empty and it supplies no credential. This default can be structurally compiled offline without contacting a provider; the operator must configure a real provider, credential, and exact candidate identities before startup. `start --create-runtime` does not synthesize those choices. Omitted, `enabled: false`, incomplete, or non-configured summarizer candidates fail startup. The candidate is an exact structured identity: `account: null` selects the provider-level implicit account, while `account: "_implicit"` and `account: "_"` select those exact explicit account names and remain distinct. Model IDs may contain slashes; there is no flattened compatibility spelling or fallback summarizer route. Autonomous static preparation uses the final ordered provider array—operational tools followed by the sole terminal `emit_result`—rather than the operational-only prompt array; Analyst prompt, provider, and preparation use one terminal-free operational array. The configured global Analyst selects its compiled named route through `agents.<name>.model_route`; that route's required numeric `temperature` and `max_tokens` are the request authority, and omission is a configuration failure rather than an adapter default. Its `max_tokens` must not exceed `floor(compaction.input_budget_tokens * compaction.completion_reserve_fraction)`. Startup acquires the lifecycle lock before full selected-config/environment validation, but completes that validation before any `--create-runtime` generated root-card read or publication; invalid configuration therefore creates or changes no generated root-card state. The operator must select a positive budget appropriate to the configured routes.
 
 Configured MCP reconciliation must converge before runtime mechanics start. Startup installs the reconciled MCP invocation authority exactly once; reconciliation or later runtime-start failure aborts startup and is contained through the normal App terminal coordinator, without retry or configuration rollback.
 

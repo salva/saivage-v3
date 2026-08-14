@@ -127,7 +127,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
 }
 
 function writeCustomPrompts(root: string): void {
-  const directory = join(root, '.saivage', 'config', 'prompts', 'code', 'process');
+  const directory = join(root, '.saivage', 'config', 'prompts', 'process', 'code');
   mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, 'execute-to-verify.md'), 'Execution accepted. Verify the closed status record.');
   writeFileSync(join(directory, 'verify.md'), 'Verify the completed work and publish review evidence.');

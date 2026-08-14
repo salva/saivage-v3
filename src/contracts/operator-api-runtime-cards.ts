@@ -41,14 +41,14 @@ export const CardIdParamsSchema = z.object({ id: cardIdSchema }).strict();
 export const CardRecordNameParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema }).strict();
 
 export const HealthLivenessResponseSchema = z.object({ status: z.literal('ok'), version: z.string(), project: z.string() }).strict();
-export const HealthReadinessResponseSchema = z.object({ status: z.enum(['ready', 'not_ready']), serverAvailability: ServerAvailabilitySchema.optional() }).strict();
+export const HealthReadinessResponseSchema = z.object({ status: z.enum(['ready', 'not_ready']), serverAvailability: ServerAvailabilitySchema }).strict();
 
 
 export const RuntimeGetStateResponseSchema = z.object({
   projectRoot: z.string().min(1),
   projectId: z.string().min(1),
   runtime: runtimeStateSchema.nullable(),
-  serverAvailability: ServerAvailabilitySchema.optional(),
+  serverAvailability: ServerAvailabilitySchema,
 }).strict();
 
 export const ContentPolicyRuntimeResponseSchema = z.object({
@@ -171,7 +171,7 @@ export const RuntimeStatusResponseSchema = z.object({
       ]).nullable(),
     }).strict()),
   }).strict(),
-  serverAvailability: ServerAvailabilitySchema.optional(),
+  serverAvailability: ServerAvailabilitySchema,
 }).strict();
 
 export const StopProjectResponseSchema = z.object({ status: z.literal('stopped'), contained: z.boolean() }).strict();

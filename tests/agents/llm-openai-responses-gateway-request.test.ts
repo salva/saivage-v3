@@ -13,7 +13,7 @@ afterEach(() => { jest.restoreAllMocks(); });
 
 describe('OpenAI Responses request shape', () => {
   it('sends stateless fields and preserves the ordered operational and terminal tool surface', () => {
-    const opts: LlmCompleteOptions = { inputId: 'input-1', contract_id: 'c', contractName: 'contract', terminalToolOffered: ['emit_result'], tools: [TOOL, TERMINAL_TOOL], tool_choice: 'auto', max_tokens: 1234 };
+    const opts: LlmCompleteOptions = { inputId: 'input-1', temperature: 0.2, contract_id: 'c', contractName: 'contract', terminalToolOffered: ['emit_result'], tools: [TOOL, TERMINAL_TOOL], tool_choice: 'auto', max_tokens: 1234 };
     const body = buildOpenAIResponsesRequest(CANDIDATE, 'sys', { sourceSessionId: 'agent:analyst:global', messages: [MSG] }, opts, { responsesReasoning: { effort: 'medium' } }) as unknown as Record<string, unknown>;
 
     expect(body.model).toBe('gpt-5.6');
@@ -34,7 +34,7 @@ describe('OpenAI Responses request shape', () => {
   });
 
   it('uses only the latest rendered context and never serializes raw compaction metadata or covered history', () => {
-    const opts: LlmCompleteOptions = { inputId: 'input-2', contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
+    const opts: LlmCompleteOptions = { inputId: 'input-2', temperature: 0.3, max_tokens: 2345, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
     const latest: AgentMessage = { ...MSG, id: 'c2:rendered', role: 'system', content: 'latest C2 rendered context' };
     const suffix: AgentMessage = { ...MSG, id: 'suffix', content: 'uncovered suffix' };
     const body = buildOpenAIResponsesRequest(CANDIDATE, 'role prompt', { sourceSessionId: 'agent:analyst:global', messages: [latest, suffix] }, opts) as unknown as { instructions: string; input: unknown[] };

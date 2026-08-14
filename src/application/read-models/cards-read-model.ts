@@ -55,11 +55,11 @@ function invalidNumberBody(path: 'version' | 'from' | 'to'): OperatorApiResponse
 export class CardsReadModelService {
   constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly runtime: Pick<RuntimeApi, 'getRuntimeState'>) {}
 
-  getRuntimeState(serverAvailability?: ServerAvailability): OperatorApiHandlerResult<'runtime.getState'> {
+  getRuntimeState(serverAvailability: ServerAvailability): OperatorApiHandlerResult<'runtime.getState'> {
     const projectId = basename(this.projectRoot);
     const identity = { projectRoot: this.projectRoot, projectId };
     const state = this.runtime.getRuntimeState();
-    return { body: { ...identity, runtime: state, ...(serverAvailability ? { serverAvailability } : {}) } };
+    return { body: { ...identity, runtime: state, serverAvailability } };
   }
 
   getChildren(id: string, instrumentation?: CanonicalReadInstrumentation): OperatorApiHandlerResult<'cards.children'> {

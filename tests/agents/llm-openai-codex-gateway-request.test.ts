@@ -9,6 +9,7 @@ import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
+import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -50,6 +51,8 @@ describe('buildOpenAICodexRequest wire shape', () => {
   it('preserves the ordered operational and terminal tool surface with auto choice and parallel calls disabled', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
+      temperature: 0.2,
+      max_tokens: 1234,
       contract_id: 'test.v1',
       contractName: 'planner',
       terminalToolOffered: ['emit_result'],
@@ -78,10 +81,11 @@ describe('buildOpenAICodexRequest wire shape', () => {
     ]);
     expect(JSON.stringify(body.tools)).not.toContain('"function":{');
     expect(Object.prototype.hasOwnProperty.call(body, 'max_output_tokens')).toBe(false);
+    expect(Object.prototype.hasOwnProperty.call(body, 'temperature')).toBe(false);
   });
 
   it('omits the configured completion quantity and universally projects system context into instructions', () => {
-    const opts: LlmCompleteOptions = { inputId: 'test:input:1', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 777 };
+    const opts: LlmCompleteOptions = { inputId: 'test:input:1', temperature: 0.2, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 777 };
     const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }] }, opts);
     expect(Object.prototype.hasOwnProperty.call(body, 'max_output_tokens')).toBe(false);
     expect(body.instructions).toContain('compacted context');
@@ -91,6 +95,8 @@ describe('buildOpenAICodexRequest wire shape', () => {
   it('no-tools (analyst message mode): omits tools, tool_choice, parallel_tool_calls', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
+      temperature: 0.3,
+      max_tokens: 2345,
       contract_id: 'test.v1',
       contractName: 'analyst',
       terminalToolOffered: [],
@@ -109,6 +115,8 @@ describe('buildOpenAICodexRequest wire shape', () => {
 describe('OpenAI Codex adapter and runner context failure evidence', () => {
   const opts = (): LlmCompleteOptions => ({
     inputId: 'test:input:context',
+    temperature: 0.4,
+    max_tokens: 3456,
     contract_id: 'test.v1',
     contractName: 'planner',
     terminalToolOffered: [],
@@ -125,11 +133,15 @@ describe('OpenAI Codex adapter and runner context failure evidence', () => {
     const options = opts();
     const gateway = new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: makeCodexJwt('account') });
 
-    await expect(gateway.complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, 'agent:analyst:global', options))
-      .rejects.toMatchObject({
+    let failure: unknown;
+    try { await gateway.complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, 'agent:analyst:global', options); }
+    catch (error) { failure = error; }
+    expect(failure).toMatchObject({
         failure: { kind: 'input_context_exhausted', status: 200 },
-        provider_exchanges: [{ status: 'error', response_status: 200, error: { status: 200 } }],
+        provider_exchanges: [{ status: 'error', response_status: 200, request_params: { endpoint: 'https://example.test/codex/responses', method: 'POST', stream: true, offered_tools_count: 0 }, error: { status: 200 } }],
       });
+    expect(failure).toBeInstanceOf(ProviderTurnFailure);
+    expect((failure as ProviderTurnFailure).provider_exchanges[0]!.request_params).toEqual({ endpoint: 'https://example.test/codex/responses', method: 'POST', stream: true, offered_tools_count: 0 });
   });
 
   it('records HTTP 400 for the same typed evidence returned before an SSE stream opens', async () => {

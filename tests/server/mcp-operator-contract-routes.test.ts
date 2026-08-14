@@ -13,7 +13,7 @@ afterEach(async () => {
   await Promise.all(fastifies.splice(0).map((fastify) => fastify.close()));
 });
 
-function mountRoutes(options: { mcpToolsProvider?: McpToolsReadModelProvider }) {
+function mountRoutes(options: { mcpToolsProvider: McpToolsReadModelProvider }) {
   const fastify = Fastify({ logger: false });
   fastifies.push(fastify);
   const runtime = new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: {} as never, fatalPort: testApplicationFatalPort });
@@ -51,8 +51,8 @@ describe('MCP operator contract routes', () => {
     }
   });
 
-  it('preserves the empty MCP tools fallback', async () => {
-    const response = await mountRoutes({}).inject({ method: 'GET', url: '/api/mcp/tools' });
+  it('preserves an empty MCP tools read model', async () => {
+    const response = await mountRoutes({ mcpToolsProvider: { getToolsReadModel: () => ({ servers: [] }) } }).inject({ method: 'GET', url: '/api/mcp/tools' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ servers: [] });
   });

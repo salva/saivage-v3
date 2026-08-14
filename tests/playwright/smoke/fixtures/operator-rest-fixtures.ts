@@ -135,6 +135,14 @@ export const processOwnerId = '11111111-1111-4111-8111-111111111111:node:0';
 export const processId = 'proc-111111111111';
 export const expectedProcessList = { processes: [{ id: processId, status: 'exited', command: 'npm run synthetic-smoke', cwd: '.', card_id: smokeCardId, session_id: processOwnerId, owner_id: processOwnerId, owner_kind: 'agent' as const, started_at: now, ended_at: now, exit_code: 0, timed_out: false, logs: { stdout: `work:///cards/${smokeCardId}/processes/${processId}/stdout.log`, stderr: `work:///cards/${smokeCardId}/processes/${processId}/stderr.log` } }] };
 export const processListResponse = parseOperatorResponse('processes.list', 200, expectedProcessList);
+export const smokeServerAvailability = {
+  generatedAt: now,
+  components: {
+    api: { state: 'available', source: 'health-check', checkedAt: now },
+    runtime: { state: 'available', source: 'runtime-application', checkedAt: now },
+    mcp: { state: 'available', source: 'mcp-manager', checkedAt: now },
+  },
+} as const;
 
 function stampedText(sessionId: string, id: string, content: string) {
   return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
@@ -182,10 +190,10 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, { ticket: 'synthetic-ws-ticket', expiresAt: '2026-05-19T12:05:00.000Z' });
     }
     if (request.method() === 'GET' && url.pathname === '/api/state') {
-      return json(route, parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning }));
+      return json(route, parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning, serverAvailability: smokeServerAvailability }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
-      return json(route, parseOperatorResponse('runtime.status', 200, { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, restart_server_available: false }));
+      return json(route, parseOperatorResponse('runtime.status', 200, { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, restart_server_available: false, serverAvailability: smokeServerAvailability }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/content-policy') {
       return json(route, parseOperatorResponse('runtime.contentPolicy', 200, { refusal_high_water: 0, latest: null }));

@@ -9,6 +9,7 @@ import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
 import { BaseActor, compileActorDefinition, type ActorLifecycleContext, type ActorTransitionContext } from '../../src/runtime/micro-actor/index.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
+import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner, type ProcessOutputIo } from '../../src/runtime/process-runner.js';
@@ -68,6 +69,7 @@ if (mode === 'llm-conversation') {
   initProjectTree(root);
   const actor = new ConversationLLMActor({
     purpose:{kind:'autonomous-card',cardId:'project'},
+    gate: new RuntimeGate(),
     fatalPort,
     agentId: 'agent:planner:project',
     provider: { completeTurn: async () => { throw new PublicationOutcomeUnknownError(); } },
@@ -76,7 +78,7 @@ if (mode === 'llm-conversation') {
     summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
   });
   const policy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' as const };
-  void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: {}, preparedCompaction: prepareCompaction(policy, 'system', []), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
+  void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction: prepareCompaction(policy, 'system', []), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
 }
 
 if (mode === 'process-chunk') {

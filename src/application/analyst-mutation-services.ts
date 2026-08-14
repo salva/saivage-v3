@@ -56,8 +56,8 @@ export interface AnalystMutationServices {
   recordMutations: AnalystRecordMutationService;
 }
 
-export function createAnalystMutationServices(input: { projectRoot: string; store: CardService; configAuthority: ResolvedConfigAuthority; notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
-  const notifyCard = input.notifyCard ?? ((_cardId, notification) => ({ ok: true, notificationId: notification.id }));
+export function createAnalystMutationServices(input: { projectRoot: string; store: CardService; configAuthority: ResolvedConfigAuthority; notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
+  const notifyCard = input.notifyCard;
   return {
     cards: new AnalystCardMutationImplementation(input.store, notifyCard, input.cancelCard),
     config: new AnalystConfigMutationImplementation(input.configAuthority),
@@ -81,7 +81,7 @@ function subtree(store: CardService, rootId: string): CardRecord[] {
 }
 
 class AnalystCardMutationImplementation implements AnalystCardMutationService {
-  constructor(private readonly store: CardService, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard'], private readonly cancelCardPort?: Pick<RuntimeApi, 'cancelCard'>['cancelCard']) {}
+  constructor(private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard'], private readonly cancelCardPort: Pick<RuntimeApi, 'cancelCard'>['cancelCard']) {}
 
   create(input: CreateAnalystCardInput): AnalystMutationOutcome {
     const parent = input.parent;
@@ -110,7 +110,6 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     if (card.id === PROJECT_CARD_ID) return denied('root project card cannot be cancelled');
     const blocked = subtree(this.store, cardId).find((candidate) => !canCancelCardStatus(candidate.lifecycle.status));
     if (blocked) return denied(`card '${blocked.id}' is ${blocked.lifecycle.status}`);
-    if (!this.cancelCardPort) throw new Error('Analyst cancellation requires the runtime cancellation application port.');
     const result = await this.cancelCardPort(cardId, reason ?? 'analyst_cancel_card');
     const anchor = this.store.getParent(card.id) ?? cardId;
     try { propagateChange(this.store, anchor, { kind: 'analyst_edit', summary: reason ? `analyst cancelled card: ${reason}` : 'analyst cancelled card' }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
@@ -152,9 +151,8 @@ class AnalystConfigMutationImplementation implements AnalystConfigMutationServic
 }
 
 class AnalystNotificationMutationImplementation implements AnalystNotificationMutationService {
-  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly notifyCard?: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
+  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
   queue(cardId: string, kind: string, body: string): AnalystMutationOutcome {
-    if (!this.notifyCard) throw new Error('Analyst queue_notification requires the runtime card notification port.');
     const queued = queueNotification(cardId, kind, body, { actor: 'analyst', surface: 'web-chat' }, this.notifyCard);
     if (!queued.ok && queued.reason === 'terminal_card') return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
     if (!queued.ok) return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });

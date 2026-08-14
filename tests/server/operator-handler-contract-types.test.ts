@@ -21,10 +21,25 @@ import type { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { ContractRuntime, type ContractPreSendReply } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { AuthPolicy } from '../../src/server/auth-policy.js';
+import { buildRuntimeCardOperatorContractHandlers } from '../../src/server/routes/operator-runtime-card-handlers.js';
+import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operator-mcp-handlers.js';
+import type { CardService } from '../../src/cards/card-api.js';
+import type { McpToolsReadModelProvider } from '../../src/mcp/manager-api.js';
 
 declare const runtimeApplication: RuntimeApplication;
 declare const saivageConfig: SaivageConfig;
 declare const processRunner: ProcessRunner;
+declare const cardStore: CardService;
+declare const mcpToolsProvider: McpToolsReadModelProvider;
+const serverAvailability = {
+  generatedAt: '2026-01-01T00:00:00.000Z',
+  components: {
+    api: { state: 'available' as const, source: 'health-check' as const, checkedAt: '2026-01-01T00:00:00.000Z' },
+    runtime: { state: 'unavailable' as const, source: 'runtime-application' as const, checkedAt: '2026-01-01T00:00:00.000Z' },
+    mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: '2026-01-01T00:00:00.000Z' },
+  },
+};
+const actorRuntime = { pauseMode: 'idle' as const, cards: [] };
 
 function chatFactoryDependencyTypeFixtures(): void {
   buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication, saivageConfig });
@@ -38,6 +53,20 @@ function processFactoryDependencyTypeFixtures(): void {
   buildProcessOperatorContractHandlers({ projectRoot: '.', processRunner });
   // @ts-expect-error Process composition requires the application-owned runner.
   buildProcessOperatorContractHandlers({ projectRoot: '.' });
+}
+
+function runtimeAndMcpFactoryDependencyTypeFixtures(): void {
+  const serverAvailabilityProvider = () => serverAvailability;
+  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, runtimeApplication, serverAvailabilityProvider });
+  buildMcpOperatorContractHandlers({ mcpToolsProvider });
+  // @ts-expect-error Runtime/card composition requires the card service.
+  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', runtimeApplication, serverAvailabilityProvider });
+  // @ts-expect-error Runtime/card composition requires the runtime application.
+  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, serverAvailabilityProvider });
+  // @ts-expect-error Runtime/card composition requires the availability provider.
+  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, runtimeApplication });
+  // @ts-expect-error MCP composition requires the tools read-model provider.
+  buildMcpOperatorContractHandlers({});
 }
 
 function contractRuntimeDependencyTypeFixtures(): void {
@@ -91,8 +120,16 @@ const explicitSuccess: OperatorApiHandlerResult<'health.liveness'> = {
 };
 const readinessUnavailable: OperatorApiHandlerResult<'health.readiness'> = {
   statusCode: 503,
-  body: { status: 'not_ready' },
+  body: { status: 'not_ready', serverAvailability },
 };
+const nullRuntimeState: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectRoot: '/project', projectId: 'project', runtime: null, serverAvailability } };
+const stoppedRuntimeStatus: OperatorApiHandlerResult<'runtime.status'> = { body: { runtime: 'stopped', currentCardId: null, started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime, serverAvailability } };
+// @ts-expect-error Readiness requires concrete availability for 503 responses.
+const readinessWithoutAvailability: OperatorApiHandlerResult<'health.readiness'> = { statusCode: 503, body: { status: 'not_ready' } };
+// @ts-expect-error Runtime get-state requires concrete availability even when runtime state is null.
+const stateWithoutAvailability: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectRoot: '/project', projectId: 'project', runtime: null } };
+// @ts-expect-error Runtime status requires concrete availability even when runtime is stopped.
+const statusWithoutAvailability: OperatorApiHandlerResult<'runtime.status'> = { body: { runtime: 'stopped', currentCardId: null, started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime } };
 // @ts-expect-error 418 is not declared by the readiness operation.
 const undeclaredStatus: OperatorApiHandlerResult<'health.readiness'> = { statusCode: 418, body: { error: 'teapot' } };
 // @ts-expect-error cards.get does not declare the history-entry 404 body.
@@ -118,6 +155,11 @@ describe('operator handler contract type fixtures', () => {
       implicitSuccess.statusCode,
       explicitSuccess.statusCode,
       readinessUnavailable.statusCode,
+      nullRuntimeState,
+      stoppedRuntimeStatus,
+      readinessWithoutAvailability,
+      stateWithoutAvailability,
+      statusWithoutAvailability,
       undeclaredStatus.statusCode,
       wrongNotFoundBody.statusCode,
       successUnderNotFound.statusCode,
@@ -125,6 +167,7 @@ describe('operator handler contract type fixtures', () => {
       incompleteAssembly,
       chatFactoryDependencyTypeFixtures,
       processFactoryDependencyTypeFixtures,
+      runtimeAndMcpFactoryDependencyTypeFixtures,
       contractRuntimeDependencyTypeFixtures,
     ]).toBeDefined();
   });

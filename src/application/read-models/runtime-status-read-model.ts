@@ -5,7 +5,7 @@ export type RuntimeStatusReadModel = Omit<RuntimeStatusResponse, 'restart_server
 
 export interface RuntimeStatusInputs {
   runtimeApi: Pick<RuntimeApi, 'getStatus' | 'getActorRuntimeReadModel'>;
-  serverAvailability?: ServerAvailability;
+  serverAvailability: ServerAvailability;
 }
 
 export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): RuntimeStatusReadModel {
@@ -16,6 +16,6 @@ export function buildRuntimeStatusReadModel(inputs: RuntimeStatusInputs): Runtim
     started_at: status.startedAt,
     pid: status.pid,
     actorRuntime: inputs.runtimeApi.getActorRuntimeReadModel(),
-    ...(inputs.serverAvailability ? { serverAvailability: inputs.serverAvailability } : {}),
+    serverAvailability: inputs.serverAvailability,
   };
 }

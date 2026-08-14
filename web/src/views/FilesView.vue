@@ -239,7 +239,7 @@ async function refetchActiveFilesView(): Promise<void> {
   if (viewedFilePath.value) await fileStore.fetchFileContent(viewedFilePath.value);
 }
 
-function applyQueryPath(): void {
+async function applyQueryPath(): Promise<void> {
   const rootName = activeRoot.value;
   const path = canonicalPathForRoot(rootName, route.query.path);
   const pathRoot = rootForPath(path);
@@ -255,23 +255,17 @@ function applyQueryPath(): void {
   };
 
   fileStore.clearViewedFile();
-  browseDirectory(path)
-    .then(async (listedDirectory) => {
-      if (listedDirectory) return;
+  const listedDirectory = await browseDirectory(path);
+  if (listedDirectory || fileStore.unauthorized) return;
 
-      if (fileStore.unauthorized) return;
+  const directory = parentPath(path);
+  const listedParent = directory !== path ? await browseDirectory(directory) : false;
+  if (fileStore.unauthorized) return;
 
-      const directory = parentPath(path);
-      const listedParent = directory !== path ? await browseDirectory(directory) : false;
-      if (fileStore.unauthorized) return;
+  if (!listedParent) await browse(activeRootPath.value);
+  if (fileStore.unauthorized) return;
 
-      if (!listedParent) await browse(activeRootPath.value);
-      if (fileStore.unauthorized) return;
-
-      await fileStore.fetchFileContent(path);
-    })
-    .catch(() => browse(activeRootPath.value))
-    .catch(() => {});
+  await fileStore.fetchFileContent(path);
 }
 
 let unregisterFiles: (() => void) | null = null;
@@ -283,8 +277,8 @@ onUnmounted(() => {
   unregisterFiles?.();
 });
 
-watch(() => [route.query.root, route.query.path], () => {
-  applyQueryPath();
+watch(() => [route.query.root, route.query.path], async () => {
+  await applyQueryPath();
 }, { immediate: true });
 </script>
 

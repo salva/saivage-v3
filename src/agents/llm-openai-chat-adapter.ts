@@ -76,8 +76,8 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       transport: 'generic',
       streaming: request.stream,
       requestParams: {
-        temperature: options.temperature ?? 0.7,
-        max_tokens: options.max_tokens ?? 4096,
+        temperature: options.temperature,
+        max_tokens: options.max_tokens,
         stream: options.stream ?? false,
         offered_tools_count: request.tools?.length ?? 0,
       },
@@ -179,8 +179,8 @@ export function buildOpenAIChatRequest(
   const body: ChatCompletionRequest = {
     model: candidate.model,
     messages: sanitizeToolCallSequences(messages),
-    temperature: opts.temperature ?? 0.7,
-    max_tokens: opts.max_tokens ?? 4096,
+    temperature: opts.temperature,
+    max_tokens: opts.max_tokens,
     stream: opts.stream ?? false,
   };
   if (opts.tools.length) {

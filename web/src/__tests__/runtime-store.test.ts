@@ -3,6 +3,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useRuntimeStore } from '../stores/runtime';
 import { getRuntimeState, getRuntimeStatus, stopProject as stopProjectRequest } from '../api/client';
 
+const serverAvailability = {
+  generatedAt: '2026-08-14T00:00:00.000Z',
+  components: {
+    api: { state: 'available' as const, source: 'health-check' as const, checkedAt: '2026-08-14T00:00:00.000Z' },
+    runtime: { state: 'unavailable' as const, source: 'runtime-application' as const, checkedAt: '2026-08-14T00:00:00.000Z', diagnostic: { code: 'runtime-unavailable', summary: 'Runtime is unavailable.' } },
+    mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: '2026-08-14T00:00:00.000Z' },
+  },
+};
+const stoppedStatus = { runtime: 'stopped' as const, currentCardId: null, started_at: '2026-08-14T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'idle' as const, cards: [] }, serverAvailability };
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -17,16 +27,17 @@ vi.mock('../api/client', async (importOriginal) => ({
     projectRoot: '/fixture',
     projectId: 'fixture-project',
     runtime: null,
+    serverAvailability,
   })),
-  getRuntimeStatus: vi.fn(async () => ({ restart_server_available: false })),
+  getRuntimeStatus: vi.fn(async () => stoppedStatus),
   stopProject: vi.fn(async () => ({ status: 'stopped', contained: false })),
   restartServer: vi.fn(async () => ({ status: 'restart_scheduled' })),
 }));
 describe('runtime store S06 read-only projection', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
-    vi.mocked(getRuntimeState).mockResolvedValue({ projectRoot: '/fixture', projectId: 'fixture-project', runtime: null });
-    vi.mocked(getRuntimeStatus).mockResolvedValue({ restart_server_available: false } as Awaited<ReturnType<typeof getRuntimeStatus>>);
+    vi.mocked(getRuntimeState).mockResolvedValue({ projectRoot: '/fixture', projectId: 'fixture-project', runtime: null, serverAvailability });
+    vi.mocked(getRuntimeStatus).mockResolvedValue(stoppedStatus);
     vi.mocked(stopProjectRequest).mockResolvedValue({ status: 'stopped', contained: false });
   });
 
@@ -51,6 +62,7 @@ describe('runtime store S06 read-only projection', () => {
 
     expect(store.statusLabel).toBe('unknown');
     expect(store.loaded).toBe(false);
+    expect(store.serverAvailability).toBeNull();
     expect(typeof store.fetchState).toBe('function');
     expect(typeof store.refetch).toBe('function');
 
@@ -59,6 +71,7 @@ describe('runtime store S06 read-only projection', () => {
     expect(store.status).toBe('stopped');
     expect(store.statusLabel).toBe('stopped');
     expect(store.runtimeDetail).toBe('No live runtime.');
+    expect(store.serverAvailability).toEqual(serverAvailability);
     expect(store.lastFetchedAt).not.toBeNull();
     expect(store.projectRoot).toBe('/fixture');
     expect(store).not.toHaveProperty('cardIndex');
@@ -107,12 +120,12 @@ describe('runtime store S06 read-only projection', () => {
     const obsolete = deferred<Awaited<ReturnType<typeof getRuntimeState>>>();
     vi.mocked(getRuntimeState)
       .mockReturnValueOnce(obsolete.promise)
-      .mockResolvedValueOnce({ projectRoot: '/current', projectId: 'current', runtime: null });
+      .mockResolvedValueOnce({ projectRoot: '/current', projectId: 'current', runtime: null, serverAvailability });
 
     const first = store.fetchState();
     const second = store.fetchState();
     await second;
-    obsolete.resolve({ projectRoot: '/obsolete', projectId: 'obsolete', runtime: null });
+    obsolete.resolve({ projectRoot: '/obsolete', projectId: 'obsolete', runtime: null, serverAvailability });
     await first;
 
     expect(store.projectRoot).toBe('/current');

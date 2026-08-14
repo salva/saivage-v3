@@ -92,6 +92,11 @@ export type LLMToolContinuationContextHook = (continuationInputId: string) => { 
 export type ConversationLLMActorPurpose = Readonly<
   { kind: 'autonomous-card'; cardId: CardId } | { kind: 'analyst' }
 >;
+type ConversationLLMActorCommonArgs = Readonly<{ agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void; fatalPort: ApplicationFatalPort }>;
+type ConversationLLMActorArgs = ConversationLLMActorCommonArgs & (
+  | Readonly<{ purpose: { kind: 'autonomous-card'; cardId: CardId }; gate: RuntimeGate }>
+  | Readonly<{ purpose: { kind: 'analyst' }; gate?: never }>
+);
 
 export class ConversationLLMActor {
   readonly agentId: ConversationSessionId;
@@ -107,21 +112,22 @@ export class ConversationLLMActor {
   #phase: ConversationPhase = { kind: 'idle', disposition: { kind: 'open' } };
   #executingActivity: ExecutingLlmActivity = Object.freeze({ mode: 'active', barrier: null });
 
-  constructor(args: { purpose: ConversationLLMActorPurpose; agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; gate?: RuntimeGate; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void; fatalPort: ApplicationFatalPort }) {
+  constructor(args: ConversationLLMActorArgs) {
     this.agentId = parseConversationSessionId(args.agentId);
     const identity = conversationSessionIdentity(this.agentId);
     switch (args.purpose.kind) {
       case 'autonomous-card':
         if (identity.cardId !== args.purpose.cardId) throw new Error(`Autonomous-card LLM actor purpose '${args.purpose.cardId}' does not match session '${this.agentId}'.`);
+        this.gate = (args as Extract<ConversationLLMActorArgs, { purpose: { kind: 'autonomous-card' } }>).gate;
         break;
       case 'analyst':
         if (identity.cardId !== null) throw new Error(`Analyst LLM actor requires a global session, received '${this.agentId}'.`);
+        this.gate = new RuntimeGate();
         break;
     }
     this.purpose = Object.freeze(args.purpose);
     this.provider = args.provider;
     this.conversations = args.conversations;
-    this.gate = args.gate ?? new RuntimeGate();
     this.compactor = args.compactor;
     this.summarizerProvider = args.summarizerProvider;
     this.runtimeProjectionChanged = args.runtimeProjectionChanged;

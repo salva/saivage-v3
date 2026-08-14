@@ -16,6 +16,7 @@ import { CardService, initProjectTree } from '../../helpers/canonical-project.js
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
+import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
 afterEach(() => {
@@ -43,6 +44,7 @@ function harness(provider: LLMProviderPort = { completeTurn: async (_input: unkn
   const supervisor = new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
+    runtimeGate: new RuntimeGate(),
     projectRoot,
     actorStore: cards,
     provider,

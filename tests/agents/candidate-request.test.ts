@@ -11,7 +11,7 @@ const tools: ToolDefinition[] = [
   { type: 'function', function: { name: 'read_file', description: 'Read a file.', parameters: { type: 'object' } } },
   { type: 'function', function: { name: 'emit_result', description: 'Emit the result.', parameters: { type: 'object' } } },
 ];
-const options: LlmCompleteOptions = { inputId: '00000000-0000-4000-8000-000000000001', contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools, tool_choice: 'auto', max_tokens: 321 };
+const options: LlmCompleteOptions = { inputId: '00000000-0000-4000-8000-000000000001', contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools, tool_choice: 'auto', temperature: 0.2, max_tokens: 321 };
 const base = { candidate: { provider: 'test', account: null, model: 'model' }, systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] } satisfies ProviderConversationProjection, options };
 const capabilities = (transportProtocol: EffectiveProviderCapabilities['transportProtocol']): EffectiveProviderCapabilities => ({ transportProtocol, toolsMode: 'native', exclusiveToolChoiceSupport: 'native', streaming: false, contextWindowTokens: 10000, maxOutputTokens: 1000, quirks: [] });
 

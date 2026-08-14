@@ -14,6 +14,7 @@ import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -28,6 +29,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
   return new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
+    runtimeGate: new RuntimeGate(),
     projectRoot,
     actorStore: cards,
     provider,

@@ -93,7 +93,7 @@ function analystRecordAncestorRecipients(store: PropagationStore, path: readonly
   return recipients;
 }
 
-export function propagateChange(store: CardService, editedCardId: string, origin: ChangeOrigin, notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult): ChangedPropagation {
+export function propagateChange(store: CardService, editedCardId: string, origin: ChangeOrigin, notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult): ChangedPropagation {
   const edited = store.read(editedCardId);
   if (!edited) throw new Error(`Card '${editedCardId}' not found.`);
 
@@ -101,9 +101,7 @@ export function propagateChange(store: CardService, editedCardId: string, origin
   const { flipped, firstRunningCardId } = flipRestingCardsAlongPath(store, path, FLIPPABLE_RESTING);
 
   const summary = originSummary(origin);
-  if (notifyCard) {
-    notifyOnce(firstRunningCardId ? [editedCardId, firstRunningCardId] : [editedCardId], notifyCard, origin.kind, summary);
-  }
+  notifyOnce(firstRunningCardId ? [editedCardId, firstRunningCardId] : [editedCardId], notifyCard, origin.kind, summary);
 
   return { flipped };
 }

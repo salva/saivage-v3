@@ -49,6 +49,8 @@ describe('buildOpenAIChatRequest wire shape', () => {
   it('preserves the ordered operational and terminal tool surface with auto choice and parallel calls disabled', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
+      temperature: 0.2,
+      max_tokens: 1234,
       contract_id: 'test.v1',
       contractName: 'planner',
       terminalToolOffered: ['emit_result'],
@@ -60,6 +62,8 @@ describe('buildOpenAIChatRequest wire shape', () => {
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
     expect(body.parallel_tool_calls).toBe(false);
+    expect(body.temperature).toBe(0.2);
+    expect(body.max_tokens).toBe(1234);
     expect(body.tool_choice).toBe('auto');
     expect(body.tools).toEqual([
       {
@@ -84,6 +88,8 @@ describe('buildOpenAIChatRequest wire shape', () => {
   it('no-tools (analyst message mode): omits tools, tool_choice, parallel_tool_calls', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
+      temperature: 0.3,
+      max_tokens: 2345,
       contract_id: 'test.v1',
       contractName: 'analyst',
       terminalToolOffered: [],
@@ -101,10 +107,10 @@ describe('buildOpenAIChatRequest wire shape', () => {
   it('records current request parameters without an LLM phase while retaining terminal evidence', async () => {
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 }));
     const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: 'key' }).complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, 'agent:analyst:global', {
-      inputId: 'test:input:record', contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL], tool_choice: 'auto',
+      inputId: 'test:input:record', temperature: 0.4, max_tokens: 3456, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL], tool_choice: 'auto',
     });
 
-    expect(completion.provider_exchanges[0]).toMatchObject({ request_params: { offered_tools_count: 1, method: 'POST' }, terminal_tool_fired: 'emit_result' });
+    expect(completion.provider_exchanges[0]).toMatchObject({ request_params: { offered_tools_count: 1, method: 'POST', temperature: 0.4, max_tokens: 3456 }, terminal_tool_fired: 'emit_result' });
     expect(completion.provider_exchanges[0]!.request_params).not.toHaveProperty('phase');
   });
 });

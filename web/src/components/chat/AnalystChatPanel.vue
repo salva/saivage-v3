@@ -281,7 +281,7 @@ onBeforeUnmount(() => {
 }
 
 .chat-status-warning {
-  color: var(--warning, var(--text));
+  color: var(--warn);
 }
 
 .chat-input-panel {

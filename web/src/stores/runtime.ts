@@ -86,7 +86,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       runtime.value = response.runtime;
       projectRoot.value = response.projectRoot;
       projectId.value = response.projectId;
-      serverAvailability.value = response.serverAvailability ?? null;
+      serverAvailability.value = response.serverAvailability;
       restartServerAvailable.value = liveStatus.restart_server_available;
       loaded.value = true;
       markRestSync();

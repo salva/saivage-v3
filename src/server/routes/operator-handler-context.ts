@@ -34,21 +34,21 @@ export interface OperatorProjectContext {
 }
 
 export interface OperatorCardServiceContext {
-  cardStore?: CardService;
+  cardStore: CardService;
 }
 
 export interface OperatorRuntimeProviderContext {
-  runtimeApplication?: RuntimeApplication;
+  runtimeApplication: RuntimeApplication;
   restartPort?: RestartPort;
   restartServerAvailable?: boolean;
 }
 
 export interface OperatorAvailabilityContext {
-  serverAvailabilityProvider?: OperatorServerAvailabilityProvider;
+  serverAvailabilityProvider: OperatorServerAvailabilityProvider;
 }
 
 export interface OperatorMcpProviderContext {
-  mcpToolsProvider?: McpToolsReadModelProvider;
+  mcpToolsProvider: McpToolsReadModelProvider;
 }
 
 export interface OperatorConfigContext {

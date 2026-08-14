@@ -15,6 +15,7 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
 const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\ntest process prompt: review-to-plan';
@@ -86,6 +87,7 @@ describe('reviewer rework completion E2E', () => {
     const runtime = new SupervisorRuntimeApi({
       fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
+      runtimeGate: new RuntimeGate(),
       projectRoot,
       actorStore: cards,
       provider,

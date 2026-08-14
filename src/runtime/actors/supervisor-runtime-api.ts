@@ -38,7 +38,7 @@ export interface SupervisorRuntimeApiOptions {
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry;
   workflows: CompiledRuntimeWorkflows; processPrompts: ProcessPromptRegistry;
-  runtimeGate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort;
+  runtimeGate: RuntimeGate; mcpToolInvocation: McpToolInvocationPort;
   processIdentity: RuntimeProcessIdentity;
   fatalPort: ApplicationFatalPort;
 }
@@ -75,7 +75,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     this.#runtimeProcessRootScope = runtimeProcessRootScope;
     this.behavior = behavior;
     this.now = behavior.now ?? (() => new Date().toISOString());
-    this.runtimeGate = behavior.runtimeGate ?? new RuntimeGate();
+    this.runtimeGate = behavior.runtimeGate;
   }
 
   async start(): Promise<void> {

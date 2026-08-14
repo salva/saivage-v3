@@ -20,6 +20,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { parseCanonicalContentPolicyRefusal } from '../../src/schemas/index.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
+import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -41,6 +42,7 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
   return new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
+    runtimeGate: new RuntimeGate(),
     projectRoot, actorStore: cards, provider,
     conversations: { projectRoot },
     freshness: { runtimeChanged() {} },

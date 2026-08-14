@@ -9,6 +9,12 @@ import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildRuntimeCardOperatorContractHandlers } from '../../src/server/routes/operator-runtime-card-handlers.js';
 import { createEventLog } from '../../src/observability/index.js';
+import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const serverAvailability = { generatedAt: '2026-01-01T00:00:00.000Z', components: { api: { state: 'available' as const, source: 'health-check' as const, checkedAt: '2026-01-01T00:00:00.000Z' }, runtime: { state: 'unavailable' as const, source: 'runtime-application' as const, checkedAt: '2026-01-01T00:00:00.000Z' }, mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: '2026-01-01T00:00:00.000Z' } } };
 
 describe('runtime-control route request contracts', () => {
   let fastify: FastifyInstance;
@@ -18,6 +24,7 @@ describe('runtime-control route request contracts', () => {
   const schedule = jest.fn();
   const acknowledge = jest.fn(async () => {});
   const observedHeaders: Array<Record<string, string | string[] | undefined>> = [];
+  let projectRoot: string;
 
   beforeEach(async () => {
     pause.mockClear();
@@ -26,25 +33,31 @@ describe('runtime-control route request contracts', () => {
     schedule.mockClear();
     acknowledge.mockClear();
     observedHeaders.length = 0;
+    projectRoot = mkdtempSync(join(tmpdir(), 'operator-runtime-routes-'));
+    initProjectTree(projectRoot);
+    const cardStore = new CardService(projectRoot);
     fastify = Fastify({ logger: false });
     fastify.addHook('onRequest', (request, _reply, done) => {
       observedHeaders.push(request.headers);
       done();
     });
     const runtimeApplication = {
+      cardStore,
       runtimeApi: {
         pause,
         resume,
         stopProject,
         startProject: jest.fn(),
         cancelCard: jest.fn(),
-        getStatus: jest.fn(() => ({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
-        getActorRuntimeReadModel: jest.fn(() => ({ pauseMode: 'running', cards: [] })),
+        getStatus: jest.fn(() => ({ status: 'stopped', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
+        getActorRuntimeReadModel: jest.fn(() => ({ pauseMode: 'idle', cards: [] })),
       },
     } as unknown as RuntimeApplication;
     const handlers = buildRuntimeCardOperatorContractHandlers({
-      projectRoot: '/project',
+      projectRoot,
+      cardStore,
       runtimeApplication,
+      serverAvailabilityProvider: () => serverAvailability,
       restartServerAvailable: true,
       restartPort: { schedule, acknowledge },
     });
@@ -54,6 +67,7 @@ describe('runtime-control route request contracts', () => {
 
   afterEach(async () => {
     await fastify.close();
+    rmSync(projectRoot, { recursive: true, force: true });
   });
 
   const routes: Array<[string, Mock]> = [
@@ -69,6 +83,15 @@ describe('runtime-control route request contracts', () => {
     { label: 'null', payload: 'null' },
     { label: 'arbitrary array', payload: '["payload"]' },
   ];
+
+  it('projects concrete unavailable availability through readiness and stopped-independent runtime status', async () => {
+    const readiness = await fastify.inject({ method: 'GET', url: '/health/ready' });
+    expect(readiness.statusCode).toBe(503);
+    expect(readiness.json()).toEqual({ status: 'not_ready', serverAvailability });
+    const status = await fastify.inject({ method: 'GET', url: '/api/runtime/status', headers: { authorization: 'Bearer route-token' } });
+    expect(status.statusCode).toBe(200);
+    expect(status.json()).toMatchObject({ runtime: 'stopped', serverAvailability });
+  });
 
   it.each(routes)('accepts an absent body for %s', async (url, control) => {
     const response = await fastify.inject({

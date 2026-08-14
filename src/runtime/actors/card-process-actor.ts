@@ -53,13 +53,13 @@ export class CardProcessActor extends BaseActor {
   #activationSettled = false;
   #preJoinFailure: { readonly error: unknown } | null = null;
 
-  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardTypeWorkflow; workflows:CompiledRuntimeWorkflows; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; onActorMainFailure(error: unknown): void; fatalPort: ApplicationFatalPort; gate?: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
+  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardTypeWorkflow; workflows:CompiledRuntimeWorkflows; processPrompts: ProcessPromptRegistry; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; onActorMainFailure(error: unknown): void; fatalPort: ApplicationFatalPort; gate: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.initialStateId, args.process.states);
     this.cardId = args.cardId;
     this.process = args.process;
     this.#provider = args.provider;
     this.#conversations = args.conversations;
-    this.#gate = args.gate ?? new RuntimeGate();
+    this.#gate = args.gate;
     this.#compactor = args.compactor;
     this.#summarizerProvider = args.summarizerProvider;
     this.#runtimeProjectionChanged = args.runtimeProjectionChanged;

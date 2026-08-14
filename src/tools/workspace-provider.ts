@@ -40,7 +40,7 @@ async function runWorkspaceTool(action: () => Promise<unknown>): Promise<ToolRes
 
 const readDescription = 'Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs. Use work:/// to page through runtime process output and stash files. Text reads return at most 2000 lines, 2000 characters per line, and about 256KB total inline content; files larger than about 10MB are not read inline. Set metadata_only to inspect file size/mtime or visible directory entry counts without reading content.';
 const grepDescription = 'Stream-search text files, including files too large for inline read, with a JavaScript regular expression under project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Search retains at most 2000 characters per line and reports content truncation when an overlong suffix was not searched. grep record:///<cardId> searches effective current configured records and returns record URLs as path. work:/// content is redacted before return.';
-const analystWorkspace = (ctx: AnalystToolContext): WorkspaceProviderContext => ({ projectRoot: ctx.projectRoot, agentName:ctx.actor,filesystemWrite:true,store: ctx.store, notifyCard: ctx.runtime?.notifyCard });
+const analystWorkspace = (ctx: AnalystToolContext): WorkspaceProviderContext => ({ projectRoot: ctx.projectRoot, agentName:ctx.actor,filesystemWrite:true,store: ctx.store, notifyCard: ctx.runtime.notifyCard });
 
 export const workspaceToolBinders: readonly ToolBinder<WorkspaceProviderContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'read', description: readDescription, inputSchema: readWorkspaceInputSchema, executor: (ctx, args) => runWorkspaceTool(() => readProject(ctx, args)) }),

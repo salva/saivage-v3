@@ -25,7 +25,7 @@ export interface LlmRequestSectionSizes {
   tool_count: number;
   tools_chars: number;
   tools_estimated_tokens: number;
-  max_tokens: number | null;
+  max_tokens: number;
   estimated_prompt_tokens: number;
   estimated_total_tokens_with_completion: number;
   likely_largest_section: 'system_prompt' | 'messages' | 'tools' | 'completion_budget';
@@ -64,12 +64,12 @@ function measureSections(
     0,
   );
   const toolsTokens = estimateTextTokens('x'.repeat(toolsChars));
-  const maxTokens = opts.max_tokens ?? null;
+  const maxTokens = opts.max_tokens;
   const candidates = [
     { section: 'system_prompt' as const, tokens: systemPromptTokens },
     { section: 'messages' as const, tokens: messagesTokens },
     { section: 'tools' as const, tokens: toolsTokens },
-    { section: 'completion_budget' as const, tokens: maxTokens ?? 0 },
+    { section: 'completion_budget' as const, tokens: maxTokens },
   ].sort((a, b) => b.tokens - a.tokens);
 
   return {
@@ -84,7 +84,7 @@ function measureSections(
     tools_estimated_tokens: toolsTokens,
     max_tokens: maxTokens,
     estimated_prompt_tokens: systemPromptTokens + messagesTokens + toolsTokens,
-    estimated_total_tokens_with_completion: systemPromptTokens + messagesTokens + toolsTokens + (maxTokens ?? 0),
+    estimated_total_tokens_with_completion: systemPromptTokens + messagesTokens + toolsTokens + maxTokens,
     likely_largest_section: candidates[0].section,
   };
 }
@@ -123,7 +123,7 @@ export function formatLlmRequestSectionSizes(sizes: LlmRequestSectionSizes): str
   const largest = sizes.largest_message
     ? `largest_message=index:${sizes.largest_message.index},role:${sizes.largest_message.role},kind:${sizes.largest_message.kind},tool:${sizes.largest_message.tool ?? '_'},chars:${sizes.largest_message.chars},est_tokens:${sizes.largest_message.estimated_tokens}`
     : 'largest_message=none';
-  return `[request_section_sizes system_prompt_chars=${sizes.system_prompt_chars} system_prompt_est_tokens=${sizes.system_prompt_estimated_tokens} message_count=${sizes.message_count} messages_chars=${sizes.messages_chars} messages_est_tokens=${sizes.messages_estimated_tokens} ${largest} tool_count=${sizes.tool_count} tools_chars=${sizes.tools_chars} tools_est_tokens=${sizes.tools_estimated_tokens} max_tokens=${sizes.max_tokens ?? 'unset'} estimated_prompt_tokens=${sizes.estimated_prompt_tokens} estimated_total_tokens_with_completion=${sizes.estimated_total_tokens_with_completion} likely_largest_section=${sizes.likely_largest_section}]`;
+  return `[request_section_sizes system_prompt_chars=${sizes.system_prompt_chars} system_prompt_est_tokens=${sizes.system_prompt_estimated_tokens} message_count=${sizes.message_count} messages_chars=${sizes.messages_chars} messages_est_tokens=${sizes.messages_estimated_tokens} ${largest} tool_count=${sizes.tool_count} tools_chars=${sizes.tools_chars} tools_est_tokens=${sizes.tools_estimated_tokens} max_tokens=${sizes.max_tokens} estimated_prompt_tokens=${sizes.estimated_prompt_tokens} estimated_total_tokens_with_completion=${sizes.estimated_total_tokens_with_completion} likely_largest_section=${sizes.likely_largest_section}]`;
 }
 
 export function appendLlmRequestSectionSizesDiagnostic(

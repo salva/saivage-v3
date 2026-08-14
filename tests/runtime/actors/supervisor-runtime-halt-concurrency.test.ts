@@ -18,6 +18,7 @@ import { CardService, initProjectTree } from '../../helpers/canonical-project.js
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
+import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 
 function barrier<T>() {
   let resolve!: (value: T) => void;
@@ -93,6 +94,7 @@ function harness(withChild = false) {
   const supervisor = new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
+    runtimeGate: new RuntimeGate(),
     projectRoot,
     actorStore: store,
     provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
@@ -190,6 +192,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     const supervisor = new SupervisorRuntimeApi({
       fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
+      runtimeGate: new RuntimeGate(),
       projectRoot,
       processIdentity: { pid: 1, startedAt: 'now' },
       actorStore: cards,

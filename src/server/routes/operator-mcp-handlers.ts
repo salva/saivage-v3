@@ -12,8 +12,7 @@ export function buildMcpOperatorContractHandlers(options: OperatorMcpProviderCon
     'mcp.tools': () => {
       const body: OperatorApiSuccess<'mcp.tools'> = redactForOutbound({
         source: 'mcp-tools',
-        value: options.mcpToolsProvider?.getToolsReadModel()
-          ?? { servers: [] },
+        value: options.mcpToolsProvider.getToolsReadModel(),
       });
       return { body };
     },

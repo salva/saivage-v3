@@ -31,7 +31,7 @@ export interface ToolContext {
   processScope: ManagedProcessScope;
   store: CardService;
   sessionId?: string;
-  runtime?: Pick<
+  runtime: Pick<
     RuntimeApi,
     'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'getStatus'
   >;

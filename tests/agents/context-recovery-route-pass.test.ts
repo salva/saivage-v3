@@ -25,7 +25,7 @@ describe('authoritative context route-pass ordering', () => {
       return contextExhausted();
     });
     const service = invocationService([first, second]);
-    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { maxTokens: 100 }, capabilityRequest: {}, routePass:{kind:'ordinary',candidateChain:[first, second]} };
+    const request: InvocationRequest = { inputId: '00000000-0000-4000-8000-000000000001', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { temperature: 0, maxTokens: 100 }, capabilityRequest: {}, routePass:{kind:'ordinary',candidateChain:[first, second]} };
 
     await expect(service.invokeWithRecovery(request)).rejects.toMatchObject({ failure: { kind: 'input_context_exhausted' }, provider_exchanges: [{ attempt_index: 0 }] });
     expect(calls).toEqual(['test-a']);

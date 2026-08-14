@@ -104,7 +104,7 @@ describe('analyst runtime tools', () => {
     }
   });
 
-  it('reports absent runtime separately from the stopped runtime summary', async () => {
+  it('projects the required stopped runtime status', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-status-'));
     try {
       initProjectTree(projectRoot);
@@ -113,8 +113,9 @@ describe('analyst runtime tools', () => {
       const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       cards.setStatus(card.id, 'running');
       cards.stopRunningForRecovery(card.id);
-      const result = await get_status({ projectRoot, store: cards, processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});
-      expect(result).toMatchObject({ success: true, data: { runtime: null, runtimeSummary: { status: 'stopped', currentCardId: null }, statusCounts: { stopped: 1 }, counts: { stopped: 1 } } });
+      const runtime = { status: 'stopped' as const, currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' };
+      const result = await get_status({ ...controlContext({ getStatus: jest.fn(() => runtime) }), projectRoot, store: cards, processRunner, actor: 'analyst', surface: 'web-chat' } as ToolContext, {});
+      expect(result).toMatchObject({ success: true, data: { runtime, runtimeSummary: { status: 'stopped', currentCardId: null }, statusCounts: { stopped: 1 }, counts: { stopped: 1 } } });
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 });

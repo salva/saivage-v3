@@ -1,6 +1,6 @@
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
-import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js';
+import { installOperatorRestRoutes, smokeServerAvailability } from './fixtures/operator-rest-fixtures.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const token = 'synthetic-card-status-token';
@@ -62,11 +62,13 @@ async function install(page: Page): Promise<string[]> {
     projectRoot: '/work/status-fixture',
     projectId: 'project',
     runtime: { status: 'running', project_id: 'project', pid: 4242, started_at: now, current_card_id: goalId, updated_at: now },
+    serverAvailability: smokeServerAvailability,
   })));
   await page.route('**/api/runtime/status', (route) => json(route, parseOperatorResponse('runtime.status', 200, {
     runtime: 'running', currentCardId: goalId, started_at: now, pid: 4242,
     actorRuntime: { pauseMode: 'running', cards: [{ cardId: goalId, actorState: 'running', processState: { cardType: 'goal', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] },
     restart_server_available: false,
+    serverAvailability: smokeServerAvailability,
   })));
   await page.route('**/api/cards**', async (route) => {
     const request = route.request();

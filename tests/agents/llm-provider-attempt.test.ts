@@ -8,7 +8,7 @@ import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.
 import { LlmRequestError } from '../../src/agents/llm-errors.js';
 
 const candidate = { provider: 'test', account: null, model: 'model' } as const;
-const options = (signal?: AbortSignal): LlmCompleteOptions => ({ inputId: 'input', contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });
+const options = (signal?: AbortSignal): LlmCompleteOptions => ({ inputId: 'input', temperature: 0.2, max_tokens: 321, contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });
 const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, streaming: false, quirks: [] };
 const capabilityRequest = { requiresTools: false, requiresExclusiveToolChoice: true, streaming: false } as const;
 

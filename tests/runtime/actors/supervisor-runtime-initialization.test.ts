@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
+import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -20,7 +21,7 @@ function supervisor(read: () => unknown): SupervisorRuntimeApi {
   return new SupervisorRuntimeApi({
     actorStore: { read },
     processIdentity: { pid: 42, startedAt: '2026-08-10T00:00:00.000Z' },
-    runtimeGate: { close: jest.fn() },
+    runtimeGate: new RuntimeGate(),
   } as never);
 }
 

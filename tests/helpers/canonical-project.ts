@@ -45,7 +45,7 @@ export class CardService extends ProductionCardService {
   override discardRecord(cardId:string,filename:string,version:number,reason='test discard'){return super.discardRecord(cardId,filename,version,reason);}
 }
 
-export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService = new CardService(projectRoot), notifyCard?: (...args: any[]) => any): AnalystMutationServices {
+export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService, notifyCard: (...args: any[]) => any): AnalystMutationServices {
   return createAnalystMutationServices({
     projectRoot,
     store,

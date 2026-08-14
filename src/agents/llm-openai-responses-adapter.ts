@@ -119,7 +119,7 @@ export function buildOpenAIResponsesRequest(
     input: responsesInputFromProviderConversation(providerConversation),
     store: false,
     include: ['reasoning.encrypted_content'],
-    max_output_tokens: opts.max_tokens ?? 4096,
+    max_output_tokens: opts.max_tokens,
     stream: opts.stream === true,
   };
   if (opts.tools.length) {
