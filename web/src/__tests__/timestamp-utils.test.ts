@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest';
-import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
+import { formatRecentTimestamp, formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
 
 describe('formatTimestamp', () => {
   afterEach(() => vi.useRealTimers());
@@ -35,6 +35,17 @@ describe('formatTimestamp', () => {
     expect(isRecentTimestamp('2026-05-12T12:00:00Z', { now })).toBe(false);
     expect(isRecentTimestamp('2026-05-19T12:00:01Z', { now })).toBe(false);
     expect(isRecentTimestamp('not-a-date', { now })).toBe(false);
+  });
+
+  it('formats only recent past timestamps relatively with a fixed now', () => {
+    const now = new Date('2026-05-19T12:00:00Z');
+    const old = '2026-05-12T12:00:00Z';
+    const future = '2026-05-19T12:05:00Z';
+
+    expect(formatRecentTimestamp('2026-05-19T11:55:00Z', { now })).toBe('5m ago');
+    expect(formatRecentTimestamp(old, { now })).toBe(formatTimestamp(old, 'absolute', { now }));
+    expect(formatRecentTimestamp(future, { now })).toBe(formatTimestamp(future, 'absolute', { now }));
+    expect(formatRecentTimestamp('not-a-date', { now })).toBe('not-a-date');
   });
 
   it('uses the shared absolute formatter for timestamp titles', () => {

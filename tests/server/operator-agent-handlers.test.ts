@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Fastify from 'fastify';
@@ -24,6 +24,8 @@ import { AuthPolicy } from '../../src/server/auth-policy.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { cardConversationVersionFile } from '../../src/persistence/layout.js';
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
@@ -280,6 +282,20 @@ describe('operator Agent exact identity contracts and handlers', () => {
     ).resolves.toEqual({
       statusCode: 404,
       body: { error: 'No LLM exchange recorded for this session yet.' },
+    });
+  });
+
+  it('returns the exact classified Agent conversation history unavailability body', () => {
+    const root = projectRoot();
+    initProjectTree(root);
+    populatePlannerConversation(root);
+    const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
+    unlinkSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename));
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS });
+
+    expect(handlers['agents.conversationVersions.get']!({ params: { id: 'agent:planner:project', version: 1 } } as never)).toEqual({
+      statusCode: 404,
+      body: { error: 'historical_version_content_unavailable', resource: 'conversation', owner_id: 'agent:planner:project', version: 1, reason: 'missing' },
     });
   });
 

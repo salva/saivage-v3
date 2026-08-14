@@ -1,7 +1,7 @@
 import { getEventSeverity, type EventKind } from '@saivage/schemas/event-catalog';
 import type { DebugErrorRecord, DebugTimelineEvent, ProcessView, RuntimeState } from '../api/types';
 import { redactObservabilityText, redactObservabilityValue } from '../utils/observabilityRedaction';
-import { selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel } from './runtime-read-model';
+import { selectRuntimeModeLabel, selectRuntimeStatusLabel as selectSharedRuntimeStatusLabel } from './runtime-read-model';
 
 export interface DebugErrorItem {
   id: string;
@@ -80,8 +80,7 @@ export function selectSortedTimeline(events: DebugTimelineEvent[]): DebugTimelin
 }
 
 export function selectRuntimeStatusLabel(loaded: boolean, runtime: RuntimeState | null): string {
-  const label = selectSharedRuntimeStatusLabel({ loaded, runtime });
-  return label.charAt(0).toUpperCase() + label.slice(1);
+  return selectRuntimeModeLabel({ statusLabel: selectSharedRuntimeStatusLabel({ loaded, runtime }) });
 }
 
 export function selectSortedProcesses(processes: ReadonlyArray<ProcessView>): ProcessView[] {

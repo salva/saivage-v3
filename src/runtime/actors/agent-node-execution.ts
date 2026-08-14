@@ -220,10 +220,8 @@ export class AgentNodeExecution {
     if (!this.#stabilizedAgents.has(node.agent.name)) {
       if (!input.alreadyStabilizedAgents.has(node.agent.name)) stabilizeAgentSession({ sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
       this.#stabilizedAgents.add(node.agent.name);
-      appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', agent_name: node.agent.name, card_id: this.deps.cardId, input_id: inputId });
-    } else {
-      appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', agent_name: node.agent.name, card_id: this.deps.cardId, input_id: inputId });
     }
+    appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', agent_name: node.agent.name, card_id: this.deps.cardId, input_id: inputId });
     const roleContext: ProviderVisibleUserContextMessage[] = [];
     const selected = input.notificationDelivery.selectNotifications();
     roleContext.push(...selected.map((notification) => ({ role: 'user' as const, content: notification.content })));

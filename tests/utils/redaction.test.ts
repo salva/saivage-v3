@@ -56,6 +56,27 @@ describe('outbound redaction', () => {
   });
 
   describe('structured values', () => {
+    it('uses the same secret-key classification for text and dynamic projections', () => {
+      const value = {
+        candidateBToken: 'synthetic-camel-secret',
+        candidate_b_secret: 'synthetic-underscore-secret',
+        cookie: 'synthetic-cookie-secret',
+        auth: 'synthetic-auth-secret',
+        candidateBOrdinary: 'visible',
+      };
+
+      expect(redactTextForOutbound(JSON.stringify(value))).toBe(
+        '{"candidateBToken":"[REDACTED]","candidate_b_secret":"[REDACTED]","cookie":"[REDACTED]","auth":"[REDACTED]","candidateBOrdinary":"visible"}',
+      );
+      expect(redactForOutbound({ source: 'dynamic', value })).toEqual({
+        candidateBToken: SECRET_REDACTION_PLACEHOLDER,
+        candidate_b_secret: SECRET_REDACTION_PLACEHOLDER,
+        cookie: SECRET_REDACTION_PLACEHOLDER,
+        auth: SECRET_REDACTION_PLACEHOLDER,
+        candidateBOrdinary: 'visible',
+      });
+    });
+
     it('preserves a previously redacted inline assignment on repeated outbound projection', () => {
       const once = redactTextForOutbound('token=synthetic-secret');
       expect(once).toBe(`token=${SECRET_REDACTION_PLACEHOLDER}`);

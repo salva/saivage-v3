@@ -23,7 +23,10 @@ export {
 } from './canonical-record-artifacts.js';
 export type { AcceptedRecordSnapshot, AuthoredRecordVersionArtifact, AuthoredRecordVersionIndex, DiscardedRecordState, OpenRecordDraft, RecordVersionEntry } from './canonical-record-artifacts.js';
 export { AuthoredRecordHistoricalUnavailableError, AuthoredRecordNotFoundError, listAuthoredRecordVersions, readCurrentAuthoredRecord, readHistoricalAuthoredRecord } from './authored-record-files.js';
-export { readCurrentCardArtifact } from './card-files.js';
+export { publishInitialProjectCard, readCurrentCardArtifact } from './card-files.js';
+export type { InitialProjectCardInput } from './card-files.js';
+export { initializeConversation } from './conversation-file.js';
+export { saivageCardsRoot } from './layout.js';
 export type { RecordProjection } from './authored-record-files.js';
 export { replaceFile } from './replace-file.js';
 export { listControlActions, recordControlAction, stableStringify } from './control-action-audit.js';

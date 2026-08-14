@@ -51,7 +51,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCardAgentSessionsStore } from '../../stores/cardAgentSessions';
 import { useSyncStore } from '../../stores/sync';
-import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
+import { formatRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import PanelHeader from '../ui/PanelHeader.vue';
 import SelectableRow from '../ui/SelectableRow.vue';
 import ViewState from '../ui/ViewState.vue';
@@ -70,7 +70,7 @@ const requestPending = computed(
 let close: (() => void) | null = null;
 
 function fmtDate(ts: string): string {
-  return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : '';
+  return ts ? formatRecentTimestamp(ts) : '';
 }
 
 function openSession(id: ConversationSessionId): void {

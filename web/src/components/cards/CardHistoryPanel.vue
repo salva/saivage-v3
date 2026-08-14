@@ -85,7 +85,7 @@
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useCardStore } from '../../stores/cards';
-import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
+import { formatRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { formatJson } from '../../utils/format-json';
 import { sanitizeCardHistoryValue } from '../../utils/sanitize-card-history';
 import CodeBlock from '../content/CodeBlock.vue';
@@ -111,7 +111,7 @@ const {
 const activeDetailError = computed(() => cardHistoryEntryError.value ?? cardHistoryDiffError.value);
 
 function fmtDate(ts: string): string {
-  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
+  return formatRecentTimestamp(ts);
 }
 
 async function loadHistory(): Promise<void> {

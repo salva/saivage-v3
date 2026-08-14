@@ -1,10 +1,15 @@
+import { isSecretKey } from './secret-key.js';
 import { redactTextForOutbound } from './text.js';
 
 export function projectDynamicForOutbound(value: unknown): unknown {
   return projectValue(value, undefined, new WeakSet<object>());
 }
 
-function projectValue(value: unknown, key: string | undefined, activePath: WeakSet<object>): unknown {
+function projectValue(
+  value: unknown,
+  key: string | undefined,
+  activePath: WeakSet<object>,
+): unknown {
   if (key !== undefined && isSecretKey(key) && (value === null || typeof value !== 'object')) {
     return neutralSecretValue(value);
   }
@@ -36,8 +41,4 @@ function neutralSecretValue(value: unknown): unknown {
   if (typeof value === 'number') return 0;
   if (typeof value === 'bigint') return 0n;
   return '[REDACTED]';
-}
-
-function isSecretKey(key: string): boolean {
-  return /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|token|authorization|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password|credential|credentials?|cookie|set-cookie|auth)\b/i.test(key);
 }

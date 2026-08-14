@@ -104,7 +104,7 @@ import { useContentPolicyStore } from '../stores/contentPolicy';
 import { useSyncStore } from '../stores/sync';
 import { selectSocketDetail, selectSocketLabel } from '../stores/runtime-read-model';
 import { useDashboardReadModel } from '../composables/useDashboardReadModel';
-import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
+import { formatRecentTimestamp, formatTimestamp, timestampTitle } from '../utils/timestamp';
 import { statusForCard, type Tone } from '../utils/status';
 import Panel from '../components/ui/Panel.vue';
 import PanelHeader from '../components/ui/PanelHeader.vue';
@@ -177,7 +177,7 @@ const activeCardTitle = computed(() => {
 
 function shortTime(ts?: string | null): string {
   if (!ts) return 'unknown';
-  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
+  return formatRecentTimestamp(ts);
 }
 function shortTimeTitle(ts?: string | null): string {
   return ts ? timestampTitle(ts) : '';

@@ -1,7 +1,7 @@
+import { isSecretKey } from './secret-key.js';
+
 export const SECRET_REDACTION_PLACEHOLDER = '[REDACTED]';
 
-const SECRET_KEY_PATTERN =
-  /\b(?:apiKey|apiToken|botToken|accessToken|refreshToken|(?:api_)?key|token|authorization|.*[A-Z](?:Token|Key|Secret|Password)|.*_(?:key|token|secret|password)|secret|password|credential|credentials?|cookie|set-cookie|auth)\b/i;
 const JSON_SECRET_VALUE_RE = /("(?:[^"\\]|\\.)*")(\s*):(\s*)"((?:[^"\\]|\\.)*)"/gi;
 const YAML_SECRET_VALUE_RE =
   /(^[ \t]*([A-Za-z][A-Za-z0-9_-]*)[ \t]*:[ \t]*)([^\n#][^\n]*)(?=$|\n)/gim;
@@ -36,9 +36,6 @@ export function redactUrl(raw: string): string {
   }
 }
 
-function isSecretKey(key: string): boolean {
-  return SECRET_KEY_PATTERN.test(key);
-}
 function shouldPreserveValue(value: string): boolean {
   return /\$\{[^}]+\}/.test(value);
 }

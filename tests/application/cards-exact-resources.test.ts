@@ -85,4 +85,22 @@ describe('exact Card operator resources',()=>{
     const model=new CardsReadModelService('/work',store as never,{getRuntimeState:()=>null});
     try{model.getRecord('card-a','status.md');throw new Error('expected publication uncertainty');}catch(error){expect(error).toBe(fatal);}
   });
+
+  it('preserves exact historical-unavailability resources across all four Cards branches', () => {
+    const historicalError = (reason: 'missing' | 'corrupt' | 'io_error') => Object.assign(new Error('unavailable'), { name: 'AuthoredRecordHistoricalUnavailableError', reason });
+    const store = {
+      getCardDetail: () => ({ kind: 'found', value: { id: 'card-a', type: 'goal' } }),
+      recordReader: { definition: () => ({}) },
+      listRecordVersions: () => ({ versions: [{ version: 5 }] }),
+      readHistoricalRecord: (_id: string, _name: string, version: number) => { throw historicalError(version === 2 ? 'corrupt' : 'io_error'); },
+      readCardVersion: () => ({ kind: 'historical-unavailable', version: 2, reason: 'missing' }),
+      diffCardVersions: () => ({ kind: 'historical-unavailable', version: 3, side: 'to', reason: 'corrupt' }),
+    };
+    const model = new CardsReadModelService('/work', store as never, { getRuntimeState: () => null });
+
+    expect(model.getHistoryEntry('card-a', 2)).toEqual({ statusCode: 404, body: { error: 'historical_version_content_unavailable', resource: 'card', owner_id: 'card-a', version: 2, reason: 'missing' } });
+    expect(model.diffCard('card-a', { from: 1, to: 3 })).toEqual({ statusCode: 409, body: { error: 'historical_diff_side_unavailable', resource: 'card', owner_id: 'card-a', version: 3, side: 'to', reason: 'corrupt' } });
+    expect(model.getRecordVersion('card-a', 'brief.md', 2)).toEqual({ statusCode: 409, body: { error: 'historical_version_content_unavailable', resource: 'authored_record', owner_id: 'card-a/brief.md', version: 2, reason: 'corrupt' } });
+    expect(model.diffRecord('card-a', 'brief.md', { from: 1, to: 5 })).toEqual({ statusCode: 503, body: { error: 'historical_diff_side_unavailable', resource: 'authored_record', owner_id: 'card-a/brief.md', version: 1, side: 'from', reason: 'io_error' } });
+  });
 });

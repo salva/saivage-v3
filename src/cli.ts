@@ -1,18 +1,14 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
-import { startApp } from './boot/index.js';
-import { newProjectRootInput } from './boot/app.js';
+import { publishInitialProjectRuntime, startApp } from './boot/index.js';
 import { findProjectRoot } from './persistence/index.js';
 import { readRuntimeLockStatus } from './runtime/lock.js';
-import { resetOwnedGeneratedRoots, saivageCardsRoot } from './persistence/layout.js';
+import { resetOwnedGeneratedRoots } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';
-import { publishInitialProjectCard } from './persistence/card-files.js';
-import { initializeConversation } from './persistence/conversation-file.js';
-import { globalAgentSessionId } from './schemas/index.js';
 import { readProjectIdentity } from './persistence/project-identity.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from './persistence/generated-state.js';
 import { OperatorRuntimeHttpClient } from './application/operator-runtime-http-client.js';
@@ -59,10 +55,7 @@ async function handleInit(): Promise<void> {
     if (readProjectIdentity(canonicalProjectRoot) === null) composition.createAndBindProjectIdentity();
     const projectCard = readProjectCardOrAssertInitialPublicationAllowed(canonicalProjectRoot);
     if (projectCard === null) {
-      mkdirSync(join(canonicalProjectRoot, '.saivage', 'cards'), { recursive: true });
-      const root = newProjectRootInput(canonicalProjectRoot);
-      publishInitialProjectCard(canonicalProjectRoot, root,workflows.cardTypes.get('project')!);
-      initializeConversation(canonicalProjectRoot, globalAgentSessionId(workflows.analyst.name));
+      publishInitialProjectRuntime(canonicalProjectRoot, workflows);
     }
     initializeConfiguredOptionalState(canonicalProjectRoot, workflows);
     validateCurrentGeneratedGraph(canonicalProjectRoot, workflows);
@@ -114,10 +107,7 @@ async function handleReset(): Promise<void> {
     for (const target of generatedRoots) console.log(`- ${target}`);
     console.log('The lifecycle-lock namespace and every path outside these roots are preserved.');
     for (const target of generatedRoots) rmSync(target, { recursive: true, force: true });
-    mkdirSync(saivageCardsRoot(canonicalProjectRoot), { recursive: true });
-    const root = newProjectRootInput(canonicalProjectRoot);
-    publishInitialProjectCard(canonicalProjectRoot, root,workflows.cardTypes.get('project')!);
-    initializeConversation(canonicalProjectRoot, globalAgentSessionId(workflows.analyst.name));
+    publishInitialProjectRuntime(canonicalProjectRoot, workflows);
     console.log('Project reset with a new root project card. Every path outside the four reset-owned generated roots was preserved.');
   });
 }

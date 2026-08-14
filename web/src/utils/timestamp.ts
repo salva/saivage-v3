@@ -59,6 +59,13 @@ export function formatTimestamp(
   return absoluteFormat(date);
 }
 
+export function formatRecentTimestamp(
+  value: string | number | Date | null | undefined,
+  options: TimestampFormatOptions = {},
+): string {
+  return formatTimestamp(value, isRecentTimestamp(value, options) ? 'relative' : 'absolute', options);
+}
+
 export function timestampTitle(value: string | number | Date | null | undefined): string {
   return formatTimestamp(value, 'absolute');
 }

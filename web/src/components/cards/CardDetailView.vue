@@ -70,7 +70,7 @@ import { cardRouteChain, useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
 import type { DetailErrorState, CardStatus } from '../../types/view-models';
 import { createLogger } from '../../utils/logger';
-import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../../utils/timestamp';
+import { formatRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { labelForCardType, statusForCard } from '../../utils/status';
 import CardHistoryPanel from './CardHistoryPanel.vue';
 import CardRecordsSection from './CardRecordsSection.vue';
@@ -106,7 +106,7 @@ const hierarchyPath = computed(() => {
 
 const historyOpen = ref(false);
 
-function fmtDate(ts: string): string { return ts ? formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute') : ''; }
+function fmtDate(ts: string): string { return ts ? formatRecentTimestamp(ts) : ''; }
 function statusExplainer(status: CardStatus): string {
   const map: Record<CardStatus, string> = {
     backlog: 'Planned but not started.',

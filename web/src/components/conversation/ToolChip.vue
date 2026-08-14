@@ -44,7 +44,7 @@ import InlineParts from '../content/InlineParts.vue';
 import CodeBlock from '../content/CodeBlock.vue';
 import type { ToolDisplayModel } from '../../utils/tool-friendly';
 import { inlinePartsText } from '../../utils/tool-friendly';
-import { formatTimestamp, isRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
+import { formatRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
 
 const props = defineProps<{
   display: ToolDisplayModel;
@@ -65,7 +65,7 @@ const statusClass = computed(() => {
 const detailTarget = computed(() => [...props.display.target, ...props.display.links]);
 const groupLabel = computed(() => `tool ${props.display.toolName} ${props.display.statusTone}`);
 const toggleLabel = computed(() => `${props.expanded ? 'Collapse' : 'Expand'} tool ${props.display.toolName} details`);
-const formattedTimestamp = computed(() => props.timestamp ? formatTimestamp(props.timestamp, isRecentTimestamp(props.timestamp) ? 'relative' : 'absolute') : '');
+const formattedTimestamp = computed(() => props.timestamp ? formatRecentTimestamp(props.timestamp) : '');
 const timeTitle = computed(() => props.timestamp ? absoluteTimestampTitle(props.timestamp) : '');
 const statusText = computed(() => {
   if (props.display.status.length) return inlinePartsText(props.display.status);

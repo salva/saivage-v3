@@ -653,7 +653,7 @@ import { useRuntimeStore } from '../stores/runtime';
 import { useAgentStore } from '../stores/agents';
 import type { ConversationSessionId } from '../api/contracts';
 import { useDebugReadModel } from '../composables/useDebugReadModel';
-import { formatTimestamp, isRecentTimestamp } from '../utils/timestamp';
+import { formatRecentTimestamp, formatTimestamp } from '../utils/timestamp';
 import { useMcpStore } from '../stores/mcp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
@@ -796,7 +796,7 @@ function hasProcessLogs(proc: ProcessView): boolean {
 }
 
 function fmtDate(ts: string): string {
-  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
+  return formatRecentTimestamp(ts);
 }
 function absoluteDate(ts: string): string {
   return formatTimestamp(ts, 'absolute');

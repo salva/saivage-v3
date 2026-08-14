@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/llm-contracts.js';
-import { appendConversationBatch, initializeConversation } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {
   buildLlmInput(node: unknown, input: unknown, sessionId: string, inputId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown): PreparedLlmInvocationInput;
@@ -79,5 +79,37 @@ describe('AgentNodeExecution LLM options', () => {
     expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
     expect(String(renderedVariables?.toolList)).toContain('lookup');
     expect(String(renderedVariables?.toolList)).not.toContain('emit_result');
+  });
+
+  it('appends exactly one activation marker on first and subsequent node entry', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-agent-node-entry-'));
+    roots.push(projectRoot);
+    mkdirSync(join(projectRoot, '.saivage', 'cards', 'project', 'conversations'), { recursive: true });
+    const sessionId = 'agent:planner:project';
+    initializeConversation(projectRoot, sessionId);
+    const runner = new AgentNodeExecution({
+      projectRoot,
+      cardId: 'project',
+      conversations: { projectRoot },
+      processPrompts: { get: () => 'node prompt' },
+    } as never, {} as never) as unknown as {
+      prepareNodeEntry(process: unknown, node: unknown, transition: unknown, input: unknown, sessionId: string, inputId: string, reviewerPair: null): void;
+    };
+    const node = { nodeId: 'work', agent: { name: 'planner' }, promptId: 'work' };
+    const process = { states: new Map([['entry:READY', { kind: 'entry', entry: 'READY', on: new Map([['begin', { targetStateId: 'node:work', semantic: { kind: 'entry-route', promptId: null } }]]) }]]) };
+    const transition = { context: { source: 'entry:READY', event: 'begin', target: 'node:work' }, acceptedResult: null };
+    const input = { card: { id: 'project', type: 'project' }, alreadyStabilizedAgents: new Set(), notificationDelivery: { selectNotifications: () => [], removeNotifications: () => undefined } };
+    const firstInputId = '00000000-0000-4000-8000-000000000001';
+    const secondInputId = '00000000-0000-4000-8000-000000000002';
+
+    runner.prepareNodeEntry(process, node, transition, input, sessionId, firstInputId, null);
+    expect(readConversation(projectRoot, sessionId).sourceRows
+      .filter((row) => row.kind === 'activity')
+      .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId]);
+
+    runner.prepareNodeEntry(process, node, transition, input, sessionId, secondInputId, null);
+    expect(readConversation(projectRoot, sessionId).sourceRows
+      .filter((row) => row.kind === 'activity')
+      .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId, secondInputId]);
   });
 });

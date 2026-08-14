@@ -1,14 +1,12 @@
-import { mkdirSync, realpathSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { loadEnvironment, type Environment } from '../config/index.js';
-import { publishInitialProjectCard } from '../persistence/card-files.js';
-import { initializeConversation } from '../persistence/conversation-file.js';
 import { initializeConfiguredOptionalState, validateCurrentGeneratedGraph } from '../persistence/current-generated-graph.js';
-import { globalAgentSessionId } from '../schemas/index.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/generated-state.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../runtime/lock.js';
 import { startServer, type ServerInstance } from '../server/server.js';
 import { createRestartPort } from './restart-port.js';
+import { publishInitialProjectRuntime } from './project-runtime-bootstrap.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../contracts/index.js';
 
 export const APP_CLEANUP_LEAF_TIMEOUT_MS = 10_000;
@@ -101,17 +99,10 @@ export function logShutdownWarnings(report: ShutdownReport): void {
   for (const warning of report.warnings) console.warn(`[shutdown] ${warning.component}: ${warning.code}`);
 }
 
-export interface NewProjectRootInput { readonly title: string; readonly bootstrap_content: string }
-
 export interface App {
   readonly environment: Environment;
   readonly server: ServerInstance;
   stop(): Promise<ShutdownReport>;
-}
-
-export function newProjectRootInput(projectRoot: string): NewProjectRootInput {
-  const title = basename(projectRoot) || 'saivage-project';
-  return { title, bootstrap_content: `# Goal\n\nDefine and execute the ${title} project.\n\n# Instructions\n\nUse this root card as the canonical project objective and planning anchor.\n\n# Acceptance Criteria\n\n- The project objective is captured in the root card bootstrap record.\n- Child work is created under this project card.\n` };
 }
 
 export interface StartAppOptions {
@@ -153,10 +144,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
   try {
     environment = await loadEnvironment(options.argv, env);
     if (prelock.createRuntime && readProjectCardOrAssertInitialPublicationAllowed(prelock.projectRoot) === null) {
-      mkdirSync(resolve(prelock.projectRoot, '.saivage', 'cards'), { recursive: true });
-      const root = newProjectRootInput(prelock.projectRoot);
-       publishInitialProjectCard(prelock.projectRoot, root,environment.workflows.cardTypes.get('project')!);
-       initializeConversation(prelock.projectRoot, globalAgentSessionId(environment.workflows.analyst.name));
+      publishInitialProjectRuntime(prelock.projectRoot, environment.workflows);
     }
     initializeConfiguredOptionalState(prelock.projectRoot, environment.workflows);
     validateCurrentGeneratedGraph(prelock.projectRoot, environment.workflows);

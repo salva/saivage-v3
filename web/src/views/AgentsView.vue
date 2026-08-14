@@ -110,7 +110,7 @@ import { useCardStore } from '../stores/cards';
 import type { AgentSession } from '../types/view-models';
 import type { ConversationSessionId } from '../api/contracts';
 import { parseAgentDetailRouteParam } from '../router/agent-session-route';
-import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
+import { formatRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { useSyncStore } from '../stores/sync';
 import AgentConversationView from '../components/agents/AgentConversationView.vue';
 import EntityInspectorShell from '../components/layout/EntityInspectorShell.vue';
@@ -157,7 +157,7 @@ function agentIcon(agentName: string): string {
   return `(${agentName.slice(0, 2).toUpperCase()})`;
 }
 function fmtDate(ts: string): string {
-  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
+  return formatRecentTimestamp(ts);
 }
 
 function selectSession(id: ConversationSessionId): void {

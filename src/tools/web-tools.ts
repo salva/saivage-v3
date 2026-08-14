@@ -83,6 +83,7 @@ type FetchBodyPolicy = { kind: 'metadata' } | { kind: 'bounded'; maxBytes: numbe
 
 async function fetchPublic(url: URL, policy: { kind: 'metadata' }, signal: AbortSignal, redirects?: number): Promise<MetadataFetchResult>;
 async function fetchPublic(url: URL, policy: { kind: 'bounded'; maxBytes: number }, signal: AbortSignal, redirects?: number): Promise<ContentFetchResult>;
+async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSignal, redirects?: number): Promise<MetadataFetchResult | ContentFetchResult>;
 async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSignal, redirects = 0): Promise<MetadataFetchResult | ContentFetchResult> {
   if (redirects > MAX_REDIRECTS) throw new Error('Too many redirects.');
   await assertPublicHttpTarget(url);
@@ -93,7 +94,6 @@ async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSigna
     const location = response.headers.get('location');
     if (!location) throw new Error('Redirect response did not include Location.');
     const next = parseHttpUrl(new URL(location, url).toString());
-    if (policy.kind === 'metadata') return fetchPublic(next, policy, signal, redirects + 1);
     return fetchPublic(next, policy, signal, redirects + 1);
   }
   if (policy.kind === 'metadata') {

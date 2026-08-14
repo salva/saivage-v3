@@ -4,7 +4,6 @@ import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { validateParsedCards } from '../cards/validator.js';
 import type { NewChildCardInput } from '../cards/lifecycle.js';
-import type { NewProjectRootInput } from '../boot/app.js';
 import { cardIdSchema, cardIdSegments, cardParentId, childCardId, nextCardSegment } from '../schemas/card-id.js';
 import { cardAgentSessionId, cardRecordSchema, type AgentName, type CardRecord, type RecordName } from '../schemas/index.js';
 import type { RecordDefinition } from '../records/record-definition.js';
@@ -48,6 +47,7 @@ export interface CanonicalLinkedCardHistoryProjection {
 
 export type CardTargetRead<T> = { readonly kind: 'found'; readonly value: T } | { readonly kind: 'card-not-found' };
 export type HistoricalUnavailableReason = 'missing' | 'corrupt' | 'io_error';
+export interface InitialProjectCardInput { readonly title: string; readonly bootstrap_content: string }
 export type CardVersionRead = CardTargetRead<CardArtifact>
   | { readonly kind: 'version-not-found'; readonly version: number }
   | { readonly kind: 'historical-unavailable'; readonly version: number; readonly reason: HistoricalUnavailableReason };
@@ -302,7 +302,7 @@ export function publishInitialChildCard(projectRoot: string, input: NewChildCard
   mkdirSync(cardConversationsRoot(projectRoot, id)); initializeCardConversations(projectRoot, card, workflow, temporary); publishInitialStreams(projectRoot, card, input.bootstrap_content, definitions, temporary); return card;
 }
 
-export function publishInitialProjectCard(projectRoot: string, input: NewProjectRootInput, workflow: CompiledCardTypeWorkflow, temporary?: PublicationTemporaryIdFactory): void {
+export function publishInitialProjectCard(projectRoot: string, input: InitialProjectCardInput, workflow: CompiledCardTypeWorkflow, temporary?: PublicationTemporaryIdFactory): void {
   if (workflow.cardType !== 'project') throw new Error('Initial project publication requires the compiled project workflow.'); if (input.bootstrap_content.trim().length === 0) throw new Error('Project bootstrap_content must contain non-whitespace Markdown.');
   const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id: 'project', type: 'project', children: [], title: input.title, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'runtime:bootstrap', created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
   const definitions = [...workflow.records.values()].map((record): RecordDefinition => ({ filename: record.name, writers: record.writers, format: record.format, schema: record.schema, bootstrap: record.bootstrap }));

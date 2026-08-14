@@ -6,7 +6,7 @@ import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from
 import type { CardId } from '../../schemas/card-id.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
-import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
+import { buildUserContextMessage, contentPolicyEvidenceUrl, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { ToolResult } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';
@@ -582,7 +582,7 @@ export class ConversationLLMActor {
       const marker = buildContentPolicyRefusalMessage({ sessionId: input.sessionId, sourceInputId: input.inputId, candidate: firstFailure.candidate, providerResponse: error.originalFailure.failure.providerResponse });
       appendConversationBatch(this.conversations, [marker]);
       this.#projectProviderExchanges(input, combined, { assistantOutputIds: [], terminalConversationOutputId: marker.id });
-      const result: ContentPolicyRefusalBlockedResult = { kind: 'content-policy-refusal', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: input.sessionId, marker_id: marker.id, evidence_url: `/agents/${encodeURIComponent(input.sessionId)}?entry=${encodeURIComponent(marker.id)}` };
+      const result: ContentPolicyRefusalBlockedResult = { kind: 'content-policy-refusal', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: input.sessionId, marker_id: marker.id, evidence_url: contentPolicyEvidenceUrl(input.sessionId, marker.id) };
       return { kind: 'content-policy-blocked', input, result, toolCallArguments: null };
     }
   }

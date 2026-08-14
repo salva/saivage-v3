@@ -84,7 +84,7 @@ import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { useSyncStore } from '../stores/sync';
 import { useCardStore } from '../stores/cards';
-import { formatTimestamp, isRecentTimestamp, timestampTitle } from '../utils/timestamp';
+import { formatRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
 import DocumentFrame from '../components/content/DocumentFrame.vue';
@@ -184,7 +184,7 @@ function fmtSize(bytes: number): string {
 }
 
 function fmtDate(ts: string): string {
-  return formatTimestamp(ts, isRecentTimestamp(ts) ? 'relative' : 'absolute');
+  return formatRecentTimestamp(ts);
 }
 
 function parentPath(path: string): string {
