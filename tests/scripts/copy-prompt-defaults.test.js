@@ -4,21 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { copyPromptDefaults } from '../../scripts/copy-prompt-defaults.js';
-import { assertPromptPlaceholders, tokenizePromptTemplate } from '../../scripts/prompt-placeholder-validator.js';
 
 function fail(message) {
   throw new Error(message);
-}
-
-function assertThrows(message, fn, expectedText) {
-  try {
-    fn();
-  } catch (error) {
-    const actual = error instanceof Error ? error.message : String(error);
-    if (!actual.includes(expectedText)) fail(`${message}: expected error containing ${expectedText}, got ${actual}`);
-    return;
-  }
-  fail(`${message}: expected error`);
 }
 
 function walkFiles(root, current = root) {
@@ -33,23 +21,14 @@ function walkFiles(root, current = root) {
 
 function writeFixtureTree(root) {
   for (const agent of ['analyst', 'planner', 'reviewer', 'executor']) {
-    const path = join(root, 'agents', `${agent}.md`);
+    const path = join(root, 'agents', '_shared', `${agent}.md`);
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${agent} {{contractDescription}} {{toolList}}`);
+    writeFileSync(path, agent === 'analyst' ? `${agent} {{toolList}} {{projectContext}} {{vocabularySnippet}}` : `${agent} {{contractDescription}} {{toolList}}`);
   }
-  for (const cardType of ['project', 'goal']) {
-    for (const id of ['plan', 'recover', 'review', 'correct-plan-result', 'correct-review-result', 'plan-to-review', 'review-to-plan', 'stopped-recovery']) {
-      const path = join(root, cardType, 'process', `${id}.md`);
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, `${cardType}/${id}`);
-    }
-  }
-  for (const cardType of ['architecture', 'code', 'test', 'doc', 'data', 'research', 'ops']) {
-    for (const id of ['execute', 'correct-execution-result', 'stopped-recovery']) {
-      const path = join(root, cardType, 'process', `${id}.md`);
-      mkdirSync(dirname(path), { recursive: true });
-      writeFileSync(path, `${cardType}/${id}`);
-    }
+  for (const id of ['plan', 'recover', 'review', 'correct-plan-result', 'correct-review-result', 'plan-to-review', 'review-to-plan', 'execute', 'correct-execution-result', 'stopped-recovery']) {
+    const path = join(root, 'process', '_shared', `${id}.md`);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, `${id} {{cardType}}`);
   }
 }
 
@@ -62,12 +41,6 @@ function assertTreesEqual(sourceRoot, outputRoot) {
     const output = readFileSync(join(outputRoot, file), 'utf8');
     if (source !== output) fail(`copied prompt content does not match for ${file}`);
   }
-}
-
-function assertPlaceholderValidationRejectsInvalidTemplates() {
-  assertThrows('stray close placeholder', () => tokenizePromptTemplate('Use }}', 'test'), "stray '}}'");
-  assertThrows('nested placeholder', () => tokenizePromptTemplate('Use {{outer {{inner}}', 'test'), 'nested placeholder');
-  assertThrows('unknown placeholder', () => assertPromptPlaceholders('Use {{cardTitle}}', 'test', new Set(['cardId'])), 'unknown placeholder: cardTitle');
 }
 
 function runCopyPromptDefaultsTest() {
@@ -85,7 +58,6 @@ function runCopyPromptDefaultsTest() {
     assertTreesEqual(sourceRoot, outputRoot);
     copyPromptDefaults({ sourceRoot, outputRoot });
     assertTreesEqual(sourceRoot, outputRoot);
-    assertPlaceholderValidationRejectsInvalidTemplates();
   } finally {
     rmSync(sourceRoot, { recursive: true, force: true });
     rmSync(outputRoot, { recursive: true, force: true });

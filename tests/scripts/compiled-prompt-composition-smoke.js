@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -17,6 +17,10 @@ if (!existsSync(copiedPrompts) || !statSync(copiedPrompts).isDirectory()) {
 if (existsSync(impossibleSourceRelativePrompts)) {
   throw new Error(`Compiled prompt smoke requires the source-relative prompt root to be absent: ${impossibleSourceRelativePrompts}`);
 }
+const walk = (root, current = root) => readdirSync(current, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? walk(root, join(current, entry.name)) : [join(current, entry.name).slice(root.length + 1)]).sort();
+const expected = [...['analyst','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`), ...['correct-execution-result','correct-plan-result','correct-review-result','execute','plan','plan-to-review','recover','review','review-to-plan','stopped-recovery'].map((id)=>`process/_shared/${id}.md`)].sort();
+if (JSON.stringify(walk(copiedPrompts)) !== JSON.stringify(expected)) throw new Error('Compiled prompt smoke requires the exact 14-file bundled prompt inventory.');
+if (existsSync(join(copiedPrompts, 'fragments'))) throw new Error('Compiled prompt smoke requires no bundled fragments subtree.');
 
 function compiledModule(relativePath) {
   return pathToFileURL(join(compiledRoot, relativePath)).href;
@@ -35,6 +39,9 @@ const [
   { createEventLog },
   { ManagedProcessGroupRegistry },
   { ProcessRunner },
+  { renderCompiledPrompt },
+  { createApplicationFatalPort },
+  { globalAgentSessionId },
 ] = await Promise.all([
   import(compiledModule('schemas/saivage-config.js')),
   import(compiledModule('agents/default-workflow-config.js')),
@@ -48,6 +55,9 @@ const [
   import(compiledModule('observability/index.js')),
   import(compiledModule('runtime/managed-process-group-registry.js')),
   import(compiledModule('runtime/process-runner.js')),
+  import(compiledModule('utils/prompt-api.js')),
+  import(compiledModule('contracts/index.js')),
+  import(compiledModule('schemas/conversation-session-id.js')),
 ]);
 
 const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-compiled-prompt-composition-'));
@@ -68,6 +78,16 @@ try {
     },
   });
   const structuralWorkflows = compileProjectWorkflows(config, { projectRoot });
+  const analystText = renderCompiledPrompt('global', structuralWorkflows.analyst.name, structuralWorkflows.analystPrompt.compiled, { toolList: 'tools', vocabularySnippet: 'vocabulary', projectContext: 'context' });
+  if (analystText.includes('{{')) throw new Error('Unresolved Analyst template syntax.');
+  for (const [cardType, workflow] of structuralWorkflows.cardTypes) for (const prompt of workflow.processPrompts.values()) {
+    if (prompt.text.includes('{{')) throw new Error(`Unresolved process template syntax for ${cardType}/${prompt.reference}`);
+    if ((prompt.reference === 'execute' || prompt.reference === 'plan') && !prompt.text.includes(cardType)) throw new Error(`Missing eager cardType rendering for ${cardType}/${prompt.reference}`);
+  }
+  for (const [cardType, workflow] of structuralWorkflows.cardTypes) for (const state of workflow.states.values()) if (state.kind === 'node') {
+    const text = renderCompiledPrompt(cardType, state.agent.name, state.selectedAgentPrompt.compiled, { cardId: 'card-a', cardTitle: 'Title', cardBrief: 'Brief', cardType, contractDescription: 'contract', toolList: 'tools' });
+    if (text.includes('{{')) throw new Error(`Unresolved agent template syntax for ${cardType}/${state.agent.name}`);
+  }
   const providerRegistry = new ProviderRegistry(config);
   const workflows = bindRuntimeWorkflows(structuralWorkflows, new ModelRouter(providerRegistry));
   const configAuthority = createResolvedConfigAuthority({
@@ -78,7 +98,8 @@ try {
   const processRegistry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
   const analystProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst-sessions');
-  const processRunner = new ProcessRunner(projectRoot, processRegistry);
+  const fatalPort = createApplicationFatalPort();
+  const processRunner = new ProcessRunner(projectRoot, processRegistry, fatalPort);
   const mcpToolInvocation = {
     getServerTools() { throw new Error('Unexpected MCP server tools read in compiled prompt smoke.'); },
     findToolCapability() { throw new Error('Unexpected MCP capability read in compiled prompt smoke.'); },
@@ -99,6 +120,8 @@ try {
     runtimeProcessRootScope,
     analystProcessRootScope,
     mcpToolInvocation,
+    fatalPort,
+    analystSessionId: globalAgentSessionId(workflows.analyst.name),
   });
 } finally {
   try {

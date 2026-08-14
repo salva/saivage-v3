@@ -68,11 +68,13 @@ Neither the mandatory full backup nor the optional evidence archive authorizes r
 
 ## Card-process configuration and prompt cutover
 
-The selected `.saivage/saivage.yaml` must contain a strict global `agents` catalog, `analyst_agent`, named model routes, and one complete `card_types.<type>` workflow for each of the nine current card types. Every workflow declares its child set, record definitions with exactly one bootstrap record, all `BACKLOG | CHANGED | BLOCKED | STOPPED` entries, and named-agent nodes. Terminal targets declare promotion and exported records; every export must be a source-node `present` or `updated` requirement. Process prompt defaults live at `src/prompts/<card-type>/process/<identity>.md`; project overrides use `.saivage/config/prompts/<card-type>/process/<identity>.md`.
+::: v-pre
+
+The selected `.saivage/saivage.yaml` must contain a strict global `agents` catalog, `analyst_agent`, named model routes, and one complete `card_types.<type>` workflow for each of the nine current card types. Every workflow declares its child set, record definitions with exactly one bootstrap record, all `BACKLOG | CHANGED | BLOCKED | STOPPED` entries, and named-agent nodes. Terminal targets declare promotion and exported records; every export must be a source-node `present` or `updated` requirement. Prompt defaults and overrides use `agents|process|fragments/<card-type|_shared>/<reference>.md` below their bundled or `.saivage/config/prompts` root.
 
 Startup compiles every card type independently into one immutable process-actor topology and binds named model/tool capabilities once. Runtime status may expose its current transient entry/node/terminal state and zero-based node ordinal, but neither is persisted. After Stop or process restart, Run validates the linked running chain, stabilizes the exact named-agent conversations, resets participants stopped leaf-to-root, and launches only project through configured STOPPED. Descendants remain stopped until ordinary activation by their immediate parent. It never resumes or repairs an old node.
 
-Before preserving prompt configuration and resetting generated state, audit every `.saivage/config/prompts/<card-type>/agents/<agent-name>.md` and `.saivage/config/prompts/agents/<agent-name>.md` override. The card-specific file wins; exact absence falls back to the generic override and then the bundled `src/prompts/agents/<prompt-ref>.md`. This old directive is rejected:
+Before starting the new binary, stop the service and manually relocate every old-layout override. For card hosts, project `<purpose>/<card-type>/<reference>.md` wins, then project `<purpose>/_shared/<reference>.md`, bundled card-specific, and bundled shared; the Analyst checks shared tiers only. Only exact absence advances. Agent filenames use the configured prompt reference, not agent name. Agents sharing a reference share applicable overrides; assign distinct references for independent content. There is no migration or old-path fallback, and this configuration-path cutover alone needs no generated-state reset. Direct one-level fragments use `{{> fragment-id}}`; process templates may use only `{{cardType}}`. This old directive is rejected:
 
 ```markdown
 Use emit_result with status done, blocked, or failed.
@@ -87,6 +89,7 @@ Use that generated contract exactly; the configured edge decides what follows.
 ```
 
 Zero or multiple placeholders, obsolete result directives, unknown process prompts, or malformed graphs fail startup before actor construction and name the effective prompt/card-type/agent or config path. Update the override or remove it to select the bundled file. Never rewrite an override automatically, translate `status` to `outcome`, map old values, or start with a fallback graph.
+:::
 
 ## Skill index format cutover
 

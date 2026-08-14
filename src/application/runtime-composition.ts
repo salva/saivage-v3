@@ -35,7 +35,7 @@ import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 import type { GlobalConversationSessionId } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import { createAnalystMutationServices } from './analyst-mutation-services.js';
-import { describeNodeResultContract, runtimeAgentBinding } from '../runtime/card-process/card-process-config.js';
+import { runtimeAgentBinding } from '../runtime/card-process/card-process-config.js';
 import { createProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
 import { EventQueryService } from './event-query-service.js';
 import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
@@ -120,20 +120,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const workflows = services.workflows;
   const analystBinding = runtimeAgentBinding(workflows, workflows.analyst.name);
   const processPrompts = createProcessPromptRegistry(workflows);
-  for (const [cardType, process] of workflows.cardTypes) {
-    for (const [stateId, node] of process.states) {
-      if (node.kind !== 'node') continue;
-      promptTemplates.validateProcessNode(cardType, node.agent.name, {
-        cardId: 'startup-validation-card',
-        cardTitle: 'Startup prompt validation',
-        cardBrief: 'Startup validates the effective role template before actor construction.',
-        cardType,
-        contractDescription: describeNodeResultContract(process, stateId),
-        toolList: '- startup-validation: no runtime tool invocation',
-      });
-    }
-  }
-
   const runtimeSupervisor = createSupervisorRuntimeApi({
     projectRoot,
     processIdentity: services.processIdentity,

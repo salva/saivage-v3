@@ -85,7 +85,7 @@ const DebugGraphNodeSchema = z.object({
   agent_name: agentNameSchema,
   session: z.object({ scope: z.literal('card'), identity_pattern: z.string().min(1) }).strict(),
   prompt: z.object({
-    source: z.enum(['card-specific', 'generic-override', 'bundled']),
+    source: z.enum(['override-card', 'override-shared', 'bundled-card', 'bundled-shared']),
     reference: z.string().min(1),
     process_reference: z.string().min(1),
     correction_reference: z.string().min(1),

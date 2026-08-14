@@ -10,6 +10,7 @@ import type { CardStatus } from '../../../src/schemas/index.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
 import { BoundAgentToolSet } from '../../../src/tools/runtime-tool-catalog.js';
+import { renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
 
 function source():SaivageConfig{return saivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));}
 function failure(change:(value:SaivageConfig)=>void,message:RegExp):void{const value=source();change(value);expect(()=>compileProjectWorkflows(value)).toThrow(message);}
@@ -154,11 +155,11 @@ describe('named-agent card-type workflow compilation',()=>{
   it('keeps agent, node, and correction prompt snapshots under their compiled owners',()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'workflow-prompts-'));
     roots.push(projectRoot);
-    const path=join(projectRoot,'.saivage','config','prompts','code','agents');
+    const path=join(projectRoot,'.saivage','config','prompts','agents','code');
     mkdirSync(path,{recursive:true});
     const override='UNIQUE EXECUTOR OVERRIDE {{contractDescription}}';
     writeFileSync(join(path,'executor.md'),override);
-    const processPath=join(projectRoot,'.saivage','config','prompts','code','process');
+    const processPath=join(projectRoot,'.saivage','config','prompts','process','code');
     mkdirSync(processPath,{recursive:true});
     writeFileSync(join(processPath,'execute.md'),'Selected node prompt');
     writeFileSync(join(processPath,'correct-execution-result.md'),'Selected correction prompt');
@@ -166,8 +167,8 @@ describe('named-agent card-type workflow compilation',()=>{
     const process=compiled.cardTypes.get('code')!;
     const node=process.states.get('node:execute')!;
     if(node.kind!=='node') throw new Error('missing execute node');
-    expect(node.selectedAgentPrompt).toMatchObject({source:'card-specific',text:override});
-    expect(node.selectedAgentPrompt.text).not.toContain('SAIVAGE_CARD_WORK_ROOT');
+    expect(node.selectedAgentPrompt).toMatchObject({source:'override-card'});
+    expect(renderCompiledPrompt('code',node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('UNIQUE EXECUTOR OVERRIDE contract');
     const cardRunCommand=new BoundAgentToolSet(node.agent.tools).definitions.find((tool)=>tool.function.name==='run_command');
     const analystRunCommand=new BoundAgentToolSet(compiled.agents.get('analyst')!.tools).definitions.find((tool)=>tool.function.name==='run_command');
     expect(cardRunCommand?.function.description).toContain('For a card-scoped run_command');
@@ -181,10 +182,10 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(node.promptId).toBe('execute');
     expect(node.correctionPromptId).toBe('correct-execution-result');
     expect(process.processPrompts.get(node.promptId)).toMatchObject({
-      source:'override',text:'Selected node prompt',
+      source:'override-card',text:'Selected node prompt',
     });
     expect(process.processPrompts.get(node.correctionPromptId)).toMatchObject({
-      source:'override',text:'Selected correction prompt',
+      source:'override-card',text:'Selected correction prompt',
     });
     expect(Object.isFrozen(process.processPrompts.get(node.promptId))).toBe(true);
     expect(Object.isFrozen(process.processPrompts.get(node.correctionPromptId))).toBe(true);
@@ -193,11 +194,113 @@ describe('named-agent card-type workflow compilation',()=>{
     writeFileSync(join(path,'executor.md'),'changed after compile');
     writeFileSync(join(processPath,'execute.md'),'changed node after compile');
     writeFileSync(join(processPath,'correct-execution-result.md'),'changed correction after compile');
-    expect(node.selectedAgentPrompt.text).toBe(override);
+    expect(renderCompiledPrompt('code',node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('UNIQUE EXECUTOR OVERRIDE contract');
     expect(process.processPrompts.get(node.promptId)!.text).toBe('Selected node prompt');
     expect(process.processPrompts.get(node.correctionPromptId)!.text).toBe(
       'Selected correction prompt',
     );
+  });
+
+  it('uses reference-keyed root-major selection and host-card fragment precedence',()=>{
+    const root=mkdtempSync(join(tmpdir(),'workflow-precedence-'));roots.push(root);
+    const defaults=join(root,'defaults');const overrides=join(root,'overrides');
+    const write=(base:string,purpose:string,scope:string,id:string,text:string)=>{const dir=join(base,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
+    for(const id of ['analyst','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{toolList}} {{projectContext}} {{vocabularySnippet}}':`${id} {{contractDescription}}`);
+    for(const id of ['plan','recover','review','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
+    write(defaults,'agents','code','executor','bundled-card {{contractDescription}}');
+    write(overrides,'agents','_shared','executor','override-shared {{> shared-piece}} {{contractDescription}}');
+    write(defaults,'fragments','_shared','shared-piece','bundled-fragment');
+    write(overrides,'fragments','code','shared-piece','override-code-fragment');
+    write(defaults,'process','code','execute','bundled-card-process {{cardType}}');
+    write(overrides,'process','_shared','execute','override-shared-process {{cardType}}');
+    const value=source();value.agents.executor!.prompt='executor';value.agents.reviewer!.prompt='executor';
+    const compiled=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
+    const code=compiled.cardTypes.get('code')!;const node=code.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');
+    expect(node.selectedAgentPrompt.source).toBe('override-shared');
+    expect(renderCompiledPrompt('code',node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('override-shared override-code-fragment contract');
+    expect(code.processPrompts.get('execute' as never)).toMatchObject({source:'override-shared',text:'override-shared-process code'});
+    const review=compiled.cardTypes.get('goal')!.states.get('node:review')!;if(review.kind!=='node')throw new Error('missing review');
+    expect(review.selectedAgentPrompt.reference).toBe('executor');
+    expect(review.selectedAgentPrompt.source).toBe('override-shared');
+    value.card_types.code!.workflow.nodes.verify=structuredClone(value.card_types.code!.workflow.nodes.execute!);
+    value.card_types.code!.workflow.nodes.execute!.edges.done={target:{node:'verify'},prompt:'execute'};
+    value.card_types.code!.workflow.nodes.verify!.edges.done={target:{terminal:'DONE',promote:'current',export_records:['status.md']}};
+    const shared=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides}).cardTypes.get('code')!;
+    const executeNode=shared.states.get('node:execute')!;const verifyNode=shared.states.get('node:verify')!;
+    if(executeNode.kind!=='node'||verifyNode.kind!=='node')throw new Error('missing shared-reference nodes');
+    expect(verifyNode.selectedAgentPrompt).toBe(executeNode.selectedAgentPrompt);
+    delete value.card_types.code!.workflow.nodes.verify;
+    value.card_types.code!.workflow.nodes.execute!.edges.done={target:{terminal:'DONE',promote:'current',export_records:['status.md']}};
+    expect(compiled.analystPrompt.source).toBe('bundled-shared');
+
+    write(overrides,'agents','code','executor','override-card {{contractDescription}}');
+    write(overrides,'process','code','execute','override-card-process {{cardType}}');
+    let selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
+    let selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
+    expect(selectedNode.selectedAgentPrompt.source).toBe('override-card');
+    expect(selected.cardTypes.get('code')!.processPrompts.get('execute' as never)?.source).toBe('override-card');
+
+    rmSync(join(overrides,'agents','code','executor.md'));rmSync(join(overrides,'agents','_shared','executor.md'));
+    rmSync(join(overrides,'process','code','execute.md'));rmSync(join(overrides,'process','_shared','execute.md'));
+    selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
+    selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
+    expect(selectedNode.selectedAgentPrompt.source).toBe('bundled-card');
+    expect(selected.cardTypes.get('code')!.processPrompts.get('execute' as never)?.source).toBe('bundled-card');
+
+    rmSync(join(defaults,'agents','code','executor.md'));rmSync(join(defaults,'process','code','execute.md'));
+    selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
+    selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
+    expect(selectedNode.selectedAgentPrompt.source).toBe('bundled-shared');
+    expect(selected.cardTypes.get('code')!.processPrompts.get('execute' as never)?.source).toBe('bundled-shared');
+
+    write(defaults,'agents','code','executor','host {{> shared-piece}} {{contractDescription}}');
+    write(defaults,'fragments','code','shared-piece','bundled-code-fragment');
+    rmSync(join(overrides,'fragments','code','shared-piece.md'));
+    selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
+    selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
+    expect(renderCompiledPrompt('code',selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toContain('bundled-code-fragment');
+    write(overrides,'fragments','_shared','shared-piece','override-shared-fragment');
+    selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
+    selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
+    expect(renderCompiledPrompt('code',selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toContain('override-shared-fragment');
+    rmSync(join(overrides,'fragments','_shared','shared-piece.md'));rmSync(join(defaults,'fragments','code','shared-piece.md'));
+    selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
+    selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
+    expect(renderCompiledPrompt('code',selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toContain('bundled-fragment');
+  });
+
+  it('renders every default process prompt eagerly and preserves corrected agent guidance',()=>{
+    const compiled=compileProjectWorkflows(source());
+    const stopped='Execution was stopped and its in-memory process position was discarded. Reconstruct no prior node; continue only from current durable evidence and context, not a guessed prior node.\n';
+    for(const[cardType,workflow]of compiled.cardTypes){
+      for(const prompt of workflow.processPrompts.values())expect(prompt.text).not.toMatch(/\{\{[^}]+\}\}/u);
+      expect(workflow.processPrompts.get('stopped-recovery' as never)?.text).toBe(stopped);
+      for(const state of workflow.states.values())if(state.kind==='node'){
+        const rendered=renderCompiledPrompt(cardType,state.agent.name,state.selectedAgentPrompt.compiled,{cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType,contractDescription:'GENERATED CONTRACT',toolList:'tools'});
+        expect(rendered.match(/GENERATED CONTRACT/gu)).toHaveLength(1);
+        expect(rendered).not.toMatch(/\{\{[^}]+\}\}/u);
+      }
+    }
+    expect(compiled.cardTypes.get('doc')!.processPrompts.get('execute' as never)?.text).toContain('`doc`');
+    expect(compiled.cardTypes.get('ops')!.processPrompts.get('execute' as never)?.text).toContain('`ops`');
+    const goal=compiled.cardTypes.get('goal')!;
+    const plan=goal.states.get('node:plan')!;const review=goal.states.get('node:review')!;
+    if(plan.kind!=='node'||review.kind!=='node')throw new Error('missing goal nodes');
+    const variables={cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType:'goal',contractDescription:'contract',toolList:'tools'};
+    expect(renderCompiledPrompt('goal',plan.agent.name,plan.selectedAgentPrompt.compiled,variables)).not.toContain('canonical project card');
+    expect(renderCompiledPrompt('goal',review.agent.name,review.selectedAgentPrompt.compiled,variables)).not.toContain('project/root tree');
+    const executor=compiled.cardTypes.get('doc')!.states.get('node:execute')!;if(executor.kind!=='node')throw new Error('missing executor');
+    const executorText=renderCompiledPrompt('doc',executor.agent.name,executor.selectedAgentPrompt.compiled,{...variables,cardType:'doc'});
+    expect(executorText).not.toContain('code card');
+    expect(executorText).toContain('Reference cards durably as `[[card:<id>]]` in operator-facing Markdown.');
+    expect(renderCompiledPrompt('goal',review.agent.name,review.selectedAgentPrompt.compiled,variables)).toContain('Reference cards durably as `[[card:<id>]]`; do not rely on friendly display paths.');
+  });
+
+  it('fails rather than falling through when an exact prompt candidate is present but unreadable as a file',()=>{
+    const root=mkdtempSync(join(tmpdir(),'workflow-prompt-error-'));roots.push(root);
+    const candidate=join(root,'agents','code','executor.md');
+    mkdirSync(candidate,{recursive:true});
+    expect(()=>compileProjectWorkflows(source(),{overridePromptRoot:root})).toThrow(/EISDIR|illegal operation on a directory/u);
   });
 
   it('binds configured provider candidates once and fails when a required route has none',()=>{

@@ -6,7 +6,7 @@ import { parseRecordName, type RecordName } from '../../schemas/record-name.js';
 import type { CardTypeSource, SaivageConfig } from '../../schemas/saivage-config.js';
 import { cardTypeValues, type CardStatus, type CardType } from '../../schemas/index.js';
 import { validateCompiledActorTable } from '../micro-actor/index.js';
-import { validateCompiledAgentPrompt } from '../../utils/prompt-api.js';
+import { compilePromptTemplate, renderCompiledPrompt, type CompiledPromptTemplate, type PromptHostPolicy } from '../../utils/prompt-api.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 import type { ModelRouter } from '../../agents/model-router.js';
 import { capabilityRequestForLlmOptions, type CapabilityRequest } from '../../agents/provider-capabilities.js';
@@ -20,9 +20,11 @@ export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
 export type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';
 export type ProcessPromptId = string & { readonly __processPromptId: unique symbol };
 export type RecordRequirementKind = 'present' | 'updated';
-export type CompiledAgentPrompt = Readonly<{ source: 'card-specific'|'generic-override'|'bundled'; reference:string; path:string; text:string }>;
-export type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source:'override'|'bundled'; path:string; text:string }>;
+export type PromptArtifactSource = 'override-card'|'override-shared'|'bundled-card'|'bundled-shared';
+export type CompiledAgentPrompt = Readonly<{ source:PromptArtifactSource; reference:string; path:string; compiled:CompiledPromptTemplate }>;
+export type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source:PromptArtifactSource; path:string; text:string }>;
 export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly overridePromptRoot?:string }
+type PromptRoots = Readonly<{ defaultRoot:string; overrideRoot:string|undefined; agentCache:Map<string,CompiledAgentPrompt> }>;
 
 export type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; writers: readonly AgentName[]; bootstrap: boolean }>;
 export type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly CompiledToolReference[]; modelRoute: string; model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
@@ -58,57 +60,42 @@ class ImmutableSet<T> implements ReadonlySet<T> { readonly #values:Set<T>; const
 const immutableMap=<K,V>(entries:Iterable<readonly [K,V]>):ReadonlyMap<K,V>=>new ImmutableMap(entries);
 const immutableSet=<T>(values:Iterable<T>):ReadonlySet<T>=>new ImmutableSet(values);
 function bundledPromptRoot():string{const moduleDir=dirname(fileURLToPath(import.meta.url));const source=join(moduleDir,'..','..','prompts');return existsSync(source)?source:join(moduleDir,'..','..','..','prompts');}
-function promptRoots(options:WorkflowCompileOptions):{defaultRoot:string;overrideRoot:string|undefined}{return{defaultRoot:options.defaultPromptRoot??bundledPromptRoot(),overrideRoot:options.overridePromptRoot??(options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined)};}
+function promptRoots(options:WorkflowCompileOptions):PromptRoots{return{defaultRoot:options.defaultPromptRoot??bundledPromptRoot(),overrideRoot:options.overridePromptRoot??(options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined),agentCache:new Map()};}
 function readUtf8(path:string):string{const text=new TextDecoder('utf-8',{fatal:true}).decode(readFileSync(path));if(text.trim().length===0)throw new Error(`Prompt artifact '${path}' must contain non-whitespace UTF-8 text.`);return text;}
 function readOptional(path:string):string|null{try{return readUtf8(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}}
+type PromptPurpose='agents'|'process'|'fragments';
+type SelectedPrompt=Readonly<{source:PromptArtifactSource;path:string;text:string}>;
+function selectPrompt(purpose:PromptPurpose,cardType:CardType|'global',reference:string,roots:PromptRoots):SelectedPrompt{
+  const candidates:Array<readonly[PromptArtifactSource,string]>=[];
+  if(roots.overrideRoot){if(cardType!=='global')candidates.push(['override-card',join(roots.overrideRoot,purpose,cardType,`${reference}.md`)]);candidates.push(['override-shared',join(roots.overrideRoot,purpose,'_shared',`${reference}.md`)]);}
+  if(cardType!=='global')candidates.push(['bundled-card',join(roots.defaultRoot,purpose,cardType,`${reference}.md`)]);
+  candidates.push(['bundled-shared',join(roots.defaultRoot,purpose,'_shared',`${reference}.md`)]);
+  for(const[source,path]of candidates){const text=readOptional(path);if(text!==null)return Object.freeze({source,path,text});}
+  const [source,path]=candidates[candidates.length-1]!;
+  return Object.freeze({source,path,text:readUtf8(path)});
+}
+function compileSelected(cardType:CardType|'global',name:AgentName,reference:string,policy:PromptHostPolicy,roots:PromptRoots):CompiledAgentPrompt{
+  const cacheKey=`${policy}/${cardType}/${reference}`;
+  const cached=roots.agentCache.get(cacheKey);if(cached)return cached;
+  const selected=selectPrompt('agents',cardType,reference,roots);
+  const compiled=compilePromptTemplate({cardType,name,path:selected.path,text:selected.text,policy,resolveFragment:(id)=>{const fragment=selectPrompt('fragments',cardType,id,roots);return{path:fragment.path,text:fragment.text};}});
+  const artifact=Object.freeze({source:selected.source,reference,path:selected.path,compiled});roots.agentCache.set(cacheKey,artifact);return artifact;
+}
 function selectAgentPrompt(
   cardType: CardType | 'global',
   agent: CompiledAgentContract,
-  roots: { defaultRoot: string; overrideRoot: string | undefined },
+  roots: PromptRoots,
 ): CompiledAgentPrompt {
-  if (cardType !== 'global' && roots.overrideRoot) {
-    const path = join(roots.overrideRoot, cardType, 'agents', `${agent.name}.md`);
-    const text = readOptional(path);
-    if (text !== null)
-      return Object.freeze({
-        source: 'card-specific',
-        reference: agent.prompt,
-        path,
-        text,
-      });
-  }
-  if (roots.overrideRoot) {
-    const path = join(roots.overrideRoot, 'agents', `${agent.name}.md`);
-    const text = readOptional(path);
-    if (text !== null)
-      return Object.freeze({
-        source: 'generic-override',
-        reference: agent.prompt,
-        path,
-        text,
-      });
-  }
-  const path = join(roots.defaultRoot, 'agents', `${agent.prompt}.md`);
-  return Object.freeze({
-    source: 'bundled',
-    reference: agent.prompt,
-    path,
-    text: readUtf8(path),
-  });
+  return compileSelected(cardType,agent.name,agent.prompt,cardType==='global'?'global-agent':'workflow-agent',roots);
 }
 function selectProcessPrompt(
   cardType: CardType,
   id: ProcessPromptId,
-  roots: { defaultRoot: string; overrideRoot: string | undefined },
+  roots: PromptRoots,
 ): CompiledProcessPrompt {
-  if (roots.overrideRoot) {
-    const path = join(roots.overrideRoot, cardType, 'process', `${id}.md`);
-    const text = readOptional(path);
-    if (text !== null)
-      return Object.freeze({ reference: id, source: 'override', path, text });
-  }
-  const path = join(roots.defaultRoot, cardType, 'process', `${id}.md`);
-  return Object.freeze({ reference: id, source: 'bundled', path, text: readUtf8(path) });
+  const selected=selectPrompt('process',cardType,id,roots);
+  const compiled=compilePromptTemplate({cardType,name:id as AgentName,path:selected.path,text:selected.text,policy:'process',resolveFragment:(fragmentId)=>{const fragment=selectPrompt('fragments',cardType,fragmentId,roots);return{path:fragment.path,text:fragment.text};}});
+  return Object.freeze({reference:id,source:selected.source,path:selected.path,text:renderCompiledPrompt(cardType,id as AgentName,compiled,{cardType})});
 }
 function identifier(value:string,location:string):string { if(!IDENTIFIER.test(value))throw new Error(`${location} must be a lowercase identifier of at most 64 characters.`);return value; }
 function promptId(value:string,location:string):ProcessPromptId{return identifier(value,location) as ProcessPromptId;}
@@ -163,7 +150,7 @@ function compileCardTypeInputs(
   cardType: CardType,
   source: CardTypeSource,
   agents: ReadonlyMap<AgentName, CompiledAgentContract>,
-  roots: { defaultRoot: string; overrideRoot: string | undefined },
+  roots: PromptRoots,
 ): CardTypeCompileDraft {
   const location = `card_types.${cardType}`;
   const children = new Set<CardType>();
@@ -315,7 +302,6 @@ function compileCardTypeInputs(
         })
       : null;
     const selectedAgentPrompt = selectAgentPrompt(cardType, agent, roots);
-    validateCompiledAgentPrompt(cardType, agent.name, selectedAgentPrompt, true);
     nodes.set(
       nodeId,
       Object.freeze({
@@ -447,7 +433,7 @@ function compiledProcessTransition(
 }
 function buildCardTypeStateTable(
   draft: CardTypeCompileDraft,
-  roots: { defaultRoot: string; overrideRoot: string | undefined },
+  roots: PromptRoots,
 ): CompiledCardTypeWorkflow {
   const stateEntries: Array<readonly [string, CompiledProcessState]> = [];
   const readyOn = new Map<string, CompiledProcessTransition>();
@@ -621,7 +607,7 @@ function compileCardType(
   cardType: CardType,
   source: CardTypeSource,
   agents: ReadonlyMap<AgentName, CompiledAgentContract>,
-  roots: { defaultRoot: string; overrideRoot: string | undefined },
+  roots: PromptRoots,
 ): CompiledCardTypeWorkflow {
   const draft = compileCardTypeInputs(cardType, source, agents, roots);
   validateCardTypeTopology(draft);
@@ -652,7 +638,6 @@ export function compileProjectWorkflows(
     throw new Error(`analyst_agent references missing agent '${config.analyst_agent}'.`);
   if (analyst.session !== 'global') throw new Error('analyst_agent must use global session scope.');
   const analystPrompt = selectAgentPrompt('global', analyst, roots);
-  validateCompiledAgentPrompt('global', analyst.name, analystPrompt, false);
   const sourceKeys = Object.keys(config.card_types);
   if (
     sourceKeys.length !== cardTypeValues.length ||

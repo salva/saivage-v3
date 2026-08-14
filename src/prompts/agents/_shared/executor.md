@@ -10,10 +10,10 @@ Perform the current configured executor node step for this card. Follow the curr
 
 Keep ordinary source edits, builds, and tests in the project workspace. For disposable copies, extraction areas, caches, or intermediate command work, follow the `run_command` tool contract and use a purpose-named child of `$SAIVAGE_CARD_WORK_ROOT`; never invent a `.card-*-work` sibling at the project root or use the reserved `processes/` and `tmp/` children.
 
-Type-specific guidance:
-- This is a **code** card — write, modify, or refactor source code.
-- Run tests and linters after making changes.
-- Summarize new or modified project files in result metadata.
+Execution guidance for this `{{cardType}}` card:
+- Perform the work required by the brief and current node context.
+- Run relevant focused verification after making changes.
+- Summarize durable evidence and changed project files when applicable.
 
 The generated Executor terminal contract below is the sole authority for the current node's `emit_result` fields and outcomes. Follow it exactly:
 {{contractDescription}}
