@@ -2,9 +2,8 @@ import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, ConversationSessionId } from '../../schemas/index.js';
 import { deterministicRoundId } from '../../schemas/round-id-server.js';
 import type { ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
-import { parseToolCallMessage } from '../../contracts/persisted-tool-call.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
-import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
+import { appendConversationBatch, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
 interface ToolSettlementRecord {
   session_id: ConversationSessionId;
@@ -19,14 +18,6 @@ interface SyntheticFailedToolResultPayload {
   success: false;
   error: string;
   data?: unknown;
-}
-
-interface LoggedToolCall {
-  agent_id: string;
-  source_input_id: string;
-  tool_call_id: string;
-  tool_name: string;
-  args: unknown;
 }
 
 export function appendLlmTurnStarted(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput): AgentMessage[] {
@@ -112,22 +103,6 @@ export function appendToolResult(conversations: ConversationFileContext, record:
   const message = buildToolResultMessage(parsed);
   appendOne(conversations, message);
   return parsed;
-}
-
-export function readLoggedToolCall(projectRoot: string, sessionId: ConversationSessionId, agentId: string, sourceInputId: string, toolCallId: string): LoggedToolCall {
-  const matches = readConversation(projectRoot, sessionId)
-    .physicalRows
-    .filter((message) => message.session_id === sessionId && message.kind === 'tool_call' && message.id === `${sourceInputId}:tool-call:${toolCallId}` && message.tool_call_id === toolCallId);
-  if (matches.length === 0) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' input '${sourceInputId}' was not found.`);
-  if (matches.length > 1) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' input '${sourceInputId}' is duplicated.`);
-  const [message] = matches;
-  if (!message.tool) throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' is missing a tool name.`);
-  try {
-    const call = parseToolCallMessage(JSON.parse(message.content));
-    return { agent_id: agentId, source_input_id: sourceInputId, tool_call_id: call.id, tool_name: call.name, args: call.args };
-  } catch (error) {
-    throw new Error(`Logged tool call '${toolCallId}' for '${agentId}' has malformed JSON arguments: ${error instanceof Error ? error.message : String(error)}`);
-  }
 }
 
 function toolCallAgentMessage(input: CanonicalLlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {

@@ -1,7 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { validateConversation } from '../../../src/contracts/conversation-validation.js';
-import { serializeToolCallMessage } from '../../../src/contracts/persisted-tool-call.js';
 import { agentMessageSchema, type AgentMessage, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { buildSummarizerRoundInput, summarizeRound } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { SummaryResultValidationError } from '../../../src/runtime/actors/compaction/summarizer.js';
@@ -59,7 +58,7 @@ function durableRound(sessionId: ConversationSessionId, sourceInputId: string): 
   const common = { session_id: sessionId, timestamp, round_id: `r-user-${'0'.repeat(32)}` };
   return [
     agentMessageSchema.parse({ ...common, id: 'activation', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: sourceInputId, timestamp }), message_index: 0, block_index: 0 }),
-    agentMessageSchema.parse({ ...common, id: `${sourceInputId}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify(serializeToolCallMessage({ id: 'call-1', name: 'read', args: { path: 'large.txt' } })), message_index: 1, block_index: 0 }),
+    agentMessageSchema.parse({ ...common, id: `${sourceInputId}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'large.txt' }) } }] }), message_index: 1, block_index: 0 }),
     agentMessageSchema.parse({ ...common, id: `${sourceInputId}:tool-result:call-1`, role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ success: true, data: { content: 'x'.repeat(10_000) } }), message_index: 2, block_index: 0 }),
   ];
 }

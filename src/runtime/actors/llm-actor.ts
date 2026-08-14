@@ -5,7 +5,7 @@ import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, conversationSessionIdentity, pa
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';
 import type { CardId } from '../../schemas/card-id.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
-import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, readLoggedToolCall } from './llm-delivery-log.js';
+import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult } from './llm-delivery-log.js';
 import { buildUserContextMessage, contentPolicyEvidenceUrl, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { ToolResult } from '../../tools/invocation.js';
@@ -136,14 +136,6 @@ export class ConversationLLMActor {
     const disposition = phase.kind === 'idle' ? phase.disposition : phase.operation.disposition;
     if (disposition.kind !== 'open') return rejected(new Error(`LLMActor '${this.agentId}' invocation admission is closed.`));
     return this.#arm(input, signal, { terminal }, disposition);
-  }
-
-  waitingToolOutcome(): Extract<LLMActorOutcome, { type: 'tool_call' }> {
-    if (this.#phase.kind !== 'waiting_tool') throw new Error(`LLMActor '${this.agentId}' is not waiting for a tool call.`);
-    const { waiting, input, outcome } = this.#phase.operation;
-    const logged = readLoggedToolCall(this.conversations.projectRoot, input.sessionId, this.agentId, waiting.sourceInputId, waiting.toolCallId);
-    if (logged.tool_name !== waiting.toolName) throw new Error(`Logged tool call '${waiting.toolCallId}' tool name changed.`);
-    return outcome;
   }
 
   waitingToolArguments(outcome: Extract<LLMActorOutcome, { type: 'tool_call' }>): string {

@@ -1,16 +1,34 @@
 import { describe, it, expect } from '@jest/globals';
 import {
-  parseToolCallMessage,
-  serializeToolCallMessage,
+  parseToolCallMessageForModel,
   PersistedRowCorruptError,
 } from '../../src/contracts/persisted-tool-call.js';
 
-describe('parseToolCallMessage', () => {
+describe('parseToolCallMessageForModel', () => {
+  it('projects a valid canonical row for the model', () => {
+    const row = {
+      role: 'assistant',
+      tool_calls: [
+        {
+          id: 'call_xyz',
+          type: 'function',
+          function: { name: 'emit_result', arguments: '{"status":"done","summary":"ok"}' },
+        },
+      ],
+    };
+
+    expect(parseToolCallMessageForModel(row)).toEqual({
+      id: 'call_xyz',
+      name: 'emit_result',
+      arguments: '{"status":"done","summary":"ok"}',
+    });
+  });
+
   it('rejects legacy {toolCalls:[...]} wrapper as PersistedRowCorruptError(legacy_tool_calls_wrapper)', () => {
     const legacy = { toolCalls: [{ id: 'c1', name: 'emit_result', args: {} }] };
     let caught: unknown;
     try {
-      parseToolCallMessage(legacy);
+      parseToolCallMessageForModel(legacy);
     } catch (err) {
       caught = err;
     }
@@ -18,31 +36,14 @@ describe('parseToolCallMessage', () => {
     expect((caught as PersistedRowCorruptError).code).toBe('legacy_tool_calls_wrapper');
   });
 
-  it('rejects malformed JSON in arguments as PersistedRowCorruptError(invalid_json)', () => {
-    const row = {
-      role: 'assistant',
-      tool_calls: [
-        {
-          id: 'c1',
-          type: 'function',
-          function: { name: 'emit_result', arguments: '{not json' },
-        },
-      ],
-    };
+  it('rejects a current row with no tool call as PersistedRowCorruptError(malformed_tool_call)', () => {
     let caught: unknown;
     try {
-      parseToolCallMessage(row);
+      parseToolCallMessageForModel({ role: 'assistant', tool_calls: [] });
     } catch (err) {
       caught = err;
     }
     expect(caught).toBeInstanceOf(PersistedRowCorruptError);
-    expect((caught as PersistedRowCorruptError).code).toBe('invalid_json');
-  });
-
-  it('round-trips a valid tool call through serialize/parse', () => {
-    const original = { id: 'call_xyz', name: 'emit_result', args: { status: 'done', summary: 'ok' } };
-    const row = serializeToolCallMessage(original);
-    const parsed = parseToolCallMessage(row);
-    expect(parsed).toEqual(original);
+    expect((caught as PersistedRowCorruptError).code).toBe('malformed_tool_call');
   });
 });

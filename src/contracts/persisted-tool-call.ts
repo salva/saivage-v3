@@ -1,20 +1,3 @@
-export interface PersistedToolCallRow {
-  role: 'assistant';
-  tool_calls: [
-    {
-      id: string;
-      type: 'function';
-      function: { name: string; arguments: string };
-    },
-  ];
-}
-
-export interface PersistedToolCall {
-  id: string;
-  name: string;
-  args: Record<string, unknown>;
-}
-
 export interface PersistedToolCallForModel {
   id: string;
   name: string;
@@ -24,8 +7,7 @@ export interface PersistedToolCallForModel {
 export type PersistedRowCorruptCode =
   | 'not_object'
   | 'legacy_tool_calls_wrapper'
-  | 'malformed_tool_call'
-  | 'invalid_json';
+  | 'malformed_tool_call';
 
 export class PersistedRowCorruptError extends Error {
   readonly code: PersistedRowCorruptCode;
@@ -38,27 +20,6 @@ export class PersistedRowCorruptError extends Error {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-export function parseToolCallMessage(row: unknown): PersistedToolCall {
-  const call = parseToolCallMessageForModel(row);
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(call.arguments);
-  } catch (err) {
-    const detail = err instanceof Error ? err.message : String(err);
-    throw new PersistedRowCorruptError(
-      'invalid_json',
-      `tool-call arguments are not valid JSON: ${detail}`,
-    );
-  }
-  if (!isObject(parsed)) {
-    throw new PersistedRowCorruptError(
-      'invalid_json',
-      `tool-call arguments must parse to an object (got ${Array.isArray(parsed) ? 'array' : typeof parsed})`,
-    );
-  }
-  return { id: call.id, name: call.name, args: parsed };
 }
 
 export function parseToolCallMessageForModel(row: unknown): PersistedToolCallForModel {
@@ -101,21 +62,4 @@ export function parseToolCallMessageForModel(row: unknown): PersistedToolCallFor
     );
   }
   return { id: call.id, name: fn.name, arguments: fn.arguments };
-}
-
-export function serializeToolCallMessage(call: {
-  id: string;
-  name: string;
-  args: Record<string, unknown>;
-}): PersistedToolCallRow {
-  return {
-    role: 'assistant',
-    tool_calls: [
-      {
-        id: call.id,
-        type: 'function',
-        function: { name: call.name, arguments: JSON.stringify(call.args) },
-      },
-    ],
-  };
 }

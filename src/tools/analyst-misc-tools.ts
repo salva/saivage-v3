@@ -24,7 +24,6 @@ import {
 import { AgentCurrentStateUnavailableError, AgentSessionNotFoundError } from '../application/read-models/agent-operator-read-model.js';
 
 const JSONL_TAIL_DEFAULT = 50;
-const JSONL_TAIL_MAX = 1000;
 export const ListAgentSessionsToolDataSchema = z
   .object({ sessions: z.array(AgentSessionSummarySchema) })
   .strict();

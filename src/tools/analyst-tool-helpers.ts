@@ -1,22 +1,10 @@
-import { join } from 'node:path';
-
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
-import { computeCardLogicalPath } from '../application/read-models/card-view.js';
-import type { CardRecord, CardType } from '../schemas/index.js';
-import { CARD_STATUS_VALUES, CARD_TYPE_VALUES, URGENCY_VALUES } from './tool-definition.js';
+import type { CardType } from '../schemas/index.js';
 import type { SafeToolData, ToolContext, ToolResult } from './analyst-tool-types.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
-export function saivageDir(projectRoot: string): string {
-  return join(projectRoot, '.saivage');
-}
-
 export function getStore(ctx: ToolContext): CardService {
   return ctx.store;
-}
-
-export function cardSummary(card: CardRecord, store?: CardService) {
-  return { id: card.id, logical_path: store ? computeCardLogicalPath(store, card) : null, title: card.title, type: card.type, status: card.lifecycle.status };
 }
 
 export function normalizeParentValue(value: unknown): string | null | undefined {
@@ -42,30 +30,6 @@ export function defaultParentForCreate(store: CardService, type: CardType): stri
     .sort((a, b) => a.priority - b.priority);
   if (allGoals.length === 1) return allGoals[0].id;
   return PROJECT_CARD_ID;
-}
-
-export function humanizeToolError(toolName: string, raw: string): string {
-  const enumHints: string[] = [];
-  const enumIssueRe = /"received":\s*"([^"]*)"[\s\S]*?"path":\s*\[\s*"([^"]+)"[\s\S]*?Expected\s+([^,]+(?:\s*\|\s*[^,]+)+)/g;
-  let m: RegExpExecArray | null;
-  while ((m = enumIssueRe.exec(raw)) !== null) {
-    const got = m[1];
-    const field = m[2];
-    const allowed = m[3]
-      .replace(/'/g, '')
-      .split('|')
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .join(', ');
-    enumHints.push(`field '${field}' received '${got}'; allowed values: ${allowed}`);
-  }
-  if (enumHints.length === 0) {
-    if (/\bstatus\b/i.test(raw)) enumHints.push(`'status' allowed values: ${CARD_STATUS_VALUES.join(', ')}`);
-    else if (/\burgency\b/i.test(raw)) enumHints.push(`'urgency' allowed values: ${URGENCY_VALUES.join(', ')}`);
-    else if (/\btype\b/i.test(raw)) enumHints.push(`'type' allowed values: ${CARD_TYPE_VALUES.join(', ')}`);
-  }
-  const hintLine = enumHints.length > 0 ? ` Hint: ${enumHints.join('; ')}.` : '';
-  return `${toolName} failed.${hintLine} See the '${toolName}' tool's parameter schema for the full list of accepted fields and values. Original error: ${raw}`;
 }
 
 function errorMessage(err: unknown): string {

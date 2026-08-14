@@ -1,5 +1,5 @@
 import type { AgentName, ConversationSessionId } from '../../schemas/index.js';
-import type { ProviderConversationProjection, ProviderTurnCompletion, ToolDefinition } from '../../agents/llm-contracts.js';
+import type { ProviderConversationProjection, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 
@@ -51,7 +51,3 @@ export type LlmInvocationInput = LlmInvocationInputBase & (
 
 export type CanonicalLlmInvocationInput = LlmInvocationInput & { sessionId: ConversationSessionId };
 export type PreparedLlmInvocationInput = Extract<CanonicalLlmInvocationInput, { preparedCompaction: PreparedCompaction }>;
-
-export interface ProviderTurnPort {
-  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
-}

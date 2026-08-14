@@ -5,7 +5,6 @@ import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/statu
 import { CardActivationOwner, type CardActivationCaller, type CardCancellationResult, type PlannerChildControlPort } from './card-activation-owner.js';
 import { CardProcessActor } from './card-process-actor.js';
 import { toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
-import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import type { ChildInvocationLease } from './child-invocation-wait.js';
 import type { ActorRuntimeReadModel } from '../../application/read-models/actor-runtime-read-model.js';
 import type { NotifyCardResult, RuntimeApi, StartProjectResult, StopProjectResult } from '../runtime-api.js';
@@ -235,8 +234,6 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     const cards = [...this.activationOwners.values()].map((owner) => ({ cardId: owner.cardId, actorState: toPublicCardActorState(owner.cachedStatus), processState: owner.processor.processPosition() }));
     return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards };
   }
-  captureAutonomousExecutingLlmSnapshots(): readonly ExecutingLlmSnapshot[] { return [...this.activationOwners.values()].flatMap((owner) => { const value = owner.processor.executingLlmSnapshot(); return value ? [value] : []; }); }
-
   private boundParentControl(parentCardId: string, activationId: string): PlannerChildControlPort {
     const requireParent = (): CardActivationOwner => {
       const parent = this.activationOwners.get(parentCardId);
