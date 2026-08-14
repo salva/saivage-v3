@@ -20,8 +20,8 @@ const PLACEHOLDERS: Readonly<Record<PromptHostPolicy, ReadonlySet<string>>> = Ob
 const FRAGMENT_IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
 
 export class PromptTemplateRenderError extends Error {
-  constructor(readonly cardType: PromptCardTypeKey, readonly agentName: AgentName, readonly token: string, readonly reason: string) {
-    super(`Prompt template error for ${cardType}/${agentName}: ${reason}: ${token}`);
+  constructor(readonly cardType: PromptCardTypeKey, readonly templateName: string, readonly token: string, readonly reason: string) {
+    super(`Prompt template error for ${cardType}/${templateName}: ${reason}: ${token}`);
     this.name = 'PromptTemplateRenderError';
   }
 }
@@ -32,11 +32,11 @@ const malformedToken = (template: string, start: number): string => template.sli
 const identifierStart = (char: string | undefined): boolean => char !== undefined && /[A-Za-z_]/u.test(char);
 const identifierPart = (char: string | undefined): boolean => char !== undefined && /[A-Za-z0-9_]/u.test(char);
 
-function fail(cardType: PromptCardTypeKey, name: AgentName, token: string, reason: string): never {
+function fail(cardType: PromptCardTypeKey, name: string, token: string, reason: string): never {
   throw new PromptTemplateRenderError(cardType, name, token, reason);
 }
 
-function parse(cardType: PromptCardTypeKey, name: AgentName, template: string): readonly ParsedToken[] {
+function parse(cardType: PromptCardTypeKey, name: string, template: string): readonly ParsedToken[] {
   const tokens: ParsedToken[] = [];
   let literal = '';
   let index = 0;
@@ -83,7 +83,7 @@ const OBSOLETE_PROCESS_DIRECTIVES: readonly RegExp[] = Object.freeze([
 ]);
 
 export function compilePromptTemplate(options: Readonly<{
-  cardType: PromptCardTypeKey; name: AgentName; path: string; text: string; policy: PromptHostPolicy; resolveFragment: PromptFragmentResolver;
+  cardType: PromptCardTypeKey; name: string; path: string; text: string; policy: PromptHostPolicy; resolveFragment: PromptFragmentResolver;
 }>): CompiledPromptTemplate {
   if (!options.text.trim()) fail(options.cardType, options.name, options.path, 'empty template');
   const effective: CompiledPromptToken[] = [];
@@ -106,7 +106,7 @@ export function compilePromptTemplate(options: Readonly<{
   return Object.freeze({ tokens: Object.freeze(effective) });
 }
 
-export function renderCompiledPrompt(cardType: PromptCardTypeKey, name: AgentName, compiled: CompiledPromptTemplate, variables: PromptTemplateVariables): string {
+export function renderCompiledPrompt(cardType: PromptCardTypeKey, name: string, compiled: CompiledPromptTemplate, variables: PromptTemplateVariables): string {
   let output = '';
   for (const token of compiled.tokens) {
     if (token.kind === 'literal') output += token.text;

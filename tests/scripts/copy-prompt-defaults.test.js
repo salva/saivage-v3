@@ -46,15 +46,11 @@ function assertTreesEqual(sourceRoot, outputRoot) {
 function runCopyPromptDefaultsTest() {
   const sourceRoot = mkdtempSync(join(tmpdir(), 'saivage-copy-source-'));
   const outputRoot = mkdtempSync(join(tmpdir(), 'saivage-copy-output-'));
-  const staleYaml = join('dist', 'src', 'utils', `prompt-${'defaults'}.yaml`);
   try {
     writeFixtureTree(sourceRoot);
     writeFileSync(join(outputRoot, 'stale.md'), 'stale');
-    mkdirSync(dirname(staleYaml), { recursive: true });
-    writeFileSync(staleYaml, 'stale yaml');
     copyPromptDefaults({ sourceRoot, outputRoot });
     if (existsSync(join(outputRoot, 'stale.md'))) fail('stale output file survived copy');
-    if (existsSync(staleYaml)) fail('stale YAML prompt defaults survived copy');
     assertTreesEqual(sourceRoot, outputRoot);
     copyPromptDefaults({ sourceRoot, outputRoot });
     assertTreesEqual(sourceRoot, outputRoot);

@@ -94,8 +94,8 @@ function selectProcessPrompt(
   roots: PromptRoots,
 ): CompiledProcessPrompt {
   const selected=selectPrompt('process',cardType,id,roots);
-  const compiled=compilePromptTemplate({cardType,name:id as AgentName,path:selected.path,text:selected.text,policy:'process',resolveFragment:(fragmentId)=>{const fragment=selectPrompt('fragments',cardType,fragmentId,roots);return{path:fragment.path,text:fragment.text};}});
-  return Object.freeze({reference:id,source:selected.source,path:selected.path,text:renderCompiledPrompt(cardType,id as AgentName,compiled,{cardType})});
+  const compiled=compilePromptTemplate({cardType,name:id,path:selected.path,text:selected.text,policy:'process',resolveFragment:(fragmentId)=>{const fragment=selectPrompt('fragments',cardType,fragmentId,roots);return{path:fragment.path,text:fragment.text};}});
+  return Object.freeze({reference:id,source:selected.source,path:selected.path,text:renderCompiledPrompt(cardType,id,compiled,{cardType})});
 }
 function identifier(value:string,location:string):string { if(!IDENTIFIER.test(value))throw new Error(`${location} must be a lowercase identifier of at most 64 characters.`);return value; }
 function promptId(value:string,location:string):ProcessPromptId{return identifier(value,location) as ProcessPromptId;}

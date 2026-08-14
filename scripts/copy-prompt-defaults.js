@@ -59,7 +59,6 @@ function copyTree(sourceRoot, outputRoot) {
 }
 
 export function copyPromptDefaults({ sourceRoot = join(repoRoot, 'src', 'prompts'), outputRoot = join(repoRoot, 'dist', 'prompts') } = {}) {
-  rmSync(join(repoRoot, 'dist', 'src', 'utils', `prompt-${'defaults'}.yaml`), { force: true });
   assertPromptTree(sourceRoot);
   copyTree(sourceRoot, outputRoot);
   assertPromptTree(outputRoot);

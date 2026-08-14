@@ -74,7 +74,7 @@ The authenticated Debug Graphs projection exposes prompt reference and one of `o
 | --- | --- |
 | `src/runtime/card-process/card-process-config.ts` | roots, exact selection, fragment reads, workflow compilation, eager process rendering |
 | `src/utils/prompt-api.ts` | singular tokenizer/compiler, composition, host policy, rendering, agent registry |
-| `src/runtime/card-process/process-prompt-registry.ts` | final process-text lookup and reference closure |
+| `src/runtime/card-process/process-prompt-registry.ts` | strict final process-text lookup |
 | `src/application/runtime-composition.ts` | runtime wiring |
 | `src/prompts/**` | exact bundled 14-file defaults |
 | `scripts/copy-prompt-defaults.js` | exact inventory validation and copy to `dist/prompts` |

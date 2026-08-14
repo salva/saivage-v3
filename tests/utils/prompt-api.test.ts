@@ -1,14 +1,13 @@
 import { describe, expect, it } from '@jest/globals';
 import { compilePromptTemplate, renderCompiledPrompt } from '../../src/utils/prompt-api.js';
-import type { AgentName } from '../../src/schemas/index.js';
 
-const name='executor' as AgentName;
-const compile=(text:string,policy:'global-agent'|'workflow-agent'|'process'='workflow-agent',fragments:Record<string,string>={})=>compilePromptTemplate({cardType:policy==='global-agent'?'global':'code',name,path:'host.md',text,policy,resolveFragment:(id)=>{if(!(id in fragments))throw Object.assign(new Error(`missing ${id}`),{code:'ENOENT'});return{path:`fragments/${id}.md`,text:fragments[id]!};}});
+const templateName='test-template';
+const compile=(text:string,policy:'global-agent'|'workflow-agent'|'process'='workflow-agent',fragments:Record<string,string>={})=>compilePromptTemplate({cardType:policy==='global-agent'?'global':'code',name:templateName,path:'host.md',text,policy,resolveFragment:(id)=>{if(!(id in fragments))throw Object.assign(new Error(`missing ${id}`),{code:'ENOENT'});return{path:`fragments/${id}.md`,text:fragments[id]!};}});
 
 describe('prompt template compiler',()=>{
   it('renders direct repeated fragments in semantic order and counts the expanded contract',()=>{
     const compiled=compile('A {{> contract}} B {{> detail}} C {{> detail}}','workflow-agent',{contract:'{{contractDescription}}',detail:'{{cardType}}'});
-    expect(renderCompiledPrompt('code',name,compiled,{contractDescription:'contract',cardType:'code'})).toBe('A contract B code C code');
+    expect(renderCompiledPrompt('code',templateName,compiled,{contractDescription:'contract',cardType:'code'})).toBe('A contract B code C code');
     expect(Object.isFrozen(compiled.tokens)).toBe(true);
   });
   it('rejects malformed, nested, missing, and host-inapplicable syntax',()=>{
