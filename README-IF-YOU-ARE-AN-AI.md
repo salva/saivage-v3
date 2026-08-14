@@ -154,10 +154,11 @@ provider.
    first publication; required current-format project/card/bootstrap authorities
    enter initialization; partial required publication and every old or mixed format
    fail reset-required without compatibility probing;
-7. publish the root card/bootstrap version indexes and artifacts plus strict empty
-   indexes for every configured optional root record and deterministic global/root
-   Agent session; then perform initialization-only recovery and validate the whole
-   current graph before startup may succeed.
+7. publish the root card/bootstrap version indexes and artifacts plus the global
+   Analyst conversation through the singular bootstrap helper; then require one
+   nonempty canonical linked-card projection, validate active dependencies and
+   compiled parent/type admission read-only, and only afterward initialize exact
+   missing optional record/session indexes and strictly read current authority.
 
 The first identity read is non-mutating. A known-unsuccessful exclusive lock open
 publishes no new lock; failure after that open is outcome-unknown, halts, and may
@@ -172,11 +173,13 @@ Existing current state is derived only from the project, committed child links,
 configured record names, and configured active/global/retained-tombstone session
 identities—never directory enumeration. Initialization may recreate one exact
 missing deterministic optional record/session index as strict empty without
-adopting old files, remove one invalid exact head per confirmed index replacement,
-repair only the current conversation segment to its maximum valid terminable
-prefix. App-log initialization strictly rejects nonempty incomplete content without
-mutation. Unindexed files remain ignored forever. Ordinary runtime/API/tool reads
-perform none of these corrections.
+adopting old files. Every present current index selects exactly its head; missing,
+malformed, unreadable, schema-invalid, or identity-mismatched selected artifacts
+fail without index shortening or predecessor fallback. Startup's conversation owner
+may truncate only bytes after the final newline after the retained nonempty complete
+prefix fully validates against its index, genesis, session, and semantics. Complete
+malformed data remains unchanged. App-log initialization strictly rejects nonempty
+incomplete content without mutation. Unindexed files remain ignored forever.
 
 `saivage reset` is a separate explicit destructive decision, run with the
 service confirmed stopped. It replaces the four generated roots wholesale;
@@ -216,8 +219,9 @@ identifies the source address by which the deployment host reaches the guest.
 Before the first `systemctl enable --now`, require either all generated roots
 absent or an already current-format installation. Stop and reset an old, mixed,
 or partially published installation under Stage 7 first. `saivage start`
-completes strict initialization, recovery, and whole-current-graph validation
-before constructing actors or opening the listener. Startup failure authorizes
+completes strict required-card admission and projection-driven optional initialization
+as its whole-current-graph validation boundary before constructing actors or opening
+the listener. Startup failure authorizes
 neither selective file edits nor a compatibility start.
 Never guess that address. If firewall state is existing or custom, stop this
 baseline and use the deliberate network-design option in Stage 7; do not merge,

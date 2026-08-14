@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -98,5 +98,24 @@ describe('authored record version files', () => {
     rmSync(indexPath);
     mkdirSync(indexPath);
     expect(() => ioFailure.cards.readCurrentRecord(ioFailure.card.id, 'status.md')).toThrow(expect.objectContaining({ code: expect.stringMatching(/EISDIR|EACCES/) }));
+  });
+
+  it.each(['missing', 'malformed', 'mismatched'] as const)('rejects a %s indexed current artifact without changing its index', (fault) => {
+    const { cards, card } = setup();
+    const definition = cards.recordReader.definition(card.id, 'status.md');
+    cards.openRecord(card.id, 'status.md', null);
+    const indexPath = cardRecordVersionIndexFile(cards.projectRoot, card.id, definition);
+    const indexBytes = readFileSync(indexPath);
+    const index = JSON.parse(indexBytes.toString('utf8')) as { current_filename: string };
+    const artifactPath = cardRecordVersionFile(cards.projectRoot, card.id, definition, index.current_filename);
+    if (fault === 'missing') unlinkSync(artifactPath);
+    else if (fault === 'malformed') writeFileSync(artifactPath, 'complete malformed artifact\n');
+    else {
+      const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')) as { card_id: string };
+      writeFileSync(artifactPath, `${JSON.stringify({ ...artifact, card_id: 'card-z' })}\n`);
+    }
+
+    expect(() => cards.readCurrentRecord(card.id, 'status.md')).toThrow();
+    expect(readFileSync(indexPath)).toEqual(indexBytes);
   });
 });

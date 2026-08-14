@@ -121,22 +121,6 @@ function exactCurrent(projectRoot: string, cardId: string, instrumentation?: Can
   return readCurrentFromIndex(projectRoot, cardId, readCardIndex(projectRoot, cardId, instrumentation), instrumentation);
 }
 
-export function recoverCurrentCardHead(projectRoot: string, cardId: string, temporary?: PublicationTemporaryIdFactory, instrumentation?: CanonicalReadInstrumentation): void {
-  let index = readCardIndex(projectRoot, cardId, instrumentation);
-  while (index.versions.length > 0) {
-    const entry = index.versions.at(-1)!;
-    try { readListedArtifact(projectRoot, cardId, entry, instrumentation); return; }
-    catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code && code !== 'ENOENT') throw error;
-      const versions = index.versions.slice(0, -1); const head = versions.at(-1);
-      index = cardVersionIndexSchema.parse({ ...index, versions, current_version: head?.version ?? null, current_filename: head?.filename ?? null });
-      publishIndex(cardVersionIndexFile(projectRoot, cardId), index, temporary);
-    }
-  }
-  throw new Error(`Required card '${cardId}' has no recoverable current version.`);
-}
-
 function proveCommittedCardIndexFromBase(realProjectRoot: string, targetId: string, instrumentation?: CanonicalReadInstrumentation): CardVersionIndex | null {
   const segments = cardIdSegments(targetId);
   if (segments.length === 0) return readCardIndex(realProjectRoot, 'project', instrumentation);

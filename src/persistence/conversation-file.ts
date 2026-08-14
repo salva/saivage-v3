@@ -33,6 +33,7 @@ import { versionFilename } from './version-index.js';
 
 export interface ConversationFileContext { readonly projectRoot: string; readonly changes?: Pick<FreshnessEffects, 'conversationChanged' | 'agentMembershipChanged'> }
 export interface ConversationAppendOptions { readonly publicationTemporaryId?: PublicationTemporaryIdFactory; readonly io?: GrowingFileIo }
+interface ConversationTruncationIo { open(path: string, flags: number): number; ftruncate(fd: number, length: number): void; fsync(fd: number): void; close(fd: number): void }
 export interface FoldedConversation { readonly sessionId: ConversationSessionId; readonly entries: readonly AgentMessage[]; readonly cursor: string | null; readonly totalEntries: number; readonly segmentVersion: number; readonly segmentContext: ConversationSegmentContext }
 export type ConversationSegmentContext = null | { readonly kind: 'compacted'; readonly source_version: number; readonly covered_through_message_id: string; readonly boundary: import('../schemas/index.js').ContextCompactionContent['boundary']; readonly summaries: import('../schemas/index.js').ContextCompactionContent['summaries']; readonly applied_policy: import('../schemas/index.js').ContextCompactionContent['applied_policy']; readonly continuation: import('./canonical-conversation-artifacts.js').ConversationContinuation };
 export interface ConversationCatalog { readonly sessionId: ConversationSessionId; readonly createdAt: string; readonly versions: readonly ConversationVersionEntry[]; readonly currentVersion: number | null }
@@ -194,26 +195,21 @@ export function publishCompactedConversationSegment(conversations: ConversationF
   conversations.changes?.conversationChanged({ session_id: sessionId, segment_version: version, visible_message_id: visibleMessageId(rows) });
 }
 
-export function recoverCurrentConversationHead(projectRoot: string, sessionId: ConversationSessionId, temporary?: PublicationTemporaryIdFactory): void {
-  const target = location(projectRoot, sessionId); let index = parseIndex(target.indexPath); if (index.session_id !== sessionId) throw new Error(`Conversation index identity does not match '${sessionId}'.`);
-  while (index.versions.length > 0) {
-    const entry = index.versions.at(-1)!; const path = target.versionPath(entry.filename); let bytes: Buffer;
-    try { bytes = readFileSync(path); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; index = dropConversationHead(target.indexPath, index, temporary); continue; }
-    let checkpoint = 0; let position = 0;
-    while (position < bytes.length) {
-      const newline = bytes.indexOf(0x0a, position); if (newline < 0) break; const end = newline + 1;
-      try { validateLoadedSegment(index, entry, parseSegment(path, bytes.subarray(0, end)), sessionId); checkpoint = end; } catch { /* a later complete envelope may make a semantically unterminated prefix valid */ }
-      position = end;
-    }
-    if (checkpoint === bytes.length) return;
-    if (checkpoint > 0) { truncateConversationSegment(path, checkpoint); return; }
-    index = dropConversationHead(target.indexPath, index, temporary);
-  }
-}
-function dropConversationHead(indexPath: string, index: ConversationVersionIndex, temporary?: PublicationTemporaryIdFactory): ConversationVersionIndex {
-  const versions = index.versions.slice(0, -1); const head = versions.at(-1); const next = conversationVersionIndexSchema.parse({ ...index, versions, current_version: head?.version ?? null, current_filename: head?.filename ?? null }); publishIndex(indexPath, next, temporary); return next;
-}
-function truncateConversationSegment(path: string, length: number): void {
-  const descriptor = openSync(path, constants.O_RDWR);
-  try { ftruncateSync(descriptor, length); fsyncSync(descriptor); closeSync(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
+const conversationTruncationIo: ConversationTruncationIo = { open: openSync, ftruncate: ftruncateSync, fsync: fsyncSync, close: closeSync };
+
+export function truncateCurrentConversationUnterminatedSuffix(projectRoot: string, sessionId: ConversationSessionId, io: ConversationTruncationIo = conversationTruncationIo): ConversationSegment | null {
+  const target = location(projectRoot, sessionId); const index = parseIndex(target.indexPath);
+  if (index.session_id !== sessionId) throw new Error(`Conversation index identity does not match '${sessionId}'.`);
+  const entry = index.versions.at(-1); if (!entry) return null;
+  const path = target.versionPath(entry.filename); const bytes = readFileSync(path);
+  if (bytes.at(-1) === 0x0a) return validateLoadedSegment(index, entry, parseSegment(path, bytes), sessionId);
+  const finalNewline = bytes.lastIndexOf(0x0a);
+  if (finalNewline < 0) throw new Error(`Conversation segment '${path}' has no complete prefix before its unterminated suffix.`);
+  const length = finalNewline + 1;
+  const segment = validateLoadedSegment(index, entry, parseSegment(path, bytes.subarray(0, length)), sessionId);
+  const descriptor = io.open(path, constants.O_RDWR);
+  try { io.ftruncate(descriptor, length); } catch { throw new PublicationOutcomeUnknownError(); }
+  try { io.fsync(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
+  try { io.close(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
+  return segment;
 }

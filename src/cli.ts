@@ -16,7 +16,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from './agents/default-workflow-config.js';
 import { replaceConfigYaml } from './config/config-file.js';
 import { createResolvedConfigAuthority } from './config/resolved-config-authority.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
-import { initializeConfiguredOptionalState, validateCurrentGeneratedGraph } from './persistence/current-generated-graph.js';
+import { initializeAndValidateCurrentGeneratedState } from './persistence/current-generated-graph.js';
 
 const fatalPort = createApplicationFatalPort();
 
@@ -57,8 +57,7 @@ async function handleInit(): Promise<void> {
     if (projectCard === null) {
       publishInitialProjectRuntime(canonicalProjectRoot, workflows);
     }
-    initializeConfiguredOptionalState(canonicalProjectRoot, workflows);
-    validateCurrentGeneratedGraph(canonicalProjectRoot, workflows);
+    initializeAndValidateCurrentGeneratedState(canonicalProjectRoot, workflows);
     console.log(projectCard === null ? `Project initialized at ${canonicalProjectRoot}` : `Project already initialized at ${canonicalProjectRoot}`);
   });
 }

@@ -96,21 +96,6 @@ export function listAuthoredRecordVersions(projectRoot: string, cardId: string, 
   return Object.freeze({ cardId, filename: definition.filename, versions: index.versions, current: null });
 }
 
-export function recoverCurrentAuthoredRecordHead(projectRoot: string, cardId: string, definition: RecordDefinition, temporary?: PublicationTemporaryIdFactory, instrumentation?: CanonicalReadInstrumentation): void {
-  let index = readIndex(projectRoot, cardId, definition, instrumentation);
-  while (index.versions.length > 0) {
-    const entry = index.versions.at(-1)!;
-    try { readArtifact(projectRoot, cardId, definition, index, entry, instrumentation); return; }
-    catch (error) {
-      const code = (error as NodeJS.ErrnoException).code;
-      if (code && code !== 'ENOENT') throw error;
-      const versions = index.versions.slice(0, -1); const head = versions.at(-1);
-      index = authoredRecordVersionIndexSchema.parse({ ...index, versions, current_version: head?.version ?? null, current_filename: head?.filename ?? null });
-      publishIndex(projectRoot, cardId, definition, index, temporary);
-    }
-  }
-}
-
 export function readHistoricalAuthoredRecord(projectRoot: string, cardId: string, definition: RecordDefinition, version: number, instrumentation?: CanonicalReadInstrumentation): RecordProjection {
   const index = readIndex(projectRoot, cardId, definition, instrumentation); const entry = index.versions[version - 1]; if (!entry) throw new AuthoredRecordNotFoundError();
   try { return projection(definition, readArtifact(projectRoot, cardId, definition, index, entry, instrumentation)); }

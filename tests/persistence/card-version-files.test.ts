@@ -8,7 +8,7 @@ import { cardVersionIndexSchema } from '../../src/persistence/canonical-card-art
 import { cardVersionFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
-import { recoverCurrentCardHead } from '../../src/persistence/card-files.js';
+import { readCurrentCardArtifact } from '../../src/persistence/card-files.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -76,14 +76,21 @@ describe('card version files', () => {
     expect(reads).not.toContain(cardVersionFile(root, child.id, catalog.versions[1]!.filename));
   });
 
-  it('rewrites one invalid head before opening the promoted predecessor', () => {
+  it.each(['malformed', 'missing', 'mismatched'] as const)('rejects a %s indexed current head without changing the index or opening its predecessor', (fault) => {
     const { root, cards } = fixture();
     const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
     cards.editCard(child.id, { title: 'after' }, 'planner');
+    const indexPath = cardVersionIndexFile(root, child.id); const indexBytes = readFileSync(indexPath);
     const catalog = index(root, child.id); const predecessor = cardVersionFile(root, child.id, catalog.versions[0]!.filename); const head = cardVersionFile(root, child.id, catalog.versions[1]!.filename);
-    writeFileSync(head, '{malformed}\n'); const operations: string[] = [];
-    recoverCurrentCardHead(root, child.id, undefined, { onRead(path) { operations.push(path); } });
-    expect(index(root, child.id).current_version).toBe(1);
-    expect(operations).toEqual([cardVersionIndexFile(root, child.id), head, predecessor]);
+    if (fault === 'malformed') writeFileSync(head, '{malformed}\n');
+    else if (fault === 'missing') unlinkSync(head);
+    else {
+      const artifact = JSON.parse(readFileSync(head, 'utf8')) as { entry_id: string };
+      writeFileSync(head, `${JSON.stringify({ ...artifact, entry_id: '00000000-0000-4000-8000-000000000001' })}\n`);
+    }
+    const operations: string[] = [];
+    expect(() => readCurrentCardArtifact(root, child.id, { onRead(path) { operations.push(path); } })).toThrow();
+    expect(readFileSync(indexPath)).toEqual(indexBytes);
+    expect(operations).not.toContain(predecessor);
   });
 });

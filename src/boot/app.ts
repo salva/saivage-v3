@@ -1,7 +1,7 @@
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadEnvironment, type Environment } from '../config/index.js';
-import { initializeConfiguredOptionalState, validateCurrentGeneratedGraph } from '../persistence/current-generated-graph.js';
+import { initializeAndValidateCurrentGeneratedState } from '../persistence/current-generated-graph.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/generated-state.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../runtime/lock.js';
 import { startServer, type ServerInstance } from '../server/server.js';
@@ -146,8 +146,7 @@ export async function startApp(options: StartAppOptions): Promise<App> {
     if (prelock.createRuntime && readProjectCardOrAssertInitialPublicationAllowed(prelock.projectRoot) === null) {
       publishInitialProjectRuntime(prelock.projectRoot, environment.workflows);
     }
-    initializeConfiguredOptionalState(prelock.projectRoot, environment.workflows);
-    validateCurrentGeneratedGraph(prelock.projectRoot, environment.workflows);
+    initializeAndValidateCurrentGeneratedState(prelock.projectRoot, environment.workflows);
     const restartPort = createRestartPort({
       onAcknowledgedRestart: () => terminal.stop(),
       exit: (code) => process.exit(code),
