@@ -62,6 +62,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         actor: 'analyst',
         surface: 'web-chat',
         eventQueries: options.eventQueries,
+        captureExecutingLlmSessionIds: () => new Set(),
         analystMutations,
       };
        return toolSet.bind({scope:'global',agentName,projectRoot:options.projectRoot,store:options.cardStore as never,analystToolContext:context,processRunner:options.processes.processRunner,processScope:directScope,processOwnerId:'agent:analyst:global',mcpToolInvocation:options.mcpToolInvocation});

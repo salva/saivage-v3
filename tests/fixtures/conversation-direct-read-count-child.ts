@@ -71,7 +71,7 @@ try {
   const { AgentOperatorReadModelService } =
     await import('../../src/application/read-models/agent-operator-read-model.js');
   const { TEST_WORKFLOWS } = await import('../helpers/canonical-project.js');
-  const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS);
+  const service = new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Set());
   if (operation === 'detail') service.getSession('agent:planner:project');
   else service.getConversation('agent:planner:project');
   process.stdout.write(`${JSON.stringify({ ...ledger, statusCode: 200 })}\n`);

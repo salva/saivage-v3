@@ -32,7 +32,7 @@ import {
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
-import type { GlobalConversationSessionId } from '../schemas/index.js';
+import type { ConversationSessionId, GlobalConversationSessionId } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import { createAnalystMutationServices } from './analyst-mutation-services.js';
 import { runtimeAgentBinding } from '../runtime/card-process/card-process-config.js';
@@ -47,6 +47,7 @@ export interface RuntimeApplication {
   readonly processRunner: ProcessRunner;
   readonly analystRuntime: AnalystRuntime;
   readonly analystSessionId: import('../schemas/index.js').GlobalConversationSessionId;
+  captureExecutingLlmSessionIds(): ReadonlySet<ConversationSessionId>;
   closeRuntimeAdmission(): void;
   closeAnalystAdmission(): void;
   cleanupRuntimeForApplicationStop(): Promise<void>;
@@ -173,6 +174,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         surface: 'web-chat',
         analystMutations,
         eventQueries,
+        captureExecutingLlmSessionIds,
       };
       return analystBinding.toolSet.bind({
         scope: 'global',
@@ -216,7 +218,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       compactor,
       summarizerProvider,
       cardStore,
-      runtimeProjectionChanged: () => {},
+      runtimeProjectionChanged: () => services.freshness.agentMembershipChanged({ scope: 'global-session', sessionId: analystSessionId }),
       createInvocationSurface,
       shutdownProcesses,
       fatalPort: services.fatalPort,
@@ -230,12 +232,19 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       reason,
       graceMs: 5_000,
     });
+  const captureExecutingLlmSessionIds = (): ReadonlySet<ConversationSessionId> => {
+    const sessionIds = new Set(runtimeSupervisor.captureAutonomousExecutingLlmSessionIds());
+    const analystSnapshot = analystRuntimeCache?.executingLlmSnapshot();
+    if (analystSnapshot) sessionIds.add(analystSnapshot.sessionId);
+    return sessionIds;
+  };
 
   return {
     runtimeApi,
     analystSessionId,
     cardStore,
     processRunner,
+    captureExecutingLlmSessionIds,
     get analystRuntime() {
       analystRuntimeCache ??= new AnalystRuntime({
         createSession: createAnalystSession,

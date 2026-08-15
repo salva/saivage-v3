@@ -64,11 +64,13 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
     session_scope: sessionScope,
     card_id: cardId,
     started_at: '2025-06-01T08:00:00Z',
+    status: 'inactive',
+    activity: 'idle',
     ...overrides,
   });
 }
 
-const plannerSession = makeSession({ id: 'agent:planner:project', agent_name: 'planner' });
+const plannerSession = makeSession({ id: 'agent:planner:project', agent_name: 'planner', status: 'active', activity: 'busy' });
 const executorSession = makeSession({ id: 'agent:executor:project', agent_name: 'executor' });
 const allSessions = [plannerSession, executorSession];
 
@@ -171,6 +173,8 @@ describe('AgentsView', () => {
     const { wrapper } = await mountAgentsView({ sessions: allSessions });
     expect(wrapper.text()).toContain('planner');
     expect(wrapper.text()).toContain('executor');
+    expect(wrapper.text()).toContain('active · busy');
+    expect(wrapper.text()).toContain('inactive · idle');
   });
 
   it('shows empty state when no sessions exist', async () => {

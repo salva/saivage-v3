@@ -3,5 +3,7 @@
   "agent_name": "executor",
   "session_scope": "card",
   "card_id": "card-a",
-  "started_at": "2025-01-01T02:30:00.000Z"
+  "started_at": "2025-01-01T02:30:00.000Z",
+  "status": "inactive",
+  "activity": "idle"
 }

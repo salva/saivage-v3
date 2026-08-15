@@ -88,7 +88,7 @@ syncBuiltinESMExports();
 
 const { AgentOperatorReadModelService } = await import('../../src/application/read-models/agent-operator-read-model.js');
 const { TEST_WORKFLOWS } = await import('../helpers/canonical-project.js');
-const service = () => new AgentOperatorReadModelService(input.root, TEST_WORKFLOWS);
+const service = () => new AgentOperatorReadModelService(input.root, TEST_WORKFLOWS, () => new Set());
 
 service().listSessions();
 reset();

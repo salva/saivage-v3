@@ -69,6 +69,7 @@ describe('analyst chat store', () => {
         session_scope: 'global',
         card_id: null,
         started_at: '2025-01-01T00:00:00Z',
+        status: 'active', activity: 'busy',
       },
     });
     apiMocks.getAgentConversation.mockResolvedValue(chat());
@@ -122,6 +123,7 @@ describe('analyst chat store', () => {
       session_scope: 'global',
       card_id: null,
       started_at: '2025-01-01T00:00:00Z',
+      status: 'active', activity: 'busy',
     });
   });
 

@@ -8,6 +8,7 @@ import type { InterventionReadinessFacet } from '../application/intervention-rea
 import type { AnalystMutationServices } from '../application/analyst-mutation-services.js';
 import type { AnalystPreparationReadServices } from '../application/analyst-prepare/webfetch.js';
 import type { EventQueryService } from '../application/event-query-service.js';
+import type { ConversationSessionId } from '../schemas/index.js';
 
 export type { ToolResult };
 
@@ -42,4 +43,5 @@ export interface ToolContext {
   analystMutations?: AnalystMutationServices;
   analystPreparation?: AnalystPreparationReadServices;
   eventQueries: EventQueryService;
+  captureExecutingLlmSessionIds: () => ReadonlySet<ConversationSessionId>;
 }

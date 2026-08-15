@@ -20,12 +20,17 @@ describe('changeset C contracts', () => {
     session_scope: 'global',
     card_id: null,
     started_at: '2026-07-24T00:00:00.000Z',
+    status: 'active',
+    activity: 'busy',
   };
-  it('has singular durable summaries and transcript cursors', () => {
+  it('has singular strict live summaries and transcript cursors', () => {
     expect(AgentSessionSummarySchema.parse(summary)).toEqual(summary);
-    expect(AgentSessionSummarySchema.safeParse({ ...summary, status: 'active' }).success).toBe(
-      false,
-    );
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, status: undefined }).success).toBe(false);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, activity: undefined }).success).toBe(false);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, status: 'inactive', activity: 'idle' }).success).toBe(true);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, status: 'active', activity: 'idle' }).success).toBe(false);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, status: 'running' }).success).toBe(false);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, extra: true }).success).toBe(false);
     expect(
       AgentConversationResponseSchema.parse({ session_id: summary.id, segment_version: 1, segment_context: null, entries: [], cursor: { segment_version: 1, message_id: 'z' } })
         .cursor,

@@ -45,7 +45,7 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
     runtimeGate: new RuntimeGate(),
     projectRoot, actorStore: cards, provider,
     conversations: { projectRoot },
-    freshness: { runtimeChanged() {} },
+    freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner, runtimeProcessRootScope, promptTemplates: { render: () => 'test prompt' },
   });
 }

@@ -45,6 +45,8 @@ function session(id: ConversationSessionId): AgentSession {
     session_scope: 'card',
     card_id: 'project',
     started_at: '2026-01-01T00:00:00.000Z',
+    status: 'inactive',
+    activity: 'idle',
   });
 }
 function conversation(id: ConversationSessionId): AgentConversationResponse {

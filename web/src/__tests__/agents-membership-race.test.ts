@@ -18,6 +18,8 @@ const analyst = {
   session_scope: 'global' as const,
   card_id: null,
   started_at: '2026-07-24T00:00:00.000Z',
+  status: 'inactive' as const,
+  activity: 'idle' as const,
 };
 const currentCardSession = {
   id: 'agent:planner:card-a' as const,
@@ -25,6 +27,8 @@ const currentCardSession = {
   session_scope: 'card' as const,
   card_id: 'card-a' as const,
   started_at: '2026-07-24T00:00:01.000Z',
+  status: 'active' as const,
+  activity: 'busy' as const,
 };
 const staleCardSession = { ...currentCardSession, started_at: '2026-07-23T00:00:00.000Z' };
 

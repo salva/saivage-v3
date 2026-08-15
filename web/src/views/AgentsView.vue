@@ -53,6 +53,7 @@
                 >
                   <div class="session-top">
                     <span class="session-scope">{{ session.session_scope }}</span>
+                    <span class="session-liveness" :class="`session-liveness--${session.status}`">{{ session.status }} · {{ session.activity }}</span>
                   </div>
                   <div class="session-meta">
                     <button
@@ -253,6 +254,14 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--text-muted);
   font-family: 'SF Mono', monospace;
+}
+.session-liveness {
+  font-size: 11px;
+  font-family: 'SF Mono', monospace;
+  color: var(--text-muted);
+}
+.session-liveness--active {
+  color: var(--accent);
 }
 .session-meta {
   display: flex;

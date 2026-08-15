@@ -32,6 +32,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
         session_scope: 'card',
         card_id: 'project',
         started_at: '2026-01-01T00:00:00Z',
+        status: 'inactive', activity: 'idle',
       },
     });
     api.getAgentConversation.mockResolvedValue({

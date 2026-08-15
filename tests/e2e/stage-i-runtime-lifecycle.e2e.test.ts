@@ -34,7 +34,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
     actorStore: cards,
     provider,
     conversations: { projectRoot },
-    freshness: { runtimeChanged() {} },
+    freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner: new ProcessRunner(projectRoot, registry, testApplicationFatalPort),
     runtimeProcessRootScope,
     promptTemplates: { render: () => 'test prompt' },

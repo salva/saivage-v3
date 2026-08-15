@@ -1,7 +1,7 @@
 import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import {
   AgentOperatorReadModelService,
@@ -49,12 +49,21 @@ describe('AgentOperatorReadModelService granular resources', () => {
     for (const sessionId of [analyst, planner, reviewer, executor]) publishMarker(projectRoot, sessionId);
 
     appendFileSync(currentConversationSegmentPath(projectRoot, planner), '{malformed later envelope}\n');
-    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS);
+    const capture = jest.fn(() => new Set<ConversationSessionId>([analyst, planner, reviewer, executor]));
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, capture);
 
     expect(service.listSessions().sessions.map(({ id }) => id)).toEqual(
       [analyst, executor, planner, reviewer].sort(),
     );
+    expect(service.listSessions().sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: analyst, status: 'active', activity: 'busy' }),
+      expect.objectContaining({ id: planner, status: 'active', activity: 'busy' }),
+      expect.objectContaining({ id: reviewer, status: 'active', activity: 'busy' }),
+      expect.objectContaining({ id: executor, status: 'active', activity: 'busy' }),
+    ]));
+    expect(capture).toHaveBeenCalledTimes(2);
     expect(new Date(service.getSession(planner).session.started_at).toString()).not.toBe('Invalid Date');
+    expect(capture).toHaveBeenCalledTimes(3);
     expect(() => service.getConversation(planner)).toThrow(/unavailable/i);
   });
 
@@ -77,8 +86,9 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const response = new AgentOperatorReadModelService(
       projectRoot,
       TEST_WORKFLOWS,
+      () => new Set([secondSession]),
     ).listCardSessions(first.id);
-    expect(response).toEqual({ card_id: first.id, sessions: [expect.objectContaining({ id: firstSession })] });
+    expect(response).toEqual({ card_id: first.id, sessions: [expect.objectContaining({ id: firstSession, status: 'inactive', activity: 'idle' })] });
     expect(response.sessions).not.toContainEqual(expect.objectContaining({ id: secondSession }));
   });
 
@@ -91,21 +101,37 @@ describe('AgentOperatorReadModelService granular resources', () => {
     });
     const sessionId = cardAgentSessionId('executor', child.id);
     publishMarker(projectRoot, sessionId);
-    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS);
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Set());
     expect(service.listSessions().sessions).toContainEqual(expect.objectContaining({ id: sessionId }));
 
     cards.deleteSubtrees([child.id], () => true);
 
     expect(service.listSessions().sessions).not.toContainEqual(expect.objectContaining({ id: sessionId }));
-    expect(service.getSession(sessionId).session.id).toBe(sessionId);
+    expect(service.getSession(sessionId).session).toEqual(expect.objectContaining({ id: sessionId, status: 'inactive', activity: 'idle' }));
     expect(() => service.listCardSessions(child.id)).toThrow(CardAgentScopeNotFoundError);
   });
 
   it('omits only exact ENOENT candidates and keeps exact missing detail distinct', () => {
     const projectRoot = createRoot();
-    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS);
+    const capture = jest.fn(() => new Set<ConversationSessionId>(['agent:analyst:global']));
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, capture);
     expect(service.listSessions()).toEqual({ sessions: [] });
+    expect(capture).toHaveBeenCalledTimes(1);
     expect(() => service.getSession('agent:analyst:global')).toThrow(AgentSessionNotFoundError);
+    expect(capture).toHaveBeenCalledTimes(2);
+  });
+
+  it('captures live IDs exactly once for every summary-producing operation', () => {
+    const projectRoot = createRoot();
+    const sessionId = cardAgentSessionId('planner', 'project');
+    publishMarker(projectRoot, sessionId);
+    const capture = jest.fn(() => new Set<ConversationSessionId>([sessionId]));
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, capture);
+    service.listSessions();
+    service.listCardSessions('project');
+    service.getSession(sessionId);
+    service.readCurrentSegmentTail(sessionId, 1);
+    expect(capture).toHaveBeenCalledTimes(4);
   });
 });
 

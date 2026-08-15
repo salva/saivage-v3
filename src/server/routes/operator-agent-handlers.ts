@@ -14,13 +14,14 @@ import type { CompiledRuntimeWorkflows } from '../../runtime/card-process/card-p
 import { ConversationCursorNotFoundError, ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError, ConversationSegmentChangedError } from '../../persistence/conversation-file.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import { historicalUnavailableStatus } from '../../application/read-models/historical-unavailable-status.js';
+import type { ConversationSessionId } from '../../schemas/index.js';
 
-type AgentOperatorHandlerOptions = OperatorProjectContext & { workflows: CompiledRuntimeWorkflows };
+type AgentOperatorHandlerOptions = OperatorProjectContext & { workflows: CompiledRuntimeWorkflows; captureExecutingLlmSessionIds: () => ReadonlySet<ConversationSessionId> };
 
 export function buildAgentOperatorContractHandlers(options: AgentOperatorHandlerOptions) {
   const { projectRoot } = options;
   const agentReadModel = (): AgentOperatorReadModelService => {
-    return new AgentOperatorReadModelService(projectRoot, options.workflows);
+    return new AgentOperatorReadModelService(projectRoot, options.workflows, options.captureExecutingLlmSessionIds);
   };
 
   return defineOperatorContractHandlers({

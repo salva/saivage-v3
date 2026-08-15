@@ -90,6 +90,7 @@ describe('AnalystChatPanel', () => {
         session_scope: 'global',
         card_id: null,
         started_at: '2025-01-01T00:00:00Z',
+        status: 'active', activity: 'busy',
       },
     });
     api.getAgentConversation.mockResolvedValue({

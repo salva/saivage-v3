@@ -16,6 +16,7 @@ import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtim
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
+import type { AgentMembershipFreshnessTarget } from '../../src/application/freshness-effects.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
 const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\ntest process prompt: review-to-plan';
@@ -84,7 +85,9 @@ describe('reviewer rework completion E2E', () => {
     };
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
-    const runtime = new SupervisorRuntimeApi({
+    const membershipRecords: Array<{ target: AgentMembershipFreshnessTarget; liveIds: string[] }> = [];
+    let runtime!: SupervisorRuntimeApi;
+    runtime = new SupervisorRuntimeApi({
       fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
       runtimeGate: new RuntimeGate(),
@@ -92,7 +95,15 @@ describe('reviewer rework completion E2E', () => {
       actorStore: cards,
       provider,
       conversations: { projectRoot },
-      freshness: { runtimeChanged() {} },
+      freshness: {
+        runtimeChanged() {},
+        agentMembershipChanged(target) {
+          membershipRecords.push({
+            target,
+            liveIds: [...runtime.captureAutonomousExecutingLlmSessionIds()],
+          });
+        },
+      },
       processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),
       runtimeProcessRootScope,
       promptTemplates: { render: () => 'test prompt' },
@@ -108,6 +119,12 @@ describe('reviewer rework completion E2E', () => {
     expect(plannerCalls).toBe(4);
     expect(reviewerCalls).toBe(4);
     expect(provider.completeTurn).toHaveBeenCalledTimes(8);
+    expect(membershipRecords.length).toBeGreaterThan(0);
+    expect(new Set(membershipRecords.map(({ target }) => target.scope))).toEqual(new Set(['card']));
+    expect(new Set(membershipRecords.map(({ target }) => target.scope === 'card' ? target.cardId : target.sessionId))).toEqual(new Set(['project']));
+    expect(membershipRecords.some(({ liveIds }) => liveIds.includes('agent:planner:project'))).toBe(true);
+    expect(membershipRecords.some(({ liveIds }) => liveIds.includes('agent:reviewer:project'))).toBe(true);
+    expect(membershipRecords.some(({ liveIds }) => liveIds.length === 0)).toBe(true);
 
     expect(remediationProjection).not.toBeNull();
     expect(remediationProjection!.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);

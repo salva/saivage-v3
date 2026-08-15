@@ -32,27 +32,31 @@ export class AgentOperatorReadModelService {
   constructor(
     private readonly projectRoot: string,
     private readonly workflows: CompiledProjectWorkflows,
+    private readonly captureExecutingLlmSessionIds: () => ReadonlySet<ConversationSessionId>,
   ) {}
 
   listSessions() {
+    const liveSessionIds = this.captureExecutingLlmSessionIds();
     const candidates: ConversationSessionId[] = [globalAgentSessionId(this.workflows.analyst.name)];
     for (const card of listCards(this.projectRoot))
       candidates.push(...this.cardCandidates(card.id, card.type));
-    return AgentListResponseSchema.parse({ sessions: this.summaries(candidates) });
+    return AgentListResponseSchema.parse({ sessions: this.summaries(candidates, liveSessionIds) });
   }
 
   listCardSessions(cardId: CardId) {
+    const liveSessionIds = this.captureExecutingLlmSessionIds();
     const card = readCard(this.projectRoot, cardId);
     if (!card) throw new CardAgentScopeNotFoundError(`Card '${cardId}' not found.`);
     return CardAgentSessionsResponseSchema.parse({
       card_id: cardId,
-      sessions: this.summaries(this.cardCandidates(cardId, card.type)),
+      sessions: this.summaries(this.cardCandidates(cardId, card.type), liveSessionIds),
     });
   }
 
   getSession(sessionId: ConversationSessionId) {
+    const liveSessionIds = this.captureExecutingLlmSessionIds();
     this.admitSession(sessionId);
-    const summary = this.summary(sessionId);
+    const summary = this.summary(sessionId, liveSessionIds);
     if (!summary) throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
     return AgentDetailResponseSchema.parse({ session: summary });
   }
@@ -86,10 +90,12 @@ export class AgentOperatorReadModelService {
   getConversationVersion(sessionId: ConversationSessionId, version: number) { this.admitSession(sessionId); let segment; try { segment = readHistoricalConversationSegment(this.projectRoot, sessionId, version); } catch (error) { if (error instanceof ConversationHistoricalVersionNotFoundError || error instanceof ConversationHistoricalVersionUnavailableError) throw error; throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); } return ConversationVersionContentResponseSchema.parse({ session_id: sessionId, version, entry_id: segment.entry.entry_id, published_at: segment.entry.created_at, segment_context: segmentContext(segment.genesis), entries: foldVisible(segment.rows) }); }
 
   readCurrentSegmentTail(sessionId: ConversationSessionId, lastN: number) {
+    const liveSessionIds = this.captureExecutingLlmSessionIds();
     const catalog = this.admitConversationCatalog(sessionId);
     const identity = conversationSessionIdentity(sessionId);
     const ownership = catalog.ownership;
-    const session = AgentSessionSummarySchema.parse({ id: sessionId, agent_name: identity.agentName, session_scope: identity.cardId === null ? 'global' : 'card', card_id: identity.cardId, started_at: catalog.createdAt });
+    const live = liveSessionIds.has(sessionId);
+    const session = AgentSessionSummarySchema.parse({ id: sessionId, agent_name: identity.agentName, session_scope: identity.cardId === null ? 'global' : 'card', card_id: identity.cardId, started_at: catalog.createdAt, status: live ? 'active' : 'inactive', activity: live ? 'busy' : 'idle' });
     if (catalog.currentVersion === null) return { kind: 'empty' as const, ownership, session };
     try { return { kind: 'populated' as const, ownership, session, conversation: foldConversation(this.projectRoot, sessionId, { lastN }) }; }
     catch (error) { throwIfPublicationOutcomeUnknown(error); throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
@@ -122,24 +128,27 @@ export class AgentOperatorReadModelService {
     return cardResult.value.kind === 'card-tombstone' ? 'retained_tombstone' : 'active';
   }
 
-  private summaries(candidates: readonly ConversationSessionId[]): AgentSessionSummary[] {
+  private summaries(candidates: readonly ConversationSessionId[], liveSessionIds: ReadonlySet<ConversationSessionId>): AgentSessionSummary[] {
     if (new Set(candidates).size !== candidates.length)
       throw new Error('Agent session candidate identities must be unique.');
     return candidates
-      .flatMap((id) => { const summary = this.summary(id); return summary ? [summary] : []; })
+      .flatMap((id) => { const summary = this.summary(id, liveSessionIds); return summary ? [summary] : []; })
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  private summary(sessionId: ConversationSessionId): AgentSessionSummary | null {
+  private summary(sessionId: ConversationSessionId, liveSessionIds: ReadonlySet<ConversationSessionId>): AgentSessionSummary | null {
     this.admitSession(sessionId);
     const source = this.admitConversationCatalog(sessionId); if (source.currentVersion === null) return null;
     const identity = conversationSessionIdentity(sessionId);
+    const live = liveSessionIds.has(sessionId);
     return AgentSessionSummarySchema.parse({
       id: sessionId,
       agent_name: identity.agentName,
       session_scope: identity.cardId === null ? 'global' : 'card',
       card_id: identity.cardId,
       started_at: source.createdAt,
+      status: live ? 'active' : 'inactive',
+      activity: live ? 'busy' : 'idle',
     });
   }
 }

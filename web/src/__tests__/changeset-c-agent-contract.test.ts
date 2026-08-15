@@ -14,12 +14,15 @@ const session = {
   session_scope: 'global',
   card_id: null,
   started_at: '2026-07-24T00:00:00.000Z',
+  status: 'active',
+  activity: 'busy',
 };
 describe('changeset C browser contracts', () => {
-  it('rejects removed activity and model fields', () => {
-    expect(AgentSessionSummarySchema.safeParse({ ...session, status: 'active' }).success).toBe(
-      false,
-    );
+  it('requires the valid status/activity pair and rejects unrelated telemetry', () => {
+    expect(AgentSessionSummarySchema.safeParse(session).success).toBe(true);
+    expect(AgentSessionSummarySchema.safeParse({ ...session, status: 'inactive', activity: 'idle' }).success).toBe(true);
+    expect(AgentSessionSummarySchema.safeParse({ ...session, activity: 'idle' }).success).toBe(false);
+    expect(AgentSessionSummarySchema.safeParse({ ...session, status: undefined }).success).toBe(false);
     expect(AgentSessionSummarySchema.safeParse({ ...session, model: 'x' }).success).toBe(false);
   });
   it('requires strict cursor transcript and card partition shapes', () => {

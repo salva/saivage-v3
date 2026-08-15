@@ -29,11 +29,24 @@ const session: AgentSession = {
   session_scope: 'card',
   card_id: 'project',
   started_at: '2026-01-01T00:00:00.000Z',
+  status: 'active',
+  activity: 'busy',
 };
 const reviewerSession: AgentSession = {
   ...session,
   id: S2,
   agent_name: 'reviewer',
+  status: 'inactive',
+  activity: 'idle',
+};
+const analystSession: AgentSession = {
+  id: 'agent:analyst:global',
+  agent_name: 'analyst',
+  session_scope: 'global',
+  card_id: null,
+  started_at: '2026-01-01T00:00:00.000Z',
+  status: 'inactive',
+  activity: 'idle',
 };
 const entry = {
   id: 'm1',
@@ -167,6 +180,19 @@ describe('useAgentStore singular agent resource ownership', () => {
     await store.reconcileMembership(frame);
     expect(store.sessions).toEqual([]);
     expect(listAgentSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('retains strict pairs through baseline, card, and global partition replacement', async () => {
+    vi.mocked(listAgentSessions).mockResolvedValue({ sessions: [session, analystSession] });
+    vi.mocked(getCardAgentSessions).mockResolvedValue({ card_id: 'project', sessions: [reviewerSession] });
+    vi.mocked(getAgentSession).mockResolvedValue({ session: { ...analystSession, status: 'active', activity: 'busy' } });
+    const store = useAgentStore();
+    await store.fetchSessions();
+    expect(store.sessions).toEqual(expect.arrayContaining([session, analystSession]));
+    await store.reconcileMembership({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'project' });
+    expect(store.sessions).toContainEqual(reviewerSession);
+    await store.reconcileMembership({ t: 'invalidate', resource: 'agent-membership', scope: 'global-session', session_id: 'agent:analyst:global' });
+    expect(store.sessions).toContainEqual(expect.objectContaining({ id: 'agent:analyst:global', status: 'active', activity: 'busy' }));
   });
 
   it('retains accepted transcript data and records only a same-session refresh error', async () => {

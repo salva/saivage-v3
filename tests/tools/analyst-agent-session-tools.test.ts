@@ -35,7 +35,7 @@ function setup() {
   return root;
 }
 function context(projectRoot: string): ToolContext {
-  return { projectRoot, store: new CardService(projectRoot) } as unknown as ToolContext;
+  return { projectRoot, store: new CardService(projectRoot), captureExecutingLlmSessionIds: () => new Set(['agent:planner:project']) } as unknown as ToolContext;
 }
 function rows(): AgentMessage[] {
   return [
@@ -96,7 +96,7 @@ describe('Analyst agent-session tools', () => {
   it('returns the exact direct and nested durable call-only tail', async () => {
     const projectRoot = setup();
     appendConversationBatch({ projectRoot }, rows());
-    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS);
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Set(['agent:planner:project']));
     const expected = service.getConversation('agent:planner:project');
     const detail = service.getSession('agent:planner:project');
     const result = await read_agent_session(context(projectRoot), {
@@ -115,9 +115,11 @@ describe('Analyst agent-session tools', () => {
         messages: [expected.entries[2]],
       },
     });
+    const parsedResult = ReadAgentSessionToolResultSchema.parse(result);
+    if (!parsedResult.success) throw new Error(parsedResult.error);
+    expect(parsedResult.data.session).toEqual(expect.objectContaining({ status: 'active', activity: 'busy' }));
     expect(JSON.stringify(result)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(JSON.stringify(result)).toContain(OUTBOUND_REDACTED_URL);
-    if (!result.success) throw new Error(result.error);
     const nested = projectToolInvocation({
       shape: 'result-row',
       identity: {

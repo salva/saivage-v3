@@ -37,7 +37,7 @@ vi.mock('../api/client', async (importOriginal) => ({
 }));
 
 function makeSession(id: 'agent:planner:project' | 'agent:reviewer:project') {
-  return { id, agent_name: id === 'agent:planner:project' ? 'planner' : 'reviewer', session_scope: 'card' as const, card_id: 'project', started_at: '2026-01-01T00:00:00.000Z' };
+  return { id, agent_name: id === 'agent:planner:project' ? 'planner' : 'reviewer', session_scope: 'card' as const, card_id: 'project', started_at: '2026-01-01T00:00:00.000Z', status: 'inactive' as const, activity: 'idle' as const };
 }
 
 function makeRouter() {

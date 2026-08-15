@@ -258,7 +258,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(operatorApiModule.WebSocketTicketResponseSchema.safeParse({ ticket: 'ticket', expiresAt: timestamp, unexpected: true }).success).toBe(false);
     expect(contractsModule.HealthLivenessResponseSchema.safeParse({ status: 'ok', version: '1', project: 'project', unexpected: true }).success).toBe(false);
 
-    const session = { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', started_at: timestamp };
+    const session = { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', started_at: timestamp, status: 'inactive', activity: 'idle' };
     expect(operatorApiModule.AgentListResponseSchema.safeParse({ sessions: [session], unexpected: true }).success).toBe(false);
     expect(operatorApiModule.AgentListResponseSchema.safeParse({ sessions: [{ ...session, unexpected: true }] }).success).toBe(false);
     expect(operatorApiModule.ChatSendRequestSchema.safeParse({ content: 'hello', unexpected: true }).success).toBe(false);

@@ -8,7 +8,7 @@ import type { CardProcessActor } from '../../../src/runtime/actors/card-process-
 import { ChildInvocationLease } from '../../../src/runtime/actors/child-invocation-wait.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
-import type { CardRecord } from '../../../src/schemas/index.js';
+import type { CardRecord, ConversationSessionId } from '../../../src/schemas/index.js';
 import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
 import type { ProcessStopReport } from '../../../src/runtime/managed-process-group-registry.js';
 import { workflowResult } from '../../helpers/workflow-result.js';
@@ -19,6 +19,7 @@ import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
+import type { AgentMembershipFreshnessTarget } from '../../../src/application/freshness-effects.js';
 
 function barrier<T>() {
   let resolve!: (value: T) => void;
@@ -91,7 +92,9 @@ function harness(withChild = false) {
     activateStopped: jest.fn((id: string) => { lifecycle.set(id, 'running'); return { ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: 'running' as const } }; }),
   };
   const runtimeChanged = jest.fn();
-  const supervisor = new SupervisorRuntimeApi({
+  const membershipRecords: Array<{ target: { scope: 'card'; cardId: string }; liveIds: ConversationSessionId[]; ownersCleared: boolean }> = [];
+  let supervisor!: SupervisorRuntimeApi;
+  supervisor = new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),
@@ -99,7 +102,7 @@ function harness(withChild = false) {
     actorStore: store,
     provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
     conversations: { projectRoot },
-    freshness: { runtimeChanged },
+    freshness: { runtimeChanged, agentMembershipChanged: (target: AgentMembershipFreshnessTarget) => membershipRecords.push({ target: target as { scope: 'card'; cardId: string }, liveIds: [...supervisor.captureAutonomousExecutingLlmSessionIds()], ownersCleared: (supervisor as unknown as SupervisorInternals).activationOwners.size === 0 }) },
     processRunner: { terminateScopeTree }, runtimeProcessRootScope: {}, processIdentity: { pid: 1, startedAt: 'now' },
     promptTemplates: createTestPromptTemplateRegistry(),
   } as never);
@@ -126,7 +129,7 @@ function harness(withChild = false) {
     internals.activationOwners.set(child.cardId, child);
     internals.currentCardId = child.cardId;
   }
-  return { supervisor, internals, root, rootProcessor, child, childProcessor, lease, store, lifecycle, runtimeChanged, processTermination, terminateScopeTree };
+  return { supervisor, internals, root, rootProcessor, child, childProcessor, lease, store, lifecycle, runtimeChanged, membershipRecords, processTermination, terminateScopeTree };
 }
 
 async function nextTurn(): Promise<void> { await new Promise<void>((resolve) => setImmediate(resolve)); }
@@ -138,6 +141,17 @@ async function within<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe('Supervisor singular runtime halt concurrency', () => {
+  it('captures installed autonomous selection, handoff, and ordinary release exactly', () => {
+    const h = harness();
+    const snapshot = jest.spyOn(h.rootProcessor.actor, 'executingLlmSnapshot');
+    snapshot.mockReturnValueOnce({ sessionId: 'agent:planner:project' } as never);
+    expect(h.supervisor.captureAutonomousExecutingLlmSessionIds()).toEqual(new Set(['agent:planner:project']));
+    snapshot.mockReturnValueOnce({ sessionId: 'agent:reviewer:project' } as never);
+    expect(h.supervisor.captureAutonomousExecutingLlmSessionIds()).toEqual(new Set(['agent:reviewer:project']));
+    snapshot.mockReturnValueOnce(null);
+    expect(h.supervisor.captureAutonomousExecutingLlmSessionIds()).toEqual(new Set());
+  });
+
   it('reports a blocked durable parent before rejecting a durable running child as non-activatable and installs no work', () => {
     const h = harness();
     h.lifecycle.set('project', 'blocked');
@@ -198,7 +212,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       actorStore: cards,
       provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
       conversations: { projectRoot },
-      freshness: { runtimeChanged() {} },
+      freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
       processRunner: processes.processRunner,
       runtimeProcessRootScope: processes.runtimeProcessRootScope,
       promptTemplates: createTestPromptTemplateRegistry(),
@@ -275,6 +289,36 @@ describe('Supervisor singular runtime halt concurrency', () => {
     await expect(within(app)).resolves.toBeUndefined();
     expect(() => h.supervisor.assertInterventionReady()).not.toThrow();
     await expect(h.supervisor.stopProject()).resolves.toEqual({ status: 'stopped', contained: false });
+  });
+
+  it('publishes every frozen owner membership target only after authoritative halt removal', async () => {
+    const h = harness(true);
+    const rootSession = 'agent:planner:project' as const;
+    const childSession = 'agent:executor:card-a' as const;
+    jest.spyOn(h.rootProcessor.actor, 'executingLlmSnapshot').mockReturnValue({ sessionId: rootSession } as never);
+    jest.spyOn(h.childProcessor!.actor, 'executingLlmSnapshot').mockReturnValue({ sessionId: childSession } as never);
+    expect([...h.supervisor.captureAutonomousExecutingLlmSessionIds()].sort()).toEqual([childSession, rootSession].sort());
+
+    const stop = h.supervisor.stopProject();
+    expect(h.internals.activationOwners.size).toBe(2);
+    expect(h.membershipRecords).toEqual([]);
+
+    h.rootProcessor.join.resolve([]);
+    h.childProcessor!.join.resolve([]);
+    h.processTermination.resolve(processReport);
+    await expect(stop).resolves.toEqual({ status: 'stopped', contained: true });
+
+    expect(h.membershipRecords).toHaveLength(2);
+    expect(h.membershipRecords.map(({ target }) => target).sort((a, b) => a.cardId.localeCompare(b.cardId))).toEqual([
+      { scope: 'card', cardId: 'card-a' },
+      { scope: 'card', cardId: 'project' },
+    ]);
+    for (const record of h.membershipRecords) {
+      expect(record.ownersCleared).toBe(true);
+      expect(record.liveIds).not.toContain(rootSession);
+      expect(record.liveIds).not.toContain(childSession);
+    }
+    expect(h.supervisor.captureAutonomousExecutingLlmSessionIds()).toEqual(new Set());
   });
 
   it('abandons a near-terminal result after its possible publication and performs no post-freeze natural release', async () => {

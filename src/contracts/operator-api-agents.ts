@@ -32,6 +32,8 @@ const agentSessionBase = z
     session_scope: z.enum(['global', 'card']),
     card_id: cardIdSchema.nullable(),
     started_at: z.string().datetime(),
+    status: z.enum(['active', 'inactive']),
+    activity: z.enum(['busy', 'idle']),
   })
   .strict();
 function requireMatchingIdentity(
@@ -56,6 +58,12 @@ function requireMatchingIdentity(
       code: z.ZodIssueCode.custom,
       path: ['session_scope'],
       message: 'Session scope must match identity.',
+    });
+  if ((value.status === 'active') !== (value.activity === 'busy'))
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['activity'],
+      message: 'Agent session status and activity must be active/busy or inactive/idle.',
     });
 }
 export const AgentSessionSummarySchema = agentSessionBase.superRefine(requireMatchingIdentity);

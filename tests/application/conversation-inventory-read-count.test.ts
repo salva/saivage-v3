@@ -15,7 +15,7 @@ describe('conversation operation-specific read sets', () => {
       appendConversationBatch({ projectRoot: root }, [{ id: 'message', session_id: 'agent:planner:project', role: 'user', kind: 'text', content: 'message', round_id: `r-user-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp: '2026-08-11T00:00:00.000Z' }]);
       const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
       unlinkSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename));
-      const service = new AgentOperatorReadModelService(root, TEST_RUNTIME_WORKFLOWS);
+      const service = new AgentOperatorReadModelService(root, TEST_RUNTIME_WORKFLOWS, () => new Set());
       expect(service.listConversationVersions('agent:planner:project').versions).toHaveLength(1);
       expect(() => service.getConversation('agent:planner:project')).toThrow(/unavailable/i);
     } finally { rmSync(root, { recursive: true, force: true }); }

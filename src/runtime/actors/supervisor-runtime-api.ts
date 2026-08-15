@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { cardAgentSessionId, cardRecordSchema, type CardNotification, type CardRecord, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
+import { cardAgentSessionId, cardRecordSchema, type CardNotification, type CardRecord, type ConversationSessionId, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/status-api.js';
 import { CardActivationOwner, type CardActivationCaller, type CardCancellationResult, type PlannerChildControlPort } from './card-activation-owner.js';
@@ -34,7 +34,7 @@ import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../..
 export interface SupervisorRuntimeApiOptions {
   projectRoot: string; now?: () => string;
   actorStore: CardService; provider: LLMProviderPort;
-  conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged'>;
+  conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentMembershipChanged'>;
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry;
   workflows: CompiledRuntimeWorkflows; processPrompts: ProcessPromptRegistry;
@@ -230,6 +230,14 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> { return this.cancelOwnedOrStored(cardId, reason, null); }
   getStatus() { return { status: this.publicRuntimeStatus(), currentCardId: this.currentCardId, pid: this.behavior.processIdentity.pid, startedAt: this.behavior.processIdentity.startedAt }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
+  captureAutonomousExecutingLlmSessionIds(): ReadonlySet<ConversationSessionId> {
+    const sessionIds = new Set<ConversationSessionId>();
+    for (const owner of this.activationOwners.values()) {
+      const snapshot = owner.processor.executingLlmSnapshot();
+      if (snapshot) sessionIds.add(snapshot.sessionId);
+    }
+    return sessionIds;
+  }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
     const cards = [...this.activationOwners.values()].map((owner) => ({ cardId: owner.cardId, actorState: toPublicCardActorState(owner.cachedStatus), processState: owner.processor.processPosition() }));
     return { pauseMode: this.status === 'running' ? 'running' : this.status === 'paused' ? 'paused' : 'idle', cards };
@@ -299,7 +307,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     const parentControl = this.boundParentControl(card.id, activationId);
     const process = this.behavior.workflows.cardTypes.get(card.type);
     if (!process) throw new Error(`No compiled workflow for card type '${card.type}'.`);
-    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, workflows:this.behavior.workflows,processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => this.ownershipInvalidated(), onActorMainFailure: (error) => this.onProcessorActorMainFailure(card.id, activationId, error), fatalPort: this.behavior.fatalPort, gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
+    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, workflows:this.behavior.workflows,processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => { this.ownershipInvalidated(); this.behavior.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id }); }, onActorMainFailure: (error) => this.onProcessorActorMainFailure(card.id, activationId, error), fatalPort: this.behavior.fatalPort, gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
     processor.start();
     return new CardActivationOwner({ card, store: this.behavior.actorStore, processor, activationId, entry, caller, phase, parentRelationship: relationship ?? undefined, alreadyStabilizedAgents: stabilized });
   }
@@ -515,6 +523,8 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
           this.halt = null;
           this.status = 'stopped';
         });
+        for (const owner of owners)
+          this.behavior.freshness.agentMembershipChanged({ scope: 'card', cardId: owner.cardId });
         settlement.resolve();
       } catch (error) {
         if (this.halt === halt) {

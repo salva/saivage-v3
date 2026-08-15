@@ -42,7 +42,7 @@ function runtime(projectRoot: string, cards: CardService, processRunner: Process
     actorStore: cards,
     provider,
     conversations: { projectRoot },
-    freshness: { runtimeChanged() {} },
+    freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner,
     runtimeProcessRootScope,
     promptTemplates: { render: () => 'test prompt' },

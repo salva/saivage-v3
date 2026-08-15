@@ -183,6 +183,7 @@ export async function list_agent_sessions(
     const sessions = new AgentOperatorReadModelService(
       ctx.projectRoot,
       ctx.store.workflows,
+      ctx.captureExecutingLlmSessionIds,
     ).listSessions().sessions;
     return ListAgentSessionsToolResultSchema.parse({ success: true, data: { sessions } });
   } catch (err) {
@@ -198,7 +199,7 @@ export async function read_agent_session(
     const parsed = readAgentSessionInputSchema.parse(params);
     const sessionId = parsed.session_id;
     const limit = parsed.last_n ?? JSONL_TAIL_DEFAULT;
-    const service = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store.workflows);
+    const service = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store.workflows, ctx.captureExecutingLlmSessionIds);
     const response = service.readCurrentSegmentTail(sessionId, limit);
     if (response.kind === 'empty') return ReadAgentSessionToolResultSchema.parse({ success: false, error: 'Agent session has no current conversation segment.', data: { code: 'agent_session_empty', session_id: sessionId } });
     const conversation = response.conversation;
