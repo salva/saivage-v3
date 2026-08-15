@@ -9,7 +9,7 @@
         <ViewState v-if="value(record.name).loading && !value(record.name).accepted" state="loading" :title="`Loading ${record.name}`" />
         <ViewState v-else-if="value(record.name).error && !value(record.name).accepted" state="error" :title="`Could not load ${record.name}`" :message="value(record.name).error ?? ''" />
         <div v-else>
-          <div class="record-metadata">{{ record.schema }} · {{ record.bootstrap ? 'bootstrap' : 'optional' }} · writers: {{ record.writers.join(', ') || 'none' }}</div>
+          <div class="record-metadata">{{ record.schema }} · {{ record.bootstrap ? 'bootstrap' : 'optional' }}</div>
           <div v-if="value(record.name).stale" class="record-stale" role="alert">
             <span>{{ value(record.name).refreshError ?? `${record.name} is stale.` }}</span>
             <button v-if="value(record.name).staleReason === 'refresh-failed'" type="button" @click="retry(record.name)">Retry</button>

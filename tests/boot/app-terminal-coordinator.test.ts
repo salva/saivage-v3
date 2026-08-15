@@ -29,7 +29,7 @@ describe('App terminal coordinator', () => {
   });
 
   it.each(['result', 'cancel'] as const)('contains an actual already-settled %s runtime without reviving ownership', async (winner) => {
-    let calls = 0; const provider = { completeTurn: async () => { calls += 1; return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: String(calls), type: 'function' as const, function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project&expected_head=absent', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] }; } };
+    let calls = 0; const provider = { completeTurn: async () => { calls += 1; return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: String(calls), type: 'function' as const, function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] }; } };
     const h = realHarness(provider); const started = await h.supervisor.startProject(); if (!started.started) throw new Error('rejected');
     if (winner === 'cancel') await h.supervisor.cancelCard('project', 'terminal shutdown');
     else for (let i = 0; i < 200 && h.supervisor.getStatus().status !== 'stopped'; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));

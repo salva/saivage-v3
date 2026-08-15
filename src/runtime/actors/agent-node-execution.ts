@@ -1,12 +1,10 @@
-import { createHash } from 'node:crypto';
-import { cardParentId } from '../../schemas/card-id.js';
 import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
 import { cardAgentSessionId, type AgentName, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
-import { describeNodeResultContract, nodeResultSchema, nodeResultToolDefinition, runtimeAgentBinding, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition, type CompiledRuntimeWorkflows } from '../card-process/card-process-config.js';
+import { agentCanWriteRecord, describeNodeResultContract, nodeResultSchema, nodeResultToolDefinition, runtimeAgentBinding, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition, type CompiledRuntimeWorkflows } from '../card-process/card-process-config.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
 import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import type { ConversationLLMActor } from './llm-actor.js';
@@ -36,8 +34,7 @@ export type NodeExecutionResult = AcceptedNodeResult | ContentPolicyRefusalBlock
 export type NodeTransition = Readonly<{ context: ActorTransitionContext; acceptedResult: AcceptedNodeResult | null }>;
 
 type NodeResult = { outcome: string; summary: string };
-type RecordEvidence = { headVersion: number; state: string; acceptedSourceVersion: number | null; acceptedHash: string | null; draftHash: string | null; currentUrl: string } | null;
-type ReviewerSnapshot = { cards: Array<{ id: string; fingerprint: string }>; includedRecordVersions: Array<{ cardId: string; filename: string; latest: number | null; contentHash: string | null }> };
+type ReviewerSnapshot = { cards: Array<{ id: string; versionSeq: number }>; includedRecordVersions: Array<{ cardId: string; filename: string; sourceVersion: number | null }> };
 type ReviewerContextPair = { exactContext: ProviderVisibleUserContextMessage; snapshot: ReviewerSnapshot };
 
 export const EmitResultSettlementSchema = z.union([
@@ -94,13 +91,16 @@ export class AgentNodeExecution {
     const binding = runtimeAgentBinding(this.deps.workflows, node.agent.name);
     const needsProcessScope = binding.toolSet.requiresProcessScope;
     const scope = needsProcessScope ? this.executorScope(input, args.nodeOrdinal) : null;
-    const surface = this.buildSurface(node, input, sessionId, scope, args.nodeOrdinal);
+    const writtenRecords = new Set<string>();
+    const surface = this.buildSurface(node, input, sessionId, scope, args.nodeOrdinal, writtenRecords);
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
+    let recordFinalizationBegun = false;
     let primaryCompletion: { kind: 'success'; value: NodeExecutionResult } | { kind: 'failure'; reason: unknown };
     try {
       const inputId = this.host.freshInputId();
+      this.prepareRecordRequirements(node);
       this.prepareNodeEntry(process, node, args.transition, input, sessionId, inputId, reviewerPair);
-      const baseline = new Map(node.requirements.map((record) => [record.definition.name, this.captureRecord(record.definition.name)]));
+      const baseline = new Map(node.requirements.map((record) => [record.definition.name, this.captureRecordHead(record.definition.name)]));
       const prepared = this.buildLlmInput(node, input, sessionId, inputId, contractDescription, surface, terminalToolDefinition, binding);
       const terminalHandoff = () => this.host.assertCurrentActivation(input);
       let outcome = await llm.turn(prepared, signal, terminalHandoff);
@@ -154,7 +154,10 @@ export class AgentNodeExecution {
           if (reviewerPair) {
             const stale = this.reviewerStaleReason(input.card.id, reviewerPair.snapshot, node.descendantContext!.records.map((record)=>record.name));
             if (stale) {
-              for(const requirement of node.requirements)if(requirement.kind==='updated')this.discardOpenRecord(requirement.definition.name, 'stale_descendant_context');
+              recordFinalizationBegun = true;
+              this.discardWrittenRecords(writtenRecords, 'stale_descendant_context');
+              this.prepareRecordRequirements(node);
+              recordFinalizationBegun = false;
               const refreshed = this.captureReviewerPair(input.card.id,node.descendantContext!.records.map((record)=>record.name));
               const messages = [refreshed.exactContext, { role: 'user' as const, content: this.correction(node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) }];
               outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: `Review context is stale: ${stale}.` }), signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }));
@@ -174,7 +177,8 @@ export class AgentNodeExecution {
             );
           }
           this.host.assertCurrentActivation(input);
-          const acceptedRecords = this.closeAcceptedRecords(node, records.candidates);
+          recordFinalizationBegun = true;
+          const acceptedRecords = this.closeAcceptedRecords(node, records.candidates, writtenRecords);
           await llm.settleToolResultWithoutContinuation(
             terminalOutcome.toolCallId,
             parseEmitResultSettlement({ success: true, data: { accepted: true } }),
@@ -203,6 +207,15 @@ export class AgentNodeExecution {
     } catch (error) {
       if (error instanceof PublicationOutcomeUnknownError) throw error;
       primaryCompletion = { kind: 'failure', reason: error };
+    }
+    if (!recordFinalizationBegun) {
+      try {
+        recordFinalizationBegun = true;
+        this.discardWrittenRecords(writtenRecords, signal.aborted ? 'activation_cancelled' : `activation_${cleanupStatus}`);
+      } catch (error) {
+        if (error instanceof PublicationOutcomeUnknownError) throw error;
+        primaryCompletion = { kind: 'failure', reason: error };
+      }
     }
     let cleanupCompletion: { kind: 'success' } | { kind: 'failure'; reason: unknown };
     try {
@@ -275,8 +288,8 @@ export class AgentNodeExecution {
     return { inputId, agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, sessionId)), tools, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:binding.contract.model.temperature}, preparedCompaction: prepareCompaction(this.deps.compactionConfig, systemPrompt, tools,binding.contract.model.maxTokens), capabilityRequest: binding.capabilityRequest,routePass:{kind:'ordinary',candidateChain:binding.candidateChain}, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
   }
 
-  private buildSurface(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number): InvocationSurface {
-    return runtimeAgentBinding(this.deps.workflows, node.agent.name).toolSet.bind({scope:'card',agentName:node.agent.name,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation});
+  private buildSurface(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number, writtenRecords: Set<string>): InvocationSurface {
+    return runtimeAgentBinding(this.deps.workflows, node.agent.name).toolSet.bind({scope:'card',agentName:node.agent.name,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation,onRecordWritten:(name)=>writtenRecords.add(name)});
   }
 
   private executorScope(input: CardActivationInput, ordinal: number): ManagedProcessScope {
@@ -287,38 +300,67 @@ export class AgentNodeExecution {
   private correction(node: CompiledNodeContract, violations: readonly string[]): string { return `${this.deps.processPrompts.get(this.deps.store.read(this.deps.cardId)!.type, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
   private ordinaryNotificationContext(input: CardActivationInput, _inputId: string) { const selected = input.notificationDelivery.selectNotifications(); return selected.length === 0 ? undefined : { messages: selected.map((notification) => ({ role: 'user' as const, content: notification.content })), afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }; }
 
-  private captureRecord(filename: string): RecordEvidence { const projection = readCandidate(this.deps.store, this.deps.cardId, filename, false); return projection ? evidence(projection) : null; }
-  private validateRecords(node: CompiledNodeContract, baseline: ReadonlyMap<string, RecordEvidence>): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
+  private prepareRecordRequirements(node: CompiledNodeContract): void {
+    for (const requirement of node.requirements) {
+      if (requirement.mode === 'continue') continue;
+      const name = requirement.definition.name;
+      const classification = this.deps.store.classifyCurrentRecord(this.deps.cardId, name);
+      if (classification.kind === 'unclaimed') this.deps.store.initializeDynamicRecord(this.deps.cardId, name);
+      const current = classification.kind === 'present' ? classification.projection : null;
+      const discarded = current?.artifact.state === 'open' ? this.deps.store.discardRecord(this.deps.cardId, name, current.headVersion, 'clean_node_entry') : null;
+      const priorHead = discarded?.headVersion ?? current?.headVersion ?? null;
+      this.deps.store.openRecord(this.deps.cardId, name, priorHead);
+    }
+  }
+  private captureRecordHead(filename: string): number | null { return this.deps.store.readCurrentRecordOrNull(this.deps.cardId, filename)?.headVersion ?? null; }
+  private validateRecords(node: CompiledNodeContract, baseline: ReadonlyMap<string, number | null>): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
     const candidates = new Map<string, RecordProjection>(); const violations: string[] = [];
     for (const required of node.requirements) {
       const filename=required.definition.name;
-      const candidate = required.kind==='updated'?readCandidate(this.deps.store, this.deps.cardId, filename, true):readClosedCandidate(this.deps.store,this.deps.cardId,filename);
+      const candidate = readCandidate(this.deps.store, this.deps.cardId, filename);
       if (!candidate) { violations.push(`Required record 'record:///${filename}?card=${encodeURIComponent(this.deps.cardId)}' is missing or empty.`); continue; }
-      if (required.kind==='updated') {
+      if (required.gate==='updated') {
         const before = baseline.get(filename) ?? null;
-        if (candidate.artifact.state !== 'open' || !candidate.artifact.draft || (before && (candidate.headVersion <= before.headVersion || candidate.artifact.draft.content_sha256 === before.draftHash))) { violations.push(`Required record '${candidate.currentUrl}' must be an open revision updated after this node began.`); continue; }
+        if (candidate.headVersion <= (before ?? 0)) { violations.push(`Required record '${candidate.currentUrl}' must be updated after this node began.`); continue; }
       }
       candidates.set(filename, candidate);
     }
     return violations.length > 0 ? { violations } : { candidates };
   }
-  private closeAcceptedRecords(node: CompiledNodeContract, candidates: ReadonlyMap<string, RecordProjection>): Array<{name:string;url:string;version:number}> {
-    const accepted:Array<{name:string;url:string;version:number}>=[];for(const requirement of node.requirements){const filename=requirement.definition.name;const candidate=candidates.get(filename)!;if(candidate.artifact.state!=='open'||!candidate.artifact.draft||candidate.artifact.draft.content.trim().length===0){const baseline=candidate.artifact.accepted;if(!baseline)throw new Error(`Accepted candidate '${this.deps.cardId}/${filename}' has no accepted content.`);accepted.push({name:filename,url:`${candidate.currentUrl}&v=${baseline.source_version}`,version:baseline.source_version});continue;}const closed=this.deps.store.closeRecord(this.deps.cardId,filename,candidate.headVersion,node.agent.name as never);const baseline=closed.artifact.accepted!;accepted.push({name:filename,url:`${closed.currentUrl}&v=${baseline.source_version}`,version:baseline.source_version});}return accepted;
+  private closeAcceptedRecords(node: CompiledNodeContract, candidates: ReadonlyMap<string, RecordProjection>, writtenRecords: ReadonlySet<string>): Array<{name:string;url:string;version:number}> {
+    const accepted:Array<{name:string;url:string;version:number}>=[];
+    const requiredNames = new Set<string>();
+    for(const requirement of node.requirements){
+      const filename=requirement.definition.name;requiredNames.add(filename);
+      if(!agentCanWriteRecord(node.agent, filename))throw new Error(`Compiled node agent '${node.agent.name}' cannot accept record '${filename}'.`);
+      const candidate=candidates.get(filename)!;
+      if(candidate.artifact.state!=='open'){
+        const snapshot=candidate.artifact.accepted;if(!snapshot)throw new Error(`Accepted candidate '${this.deps.cardId}/${filename}' has no accepted content.`);
+        accepted.push({name:filename,url:`${candidate.currentUrl}&v=${snapshot.source_version}`,version:snapshot.source_version});continue;
+      }
+      if(!candidate.artifact.draft||candidate.artifact.draft.content.trim().length===0)throw new Error(`Accepted open candidate '${this.deps.cardId}/${filename}' is empty.`);
+      const closed=this.deps.store.closeRecord(this.deps.cardId,filename,candidate.headVersion,node.agent.name);const snapshot=closed.artifact.accepted!;
+      accepted.push({name:filename,url:`${closed.currentUrl}&v=${snapshot.source_version}`,version:snapshot.source_version});
+    }
+    for(const filename of [...writtenRecords].filter((name)=>!requiredNames.has(name)).sort()){
+      if(!agentCanWriteRecord(node.agent, filename as never))throw new Error(`Compiled node agent '${node.agent.name}' cannot accept record '${filename}'.`);
+      const current=this.deps.store.readCurrentRecord(this.deps.cardId,filename);
+      if(current.artifact.state!=='open'||!current.artifact.draft||current.artifact.draft.content.trim().length===0)throw new Error(`Written record '${this.deps.cardId}/${filename}' is not a non-empty open draft.`);
+      this.deps.store.closeRecord(this.deps.cardId,filename,current.headVersion,node.agent.name);
+    }
+    return accepted;
   }
-  private discardOpenRecord(filename: string, reason: string): void { try { const open = this.deps.store.readCurrentRecord(this.deps.cardId, filename); if(open.artifact.state==='open')this.deps.store.discardRecord(this.deps.cardId, filename, open.headVersion, reason); } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return; throw error; } }
+  private discardWrittenRecords(writtenRecords: Set<string>, reason: string): void { const names=[...writtenRecords].sort();writtenRecords.clear();for(const filename of names){const current=this.deps.store.readCurrentRecord(this.deps.cardId,filename);if(current.artifact.state==='open')this.deps.store.discardRecord(this.deps.cardId,filename,current.headVersion,reason);} }
   private directChildren(cardId: string): CardRecord[] { return this.deps.store.listChildren(cardId).map((id) => this.deps.store.read(id)).filter((card): card is CardRecord => card !== null); }
   private descendants(cardId: string): CardRecord[] { return this.directChildren(cardId).flatMap((child) => [child, ...this.descendants(child.id)]); }
   private captureReviewerPair(cardId: string,records:readonly string[]): ReviewerContextPair { const snapshot = this.captureReviewerSnapshot(cardId,records); return { exactContext: this.reviewerContext(cardId, snapshot), snapshot }; }
-  private captureReviewerSnapshot(cardId: string,records:readonly string[]): ReviewerSnapshot { const root = this.deps.store.read(cardId); if (!root) throw new Error(`Reviewed card '${cardId}' not found.`);const descendants=this.descendants(cardId); return { cards: [root, ...descendants].map((card) => ({ id: card.id, fingerprint: semanticCardFingerprint(card) })), includedRecordVersions: descendants.flatMap((card)=>records.map((record)=>closedRecordFingerprint(this.deps.store, card.id,record))) }; }
-  private reviewerContext(cardId: string, snapshot: ReviewerSnapshot): ProviderVisibleUserContextMessage { const lines=this.descendants(cardId).map((card)=>{const records=snapshot.includedRecordVersions.filter((entry)=>entry.cardId===card.id).map((entry)=>entry.latest===null?`${entry.filename}=missing`:`record:///${entry.filename}?card=${encodeURIComponent(card.id)}&v=${entry.latest}`).join(', ');return `- ${card.id} (${card.type}, ${card.lifecycle.status}): ${card.title}; ${records}`;}); return { role: 'user', content: `Descendant work:\n${lines.length ? lines.join('\n') : '(none)'}` }; }
+  private captureReviewerSnapshot(cardId: string,records:readonly string[]): ReviewerSnapshot { const root = this.deps.store.read(cardId); if (!root) throw new Error(`Reviewed card '${cardId}' not found.`);const descendants=this.descendants(cardId); return { cards: [root, ...descendants].map((card) => ({ id: card.id, versionSeq: card.version_seq })), includedRecordVersions: descendants.flatMap((card)=>records.map((record)=>acceptedRecordVersion(this.deps.store, card.id,record))) }; }
+  private reviewerContext(cardId: string, snapshot: ReviewerSnapshot): ProviderVisibleUserContextMessage { const lines=this.descendants(cardId).map((card)=>{const records=snapshot.includedRecordVersions.filter((entry)=>entry.cardId===card.id).map((entry)=>entry.sourceVersion===null?`${entry.filename}=missing`:`record:///${entry.filename}?card=${encodeURIComponent(card.id)}&v=${entry.sourceVersion}`).join(', ');return `- ${card.id} (${card.type}, ${card.lifecycle.status}): ${card.title}; ${records}`;}); return { role: 'user', content: `Descendant work:\n${lines.length ? lines.join('\n') : '(none)'}` }; }
   private reviewerStaleReason(cardId: string, before: ReviewerSnapshot,records:readonly string[]): string | null { const after = this.captureReviewerSnapshot(cardId,records); return JSON.stringify(before) === JSON.stringify(after) ? null : 'reviewed subtree or included records changed during review'; }
 }
 
 function terminalCleanupStatus(port: 'DONE' | 'BLOCKED' | 'FAILED'): 'done' | 'blocked' | 'failed' { return port === 'DONE' ? 'done' : port === 'BLOCKED' ? 'blocked' : 'failed'; }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function readCandidate(store: CardService, cardId: string, filename: string, requireNonEmpty: boolean): RecordProjection | null { try { const current=store.readCurrentRecord(cardId,filename);const selected=current.artifact.state==='open'&&current.artifact.draft?.content.trim()?current.artifact.draft.content:current.artifact.accepted?.content;if(selected===undefined||requireNonEmpty&&!selected.trim())return null;return current;}catch(error){if(error instanceof AuthoredRecordNotFoundError)return null;throw error;} }
-function readClosedCandidate(store:CardService,cardId:string,filename:string):RecordProjection|null{try{const current=store.readCurrentRecord(cardId,filename);return current.artifact.accepted?.content.trim()?current:null;}catch(error){if(error instanceof AuthoredRecordNotFoundError)return null;throw error;}}
-function evidence(value: RecordProjection): NonNullable<RecordEvidence> { return { headVersion:value.headVersion,state:value.artifact.state,acceptedSourceVersion:value.artifact.accepted?.source_version??null,acceptedHash:value.artifact.accepted?.content_sha256??null,draftHash:value.artifact.draft?.content_sha256??null,currentUrl:value.currentUrl }; }
+function readCandidate(store: CardService, cardId: string, filename: string): RecordProjection | null { try { const current=store.readCurrentRecord(cardId,filename);const selected=current.artifact.state==='open'?current.artifact.draft?.content:current.artifact.accepted?.content;return selected?.trim()?current:null;}catch(error){if(error instanceof AuthoredRecordNotFoundError)return null;throw error;} }
 function firstIncompleteDescendant(cardId: string, store: CardService): { id: string; status: string } | null { for (const childId of store.listChildren(cardId)) { const child = store.read(childId); if (!child) throw new Error(`Child '${childId}' was listed but not found.`); if (child.lifecycle.status !== 'done' && child.lifecycle.status !== 'cancelled') return { id: child.id, status: child.lifecycle.status }; const nested = firstIncompleteDescendant(childId, store); if (nested) return nested; } return null; }
-function closedRecordFingerprint(store: CardService, cardId: string,filename:string): ReviewerSnapshot['includedRecordVersions'][number] { try { const record = store.readCurrentRecord(cardId, filename); const accepted=record.artifact.accepted;return { cardId, filename, latest: accepted?.source_version??null, contentHash: accepted?.content_sha256??null }; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return { cardId, filename, latest: null, contentHash: null }; throw error; } }
-function semanticCardFingerprint(card: CardRecord): string { return createHash('sha256').update(JSON.stringify({ id: card.id, type: card.type, parent: cardParentId(card.id), children: card.children, title: card.title, status: card.lifecycle.status, lifecycle: card.lifecycle, depends_on: card.depends_on, related: card.related, tags: card.tags, priority: card.priority, urgency: card.urgency, metadata: card.metadata, metrics: card.metrics, status_text: card.status_text })).digest('hex'); }
+function acceptedRecordVersion(store: CardService, cardId: string,filename:string): ReviewerSnapshot['includedRecordVersions'][number] { try { const record = store.readCurrentRecord(cardId, filename);return { cardId, filename, sourceVersion: record.artifact.accepted?.source_version??null }; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return { cardId, filename, sourceVersion: null }; throw error; } }

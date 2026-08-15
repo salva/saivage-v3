@@ -91,7 +91,7 @@ export type DiscardedRecordState = z.infer<typeof discardedRecordStateSchema>;
 export type RecordVersionEntry = z.infer<typeof recordVersionEntrySchema>;
 export type AuthoredRecordVersionIndex = z.infer<typeof authoredRecordVersionIndexSchema>;
 export type AuthoredRecordVersionArtifact = z.infer<typeof authoredRecordVersionArtifactSchema>;
-export type RecordArtifactDefinition = Readonly<{ filename: RecordName; writers: readonly AgentName[]; format: 'markdown'; schema: string; bootstrap: boolean }>;
+export type RecordArtifactDefinition = Readonly<{ filename: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
 
 export function recordEntryFromArtifact(artifact: AuthoredRecordVersionArtifact, filename: string): RecordVersionEntry {
   return recordVersionEntrySchema.parse({

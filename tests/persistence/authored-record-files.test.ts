@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AuthoredRecordNotFoundError, RecordHeadMismatchError } from '../../src/persistence/authored-record-files.js';
-import { cardRecordVersionFile, cardRecordVersionIndexFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
+import { AuthoredRecordNotFoundError, RecordPriorHeadInvariantError, classifyCurrentAuthoredRecord, initializeDynamicAuthoredRecord } from '../../src/persistence/authored-record-files.js';
+import { cardRecordRoot,cardRecordsRoot,cardRecordVersionFile, cardRecordVersionIndexFile,cardRecordVersionsRoot, cardVersionIndexFile } from '../../src/persistence/layout.js';
+import type { RecordDefinition } from '../../src/records/record-definition.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -20,6 +21,22 @@ function setup() {
 }
 
 describe('authored record version files', () => {
+  it('classifies a dynamic exact child only beneath a proven real records root and publishes its empty namespace once',()=>{
+    const {cards,card}=setup();const definition:RecordDefinition={filename:'notes.md',format:'markdown',schema:'authored-record.v1',bootstrap:false,declared:false};const reads:string[]=[];
+    expect(classifyCurrentAuthoredRecord(cards.projectRoot,card.id,definition,{onRead:(path)=>reads.push(path)})).toEqual({kind:'unclaimed'});
+    expect(reads).toContain(cardRecordsRoot(cards.projectRoot,card.id));expect(reads).toContain(cardRecordRoot(cards.projectRoot,card.id,definition));
+    initializeDynamicAuthoredRecord(cards.projectRoot,card.id,definition);
+    expect(classifyCurrentAuthoredRecord(cards.projectRoot,card.id,definition)).toEqual({kind:'empty'});
+    expect(()=>initializeDynamicAuthoredRecord(cards.projectRoot,card.id,definition)).toThrow(expect.objectContaining({code:'EEXIST'}));
+  });
+
+  it('fails closed for missing, non-directory, symlink, and claimed-indexless exact authority',()=>{
+    const definition:RecordDefinition={filename:'notes.md',format:'markdown',schema:'authored-record.v1',bootstrap:false,declared:false};
+    const missing=setup();rmSync(cardRecordsRoot(missing.cards.projectRoot,missing.card.id),{recursive:true});expect(()=>classifyCurrentAuthoredRecord(missing.cards.projectRoot,missing.card.id,definition)).toThrow(expect.objectContaining({code:'ENOENT'}));
+    const fileRoot=setup();rmSync(cardRecordsRoot(fileRoot.cards.projectRoot,fileRoot.card.id),{recursive:true});writeFileSync(cardRecordsRoot(fileRoot.cards.projectRoot,fileRoot.card.id),'not a directory');expect(()=>classifyCurrentAuthoredRecord(fileRoot.cards.projectRoot,fileRoot.card.id,definition)).toThrow(/not a real directory/);
+    const linked=setup();const root=cardRecordsRoot(linked.cards.projectRoot,linked.card.id);rmSync(root,{recursive:true});mkdirSync(`${root}-target`);symlinkSync(`${root}-target`,root);expect(()=>classifyCurrentAuthoredRecord(linked.cards.projectRoot,linked.card.id,definition)).toThrow(/not a real directory/);
+    const claimed=setup();mkdirSync(cardRecordRoot(claimed.cards.projectRoot,claimed.card.id,definition));mkdirSync(cardRecordVersionsRoot(claimed.cards.projectRoot,claimed.card.id,definition));expect(()=>classifyCurrentAuthoredRecord(claimed.cards.projectRoot,claimed.card.id,definition)).toThrow(expect.objectContaining({code:'ENOENT'}));
+  });
   it('publishes immutable open, edit, close, discard, and reopen versions with singular URLs', () => {
     const { cards, card } = setup();
     const opened = cards.openRecord(card.id, 'status.md', null);
@@ -52,9 +69,9 @@ describe('authored record version files', () => {
   it('requires the exact expected head and does not publish on mismatch', () => {
     const { cards, card } = setup();
     const opened = cards.openRecord(card.id, 'status.md', null);
-    expect(() => cards.editRecord(card.id, 'status.md', opened.headVersion + 1, 'content')).toThrow(RecordHeadMismatchError);
+    expect(() => cards.editRecord(card.id, 'status.md', opened.headVersion + 1, 'content')).toThrow(RecordPriorHeadInvariantError);
     expect(cards.readCurrentRecord(card.id, 'status.md').headVersion).toBe(opened.headVersion);
-    expect(() => cards.openRecord(card.id, 'status.md', null)).toThrow(RecordHeadMismatchError);
+    expect(() => cards.openRecord(card.id, 'status.md', null)).toThrow(RecordPriorHeadInvariantError);
   });
 
   it('rejects a stale close from the valid index before opening its malformed indexed head artifact', () => {
@@ -67,7 +84,7 @@ describe('authored record version files', () => {
     const index = JSON.parse(indexBytes.toString('utf8')) as { current_filename: string };
     writeFileSync(cardRecordVersionFile(cards.projectRoot, card.id, definition, index.current_filename), 'complete malformed artifact\n');
 
-    expect(() => cards.closeRecord(card.id, 'status.md', edited.headVersion - 1, 'executor')).toThrow(RecordHeadMismatchError);
+    expect(() => cards.closeRecord(card.id, 'status.md', edited.headVersion - 1, 'executor')).toThrow(RecordPriorHeadInvariantError);
     expect(readFileSync(indexPath)).toEqual(indexBytes);
   });
 

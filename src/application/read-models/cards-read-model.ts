@@ -83,9 +83,9 @@ export class CardsReadModelService {
   listRecords(id: string, instrumentation?: CanonicalReadInstrumentation): OperatorApiHandlerResult<'cards.records.list'> {
     const active = this.store.getCardDetail(id, instrumentation);
     if (active.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const records = this.store.recordReader.definitions(id).map(({ filename, writers, format, schema, bootstrap }) => {
+    const records = this.store.recordReader.definitions(id).map(({ filename, format, schema, bootstrap }) => {
       const catalog = this.store.listRecordVersions(id, filename, instrumentation); const entry = catalog.versions.at(-1);
-      return { name: filename, writers: [...writers], format, schema: redactTextForOutbound(schema), bootstrap, current: entry ? { head_version: entry.version, head_entry_id: entry.entry_id, state: entry.state, accepted_source_version: entry.accepted?.source_version ?? null, draft_present: entry.draft !== null } : null };
+      return { name: filename, format, schema: redactTextForOutbound(schema), bootstrap, current: entry ? { head_version: entry.version, head_entry_id: entry.entry_id, state: entry.state, accepted_source_version: entry.accepted?.source_version ?? null, draft_present: entry.draft !== null } : null };
     });
     return { body: CardRecordListResponseSchema.parse({ card_id: id, records }) };
   }

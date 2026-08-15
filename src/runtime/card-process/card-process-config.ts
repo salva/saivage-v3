@@ -19,16 +19,18 @@ import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contr
 export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
 export type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';
 export type ProcessPromptId = string & { readonly __processPromptId: unique symbol };
-export type RecordRequirementKind = 'present' | 'updated';
+export type RecordRequirementMode = 'clean' | 'continue';
+export type RecordRequirementGate = 'exists' | 'updated';
 export type PromptArtifactSource = 'override-card'|'override-shared'|'bundled-card'|'bundled-shared';
 export type CompiledAgentPrompt = Readonly<{ source:PromptArtifactSource; reference:string; path:string; compiled:CompiledPromptTemplate }>;
 export type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source:PromptArtifactSource; path:string; text:string }>;
 export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly overridePromptRoot?:string }
 type PromptRoots = Readonly<{ defaultRoot:string; overrideRoot:string|undefined; agentCache:Map<string,CompiledAgentPrompt> }>;
 
-export type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; writers: readonly AgentName[]; bootstrap: boolean }>;
-export type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly CompiledToolReference[]; modelRoute: string; model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
-export type CompiledRecordRequirement = Readonly<{ definition: CompiledRecordDefinition; kind: RecordRequirementKind }>;
+export type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
+export type CompiledRecordWritePattern = Readonly<{ source: string; matcher: RegExp }>;
+export type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly CompiledToolReference[]; recordWrites: readonly CompiledRecordWritePattern[]; modelRoute: string; model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
+export type CompiledRecordRequirement = Readonly<{ definition: CompiledRecordDefinition; mode: RecordRequirementMode; gate: RecordRequirementGate }>;
 export type CompiledDescendantContext = Readonly<{ records: readonly CompiledRecordDefinition[]; requireUnchangedUntilAccept: boolean }>;
 export type CompiledTerminalBehavior = Readonly<{ promotion: Readonly<{ kind: 'current' } | { kind: 'latest-node'; nodeId: string }>; exportRecords: readonly CompiledRecordDefinition[] }>;
 export type ProcessTransitionSemantic =
@@ -38,7 +40,7 @@ export type ProcessTransitionSemantic =
   | Readonly<{ kind: 'runtime-terminal'; cause: 'failed' | 'blocked' }>;
 export type CompiledProcessTransition = Readonly<{ targetStateId: string; reenter: boolean; semantic: ProcessTransitionSemantic }>;
 type ProcessStateBase = Readonly<{ on: ReadonlyMap<string, CompiledProcessTransition>; isTerminal: boolean; isParked: boolean }>;
-export type CompiledNodeContract = ProcessStateBase & Readonly<{ kind: 'node'; nodeId: string; agent: CompiledAgentContract; selectedAgentPrompt:CompiledAgentPrompt; promptId: ProcessPromptId; correctionPromptId: ProcessPromptId; requirements: readonly CompiledRecordRequirement[]; descendantContext: CompiledDescendantContext | null; childCreationTypes: ReadonlySet<CardType>; childActivationTypes: ReadonlySet<CardType>; readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition>; writableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition> }>;
+export type CompiledNodeContract = ProcessStateBase & Readonly<{ kind: 'node'; nodeId: string; agent: CompiledAgentContract; selectedAgentPrompt:CompiledAgentPrompt; promptId: ProcessPromptId; correctionPromptId: ProcessPromptId; requirements: readonly CompiledRecordRequirement[]; descendantContext: CompiledDescendantContext | null; childCreationTypes: ReadonlySet<CardType>; childActivationTypes: ReadonlySet<CardType>; readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition> }>;
 export type CompiledProcessState =
   | (ProcessStateBase & Readonly<{ kind: 'ready' }>)
   | (ProcessStateBase & Readonly<{ kind: 'entry'; entry: CardProcessEntry }>)
@@ -54,6 +56,7 @@ const IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
 const OUTCOME_IDENTIFIER = /^[a-z][a-z0-9_-]{0,63}$/u;
 const ENTRY_PORTS = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
 const TERMINAL_PORTS = ['DONE', 'BLOCKED', 'FAILED'] as const;
+export const GENERIC_RECORD_SCHEMA = 'authored-record.v1';
 
 class ImmutableMap<K, V> implements ReadonlyMap<K, V> { readonly #values: Map<K,V>; constructor(entries: Iterable<readonly [K,V]>) { this.#values = new Map(entries); Object.freeze(this); } get size(){return this.#values.size;} get(key:K){return this.#values.get(key);} has(key:K){return this.#values.has(key);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:V,key:K,map:ReadonlyMap<K,V>)=>void,thisArg?:unknown){for(const [k,v] of this.#values) callbackfn.call(thisArg,v,k,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableMap';} }
 class ImmutableSet<T> implements ReadonlySet<T> { readonly #values:Set<T>; constructor(values:Iterable<T>){this.#values=new Set(values);Object.freeze(this);} get size(){return this.#values.size;} has(value:T){return this.#values.has(value);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:T,value2:T,set:ReadonlySet<T>)=>void,thisArg?:unknown){for(const value of this.#values)callbackfn.call(thisArg,value,value,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableSet';} }
@@ -117,7 +120,10 @@ function expandModelOrder(config: SaivageConfig, routeName: string): readonly st
   }
   return Object.freeze(ordered);
 }
-function compileAgents(config:SaivageConfig):ReadonlyMap<AgentName,CompiledAgentContract>{const result:Array<readonly[AgentName,CompiledAgentContract]>=[];for(const[rawName,source]of Object.entries(config.agents)){const name=rawName as AgentName;const duplicate=new Set<string>();const tools:CompiledToolReference[]=[];for(const tool of source.tools){if(duplicate.has(tool))throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);duplicate.add(tool);try{tools.push(resolveRuntimeTool(source.session,tool));}catch{throw new Error(`agents.${name}.tools contains unknown tool '${tool}' for ${source.session} session scope.`);}}if(source.skills!==tools.some((tool)=>tool.name==='skill'))throw new Error(`agents.${name}.skills must agree with the skill tool.`);if(tools.some((tool)=>tool.name==='create_card')&&!source.can_create_children)throw new Error(`agents.${name} cannot list create_card when can_create_children is false.`);const route=config.models.routes[source.model_route];if(!route)throw new Error(`agents.${name}.model_route references missing route '${source.model_route}'.`);result.push([name,Object.freeze({name,prompt:source.prompt,tools:Object.freeze(tools),modelRoute:source.model_route,model:Object.freeze({orderedModelIds:expandModelOrder(config,source.model_route),temperature:route.temperature,maxTokens:route.max_tokens}),skills:source.skills,session:source.session,canCreateChildren:source.can_create_children})]);}return immutableMap(result);}
+function compileRecordWritePattern(source:string):CompiledRecordWritePattern { const escaped=source.replace(/[.+^${}()|[\]\\]/g,'\\$&').replace(/\*/g,'[a-z0-9-]*');return Object.freeze({source,matcher:new RegExp(`^${escaped}$`,'u')}); }
+export function agentCanWriteRecord(agent:CompiledAgentContract,name:RecordName):boolean{return agent.recordWrites.some(({matcher})=>matcher.test(name));}
+export function genericRecordDefinition(name:RecordName):CompiledRecordDefinition{return Object.freeze({name,format:'markdown',schema:GENERIC_RECORD_SCHEMA,bootstrap:false,declared:false});}
+function compileAgents(config:SaivageConfig):ReadonlyMap<AgentName,CompiledAgentContract>{const result:Array<readonly[AgentName,CompiledAgentContract]>=[];for(const[rawName,source]of Object.entries(config.agents)){const name=rawName as AgentName;const duplicate=new Set<string>();const tools:CompiledToolReference[]=[];for(const tool of source.tools){if(duplicate.has(tool))throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);duplicate.add(tool);try{tools.push(resolveRuntimeTool(source.session,tool));}catch{throw new Error(`agents.${name}.tools contains unknown tool '${tool}' for ${source.session} session scope.`);}}const patternNames=new Set<string>();const recordWrites=source.record_writes.map((pattern)=>{if(patternNames.has(pattern))throw new Error(`agents.${name}.record_writes contains duplicate '${pattern}'.`);patternNames.add(pattern);return compileRecordWritePattern(pattern);});if(source.skills!==tools.some((tool)=>tool.name==='skill'))throw new Error(`agents.${name}.skills must agree with the skill tool.`);if(tools.some((tool)=>tool.name==='create_card')&&!source.can_create_children)throw new Error(`agents.${name} cannot list create_card when can_create_children is false.`);const route=config.models.routes[source.model_route];if(!route)throw new Error(`agents.${name}.model_route references missing route '${source.model_route}'.`);result.push([name,Object.freeze({name,prompt:source.prompt,tools:Object.freeze(tools),recordWrites:Object.freeze(recordWrites),modelRoute:source.model_route,model:Object.freeze({orderedModelIds:expandModelOrder(config,source.model_route),temperature:route.temperature,maxTokens:route.max_tokens}),skills:source.skills,session:source.session,canCreateChildren:source.can_create_children})]);}return immutableMap(result);}
 
 type ProcessEdgeDraft = Readonly<{ outcome:string; targetStateId:string; targetNodeId:string|null; promptId:ProcessPromptId|null; terminalBehavior:CompiledTerminalBehavior|null }>;
 type ProcessNodeDraft = Readonly<{
@@ -131,7 +137,6 @@ type ProcessNodeDraft = Readonly<{
   edges: ReadonlyMap<string, ProcessEdgeDraft>;
   childCreationTypes: ReadonlySet<CardType>;
   childActivationTypes: ReadonlySet<CardType>;
-  writableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition>;
 }>;
 type CardTypeCompileDraft = Readonly<{
   cardType: CardType;
@@ -166,19 +171,12 @@ function compileCardTypeInputs(
   let bootstrapRecord: CompiledRecordDefinition | null = null;
   for (const [rawName, value] of Object.entries(source.records)) {
     const name = parseRecordName(rawName);
-    if (new Set(value.writers).size !== value.writers.length)
-      throw new Error(`${location}.records.${name}.writers contains a duplicate.`);
-    for (const writer of value.writers)
-      if (!agents.has(writer))
-        throw new Error(
-          `${location}.records.${name}.writers references missing agent '${writer}'.`,
-        );
     const definition = Object.freeze({
       name,
       format: value.format,
       schema: value.schema,
-      writers: Object.freeze([...value.writers]),
       bootstrap: value.bootstrap,
+      declared: true,
     });
     recordEntries.push([name, definition]);
     if (value.bootstrap) {
@@ -201,23 +199,13 @@ function compileCardTypeInputs(
     if (agent.session !== 'card')
       throw new Error(`${location}.workflow.nodes.${nodeId}.agent must use card session scope.`);
     const requirements: Array<CompiledRecordRequirement> = [];
-    for (const [rawRecord, kind] of Object.entries(node.records)) {
+    for (const [rawRecord, requirement] of Object.entries(node.records)) {
       const name = parseRecordName(rawRecord);
-      const definition = records.get(name);
-      if (!definition)
-        throw new Error(
-          `${location}.workflow.nodes.${nodeId}.records references unknown record '${name}'.`,
-        );
-      if (
-        kind === 'updated' &&
-        (!definition.writers.includes(agent.name) ||
-          !agent.tools.some((tool) => tool.name === 'write') ||
-          !agent.tools.some((tool) => tool.name === 'edit'))
-      )
-        throw new Error(
-          `${location}.workflow.nodes.${nodeId}.records.${name} requires writer authority plus write and edit tools.`,
-        );
-      requirements.push(Object.freeze({ definition, kind }));
+      const definition = records.get(name) ?? genericRecordDefinition(name);
+      if (!agentCanWriteRecord(agent,name)) throw new Error(`${location}.workflow.nodes.${nodeId}.records.${name} requires matching agent record_writes authority.`);
+      const requiresWrite=requirement.mode==='clean'||requirement.gate==='updated';
+      if(requiresWrite&&!agent.tools.some((tool)=>tool.name==='write'))throw new Error(`${location}.workflow.nodes.${nodeId}.records.${name} (${requirement.mode} + ${requirement.gate}) requires the write tool.`);
+      requirements.push(Object.freeze({ definition, mode:requirement.mode, gate:requirement.gate }));
     }
     const edges = new Map<string, ProcessEdgeDraft>();
     for (const [rawOutcome, edge] of Object.entries(node.edges)) {
@@ -251,16 +239,12 @@ function compileCardTypeInputs(
       const requiredNames = new Set(requirements.map((item) => item.definition.name));
       const exportRecords = edge.target.export_records.map((raw) => {
         const name = parseRecordName(raw);
-        const definition = records.get(name);
-        if (!definition)
-          throw new Error(
-            `${location}.workflow.nodes.${nodeId}.edges.${outcome} exports unknown record '${name}'.`,
-          );
+        const definition = requirements.find((item)=>item.definition.name===name)?.definition;
         if (!requiredNames.has(name))
           throw new Error(
-            `${location}.workflow.nodes.${nodeId}.edges.${outcome} exports '${name}' without a source-node present or updated requirement.`,
+            `${location}.workflow.nodes.${nodeId}.edges.${outcome} exports '${name}' without a source-node requirement.`,
           );
-        return definition;
+        return definition!;
       });
       const promotion =
         edge.target.promote === 'current'
@@ -323,9 +307,6 @@ function compileCardTypeInputs(
         childActivationTypes: agent.tools.some((tool) => tool.name === 'activate_card')
           ? permittedChildTypes
           : immutableSet([]),
-        writableRecords: immutableMap(
-          recordEntries.filter(([, record]) => record.writers.includes(agent.name)),
-        ),
       }),
     );
   }
@@ -512,7 +493,6 @@ function buildCardTypeStateTable(
         childCreationTypes: node.childCreationTypes,
         childActivationTypes: node.childActivationTypes,
         readableRecords: draft.records,
-        writableRecords: node.writableRecords,
         on: immutableMap(on),
         isTerminal: false,
         isParked: false,
@@ -603,15 +583,15 @@ function validateProcessStateTable(
       }
     }
 }
-function compileCardType(
-  cardType: CardType,
-  source: CardTypeSource,
-  agents: ReadonlyMap<AgentName, CompiledAgentContract>,
-  roots: PromptRoots,
-): CompiledCardTypeWorkflow {
-  const draft = compileCardTypeInputs(cardType, source, agents, roots);
-  validateCardTypeTopology(draft);
-  return buildCardTypeStateTable(draft, roots);
+function validateDescendantContextClosure(drafts:ReadonlyMap<CardType,CardTypeCompileDraft>):void{
+  for(const [cardType,draft] of drafts){
+    const reachable=new Set<CardType>();
+    const visit=(type:CardType):void=>{for(const child of drafts.get(type)!.permittedChildTypes){if(reachable.has(child))continue;reachable.add(child);visit(child);}};
+    visit(cardType);
+    for(const node of draft.nodes.values())for(const definition of node.descendantContext?.records??[]){
+      for(const descendantType of reachable)if(!drafts.get(descendantType)!.records.has(definition.name))throw new Error(`${draft.location}.workflow.nodes.${node.nodeId}.descendant_context record '${definition.name}' is not declared by reachable descendant type '${descendantType}'.`);
+    }
+  }
 }
 
 export function compileProjectWorkflows(
@@ -644,11 +624,10 @@ export function compileProjectWorkflows(
     cardTypeValues.some((type) => !(type in config.card_types))
   )
     throw new Error(`card_types must contain exactly: ${cardTypeValues.join(', ')}.`);
-  const cardTypes = immutableMap(
-    cardTypeValues.map(
-      (type) => [type, compileCardType(type, config.card_types[type]!, agents, roots)] as const,
-    ),
-  );
+  const drafts=immutableMap(cardTypeValues.map((type)=>[type,compileCardTypeInputs(type,config.card_types[type]!,agents,roots)] as const));
+  for(const draft of drafts.values())validateCardTypeTopology(draft);
+  validateDescendantContextClosure(drafts);
+  const cardTypes=immutableMap(cardTypeValues.map((type)=>[type,buildCardTypeStateTable(drafts.get(type)!,roots)] as const));
   return Object.freeze({ analyst, analystPrompt, agents, cardTypes });
 }
 export function bindRuntimeWorkflows(
@@ -715,5 +694,7 @@ export function describeNodeResultContract(
   process: CompiledCardTypeWorkflow,
   stateId: string,
 ): string {
-  return `Call emit_result with exactly two fields: outcome (one of: ${processNodeOutcomes(process, stateId).join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).`;
+  const node=process.states.get(stateId);if(!node||node.kind!=='node')throw new Error(`Workflow '${process.cardType}' has no node state '${stateId}'.`);
+  const requirements=node.requirements.length===0?'':` Required record gates: ${node.requirements.map(({definition,mode,gate})=>`${definition.name} (${mode} + ${gate})`).join(', ')}.`;
+  return `Call emit_result with exactly two fields: outcome (one of: ${processNodeOutcomes(process, stateId).join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).${requirements}`;
 }

@@ -4,7 +4,7 @@ import type { CompiledCardTypeWorkflow, CompiledProjectWorkflows } from '../runt
 import { cardParentId } from '../schemas/card-id.js';
 import { cardAgentSessionId, globalAgentSessionId, type AgentName } from '../schemas/index.js';
 import { initializeAppLog } from './app-log.js';
-import { initializeMissingOptionalAuthoredRecord, readCurrentAuthoredRecord } from './authored-record-files.js';
+import { readCurrentAuthoredRecord } from './authored-record-files.js';
 import { readCanonicalLinkedCardHistoryTree, type CanonicalLinkedCardHistoryProjection } from './card-files.js';
 import { initializeMissingConversation, truncateCurrentConversationUnterminatedSuffix } from './conversation-file.js';
 
@@ -20,7 +20,7 @@ function cardConversationAgents(workflow: CompiledCardTypeWorkflow): AgentName[]
 }
 
 function definitions(workflow: CompiledCardTypeWorkflow): RecordDefinition[] {
-  return [...workflow.records.values()].map((record) => ({ filename: record.name, writers: record.writers, format: record.format, schema: record.schema, bootstrap: record.bootstrap }));
+  return [...workflow.records.values()].map((record) => ({ filename: record.name, format: record.format, schema: record.schema, bootstrap: record.bootstrap,declared:true }));
 }
 
 function admitCurrentCards(projectRoot: string, workflows: CompiledProjectWorkflows): readonly AdmittedCard[] {
@@ -63,7 +63,6 @@ export function initializeAndValidateCurrentGeneratedState(projectRoot: string, 
     }
     if (projection.tombstone !== null) continue;
     for (const definition of definitions(workflow)) {
-      if (!definition.bootstrap) initializeMissingOptionalAuthoredRecord(projectRoot, card.id, definition);
       const current = readCurrentAuthoredRecord(projectRoot, card.id, definition);
       if (definition.bootstrap && !current?.artifact.accepted) throw new Error(`Card '${card.id}' required bootstrap record '${definition.filename}' is unavailable.`);
     }

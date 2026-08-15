@@ -10,8 +10,7 @@ import { cardParentId } from '../schemas/card-id.js';
 import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
 import { redactSnippetForOutbound, redactTextForOutbound } from '../redaction/index.js';
 import { getCardInputSchema, getTreeInputSchema, listCardsInputSchema } from '../contracts/builtin-tool-inputs.js';
-import { analystRecordEditEffect } from '../cards/status-api.js';
-import { buildRecordMutationUrl, ModelRecordTargetWireSchema } from '../contracts/record-mutation.js';
+import { ModelRecordTargetWireSchema } from '../contracts/record-mutation.js';
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
@@ -133,23 +132,11 @@ function effectiveUpdatedAt(store: CardService, cardId: string): string | null {
   return committedTimes.sort((a, b) => Date.parse(b) - Date.parse(a))[0]!;
 }
 
-function canMutateRecord(ctx: CardInspectionProviderContext, store: CardService, cardId: string, writerNames: readonly string[]): boolean {
-  if (!ctx.agentName || !writerNames.includes(ctx.agentName)) return false;
-  const card = store.read(cardId); if (!card) return false;
-  if (ctx.cardId !== undefined) {
-    const agent = store.workflows.agents.get(ctx.agentName as never);
-    return ctx.cardId === cardId && agent !== undefined && agent.tools.some((tool) => tool.name === 'write' || tool.name === 'edit');
-  }
-  const analyst = store.workflows.analyst;
-  return analyst.name === ctx.agentName && analystRecordEditEffect(card.lifecycle.status) !== null && analyst.tools.some((tool) => tool.name === 'write' || tool.name === 'edit');
-}
-
-function cardRecordSummaries(ctx: CardInspectionProviderContext, store: CardService, cardId: string): Array<Record<string, unknown>> {
+function cardRecordSummaries(_ctx: CardInspectionProviderContext, store: CardService, cardId: string): Array<Record<string, unknown>> {
   return store.recordReader.definitions(cardId)
     .map((definition) => {
       const currentUrl = `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`;
-      const authorized = canMutateRecord(ctx, store, cardId, definition.writers);
-      try { const record = store.readCurrentRecord(cardId, definition.filename); const effective = effectiveRecordContent(record.artifact); const target = ModelRecordTargetWireSchema.parse({ card_id: cardId, name: definition.filename, format: definition.format, schema: definition.schema, state: record.artifact.state, head_version: record.headVersion, current_url: record.currentUrl, version_url: record.versionUrl, mutation_url: authorized ? buildRecordMutationUrl(cardId, definition.filename, record.headVersion) : null }); if (!effective) return target; const content = effective.content; const max = 4000; return { ...target, effective: { size: Buffer.byteLength(content), modified_at: effective.modifiedAt, writer: effective.writer, inline: { content: redactSnippetForOutbound(content, max), truncated: content.length > max } } }; }
-      catch (error) { if (!(error instanceof AuthoredRecordNotFoundError)) throw error; return ModelRecordTargetWireSchema.parse({ card_id: cardId, name: definition.filename, format: definition.format, schema: definition.schema, state: 'absent', head_version: null, current_url: currentUrl, version_url: null, mutation_url: authorized ? buildRecordMutationUrl(cardId, definition.filename, 'absent') : null }); }
+      try { const record = store.readCurrentRecord(cardId, definition.filename); const effective = effectiveRecordContent(record.artifact); const target = ModelRecordTargetWireSchema.parse({ card_id: cardId, name: definition.filename, format: definition.format, schema: definition.schema, state: record.artifact.state, head_version: record.headVersion, current_url: record.currentUrl, version_url: record.versionUrl }); if (!effective) return target; const content = effective.content; const max = 4000; return { ...target, effective: { size: Buffer.byteLength(content), modified_at: effective.modifiedAt, writer: effective.writer, inline: { content: redactSnippetForOutbound(content, max), truncated: content.length > max } } }; }
+      catch (error) { if (!(error instanceof AuthoredRecordNotFoundError)) throw error; return ModelRecordTargetWireSchema.parse({ card_id: cardId, name: definition.filename, format: definition.format, schema: definition.schema, state: 'absent', head_version: null, current_url: currentUrl, version_url: null }); }
     });
 }

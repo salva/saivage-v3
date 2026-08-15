@@ -140,7 +140,7 @@ describe('operator chat route request contracts', () => {
           metadata_only: false,
           max_bytes: 123,
           max_inline_bytes: 45,
-          save_as: 'record:///brief.md?card=card-a&expected_head=1',
+          save_as: 'record:///brief.md?card=card-a',
         },
         result: {
           success: true as const,

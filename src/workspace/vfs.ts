@@ -6,13 +6,13 @@ import { cardIdSchema, type AgentName } from '../schemas/index.js';
 import type { RecordDefinition } from '../records/record-definition.js';
 import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
-type AuthoredRecordReader = { current(cardId: string, filename: string): RecordProjection;historical(cardId:string,filename:string,version:number):RecordProjection;definition(cardId:string,filename:string):RecordDefinition;definitions(cardId:string):readonly RecordDefinition[] };
+type AuthoredRecordReader = { current(cardId: string, filename: string): RecordProjection;currentOrNull?(cardId:string,filename:string):RecordProjection|null;historical(cardId:string,filename:string,version:number):RecordProjection;definition(cardId:string,filename:string):RecordDefinition;definitions(cardId:string):readonly RecordDefinition[] };
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-import { buildRecordMutationUrl, ModelRecordTargetWireSchema, type ModelRecordTargetWire } from '../contracts/record-mutation.js';
+import { ModelRecordTargetWireSchema, type ModelRecordTargetWire } from '../contracts/record-mutation.js';
 
 export type VfsMode = 'read' | 'write' | 'search';
 
@@ -21,14 +21,13 @@ export interface VfsContext {
   agent?: { cardId?: string; agentName?: AgentName };
   fail: (message: string) => Error;
   records?: AuthoredRecordReader;
-  canMutateRecord?: (cardId: string, definition: RecordDefinition) => boolean;
 }
 
 export type VfsResolved =
   | { kind: 'project' | 'tmp' | 'system' | 'work'; absolutePath: string; relativePath: string; workRoot?: string; isRoot: boolean }
   | ({ kind: 'record'; cardId: string; isRoot: boolean } & (
     | { recordKind: 'directory' }
-    | { recordKind: 'document'; filename: string; version: number; recordUrl: string; currentSelection: boolean; content: string; committedAt: string | null; size: number }
+    | { recordKind: 'document'; filename: string; format:'markdown'; schema:string; state:'absent'|'open'|'closed'|'discarded'; headVersion:number|null; version: number|null; versionUrl:string|null; recordUrl: string; currentSelection: boolean; content: string; committedAt: string | null; size: number }
   ));
 
 export type VfsEntry = { name: string; type: 'dir' | 'file' };
@@ -186,7 +185,7 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
   if (mode === 'write') {
     const target = resolveRecordWriteTarget(ctx, raw);
     ctx.records.definition(target.cardId,target.filename);
-    return { kind: 'record', recordKind: 'document', cardId: target.cardId, filename: target.filename, version: 0, content: '', committedAt: null, size: 0, recordUrl: target.currentUrl, currentSelection: true, isRoot: false };
+    return { kind: 'record', recordKind: 'document', cardId: target.cardId, filename: target.filename,format:ctx.records.definition(target.cardId,target.filename).format,schema:ctx.records.definition(target.cardId,target.filename).schema,state:'absent',headVersion:null, version:null,versionUrl:null, content: '', committedAt: null, size: 0, recordUrl: target.currentUrl, currentSelection: true, isRoot: false };
   }
 
   let parsed;
@@ -197,10 +196,9 @@ function resolveRecord(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved
   }
   const isDocument = parsed.query !== null || (parsed.segments.length === 1 && parsed.segments[0]!.endsWith('.md'));
   if (!isDocument) return parseRecordCardDirectory(ctx, raw);
-  const target = resolveRecordReadTarget(ctx, raw);
-  const effective = effectiveRecordContent(target.artifact); if (!effective) throw ctx.fail('Record not found.');
-  const currentSelection = !raw.includes('&v=');
-  return { kind: 'record', recordKind: 'document', cardId: target.cardId, filename: target.filename, version: target.headVersion, content: effective.content, committedAt: effective.modifiedAt, size: Buffer.byteLength(effective.content), recordUrl: currentSelection ? target.currentUrl : target.versionUrl, currentSelection, isRoot: false };
+  const target = resolveRecordReadTarget(ctx, raw);const projection=target.projection;
+  const effective=projection?effectiveRecordContent(projection.artifact):null;const content=effective?.content??'';const currentSelection=target.parsed.version===null;
+  return {kind:'record',recordKind:'document',cardId:target.parsed.cardId,filename:target.parsed.name,format:target.definition.format,schema:target.definition.schema,state:projection?.artifact.state??'absent',headVersion:projection?.headVersion??null,version:projection?.headVersion??null,versionUrl:projection?.versionUrl??null,content,committedAt:effective?.modifiedAt??null,size:Buffer.byteLength(content),recordUrl:currentSelection?target.parsed.currentUrl:projection!.versionUrl,currentSelection,isRoot:false};
 }
 
 export function resolveScopedPath(ctx: VfsContext, raw: string, mode: VfsMode): VfsResolved | null {
@@ -215,14 +213,11 @@ function recordSummaries(ctx: VfsContext, reader: AuthoredRecordReader, cardId: 
     .map((definition) => {
       const latest = currentRecordEntry(reader, cardId, definition);
       const currentUrl = `record:///${definition.filename}?card=${encodeURIComponent(cardId)}`;
-      const authorized = ctx.canMutateRecord?.(cardId, definition) === true;
-      return ModelRecordTargetWireSchema.parse({ card_id: cardId, name: definition.filename, format: definition.format, schema: definition.schema, state: latest?.artifact.state ?? 'absent', head_version: latest?.headVersion ?? null, current_url: currentUrl, version_url: latest?.versionUrl ?? null, mutation_url: authorized ? buildRecordMutationUrl(cardId, definition.filename, latest?.headVersion ?? 'absent') : null });
+      return ModelRecordTargetWireSchema.parse({ card_id: cardId, name: definition.filename, format: definition.format, schema: definition.schema, state: latest?.artifact.state ?? 'absent', head_version: latest?.headVersion ?? null, current_url: currentUrl, version_url: latest?.versionUrl ?? null });
     });
 }
 
-function currentRecordEntry(reader: AuthoredRecordReader, cardId: string, definition: RecordDefinition): RecordProjection | null {
-  try { return reader.current(cardId, definition.filename); } catch (error) { throwIfPublicationOutcomeUnknown(error); if (error instanceof AuthoredRecordNotFoundError) return null; throw error; }
-}
+function currentRecordEntry(reader: AuthoredRecordReader, cardId: string, definition: RecordDefinition): RecordProjection | null {try{return reader.currentOrNull?reader.currentOrNull(cardId,definition.filename):reader.current(cardId,definition.filename);}catch(error){throwIfPublicationOutcomeUnknown(error);if(error instanceof AuthoredRecordNotFoundError)return null;throw error;}}
 
 export async function listScopedPath(ctx: VfsContext, raw: string): Promise<VfsListing> {
   const resolved = resolveScopedPath(ctx, raw, 'search');

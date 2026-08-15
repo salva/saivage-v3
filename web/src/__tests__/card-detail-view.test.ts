@@ -79,7 +79,7 @@ describe('CardDetailView S06 read-only detail contract', () => {
     expect(recordsSource).toContain('<DocumentFrame v-for="record in records"');
     expect(recordsSource).toContain("staleReason === 'refresh-failed'");
     expect(recordsSource).toContain('record.bootstrap');
-    expect(recordsSource).toContain('record.writers');
+    expect(recordsSource).not.toContain('record.writers');
     expect(recordsSource).not.toContain("key: 'brief'");
   });
 

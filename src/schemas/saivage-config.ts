@@ -15,6 +15,7 @@ const modelEquivalentsSchema = z.array(z.array(z.string()));
 
 const namedIdentifierSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 const outcomeIdentifierSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);
+export const recordWritePatternSchema = z.string().regex(/^[a-z*][a-z0-9*-]{0,63}\.md$/u, 'Expected a lowercase Markdown record-name pattern containing only literal stem characters and * wildcards.');
 const modelRouteSchema = z.object({
   candidates: z.array(z.string().min(1)).min(1).optional(),
   profile: namedIdentifierSchema.optional(),
@@ -162,7 +163,7 @@ const processNodeSchema = z.object({
   agent: agentNameSchema,
   prompt: namedIdentifierSchema,
   correction_prompt: namedIdentifierSchema,
-  records: z.record(recordNameSchema, z.enum(['present', 'updated'])).default({}),
+  records: z.record(recordNameSchema, z.object({ mode: z.enum(['clean', 'continue']), gate: z.enum(['exists', 'updated']) }).strict()).default({}),
   descendant_context: z.object({ records: z.array(recordNameSchema), require_unchanged_until_accept: z.boolean() }).strict().optional(),
   edges: z.record(outcomeIdentifierSchema, processEdgeSchema),
 }).strict();
@@ -179,7 +180,6 @@ const cardProcessSchema = z.object({
 const recordDefinitionSchema = z.object({
   format: z.literal('markdown'),
   schema: z.string().regex(/^[a-z][a-z0-9-]{0,63}\.v[1-9][0-9]*$/u),
-  writers: z.array(agentNameSchema).min(1),
   bootstrap: z.boolean(),
 }).strict();
 const cardTypeWorkflowSchema = z.object({
@@ -196,6 +196,7 @@ const agentDefinitionSchema = z.object({
   skills: z.boolean(),
   session: z.enum(['global', 'card']),
   can_create_children: z.boolean(),
+  record_writes: z.array(recordWritePatternSchema),
 }).strict();
 
 const effectiveRoutingProfileSchema = z.object({

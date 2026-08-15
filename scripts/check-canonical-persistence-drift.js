@@ -16,6 +16,7 @@ const sourceForbidden = [
   /\blist_card_history\b|\bget_card_history_entry\b|\bdiff_card\b/u,
   /\breadBoundedConversation\b/u,
   /\bthrough_message_id\b/u,
+  /\bmutation_url\b/u,
 ];
 
 const canonicalDocs = new Set(['README.md', 'README-IF-YOU-ARE-AN-AI.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md', 'docs/architecture/index.md', 'docs/runbook/index.md']);
@@ -44,11 +45,12 @@ for (const path of paths) {
     const lower = line.toLowerCase();
     const explicitlyRejected = /\b(?:no|not|never|unsupported|reject(?:ed|s)?|remove(?:d|s)?|without)\b/u.test(lower);
     if (!explicitlyRejected && (/latest[- ]closed/u.test(lower) || /record:\/\/\/[^\s`]*[?&]v=next/u.test(lower) || /\blist_card_history\b|\bget_card_history_entry\b|\bdiff_card\b/u.test(line))) violations.push(`${path}:${offset + 1}: stale current-authority contract`);
+    if (!explicitlyRejected && (/\bexpected_head\b/u.test(line) || /\bmutation_url\b/u.test(line))) violations.push(`${path}:${offset + 1}: positive obsolete record-mutation guidance`);
   }
 }
 
 const guide = readFileSync('README-IF-YOU-ARE-AN-AI.md', 'utf8');
-for (const required of ['## Stage 4 — Initialize and configure', '## Stage 5 — Confine access, install, and start', '## Stage 6 — Verify and teach first use', '## Stage 7 — Hand off and present later options', 'strict empty', 'whole-current-graph validation', 'card.json', 'expected_head', 'no live lifecycle owner', 'four generated roots wholesale']) {
+for (const required of ['## Stage 4 — Initialize and configure', '## Stage 5 — Confine access, install, and start', '## Stage 6 — Verify and teach first use', '## Stage 7 — Hand off and present later options', 'strict empty', 'whole-current-graph validation', 'card.json', 'record:///<name>?card=<id>', 'numeric `&v=N`', 'Never teach mutation URLs, head tokens', 'no live lifecycle owner', 'four generated roots wholesale']) {
   if (!guide.includes(required)) violations.push(`README-IF-YOU-ARE-AN-AI.md: missing required Stage 4-7 assertion '${required}'`);
 }
 

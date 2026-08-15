@@ -57,7 +57,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
     metadata_only: false,
     max_bytes: 123,
     max_inline_bytes: 45,
-    save_as: 'record:///brief.md?card=tok_primary&expected_head=1',
+    save_as: 'record:///brief.md?card=tok_primary',
   },
   skill: { name: 'tok_primary' },
   mcp_tool_call: { serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
@@ -103,7 +103,7 @@ describe('projectToolInvocation exhaustive identity switch', () => {
       metadata_only: false,
       max_bytes: 123,
       max_inline_bytes: 45,
-      save_as: 'record:///brief.md?card=tok_primary&expected_head=1',
+      save_as: 'record:///brief.md?card=tok_primary',
     });
     expect(complete('mcp_tool_call').arguments).toEqual({ serverName: 'ghu_server', toolName: 'rt_tool', args: { apiKey: '[REDACTED]', identity: 'stable_value' } });
     expect(complete('emit_result').arguments).toMatchObject({ outcome: 'tok_primary' });

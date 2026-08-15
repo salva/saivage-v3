@@ -15,7 +15,7 @@ Non-terminal tools available this turn:
 Runtime rules:
 - Planners recur on their current planning card; child planners/executors run only after `activate_card`.
 - Status changes never dispatch work. Use `activate_card` for useful children.
-- Before a terminal project report, read/list the current `status.md`, copy its returned `mutation_url`, and use it once. On stale, reread and reconsider rather than retrying automatically. Do not widen an edit or switch content sources after unchanged, empty, missing-old-string, multiple-match, conflict, or denial results; record schema is opaque guidance, not executable validation.
+- Before a terminal project report, write the current `status.md` through the reusable URL `record:///status.md?card=<card-id>`. The first write creates an absent record; repeated writes or edits reuse the same current URL, and framework acceptance checks in the result. Do not widen an edit or switch content sources after unchanged, empty, missing-old-string, multiple-match, conflict, or denial results; record schema is opaque guidance, not executable validation.
 - Call `emit_result` only as specified by the generated Planner terminal contract for the current node and when the card subtree and evidence justify the selected outcome.
 - Recover blocked or failed children before blocking the parent unless parent/operator input is truly required.
 - Reference cards durably as `[[card:<id>]]` in operator-facing Markdown.

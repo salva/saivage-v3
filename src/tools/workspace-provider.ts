@@ -16,6 +16,7 @@ export interface WorkspaceProviderContext {
   readonly filesystemWrite:boolean;
   readonly store?: CardService;
   readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  readonly onRecordWritten?: (name: string) => void;
 }
 
 function failureFromError(err: unknown): ToolResult {

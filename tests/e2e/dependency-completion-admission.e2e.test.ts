@@ -79,7 +79,7 @@ describe('dependency-completion activation admission E2E', () => {
         if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
-          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Dependency workflow complete.' }));
+          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project', content: 'Dependency workflow complete.' }));
           return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete.' }));
         }
         if (input.sessionId === `agent:planner:${parent.id}`) {
@@ -98,12 +98,12 @@ describe('dependency-completion activation admission E2E', () => {
             await allowDependent.promise;
             return complete(tool('activate-b-second', 'activate_card', { card_id: dependent.id }));
           }
-          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: `record:///status.md?card=${parent.id}&expected_head=absent`, content: 'Dependencies complete.' }));
+          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: `record:///status.md?card=${parent.id}`, content: 'Dependencies complete.' }));
           return complete(tool('complete-parent', 'emit_result', { outcome: 'complete_direct', summary: 'Parent complete.' }));
         }
         if (input.sessionId === `agent:executor:${dependency.id}`) {
           dependencyCalls += 1;
-          if (dependencyCalls === 1) return complete(tool('write-a', 'write', { path: `record:///status.md?card=${dependency.id}&expected_head=absent`, content: 'A completed first.' }));
+          if (dependencyCalls === 1) return complete(tool('write-a', 'write', { path: `record:///status.md?card=${dependency.id}`, content: 'A completed first.' }));
           return complete(tool('done-a', 'emit_result', { outcome: 'done', summary: 'A complete.' }));
         }
         if (input.sessionId === `agent:executor:${dependent.id}`) {
@@ -111,7 +111,7 @@ describe('dependency-completion activation admission E2E', () => {
           if (dependentCalls === 1) {
             dependentProviderStarted.resolve();
             await allowDependentTool.promise;
-            return complete(tool('write-b', 'write', { path: `record:///status.md?card=${dependent.id}&expected_head=absent`, content: 'B admitted after A.' }));
+            return complete(tool('write-b', 'write', { path: `record:///status.md?card=${dependent.id}`, content: 'B admitted after A.' }));
           }
           if (dependentCalls === 2) {
             dependentToolCompleted.resolve();

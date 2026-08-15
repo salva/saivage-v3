@@ -94,7 +94,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (plannerCalls === 2) {
             const row = [...input.providerConversation.messages].reverse().find((message) => message.kind === 'tool_result' && message.tool_call_id === 'activate-refusal-child');
             parentResult = row ? JSON.parse(row.content) : null;
-            return complete(tool('write-refusal-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Child blocked; parent safely continued.' }));
+            return complete(tool('write-refusal-status', 'write', { path: 'record:///status.md?card=project', content: 'Child blocked; parent safely continued.' }));
           }
           return complete(tool('finish-after-refusal', 'emit_result', { outcome: 'failed', summary: 'Parent continued after blocked child.' }));
         }
@@ -148,7 +148,7 @@ describe('failed child activation lifecycle E2E', () => {
         if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
-          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Parent workflow complete.' }));
+          if (projectCalls === 2) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project', content: 'Parent workflow complete.' }));
           return complete(tool('fail-project', 'emit_result', { outcome: 'failed', summary: 'Project failed after child failure.' }));
         }
         if (input.sessionId === `agent:planner:${parent.id}`) {
@@ -166,7 +166,7 @@ describe('failed child activation lifecycle E2E', () => {
             await continueParent.promise;
             return complete(tool('activate-b', 'activate_card', { card_id: sibling.id }));
           }
-          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: `record:///status.md?card=${parent.id}&expected_head=absent`, content: 'Sibling complete; failed child retained.' }));
+          if (parentCalls === 4) return complete(tool('write-parent-status', 'write', { path: `record:///status.md?card=${parent.id}`, content: 'Sibling complete; failed child retained.' }));
           return complete(tool('fail-parent', 'emit_result', { outcome: 'failed', summary: 'Parent failed after child failure.' }));
         }
         if (input.sessionId === `agent:executor:${failedChild.id}`) {
@@ -182,7 +182,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (siblingCalls === 1) {
             siblingAdmitted.resolve();
             await releaseSibling.promise;
-            return complete(tool('write-b', 'write', { path: `record:///status.md?card=${sibling.id}&expected_head=absent`, content: 'B complete.' }));
+            return complete(tool('write-b', 'write', { path: `record:///status.md?card=${sibling.id}`, content: 'B complete.' }));
           }
           return complete(tool('done-b', 'emit_result', { outcome: 'done', summary: 'B complete.' }));
         }
@@ -256,7 +256,7 @@ describe('failed child activation lifecycle E2E', () => {
             return complete(tool('edit-failed-child', 'edit_card', { card_id: child.id, title: 'Retry child changed' }));
           }
           if (projectCalls === 3) return complete(tool('activate-child-second', 'activate_card', { card_id: child.id }));
-          if (projectCalls === 4) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Changed child retry complete.' }));
+          if (projectCalls === 4) return complete(tool('write-project-status', 'write', { path: 'record:///status.md?card=project', content: 'Changed child retry complete.' }));
           return complete(tool('complete-project', 'emit_result', { outcome: 'complete_direct', summary: 'Project complete after changed retry.' }));
         }
         if (input.sessionId === `agent:executor:${child.id}`) {
@@ -265,7 +265,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (childCalls === 2) {
             retryAdmitted.resolve();
             await releaseRetry.promise;
-            return complete(tool('write-child-status', 'write', { path: `record:///status.md?card=${child.id}&expected_head=absent`, content: 'Retry succeeded.' }));
+            return complete(tool('write-child-status', 'write', { path: `record:///status.md?card=${child.id}`, content: 'Retry succeeded.' }));
           }
           if (childCalls === 3) return complete(tool('complete-child', 'emit_result', { outcome: 'done', summary: 'Changed child completed.' }));
         }
@@ -309,11 +309,11 @@ describe('failed child activation lifecycle E2E', () => {
       if (input.agentName === 'planner') {
         plannerCalls += 1;
         if (plannerCalls === 1) return complete(tool('activate-cleanup-child', 'activate_card', { card_id: child.id }));
-        if (plannerCalls === 2) return complete(tool('write-project-failure', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Child cleanup failed.' }));
+        if (plannerCalls === 2) return complete(tool('write-project-failure', 'write', { path: 'record:///status.md?card=project', content: 'Child cleanup failed.' }));
         return complete(tool('fail-project', 'emit_result', { outcome: 'failed', summary: 'Child cleanup failed.' }));
       }
       if (input.agentName === 'executor') return complete(++executorCalls === 1
-        ? tool('write', 'write', { path: `record:///status.md?card=${child.id}&expected_head=absent`, content: 'Accepted output.' })
+        ? tool('write', 'write', { path: `record:///status.md?card=${child.id}`, content: 'Accepted output.' })
         : tool('accepted', 'emit_result', { outcome: 'done', summary: 'Accepted before cleanup.' }));
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     }) };

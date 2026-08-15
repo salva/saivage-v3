@@ -6,10 +6,10 @@ import { join } from 'node:path';
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
-import { cardRecordVersionIndexFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
+import { cardRecordRoot, cardRecordsRoot, cardRecordVersionIndexFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
 import type { CanonicalReadInstrumentation } from '../../src/persistence/growing-file.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { testRecordDefinition } from '../helpers/record-definitions.js';
+import { testRecordDefinition, testRecordDefinitions } from '../helpers/record-definitions.js';
 
 const roots:string[]=[];
 afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
@@ -45,15 +45,18 @@ describe('exact Card operator resources',()=>{
     for(const field of ['children','depends_on','assigned_to','started_at','records','notes','pending_notifications','operator_summary'])expect((detail.body as {card:object}).card).not.toHaveProperty(field);
     expect(detailRead.value.every((path)=>path.endsWith('index.json')||path.endsWith('.json'))).toBe(true);
     const descriptorRead=paths();const descriptors=model.listRecords(card.id,descriptorRead.instrumentation);
-    expect(descriptors.body).toMatchObject({card_id:card.id,records:expect.arrayContaining([expect.objectContaining({name:'brief.md',bootstrap:true})])});expect(descriptorRead.value.every((path)=>path.endsWith('index.json')||path.endsWith('.json'))).toBe(true);
+    expect(descriptors.body).toMatchObject({card_id:card.id,records:expect.arrayContaining([expect.objectContaining({name:'brief.md',bootstrap:true})])});
+    const recordsRoot=cardRecordsRoot(root,card.id);const recordPaths=descriptorRead.value.filter((path)=>path===recordsRoot||path.startsWith(`${recordsRoot}/`));
+    expect(recordPaths).toEqual(testRecordDefinitions('goal').flatMap((definition)=>[recordsRoot,cardRecordRoot(root,card.id,definition),cardRecordVersionIndexFile(root,card.id,definition)]));
     const recordRead=paths();const record=model.getRecord(card.id,'brief.md',recordRead.instrumentation);
     expect(record.body).toMatchObject({card_id:card.id,record:{name:'brief.md',head_version:1,state:'closed',accepted:{content:'Target token=[REDACTED]'},effective_content_source:'accepted'}});
     expect(recordRead.value.filter((path)=>path===cardRecordVersionIndexFile(root,card.id,testRecordDefinition('brief.md','goal')))).toHaveLength(1);
   });
 
-  it('distinguishes unknown definitions, optional absence/open-only, bootstrap corruption, and inactive cards',()=>{
+  it('distinguishes dynamic and optional absence, malformed names, bootstrap corruption, and inactive cards',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
-    expect(model.getRecord(card.id,'unknown.md')).toEqual({statusCode:404,body:{error:'Card record definition not found',cardId:card.id,name:'unknown.md'}});
+    expect(model.getRecord(card.id,'unknown.md')).toEqual({statusCode:404,body:{error:'Card record not found',cardId:card.id,name:'unknown.md'}});
+    expect(()=>model.getRecord(card.id,'UNKNOWN.md')).toThrow();
     expect(model.getRecord(card.id,'status.md')).toEqual({statusCode:404,body:{error:'Card record not found',cardId:card.id,name:'status.md'}});
     cards.openRecord(card.id,'status.md',null);
     expect(model.getRecord(card.id,'status.md')).toMatchObject({body:{card_id:card.id,record:{name:'status.md',head_version:1,state:'open',draft:{content:''},effective_content_source:'draft'}}});
@@ -67,14 +70,14 @@ describe('exact Card operator resources',()=>{
 
   it('does not normalize an unexpected record-reader absence',()=>{
     const card={id:'card-a',type:'goal'};
-    const store={getCardDetail:()=>({kind:'found',value:card}),recordReader:{definition:()=>({filename:'brief.md',format:'markdown',schema:'x',writers:['analyst'],bootstrap:true})},readCurrentRecord:()=>{throw new AuthoredRecordNotFoundError();}};
+    const store={getCardDetail:()=>({kind:'found',value:card}),recordReader:{definition:()=>({filename:'brief.md',format:'markdown',schema:'x',bootstrap:true,declared:true})},readCurrentRecord:()=>{throw new AuthoredRecordNotFoundError();}};
     const model=new CardsReadModelService('/work',store as never,{getRuntimeState:()=>null});
     expect(()=>model.getRecord('card-a','brief.md')).toThrow(AuthoredRecordNotFoundError);
   });
 
   it('rethrows publication uncertainty by identity before record absence classification',()=>{
     const fatal=new PublicationOutcomeUnknownError();const card={id:'card-a',type:'goal'};
-    const store={getCardDetail:()=>({kind:'found',value:card}),recordReader:{definition:()=>({filename:'status.md',format:'markdown',schema:'x',writers:['planner'],bootstrap:false})},readCurrentRecord:()=>{throw fatal;}};
+    const store={getCardDetail:()=>({kind:'found',value:card}),recordReader:{definition:()=>({filename:'status.md',format:'markdown',schema:'x',bootstrap:false,declared:true})},readCurrentRecord:()=>{throw fatal;}};
     const model=new CardsReadModelService('/work',store as never,{getRuntimeState:()=>null});
     try{model.getRecord('card-a','status.md');throw new Error('expected publication uncertainty');}catch(error){expect(error).toBe(fatal);}
   });

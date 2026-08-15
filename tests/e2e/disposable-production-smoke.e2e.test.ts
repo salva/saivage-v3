@@ -102,22 +102,23 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
     input_budget_tokens: 32_768,
     summarizer_candidate: { provider: 'fake', account: null, model: 'analyst-model' },
   };
+  config.agents.reviewer!.record_writes=['status.md','review.md','review-*.md'];
   config.card_types.code = {
     permitted_child_types: [],
     records: {
-      'brief.md': { format: 'markdown', schema: 'card-brief.v1', writers: ['analyst'], bootstrap: true },
-      'status.md': { format: 'markdown', schema: 'work-status.v1', writers: ['executor'], bootstrap: false },
-      'review.md': { format: 'markdown', schema: 'work-review.v1', writers: ['reviewer'], bootstrap: false },
+      'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
+      'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
+      'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
       entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
       nodes: {
         execute: {
-          agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: { 'status.md': 'updated' },
+          agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: { 'status.md': {mode:'continue',gate:'updated'} },
           edges: { verify: { target: { node: 'verify' }, prompt: 'execute-to-verify' } },
         },
         verify: {
-          agent: 'reviewer', prompt: 'verify', correction_prompt: 'correct-verify-result', records: { 'status.md': 'present', 'review.md': 'updated' },
+          agent: 'reviewer', prompt: 'verify', correction_prompt: 'correct-verify-result', records: { 'status.md': {mode:'continue',gate:'exists'}, 'review.md': {mode:'clean',gate:'updated'} },
           edges: { approved: { target: { terminal: 'DONE', promote: { latest_node: 'execute' }, export_records: ['status.md', 'review.md'] } } },
         },
       },
@@ -201,7 +202,7 @@ describe('disposable production-composition smoke', () => {
     const requestedMaxTokens = new Map<string, number>();
     const providerUrls: string[] = [];
     const analystTools: Array<{ name: string; args: object }> = [
-      { name: 'write', args: { path: 'record:///brief.md?card=project&expected_head=1', content: 'Disposable Analyst bootstrap edit.' } },
+      { name: 'write', args: { path: 'record:///brief.md?card=project', content: 'Disposable Analyst bootstrap edit.' } },
       { name: 'create_card', args: { type: 'code', parent: 'project', title: 'Promoted child', bootstrap_content: 'Produce and review child evidence.', tags: [], priority: 0, urgency: 'normal', depends_on: [], related: [] } },
       { name: 'create_card', args: { type: 'goal', parent: 'card-a', title: 'Forbidden nested goal', bootstrap_content: 'Must be rejected by parent narrowing.', tags: [], priority: 0, urgency: 'normal', depends_on: [], related: [] } },
       { name: 'reconfigure', args: { action: 'set_agent_model_route', agent: 'planner', model_route: 'executor' } },
@@ -237,7 +238,7 @@ describe('disposable production-composition smoke', () => {
       if (isPlanner && body.model === 'planner-model') {
         oldPlannerCalls += 1;
         if (oldPlannerCalls === 1) {
-          toolCall(response, 100, 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'Pre-restart open planning status.' });
+          toolCall(response, 100, 'write', { path: 'record:///status.md?card=project', content: 'Pre-restart open planning status.' });
           return;
         }
         oldPlannerBlocked = true;
@@ -248,7 +249,7 @@ describe('disposable production-composition smoke', () => {
       if (isPlanner && body.model === 'executor-model') {
         recoveryPlannerCalls += 1;
         if (recoveryPlannerCalls === 1) {
-          toolCall(response, 200, 'write', { path: 'record:///status.md?card=project&expected_head=2', content: 'Recovered plan with closed child evidence.' });
+          toolCall(response, 200, 'write', { path: 'record:///status.md?card=project', content: 'Recovered plan with closed child evidence.' });
         } else if (recoveryPlannerCalls === 2) {
           toolCall(response, 201, 'activate_card', { card_id: 'card-a' });
         } else if (recoveryPlannerCalls === 3) {
@@ -260,19 +261,19 @@ describe('disposable production-composition smoke', () => {
 
       if (isExecutor) {
         executorCalls += 1;
-        if (executorCalls === 1) toolCall(response, 300, 'write', { path: 'record:///status.md?card=card-a&expected_head=absent', content: 'Ordered child status export.' });
+        if (executorCalls === 1) toolCall(response, 300, 'write', { path: 'record:///status.md?card=card-a', content: 'Ordered child status export.' });
         else if (executorCalls === 2) toolCall(response, 301, 'emit_result', { outcome: 'verify', summary: 'Promoted executor summary.' });
         else throw new Error(`Unexpected Executor call ${executorCalls}.`);
         return;
       }
 
       reviewerCalls += 1;
-      if (reviewerCalls === 1) toolCall(response, 400, 'write', { path: 'record:///review.md?card=card-a&expected_head=absent', content: 'Child review export.' });
+      if (reviewerCalls === 1) toolCall(response, 400, 'write', { path: 'record:///review.md?card=card-a', content: 'Child review export.' });
       else if (reviewerCalls === 2) toolCall(response, 401, 'emit_result', { outcome: 'approved', summary: 'Verifier summary must not be promoted.' });
       else if (reviewerCalls === 3) {
         const cards = app!.server.runtimeApplication.cardStore;
         rootStatusClosedBeforeReview = cards.readCurrentRecord('project', 'status.md').artifact.accepted?.content === 'Recovered plan with closed child evidence.';
-        toolCall(response, 402, 'write', { path: 'record:///review.md?card=project&expected_head=absent', content: 'Root review after closed plan status.' });
+        toolCall(response, 402, 'write', { path: 'record:///review.md?card=project', content: 'Root review after closed plan status.' });
       } else if (reviewerCalls === 4) toolCall(response, 403, 'emit_result', { outcome: 'approved', summary: 'Root review approved.' });
       else throw new Error(`Unexpected Reviewer call ${reviewerCalls}.`);
     });

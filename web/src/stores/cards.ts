@@ -22,7 +22,7 @@ const undiscoveredChildren = (): ChildrenLoadState => ({ status: 'undiscovered',
 const emptyRecordState = (descriptor:CardRecordDescriptor): RecordSlotState => ({ name:descriptor.name,descriptor, loading: false, error: null, current:null,accepted: null, history:null,historyLoading:false,historyError:null,selectedVersion:null,selected:null,selectedLoading:false,selectedError:null,diff:null,diffLoading:false,diffError:null,...fresh() });
 const emptyRecords = (): Record<string, RecordSlotState> => ({});
 const recordsFrom=(descriptors:readonly CardRecordDescriptor[]):Record<string,RecordSlotState>=>Object.fromEntries(descriptors.map((descriptor)=>[descriptor.name,emptyRecordState(descriptor)]));
-function sameDescriptor(left:CardRecordDescriptor,right:CardRecordDescriptor):boolean{return left.name===right.name&&left.format===right.format&&left.schema===right.schema&&left.bootstrap===right.bootstrap&&left.writers.length===right.writers.length&&left.writers.every((writer,index)=>writer===right.writers[index]);}
+function sameDescriptor(left:CardRecordDescriptor,right:CardRecordDescriptor):boolean{return left.name===right.name&&left.format===right.format&&left.schema===right.schema&&left.bootstrap===right.bootstrap;}
 
 export function buildDetailError(err: unknown, fallback: string): DetailErrorState {
   if (err instanceof OperatorApiError) {

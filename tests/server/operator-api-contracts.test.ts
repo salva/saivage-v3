@@ -36,7 +36,7 @@ const canonicalCard = {
 const canonicalCardDetail = { id:'project',type:'project',title:'Project',lifecycle:canonicalCard.lifecycle,version_seq:1,urgency:'normal',created_at:canonicalCard.created_at,updated_at:canonicalCard.updated_at,allowedActions:[] } as const;
 const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog',permitted_child_types:['goal','code'] } as const;
 const canonicalHierarchyChild = { id:'card-a',type:'code',title:'Card',status:'backlog',permitted_child_types:[] } as const;
-const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['analyst', 'planner'], bootstrap: true, current: null }] as const;
+const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, current: null }] as const;
 const canonicalCardKeys = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const;
 const validOperatorApiRow: OperatorApiCardDiffRow = { field: 'title', before: null, after: 'new' };
 // @ts-expect-error CardDiffRow requires before through operator-api.ts.
@@ -500,7 +500,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(()=>parseOperatorResponse('cards.children',200,{parent:{...canonicalHierarchyCard,permitted_child_types:['unknown']},children:[]})).toThrow();
     expect(()=>parseOperatorResponse('cards.children',200,{parent:canonicalHierarchyCard,children:[{...canonicalHierarchyChild,permitted_child_types:['unknown']}]})).toThrow();
     expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[...canonicalRecordDescriptors,...canonicalRecordDescriptors] })).toThrow();
-    expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],writers:['analyst','analyst']}] })).toThrow();
+    expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],writers:['analyst']}] })).toThrow();
     expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],bootstrap:false}] })).toThrow();
     const record404 = operatorApiContracts['cards.records.get'].response[404];
     for (const body of [

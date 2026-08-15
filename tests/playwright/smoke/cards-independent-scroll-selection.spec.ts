@@ -43,17 +43,17 @@ const project = card('project', 'Cards fixture project', [sourceId, goalId, ...o
 const hierarchy=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,status:value.lifecycle.status,permitted_child_types:value.type==='project'||value.type==='goal'?['code'] as const:[]});
 const detailProjection=(value:ReturnType<typeof card>)=>({id:value.id,type:value.type,title:value.title,lifecycle:value.lifecycle,version_seq:value.version_seq,urgency:value.urgency,created_at:value.created_at,updated_at:value.updated_at,allowedActions:value.allowedActions});
 const recordsFor = (id: string) => id === targetId ? [
-  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true,current:null },
-  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['executor'], bootstrap: false,current:null },
-  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', writers: ['reviewer'], bootstrap: false,current:null },
-  { name: 'decision.md', format: 'markdown' as const, schema: 'decision.v1', writers: ['reviewer'], bootstrap: false,current:null },
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', bootstrap: true,current:null },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', bootstrap: false,current:null },
+  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', bootstrap: false,current:null },
+  { name: 'decision.md', format: 'markdown' as const, schema: 'decision.v1', bootstrap: false,current:null },
 ] : id === goalId ? [
-  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst', 'planner'], bootstrap: true,current:null },
-  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['planner'], bootstrap: false,current:null },
-  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', writers: ['reviewer'], bootstrap: false,current:null },
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', bootstrap: true,current:null },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', bootstrap: false,current:null },
+  { name: 'review.md', format: 'markdown' as const, schema: 'review.v1', bootstrap: false,current:null },
 ] : [
-  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true,current:null },
-  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', writers: ['executor'], bootstrap: false,current:null },
+  { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', bootstrap: true,current:null },
+  { name: 'status.md', format: 'markdown' as const, schema: 'status.v1', bootstrap: false,current:null },
 ];
 
 type RecordReply = { status: number; content?: string };

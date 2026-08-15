@@ -38,7 +38,7 @@
       <h5>Graph details</h5>
       <dl class="graph-summary">
         <dt>Permitted children</dt><dd>{{ graph.permitted_child_types.join(', ') || 'none' }}</dd>
-        <dt>Records</dt><dd><span v-for="record in graph.records" :key="record.name">{{ record.name }} · {{ record.schema }} · writers {{ record.writers.join(', ') }}<template v-if="record.bootstrap"> · bootstrap</template><br></span></dd>
+        <dt>Records</dt><dd><span v-for="record in graph.records" :key="record.name">{{ record.name }} · {{ record.schema }}<template v-if="record.bootstrap"> · bootstrap</template><br></span></dd>
       </dl>
       <h5>Selected element details</h5>
       <pre>{{ detailJson }}</pre>
@@ -90,7 +90,7 @@ function targetPoint(edge: Graph['edges'][number]): { x: number; y: number } { i
 function edgePath(edge: Graph['edges'][number]): string { const source = nodePoint(edge.source_node_id); const target = targetPoint(edge); const sx = source.x + 230; const sy = source.y + 56; if (edge.target.kind === 'node' && edge.target.node_id === edge.source_node_id) return `M ${sx - 25} ${source.y} C ${sx + 50} ${source.y - 65}, ${source.x - 50} ${source.y - 65}, ${source.x + 25} ${source.y}`; return `M ${sx} ${sy} C ${(sx + target.x) / 2} ${sy}, ${(sx + target.x) / 2} ${target.y}, ${target.x} ${target.y}`; }
 function edgeLabel(edge: Graph['edges'][number]): { x: number; y: number } { const source = nodePoint(edge.source_node_id); const target = targetPoint(edge); return { x: (source.x + 230 + target.x) / 2, y: (source.y + 56 + target.y) / 2 - 7 }; }
 function isCycle(edge: Graph['edges'][number]): boolean { return edge.target.kind === 'node' && nodePoint(edge.target.node_id).layer <= nodePoint(edge.source_node_id).layer; }
-function requirementLabel(node: Graph['nodes'][number]): string { return node.requirements.length ? node.requirements.map((item) => `${item.record_name}:${item.kind}`).join(', ') : 'none'; }
+function requirementLabel(node: Graph['nodes'][number]): string { return node.requirements.length ? node.requirements.map((item) => `${item.record_name}:${item.mode}/${item.gate}`).join(', ') : 'none'; }
 function childLabel(node: Graph['nodes'][number]): string { const values = [...new Set([...node.child_creation_types, ...node.child_activation_types])]; return values.length ? values.join(', ') : 'none'; }
 function nodeDescription(node: Graph['nodes'][number]): string { return `${node.node_id} node, agent ${node.agent_name}, model route ${node.model.route}, ${node.tools.length} tools, requirements ${requirementLabel(node)}`; }
 function entryDescription(entry: Graph['entries'][number]): string { return `${entry.entry} lifecycle entry targets ${entry.node_id}${entry.prompt_reference ? ` with prompt ${entry.prompt_reference}` : ''}`; }

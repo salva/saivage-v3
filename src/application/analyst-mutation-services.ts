@@ -204,4 +204,4 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
   }
 }
 
-import { parseRecordMutationUrl as awaitImportParse } from '../contracts/record-mutation.js';
+import { parseRecordUrl as awaitImportParse } from '../contracts/record-mutation.js';

@@ -39,8 +39,8 @@ export class CardService extends ProductionCardService {
   override editCard(id: string,changes:Parameters<ProductionCardService['editCard']>[1],agentName:Parameters<ProductionCardService['editCard']>[2]='planner'){return super.editCard(id,changes,agentName);}
   override deleteSubtrees(ids:readonly string[],allowed:Parameters<ProductionCardService['deleteSubtrees']>[1],agentName:Parameters<ProductionCardService['deleteSubtrees']>[2]='analyst'){return super.deleteSubtrees(ids,allowed,agentName);}
   override closeRecord(cardId:string,filename:string,version:number,agentName?:Parameters<ProductionCardService['closeRecord']>[3]){
-    const definition=TEST_WORKFLOWS.cardTypes.get(this.read(cardId)!.type)!.records.get(filename as never)!;
-    return super.closeRecord(cardId,filename,version,agentName??definition.writers[0]!);
+    const type=this.read(cardId)!.type;const fallback=type==='code'||type==='test'||type==='doc'||type==='data'||type==='research'||type==='ops'||type==='architecture'?'executor':filename==='review.md'?'reviewer':'planner';
+    return super.closeRecord(cardId,filename,version,agentName??fallback);
   }
   override discardRecord(cardId:string,filename:string,version:number,reason='test discard'){return super.discardRecord(cardId,filename,version,reason);}
 }

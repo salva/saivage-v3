@@ -68,10 +68,11 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
         child_creation_types: [...node.childCreationTypes],
         child_activation_types: [...node.childActivationTypes],
         readable_records: [...node.readableRecords.keys()],
-        writable_records: [...node.writableRecords.keys()],
+        record_write_patterns: node.agent.recordWrites.map(({source})=>source),
         requirements: node.requirements.map((requirement) => ({
           record_name: requirement.definition.name,
-          kind: requirement.kind,
+          mode: requirement.mode,
+          gate: requirement.gate,
         })),
         descendant_context:
           node.descendantContext === null
@@ -130,7 +131,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
     return {
       card_type: cardType,
       permitted_child_types: [...workflow.permittedChildTypes],
-      records: [...workflow.records.values()].map((record) => ({ ...record })),
+      records: [...workflow.records.values()].map(({name,format,schema,bootstrap}) => ({name,format,schema,bootstrap})),
       entries: graphEntries,
       nodes,
       edges,

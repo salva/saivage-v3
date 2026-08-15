@@ -49,6 +49,11 @@ describe('application startup generated-state admission', () => {
     apps.pop(); await app.stop();
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });
+
+  it('fails startup on a missing declared optional index without recreating it',async()=>{
+    const root=projectRoot();publishInitialProjectRuntime(root,compileProjectWorkflows(TEST_SAIVAGE_CONFIG));const index=cardRecordVersionIndexFile(root,'project',testRecordDefinition('status.md','project'));rmSync(index);
+    await expect(start(root,false)).rejects.toThrow(expect.objectContaining({code:'ENOENT'}));expect(existsSync(index)).toBe(false);expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  });
 });
 
 function projectRoot(): string { const root = mkdtempSync(join(tmpdir(), 'saivage-app-startup-')); roots.push(root); createProjectIdentity(root, 'Startup test'); replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), TEST_SAIVAGE_CONFIG); return root; }

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
 import { appendConversationBatch, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
@@ -28,14 +28,23 @@ describe('current generated state startup admission', () => {
     expect(readFileSync(conversationPath)).toEqual(before);
   });
 
-  it('initializes exact missing optional authority and truncates only an unterminated conversation suffix', () => {
-    const root = fixture(); const optional = optionalIndex(root); unlinkSync(optional);
+  it('accepts complete empty optional authority and truncates only an unterminated conversation suffix', () => {
+    const root = fixture(); const optional = optionalIndex(root); const optionalBytes = readFileSync(optional);
+    expect(JSON.parse(optionalBytes.toString('utf8'))).toEqual(expect.objectContaining({ kind: 'authored-record-version-index', versions: [], current_version: null, current_filename: null }));
     const path = plannerConversationWithSuffix(root); const canonicalLength = readFileSync(path).byteLength - Buffer.byteLength('unterminated');
 
     initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS);
 
-    expect(readFileSync(optional, 'utf8')).toContain('authored-record-version-index');
+    expect(readFileSync(optional)).toEqual(optionalBytes);
     expect(readFileSync(path).byteLength).toBe(canonicalLength);
+  });
+
+  it.each(['directory', 'index'] as const)('rejects a missing declared optional %s without recreating it', (missing) => {
+    const root = fixture(); const optional = optionalIndex(root); const target = missing === 'directory' ? dirname(optional) : optional;
+    rmSync(target, { recursive: true });
+
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
+    expect(existsSync(target)).toBe(false);
   });
 
   it.each(['card', 'record', 'conversation'] as const)('fails on complete malformed current %s authority without changing it', (authority) => {

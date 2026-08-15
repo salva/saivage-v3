@@ -31,6 +31,8 @@ function harness(args: {
   terminalVariant?: 'pending' | 'records' | 'stale' | 'incomplete';
   agentTools?: string[];
   reviewerPreparationError?: Error;
+  writtenRecords?: string[];
+  discardError?: Error;
 }) {
   const events: string[] = [];
   const handoffs: unknown[] = [];
@@ -74,7 +76,7 @@ function harness(args: {
     kind: 'node',
     nodeId: 'work',
     agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } },
-    requirements: args.terminalVariant === 'records' ? [{ kind: 'updated', definition: { name: 'status.md' } }] : [],
+    requirements: args.terminalVariant === 'records' ? [{ mode: 'continue', gate: 'updated', definition: { name: 'status.md' } }] : [],
     descendantContext: args.terminalVariant === 'stale' || args.reviewerPreparationError ? { records: [] } : null,
     on: new Map([['result:complete', Object.freeze({targetStateId:'terminal:DONE',reenter:false,semantic:Object.freeze({kind:'configured-outcome',outcome:'complete',promptId:null,terminalBehavior:Object.freeze({promotion:Object.freeze({kind:'current'}),exportRecords:Object.freeze([])})})})]]),
     childCreationTypes: new Set(),
@@ -103,7 +105,8 @@ function harness(args: {
     cardId: 'project',
     store: {
       read: (id: string) => id === 'card-a' ? { id, lifecycle: { status: 'running' } } : card,
-      readCurrentRecord: () => ({ headVersion: 1, currentUrl: 'record:///status.md?card=project', versionUrl: 'record:///status.md?card=project&v=1', artifact: { state: 'closed', accepted: { source_version: 1, content: 'status', content_sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' }, draft: null } }),
+      readCurrentRecord: (_cardId: string, name: string) => { events.push(`read-record:${name}`); return { headVersion: 1, currentUrl: `record:///${name}?card=project`, versionUrl: `record:///${name}?card=project&v=1`, artifact: { state: 'open', accepted: null, draft: { content: 'draft' } } }; },
+      discardRecord: (_cardId: string, name: string) => { events.push(`discard-record:${name}`); if (name === 'beta.md' && args.discardError) throw args.discardError; },
       listChildren: args.terminalVariant === 'incomplete' ? jest.fn().mockReturnValueOnce(['card-a']).mockReturnValue([]) : () => [],
     },
     processRunner: { createDirectScope },
@@ -119,8 +122,10 @@ function harness(args: {
   } as never);
   const internals = execution as unknown as {
     prepareNodeEntry: () => void;
+    prepareRecordRequirements: () => void;
+    captureRecordHead: () => number | null;
     buildLlmInput: (...args: unknown[]) => object;
-    buildSurface: () => InvocationSurface;
+    buildSurface: (...args: unknown[]) => InvocationSurface;
     correction: (_node: unknown, violations: readonly string[]) => string;
     closeAcceptedRecords: () => Array<{ name: string; url: string; version: number }>;
     validateRecords: () => { candidates: Map<string, unknown> } | { violations: string[] };
@@ -128,8 +133,10 @@ function harness(args: {
     reviewerStaleReason: () => string | null;
   };
   internals.prepareNodeEntry = () => undefined;
+  internals.prepareRecordRequirements = () => undefined;
+  internals.captureRecordHead = () => 1;
   internals.buildLlmInput = (...values) => { llmInputArguments.push(values); return {}; };
-  internals.buildSurface = () => surface;
+  internals.buildSurface = (...values) => { const written=values[5] as Set<string>;for(const name of args.writtenRecords??[])written.add(name);return surface; };
   internals.correction = (_node, violations) => `correction: ${violations.join('; ')}`;
   internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
   if (args.reviewerPreparationError) internals.captureReviewerPair = () => { throw args.reviewerPreparationError; };
@@ -383,5 +390,22 @@ describe('AgentNodeExecution contract repair behavior', () => {
     await expect(test.run()).rejects.toBe(publication);
     expect(test.cleanupReasons).toEqual([]);
     expect(test.events.at(-1)).toBe('tool-execute');
+  });
+
+  it('discards activation-written drafts in sorted prefix order before cleanup on graceful failure', async () => {
+    const test=harness({initial:{type:'error',agentId:'agent:planner:project',error:'provider unavailable'},writtenRecords:['gamma.md','beta.md','alpha.md'],discardError:new Error('discard failed')});
+    await expect(test.run()).rejects.toThrow('discard failed');
+    expect(test.events.filter((event)=>event.startsWith('read-record:')||event.startsWith('discard-record:')||event==='cleanup')).toEqual([
+      'read-record:alpha.md','discard-record:alpha.md','read-record:beta.md','discard-record:beta.md','cleanup',
+    ]);
+  });
+
+  it('bypasses invocation-surface cleanup after publication-unknown draft discard', async () => {
+    const publication=new PublicationOutcomeUnknownError();
+    const test=harness({initial:{type:'error',agentId:'agent:planner:project',error:'provider unavailable'},writtenRecords:['beta.md','alpha.md'],discardError:publication});
+    await expect(test.run()).rejects.toBe(publication);
+    expect(test.events.filter((event)=>event.startsWith('read-record:')||event.startsWith('discard-record:')||event==='cleanup')).toEqual([
+      'read-record:alpha.md','discard-record:alpha.md','read-record:beta.md','discard-record:beta.md',
+    ]);
   });
 });

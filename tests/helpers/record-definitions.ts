@@ -4,7 +4,7 @@ import { TEST_WORKFLOWS } from './canonical-project.js';
 import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 
 export function testRecordDefinitions(cardType:CardType='project'):RecordDefinition[]{
-  return [...TEST_WORKFLOWS.cardTypes.get(cardType)!.records.values()].map((definition)=>({filename:definition.name,writers:definition.writers,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap}));
+  return [...TEST_WORKFLOWS.cardTypes.get(cardType)!.records.values()].map((definition)=>({filename:definition.name,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap,declared:true}));
 }
 export function testRecordDefinition(filename:string,cardType:CardType='project'):RecordDefinition{
   const definition=testRecordDefinitions(cardType).find((candidate)=>candidate.filename===filename);

@@ -54,7 +54,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     let releaseFirst!: () => void;
     const provider = { completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
       inputs.push(input);
-      if (inputs.length === 1) return new Promise<ProviderTurnCompletion>((resolve) => { releaseFirst = () => resolve(complete(tool('write-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'work started' }))); });
+      if (inputs.length === 1) return new Promise<ProviderTurnCompletion>((resolve) => { releaseFirst = () => resolve(complete(tool('write-status', 'write', { path: 'record:///status.md?card=project', content: 'work started' }))); });
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     }) };
     const runtime = supervisor(projectRoot, cards, provider);
@@ -110,7 +110,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     let calls = 0;
     const provider = { completeTurn: jest.fn(async (_input: LlmInvocationInput, signal: AbortSignal) => {
       calls += 1;
-      if (calls === 1) return complete(tool('write-status', 'write', { path: 'record:///status.md?card=project&expected_head=absent', content: 'candidate' }));
+      if (calls === 1) return complete(tool('write-status', 'write', { path: 'record:///status.md?card=project', content: 'candidate' }));
       return new Promise<ProviderTurnCompletion>((resolve, reject) => {
         releaseTerminal = () => resolve(complete(tool('emit-late', 'emit_result', { outcome: 'done', summary: 'late' })));
         signal.addEventListener('abort', () => reject(signal.reason), { once: true });

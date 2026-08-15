@@ -16,7 +16,7 @@ describe('CardRecordsSection', () => {
     setActivePinia(createPinia());
     vi.mocked(getCardRecord).mockResolvedValue({ card_id: 'card-a', record: { name: 'brief.md', head_version:2,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed',accepted:{source_version:2,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:'2026-07-18T00:00:00Z',writer_agent:'analyst',card_version_seq:1,content:'accepted brief',content_sha256:'a'.repeat(64),size_bytes:14},draft:null,discarded:null,effective_content_source:'accepted' } });
     const store = useCardStore();
-    const descriptor = { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', writers: ['analyst'], bootstrap: true, current:null };
+    const descriptor = { name: 'brief.md', format: 'markdown' as const, schema: 'brief.v1', bootstrap: true, current:null };
     store.selectedCardId = 'card-a';
     store.selectedDetail = { cardId: 'card-a', card: cardView('card-a') };
     store.recordDescriptors = [descriptor];

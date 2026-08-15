@@ -165,15 +165,15 @@ describe('WebProvider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     const content = '# Goal\nFetched\n# Instructions\nUse it\n# Acceptance Criteria\nSaved';
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(content, { status: 200, headers: { 'content-type': 'text/plain' } }));
-    const mutationPath = 'record:///brief.md?card=project&expected_head=1';
-    const write = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { card_id: 'project', name: 'brief.md', state: 'closed', head_version: 4, head_entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', current_url: 'record:///brief.md?card=project', version_url: 'record:///brief.md?card=project&v=4', mutation_url: 'record:///brief.md?card=project&expected_head=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }));
+    const mutationPath = 'record:///brief.md?card=project';
+    const write = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { card_id: 'project', name: 'brief.md', state: 'closed', head_version: 4, head_entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', current_url: 'record:///brief.md?card=project', version_url: 'record:///brief.md?card=project&v=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }));
     const admitWrite = jest.fn(() => ({ ok: true as const }));
     const readiness = Object.freeze({ assertInterventionReady() {} });
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { recordMutations: { admitWrite, write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
       const result = await invokeTool(surface, 'webfetch', { url: 'https://example.com/path?raw-query-marker=yes', save_as: mutationPath });
-      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://example.com/path?[REDACTED]', saved_as: 'record:///brief.md?card=project', write: { kind: 'record', result: { data: { mutation_url: 'record:///brief.md?card=project&expected_head=4' } } } } });
+      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://example.com/path?[REDACTED]', saved_as: 'record:///brief.md?card=project', write: { kind: 'record', result: { data: { current_url: 'record:///brief.md?card=project' } } } } });
       expect(JSON.stringify(result)).not.toContain('raw-query-marker');
       expect(result).not.toHaveProperty('data.url');
       expect(write).toHaveBeenCalledTimes(1);
@@ -191,9 +191,9 @@ describe('WebProvider', () => {
     const content = 'ordered content';
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async () => { events.push('fetch'); return new Response(content, { status: 200, headers: { 'content-type': 'text/plain' } }); });
     let readinessCount = 0;
-    const mutationPath = 'record:///brief.md?card=project&expected_head=1';
+    const mutationPath = 'record:///brief.md?card=project';
     const admitWrite = jest.fn(() => { events.push('preflight'); return { ok: true as const }; });
-    const write = jest.fn(() => { events.push('mutate'); return { kind: 'returned' as const, success: true as const, data: { card_id: 'project', name: 'brief.md', state: 'closed', head_version: 4, head_entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', current_url: 'record:///brief.md?card=project', version_url: 'record:///brief.md?card=project&v=4', mutation_url: 'record:///brief.md?card=project&expected_head=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }; });
+    const write = jest.fn(() => { events.push('mutate'); return { kind: 'returned' as const, success: true as const, data: { card_id: 'project', name: 'brief.md', state: 'closed', head_version: 4, head_entry_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', current_url: 'record:///brief.md?card=project', version_url: 'record:///brief.md?card=project&v=4', bytes: Buffer.byteLength(content), written: true, surface: 'analyst', propagation: { ok: true } } }; });
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() { readinessCount += 1; events.push(`readiness-${readinessCount}`); } }, analystMutations: { recordMutations: { admitWrite, write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
@@ -210,11 +210,11 @@ describe('WebProvider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-denied-'));
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     const write = jest.fn();
-    const stale = { success: false as const, error: 'Record mutation is stale.' as const, data: { code: 'record_mutation_stale' as const, card_id: 'project', name: 'brief.md', operation: 'write' as const, expected_head: 1, current_head: 2 } };
+    const conflict = { success: false as const, error: 'Record already has an open workflow draft.' as const, data: { code: 'record_open_conflict' as const, card_id: 'project', name: 'brief.md', operation: 'write' as const, current_head: 2 } };
     try {
-      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() {} }, analystMutations: { recordMutations: { admitWrite: () => ({ ok: false as const, result: stale, audit_outcome: 'error' as const }), write } } } as never;
+      const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() {} }, analystMutations: { recordMutations: { admitWrite: () => ({ ok: false as const, result: conflict, audit_outcome: 'error' as const }), write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [createWebProvider({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
-      await expect(invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'record:///brief.md?card=project&expected_head=1' })).resolves.toEqual(stale);
+      await expect(invokeTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'record:///brief.md?card=project' })).resolves.toEqual(conflict);
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(write).not.toHaveBeenCalled();
     } finally {
@@ -231,7 +231,7 @@ describe('WebProvider', () => {
     try {
       const analystToolContext={projectRoot:root,actor:'analyst',surface:'web-chat',interventionReadiness:{assertInterventionReady(){readiness+=1;events.push(`readiness-${readiness}`);if(readiness===2)throw new Error('intervention unavailable');}},analystMutations:{recordMutations:{admitWrite:()=>{events.push('preflight');return {ok:true as const};},write}}} as never;
       const surface=buildInvocationSurfaceFixture('analyst',[createWebProvider({projectRoot:root,agentName:'analyst',analystToolContext})]);
-      await expect(invokeTool(surface,'webfetch',{url:'https://example.com',save_as:'record:///brief.md?card=project&expected_head=1'})).rejects.toThrow('intervention unavailable');
+      await expect(invokeTool(surface,'webfetch',{url:'https://example.com',save_as:'record:///brief.md?card=project'})).rejects.toThrow('intervention unavailable');
       expect(events).toEqual(['readiness-1','preflight','fetch','readiness-2']);
       expect(fetchSpy).toHaveBeenCalledTimes(1);expect(write).not.toHaveBeenCalled();
     } finally {fetchSpy.mockRestore();rmSync(root,{recursive:true,force:true});}

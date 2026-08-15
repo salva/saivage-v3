@@ -5,7 +5,7 @@ import { resolveRecordReadTarget } from '../../src/workspace/scoped-path-schemes
 import { listScopedPath } from '../../src/workspace/vfs.js';
 import { WorkspaceFileReadModelService } from '../../src/application/read-models/workspace-file-read-model.js';
 
-const definition = { filename: 'status.md', bootstrap: false, writers: ['planner'], format: 'markdown', schema: null } as never;
+const definition = { filename: 'status.md', bootstrap: false, declared: true, format: 'markdown', schema: null } as never;
 
 describe('publication uncertainty across scoped record projections', () => {
   it('preserves the same instance before scoped-path not-found conversion', () => {

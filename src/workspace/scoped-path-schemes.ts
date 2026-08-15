@@ -1,20 +1,20 @@
 import { relative, resolve } from 'node:path';
 
 import type { AgentName } from '../schemas/index.js';
-import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
-import { cardIdSchema } from '../schemas/index.js';
+import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-export type AuthoredRecordReader = { current(cardId: string, filename: string): RecordProjection; historical(cardId: string, filename: string, version: number): RecordProjection;definition(cardId:string,filename:string):RecordDefinition };
+export type AuthoredRecordReader = { current(cardId: string, filename: string): RecordProjection;currentOrNull?(cardId:string,filename:string):RecordProjection|null; historical(cardId: string, filename: string, version: number): RecordProjection;definition(cardId:string,filename:string):RecordDefinition };
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/layout.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-import { parseRecordMutationUrl, type ParsedRecordMutationTarget } from '../contracts/record-mutation.js';
+import { parseRecordUrl, type ParsedRecordUrl } from '../contracts/record-mutation.js';
 
 export type ScopedPathMode = 'read' | 'write' | 'search';
 export type ScopedPathErrorFactory = (message: string) => Error;
 export type ScopedAgentContext = { cardId?: string; agentName?: AgentName };
-export type ResolvedScopedPath = { kind: 'project' | 'tmp' | 'system' | 'work'; absolutePath: string; relativePath: string; workRoot?: string } | ({ kind: 'record' } & RecordProjection);
+export type ResolvedRecordReadTarget=Readonly<{parsed:ParsedRecordUrl;definition:RecordDefinition;projection:RecordProjection|null}>;
+export type ResolvedScopedPath = { kind: 'project' | 'tmp' | 'system' | 'work'; absolutePath: string; relativePath: string; workRoot?: string } | ({ kind: 'record' } & ResolvedRecordReadTarget);
 
 export interface ResolveScopedPathContext {
   projectRoot: string;
@@ -52,7 +52,7 @@ function readRecordOrNotFound(ctx: ResolveScopedPathContext, read: () => RecordP
   try { return read(); }
   catch (error) {
     throwIfPublicationOutcomeUnknown(error);
-    if (error instanceof AuthoredRecordNotFoundError || error instanceof AuthoredRecordDefinitionNotFoundError) throw ctx.fail('Record not found.');
+    if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
     throw error;
   }
 }
@@ -61,38 +61,33 @@ function recordDefinitionOrNotFound(ctx: ResolveScopedPathContext, cardId: strin
   try { return ctx.records!.definition(cardId, filename); }
   catch (error) {
     throwIfPublicationOutcomeUnknown(error);
-    if (error instanceof AuthoredRecordNotFoundError || error instanceof AuthoredRecordDefinitionNotFoundError) throw ctx.fail('Record not found.');
+    if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
     throw error;
   }
 }
 
-export function assertRecordWrite(agentName: AgentName | undefined, currentCardId: string | undefined, cardId: string, definition:RecordDefinition, _expectedHead: number | 'absent', fail: ScopedPathErrorFactory): void {
+export function assertRecordWrite(currentCardId: string | undefined, cardId: string, fail: ScopedPathErrorFactory): void {
   if (!currentCardId) throw fail('Record writes require an active card context.');
   if (cardId !== currentCardId) throw fail('Agents may write records only for their current card.');
-  if (!agentName || !definition.writers.includes(agentName)) throw fail(`${agentName} cannot write record '${definition.filename}'.`);
 }
 
-export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: string): ParsedRecordMutationTarget & { agent: ScopedAgentContext; filename: string; recordUrl: string } {
+export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: string): ParsedRecordUrl & { agent: ScopedAgentContext; filename: string; recordUrl: string } {
   const agent = requireAgent(ctx, 'record:///');
-  let parsed: ParsedRecordMutationTarget; try { parsed = parseRecordMutationUrl(raw); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
+  let parsed: ParsedRecordUrl; try { parsed = parseRecordUrl(raw); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
+  if(parsed.version!==null)throw ctx.fail('Historical record URLs cannot be mutated.');
   const filename = parsed.name; const cardId = parsed.cardId;
   if(!ctx.records)throw ctx.fail('Record writes require an injected persistence reader.');
   recordDefinitionOrNotFound(ctx, cardId, filename);
   return { ...parsed, agent, filename, recordUrl: parsed.currentUrl };
 }
 
-export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): RecordProjection {
+export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): ResolvedRecordReadTarget {
   if (!ctx.records) throw ctx.fail('Record reads require an injected persistence reader.');
   requireAgent(ctx, 'record:///');
-  const match=/^record:\/\/\/([^/?#]+)\?card=([^&#]+)(?:&v=([1-9][0-9]*))?$/.exec(raw);if(!match)throw ctx.fail(`Invalid record URL '${raw}'.`);
-  let filename:string;let decodedCardId:string;try{filename=decodeURIComponent(match[1]!);decodedCardId=decodeURIComponent(match[2]!);}catch{throw ctx.fail(`Invalid record URL '${raw}'.`);}
-  if(/%[0-9a-f]{2}/i.test(filename)||/%[0-9a-f]{2}/i.test(decodedCardId))throw ctx.fail(`Invalid record URL '${raw}'.`);
-  const cardId = cardIdSchema.parse(validRecordSegment(decodedCardId, 'card id', raw, ctx.fail));
-  recordDefinitionOrNotFound(ctx, cardId, filename);
-  const version = match[3];
-  if (version === undefined) return readRecordOrNotFound(ctx, () => ctx.records!.current(cardId, filename));
-  const numeric = Number(version); if (!Number.isSafeInteger(numeric)) throw ctx.fail(`Invalid record version '${version}'.`);
-  return readRecordOrNotFound(ctx, () => ctx.records!.historical(cardId, filename, numeric));
+  let parsed:ParsedRecordUrl;try{parsed=parseRecordUrl(raw);}catch(error){throw ctx.fail(toolFacingErrorMessage(error));}
+  const definition=recordDefinitionOrNotFound(ctx,parsed.cardId,parsed.name);
+  if(parsed.version===null){let projection:RecordProjection|null;try{projection=ctx.records.currentOrNull?ctx.records.currentOrNull(parsed.cardId,parsed.name):ctx.records.current(parsed.cardId,parsed.name);}catch(error){throwIfPublicationOutcomeUnknown(error);if(error instanceof AuthoredRecordNotFoundError)projection=null;else throw error;}return Object.freeze({parsed,definition,projection});}
+  return Object.freeze({parsed,definition,projection:readRecordOrNotFound(ctx,()=>ctx.records!.historical(parsed.cardId,parsed.name,parsed.version!))});
 }
 
 export const scopedPathResolvers = {

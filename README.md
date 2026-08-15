@@ -33,7 +33,7 @@ The invocation projector recognizes the exact 42 Analyst tools, including `reope
 
 Provider exchange, event, and control rows are source-projected before publication and on read. Provider endpoint scheme/host/port/path and adapter identity remain exact while userinfo/query/fragment are removed. MCP tools expose one displayed server/tool hierarchy with nested direct statistics and omit integration errors, descriptions, schemas, annotations, `_meta`, duplicate flat inventories, and a duplicate all-stats table. Every `webfetch` result exposes `redacted_url` and no raw URL, and durable call rows expose no raw query.
 
-Authored-record mutation is explicitly optimistic: current/list responses return an exact `record:///<name>?card=<id>&expected_head=absent|N` `mutation_url`, and successful mutation returns the next authority. There is no `v=next` or implicit-head write. Saved Webfetch text preserves plain/project/tmp/system destination identity in a nested workspace result; record saves instead nest the strict record mutation result. Audited Analyst record saves preflight before the sole network request and recheck cancellation, intervention readiness, and fresh full current admission after it.
+Authored records use one reusable current URL, `record:///<name>?card=<id>`, for reads, writes, edits, and record-targeted Webfetch saves; only ordered numeric `&v=N` addresses immutable history. A first admitted write creates an absent dynamic record, subsequent mutations resolve or reuse its current draft, and framework acceptance—not a client head token—closes card-agent drafts. Saved Webfetch text preserves plain/project/tmp/system destination identity in a nested workspace result; record saves instead nest the strict record mutation result. Audited Analyst record saves preflight before the sole network request and recheck cancellation, intervention readiness, and fresh full current admission after it. Denial, open conflict, absent edit content, unchanged/invalid edit, empty result, and unavailable canonical state remain structured failures.
 
 An authoritative provider content-policy refusal during autonomous card work receives exactly one fixed safety-respecting reframing row and one admitted retry pinned to the same provider/account/model. A second refusal stores one strict marker containing only the second terminal raw provider response, publishes both passes' safe diagnostics, and settles the card BLOCKED with a safe nested parent result. The first raw response, request conversation, and generated paraphrases are absent from the marker, parent result, Dashboard, and rendered Agent conversation. Analyst refusals remain terminal after one call and receive no automatic retry. Dashboard obtains only a read-derived refusal high-water/latest projection and links to the exact redacted Agent row.
 
@@ -56,7 +56,7 @@ cd "$TARGET_PROJECT"
 "$SAIVAGE_BIN" init
 ```
 
-`init` reads project identity to select a bound or bootstrap-unbound lock record, exclusively publishes that init lifecycle lock, publishes missing `.saivage/saivage.yaml`, loads and validates configuration/workflows, and conditionally creates and binds identity. It then classifies generated state. Four absent generated roots permit the singular initial-runtime publisher to create project authority and the global Analyst conversation. Existing state enters strict startup admission only through required current-format project-card and bootstrap indexes/artifacts; partial required publication and old or mixed formats fail reset-required. A nonempty canonical linked-card projection, active dependencies, compiled workflows, and parent/type admission are validated before exact-missing optional-record and configured-session indexes are initialized.
+`init` reads project identity to select a bound or bootstrap-unbound lock record, exclusively publishes that init lifecycle lock, publishes missing `.saivage/saivage.yaml`, loads and validates configuration/workflows, and conditionally creates and binds identity. It then classifies generated state. Four absent generated roots permit the singular initial-runtime publisher to create project authority and the global Analyst conversation. Existing state enters strict startup admission only through required current-format project-card and bootstrap indexes/artifacts; partial required publication and old or mixed formats fail reset-required. A nonempty canonical linked-card projection, active dependencies, compiled workflows, and parent/type admission are validated before exact-missing configured-session indexes are initialized. Every declared record namespace/index must already exist from card creation; startup never recreates one.
 
 The pre-acquisition identity read does not mutate. A known-unsuccessful exclusive open publishes no lock; failure after that open is outcome-unknown and may retain the lock. After successful acquisition, ordinary failure releases the exact current bound or bootstrap-unbound lock but preserves completed config, identity, and generated durable effects, including identity after create succeeds but lock binding fails. Every indexed current card, authored-record, and conversation head is strict: missing, malformed, unreadable, schema-invalid, or identity-mismatched authority blocks startup without shortening its index or opening a predecessor. Startup's explicit conversation owner alone may truncate bytes after the final newline when the retained nonempty complete prefix fully validates; uncertainty from attempted truncation is fatal and authorizes no follow-up operation. A generated-publication failure may leave retained partial state. The explicit remedy is to stop Saivage, run the current built `"$SAIVAGE_BIN" reset`, and retry `init`; do not selectively delete roots or expect `init` or `start --create-runtime` to repair them. There is no `init --force`.
 
@@ -66,10 +66,10 @@ The following abbreviated shape shows the current contract; `saivage init` publi
 
 ```yaml
 agents:
-  analyst: {prompt: analyst, tools: [read, write, edit, create_card, get_status, reconfigure], model_route: analyst, skills: false, session: global, can_create_children: true}
-  planner: {prompt: planner, tools: [read, write, edit, create_card, activate_card], model_route: planner, skills: false, session: card, can_create_children: true}
-  reviewer: {prompt: reviewer, tools: [read, write, edit, skill], model_route: reviewer, skills: true, session: card, can_create_children: false}
-  executor: {prompt: executor, tools: [read, write, edit, run_command, skill, mcp_tool_call], model_route: executor, skills: true, session: card, can_create_children: false}
+  analyst: {prompt: analyst, tools: [read, write, edit, create_card, get_status, reconfigure], record_writes: [brief.md], model_route: analyst, skills: false, session: global, can_create_children: true}
+  planner: {prompt: planner, tools: [read, write, edit, create_card, activate_card], record_writes: [brief.md, status.md], model_route: planner, skills: false, session: card, can_create_children: true}
+  reviewer: {prompt: reviewer, tools: [read, write, edit, skill], record_writes: [review.md, review-*.md], model_route: reviewer, skills: true, session: card, can_create_children: false}
+  executor: {prompt: executor, tools: [read, write, edit, run_command, skill, mcp_tool_call], record_writes: [status.md], model_route: executor, skills: true, session: card, can_create_children: false}
 analyst_agent: analyst
 models:
   routes:
@@ -98,9 +98,9 @@ card_types:
   project:
     permitted_child_types: [goal, architecture, code, test, doc, data, research, ops]
     records:
-      brief.md: {format: markdown, schema: card-brief.v1, writers: [analyst, planner], bootstrap: true}
-      status.md: {format: markdown, schema: work-status.v1, writers: [planner, executor], bootstrap: false}
-      review.md: {format: markdown, schema: work-review.v1, writers: [reviewer], bootstrap: false}
+      brief.md: {format: markdown, schema: card-brief.v1, bootstrap: true}
+      status.md: {format: markdown, schema: work-status.v1, bootstrap: false}
+      review.md: {format: markdown, schema: work-review.v1, bootstrap: false}
     workflow:
     entries:
       BACKLOG: {node: plan}
@@ -112,7 +112,7 @@ card_types:
         agent: planner
         prompt: plan
         correction_prompt: correct-plan-result
-        records: {status.md: updated}
+        records: {status.md: {mode: continue, gate: updated}}
         edges:
           complete_direct: {target: {terminal: DONE, promote: current, export_records: [status.md]}}
           admit_review: {target: {node: review}, prompt: plan-to-review}
@@ -122,7 +122,7 @@ card_types:
         agent: reviewer
         prompt: review
         correction_prompt: correct-review-result
-        records: {review.md: updated}
+        records: {review.md: {mode: clean, gate: updated}}
         edges:
           approved: {target: {terminal: DONE, promote: current, export_records: [review.md]}}
           revision_required: {target: {node: plan}, prompt: review-to-plan}
@@ -132,7 +132,7 @@ card_types:
         agent: planner
         prompt: recover
         correction_prompt: correct-plan-result
-        records: {status.md: updated}
+        records: {status.md: {mode: continue, gate: updated}}
         edges:
           complete_direct: {target: {terminal: DONE, promote: current, export_records: [status.md]}}
           admit_review: {target: {node: review}, prompt: plan-to-review}
@@ -217,7 +217,7 @@ Card status rules are operation-specific, not one universal terminal taxonomy. B
 
 Operator Card APIs are granular. A hierarchy request returns only one active parent and its active immediate `{id,title,type,status}` children in committed order; it does not expose raw links or inspect grandchildren, and a tombstoned link terminates there. Card detail contains only displayed identity, lifecycle, version, urgency, timestamps, and allowed actions. Compiled record descriptors/current artifacts, metadata-only record history, explicit record versions, and record diffs are separate Card endpoints and owners. The Records panel no longer routes through generic Files, while the independently mounted Files workspace remains available.
 
-Canonical card state is an authoritative `card/index.json` plus immutable `card/versions/N-<uuid>.json` artifacts. Each card type's compiled workflow defines safe Markdown record names, opaque schema identity, named writers, and exactly one bootstrap record. Each configured name owns an authoritative record `index.json` and immutable JSON version artifacts. Default names such as `brief.md`, `status.md`, and `review.md` are examples, not a closed registry.
+Canonical card state is an authoritative `card/index.json` plus immutable `card/versions/N-<uuid>.json` artifacts. Each card type's compiled workflow declares ordered safe Markdown metadata hints and exactly one bootstrap record; each agent's compiled `record_writes` globs are the sole record-name mutation authority. Undeclared valid names use deterministic Markdown/`authored-record.v1` metadata and are directly addressable without a catalog. Every declared name owns an authoritative record `index.json`; an admitted first write may claim and publish an undeclared name beneath a proven real canonical records parent. Open, edit, close, and discard each publish the next physical `N`, so numeric history versions identify immutable transitions rather than logical review cycles.
 
 Generated card and authored-record state uses cumulative indexes and immutable JSON version artifacts. Conversations use deterministic configured-session indexes and immutable appendable JSONL segments. Exclusive child namespace creation claims identity; the current parent card artifact grants membership/order. Current reads open only index and head, history lists index only, and explicit history opens only the selected listed artifact. Unindexed files are ignored forever. Tombstone is the final indexed card version. Immutable versions use direct exclusive final-name creation; indexes use replacement publication. The format is reset-only and old streams are never accepted as current.
 

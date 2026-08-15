@@ -3,7 +3,7 @@ import { mkdirSync,mkdtempSync,rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DEFAULT_SAIVAGE_CONFIG } from '../../../src/agents/default-workflow-config.js';
+import { DEFAULT_AGENTS,DEFAULT_SAIVAGE_CONFIG } from '../../../src/agents/default-workflow-config.js';
 import { bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
 import { saivageConfigSchema,type SaivageConfig } from '../../../src/schemas/saivage-config.js';
 import type { CardStatus } from '../../../src/schemas/index.js';
@@ -310,9 +310,9 @@ describe('named-agent card-type workflow compilation',()=>{
     const unavailable=source();const unbound=compileProjectWorkflows(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(new ProviderRegistry(unavailable)))).toThrow(/no capability-compatible configured provider candidate/);
   });
 
-  it('rejects missing agents, invalid writer capability, invalid child authority, and graph defects',()=>{
+  it('rejects missing agents, invalid record-write authority, invalid child authority, and graph defects',()=>{
     failure((value)=>{value.card_types.code!.workflow.nodes.execute!.agent='missing';},/missing agent/);
-    failure((value)=>{value.card_types.code!.records['status.md']!.writers=[];},/writer authority/);
+    failure((value)=>{value.agents.executor!.record_writes=[];},/record_writes authority/);
     failure((value)=>{value.agents.planner!.can_create_children=false;},/cannot list create_card/);
     failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges={loop:{target:{node:'execute'},prompt:'execute'}};},/no path to a terminal/);
   });
@@ -326,7 +326,7 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('uses intentionally local export and latest-node promotion validation',()=>{
-    failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges.done!.target={terminal:'DONE',promote:'current',export_records:['brief.md']};},/without a source-node present or updated requirement/);
+    failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges.done!.target={terminal:'DONE',promote:'current',export_records:['brief.md']};},/without a source-node requirement/);
     const value=source();
     const code=value.card_types.code!;
     code.workflow.nodes.verify=structuredClone(code.workflow.nodes.execute!);
@@ -343,6 +343,29 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(process.states.get(done.targetStateId)).toMatchObject({
       kind:'terminal',terminal:'DONE',
     });
+  });
+
+  it('compiles strict record-write patterns, generic requirements, and the exact capability matrix',()=>{
+    const defaults=compileProjectWorkflows(source());
+    expect(defaults.agents.get('analyst')!.recordWrites.map(({source})=>source)).toEqual(['brief.md']);
+    expect(defaults.agents.get('reviewer')!.recordWrites.map(({source})=>source)).toEqual(['review.md','review-*.md']);
+    expect(defaults.agents.get('reviewer')!.recordWrites[1]!.matcher.test('review-notes-1.md')).toBe(true);
+    expect(defaults.cardTypes.get('goal')!.states.get('node:review')).toMatchObject({requirements:[{mode:'clean',gate:'updated'}]});
+    failure((value)=>{value.agents.executor!.record_writes.push('status.md');},/duplicate 'status.md'/);
+    expect(saivageConfigSchema.safeParse({...structuredClone(DEFAULT_SAIVAGE_CONFIG),agents:{...structuredClone(DEFAULT_AGENTS),executor:{...structuredClone(DEFAULT_AGENTS.executor),record_writes:['status?.md']}}}).success).toBe(false);
+
+    for(const [mode,gate,needsWrite] of [['clean','exists',true],['clean','updated',true],['continue','updated',true],['continue','exists',false]] as const){
+      const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),tools:value.agents.executor!.tools.filter((tool)=>tool!=='write'&&tool!=='edit'),record_writes:['notes.md']};const execute=value.card_types.code!.workflow.nodes.execute!;execute.agent='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges))if('terminal'in edge.target)edge.target.export_records=['notes.md'];
+      if(needsWrite)expect(()=>compileProjectWorkflows(value)).toThrow(/requires the write tool/);else expect(()=>compileProjectWorkflows(value)).not.toThrow();
+      if(needsWrite){value.agents.matrix!.tools.push('write');const node=compileProjectWorkflows(value).cardTypes.get('code')!.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');expect(node.requirements[0]!.definition).toMatchObject({name:'notes.md',schema:'authored-record.v1',declared:false});}
+    }
+  });
+
+  it('requires descendant-context records across the transitive declared closure without glob coupling',()=>{
+    const value=source();value.agents.reviewer!.record_writes=['review.md'];
+    expect(()=>compileProjectWorkflows(value)).not.toThrow();
+    delete value.card_types.architecture!.records['status.md'];
+    expect(()=>compileProjectWorkflows(value)).toThrow(/descendant_context record 'status.md'.*architecture/);
   });
 
   it('marks configured same-node outcomes as semantic reentry without another destination locator',()=>{

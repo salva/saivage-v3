@@ -55,8 +55,8 @@ const projectCard = {
 const hierarchyCard={id:smokeCardId,type:'code',title:card.title,status:'done',permitted_child_types:[]} as const;
 const rootChildren = parseOperatorResponse('cards.children', 200, { parent: projectCard, children: [hierarchyCard] });
 export const cardRecords = [
-  { name: 'brief.md', format: 'markdown' as const, schema: 'card-brief.v1', writers: ['analyst', 'executor'], bootstrap: true, current: null },
-  { name: 'status.md', format: 'markdown' as const, schema: 'work-status.v1', writers: ['executor'], bootstrap: false, current: null },
+  { name: 'brief.md', format: 'markdown' as const, schema: 'card-brief.v1', bootstrap: true, current: null },
+  { name: 'status.md', format: 'markdown' as const, schema: 'work-status.v1', bootstrap: false, current: null },
 ];
 const cardDetail = parseOperatorResponse('cards.get', 200, { card });
 const recordList = parseOperatorResponse('cards.records.list', 200, { card_id:smokeCardId,records:cardRecords });
@@ -79,9 +79,9 @@ const debugTimeline = parseOperatorResponse('events.list', 200, {
 });
 const codeDebugGraph = {
     card_type: 'code', permitted_child_types: [],
-    records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', writers: ['executor'], bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', writers: ['executor'], bootstrap: false }],
+    records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false }],
     entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry, node_id: 'execute', prompt_reference: entry === 'STOPPED' ? 'stopped-recovery' : null })),
-    nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', reference: 'executor', process_reference: 'execute', correction_reference: 'correct-execute-result' }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], writable_records: ['brief.md', 'status.md'], requirements: [{ record_name: 'status.md', kind: 'updated' }], descendant_context: null, outcomes: ['done'] }],
+    nodes: [{ node_id: 'execute', agent_name: 'executor', session: { scope: 'card', identity_pattern: 'agent:executor:<card-id>' }, prompt: { source: 'bundled-shared', reference: 'executor', process_reference: 'execute', correction_reference: 'correct-execute-result' }, model: { route: 'executor', candidates: [{ provider: 'synthetic', model: 'synthetic-model' }], temperature: 0.2, max_tokens: 4096 }, skills: true, tools: ['read', 'write', 'edit'], child_creation_types: [], child_activation_types: [], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['done'] }],
     edges: [{ source_node_id: 'execute', outcome: 'done', runtime_owned: false, prompt_reference: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'execute', outcome: 'execution:failed', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'execute', outcome: 'execution:blocked', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
     terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };

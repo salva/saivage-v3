@@ -103,7 +103,7 @@ describe('analyst stopped card mutations', () => {
       cards.stopRunningForRecovery(card.id);
       const service = testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'n' })).recordMutations;
 
-      expect(service.write(`record:///brief.md?card=${card.id}&expected_head=1`, '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew')).toMatchObject({ success: true });
+      expect(service.write(`record:///brief.md?card=${card.id}`, '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew')).toMatchObject({ success: true });
       expect(cards.read(card.id)).toMatchObject({ lifecycle: { status: 'stopped' } });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -281,24 +281,23 @@ describe('Analyst record publication', () => {
       const cards = new CardService(root);
       const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: '# Goal\nOriginal\n# Instructions\nOriginal\n# Acceptance Criteria\nOriginal', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const finalContent = '# Goal\nFinal\n# Instructions\nFinal\n# Acceptance Criteria\nFinal';
-      const result = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations.edit(`record:///brief.md?card=${target.id}&expected_head=1`, 'Original', 'Final', true);
-      expect(result).toMatchObject({ kind: 'returned', success: true, data: { card_id: target.id, name: 'brief.md', state: 'closed', head_version: 4, current_url: `record:///brief.md?card=${target.id}`, version_url: `record:///brief.md?card=${target.id}&v=4`, mutation_url: `record:///brief.md?card=${target.id}&expected_head=4`, bytes: Buffer.byteLength(finalContent), written: true, surface: 'analyst', propagation: { ok: true } } });
+      const result = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations.edit(`record:///brief.md?card=${target.id}`, 'Original', 'Final', true);
+      expect(result).toMatchObject({ kind: 'returned', success: true, data: { card_id: target.id, name: 'brief.md', state: 'closed', head_version: 4, current_url: `record:///brief.md?card=${target.id}`, version_url: `record:///brief.md?card=${target.id}&v=4`, bytes: Buffer.byteLength(finalContent), written: true, surface: 'analyst', propagation: { ok: true } } });
       expect(cards.readCurrentRecord(target.id, 'brief.md').artifact.accepted?.content).toBe(finalContent);
       expect(cards.readHistoricalRecord(target.id, 'brief.md', 2).artifact.state).toBe('open');
       expect(cards.readHistoricalRecord(target.id, 'brief.md', 3).artifact.draft?.content).toBe(finalContent);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('returns stale and open-conflict failures without publishing', () => {
+  it('returns open-conflict failures without publishing', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-record-failures-'));
     try {
       initProjectTree(root);
       const cards = new CardService(root);
       const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: 'Original', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
-      expect(service.write(`record:///brief.md?card=${target.id}&expected_head=2`, 'New')).toMatchObject({ success: false, data: { code: 'record_mutation_stale', current_head: 1 } });
       const open = cards.openRecord(target.id, 'brief.md', 1);
-      expect(service.write(`record:///brief.md?card=${target.id}&expected_head=${open.headVersion}`, 'New')).toMatchObject({ success: false, data: { code: 'record_open_conflict', current_head: open.headVersion } });
+      expect(service.write(`record:///brief.md?card=${target.id}`, 'New')).toMatchObject({ success: false, data: { code: 'record_open_conflict', current_head: open.headVersion } });
       expect(cards.readCurrentRecord(target.id, 'brief.md').headVersion).toBe(open.headVersion);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -331,13 +330,13 @@ describe('other Analyst mutation facets', () => {
       const edited = cards.editRecord(card.id, 'brief.md', open.headVersion, '# Goal\nFresh current\n# Instructions\nFresh current\n# Acceptance Criteria\nFresh current');
       const closed = cards.closeRecord(card.id, 'brief.md', edited.headVersion, 'analyst');
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
-      expect(service.edit(`record:///brief.md?card=${card.id}&expected_head=${closed.headVersion}`, 'Fresh current', 'Newest', true)).toMatchObject({ kind: 'returned', success: true });
+      expect(service.edit(`record:///brief.md?card=${card.id}`, 'Fresh current', 'Newest', true)).toMatchObject({ kind: 'returned', success: true });
       expect(cards.readCurrentRecord(card.id, 'brief.md').artifact.accepted?.content).toContain('Newest');
       expect(cards.readCurrentRecord(card.id, 'brief.md').artifact.accepted?.content).not.toContain('Fresh current');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('applies exact full and unique-terminal stale-safe edits, denies stale/non-unique values, and reopens failed cards as changed', () => {
+  it('applies exact full and unique-terminal edits, denies invalid replacements, and reopens failed cards as changed', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-stale-safe-brief-'));
     try {
       initProjectTree(root);
@@ -347,7 +346,7 @@ describe('other Analyst mutation facets', () => {
       cards.setStatus(child.id, 'running');
       cards.commitActivationOutcome(child.id, { status: 'failed', summary: 'failed', result: runtimeFailure('failed') }, '2026-08-10T00:00:00.000Z');
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
-      const target = `record:///brief.md?card=${child.id}&expected_head=1`;
+      const target = `record:///brief.md?card=${child.id}`;
 
       const fullReplacement = `${initial}\nRecovery note.`;
       expect(service.edit(target, initial, fullReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { card_id: child.id, name: 'brief.md', bytes: Buffer.byteLength(fullReplacement), written: true, propagation: { ok: true } } });
@@ -355,13 +354,13 @@ describe('other Analyst mutation facets', () => {
       expect(cards.readCurrentRecord(child.id, 'brief.md').artifact.accepted?.content).toBe(fullReplacement);
 
       const terminalCard = cards.create({ type: 'code', parent: 'project', title: 'Terminal edit', bootstrap_content: initial, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-      const terminalTarget = `record:///brief.md?card=${terminalCard.id}&expected_head=1`;
+      const terminalTarget = `record:///brief.md?card=${terminalCard.id}`;
       const terminalReplacement = 'Recovery note.\nSecond note.';
       expect(service.edit(terminalTarget, 'Terminal', terminalReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { propagation: { ok: true } } });
       const settled = cards.readCurrentRecord(terminalCard.id, 'brief.md').artifact.accepted?.content;
       expect(settled?.endsWith(terminalReplacement)).toBe(true);
 
-      const freshTarget = `record:///brief.md?card=${terminalCard.id}&expected_head=4`;
+      const freshTarget = `record:///brief.md?card=${terminalCard.id}`;
       expect(service.edit(freshTarget, 'stale missing value', 'no', false)).toMatchObject({ kind: 'returned', success: false, data: { code: 'record_edit_old_string_not_found' } });
       expect(cards.readCurrentRecord(terminalCard.id, 'brief.md').artifact.accepted?.content).toBe(settled);
       expect(service.edit(freshTarget, '#', 'changed', false)).toMatchObject({ kind: 'returned', success: false, data: { code: 'record_edit_old_string_multiple_matches' } });
@@ -372,8 +371,8 @@ describe('other Analyst mutation facets', () => {
   it('classifies strict current read failures as restart-required without publication', () => {
     const targetCard = card('backlog');
     const openRecord = jest.fn();
-    const store = { read: () => targetCard, workflows: TEST_WORKFLOWS, recordReader: { definition: () => ({ filename: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, writers: ['analyst'] }) }, readCurrentRecordOrNull: () => { throw new Error('HOSTILE_STRICT_READ'); }, openRecord } as unknown as CardService;
-    expect(services(store).recordMutations.write(`record:///brief.md?card=${FIRST}&expected_head=1`, 'New')).toMatchObject({ kind: 'returned', success: false, data: { code: 'current_state_unavailable', restart_required: true } });
+    const store = { read: () => targetCard, workflows: TEST_WORKFLOWS, recordReader: { definition: () => ({ filename: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, declared: true }) }, readCurrentRecordOrNull: () => { throw new Error('HOSTILE_STRICT_READ'); }, openRecord } as unknown as CardService;
+    expect(services(store).recordMutations.write(`record:///brief.md?card=${FIRST}`, 'New')).toMatchObject({ kind: 'returned', success: false, data: { code: 'current_state_unavailable', restart_required: true } });
     expect(openRecord).not.toHaveBeenCalled();
   });
 });

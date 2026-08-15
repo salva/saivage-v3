@@ -171,7 +171,7 @@ describe('real CardProcess actor-main fatal containment', () => {
     const provider: LLMProviderPort = { completeTurn: async () => {
       calls += 1;
       if (calls === 1) await first;
-      return { result: { kind: 'tool_calls', tool_calls: [{ id: String(calls), type: 'function', function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project&expected_head=absent', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] };
+      return { result: { kind: 'tool_calls', tool_calls: [{ id: String(calls), type: 'function', function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] };
     } };
     const h = harness(provider);
     const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
@@ -211,7 +211,7 @@ describe('real CardProcess actor-main fatal containment', () => {
     let calls = 0;
     const provider: LLMProviderPort = { completeTurn: async () => {
       calls += 1;
-      return { result: { kind: 'tool_calls', tool_calls: [{ id: String(calls), type: 'function', function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project&expected_head=absent', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'normal result wins' }) } }] }, provider_exchanges: [] };
+      return { result: { kind: 'tool_calls', tool_calls: [{ id: String(calls), type: 'function', function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'normal result wins' }) } }] }, provider_exchanges: [] };
     } };
     const h = harness(provider);
     const notification = fatalNotificationSpy(h.supervisor);
@@ -289,7 +289,7 @@ describe('real CardProcess actor-main fatal containment', () => {
     const provider: LLMProviderPort = { completeTurn: async (input, signal) => {
       if (input.sessionId === 'agent:planner:project') {
         calls += 1;
-        if (calls === 1) return { result: { kind: 'tool_calls', tool_calls: [{ id: 'write-plan', type: 'function', function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?card=project&expected_head=absent', content: 'plan' }) } }] }, provider_exchanges: [] };
+        if (calls === 1) return { result: { kind: 'tool_calls', tool_calls: [{ id: 'write-plan', type: 'function', function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?card=project', content: 'plan' }) } }] }, provider_exchanges: [] };
         return { result: { kind: 'tool_calls', tool_calls: [{ id: 'review-plan', type: 'function', function: { name: 'emit_result', arguments: JSON.stringify({ outcome: 'admit_review', summary: 'review' }) } }] }, provider_exchanges: [] };
       }
       if (input.sessionId === 'agent:reviewer:project') {

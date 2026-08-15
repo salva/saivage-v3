@@ -352,8 +352,11 @@ tokenless service as durable.
 
 Require one real provider-backed Analyst interaction. Explain Dashboard runtime
 state, the root card and children, current-segment Analyst conversation, immutable
-segment/card/record history, semantic `card.json` Files views, and mutation URLs
-with exact `expected_head`. Never teach physical indexes/version filenames,
+segment/card/record history, semantic `card.json` Files views, and reusable current
+record URLs in the exact `record:///<name>?card=<id>` form. Explain that writing an
+absent current target creates it, repeated writes and edits keep using that URL,
+framework acceptance closes agent drafts, and only numeric `&v=N` URLs address
+immutable history. Never teach mutation URLs, head tokens, physical indexes/version filenames,
 `card.jsonl`, whole-history reconstructed sessions, or `v=next`. The Analyst is
 the ordinary mutation surface. Inspect existing project
 authority and ask only the unresolved goal, constraint, and acceptance

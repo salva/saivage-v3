@@ -56,7 +56,6 @@ const DebugGraphRecordSchema = z.object({
   name: recordNameSchema,
   format: z.literal('markdown'),
   schema: z.string().min(1),
-  writers: z.array(agentNameSchema),
   bootstrap: z.boolean(),
 }).strict();
 const DebugGraphEntrySchema = z.object({
@@ -101,8 +100,8 @@ const DebugGraphNodeSchema = z.object({
   child_creation_types: z.array(cardTypeSchema),
   child_activation_types: z.array(cardTypeSchema),
   readable_records: z.array(recordNameSchema),
-  writable_records: z.array(recordNameSchema),
-  requirements: z.array(z.object({ record_name: recordNameSchema, kind: z.enum(['present', 'updated']) }).strict()),
+  record_write_patterns: z.array(z.string().min(1)),
+  requirements: z.array(z.object({ record_name: recordNameSchema, mode:z.enum(['clean','continue']),gate:z.enum(['exists','updated']) }).strict()),
   descendant_context: z.object({ records: z.array(recordNameSchema), require_unchanged_until_accept: z.boolean() }).strict().nullable(),
   outcomes: z.array(z.string().min(1)),
 }).strict();

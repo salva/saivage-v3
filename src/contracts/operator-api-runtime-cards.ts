@@ -86,9 +86,7 @@ export const CardDetailSchema = z.object({
 }).strict().superRefine(refineHierarchyIdentity);
 export const CardDetailResponseSchema = z.object({ card: CardDetailSchema }).strict();
 const CardRecordCurrentDescriptorSchema = z.object({ head_version: positiveSafeIntegerSchema, head_entry_id: z.string().uuid(), state: z.enum(['open', 'closed', 'discarded']), accepted_source_version: positiveSafeIntegerSchema.nullable(), draft_present: z.boolean() }).strict();
-export const CardRecordDescriptorSchema = z.object({ name: recordNameSchema, format: z.literal('markdown'), schema: z.string().min(1), writers: z.array(agentNameSchema), bootstrap: z.boolean(), current: CardRecordCurrentDescriptorSchema.nullable() }).strict().superRefine((value, ctx) => {
-  if (new Set(value.writers).size !== value.writers.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['writers'], message: 'Record writers must be unique.' });
-});
+export const CardRecordDescriptorSchema = z.object({ name: recordNameSchema, format: z.literal('markdown'), schema: z.string().min(1), bootstrap: z.boolean(), current: CardRecordCurrentDescriptorSchema.nullable() }).strict();
 export const CardRecordListResponseSchema = z.object({ card_id: cardIdSchema, records: z.array(CardRecordDescriptorSchema) }).strict().superRefine((value, ctx) => {
   if (new Set(value.records.map(({ name }) => name)).size !== value.records.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['records'], message: 'Record names must be unique.' });
   if (value.records.filter(({ bootstrap }) => bootstrap).length !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['records'], message: 'Exactly one record must be bootstrap.' });

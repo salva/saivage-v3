@@ -6,6 +6,7 @@ import {
   type AgentName,
   type CardRecord,
   type CardStatus,
+  parseRecordName,
 } from '../schemas/index.js';
 import {
   closeOpenAuthoredRecord,
@@ -14,11 +15,14 @@ import {
   readCurrentAuthoredRecord,
   readHistoricalAuthoredRecord,
   editOpenAuthoredRecord,
+  classifyCurrentAuthoredRecord,
+  initializeDynamicAuthoredRecord,
+  type CurrentAuthoredRecordClassification,
   type RecordProjection,
 } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError, listAuthoredRecordVersions } from '../persistence/authored-record-files.js';
-import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
+import { AuthoredRecordNotFoundError, listAuthoredRecordVersions } from '../persistence/authored-record-files.js';
+import { genericRecordDefinition,type CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 import {
   listCards,
   publishCardTombstone,
@@ -131,13 +135,12 @@ export class CardService {
   private recordDefinition(cardId:string,filename:string):RecordDefinition {
     const card = this.read(cardId);
     if (!card) throw new AuthoredRecordNotFoundError();
-    const definition = this.workflows.cardTypes.get(card.type)?.records.get(filename as never);
-    if (!definition) throw new AuthoredRecordDefinitionNotFoundError();
-    return { filename: definition.name, writers: definition.writers, format: definition.format, schema: definition.schema, bootstrap: definition.bootstrap };
+    const name=parseRecordName(filename);const definition = this.workflows.cardTypes.get(card.type)?.records.get(name)??genericRecordDefinition(name);
+    return { filename: definition.name, format: definition.format, schema: definition.schema, bootstrap: definition.bootstrap,declared:definition.declared };
   }
-  private recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,writers:definition.writers,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap}));}
+  private recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap,declared:true}));}
 
-  get recordReader() { return { current: (cardId: string, filename: string) => this.readCurrentRecord(cardId, filename), historical: (cardId: string, filename: string, version: number) => this.readHistoricalRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
+  get recordReader() { return { current: (cardId: string, filename: string) => this.readCurrentRecord(cardId, filename),currentOrNull:(cardId:string,filename:string)=>this.readCurrentRecordOrNull(cardId,filename), historical: (cardId: string, filename: string, version: number) => this.readHistoricalRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
 
   private buildFullIndex(): CardIndex {
     const state = new CardIndex();
@@ -192,16 +195,18 @@ export class CardService {
 
   readCurrentRecord(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection { const current = readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); if (!current) throw new AuthoredRecordNotFoundError(); return current; }
   readCurrentRecordOrNull(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection | null { return readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); }
+  classifyCurrentRecord(cardId:string,filename:string,instrumentation?:CanonicalReadInstrumentation):CurrentAuthoredRecordClassification{return classifyCurrentAuthoredRecord(this.projectRoot,cardId,this.recordDefinition(cardId,filename),instrumentation);}
+  initializeDynamicRecord(cardId:string,filename:string):void{initializeDynamicAuthoredRecord(this.projectRoot,cardId,this.recordDefinition(cardId,filename));}
   readHistoricalRecord(cardId: string, filename: string, version: number, instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readHistoricalAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, instrumentation); }
   listRecordVersions(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation) { return listAuthoredRecordVersions(this.projectRoot, cardId, this.recordDefinition(cardId, filename), instrumentation); }
-  openRecord(cardId: string, filename: string, expectedHead: number | null): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, this.cardAppendIo); }
-  editRecord(cardId: string, filename: string, expectedHead: number, content: string): RecordProjection { return editOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, content, this.cardAppendIo); }
-  closeRecord(cardId: string, filename: string, expectedHead: number, agentName: AgentName): RecordProjection {
-    const closed = closeOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, agentName, this.cardAppendIo);
+  openRecord(cardId: string, filename: string, priorHead: number | null): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), priorHead, this.cardAppendIo); }
+  editRecord(cardId: string, filename: string, priorHead: number, content: string): RecordProjection { return editOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), priorHead, content, this.cardAppendIo); }
+  closeRecord(cardId: string, filename: string, priorHead: number, agentName: AgentName): RecordProjection {
+    const closed = closeOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), priorHead, agentName, this.cardAppendIo);
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name: filename as never });
     return closed;
   }
-  discardRecord(cardId: string, filename: string, expectedHead: number, reason: string): RecordProjection { return discardOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), expectedHead, reason, this.cardAppendIo); }
+  discardRecord(cardId: string, filename: string, priorHead: number, reason: string): RecordProjection { return discardOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), priorHead, reason, this.cardAppendIo); }
 
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
     return clone(readCardDetail(this.projectRoot, id, instrumentation));
