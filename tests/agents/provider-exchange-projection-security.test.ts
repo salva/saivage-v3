@@ -170,6 +170,26 @@ describe('provider exchange publication security projection', () => {
     for (const identity of structuralIdentities) expect(bytes).toContain(identity);
   });
 
+  it('redacts a mixed placeholder value in a provider error before publication', () => {
+    const baseAttempt = providerAttempts()[0];
+    if (baseAttempt?.status !== 'error') throw new Error('Expected error attempt.');
+    const attempt: ProviderExchangeAttempt & { attempt_index: number } = {
+      ...baseAttempt,
+      attempt_index: 0,
+      error: {
+        name: 'SyntheticError',
+        message: 'provider rejected {"apiKey":"pre${V}post"}',
+        status: 401,
+      },
+    };
+
+    const projected = projectProviderExchangeForPublication(attempt, noOutputs);
+    if (projected.status !== 'error') throw new Error('Expected error payload.');
+    expect(projected.error.message).toBe('provider rejected {"apiKey":"[REDACTED]"}');
+    expect(projected.error.message).not.toContain('pre');
+    expect(projected.error.message).not.toContain('post');
+  });
+
   it('projects every transport request variant directly and rejects an unclassified adapter key', () => {
     const common = {
       contract_id: 'tok_contract', contract_name: 'sk-contract', provider: OUTBOUND_IDENTITY, model: 'rt_model',

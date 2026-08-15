@@ -37,7 +37,7 @@ export function redactUrl(raw: string): string {
 }
 
 function shouldPreserveValue(value: string): boolean {
-  return /\$\{[^}]+\}/.test(value);
+  return /^\s*(\$\{[^}]+\}\s*)+$/.test(value);
 }
 function redactCredentialMatch(match: string): string {
   const prefix = match.startsWith('sk-')
@@ -86,13 +86,14 @@ function redactYamlSecretValues(content: string): string {
     YAML_SECRET_VALUE_RE,
     (match, prefix: string, key: string, valuePart: string) => {
       const trimmed = valuePart.trim();
-      if (!isSecretKey(key) || shouldPreserveValue(trimmed)) return match;
       const quote =
         trimmed.startsWith('"') && trimmed.endsWith('"')
           ? '"'
           : trimmed.startsWith("'") && trimmed.endsWith("'")
             ? "'"
             : '';
+      const candidate = quote ? trimmed.slice(1, -1) : trimmed;
+      if (!isSecretKey(key) || shouldPreserveValue(candidate)) return match;
       return `${prefix}${quote}${SECRET_REDACTION_PLACEHOLDER}${quote}`;
     },
   );

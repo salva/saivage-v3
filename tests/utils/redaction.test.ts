@@ -186,11 +186,68 @@ describe('outbound redaction', () => {
   });
 
   describe('text and dynamic conversion', () => {
-    it('preserves plain text and environment references', () => {
+    it('preserves plain text', () => {
       expect(redactTextForOutbound('ordinary diagnostic text')).toBe('ordinary diagnostic text');
-      expect(redactTextForOutbound('{"apiKey":"${PROVIDER_API_KEY}"}')).toBe(
-        '{"apiKey":"${PROVIDER_API_KEY}"}',
-      );
+    });
+
+    it.each([
+      ['JSON', '{"apiKey":"${VAR}"}'],
+      ['JSON adjacent placeholders', '{"apiKey":"${A}${B}"}'],
+      ['JSON separated placeholders', '{"apiKey":"${A} ${B}"}'],
+      ['JSON surrounding whitespace', '{"apiKey":"  ${A} ${B}  "}'],
+      ['unquoted YAML', 'apiKey: ${VAR}'],
+      ['unquoted YAML adjacent placeholders', 'apiKey: ${A}${B}'],
+      ['unquoted YAML separated placeholders', 'apiKey: ${A} ${B}'],
+      ['unquoted YAML surrounding whitespace', 'apiKey:   ${A} ${B}  '],
+      ['escaped JSON', 'payload={\\"apiKey\\":\\"${VAR}\\"}'],
+      ['escaped JSON adjacent placeholders', 'payload={\\"apiKey\\":\\"${A}${B}\\"}'],
+      ['escaped JSON separated placeholders', 'payload={\\"apiKey\\":\\"${A} ${B}\\"}'],
+      ['escaped JSON surrounding whitespace', 'payload={\\"apiKey\\":\\"  ${A} ${B}  \\"}'],
+    ])('preserves exact placeholder-only %s source', (_kind, input) => {
+      expect(redactTextForOutbound(input)).toBe(input);
+    });
+
+    it('preserves the accepted whole-span default-expression limitation', () => {
+      const input = '{"apiKey":"${PW:-default}"}';
+      expect(redactTextForOutbound(input)).toBe(input);
+    });
+
+    it.each([
+      ['double-quoted YAML', 'apiKey: "${VAR}"'],
+      ['single-quoted YAML', "apiKey: '${VAR}'"],
+      ['double-quoted YAML whitespace and placeholders', 'apiKey: "  ${A} ${B}  "'],
+      ['single-quoted YAML whitespace and placeholders', "apiKey: '  ${A} ${B}  '"],
+    ])('preserves exact %s source', (_kind, input) => {
+      expect(redactTextForOutbound(input)).toBe(input);
+    });
+
+    it.each([
+      ['JSON prefix', '{"apiKey":"sk-x${V}"}', '{"apiKey":"[REDACTED]"}'],
+      ['JSON suffix', '{"apiKey":"${V}suffix"}', '{"apiKey":"[REDACTED]"}'],
+      ['JSON surrounding literals', '{"apiKey":"pre${V}post"}', '{"apiKey":"[REDACTED]"}'],
+      ['JSON bearer prefix', '{"apiKey":"Bearer ${V}"}', '{"apiKey":"[REDACTED]"}'],
+      ['unquoted YAML prefix', 'apiKey: sk-x${V}', 'apiKey: [REDACTED]'],
+      ['unquoted YAML suffix', 'apiKey: ${V}suffix', 'apiKey: [REDACTED]'],
+      ['unquoted YAML surrounding literals', 'apiKey: pre${V}post', 'apiKey: [REDACTED]'],
+      ['unquoted YAML bearer prefix', 'apiKey: Bearer ${V}', 'apiKey: [REDACTED]'],
+      ['escaped JSON prefix', 'payload={\\"apiKey\\":\\"sk-x${V}\\"}', 'payload={\\"apiKey\\":\\"[REDACTED]\\"}'],
+      ['escaped JSON suffix', 'payload={\\"apiKey\\":\\"${V}suffix\\"}', 'payload={\\"apiKey\\":\\"[REDACTED]\\"}'],
+      ['escaped JSON surrounding literals', 'payload={\\"apiKey\\":\\"pre${V}post\\"}', 'payload={\\"apiKey\\":\\"[REDACTED]\\"}'],
+      ['escaped JSON bearer prefix', 'payload={\\"apiKey\\":\\"Bearer ${V}\\"}', 'payload={\\"apiKey\\":\\"[REDACTED]\\"}'],
+      ['double-quoted YAML mixed value', 'apiKey: "pre${V}"', 'apiKey: "[REDACTED]"'],
+      ['single-quoted YAML mixed value', "apiKey: '${V}suffix'", "apiKey: '[REDACTED]'"],
+    ])('redacts the complete secret-keyed %s value', (_kind, input, expected) => {
+      expect(redactTextForOutbound(input)).toBe(expected);
+    });
+
+    it.each([
+      ['JSON', '{"apiKey":"[REDACTED]"}'],
+      ['YAML', 'apiKey: [REDACTED]'],
+      ['escaped JSON', 'payload={\\"apiKey\\":\\"[REDACTED]\\"}'],
+    ])('preserves already-redacted %s on repeated projection', (_kind, input) => {
+      const once = redactTextForOutbound(input);
+      expect(once).toBe(input);
+      expect(redactTextForOutbound(once)).toBe(once);
     });
 
     it.each([
