@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAppTerminalCoordinator } from '../../src/boot/app.js';
@@ -15,13 +15,15 @@ describe('App real managed-process cleanup', () => {
       const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
       const runner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);
       const scope = runner.createDirectScope(runtimeProcessRootScope, 'resistant-runtime', 'runtime_card');
+      const readinessPath = join(projectRoot, 'resistant-runtime.ready');
       const processRecord = runner.spawn({
-        command: "trap '' TERM; while true; do sleep 1; done",
+        command: "trap '' TERM; : > \"$READY_PATH\"; while true; do sleep 1; done",
         directScope: scope,
         category: 'runtime_card',
         cardId: 'project',
         ownerId: 'runtime-test',
         ownerKind: 'runtime',
+        env: { READY_PATH: readinessPath },
       });
       const calls: string[] = [];
       const terminal = createAppTerminalCoordinator();
@@ -31,6 +33,13 @@ describe('App real managed-process cleanup', () => {
         const report = await runner.terminateScopeTree({ rootScope: runtimeProcessRootScope, categories: ['runtime_card'], reason: 'application stopping', graceMs: 5_000 });
         if (report.failed.length !== 0) throw new Error('managed process cleanup failed');
       });
+
+      const readinessDeadline = Date.now() + 5_000;
+      while (!existsSync(readinessPath)) {
+        if (!registry.isLive(processRecord.id)) throw new Error('resistant runtime exited before signaling readiness');
+        if (Date.now() >= readinessDeadline) throw new Error('timed out waiting for resistant runtime readiness');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
 
       const started = Date.now();
       const report = await terminal.stop();
@@ -44,5 +53,5 @@ describe('App real managed-process cleanup', () => {
     } finally {
       rmSync(projectRoot, { recursive: true, force: true });
     }
-  }, 15_000);
+  }, 20_000);
 });

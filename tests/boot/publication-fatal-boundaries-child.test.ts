@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from '@jest/globals';
+import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,10 +12,12 @@ import { readRuntimeLockStatus } from '../../src/runtime/lock.js';
 const roots: string[] = [];
 const fixture = join(process.cwd(), 'tests', 'fixtures', 'publication-fatal-boundaries.ts');
 const diagnostic = 'Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown.\n';
+const childTimeoutMs = 30_000;
+jest.setTimeout(childTimeoutMs + 5_000);
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function child(mode: string, value?: string) {
-  return spawnSync(process.execPath, ['--import', 'tsx', fixture, mode, ...(value ? [value] : [])], { cwd: process.cwd(), encoding: 'utf8', timeout: 10_000 });
+  return spawnSync(process.execPath, ['--import', 'tsx', fixture, mode, ...(value ? [value] : [])], { cwd: process.cwd(), encoding: 'utf8', timeout: childTimeoutMs });
 }
 
 function expectFatalOwner(mode: string): void {
