@@ -26,6 +26,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   cancel_card: { cardId: 'card-a', reason: marker },
   delete_card: { ids: ['card-a'] },
   reorder_child: { parentId: 'project', orderedChildIds: ['card-a'] },
+  reopen_card: { cardId: 'card-a' },
   queue_notification: { card_id: 'card-a', kind: 'tok_primary', body: marker },
   get_status: {}, start_project: {}, pause_runtime: {}, resume_runtime: {}, stop_project: {}, restart_server: {}, mcp_reconcile: {},
   navigate_workspace: { target: { kind: 'card', id: 'tok_primary', refinement: marker } },
@@ -66,9 +67,9 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
 };
 
 describe('projectToolInvocation exhaustive identity switch', () => {
-  it('contains the exact 44-name baseline and every name reaches complete, call-row, and result-row', () => {
-    expect(KNOWN_TOOL_INVOCATION_NAMES).toHaveLength(44);
-    expect(new Set(KNOWN_TOOL_INVOCATION_NAMES).size).toBe(44);
+  it('contains the exact 45-name baseline and every name reaches complete, call-row, and result-row', () => {
+    expect(KNOWN_TOOL_INVOCATION_NAMES).toHaveLength(45);
+    expect(new Set(KNOWN_TOOL_INVOCATION_NAMES).size).toBe(45);
     expect(Object.keys(validArguments).sort()).toEqual([...KNOWN_TOOL_INVOCATION_NAMES].sort());
 
     for (const toolName of KNOWN_TOOL_INVOCATION_NAMES) {
@@ -89,6 +90,9 @@ describe('projectToolInvocation exhaustive identity switch', () => {
 
   it('preserves structural identities while classifying every valid argument group', () => {
     expect(complete('list_cards').arguments).toEqual({ tag: OUTBOUND_IDENTITY });
+    expect(complete('reopen_card').arguments).toEqual({ cardId: 'card-a' });
+    const reopenCall = projectToolInvocation({ shape: 'call-row', identity: callIdentity('reopen_card'), arguments: JSON.stringify({ cardId: 'card-a' }) });
+    expect(JSON.parse((reopenCall as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ cardId: 'card-a' });
     expect(complete('reconfigure').arguments).toEqual({ action: 'set_server_setting', key: 'host', value: 'tok_primary' });
     expect(JSON.stringify(complete('create_card').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(JSON.stringify(complete('write').arguments)).not.toContain(OUTBOUND_RAW_MARKER);

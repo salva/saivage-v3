@@ -149,7 +149,8 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(compiled.agents.get('planner')?.tools.map((tool)=>tool.name)).toEqual(['create_card','edit_card','cancel_card','activate_card','reorder_child','queue_notification','list_cards','get_card','get_tree','read','write','edit','glob','grep','list_card_versions','get_card_version','diff_card_versions','websearch','webfetch']);
     expect(compiled.agents.get('reviewer')?.tools.map((tool)=>tool.name)).not.toContain('mcp_tool_call');
     expect(compiled.agents.get('executor')?.tools.map((tool)=>tool.name)).toContain('mcp_tool_call');
-    expect(compiled.agents.get('analyst')?.tools).toHaveLength(41);
+    expect(compiled.agents.get('analyst')?.tools).toHaveLength(42);
+    expect(compiled.agents.get('analyst')?.tools[2]?.name).toBe('reopen_card');
   });
 
   it('keeps agent, node, and correction prompt snapshots under their compiled owners',()=>{
@@ -317,7 +318,9 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('rejects unknown and wrong-scope tools during offline structural compilation',()=>{
+    expect(source().agents.analyst!.tools).toContain('reopen_card');
     failure((value)=>{value.agents.planner!.tools.push('get_status');},/unknown tool 'get_status' for card session scope/);
+    failure((value)=>{value.agents.planner!.tools.push('reopen_card');},/unknown tool 'reopen_card' for card session scope/);
     failure((value)=>{value.agents.analyst!.tools.push('activate_card');},/unknown tool 'activate_card' for global session scope/);
     failure((value)=>{value.agents.reviewer!.tools.push('not_a_tool');},/unknown tool 'not_a_tool' for card session scope/);
   });

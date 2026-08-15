@@ -15,12 +15,12 @@ describe('registered Analyst card mutation catalog', () => {
   it('selects type only during creation and exposes no post-creation edit or update input', () => {
     const tools: readonly ToolDefinition<any>[] = createAnalystControlTools({} as never);
     expect(tools.map(({ name }) => name)).toEqual([
-      'create_card', 'reorder_child', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server',
+      'create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server',
       'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions',
       'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card',
     ]);
     const registered = new Map(tools.map((tool) => [tool.name, tool]));
-    const mutationNames = ['create_card', 'reorder_child', 'cancel_card', 'delete_card'] as const;
+    const mutationNames = ['create_card', 'reorder_child', 'reopen_card', 'cancel_card', 'delete_card'] as const;
 
     expect(mutationNames.filter((name) => registered.has(name))).toEqual(mutationNames);
     expect(tools.map(({ name }) => name))
@@ -37,6 +37,7 @@ describe('registered Analyst card mutation catalog', () => {
 
     const postCreationInputs = new Map<string, Record<string, unknown>>([
       ['reorder_child', { parentId: 'project', orderedChildIds: [] }],
+      ['reopen_card', { cardId: 'card-a' }],
       ['cancel_card', { cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' }],
       ['delete_card', { ids: ['card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'] }],
     ]);

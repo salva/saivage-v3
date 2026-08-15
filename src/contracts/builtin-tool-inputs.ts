@@ -18,6 +18,7 @@ export const analystCreateCardInputSchema = z.object({
   related: z.array(z.string().describe('A card ID')).optional().describe('Optional related-card list.'),
 }).strict();
 export const analystReorderChildInputSchema = z.object({ parentId: z.string().describe('Parent whose children to reorder.'), orderedChildIds: z.array(z.string()).describe('New child id order; must be a permutation of the current child set.') }).strict();
+export const analystReopenCardInputSchema = z.object({ cardId: cardIdSchema.describe('The exact card id to reopen.') }).strict();
 export const analystCancelCardInputSchema = z.object({ cardId: z.string().describe('The ID of the card to cancel.'), reason: z.string().optional().describe('Optional cancellation reason.') }).strict();
 export const analystDeleteCardInputSchema = z.object({ ids: z.array(z.string()).min(1).describe('Card ids to delete.') }).strict();
 

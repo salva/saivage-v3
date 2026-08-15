@@ -8,6 +8,7 @@ import { CardService } from '../helpers/canonical-project.js';
 import type { CardRecord, CardStatus, CardType } from '../../src/schemas/index.js';
 import { initProjectTree, testAnalystMutationServices, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
 const FIRST = 'card-a';
 const SECOND = 'card-a-b';
@@ -22,7 +23,7 @@ function card(status: CardStatus, id = FIRST, type: CardType = 'code'): CardReco
   }
 }
 
-function services(store: CardService, notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }))) {
+function services(store: CardService, notifyCard: (...args: any[]) => any = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }))) {
   if (!('workflows' in store)) Object.assign(store, { workflows: TEST_WORKFLOWS });
   return createAnalystMutationServices({ projectRoot: '/tmp/analyst-mutation-test', store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, cancelCard });
 }
@@ -144,6 +145,131 @@ describe('analyst child reorder propagation', () => {
     expect(test.getAncestors).not.toHaveBeenCalled();
     expect(test.setStatus).not.toHaveBeenCalled();
     expect(test.notifyCard).not.toHaveBeenCalled();
+  });
+});
+
+describe('analyst card reopen', () => {
+  function settle(cards: CardService, id: string, status: 'done' | 'failed' | 'blocked'): void {
+    cards.setStatus(id, 'running');
+    if (status === 'done') cards.commitActivationOutcome(id, { status, summary: status, result: workflowResult('DONE', 'done') }, '2026-08-15T00:00:00.000Z');
+    else if (status === 'blocked') cards.commitActivationOutcome(id, { status, summary: status, result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');
+    else cards.commitActivationOutcome(id, { status, summary: status, result: runtimeFailure('failed') }, '2026-08-15T00:00:00.000Z');
+  }
+
+  it.each(['done', 'failed', 'blocked'] as const)('reopens a real %s card and returns its current changed view', (status) => {
+    const root = mkdtempSync(join(tmpdir(), `saivage-reopen-${status}-`));
+    try {
+      initProjectTree(root);
+      const cards = new CardService(root);
+      const target = cards.create({ type: 'code', parent: 'project', title: status, bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      settle(cards, target.id, status);
+      const notifyCard = jest.fn<(cardId: string) => { ok: true; notificationId: string }>(() => ({ ok: true, notificationId: 'notification' }));
+      const outcome = testAnalystMutationServices(root, cards, notifyCard).cards.reopen(target.id);
+      expect(outcome).toMatchObject({ kind: 'returned', success: true, data: { card: { id: target.id, lifecycle: { status: 'changed' } }, status: 'changed' } });
+      expect(cards.read(target.id)?.lifecycle.status).toBe('changed');
+      expect(notifyCard).toHaveBeenCalledTimes(1);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('propagates through eligible resting ancestors and stops at a running boundary', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-reopen-ancestors-'));
+    try {
+      initProjectTree(root);
+      const cards = new CardService(root);
+      const goal = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const target = cards.create({ type: 'code', parent: goal.id, title: 'Target', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      settle(cards, target.id, 'blocked');
+      settle(cards, goal.id, 'failed');
+      cards.setStatus('project', 'running');
+      const notifyCard = jest.fn<(cardId: string) => { ok: true; notificationId: string }>(() => ({ ok: true, notificationId: 'notification' }));
+      expect(testAnalystMutationServices(root, cards, notifyCard).cards.reopen(target.id)).toMatchObject({ kind: 'returned', success: true });
+      expect(cards.read(target.id)?.lifecycle.status).toBe('changed');
+      expect(cards.read(goal.id)?.lifecycle.status).toBe('changed');
+      expect(cards.read('project')?.lifecycle.status).toBe('running');
+      expect(notifyCard.mock.calls.map(([id]) => id)).toEqual([target.id, 'project']);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('propagates through every eligible resting ancestor to the root', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-reopen-all-ancestors-'));
+    try {
+      initProjectTree(root);
+      const cards = new CardService(root);
+      const goal = cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const target = cards.create({ type: 'code', parent: goal.id, title: 'Target', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      settle(cards, target.id, 'done');
+      settle(cards, goal.id, 'blocked');
+      settle(cards, 'project', 'failed');
+      expect(testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'notification' })).cards.reopen(target.id)).toMatchObject({ kind: 'returned', success: true });
+      expect([target.id, goal.id, 'project'].map((id) => cards.read(id)?.lifecycle.status)).toEqual(['changed', 'changed', 'changed']);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it.each(['backlog', 'running', 'changed', 'stopped', 'cancelled'] as const)('denies non-reopenable status %s without mutation or notification', (status) => {
+    const target = card(status);
+    const setStatus = jest.fn();
+    const notifyCard = jest.fn();
+    const outcome = services({ read: jest.fn(() => target), setStatus } as unknown as CardService, notifyCard).cards.reopen(FIRST);
+    expect(outcome).toEqual({ kind: 'denied', reason: `card '${FIRST}' is ${status}` });
+    expect(setStatus).not.toHaveBeenCalled();
+    expect(notifyCard).not.toHaveBeenCalled();
+  });
+
+  it('denies a missing target without mutation or notification', () => {
+    const setStatus = jest.fn();
+    const notifyCard = jest.fn();
+    expect(services({ read: jest.fn(() => null), setStatus } as unknown as CardService, notifyCard).cards.reopen(FIRST)).toEqual({ kind: 'denied', reason: `card '${FIRST}' does not exist` });
+    expect(setStatus).not.toHaveBeenCalled();
+    expect(notifyCard).not.toHaveBeenCalled();
+  });
+
+  function failureHarness(setStatusImplementation: (id: string) => void, notifyImplementation: (...args: any[]) => any = () => ({ ok: true })) {
+    const states = new Map<string, CardRecord>([[FIRST, card('done')], ['project', card('failed', 'project', 'project')]]);
+    const read = jest.fn((id: string) => states.get(id) ?? null);
+    const setStatus = jest.fn((id: string) => { setStatusImplementation(id); states.set(id, card('changed', id, id === 'project' ? 'project' : 'code')); });
+    const notifyCard = jest.fn(notifyImplementation);
+    const store = { read, getAncestors: jest.fn(() => ['project']), setStatus, listChildren: jest.fn((id: string) => id === 'project' ? [FIRST] : []) } as unknown as CardService;
+    return { service: services(store, notifyCard).cards, read, setStatus, notifyCard };
+  }
+
+  it('lets a known target status failure escape before notification or a success reread', () => {
+    const failure = new Error('target status failed');
+    const test = failureHarness((id) => { if (id === FIRST) throw failure; });
+    expect(() => test.service.reopen(FIRST)).toThrow(failure);
+    expect(test.read.mock.calls.map(([id]) => id)).toEqual([FIRST, FIRST, FIRST]);
+    expect(test.notifyCard).not.toHaveBeenCalled();
+  });
+
+  it('lets a known ancestor status failure escape after the target attempt without a success reread', () => {
+    const failure = new Error('ancestor status failed');
+    const test = failureHarness((id) => { if (id === 'project') throw failure; });
+    expect(() => test.service.reopen(FIRST)).toThrow(failure);
+    expect(test.setStatus.mock.calls.map(([id]) => id)).toEqual([FIRST, 'project']);
+    expect(test.read.mock.calls.map(([id]) => id)).toEqual([FIRST, FIRST, FIRST, 'project']);
+    expect(test.notifyCard).not.toHaveBeenCalled();
+  });
+
+  it('suppresses only an ordinary notification error after complete propagation and returns the fresh view', () => {
+    const test = failureHarness(() => undefined, () => { throw new Error('notification failed'); });
+    expect(test.service.reopen(FIRST)).toMatchObject({ kind: 'returned', success: true, data: { card: { id: FIRST, lifecycle: { status: 'changed' } }, status: 'changed' } });
+    expect(test.setStatus.mock.calls.map(([id]) => id)).toEqual([FIRST, 'project']);
+    expect(test.read.mock.calls.map(([id]) => id)).toEqual([FIRST, FIRST, FIRST, 'project', FIRST]);
+  });
+
+  it.each([FIRST, 'project'])('rethrows publication uncertainty from %s status without notification or success reread', (failedId) => {
+    const failure = new PublicationOutcomeUnknownError();
+    const test = failureHarness((id) => { if (id === failedId) throw failure; });
+    expect(() => test.service.reopen(FIRST)).toThrow(failure);
+    expect(test.notifyCard).not.toHaveBeenCalled();
+    expect(test.read.mock.calls.map(([id]) => id)).toEqual(failedId === FIRST ? [FIRST, FIRST, FIRST] : [FIRST, FIRST, FIRST, 'project']);
+  });
+
+  it('rethrows notification publication uncertainty without a success reread', () => {
+    const failure = new PublicationOutcomeUnknownError();
+    const test = failureHarness(() => undefined, () => { throw failure; });
+    expect(() => test.service.reopen(FIRST)).toThrow(failure);
+    expect(test.setStatus).toHaveBeenCalledTimes(2);
+    expect(test.read.mock.calls.map(([id]) => id)).toEqual([FIRST, FIRST, FIRST, 'project']);
   });
 });
 

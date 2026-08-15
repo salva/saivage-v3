@@ -33,6 +33,7 @@ export interface AnalystCardMutationService {
   delete(ids: readonly string[]): AnalystMutationOutcome;
   cancel(cardId: string, reason?: string): Promise<AnalystMutationOutcome>;
   reorder(parentId: string, orderedChildIds: readonly string[]): AnalystMutationOutcome;
+  reopen(cardId: string): AnalystMutationOutcome;
 }
 
 export interface AnalystConfigMutationService {
@@ -134,6 +135,20 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
       try { propagateChange(this.store, parentId, { kind: 'analyst_edit', summary: `analyst reordered children of ${parentId}` }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
     }
     return success({ parent_id: parentId, changed: result.changed });
+  }
+
+  reopen(cardId: string): AnalystMutationOutcome {
+    const card = this.store.read(cardId);
+    if (!card) return denied(`card '${cardId}' does not exist`);
+    if (card.lifecycle.status !== 'done' && card.lifecycle.status !== 'failed' && card.lifecycle.status !== 'blocked') return denied(`card '${cardId}' is ${card.lifecycle.status}`);
+    const notifyCard = (targetCardId: string, notification: Parameters<typeof this.notifyCard>[1]): void => {
+      try { this.notifyCard(targetCardId, notification); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
+    };
+    propagateChange(this.store, cardId, { kind: 'analyst_edit', summary: `analyst reopened card ${cardId}` }, notifyCard);
+    const reopened = this.store.read(cardId);
+    if (!reopened) throw new Error(`Reopened card '${cardId}' disappeared.`);
+    if (reopened.lifecycle.status !== 'changed') throw new Error(`Reopened card '${cardId}' has status '${reopened.lifecycle.status}'.`);
+    return success(toCardView(this.store, reopened));
   }
 }
 

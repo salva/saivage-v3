@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
 import {
   CREATE_CARD_TYPE_VALUES,
   URGENCY_VALUES,
@@ -37,9 +37,14 @@ export async function reorder_child(ctx: ToolContext, params: { parentId: string
   return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.cards.reorder(input.parentId, input.orderedChildIds) }, signal);
 }
 
+export async function reopen_card(ctx: ToolContext, params: z.infer<typeof analystReopenCardInputSchema>, signal?: AbortSignal): Promise<ToolResult> {
+  return runAuditedAnalystTool(ctx, params, { action: 'card.reopen', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.cards.reopen(input.cardId) }, signal);
+}
+
 export const analystCardToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Every created child receives backlog lifecycle.`, inputSchema: analystCreateCardInputSchema, executor: (ctx, args, signal) => create_card(ctx, args, signal) }),
   defineToolBinder({ name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', inputSchema: analystReorderChildInputSchema, executor: (ctx, args, signal) => reorder_child(ctx, args, signal) }),
+  defineToolBinder({ name: 'reopen_card', description: 'Reopen a done, failed, or blocked card without editing its content while Analyst intervention is ready (runtime stopped or settled paused). Changes the target and eligible resting ancestors through normal changed propagation.', inputSchema: analystReopenCardInputSchema, executor: (ctx, args, signal) => reopen_card(ctx, args, signal) }),
   defineToolBinder({ name: 'get_status', description: 'Get the overall project status.', inputSchema: emptyInput, executor: (ctx, args) => get_status(ctx, args) }),
   defineToolBinder({ name: 'cancel_card', description: 'Cancel non-completed work. Analyst cancellation allows every status except done and cancelled, rejects the root project card, and requires exact runtime ownership for running work.', inputSchema: analystCancelCardInputSchema, executor: (ctx, args, signal) => cancel_card(ctx, args, signal) }),
   defineToolBinder({ name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused. Deleted ids remain reserved; no card restore/archive content is produced. Denies the root project card and any running subtree member.', inputSchema: analystDeleteCardInputSchema, executor: (ctx, args, signal) => delete_card(ctx, args, signal) }),

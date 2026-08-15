@@ -8,6 +8,7 @@ import type { ToolBinder, ToolDefinition } from './invocation.js';
 const analystToolOrder = [
   'create_card',
   'reorder_child',
+  'reopen_card',
   'queue_notification',
   'get_status',
   'start_project',

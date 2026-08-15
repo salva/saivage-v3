@@ -28,6 +28,8 @@ describe('analyst workspace-context prompt contract', () => {
     expect(prompt).toContain('{"projectRoot":"test"}');
     expect(prompt).toContain('Registered tools:');
     expect(prompt).toContain('fixture_tool');
+    expect(prompt).toContain('reopening done, failed, or blocked cards to changed without editing content');
+    expect(prompt).toContain('Reopenable card status: blocked | done | failed. Reopen target status: changed');
   });
 
   it('renders the no-entity workspace-context fixture deterministically', () => {

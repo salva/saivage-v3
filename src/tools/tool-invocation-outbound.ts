@@ -2,7 +2,7 @@ import { z, type ZodTypeAny } from 'zod';
 
 import { reconfigureParamsSchema } from '../config/index.js';
 import {
-  analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReorderChildInputSchema,
+  analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema,
   applyPatchInputSchema, diffCardVersionsInputSchema, editWorkspaceInputSchema, emptyToolInputSchema,
   getCardVersionInputSchema, getCardInputSchema, getTreeInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema,
   killProcessInputSchema, listCardVersionsInputSchema, listCardsInputSchema, listProcessesInputSchema,
@@ -27,7 +27,7 @@ import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();
 
 export const KNOWN_TOOL_INVOCATION_NAMES = [
-  'create_card', 'cancel_card', 'delete_card', 'reorder_child', 'queue_notification',
+  'create_card', 'cancel_card', 'delete_card', 'reorder_child', 'reopen_card', 'queue_notification',
   'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'mcp_reconcile',
   'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure',
   'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool',
@@ -133,7 +133,7 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
       return projectMcpToolCallArgumentsForOutbound(McpToolCallArgumentsSchema.parse(input));
     case 'emit_result':
       return { outcome: input['outcome'], summary: redactTextForOutbound(input['summary'] as string) };
-    case 'delete_card': case 'reorder_child': case 'get_status': case 'start_project': case 'pause_runtime':
+    case 'delete_card': case 'reorder_child': case 'reopen_card': case 'get_status': case 'start_project': case 'pause_runtime':
     case 'resume_runtime': case 'stop_project': case 'restart_server': case 'mcp_reconcile': case 'navigate_back':
     case 'show_config': case 'read_runtime_events': case 'read_runtime_errors': case 'read_control_actions':
     case 'list_processes_tool': case 'list_agent_sessions': case 'read_agent_session': case 'list_cards':
@@ -171,6 +171,7 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
     case 'cancel_card': return z.union([analystCancelCardInputSchema, plannerCancelCardInputSchema]);
     case 'delete_card': return analystDeleteCardInputSchema;
     case 'reorder_child': return z.union([analystReorderChildInputSchema, plannerReorderChildInputSchema]);
+    case 'reopen_card': return analystReopenCardInputSchema;
     case 'queue_notification': return z.union([queueNotificationInputSchema, plannerQueueNotificationInputSchema]);
     case 'get_status': case 'start_project': case 'pause_runtime': case 'resume_runtime': case 'stop_project':
     case 'restart_server': case 'mcp_reconcile': case 'navigate_back': case 'show_config': case 'list_agent_sessions':

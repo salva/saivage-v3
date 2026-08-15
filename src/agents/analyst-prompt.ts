@@ -17,6 +17,7 @@ export class AnalystOfflineError extends Error {
 export function formatVocabularySnippet(): string {
   return [
     `Card status: ${CARD_STATUS_VALUES.join(' | ')}`,
+    'Reopenable card status: blocked | done | failed. Reopen target status: changed',
     `Card type: ${CARD_TYPE_VALUES.join(' | ')}`,
     `Urgency: ${URGENCY_VALUES.join(' | ')}`,
     `AnalystIssue severity: ${ANALYST_ISSUE_SEVERITY_VALUES.join(' | ')}`,

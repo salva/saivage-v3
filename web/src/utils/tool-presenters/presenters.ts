@@ -59,6 +59,7 @@ export const TOOL_PRESENTERS = {
   read_runtime_events: { action: 'Events', group: 'context', call: (a) => ({ icon: '📜', headline: textPart(`newest events × ${str(a.limit ?? 50)}${a.kind ? ` [${str(a.kind)}]` : ''}`) }), result: (ctx) => describeJsonlTail(ctx, 'events', 'events') },
   reconfigure: { action: 'Reconfigure', call: (a) => ({ icon: '⚙', headline: textPart(str(a.action)) }), result: () => ({ headline: textPart('configuration updated') }) },
   reorder_child: { action: 'Reorder', call: (a) => ({ icon: '↕', headline: textPart((Array.isArray(a.orderedChildIds) ? a.orderedChildIds : []).join(' → ')), detail: Object.hasOwn(a, 'parentId') ? cardPart(a.parentId) : undefined }), result: () => ({ headline: textPart('cards reordered') }) },
+  reopen_card: { action: 'Reopen', call: (a) => ({ icon: '↻', headline: cardPart(a.cardId) }), result: (ctx) => ({ ...cardResult(ctx, 'reopened'), detail: textPart('changed') }) },
   restart_server: { action: 'Restart server', call: () => ({ icon: '↻', headline: textPart('restart server') }), result: () => ({ headline: textPart('server restart requested') }) },
   resume_runtime: { action: 'Resume', call: () => ({ icon: '▶', headline: textPart('resume runtime') }) },
   run_command: { action: 'Shell', call: (a) => ({ icon: '⚡', headline: textPart(a.command, 80) }), result: processResult },

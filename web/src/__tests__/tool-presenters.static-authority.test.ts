@@ -23,7 +23,7 @@ const CURRENT_TOOL_CALL_FIXTURES = {
   queue_notification: { card_id: 'card-a', kind: 'progress', body: 'Working' }, read: { path: 'README.md' },
   read_agent_session: { session_id: 'agent:executor:card-a', last_n: 5 }, read_control_actions: { limit: 10, since: '2026-07-21T00:00:00Z' },
   read_runtime_errors: { limit: 10 }, read_runtime_events: { limit: 10, kind: 'card' }, reconfigure: { action: 'set_agent_model_route', agent: 'executor', model_route: 'executor' },
-  reorder_child: { orderedChildIds: ['card-a', 'card-b'] }, restart_server: {}, resume_runtime: {},
+  reorder_child: { orderedChildIds: ['card-a', 'card-b'] }, reopen_card: { cardId: 'card-a' }, restart_server: {}, resume_runtime: {},
   run_command: { command: 'npm test', cwd: '.', wait: true }, show_config: {}, skill: { name: 'review' }, start_project: {}, stop_project: {},
   wait_process: { process_id: 'proc-a', timeout_ms: 1000 }, webfetch: { url: 'https://example.com' }, websearch: { query: 'saivage' },
   write: { path: 'a.ts', content: 'text' },
@@ -34,7 +34,7 @@ const EXPECTED_NAMES = [
   'get_card', 'get_card_version', 'get_status', 'get_tree', 'glob', 'grep', 'kill_process', 'list_agent_sessions',
   'list_card_versions', 'list_cards', 'list_processes_tool', 'mcp_reconcile', 'mcp_tool_call', 'navigate_back', 'navigate_workspace',
   'pause_runtime', 'queue_notification', 'read', 'read_agent_session', 'read_control_actions', 'read_runtime_errors', 'read_runtime_events',
-  'reconfigure', 'reorder_child', 'restart_server', 'resume_runtime', 'run_command', 'show_config', 'skill', 'start_project', 'stop_project',
+  'reconfigure', 'reopen_card', 'reorder_child', 'restart_server', 'resume_runtime', 'run_command', 'show_config', 'skill', 'start_project', 'stop_project',
   'wait_process', 'webfetch', 'websearch', 'write',
 ].sort();
 
@@ -54,9 +54,9 @@ const ANALYST_CARD_VIEW = {
 };
 
 describe('static tool presenter authority', () => {
-  it('contains exactly the 44 current tools with owned action and call rendering', () => {
+  it('contains exactly the 45 current tools with owned action and call rendering', () => {
     expect(Object.keys(TOOL_PRESENTERS).sort()).toEqual(EXPECTED_NAMES);
-    expect(EXPECTED_NAMES).toHaveLength(44);
+    expect(EXPECTED_NAMES).toHaveLength(45);
     for (const [name, descriptor] of Object.entries(TOOL_PRESENTERS)) {
       expect(descriptor.action.length).toBeGreaterThan(0);
       expect(Object.hasOwn(descriptor, 'call')).toBe(true);
@@ -70,6 +70,7 @@ describe('static tool presenter authority', () => {
     expect(inlineText(presentToolCall(callEnvelope('cancel_card', { cardId: 'card-analyst' })).headline)).toContain('card-analyst');
     expect(inlineText(presentToolCall(callEnvelope('create_card', { type: 'code', parent: 'project', title: 'Analyst', brief: 'x' })).detail ?? [])).toContain('project');
     expect(inlineText(presentToolCall(callEnvelope('reorder_child', { parentId: 'project', orderedChildIds: ['card-b', 'card-a'] })).detail ?? [])).toContain('project');
+    expect(inlineText(presentToolCall(callEnvelope('reopen_card', { cardId: 'card-a' })).headline)).toContain('card-a');
     expect(inlineText(presentToolCall(callEnvelope('activate_card', { card_id: 'card-current' })).headline)).toContain('card-current');
     expect(inlineText(presentToolCall(callEnvelope('edit_card', { card_id: 'card-current', title: 'x' })).headline)).toContain('card-current');
     expect(inlineText(presentToolCall(callEnvelope('queue_notification', { card_id: 'card-a', kind: 'progress', body: 'Current body' })).detail ?? [])).toContain('Current body');
@@ -142,6 +143,9 @@ describe('static tool presenter authority', () => {
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: [process] }), { tool: 'list_processes_tool' }).headline)).toBe('1 process');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card: PLANNER_COMPACT_CARD } }), { tool: 'create_card' }).headline)).toContain('card-p');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: ANALYST_CARD_VIEW }), { tool: 'create_card' }).headline)).toContain('card-a');
+    const reopened = presentToolResult(JSON.stringify({ success: true, data: { ...ANALYST_CARD_VIEW, status: 'changed' } }), { tool: 'reopen_card' });
+    expect(inlineText(reopened.headline)).toContain('card-a');
+    expect(inlineText(reopened.detail ?? [])).toBe('changed');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card: { ...PLANNER_COMPACT_CARD, id: 'card-e', title: 'Edited' } } }), { tool: 'edit_card' }).headline)).toContain('card-e');
     const getCard = presentToolResult(JSON.stringify({ success: true, data: { ...ANALYST_CARD_VIEW, children: [], records: [], records_by_filename: {} } }), { tool: 'get_card' });
     expect(inlineText(getCard.headline)).toBe('Analyst');
