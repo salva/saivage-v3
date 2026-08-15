@@ -103,15 +103,15 @@ function dashboardRow(page: Page, title: string): Locator {
   return page.getByTestId('child-of-goal-item').filter({ has: page.locator('.title').filter({ hasText: new RegExp(`^${title}$`) }) });
 }
 
-async function resolvedStyle(page: Page, property: 'backgroundColor' | 'boxShadow', value: string): Promise<string> {
-  return page.evaluate(({ property, value }) => {
+async function resolvedBackground(page: Page, value: string): Promise<string> {
+  return page.evaluate((backgroundColor) => {
     const element = document.createElement('span');
-    element.style[property] = value;
+    element.style.backgroundColor = backgroundColor;
     document.body.append(element);
-    const resolved = getComputedStyle(element)[property];
+    const resolved = getComputedStyle(element).backgroundColor;
     element.remove();
     return resolved;
-  }, { property, value });
+  }, value);
 }
 
 async function expectPaintFits(marker: Locator, container: Locator): Promise<void> {
@@ -119,8 +119,8 @@ async function expectPaintFits(marker: Locator, container: Locator): Promise<voi
     const markerRect = element.getBoundingClientRect();
     const containerRect = (parent as Element).getBoundingClientRect();
     return {
-      fits: markerRect.left - 1 >= containerRect.left && markerRect.top - 1 >= containerRect.top
-        && markerRect.right + 1 <= containerRect.right && markerRect.bottom + 1 <= containerRect.bottom,
+      fits: markerRect.left >= containerRect.left && markerRect.top >= containerRect.top
+        && markerRect.right <= containerRect.right && markerRect.bottom <= containerRect.bottom,
       markerOverflow: getComputedStyle(element).overflow,
       containerOverflow: getComputedStyle(parent as Element).overflow,
     };
@@ -130,7 +130,7 @@ async function expectPaintFits(marker: Locator, container: Locator): Promise<voi
   expect(geometry.containerOverflow).toBe('visible');
 }
 
-test('stopped card presentation is green and black-ringed across tree, detail, and Dashboard', async ({ page }) => {
+test('stopped card presentation is purple and unringed across tree, detail, and Dashboard', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 720 });
   const requests = await install(page);
   await page.goto('/cards');
@@ -147,16 +147,19 @@ test('stopped card presentation is green and black-ringed across tree, detail, a
   await expect(representativeRows).toHaveCount(4);
   await expect(representativeRows.locator('.node-title')).toHaveText(childTitles);
 
-  const expectedGreen = await resolvedStyle(page, 'backgroundColor', 'var(--card-status-stopped)');
-  const expectedGray = await resolvedStyle(page, 'backgroundColor', 'var(--card-status-cancelled)');
-  const expectedRing = await resolvedStyle(page, 'boxShadow', '0 0 0 1px var(--card-status-stopped-ring)');
+  const expectedStopped = await resolvedBackground(page, 'var(--card-status-stopped)');
+  const expectedRunning = await resolvedBackground(page, 'var(--card-status-running)');
+  const expectedGray = await resolvedBackground(page, 'var(--card-status-cancelled)');
   const stoppedBall = treeRow(page, childTitles[0]!).locator('.state-ball');
   const runningBall = treeRow(page, childTitles[1]!).locator('.state-ball');
   const cancelledBall = treeRow(page, childTitles[3]!).locator('.state-ball');
-  await expect(stoppedBall).toHaveCSS('background-color', expectedGreen);
-  await expect(runningBall).toHaveCSS('background-color', expectedGreen);
+  expect(expectedStopped).toBe('rgb(111, 66, 193)');
+  expect(expectedRunning).toBe('rgb(22, 163, 74)');
+  expect(expectedStopped).not.toBe(expectedRunning);
+  await expect(stoppedBall).toHaveCSS('background-color', expectedStopped);
+  await expect(runningBall).toHaveCSS('background-color', expectedRunning);
   await expect(cancelledBall).toHaveCSS('background-color', expectedGray);
-  await expect(stoppedBall).toHaveCSS('box-shadow', expectedRing);
+  await expect(stoppedBall).toHaveCSS('box-shadow', 'none');
   await expect(runningBall).toHaveCSS('box-shadow', 'none');
   await expect(cancelledBall).toHaveCSS('box-shadow', 'none');
   for (const ball of [stoppedBall, runningBall, cancelledBall]) {
@@ -174,9 +177,9 @@ test('stopped card presentation is green and black-ringed across tree, detail, a
   const detailBadge = page.getByTestId('card-detail-highlight').locator('.status-badge');
   const detailDot = detailBadge.locator('.status-badge__dot');
   await expect(detailBadge).toHaveClass(/tone-success/);
-  await expect(detailDot).toHaveClass(/status-badge__dot--ringed/);
-  await expect(detailDot).toHaveCSS('background-color', expectedGreen);
-  await expect(detailDot).toHaveCSS('box-shadow', expectedRing);
+  await expect(detailDot).toHaveClass(/status-badge__dot--stopped/);
+  await expect(detailDot).toHaveCSS('background-color', expectedStopped);
+  await expect(detailDot).toHaveCSS('box-shadow', 'none');
   await expect(detailDot).toHaveCSS('width', '6px');
   await expect(detailDot).toHaveCSS('height', '6px');
   await expectPaintFits(detailDot, detailBadge);
@@ -191,8 +194,9 @@ test('stopped card presentation is green and black-ringed across tree, detail, a
   const stoppedBadge = dashboardRow(page, childTitles[0]!).locator('.status-badge');
   const stoppedDot = stoppedBadge.locator('.status-badge__dot');
   await expect(stoppedBadge).toHaveClass(/tone-success/);
-  await expect(stoppedDot).toHaveCSS('background-color', expectedGreen);
-  await expect(stoppedDot).toHaveCSS('box-shadow', expectedRing);
+  await expect(stoppedDot).toHaveClass(/status-badge__dot--stopped/);
+  await expect(stoppedDot).toHaveCSS('background-color', expectedStopped);
+  await expect(stoppedDot).toHaveCSS('box-shadow', 'none');
   for (const title of childTitles.slice(1)) await expect(dashboardRow(page, title).locator('.status-badge__dot')).toHaveCount(0);
   await expect(dashboardRow(page, childTitles[2]!).locator('.status-badge')).toHaveClass(/tone-success/);
   await expect(dashboardRow(page, childTitles[3]!).locator('.status-badge')).toHaveClass(/tone-neutral/);

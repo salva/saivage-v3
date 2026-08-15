@@ -15,7 +15,7 @@ export interface UiStatus {
   label: string;
   tone: Tone;
   description?: string;
-  indicator?: 'ringed-dot';
+  indicator?: 'stopped-dot';
 }
 
 export const cardStatusTone: Record<CardStatus, Tone> = {
@@ -50,7 +50,7 @@ export function statusForCard(status: CardStatus, description?: string): UiStatu
     label: status,
     tone: toneForCardStatus(status),
     description,
-    ...(status === 'stopped' ? { indicator: 'ringed-dot' as const } : {}),
+    ...(status === 'stopped' ? { indicator: 'stopped-dot' as const } : {}),
   };
 }
 
