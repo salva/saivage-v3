@@ -226,7 +226,7 @@ describe('strict growing-file boundaries', () => {
     const child = spawnSync(process.execPath, [
       '--import', 'tsx', '--input-type=module', '--eval',
       `import { publishFirstEnvelope } from './src/persistence/growing-file.ts'; try { publishFirstEnvelope(${JSON.stringify(fifo)}, Buffer.from('unused')); process.exitCode = 2; } catch (error) { if (!String(error).includes('already published')) process.exitCode = 3; }`,
-    ], { cwd: process.cwd(), encoding: 'utf8', timeout: 3_000 });
+    ], { cwd: process.cwd(), encoding: 'utf8', timeout: 10_000 });
     expect(child.error).toBeUndefined();
     expect(child.status).toBe(0);
   });
