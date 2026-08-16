@@ -9,6 +9,7 @@ import { cardVersionFile, cardVersionIndexFile } from '../../src/persistence/lay
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
 import { readCurrentCardArtifact } from '../../src/persistence/card-files.js';
+import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -23,6 +24,39 @@ function index(root: string, cardId: string) {
 }
 
 describe('card version files', () => {
+  it.each(['blocked', 'failed'] as const)('retains strict changed-status then metadata-update history for a real %s correction', (status) => {
+    const { root, cards } = fixture();
+    const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.setStatus(child.id, 'running');
+    if (status === 'blocked') cards.commitActivationOutcome(child.id, { status, summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');
+    else cards.commitActivationOutcome(child.id, { status, summary: 'failed', result: runtimeFailure('failed') }, '2026-08-15T00:00:00.000Z');
+
+    const beforeNoOp = index(root, child.id);
+    expect(cards.editCard(child.id, { title: 'before' }, 'planner')).toMatchObject({ title: 'before', lifecycle: { status } });
+    expect(index(root, child.id)).toEqual(beforeNoOp);
+
+    cards.editCard(child.id, { title: 'after' }, 'planner');
+    const catalog = index(root, child.id);
+    const statusVersion = catalog.versions.at(-2)!.version;
+    const updateVersion = catalog.versions.at(-1)!.version;
+    expect(cards.readCardVersion(child.id, statusVersion)).toMatchObject({
+      kind: 'found',
+      value: {
+        kind: 'card-version',
+        card: { title: 'before', lifecycle: { status: 'changed' } },
+        change: { kind: 'status', card_id: child.id, resulting_version: statusVersion, changed_by_actor: 'runtime', changed_by_surface: 'runtime', change_reason: 'status -> changed', changed_fields: ['lifecycle'] },
+      },
+    });
+    expect(cards.readCardVersion(child.id, updateVersion)).toMatchObject({
+      kind: 'found',
+      value: {
+        kind: 'card-version',
+        card: { title: 'after', lifecycle: { status: 'changed' } },
+        change: { kind: 'update', card_id: child.id, resulting_version: updateVersion, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'agent edit_card', changed_fields: ['title'] },
+      },
+    });
+  });
+
   it('publishes immutable N+UUID artifacts and a cumulative authoritative index', () => {
     const { root, cards } = fixture();
     const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });

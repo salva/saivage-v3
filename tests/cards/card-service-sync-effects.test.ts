@@ -10,6 +10,7 @@ import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { SyncHub } from '../../src/server/sync-hub.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { workflowResult } from '../helpers/workflow-result.js';
 
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'sync effects' };
 
@@ -25,6 +26,11 @@ function versionFrames(cardId: string, parentId: string | null): LiveSyncInvalid
     { t: 'invalidate', resource: 'cards', scope: 'children', card_id: cardId },
     ...(parentId ? [{ t: 'invalidate', resource: 'cards', scope: 'children', card_id: parentId } as const] : []),
   ];
+}
+
+function block(cards: CardService, id: string): void {
+  cards.setStatus(id, 'running');
+  cards.commitActivationOutcome(id, { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');
 }
 
 describe('CardService scoped mutation-to-frame effects', () => {
@@ -132,6 +138,87 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const failingCards = new CardService(root, hub, failingIo);
     expect(() => failingCards.editCard(child.id, { title: 'version publication failed' })).toThrow(failure);
     expect(flush()).toEqual([]);
+  });
+
+  it('prunes before effects and orders nested status admission/publication before metadata publication', () => {
+    const child = cards.create(input());
+    block(cards, child.id);
+    flush(); clear();
+
+    const events: string[] = [];
+    const freshness = {
+      cardProjectionChanged(effect: { scope: string }) { events.push(`effect:${effect.scope}`); },
+      runtimeChanged() { events.push('effect:runtime'); },
+      agentMembershipChanged() { events.push('effect:membership'); },
+    };
+    const io = {
+      open(path: string, flags: number, mode?: number) { events.push('publication:open'); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
+      stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+    } as unknown as GrowingFileIo;
+    const service = new CardService(root, freshness, io);
+    const originalRead = service.read.bind(service);
+    jest.spyOn(service, 'read').mockImplementation((id) => { events.push('business:read'); return originalRead(id); });
+    const originalSetStatus = service.setStatus.bind(service);
+    const setStatus = jest.spyOn(service, 'setStatus').mockImplementation((id, status) => { events.push('business:setStatus'); return originalSetStatus(id, status); });
+
+    expect(service.editCard(child.id, { title: child.title }, 'planner')).toMatchObject({ lifecycle: { status: 'blocked' } });
+    expect(events).toEqual(['business:read']);
+    expect(setStatus).not.toHaveBeenCalled();
+
+    events.length = 0;
+    expect(service.editCard(child.id, { title: 'corrected' }, 'planner')).toMatchObject({ title: 'corrected', lifecycle: { status: 'changed' } });
+    expect(setStatus).toHaveBeenCalledWith(child.id, 'changed');
+    expect(events.slice(0, 4)).toEqual(['business:read', 'business:setStatus', 'business:read', 'publication:open']);
+    const publicationIndexes = events.flatMap((event, index) => event === 'publication:open' ? [index] : []);
+    expect(publicationIndexes).toHaveLength(2);
+    expect(events.slice(publicationIndexes[0]! + 1, publicationIndexes[1]!)).toEqual([
+      'effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:children', 'effect:runtime',
+    ]);
+    expect(events.slice(publicationIndexes[1]! + 1)).toEqual([
+      'effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:children',
+    ]);
+  });
+
+  it('lets the exact second-publication failure escape with only completed status-prefix effects', () => {
+    const child = cards.create(input());
+    block(cards, child.id);
+    flush(); clear();
+
+    const failure = new Error('injected metadata publication failure');
+    const events: string[] = [];
+    let publications = 0;
+    const freshness = {
+      cardProjectionChanged(effect: { scope: string }) { events.push(`effect:${effect.scope}`); },
+      runtimeChanged() { events.push('effect:runtime'); },
+      agentMembershipChanged() { events.push('effect:membership'); },
+    };
+    const io = {
+      open(path: string, flags: number, mode?: number) { publications += 1; events.push(`publication:${publications}:open`); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
+      stat: fstatSync,
+      write(fd: number, buffer: Uint8Array, offset?: number, length?: number, position?: number | null) {
+        events.push(`publication:${publications}:write`);
+        if (publications === 2) throw failure;
+        return writeSync(fd, buffer, offset as number, length as number, position as number | null);
+      },
+      fsync: fsyncSync,
+      close: closeSync,
+    } as unknown as GrowingFileIo;
+    const service = new CardService(root, freshness, io);
+    const originalRead = service.read.bind(service);
+    jest.spyOn(service, 'read').mockImplementation((id) => { events.push('business:read'); return originalRead(id); });
+    const originalSetStatus = service.setStatus.bind(service);
+    jest.spyOn(service, 'setStatus').mockImplementation((id, status) => { events.push('business:setStatus'); return originalSetStatus(id, status); });
+
+    let caught: unknown;
+    try { service.editCard(child.id, { title: 'uncertain metadata' }, 'planner'); }
+    catch (error) { caught = error; }
+    expect(caught).toBe(failure);
+    expect(events).toEqual([
+      'business:read', 'business:setStatus', 'business:read',
+      'publication:1:open', 'publication:1:write',
+      'effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:children', 'effect:runtime',
+      'publication:2:open', 'publication:2:write',
+    ]);
   });
 
   it('emits no record hint when close reports an outcome-unknown append failure', () => {

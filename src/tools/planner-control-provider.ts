@@ -24,7 +24,6 @@ interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
   create?(input: NewChildCardInput): CardRecord;
   editCard?(cardId: string, changes: CardEditPatch,agentName:import('../schemas/index.js').AgentName): CardRecord;
-  setStatus(cardId: string, status: 'changed'): CardRecord;
   reorderChildren?(parentId: string, orderedChildIds: string[]): ReorderChildrenResult;
 }
 
@@ -86,8 +85,6 @@ function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof pla
   const patch = plannerEditablePatch(record);
   if (Object.keys(patch).length === 0) return failure('edit_card requires at least one editable field.');
   if (!ctx.store.editCard) throw new Error('Planner edit_card requires a mutable card store.');
-  const shouldMarkChanged = child.card.lifecycle.status === 'failed' || child.card.lifecycle.status === 'blocked';
-  if (shouldMarkChanged) ctx.store.setStatus(record.card_id, 'changed');
   const updated = ctx.store.editCard(record.card_id, patch,ctx.agentName);
   return { success: true, data: { card: compactPlannerToolCard(updated) } };
 }

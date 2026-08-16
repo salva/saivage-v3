@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CAPABILITY_CLASSES, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
 import { listControlActions } from '../../src/persistence/index.js';
+import { reorder_child } from '../../src/tools/analyst-card-tools.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -98,13 +99,24 @@ describe('audited Analyst mutation settlement', () => {
   });
 
   it.each([
-    { action: 'card.reorder_child', result: { kind: 'returned' as const, success: true as const, data: { changed: 1 } }, outcome: 'ok' },
     { action: 'notification.queue', result: { kind: 'returned' as const, success: false as const, error: 'terminal_card' }, outcome: 'error' },
   ])('settles Analyst $action exactly once', async ({ action, result, outcome }) => {
     const test = harness();
     await runAuditedAnalystTool(test.context, {}, test.spec(() => result, { action }));
     expect(listControlActions(test.root)).toHaveLength(1);
     expect(listControlActions(test.root)[0]).toMatchObject({ actor: 'analyst', action, outcome });
+  });
+
+  it('returns and audits an exported reorder_child zero-change success exactly once', async () => {
+    const test = harness();
+    const reorder = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { parent_id: 'project', changed: 0 } }));
+    (test.context as { analystMutations: unknown }).analystMutations = { cards: { reorder } };
+
+    await expect(reorder_child(test.context, { parentId: 'project', orderedChildIds: [] })).resolves.toEqual({ success: true, data: { parent_id: 'project', changed: 0 } });
+    expect(reorder).toHaveBeenCalledTimes(1);
+    expect(reorder).toHaveBeenCalledWith('project', []);
+    expect(listControlActions(test.root)).toHaveLength(1);
+    expect(listControlActions(test.root)[0]).toMatchObject({ actor: 'analyst', action: 'card.reorder_child', outcome: 'ok' });
   });
 
   it('does not perform a post-mutation cancellation check after committed success', async () => {

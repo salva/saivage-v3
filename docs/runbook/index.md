@@ -150,7 +150,9 @@ Each leaf has one referenced ten-second bound. Fast completion clears the timer;
 
 ## Running-card cancellation
 
-Analyst and planner explicit `cancel_card` route running cancellation through runtime cancellation authority. The supervisor consults its one owner map before target I/O, synchronously claims the exact target and running descendant suffix, preserves done descendants, and publishes deepest-first. Planner access is through the exact parent-bound port. Project Stop and App cleanup never initiate cancellation; the singular halt may interrupt and abandon a cancellation that has not completed before freeze. Durable running without an exact owner is an invariant failure, never a direct-write fallback.
+Analyst and Planner explicit `cancel_card` route running cancellation through runtime cancellation authority, but their preflight differs. Planner validates only immediate-child identity and delegates owner-first through the exact parent-bound port without reading target status or subtree. Analyst rejects root and preflights the complete requested subtree, rejecting the whole request if any member is done or cancelled. After admission, the Supervisor consults its one owner map before target I/O, synchronously claims the exact target and running descendant suffix, preserves/skips noncancellable stored descendants, rejects a noncancellable requested stored target, and publishes deepest-first. Project Stop and App cleanup never initiate cancellation; the singular halt may interrupt and abandon a cancellation that has not completed before freeze. Durable running without an exact owner is an invariant failure, never a direct-write fallback.
+
+Analyst record mutation is also conjunctive admission, not possession of `write`/`edit` plus a matching `record_writes` glob alone. The current URL must resolve to an active linked card, card-scoped agents cannot cross cards, every operation-required tool must be present, and Analyst lifecycle support plus absence of an open workflow draft are required before content checks and mutation.
 
 ## Storage and interruption
 

@@ -285,12 +285,15 @@ export class CardService {
 
   editCard(id: string, changes: CardEditPatch,agentName:AgentName): CardRecord {
     const existing = this.read(id); if (!existing) throw new Error(`Card '${id}' not found.`);
-    if (!['backlog', 'changed', 'stopped'].includes(existing.lifecycle.status)) throw new Error(`Card '${id}' cannot be edited in status '${existing.lifecycle.status}'.`);
+    if (!['backlog', 'changed', 'stopped', 'blocked', 'failed'].includes(existing.lifecycle.status)) throw new Error(`Card '${id}' cannot be edited in status '${existing.lifecycle.status}'.`);
     const patch = pruneCardEditPatch(existing, changes);
     if (Object.keys(patch).length === 0) return existing;
-    const candidate = buildEditedCard(existing, patch, new Date().toISOString());
-    const fields = collectEditChangedFields(existing, candidate, patch);
-    return this.publishVersion(existing, candidate, 'update', fields, 'agent edit_card',undefined,agentName);
+    const updateBase = existing.lifecycle.status === 'blocked' || existing.lifecycle.status === 'failed'
+      ? this.setStatus(id, 'changed')
+      : existing;
+    const candidate = buildEditedCard(updateBase, patch, new Date().toISOString());
+    const fields = collectEditChangedFields(updateBase, candidate, patch);
+    return this.publishVersion(updateBase, candidate, 'update', fields, 'agent edit_card',undefined,agentName);
   }
 
   setStatus(id: string, status: SetStatusTarget): CardRecord {

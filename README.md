@@ -66,7 +66,7 @@ The following abbreviated shape shows the current contract; `saivage init` publi
 
 ```yaml
 agents:
-  analyst: {prompt: analyst, tools: [read, write, edit, create_card, get_status, reconfigure], record_writes: [brief.md], model_route: analyst, skills: false, session: global, can_create_children: true}
+  analyst: {prompt: analyst, tools: [read, write, edit, skill, create_card, get_status, reconfigure], record_writes: [brief.md], model_route: analyst, skills: true, session: global, can_create_children: true}
   planner: {prompt: planner, tools: [read, write, edit, create_card, activate_card], record_writes: [brief.md, status.md], model_route: planner, skills: false, session: card, can_create_children: true}
   reviewer: {prompt: reviewer, tools: [read, write, edit, skill], record_writes: [review.md, review-*.md], model_route: reviewer, skills: true, session: card, can_create_children: false}
   executor: {prompt: executor, tools: [read, write, edit, run_command, skill, mcp_tool_call], record_writes: [status.md], model_route: executor, skills: true, session: card, can_create_children: false}
@@ -143,6 +143,8 @@ card_types:
 # workflow in the generated default; aliases or missing types are not accepted.
 ```
 
+This example intentionally abbreviates each tool list, but capability booleans remain exact: the Analyst lists `skill` and has `skills: true`, while Planner has `skills: false`.
+
 The generated default preserves the visible project/goal plan-review loop and one-node execution workflows, but these are independent card-type artifacts rather than families. Edges are strict tagged objects; terminal edges choose ordered record exports and either the current accepted result or an earlier reachable node result. Configuration is required—there is no runtime family fallback.
 
 Non-empty model equivalence groups use nested arrays, for example `equivalents: [["model-a", "model-b"]]`. Legacy mapping/object forms are invalid and must be manually corrected to nested arrays before restart; Saivage does not rewrite them.
@@ -214,6 +216,8 @@ Current card IDs are `project` or `card-<segment>[-<segment>...]` with one to tw
 Card streams use only format v2. One strict `cardRecordSchema` defines the current card record everywhere it appears, including card-version rows, embedded history snapshots, and tombstone final state. Current, history, and tombstone snapshots have one status authority at `lifecycle.status` and have no top-level `status`, persisted `parent`, persisted `depth`, `allowedActions`, or `position`. The complete cumulative parent `children` snapshot is the sole linked-membership and semantic sibling-order authority, including retained tombstone links. Directory creation claims identity, complete initial publication proves the child, and only the later single parent append grants membership and places it in order. A real active reorder is likewise one parent append: requested active IDs come first and retained non-active links follow in their prior relative order; an active-order no-op writes nothing. Generic card patches cannot write `children` or lifecycle.
 
 Card status rules are operation-specific, not one universal terminal taxonomy. Blocked work remains unresolved and can be re-entered by its exact parent through `activate_card` and configured `BLOCKED`; stopped work is reused only by explicit activation through `STOPPED`. See the [functional specification](docs/spec/system-specification.md) and [architecture](docs/architecture/system-architecture.md) for the authoritative contracts.
+
+In the default workflow, Planner corrects and activates only immediate children through parent-owned execution, while the intervention-ready Analyst performs global maintenance such as explicit reopen, cancellation, deletion, reorder, and authorized record mutation; creation ceilings do not grant activation or reopening. The linked canonical specifications define the caller-specific admission and effects.
 
 Operator Card APIs are granular. A hierarchy request returns only one active parent and its active immediate `{id,title,type,status}` children in committed order; it does not expose raw links or inspect grandchildren, and a tombstoned link terminates there. Card detail contains only displayed identity, lifecycle, version, urgency, timestamps, and allowed actions. Compiled record descriptors/current artifacts, metadata-only record history, explicit record versions, and record diffs are separate Card endpoints and owners. The Records panel no longer routes through generic Files, while the independently mounted Files workspace remains available.
 
