@@ -13,7 +13,6 @@
   /* Borders */
   --border:        var(--c-gray-200);
   --border-strong: var(--c-gray-400);
-  --border-subtle: rgba(0, 0, 0, 0.08);
 
   /* Text */
   --text:       var(--c-gray-800);
@@ -26,9 +25,6 @@
   --warn:     var(--c-yellow);
   --danger:   var(--c-red);
   --purple:   var(--c-purple);
-  --pink:     var(--c-pink);
-  --orange:   var(--c-orange);
-  --teal:     var(--c-teal);
 
   /* Card status marker colors */
   --card-status-backlog: var(--c-white);
@@ -49,28 +45,13 @@
   --entry-warn-bg:       rgba(145, 89, 48, 0.06);
   --entry-danger-border: rgba(184, 39, 44, 0.25);
   --entry-danger-bg:     rgba(184, 39, 44, 0.05);
-  --entry-purple-border: rgba(111, 66, 193, 0.25);
-  --entry-purple-bg:     rgba(111, 66, 193, 0.05);
 
-  /* Code / syntax theme */
+  /* Code theme */
   --code-bg:           var(--c-gray-150);
   --code-color:        var(--c-blue);
   --code-block-bg:     var(--c-gray-50);
   --code-block-border: var(--c-gray-200);
   --code-block-text:   var(--c-gray-800);
-
-  --syn-key:         var(--c-green);
-  --syn-string:      var(--c-blue);
-  --syn-number:      var(--c-blue-light);
-  --syn-boolean:     var(--c-red);
-  --syn-null:        var(--c-red);
-  --syn-punctuation: var(--c-gray-500);
-
-  /* Interactive / button */
-  --btn-primary-bg:       var(--c-green-light);
-  --btn-primary-bg-hover: var(--c-green);
-  --btn-primary-border:   rgba(24, 121, 78, 0.4);
-  --btn-primary-text:     var(--c-white);
 
   /* Overlay / hover */
   --overlay-bg: rgba(0, 0, 0, 0.25);
@@ -86,7 +67,6 @@
   --space-4: 8px;
   --space-5: 12px;
   --space-6: 16px;
-  --space-7: 20px;
   --space-8: 24px;
   --space-9: 32px;
 
@@ -97,23 +77,4 @@
   --font-size-base: 13px;
   --font-size-lg: 14px;
   --font-size-xl: 16px;
-  --font-size-2xl: 20px;
-
-  /* Line-height scale */
-  --line-height-tight: 1.2;
-  --line-height-normal: 1.4;
-  --line-height-relaxed: 1.55;
-
-  /* Semantic surfaces */
-  --surface-panel: var(--surface-1);
-  --surface-document: var(--bg);
-  --surface-raised: var(--surface-2);
-
-  /* Focus ring */
-  --focus-ring: 0 0 0 2px var(--c-blue);
-
-  /* Text aliases */
-  --text-primary: var(--text);
-  --text-secondary: var(--text-muted);
-  --text-code: var(--c-blue);
 }
