@@ -214,14 +214,7 @@ async function refreshRuntime(): Promise<void> {
 .mission-active-link { background: none; border: none; cursor: pointer; display: inline-flex; align-items: baseline; gap: var(--space-4); font: inherit; padding: 0; color: var(--accent-2); text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
 .mission-active-link:hover { text-decoration-color: var(--accent-2); }
 .mission-active-title { font-size: var(--font-size-lg); font-weight: 600; color: var(--accent-2); }
-.mission-active-phase { font-size: var(--font-size-sm); color: var(--text-muted); text-transform: capitalize; }
-.mission-stats { display: flex; gap: var(--space-8); flex-wrap: wrap; }
-.mission-stat { font-size: var(--font-size-md); color: var(--text-muted); display: inline-flex; align-items: baseline; gap: var(--space-2); }
-.mission-stat strong { font-size: var(--font-size-xl); font-weight: 700; color: var(--text); }
-.mission-stat.success strong { color: var(--accent); }
-.mission-stat.danger strong { color: var(--danger); }
 .section-label { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 0 0 8px 0; display: flex; align-items: center; gap: 6px; }
-.section-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--surface-3); color: var(--text); font-size: 10px; font-weight: 600; }
 .status-grid { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
 .status-item { display: contents; }
 .status-key { font-size: 12px; color: var(--text-muted); padding: 2px 0; }
@@ -232,15 +225,5 @@ async function refreshRuntime(): Promise<void> {
 .status-value.clickable { color: var(--accent-2); cursor: pointer; text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
 .status-value.clickable:hover { text-decoration-color: var(--accent-2); }
 .operator-help { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
-.runtime-record-list { display: flex; flex-direction: column; gap: 6px; }
-.record-row { display: flex; flex-direction: column; gap: 2px; text-align: left; background: var(--surface-1); border: 1px solid var(--surface-3); border-radius: 6px; padding: 7px 8px; color: var(--text); cursor: pointer; font-size: 11px; }
-.record-row span:last-child { color: var(--text-muted); font-family: 'SF Mono', monospace; }
 .list-empty { text-align: left; font-family: inherit; }
-.index-bars { display: flex; flex-direction: column; gap: 6px; }
-.index-bar-row { display: grid; grid-template-columns: 60px 1fr 30px; align-items: center; gap: 8px; }
-.index-label { font-size: 11px; color: var(--text-muted); text-align: right; }
-.index-bar-track { height: 6px; background: var(--surface-3); border-radius: 3px; overflow: hidden; }
-.index-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent-2), var(--accent)); border-radius: 3px; min-width: 2px; transition: width 0.3s ease; }
-.index-count { font-size: 11px; color: var(--text); font-family: 'SF Mono', monospace; text-align: right; }
-.history-grid .status-key { font-size: 11px; }
 </style>

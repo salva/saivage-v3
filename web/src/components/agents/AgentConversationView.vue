@@ -232,11 +232,6 @@ onUnmounted(() => {
 .auto-scroll-pause-toggle input {
   margin: 0;
 }
-.conv-model {
-  font-size: 11px;
-  color: var(--text-muted);
-  font-family: 'SF Mono', monospace;
-}
 .conv-tb-btn {
   padding: 3px 8px;
   background: var(--surface-3);

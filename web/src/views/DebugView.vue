@@ -878,13 +878,6 @@ onUnmounted(() => {
 .debug-tab-content {
   padding: 16px;
 }
-.debug-loading,
-.debug-empty {
-  padding: 32px;
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-}
 .debug-section {
   margin-bottom: 24px;
 }
@@ -960,12 +953,6 @@ onUnmounted(() => {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.operator-help-text {
-  margin-top: 10px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.operator-note-card,
 .process-card {
   background: var(--surface-1);
   border: 1px solid var(--surface-3);
@@ -975,46 +962,6 @@ onUnmounted(() => {
 .process-card.selected {
   border-color: var(--accent-2);
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-2) 45%, transparent);
-}
-.operator-note-header {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-bottom: 8px;
-}
-.operator-note-kind {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  border-radius: 999px;
-  padding: 2px 8px;
-  background: var(--entry-user-bg);
-  color: var(--accent-2);
-}
-.operator-note-author {
-  font-size: 12px;
-  color: var(--text);
-}
-.operator-note-time {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.operator-note-body {
-  font-size: 13px;
-  color: var(--text);
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin-bottom: 8px;
-}
-.operator-note-meta {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  font-size: 11px;
-  color: var(--text-muted);
-  margin-bottom: 10px;
 }
 .errors-list {
   display: flex;

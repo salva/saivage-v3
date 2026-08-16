@@ -2,11 +2,9 @@
   <button
     :type="type"
     class="ui-button"
-    :class="[`ui-button--${variant}`, `ui-button--${size}`, { 'ui-button--loading': loading }]"
-    :disabled="disabled || loading"
-    :aria-busy="loading || undefined"
+    :class="[`ui-button--${variant}`, `ui-button--${size}`]"
+    :disabled="disabled"
   >
-    <span v-if="loading" class="ui-button__spinner" aria-hidden="true"></span>
     <slot />
   </button>
 </template>
@@ -17,13 +15,11 @@ withDefaults(defineProps<{
   variant?: 'default' | 'primary' | 'danger' | 'ghost';
   size?: 'sm' | 'md' | 'icon';
   disabled?: boolean;
-  loading?: boolean;
 }>(), {
   type: 'button',
   variant: 'default',
   size: 'md',
   disabled: false,
-  loading: false,
 });
 </script>
 
@@ -50,13 +46,4 @@ withDefaults(defineProps<{
 .ui-button:hover:not(:disabled) { background: var(--border); }
 .ui-button--primary:hover:not(:disabled) { background: var(--accent); }
 .ui-button:disabled { opacity: 0.4; cursor: not-allowed; }
-.ui-button__spinner {
-  width: var(--space-5);
-  height: var(--space-5);
-  border: 2px solid currentColor;
-  border-top-color: transparent;
-  border-radius: 50%;
-  animation: ui-btn-spin 0.6s linear infinite;
-}
-@keyframes ui-btn-spin { to { transform: rotate(360deg); } }
 </style>

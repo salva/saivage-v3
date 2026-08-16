@@ -163,11 +163,6 @@ function actionLabel(action: string): string {
 
 <style scoped>
 .card-detail-container { flex:1; min-height:0; overflow-y:auto; padding:20px; }
-.detail-loading { padding:16px; color:var(--text-muted); font-size:13px; }
-
-.status-banner { display:flex; align-items:center; gap:10px; flex-wrap:wrap; padding:8px 12px; border-radius:6px; margin-top:10px; font-size:12px; }
-.status-banner.tone-danger { background:var(--entry-danger-bg); color:var(--danger); }
-.status-banner.tone-warning { background:var(--entry-warn-bg); color:var(--warn); }
 .banner-action { padding:3px 10px; background:var(--surface-3); border:1px solid var(--border); color:var(--text); border-radius:4px; cursor:pointer; font:inherit; font-size:11px; }
 
 @media (max-width:880px) { .obsolete-card-action { display:none; } }
