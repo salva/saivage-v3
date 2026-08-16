@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { cardTypeNameSchema } from '../../src/schemas/index.js';
-import { effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema } from '../../src/schemas/saivage-config.js';
+import { cardTypeSetNameSchema, effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 
 function projectOnly() {
@@ -13,6 +13,18 @@ function projectOnly() {
 }
 
 describe('configuration-owned card types',()=>{
+  it('accepts exactly one source selection form while effective contracts require a complete map',()=>{
+    const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;
+    delete globals.card_types;
+    expect(saivageConfigSchema.parse(globals)).not.toHaveProperty('card_types');
+    expect(saivageConfigSchema.parse({...globals,card_type_set:'standard'}).card_type_set).toBe('standard');
+    expect(saivageConfigSchema.safeParse({...globals,card_type_set:'standard',card_types:DEFAULT_SAIVAGE_CONFIG.card_types}).error?.issues[0]).toMatchObject({path:[],message:expect.stringContaining('mutually exclusive')});
+    expect(cardTypeSetNameSchema.safeParse('Standard').success).toBe(false);
+    expect(saivageConfigSchema.safeParse({...globals,card_type_set:'Standard'}).error?.issues[0]?.path).toEqual(['card_type_set']);
+    expect(effectiveSaivageConfigSchema.safeParse({...globals,card_type_set:'standard'}).success).toBe(false);
+    expect(outboundEffectiveSaivageConfigSchema.safeParse({...globals,card_type_set:'standard'}).success).toBe(false);
+  });
+
   it('accepts project-only and arbitrary valid configured identifiers in declaration order',()=>{
     const only=projectOnly();
     expect(saivageConfigSchema.parse(only).card_types).toEqual(only.card_types);

@@ -8,6 +8,8 @@ import { compileProjectWorkflows } from '../runtime/card-process/card-process-co
 import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 import type { WorkflowCompileOptions } from '../runtime/card-process/card-process-config.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { BUNDLED_CARD_TYPE_SETS } from './card-type-sets/registry.js';
+import { resolveCardTypeSelection } from './card-type-sets/registry.js';
 
 export type ConfigSelectionSource =
   | { readonly kind: 'cli'; readonly argument: '--config' }
@@ -84,7 +86,7 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
       error.fieldPath = path;
       throw error;
     }
-    const config = effectiveSaivageConfigSchema.parse(parsed.data);
+    const config = effectiveSaivageConfigSchema.parse(resolveCardTypeSelection(parsed.data, BUNDLED_CARD_TYPE_SETS));
     return { config,workflows:compileProjectWorkflows(config,this.#compileOptions), warnings: Object.freeze([...warnings]) };
   }
 

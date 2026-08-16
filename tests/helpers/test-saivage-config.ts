@@ -1,11 +1,12 @@
-import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 
-export const TEST_SAIVAGE_CONFIG = saivageConfigSchema.parse({
+export const TEST_SAIVAGE_CONFIG = effectiveSaivageConfigSchema.parse({
   ...structuredClone(DEFAULT_SAIVAGE_CONFIG),
   models: { routes:Object.fromEntries(Object.keys(DEFAULT_SAIVAGE_CONFIG.models.routes).map((name)=>[name,{candidates:['test-model'],temperature:0.2,max_tokens:200}])),profiles:{},equivalents:[],failover:{} },
   providers: { test: { models: ['test-model'], capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', contextWindowTokens: 100000, maxOutputTokens: 10000 } } },
   compaction: {
+    ...structuredClone(DEFAULT_SAIVAGE_CONFIG.compaction),
     enabled: true,
     input_budget_tokens: 1000,
     summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },

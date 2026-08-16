@@ -8,7 +8,7 @@ import { stringify } from 'yaml';
 
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { startApp, type App } from '../../src/boot/app.js';
-import { saivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
+import { effectiveSaivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
 
 const CLI = join(process.cwd(), 'src', 'cli.ts');
 const TSX = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -79,7 +79,7 @@ function runCli(root: string, command: 'init' | 'reset'): string {
 }
 
 function testConfig(providerPort: number, appPort: number): SaivageConfig {
-  const config = saivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));
+  const config = effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));
   config.server = { host: '127.0.0.1', port: appPort };
   config.models = {
     routes: {

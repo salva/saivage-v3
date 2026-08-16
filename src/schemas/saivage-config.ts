@@ -14,6 +14,7 @@ const routingProfileSchema = z.object({
 const modelEquivalentsSchema = z.array(z.array(z.string()));
 
 const namedIdentifierSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
+export const cardTypeSetNameSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 const outcomeIdentifierSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);
 export const recordWritePatternSchema = z.string().regex(/^[a-z*][a-z0-9*-]{0,63}\.md$/u, 'Expected a lowercase Markdown record-name pattern containing only literal stem characters and * wildcards.');
 const modelRouteSchema = z.object({
@@ -284,9 +285,15 @@ export const saivageConfigSchema = z.object({
   providers: z.record(z.string(), providerEntrySchema).default({}),
   server: serverSectionSchema.default({}),
   compaction: compactionSectionSchema,
-  card_types: cardTypesSchema,
+  card_type_set: cardTypeSetNameSchema.optional(),
+  card_types: cardTypesSchema.optional(),
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
-}).strict().superRefine(validateAnalystReserve);
+}).strict().superRefine((value, ctx) => {
+  validateAnalystReserve(value, ctx);
+  if (value.card_type_set !== undefined && value.card_types !== undefined) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'card_type_set and card_types are mutually exclusive' });
+  }
+});
 
 const effectiveSaivageConfigShape = {
   agents: z.record(agentNameSchema, agentDefinitionSchema),
@@ -331,6 +338,8 @@ function validateAnalystReserve(value: {
 // ── Derived Types ─────────────────────────────────────────────
 
 export type SaivageConfig = z.infer<typeof effectiveSaivageConfigSchema>;
+export type SaivageConfigSource = z.infer<typeof saivageConfigSchema>;
+export type CardTypeSetName = z.infer<typeof cardTypeSetNameSchema>;
 export type OutboundEffectiveSaivageConfig = z.infer<typeof outboundEffectiveSaivageConfigSchema>;
 export type McpServerConfig = z.infer<typeof effectiveMcpServerEntrySchema>;
 export type StdioMcpServerConfig = z.infer<typeof effectiveStdioMcpServerSchema>;

@@ -144,7 +144,14 @@ export { cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './val
 export { cardIdSegments, MAX_CARD_DEPTH } from './card-id.js';
 export { cardVersionChangeSchema, type CardVersionChange } from './card-version-change.js';
 export {
+  cardTypesSchema,
+  cardTypeSetNameSchema,
+  effectiveSaivageConfigSchema,
   outboundEffectiveSaivageConfigSchema,
+  saivageConfigSchema,
+  type CardTypesSource,
+  type CardTypeSetName,
   type OutboundEffectiveSaivageConfig,
   type SaivageConfig,
+  type SaivageConfigSource,
 } from './saivage-config.js';

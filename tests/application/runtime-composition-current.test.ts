@@ -18,7 +18,7 @@ import { createTestConfigAuthority } from '../helpers/project-config.js';
 import { unusedMcpToolInvocation } from '../helpers/llm-test-helpers.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { AnalystRuntime } from '../../src/agents/analyst-api.js';
-import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import type { AgentMembershipFreshnessTarget } from '../../src/application/freshness-effects.js';
 
 const roots:string[]=[];afterEach(()=>{jest.restoreAllMocks();while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
@@ -38,7 +38,7 @@ describe('current runtime composition',()=>{
     const projectRoot = mkdtempSync(join(tmpdir(), 'runtime-composition-analyst-freshness-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
-    const config = saivageConfigSchema.parse({
+    const config = effectiveSaivageConfigSchema.parse({
       ...structuredClone(TEST_SAIVAGE_CONFIG),
       providers: { test: { models: ['test-model'], baseUrl: 'https://provider.example.test/v1', apiKey: 'synthetic-test-key', capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', contextWindowTokens: 100_000, maxOutputTokens: 10_000 } } },
       compaction: { ...structuredClone(TEST_SAIVAGE_CONFIG.compaction), input_budget_tokens: 100_000 },

@@ -1,5 +1,5 @@
-import type { CardTypeName } from '../schemas/index.js';
-import type { SaivageConfig } from '../schemas/saivage-config.js';
+import { DEFAULT_CARD_TYPE_SET, STANDARD_CARD_TYPE_SET } from '../config/config-api.js';
+import type { SaivageConfig, SaivageConfigSource } from '../schemas/saivage-config.js';
 
 export const DEFAULT_AGENTS = Object.freeze({
   analyst: Object.freeze({ prompt: 'analyst', tools: Object.freeze(['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'analyst', skills: true, session: 'global', can_create_children: true, record_writes: Object.freeze(['brief.md']) }),
@@ -15,62 +15,14 @@ export const DEFAULT_MODEL_ROUTES = Object.freeze({
   executor: Object.freeze({ candidates: Object.freeze(['gpt-5.6']), temperature: 0.3, max_tokens: 8192 }),
 });
 
-const allNonRootTypes = ['goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
+const DEFAULT_GLOBAL_CONFIG: Omit<SaivageConfig, 'card_types'> = {agents:structuredClone(DEFAULT_AGENTS) as unknown as SaivageConfig['agents'],analyst_agent:'analyst',models:{routes:structuredClone(DEFAULT_MODEL_ROUTES) as unknown as SaivageConfig['models']['routes'],profiles:{planning:{preferred:['gpt-5.6'],allowed:[]},review:{preferred:['gpt-5.6'],allowed:[]}},equivalents:[],failover:{}},providers:{},server:{host:'0.0.0.0',port:8080},compaction:{enabled:true,input_budget_tokens:32768,trigger_fraction:0.75,completion_reserve_fraction:0.25,merge_line_fraction:0.3,summary_line_fraction:0.5,escalate_merge_line_fraction:0.4,escalate_summary_line_fraction:0.6,snap:'keep_straddler_verbatim',summarizer_candidate:{provider:'openai',account:null,model:'gpt-5.6'}}};
 
-function planningCardType(): SaivageConfig['card_types'][CardTypeName] {
-  return {
-    permitted_child_types: [...allNonRootTypes],
-    records: {
-      'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
-      'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
-      'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
-    },
-    workflow: {
-      entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'recover', prompt: 'stopped-recovery' } },
-      nodes: {
-        plan: { agent: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
-          complete_direct: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },
-          admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' },
-          blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
-          failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
-        } },
-        review: { agent: 'reviewer', prompt: 'review', correction_prompt: 'correct-review-result', records: { 'review.md': { mode: 'clean', gate: 'updated' } }, descendant_context: { records: ['status.md'], require_unchanged_until_accept: true }, edges: {
-          approved: { target: { terminal: 'DONE', promote: 'current', export_records: ['review.md'] } },
-          revision_required: { target: { node: 'plan' }, prompt: 'review-to-plan' },
-          blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['review.md'] } },
-          failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['review.md'] } },
-        } },
-        recover: { agent: 'planner', prompt: 'recover', correction_prompt: 'correct-plan-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
-          complete_direct: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },
-          admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' },
-          blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
-          failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
-        } },
-      },
-    },
-  };
-}
-
-function executionCardType(): SaivageConfig['card_types'][CardTypeName] {
-  return {
-    permitted_child_types: [],
-    records: {
-      'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true },
-      'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
-    },
-    workflow: {
-      entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
-      nodes: { execute: { agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
-        done: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },
-        blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
-        failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
-      } } },
-    },
-  };
-}
-
-export const DEFAULT_CARD_TYPES: SaivageConfig['card_types'] = Object.freeze({
-  project: planningCardType(), goal: planningCardType(), architecture: executionCardType(), code: executionCardType(), test: executionCardType(), doc: executionCardType(), data: executionCardType(), research: executionCardType(), ops: executionCardType(),
+export const DEFAULT_SAIVAGE_CONFIG: SaivageConfig = Object.freeze({
+  ...structuredClone(DEFAULT_GLOBAL_CONFIG),
+  card_types: structuredClone(STANDARD_CARD_TYPE_SET.cardTypes),
 });
 
-export const DEFAULT_SAIVAGE_CONFIG = Object.freeze({agents:structuredClone(DEFAULT_AGENTS),analyst_agent:'analyst',models:{routes:structuredClone(DEFAULT_MODEL_ROUTES),profiles:{planning:{preferred:['gpt-5.6'],allowed:[]},review:{preferred:['gpt-5.6'],allowed:[]}},equivalents:[],failover:{}},providers:{},server:{host:'0.0.0.0',port:8080},compaction:{enabled:true,input_budget_tokens:32768,trigger_fraction:0.75,completion_reserve_fraction:0.25,merge_line_fraction:0.3,summary_line_fraction:0.5,escalate_merge_line_fraction:0.4,escalate_summary_line_fraction:0.6,snap:'keep_straddler_verbatim',summarizer_candidate:{provider:'openai',account:null,model:'gpt-5.6'}},card_types:DEFAULT_CARD_TYPES});
+export const DEFAULT_SAIVAGE_CONFIG_SOURCE: SaivageConfigSource = Object.freeze({
+  ...structuredClone(DEFAULT_GLOBAL_CONFIG),
+  card_type_set: DEFAULT_CARD_TYPE_SET,
+});

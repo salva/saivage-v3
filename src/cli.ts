@@ -12,7 +12,7 @@ import { withDirectMutationComposition } from './boot/direct-mutation-compositio
 import { readProjectIdentity } from './persistence/project-identity.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from './persistence/generated-state.js';
 import { OperatorRuntimeHttpClient } from './application/operator-runtime-http-client.js';
-import { DEFAULT_SAIVAGE_CONFIG } from './agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG_SOURCE } from './agents/default-workflow-config.js';
 import { replaceConfigYaml } from './config/config-file.js';
 import { createResolvedConfigAuthority } from './config/resolved-config-authority.js';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from './contracts/index.js';
@@ -50,7 +50,7 @@ async function handleInit(): Promise<void> {
   withDirectMutationComposition(projectRoot, 'init', fatalPort, (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
     const configPath=join(canonicalProjectRoot,'.saivage','saivage.yaml');
-    if(!existsSync(configPath))replaceConfigYaml(configPath,DEFAULT_SAIVAGE_CONFIG);
+    if(!existsSync(configPath))replaceConfigYaml(configPath,DEFAULT_SAIVAGE_CONFIG_SOURCE);
     const workflows=loadCanonicalWorkflows(canonicalProjectRoot);
     if (readProjectIdentity(canonicalProjectRoot) === null) composition.createAndBindProjectIdentity();
     const projectCard = readProjectCardOrAssertInitialPublicationAllowed(canonicalProjectRoot);

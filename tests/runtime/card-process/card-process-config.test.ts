@@ -5,18 +5,25 @@ import { join } from 'node:path';
 
 import { DEFAULT_AGENTS,DEFAULT_SAIVAGE_CONFIG } from '../../../src/agents/default-workflow-config.js';
 import { bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
-import { saivageConfigSchema,type SaivageConfig } from '../../../src/schemas/saivage-config.js';
+import { effectiveSaivageConfigSchema,saivageConfigSchema,type SaivageConfig } from '../../../src/schemas/saivage-config.js';
 import type { CardStatus } from '../../../src/schemas/index.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
 import { createPromptTemplateRegistry, renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
 import { projectCompiledGraphs } from '../../../src/runtime/card-process/compiled-graphs-projection.js';
+import { BUNDLED_CARD_TYPE_SETS, resolveCardTypeSelection } from '../../../src/config/card-type-sets/registry.js';
 
-function source():SaivageConfig{return saivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));}
+function source():SaivageConfig{return effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));}
 function failure(change:(value:SaivageConfig)=>void,message:RegExp):void{const value=source();change(value);expect(()=>compileProjectWorkflows(value)).toThrow(message);}
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
 describe('named-agent card-type workflow compilation',()=>{
+  it('compiles omitted, selected standard, and explicit standard sources identically',()=>{
+    const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;
+    const compile=(input:unknown)=>compileProjectWorkflows(effectiveSaivageConfigSchema.parse(resolveCardTypeSelection(saivageConfigSchema.parse(input),BUNDLED_CARD_TYPE_SETS)));
+    const omitted=compile(globals);const selected=compile({...globals,card_type_set:'standard'});const explicit=compile(DEFAULT_SAIVAGE_CONFIG);
+    expect(selected).toEqual(omitted);expect(explicit).toEqual(omitted);
+  });
   it('treats a configured global card type as card-scoped for agents, fragments, processes, and registry rendering',()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'workflow-global-card-'));roots.push(projectRoot);
     const config=source();

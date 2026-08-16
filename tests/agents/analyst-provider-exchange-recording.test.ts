@@ -15,7 +15,7 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { bindRuntimeWorkflows, compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
-import { saivageConfigSchema } from '../../src/schemas/saivage-config.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { SyncHub } from '../../src/server/sync-hub.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -82,7 +82,7 @@ describe('production-composed Analyst provider-exchange recording', () => {
         error_message: 'Current-format app-log seed.',
       });
 
-      const config = saivageConfigSchema.parse({
+      const config = effectiveSaivageConfigSchema.parse({
         ...structuredClone(TEST_SAIVAGE_CONFIG),
         providers: {
           test: {
