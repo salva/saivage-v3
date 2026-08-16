@@ -60,9 +60,11 @@ cd "$TARGET_PROJECT"
 
 The pre-acquisition identity read does not mutate. A known-unsuccessful exclusive open publishes no lock; failure after that open is outcome-unknown and may retain the lock. After successful acquisition, ordinary failure releases the exact current bound or bootstrap-unbound lock but preserves completed config, identity, and generated durable effects, including identity after create succeeds but lock binding fails. Every indexed current card, authored-record, and conversation head is strict: missing, malformed, unreadable, schema-invalid, or identity-mismatched authority blocks startup without shortening its index or opening a predecessor. Startup's explicit conversation owner alone may truncate bytes after the final newline when the retained nonempty complete prefix fully validates; uncertainty from attempted truncation is fatal and authorizes no follow-up operation. A generated-publication failure may leave retained partial state. The explicit remedy is to stop Saivage, run the current built `"$SAIVAGE_BIN" reset`, and retry `init`; do not selectively delete roots or expect `init` or `start --create-runtime` to repair them. There is no `init --force`.
 
-Before starting, configure the required named-agent catalog, selected global Analyst, named model routes, and the project's card-type workflows in `$TARGET_PROJECT/.saivage/saivage.yaml`. `card_types` must contain the fixed reserved `project` root entry and may contain any number of non-root names matching `[a-z][a-z0-9-]{0,63}`; only `project` is reserved, so `global` is a valid ordinary card type. Every `permitted_child_types` reference must name another configured entry, be unique, and must not be `project`. Agent names are configuration identities, not code-owned roles. Every agent owns one generic prompt reference, exact ordered tools, model route, skill capability, session scope, and child-creation ceiling. Every card type independently owns its permitted child types, records, bootstrap record, lifecycle entries, nodes, outcome edges, exports, and result promotion. Unknown fields and unclosed references fail startup.
+Before starting, configure the required global named-agent catalog, selected global Analyst, named model routes, and the project's card-type source in `$TARGET_PROJECT/.saivage/saivage.yaml`. The source contract permits exactly `card_type_set: <name>`, a complete `card_types` map, or omission of both, which selects `standard`. The two keys are mutually exclusive. An explicit malformed or unknown set fails directly; it never falls back to `standard` and never merges with an explicit map. Only `standard` is currently shipped. Bundled sets contain complete card types, workflows, and record declarations only; agents, model routes, providers, compaction, server, and MCP remain global configuration. `ResolvedConfigAuthority` consumes the source choice once and supplies one complete effective `card_types` map to all compiler/runtime and outbound effective-config consumers.
 
-The following abbreviated shape shows the current contract; `saivage init` publishes nine shipped defaults in this order: `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`, `ops`.
+An explicit complete map must contain the fixed reserved `project` root entry and may contain any number of non-root names matching `[a-z][a-z0-9-]{0,63}`; only `project` is reserved, so `global` is a valid ordinary card type. Every `permitted_child_types` reference must name another entry in that same complete map, be unique, and must not be `project`. Agent names are global configuration identities, not code-owned roles. Every agent owns one generic prompt reference, exact ordered tools, model route, skill capability, session scope, and child-creation ceiling. Every effective card type independently owns its permitted child types, records, bootstrap record, lifecycle entries, nodes, outcome edges, exports, and result promotion. Unknown fields and unclosed references fail startup.
+
+The following abbreviated shape shows the normal source contract. `saivage init` publishes `card_type_set: standard`; that selector resolves to the nine standard definitions in this order: `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`, `ops`.
 
 ```yaml
 agents:
@@ -94,61 +96,34 @@ compaction:
 server:
   port: 8080
   host: "0.0.0.0"
+card_type_set: standard
+```
+
+This example intentionally abbreviates each tool list, but capability booleans remain exact: the Analyst lists `skill` and has `skills: true`, while Planner has `skills: false`.
+
+As the mutually exclusive advanced alternative, remove `card_type_set` and provide the complete map directly. The following is only a structural excerpt; a selected source map must include every referenced definition and each definition's complete workflow and records:
+
+```yaml
 card_types:
   project:
-    permitted_child_types: [goal, architecture, code, test, doc, data, research, ops]
+    permitted_child_types: [goal]
     records:
       brief.md: {format: markdown, schema: card-brief.v1, bootstrap: true}
       status.md: {format: markdown, schema: work-status.v1, bootstrap: false}
       review.md: {format: markdown, schema: work-review.v1, bootstrap: false}
     workflow:
-    entries:
-      BACKLOG: {node: plan}
-      CHANGED: {node: plan}
-      BLOCKED: {node: plan}
-      STOPPED: {node: recover, prompt: stopped-recovery}
-    nodes:
-      plan:
-        agent: planner
-        prompt: plan
-        correction_prompt: correct-plan-result
-        records: {status.md: {mode: continue, gate: updated}}
-        edges:
-          complete_direct: {target: {terminal: DONE, promote: current, export_records: [status.md]}}
-          admit_review: {target: {node: review}, prompt: plan-to-review}
-          blocked: {target: {terminal: BLOCKED, promote: current, export_records: [status.md]}}
-          failed: {target: {terminal: FAILED, promote: current, export_records: [status.md]}}
-      review:
-        agent: reviewer
-        prompt: review
-        correction_prompt: correct-review-result
-        records: {review.md: {mode: clean, gate: updated}}
-        edges:
-          approved: {target: {terminal: DONE, promote: current, export_records: [review.md]}}
-          revision_required: {target: {node: plan}, prompt: review-to-plan}
-          blocked: {target: {terminal: BLOCKED, promote: current, export_records: [review.md]}}
-          failed: {target: {terminal: FAILED, promote: current, export_records: [review.md]}}
-      recover:
-        agent: planner
-        prompt: recover
-        correction_prompt: correct-plan-result
-        records: {status.md: {mode: continue, gate: updated}}
-        edges:
-          complete_direct: {target: {terminal: DONE, promote: current, export_records: [status.md]}}
-          admit_review: {target: {node: review}, prompt: plan-to-review}
-          blocked: {target: {terminal: BLOCKED, promote: current, export_records: [status.md]}}
-          failed: {target: {terminal: FAILED, promote: current, export_records: [status.md]}}
-# goal has an independent copy of the project-style workflow. Architecture,
-# code, test, doc, data, research, and ops each have an independent one-node
-# workflow in the generated default. Operators may replace these non-root
-# defaults with a closed configured set; aliases and missing references are not accepted.
+      entries: {BACKLOG: {node: plan}, CHANGED: {node: plan}, BLOCKED: {node: plan}, STOPPED: {node: recover, prompt: stopped-recovery}}
+      nodes: # complete plan/review/recover definitions required
+        # ...
+  goal: # complete referenced definition required
+    # ...
 ```
 
-This example intentionally abbreviates each tool list, but capability booleans remain exact: the Analyst lists `skill` and has `skills: true`, while Planner has `skills: false`.
+Do not place this map beside `card_type_set`. There is no partial-map overlay, inheritance, merge, alias, or missing-reference fallback.
 
 The generated default preserves the visible project/goal plan-review loop and one-node execution workflows, but these are independent card-type artifacts rather than families. Edges are strict tagged objects; terminal edges choose ordered record exports and either the current accepted result or an earlier reachable node result. Configuration is required—there is no runtime family fallback.
 
-Card-type additions and matching prompt/config changes are ordinary stopped configuration changes: stop, edit, and start so the selected set is recompiled; no generated-state reset is required. Removing or renaming a type still referenced by any reached active or tombstoned canonical card makes strict startup fail. Restore the matching config entry or intentionally perform the existing stopped whole-generated-state reset. Saivage never migrates, aliases, selectively repairs, or normalizes those cards, and rolling back to a static-type binary after custom cards exist is unsupported.
+Changing `card_type_set`, replacing an explicit map, adding a card type, or changing matching prompt/config inputs is an ordinary stopped configuration change: stop, edit, and start so one complete effective map is resolved and compiled; no unconditional generated-state reset is required. Strict startup validates every reached active or tombstoned card and retained parent/type admission before optional generated-state effects. If the selection is incompatible, restore the compatible selector or complete explicit map and restart, or intentionally perform the existing stopped whole-generated-state reset for a fresh history. Saivage never probes, falls back, merges, migrates, aliases, selectively repairs, or normalizes those cards, and rolling back to a binary/configuration that cannot admit them is unsupported.
 
 Non-empty model equivalence groups use nested arrays, for example `equivalents: [["model-a", "model-b"]]`. Legacy mapping/object forms are invalid and must be manually corrected to nested arrays before restart; Saivage does not rewrite them.
 
@@ -187,7 +162,7 @@ Compaction is a boot requirement, not an optional feature. `init` publishes the 
 
 Configured MCP reconciliation must converge before runtime mechanics start. Startup installs the reconciled MCP invocation authority exactly once; reconciliation or later runtime-start failure aborts startup and is contained through the normal App terminal coordinator, without retry or configuration rollback.
 
-Prompt files use one purpose-first tree: `agents|process|fragments/<cardType|_shared>/<reference>.md`. Card hosts select project card-specific, project shared, bundled card-specific, then bundled shared; the global Analyst checks only project shared then bundled shared. Only exact absence advances. Agent filenames always use `agents.<name>.prompt`, not the agent name. Agents sharing one prompt reference share the same applicable override; configure distinct references for independent content. Process templates allow only raw `&#123;&#123;cardType&#125;&#125;` and render at startup. Hosts may directly include one-level fragments with `&#123;&#123;> fragment-id&#125;&#125;`; nested includes are rejected. Every effective workflow-agent system prompt includes `&#123;&#123;contractDescription&#125;&#125;` exactly once. Changes require restart.
+Prompt files use one singular purpose-first tree: `agents|process|fragments/<cardType|_shared>/<reference>.md`. Card hosts select project card-specific, project shared, bundled card-specific, then bundled shared; the global Analyst checks only project shared then bundled shared. Only exact absence advances. Agent filenames always use `agents.<name>.prompt`, not the agent name. Agents sharing one prompt reference share the same applicable override; configure distinct references for independent content. Process templates allow only raw `&#123;&#123;cardType&#125;&#125;` and render at startup. Hosts may directly include one-level fragments with `&#123;&#123;> fragment-id&#125;&#125;`; nested includes are rejected. Every effective workflow-agent system prompt includes `&#123;&#123;contractDescription&#125;&#125;` exactly once. Packaging requires the physical bundled tree to equal the union of artifacts selected by all explicitly registered sets. The currently sole `standard` set stays locked to exactly the historical 14 files: four shared agent prompts and ten shared process prompts. Changes require restart.
 
 This is a breaking configuration-path cutover with no migration or old-path fallback. Stop the service and manually rewrite existing overrides into `.saivage/config/prompts/{agents,process,fragments}/{<cardType>,_shared}/<reference>.md` before starting the new binary. This path-only cutover does not require generated-state reset.
 

@@ -89,7 +89,7 @@ Saivage-owned persistence is direct stateless synchronous file I/O by the domain
 - `canonical-conversation-artifacts.ts` owns the strict version-index, segment-genesis, segment-envelope schemas and their integrity commitments. `conversation-file.ts` owns direct canonical publication, strict reads, genesis-derived validation seeds, compaction publication, and startup-only truncation of an unterminated suffix after full retained-prefix validation for each deterministic named-agent session. It never shortens an index or searches semantic checkpoints. Ordinary v1 and compacted genesis make every current segment independently valid; compaction commits N+1 by immutable-file creation followed by index replacement. The canonical conversation validator owns semantic grouping.
 - `contracts/app-log.ts` owns the strict three-lane `{type,data}` union for event, control-action, and provider-exchange rows. `persistence/app-log.ts` owns the sole direct synchronous preparation/validation/serialization/append boundary and strict reads, using the current project root directly. Its one private call-local semantic validator enforces global logical-ID uniqueness across all lanes for complete reads and prospective existing-plus-candidate admission. Domain producers supply preparation closures and invoke their narrow direct post-commit effects only after successful publication.
 - `provider-exchange-log.ts` is the singular latest-provider-exchange selection owner. Each invocation strictly acquires the complete provider-exchange lane once and reduces it once by exact session ID, greatest timestamp, then greatest attempt index, retaining the earlier physical row on an exact tie. Singular exact lookup delegates to that same map implementation; no second filter/sort comparator exists.
-- `ResolvedConfigAuthority` owns selected YAML document reads, internal effective validation, and config mutation orchestration; its source schema accepts the same nested string-array `models.equivalents` representation consumed by effective configuration, with no legacy preprocessing. The browser-safe declarative schemas layer separately owns the strict outbound effective-config schema/type. Contracts and backend projection implementation both depend on that schemas package root; schemas and contracts never depend on backend config or redaction implementation. `config-file.ts` owns canonical atomic replacement.
+- `ResolvedConfigAuthority` owns selected YAML document reads, the sole card-type source-selection boundary, internal effective validation, and config mutation orchestration. Its source schema accepts mutually exclusive optional `card_type_set` and complete `card_types`; omission selects `standard`, while malformed/unknown selectors and both-present input fail without fallback or merge. The authority resolves that choice once and removes `card_type_set` before parsing and compiling the required complete effective `card_types` map. Its source schema accepts the same nested string-array `models.equivalents` representation consumed by effective configuration, with no legacy preprocessing. The browser-safe declarative schemas layer separately owns the strict outbound effective-config schema/type, which contains the resolved complete map and no selector. Contracts and backend projection implementation both depend on that schemas package root; schemas and contracts never depend on backend config or redaction implementation. `config-file.ts` owns canonical atomic replacement.
 - `auth-profile-file.ts` and `project-identity.ts` own their single canonical files.
 - `runtime/lock.ts` is the exceptional process-exclusion boundary only.
 
@@ -133,13 +133,15 @@ The strict global agent catalog is the sole agent authority. Each safe agent nam
 
 ## 4. Card-Process Compilation And Execution
 
-Startup strictly parses the configuration-owned `card_types` map, requires its reserved `project` root entry, validates identifier keys plus duplicate-free closed non-project child references, and structurally compiles every and only configured entry in declaration order. One immutable map and its frozen ordered all-key vocabulary are the sole membership/projection authorities. Local-input compilation, topology validation, and final-table construction are separate phases, and no phase publishes a parallel graph. Every transition has one dispatch target; destination kind and identity are classified from the looked-up target state. States are `lifecycle:ready`, `entry:<port>`, `node:<id>`, and `terminal:<port>`; accepted outcomes are `result:<outcome>`, while `execution:failed` and `execution:blocked` are runtime-owned. Nodes reference card-scoped named agents and contain their exact contextual record and child authorities. Entries are exactly `BACKLOG | CHANGED | BLOCKED | STOPPED`; terminal ports are `DONE | FAILED | BLOCKED`. Every node is entry-reachable and has a terminal path. Terminal exports must be source-node requirements, and `latest_node` promotion must name a node with a directed path to that terminal source.
+Bundled card-type sets are configuration-owned, typechecked TypeScript modules under `src/config/card-type-sets/<set>/index.ts`. `src/config/card-type-sets/registry.ts` explicitly registers selectable definitions; no directory scan, data parser, runtime loader, manifest, or implicit registration exists. A definition contains one complete card-type/workflow/record map only. Global agents, `analyst_agent`, model routes, providers, compaction, server, and MCP remain outside sets, and compilation validates selected-set references against those globals. Only `standard` is registered and shipped.
+
+After `ResolvedConfigAuthority` resolves the exclusive source choice, startup strictly parses the resulting complete `card_types` map, requires its reserved `project` root entry, validates identifier keys plus duplicate-free closed non-project child references, and structurally compiles every and only effective entry in declaration order. The compiler and all runtime consumers have no set selector or selector/map union. One immutable map and its frozen ordered all-key vocabulary are the sole membership/projection authorities. Local-input compilation, topology validation, and final-table construction are separate phases, and no phase publishes a parallel graph. Every transition has one dispatch target; destination kind and identity are classified from the looked-up target state. States are `lifecycle:ready`, `entry:<port>`, `node:<id>`, and `terminal:<port>`; accepted outcomes are `result:<outcome>`, while `execution:failed` and `execution:blocked` are runtime-owned. Nodes reference card-scoped named agents and contain their exact contextual record and child authorities. Entries are exactly `BACKLOG | CHANGED | BLOCKED | STOPPED`; terminal ports are `DONE | FAILED | BLOCKED`. Every node is entry-reachable and has a terminal path. Terminal exports must be source-node requirements, and `latest_node` promotion must name a node with a directed path to that terminal source.
 
 Wire and durable schemas validate card-type identifier syntax, not deployment membership. Strict generated-state startup resolves every reached card through the compiled map before parent/type admission; runtime creation resolves the child workflow and selected parent's permitted set before publication. Operator DTOs therefore accept valid custom identifiers, while a removed configured type fails at startup with no fallback or repair. Child capability, rather than a literal type name, also owns Analyst record-edit ancestor notification and conservative omitted-parent inference.
 
 The one ordered compiled vocabulary supplies Analyst prompt/create admission, global and card-agent `list_cards` binding, and Planner execution membership. It includes `project` as configured wire vocabulary but does not authorize another root. Debug Graphs iterates the compiled map rather than a default catalog and uses the same effective node-tool selector as invocation binding. The browser imports the shared identifier contract; default labels are a partial presentation map and unknown configured names render raw.
 
-All prompts use exact `<root>/<agents|process|fragments>/<card-type|_shared>/<reference>.md` paths. Project paths precede bundled paths and card scope precedes shared within each root; only exact `ENOENT` advances. One discriminated `PromptHost` represents global Analyst, workflow agent with card type, or process with card type and selects both artifact scope and placeholder policy. Agent paths use configured prompt references. Direct fragments inherit the host discriminator and cannot include fragments. A card type named `global` is therefore ordinary card scope, never the Analyst sentinel. Startup requires exactly one `{{contractDescription}}` only for effective workflow-agent system prompts, rejects obsolete fixed-result directives, and eagerly renders process `{{cardType}}`. Immutable agent tokens and final process strings admit no workflow-family or runtime prompt selection.
+All prompts use one singular tree with exact `<root>/<agents|process|fragments>/<card-type|_shared>/<reference>.md` paths. Project paths precede bundled paths and card scope precedes shared within each root; only exact `ENOENT` advances. One discriminated `PromptHost` represents global Analyst, workflow agent with card type, or process with card type and selects both artifact scope and placeholder policy. Agent paths use configured prompt references. Direct fragments inherit the host discriminator and cannot include fragments. A card type named `global` is therefore ordinary card scope, never the Analyst sentinel. Startup requires exactly one `{{contractDescription}}` only for effective workflow-agent system prompts, rejects obsolete fixed-result directives, and eagerly renders process `{{cardType}}`. Immutable agent tokens and final process strings admit no workflow-family or runtime prompt selection. Build packaging compiles every explicitly registered set with shared default globals, observes selected bundled agent/process/fragment artifacts through that same selector, and requires the singular physical tree to equal their union exactly. `standard` remains separately locked to the historical exact 14-file closure.
 
 `CardActivationOwner` retains the selected lifecycle entry and ready parked `CardProcessActor`. Direct state-entry and transition hooks execute the card type's startup-compiled state table. Entry queues its configured route without I/O; node entry starts the sole task; transitions invalidate runtime projection. If any transition, entry, task-result callback, or framework invariant escapes, BaseActor terminally latches and reports it; CardProcess rejects its unsettled activation before synchronously notifying the exact Supervisor owner. The first node ordinal is 0 and accepted node reentry advances it once. `AgentNodeExecution` consumes the compiled agent, prompt, tool, record, descendant-context, model, and outcome contract without role or family lookup.
 
@@ -502,44 +504,44 @@ ordinary view state. Hints are lossy and never authorize writes or encode member
 
 ### Config schema
 
-Each row is one reachable fixed-field object occurrence rooted at `saivageConfigSchema`. Record value occurrences use `.entry`; reused schemas appear at every occurrence path.
+Each row is one reachable fixed-field object occurrence rooted at the source `saivageConfigSchema`. Record value occurrences use `.entry`; reused schemas appear at every occurrence path. The top-level inventory therefore includes both mutually exclusive optional source fields, while effective/outbound configuration contains only required `card_types`.
 
 <!-- saivage:config-schema:start -->
 | Section | Fields | Source |
 |---|---|---|
-| `top-level` | `agents,analyst_agent,card_types,compaction,mcpServers,models,providers,server` | `src/schemas/saivage-config.ts:196` |
-| `agents.entry` | `can_create_children,model_route,prompt,record_writes,session,skills,tools` | `src/schemas/saivage-config.ts:22` |
-| `models` | `equivalents,failover,profiles,routes` | `src/schemas/saivage-config.ts:53` |
-| `models.routes.entry` | `candidates,max_tokens,profile,temperature` | `src/schemas/saivage-config.ts:38` |
-| `models.profiles.entry` | `allowed,preferred` | `src/schemas/saivage-config.ts:15` |
-| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority` | `src/schemas/saivage-config.ts:94` |
-| `providers.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:72` |
-| `providers.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:77` |
-| `providers.entry.modelCapabilities.entry` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:72` |
-| `providers.entry.modelCapabilities.entry.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:77` |
-| `providers.entry.accounts.entry` | `apiKey,authProfile,baseUrl,capabilities,models,priority` | `src/schemas/saivage-config.ts:84` |
-| `providers.entry.accounts.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:72` |
-| `providers.entry.accounts.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:77` |
-| `server` | `host,port` | `src/schemas/saivage-config.ts:106` |
-| `compaction` | `completion_reserve_fraction,enabled,escalate_merge_line_fraction,escalate_summary_line_fraction,input_budget_tokens,merge_line_fraction,snap,summarizer_candidate,summary_line_fraction,trigger_fraction` | `src/schemas/saivage-config.ts:143` |
-| `compaction.summarizer_candidate` | `account,model,provider` | `src/schemas/saivage-config.ts:137` |
-| `card_types.entry` | `permitted_child_types,records,workflow` | `src/schemas/saivage-config.ts:173` |
+| `top-level` | `agents,analyst_agent,card_type_set,card_types,compaction,mcpServers,models,providers,server` | `src/schemas/saivage-config.ts:281` |
+| `agents.entry` | `can_create_children,model_route,prompt,record_writes,session,skills,tools` | `src/schemas/saivage-config.ts:206` |
+| `models` | `equivalents,failover,profiles,routes` | `src/schemas/saivage-config.ts:28` |
+| `models.routes.entry` | `candidates,max_tokens,profile,temperature` | `src/schemas/saivage-config.ts:20` |
+| `models.profiles.entry` | `allowed,preferred` | `src/schemas/saivage-config.ts:9` |
+| `providers.entry` | `accounts,apiKey,authProfile,baseUrl,capabilities,modelCapabilities,models,priority` | `src/schemas/saivage-config.ts:57` |
+| `providers.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:36` |
+| `providers.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:40` |
+| `providers.entry.modelCapabilities.entry` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:36` |
+| `providers.entry.modelCapabilities.entry.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:40` |
+| `providers.entry.accounts.entry` | `apiKey,authProfile,baseUrl,capabilities,models,priority` | `src/schemas/saivage-config.ts:47` |
+| `providers.entry.accounts.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:36` |
+| `providers.entry.accounts.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:40` |
+| `server` | `host,port` | `src/schemas/saivage-config.ts:69` |
+| `compaction` | `completion_reserve_fraction,enabled,escalate_merge_line_fraction,escalate_summary_line_fraction,input_budget_tokens,merge_line_fraction,snap,summarizer_candidate,summary_line_fraction,trigger_fraction` | `src/schemas/saivage-config.ts:80` |
+| `compaction.summarizer_candidate` | `account,model,provider` | `src/schemas/saivage-config.ts:74` |
+| `card_types.entry` | `permitted_child_types,records,workflow` | `src/schemas/saivage-config.ts:185` |
 | `card_types.entry.records.entry` | `bootstrap,format,schema` | `src/schemas/saivage-config.ts:180` |
-| `card_types.entry.workflow` | `entries,nodes` | `src/schemas/saivage-config.ts:169` |
-| `card_types.entry.workflow.entries` | `BACKLOG,BLOCKED,CHANGED,STOPPED` | `src/schemas/saivage-config.ts:160` |
-| `card_types.entry.workflow.entries.BACKLOG` | `node,prompt` | `src/schemas/saivage-config.ts:90` |
-| `card_types.entry.workflow.entries.CHANGED` | `node,prompt` | `src/schemas/saivage-config.ts:90` |
-| `card_types.entry.workflow.entries.BLOCKED` | `node,prompt` | `src/schemas/saivage-config.ts:90` |
-| `card_types.entry.workflow.entries.STOPPED` | `node,prompt` | `src/schemas/saivage-config.ts:95` |
-| `card_types.entry.workflow.nodes.entry` | `agent,correction_prompt,descendant_context,edges,prompt,records` | `src/schemas/saivage-config.ts:151` |
+| `card_types.entry.workflow` | `entries,nodes` | `src/schemas/saivage-config.ts:170` |
+| `card_types.entry.workflow.entries` | `BACKLOG,BLOCKED,CHANGED,STOPPED` | `src/schemas/saivage-config.ts:171` |
+| `card_types.entry.workflow.entries.BACKLOG` | `node,prompt` | `src/schemas/saivage-config.ts:145` |
+| `card_types.entry.workflow.entries.CHANGED` | `node,prompt` | `src/schemas/saivage-config.ts:145` |
+| `card_types.entry.workflow.entries.BLOCKED` | `node,prompt` | `src/schemas/saivage-config.ts:145` |
+| `card_types.entry.workflow.entries.STOPPED` | `node,prompt` | `src/schemas/saivage-config.ts:149` |
+| `card_types.entry.workflow.nodes.entry` | `agent,correction_prompt,descendant_context,edges,prompt,records` | `src/schemas/saivage-config.ts:162` |
 | `card_types.entry.workflow.nodes.entry.records.entry` | `gate,mode` | `src/schemas/saivage-config.ts:166` |
-| `card_types.entry.workflow.nodes.entry.descendant_context` | `records,require_unchanged_until_accept` | `src/schemas/saivage-config.ts:142` |
-| `card_types.entry.workflow.nodes.entry.edges.entry` | `prompt,target` | `src/schemas/saivage-config.ts:131` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant1` | `node` | `src/schemas/saivage-config.ts:101` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:114` |
-| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:108` |
-| `mcpServers.entry.variant1` | `args,autostart,command,disabled,env,transport` | `src/schemas/saivage-config.ts:147` |
-| `mcpServers.entry.variant2` | `autostart,disabled,transport,url` | `src/schemas/saivage-config.ts:156` |
+| `card_types.entry.workflow.nodes.entry.descendant_context` | `records,require_unchanged_until_accept` | `src/schemas/saivage-config.ts:167` |
+| `card_types.entry.workflow.nodes.entry.edges.entry` | `prompt,target` | `src/schemas/saivage-config.ts:158` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant1` | `node` | `src/schemas/saivage-config.ts:155` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:156` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:153` |
+| `mcpServers.entry.variant1` | `args,autostart,command,disabled,env,transport` | `src/schemas/saivage-config.ts:126` |
+| `mcpServers.entry.variant2` | `autostart,disabled,transport,url` | `src/schemas/saivage-config.ts:135` |
 <!-- saivage:config-schema:end -->
 ## Universal publication fatal delivery
 

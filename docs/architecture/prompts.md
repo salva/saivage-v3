@@ -22,7 +22,7 @@ Bundled defaults and project overrides use the same tree:
     <card-type>/<fragment-id>.md
 ```
 
-The project root is `.saivage/config/prompts`; bundled source assets are under `src/prompts` and are copied to `dist/prompts`. The production bundle contains exactly 14 files: four `agents/_shared` defaults and ten `process/_shared` defaults. It intentionally has no `fragments` subtree. Card-specific files are optional genuine exceptions.
+The project root is `.saivage/config/prompts`; bundled source assets are under the one singular `src/prompts` tree and are copied to the one `dist/prompts` tree. Packaging compiles every explicitly registered bundled card-type set with the shared global defaults, observes every selected bundled agent, process, and direct-fragment artifact through the production selector, and requires the physical source and copied output trees to equal that registered-set union exactly. There is no per-set prompt root, runtime discovery, or default-set-only packaging rule. Only `standard` is currently registered, and its closure remains locked to exactly the historical 14 files: four `agents/_shared` prompts and ten `process/_shared` prompts. Consequently the current tree intentionally has no `fragments` subtree; a future registered set may expand the exact union only by selecting the corresponding singular-tree artifacts.
 
 ## Selection and references
 
@@ -76,6 +76,6 @@ The authenticated Debug Graphs projection exposes prompt reference and one of `o
 | `src/utils/prompt-api.ts` | singular tokenizer/compiler, composition, discriminated host/placeholder policy, rendering, structurally scoped agent registry |
 | `src/runtime/actors/agent-node-execution.ts` | direct exact-workflow process-text consumption |
 | `src/application/runtime-composition.ts` | runtime wiring |
-| `src/prompts/**` | exact bundled 14-file defaults |
-| `scripts/copy-prompt-defaults.js` | exact inventory validation and copy to `dist/prompts` |
+| `src/prompts/**` | singular bundled tree equal to the exact registered-set union; `standard` remains exactly 14 files |
+| `scripts/copy-prompt-defaults.js` | compile-time selected-artifact union, exact `standard` lock, inventory validation, and copy to `dist/prompts` |
 :::
