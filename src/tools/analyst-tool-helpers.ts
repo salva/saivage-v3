@@ -1,5 +1,5 @@
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
-import type { CardType } from '../schemas/index.js';
+import type { CardTypeName } from '../schemas/index.js';
 import type { SafeToolData, ToolContext, ToolResult } from './analyst-tool-types.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
@@ -16,19 +16,20 @@ export function normalizeParentValue(value: unknown): string | null | undefined 
   return trimmed;
 }
 
-export function defaultParentForCreate(store: CardService, type: CardType): string | null | undefined {
+export function defaultParentForCreate(store: CardService, type: CardTypeName): string | null | undefined {
   if (type === 'project') return null;
-  if (type === 'goal') return PROJECT_CARD_ID;
-  const activeGoals = store
-    .list()
-    .filter((card) => card.type === 'goal' && ['running', 'backlog', 'blocked', 'stopped'].includes(card.lifecycle.status))
-    .sort((a, b) => a.priority - b.priority);
-  if (activeGoals.length === 1) return activeGoals[0].id;
-  const allGoals = store
-    .list()
-    .filter((card) => card.type === 'goal')
-    .sort((a, b) => a.priority - b.priority);
-  if (allGoals.length === 1) return allGoals[0].id;
+  const requestedWorkflow = store.workflows.cardTypes.get(type);
+  if (!requestedWorkflow) throw new Error(`No compiled workflow exists for card type '${type}'.`);
+  if (requestedWorkflow.permittedChildTypes.size > 0) return PROJECT_CARD_ID;
+  const candidates = store.list().filter((card) => {
+    if (card.id === PROJECT_CARD_ID) return false;
+    const workflow = store.workflows.cardTypes.get(card.type);
+    if (!workflow) throw new Error(`No compiled workflow exists for card type '${card.type}'.`);
+    return workflow.permittedChildTypes.size > 0 && workflow.permittedChildTypes.has(type);
+  });
+  const preferred = candidates.filter((card) => ['running', 'backlog', 'blocked', 'stopped'].includes(card.lifecycle.status));
+  if (preferred.length === 1) return preferred[0]!.id;
+  if (candidates.length === 1) return candidates[0]!.id;
   return PROJECT_CARD_ID;
 }
 

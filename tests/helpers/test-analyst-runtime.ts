@@ -41,6 +41,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
   const agentName=options.config.analyst_agent;
   const agent=options.config.agents[agentName]!;
   const route=options.config.models.routes[agent.model_route]!;
+  const cardTypeVocabulary=Object.freeze(Object.keys(options.config.card_types));
   const toolSet=new BoundAgentToolSet(agent.tools.map((name)=>resolveRuntimeTool('global',name)));
   const createSession = (_turn: AnalystTurnInput): AnalystSession => {
     const directScope = options.processes.processRunner.createDirectScope(options.processes.analystProcessRootScope, 'analyst-session:agent:analyst:global', 'operator_session');
@@ -49,6 +50,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
       const notifyCard = options.runtime.notifyCard.bind(options.runtime);
       const analystMutations = createAnalystMutationServices({ projectRoot: options.projectRoot, store: options.cardStore, configAuthority: options.configAuthority, notifyCard, cancelCard: options.runtime.cancelCard.bind(options.runtime) });
       const context: ToolContext = {
+        cardTypeVocabulary,
         projectRoot: options.projectRoot,
         configAuthority: options.configAuthority,
         interventionReadiness: options.interventionReadiness,
@@ -65,7 +67,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
         captureExecutingLlmSessionIds: () => new Set(),
         analystMutations,
       };
-       return toolSet.bind({scope:'global',agentName,projectRoot:options.projectRoot,store:options.cardStore as never,analystToolContext:context,processRunner:options.processes.processRunner,processScope:directScope,processOwnerId:'agent:analyst:global',mcpToolInvocation:options.mcpToolInvocation});
+       return toolSet.bind({scope:'global',agentName,projectRoot:options.projectRoot,store:options.cardStore as never,analystToolContext:context,cardTypeVocabulary,processRunner:options.processes.processRunner,processScope:directScope,processOwnerId:'agent:analyst:global',mcpToolInvocation:options.mcpToolInvocation});
     };
     const shutdownProcesses = async () => {
       const report = await options.processes.processRunner.closeAndTerminateDirectScope({ directScope, category: 'operator_session', reason: 'session closed', graceMs: 5_000 });
@@ -91,6 +93,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
       runtimeProjectionChanged: options.runtimeProjectionChanged,
       createInvocationSurface,
       shutdownProcesses,
+      cardTypeVocabulary,
     };
     sessionConstructionInputs.push(sessionInput);
     const session = new AnalystSession({ ...sessionInput, fatalPort: testApplicationFatalPort });

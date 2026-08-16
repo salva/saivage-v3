@@ -129,7 +129,6 @@ export type {
   CardRecord,
   CardView,
   CardStatus,
-  CardType,
   ControlActionAuditEntry,
   ControlActionSurface,
   CreatedBy,
@@ -141,3 +140,4 @@ export type {
   RuntimeStatus,
   Urgency,
 } from '@saivage/schemas';
+export type { CardTypeName as CardType } from '@saivage/schemas';

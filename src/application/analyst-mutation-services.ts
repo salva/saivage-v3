@@ -3,7 +3,7 @@ import { PROJECT_CARD_ID } from '../cards/card-api.js';
 import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
-import type { CardRecord, CardType } from '../schemas/index.js';
+import type { CardRecord, CardTypeName } from '../schemas/index.js';
 import { propagateAnalystRecordEdit, propagateChange } from '../runtime/changed-propagation.js';
 import type { RuntimeApi } from '../runtime/control-api.js';
 import { toCardView } from './read-models/card-view.js';
@@ -17,7 +17,7 @@ export type AnalystMutationOutcome =
   | { kind: 'returned'; success: false; error: string; data?: unknown };
 
 export interface CreateAnalystCardInput {
-  type: CardType;
+  type: CardTypeName;
   parent: string | null;
   title: string;
   bootstrap_content: string;
@@ -94,7 +94,7 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
     if (input.type === 'project') return denied('Root project card already exists');
     const analyst=this.store.workflows.analyst;
     if(!analyst.canCreateChildren||!analyst.tools.some((tool)=>tool.name==='create_card'))return denied(`agent '${analyst.name}' is not configured to create children`);
-    const allowed=this.store.workflows.cardTypes.get(parentCard.type)!.permittedChildTypes;if(!allowed.has(input.type))return denied(`child type '${input.type}' is not permitted under '${parentCard.type}'`);
+    const parentWorkflow=this.store.workflows.cardTypes.get(parentCard.type);if(!parentWorkflow)throw new Error(`No compiled workflow exists for card type '${parentCard.type}'.`);if(!parentWorkflow.permittedChildTypes.has(input.type))return denied(`child type '${input.type}' is not permitted under '${parentCard.type}'`);
     const card = this.store.create({ type: input.type, parent, title: input.title, bootstrap_content: input.bootstrap_content, tags: input.tags ?? [], priority: input.priority ?? 0, urgency: input.urgency ?? 'normal', created_by: this.store.workflows.analyst.name as never, depends_on: input.depends_on ?? [], related: input.related ?? [] });
     try { propagateChange(this.store, parent, { kind: 'analyst_edit', summary: `analyst created child card ${card.id}` }, this.notifyCard); } catch (error) { throwIfPublicationOutcomeUnknown(error); /* notification is best effort */ }
     return success(toCardView(this.store, card));

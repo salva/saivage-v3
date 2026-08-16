@@ -16,9 +16,9 @@ const localPromptDisplayFixture = [{
 
 describe('analyst workspace-context prompt contract', () => {
   it('includes the deictic-resolution paragraph in the rendered system prompt', () => {
-    const prompt = createTestPromptTemplateRegistry().render('global', 'analyst', {
+    const prompt = createTestPromptTemplateRegistry().render({kind:'global-agent'}, 'analyst', {
       toolList: formatPromptToolList(localPromptDisplayFixture),
-      vocabularySnippet: formatVocabularySnippet(),
+      vocabularySnippet: formatVocabularySnippet(['project','goal','architecture','code','test','doc','data','research','ops']),
       projectContext: '{"projectRoot":"test"}',
     });
     expect(prompt).toContain('Resolve deictic phrases');

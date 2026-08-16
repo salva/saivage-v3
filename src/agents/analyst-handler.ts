@@ -1,4 +1,4 @@
-import { type GlobalConversationSessionId } from '../schemas/index.js';
+import { type CardTypeName, type GlobalConversationSessionId } from '../schemas/index.js';
 import {
   ANALYST_NO_MODEL_REPLY,
   AnalystOfflineError,
@@ -151,6 +151,7 @@ export class AnalystSession {
   readonly #shutdownProcesses: () => Promise<void>;
   readonly #llm: ConversationLLMActor;
   readonly #fatalPort: ApplicationFatalPort;
+  readonly #cardTypeVocabulary: readonly CardTypeName[];
   #phase: AnalystSessionPhase = { kind: 'idle', restartConfirmation: null };
   readonly #retiredOperationTrackers = new Set<ActivationOperationTracker>();
 
@@ -174,6 +175,7 @@ export class AnalystSession {
     createInvocationSurface(): InvocationSurface;
     shutdownProcesses(): Promise<void>;
     fatalPort: ApplicationFatalPort;
+    cardTypeVocabulary: readonly CardTypeName[];
   }) {
     this.#projectRoot = input.projectRoot;
     this.#sessionId = input.sessionId;
@@ -191,6 +193,7 @@ export class AnalystSession {
     this.#createInvocationSurface = input.createInvocationSurface;
     this.#shutdownProcesses = input.shutdownProcesses;
     this.#fatalPort = input.fatalPort;
+    this.#cardTypeVocabulary = input.cardTypeVocabulary;
     this.#llm = new ConversationLLMActor({ purpose:{kind:'analyst'}, agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged, fatalPort: input.fatalPort,
     });
   }
@@ -394,9 +397,9 @@ export class AnalystSession {
     surface: InvocationSurface,
   ): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const tools = surfaceToolDefinitions(surface);
-    const systemPrompt = this.#promptTemplates.render('global', this.#agentName, {
+    const systemPrompt = this.#promptTemplates.render({kind:'global-agent'}, this.#agentName, {
       toolList: formatPromptToolList(tools),
-      vocabularySnippet: formatVocabularySnippet(),
+      vocabularySnippet: formatVocabularySnippet(this.#cardTypeVocabulary),
       projectContext: this.buildProjectContext(),
     });
     return {

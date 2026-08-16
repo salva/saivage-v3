@@ -1,13 +1,13 @@
-import type { CardType } from '../../schemas/index.js';
+import type { CardTypeName } from '../../schemas/index.js';
 import type { CompiledProjectWorkflows, ProcessPromptId } from './card-process-config.js';
 
 export interface ProcessPromptRegistry {
-  get(cardType: CardType, id: ProcessPromptId): string;
+  get(cardType: CardTypeName, id: ProcessPromptId): string;
 }
 
 export class ProcessPromptRegistryError extends Error {
   constructor(
-    readonly cardType: CardType,
+    readonly cardType: CardTypeName,
     readonly promptId: ProcessPromptId,
     reason: string,
   ) {
@@ -20,7 +20,7 @@ export function createProcessPromptRegistry(
   processes: CompiledProjectWorkflows,
 ): ProcessPromptRegistry {
   return Object.freeze({
-    get(cardType: CardType, id: ProcessPromptId): string {
+    get(cardType: CardTypeName, id: ProcessPromptId): string {
       const prompt = processes.cardTypes.get(cardType)?.processPrompts.get(id);
       if (!prompt)
         throw new ProcessPromptRegistryError(

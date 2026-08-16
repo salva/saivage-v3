@@ -54,6 +54,18 @@ describe('Debug Graphs', () => {
     expect(wrapper.find('.graph-details pre').text()).toContain('"status.md"');
   });
 
+  it('accepts and renders a custom leaf type with its effective create_card-free tools',async()=>{
+    const custom:DebugGraph={...graph,card_type:'custom-leaf',permitted_child_types:[],nodes:graph.nodes.map((node)=>({...node,tools:['activate_card'],child_creation_types:[],child_activation_types:[]}))};
+    api.getDebugGraphs.mockResolvedValueOnce(DebugGraphsResponseSchema.parse({graphs:[custom]}));
+    const store=useDebugStore();await store.fetchGraphs();
+    expect(store.graphs?.[0]?.card_type).toBe('custom-leaf');
+    expect(store.graphs?.[0]?.nodes[0]?.tools).toEqual(['activate_card']);
+    const wrapper=mount(DebugGraphDiagram,{props:{graph:store.graphs![0]!}});
+    expect(wrapper.text()).toContain('custom-leaf');
+    expect(wrapper.text()).toContain('activate_card');
+    expect(wrapper.text()).not.toContain('create_card');
+  });
+
   it('rejects malformed or disclosure-bearing graph payloads at the shared wire contract', () => {
     expect(DebugGraphsResponseSchema.safeParse({ graphs: [{ ...graph, nodes: [{ ...graph.nodes[0], prompt: { ...graph.nodes[0]!.prompt, text: 'secret prompt body' } }] }] }).success).toBe(false);
     expect(DebugGraphsResponseSchema.safeParse({ graphs: [{ ...graph, edges: [{ ...graph.edges[0], runtime_owned: undefined }] }] }).success).toBe(false);

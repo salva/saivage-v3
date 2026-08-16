@@ -41,6 +41,7 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     ? toolCall(argumentsJson)
     : { result: { kind: 'message', content: 'done' }, provider_exchanges: [] });
   const session = new AnalystSession({
+    cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
     fatalPort: testApplicationFatalPort,
     projectRoot,
     sessionId: 'agent:analyst:global',

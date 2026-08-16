@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { agentNameSchema } from './agent-name.js';
 import { recordNameSchema } from './record-name.js';
-import { cardTypeValues } from './types.js';
+import { cardTypeNameSchema } from './card-type-name.js';
 
 // ── Zod Schemas ───────────────────────────────────────────────
 
@@ -183,11 +183,25 @@ const recordDefinitionSchema = z.object({
   bootstrap: z.boolean(),
 }).strict();
 const cardTypeWorkflowSchema = z.object({
-  permitted_child_types: z.array(z.enum(cardTypeValues)),
+  permitted_child_types: z.array(cardTypeNameSchema),
   records: z.record(recordNameSchema, recordDefinitionSchema),
   workflow: cardProcessSchema,
 }).strict();
-export const cardTypesSchema = z.record(z.enum(cardTypeValues), cardTypeWorkflowSchema);
+export const cardTypesSchema = z.record(cardTypeNameSchema, cardTypeWorkflowSchema).superRefine((cardTypes, ctx) => {
+  if (!Object.prototype.hasOwnProperty.call(cardTypes, 'project')) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['project'], message: "card_types must contain the reserved 'project' entry" });
+  }
+  for (const [cardType, source] of Object.entries(cardTypes)) {
+    const seen = new Set<string>();
+    source.permitted_child_types.forEach((childType, index) => {
+      const path = [cardType, 'permitted_child_types', index];
+      if (childType === 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: "permitted_child_types cannot contain the reserved 'project' type" });
+      if (seen.has(childType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: `duplicate permitted child type '${childType}'` });
+      seen.add(childType);
+      if (!Object.prototype.hasOwnProperty.call(cardTypes, childType)) ctx.addIssue({ code: z.ZodIssueCode.custom, path, message: `permitted child type '${childType}' has no card_types entry` });
+    });
+  }
+});
 
 const agentDefinitionSchema = z.object({
   prompt: namedIdentifierSchema,

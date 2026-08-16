@@ -125,8 +125,8 @@ function versionChange(prior: CardRecord, next: CardRecord | null, kind: CardVer
   return cardVersionChangeSchema.parse({ entry_id: randomUUID(), kind, card_id: prior.id, resulting_version: kind === 'delete' ? prior.version_seq + 1 : next!.version_seq, changed_at: changedAt, ...provenance, change_reason: reason, changed_fields: fields, change_summary: summary, terminal_summary: terminalSummary });
 }
 
-function assertChildParentAdmission(parent: CardRecord, message: string, workflows:CompiledProjectWorkflows): void {
-  if ((workflows.cardTypes.get(parent.type)?.permittedChildTypes.size??0)===0 || !canCreateChildInStatus(parent.lifecycle.status)) throw new Error(`${message} '${parent.id}'.`);
+function assertChildParentAdmission(parent: CardRecord, childType: string | null, message: string, workflows:CompiledProjectWorkflows): void {
+  const workflow=workflows.cardTypes.get(parent.type);if(!workflow)throw new Error(`No compiled workflow exists for card type '${parent.type}'.`);if (workflow.permittedChildTypes.size===0 || !canCreateChildInStatus(parent.lifecycle.status) || (childType!==null&&!workflow.permittedChildTypes.has(childType))) throw new Error(`${message} '${parent.id}'.`);
 }
 
 export class CardService {
@@ -135,7 +135,7 @@ export class CardService {
   private recordDefinition(cardId:string,filename:string):RecordDefinition {
     const card = this.read(cardId);
     if (!card) throw new AuthoredRecordNotFoundError();
-    const name=parseRecordName(filename);const definition = this.workflows.cardTypes.get(card.type)?.records.get(name)??genericRecordDefinition(name);
+    const name=parseRecordName(filename);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow exists for card type '${card.type}'.`);const definition = workflow.records.get(name)??genericRecordDefinition(name);
     return { filename: definition.name, format: definition.format, schema: definition.schema, bootstrap: definition.bootstrap,declared:definition.declared };
   }
   private recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap,declared:true}));}
@@ -256,18 +256,19 @@ export class CardService {
     if (!parent) throw new Error(`Parent card '${input.parent}' does not exist.`);
     const depth = cardDepth(parent.id) + 1;
     if (depth > MAX_CARD_DEPTH) throw new Error(`Cannot create card at depth ${depth}. Maximum allowed depth is ${MAX_CARD_DEPTH}.`);
-    assertChildParentAdmission(parent, 'Cannot create a child under', this.workflows);
+    assertChildParentAdmission(parent,null, 'Cannot create a child under', this.workflows);
     const childWorkflow=this.workflows.cardTypes.get(input.type);if(!childWorkflow)throw new Error(`No workflow for child type '${input.type}'.`);
+    assertChildParentAdmission(parent,input.type, 'Cannot create a child under', this.workflows);
     if(depth===MAX_CARD_DEPTH&&childWorkflow.permittedChildTypes.size!==0)throw new Error(`Cannot create non-leaf child type '${input.type}' at maximum card depth ${MAX_CARD_DEPTH}.`);
     for (const dependencyId of input.depends_on) if (!this.read(dependencyId)) throw new Error(`Dependency card '${dependencyId}' does not exist.`);
     const parentBeforeClaim = this.read(parent.id);
     if (!parentBeforeClaim) throw new Error(`Parent '${parent.id}' changed before child namespace claim.`);
-    assertChildParentAdmission(parentBeforeClaim, 'Cannot claim a child namespace under', this.workflows);
+    assertChildParentAdmission(parentBeforeClaim,input.type, 'Cannot claim a child namespace under', this.workflows);
     const card = publishInitialChildCard(this.projectRoot, input,childWorkflow);
     if (cardParentId(card.id) !== parentBeforeClaim.id || cardDepth(card.id) !== depth) throw new Error(`Claimed card '${card.id}' does not belong to requested parent '${parentBeforeClaim.id}'.`);
     const freshParent = this.read(parent.id);
     if (!freshParent || freshParent.children.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
-    assertChildParentAdmission(freshParent, 'Cannot link a child under', this.workflows);
+    assertChildParentAdmission(freshParent,input.type, 'Cannot link a child under', this.workflows);
     const linked = cardRecordSchema.parse({ ...freshParent, children: [...freshParent.children, card.id], version_seq: freshParent.version_seq + 1, updated_at: new Date().toISOString() });
     const linkChange = versionChange(freshParent, linked, 'child_link', ['children'], `linked child ${card.id}`, 'child linked');
     publishCardVersion(this.projectRoot, linked, linkChange, this.cardAppendIo);

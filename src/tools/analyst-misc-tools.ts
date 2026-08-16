@@ -227,40 +227,40 @@ export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = O
       name: 'queue_notification',
       description:
         'Queue operator context on a notification-capable card for its planner or executor.',
-      inputSchema: queueNotificationInputSchema,
+      inputSchema: () => queueNotificationInputSchema,
       executor: (ctx, args, signal) => queue_notification(ctx, args, signal),
     }),
     defineToolBinder({
       name: 'show_config',
       description: 'Show the current project configuration with secrets redacted.',
-      inputSchema: emptyInput,
+      inputSchema: () => emptyInput,
       executor: (ctx, args) => show_config(ctx, args),
     }),
     defineToolBinder({
       name: 'reconfigure',
       description:
         'Replace one named-agent model route, model failover chain, or server host/port in the next-start configuration. Every successful mutation requires restart.',
-      inputSchema: reconfigureParamsSchema,
+      inputSchema: () => reconfigureParamsSchema,
       executor: (ctx, args, signal) => reconfigure(ctx, args, signal),
     }),
     defineToolBinder({
       name: 'mcp_reconcile',
       description:
         'Retry MCP runtime convergence from the already persisted configuration without writing configuration again.',
-      inputSchema: emptyInput,
+      inputSchema: () => emptyInput,
       executor: (ctx, args) => mcp_reconcile(ctx, args),
     }),
     defineToolBinder({
       name: 'list_agent_sessions',
       description: 'List authoritative durable global and active-card agent session summaries.',
-      inputSchema: emptyInput,
+      inputSchema: () => emptyInput,
       executor: (ctx, args) => list_agent_sessions(ctx, args),
     }),
     defineToolBinder({
       name: 'read_agent_session',
       description:
         'Read a canonical agent session summary and its most recent persisted conversation entries.',
-      inputSchema: readAgentSessionInputSchema,
+      inputSchema: () => readAgentSessionInputSchema,
       executor: (ctx, args) => read_agent_session(ctx, args),
     }),
 ]);

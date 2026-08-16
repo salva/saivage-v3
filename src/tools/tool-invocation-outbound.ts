@@ -2,11 +2,11 @@ import { z, type ZodTypeAny } from 'zod';
 
 import { reconfigureParamsSchema } from '../config/index.js';
 import {
-  analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema,
+  analystCancelCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema,
   applyPatchInputSchema, diffCardVersionsInputSchema, editWorkspaceInputSchema, emptyToolInputSchema,
   getCardVersionInputSchema, getCardInputSchema, getTreeInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema,
-  killProcessInputSchema, listCardVersionsInputSchema, listCardsInputSchema, listProcessesInputSchema,
-  navigateWorkspaceInputSchema, plannerCancelCardInputSchema, plannerCreateCardInputSchema, plannerEditCardInputSchema,
+  killProcessInputSchema, listCardVersionsInputSchema, listProcessesInputSchema,
+  navigateWorkspaceInputSchema, plannerCancelCardInputSchema, plannerEditCardInputSchema,
   plannerQueueNotificationInputSchema, plannerReorderChildInputSchema, queueNotificationInputSchema,
   readAgentSessionInputSchema, readControlActionsInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema,
   readWorkspaceInputSchema, runCommandInputSchema, skillInputSchema, waitProcessInputSchema, websearchInputSchema,
@@ -89,6 +89,13 @@ function projectUnsupportedInvocation(input: ToolInvocationProjectionInput): Too
 }
 
 function projectParsedArguments(toolName: KnownToolInvocationName, value: unknown): unknown {
+  if (toolName === 'list_cards') return structuredClone(value);
+  if (toolName === 'create_card') {
+    const projected=structuredClone(value);
+    return projected && typeof projected==='object' && !Array.isArray(projected)
+      ? copyWithText(projected as Record<string,unknown>,['title','bootstrap_content'])
+      : projected;
+  }
   const parsed = inputSchemaFor(toolName).safeParse(value);
   if (!parsed.success) return projectDynamicForOutbound(value);
   return projectValidArguments(toolName, parsed.data);
@@ -167,7 +174,7 @@ function copyWithText(input: Record<string, unknown>, keys: readonly string[]): 
 
 function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
   switch (toolName) {
-    case 'create_card': return z.union([analystCreateCardInputSchema, plannerCreateCardInputSchema]);
+    case 'create_card': throw new Error('create_card projection is context-free and does not use a static admission schema.');
     case 'cancel_card': return z.union([analystCancelCardInputSchema, plannerCancelCardInputSchema]);
     case 'delete_card': return analystDeleteCardInputSchema;
     case 'reorder_child': return z.union([analystReorderChildInputSchema, plannerReorderChildInputSchema]);
@@ -183,7 +190,7 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
     case 'read_control_actions': return readControlActionsInputSchema;
     case 'list_processes_tool': return listProcessesInputSchema;
     case 'read_agent_session': return readAgentSessionInputSchema;
-    case 'list_cards': return listCardsInputSchema;
+    case 'list_cards': throw new Error('list_cards projection is context-free and does not use a static admission schema.');
     case 'get_card': return getCardInputSchema;
     case 'get_tree': return getTreeInputSchema;
     case 'list_card_versions': return listCardVersionsInputSchema;

@@ -159,6 +159,7 @@ if (mode === 'analyst-project-context') {
     providers: [],
   };
   const session = new AnalystSession({
+    cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
     projectRoot: root,
     sessionId: 'agent:analyst:global',
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false },

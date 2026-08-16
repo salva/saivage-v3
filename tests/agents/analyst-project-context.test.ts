@@ -25,13 +25,14 @@ describe('Analyst project context', () => {
     const getParent = jest.fn(() => { throw new Error('parent lookup must not run'); });
     const cardStore = { list, getParent } as unknown as CardServiceType;
     let projectContext = '';
-    const render = jest.fn((_scope: string, _agent: string, variables: Record<string, string>) => {
+    const render = jest.fn((_host: {kind:string}, _agent: string, variables: Record<string, string>) => {
       projectContext = variables.projectContext!;
       return 'rendered prompt';
     });
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
     const surface: InvocationSurface = { agentName: 'analyst', tools: new Map(), providers: [] };
     const session = new AnalystSession({
+      cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
       projectRoot,
       sessionId: 'agent:analyst:global',
       agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false },

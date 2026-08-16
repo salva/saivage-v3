@@ -33,17 +33,17 @@ For a card host, exact lookup order is:
 3. bundled `<purpose>/<card-type>/<reference>.md`
 4. bundled `<purpose>/_shared/<reference>.md`
 
-The global Analyst has no card type and checks project shared then bundled shared only. Only exact `ENOENT` advances. Empty, invalid UTF-8, directory, unreadable, malformed, or otherwise failing paths abort compilation. Selection never enumerates directories.
+The global Analyst has no card type and checks project shared then bundled shared only. Prompt APIs represent that with `{kind:'global-agent'}`; workflow and process hosts instead carry `{kind,cardType}`. Scope is never encoded by comparing a card name. Consequently a configured card type named `global` follows the complete card-host order above for agents, processes, and fragments and receives workflow/process placeholder policy, while the Analyst remains independent. Only exact `ENOENT` advances. Empty, invalid UTF-8, directory, unreadable, malformed, or otherwise failing paths abort compilation. Selection never enumerates directories.
 
 `agents.<agent-name>.prompt` is the filename reference at every agent tier. Agent name remains runtime/session identity, not a file key. Agents sharing a prompt reference share the same applicable override; independent override content requires distinct configured references. This is a breaking no-compatibility contract.
 
 Fragments use the host card type even when the host itself came from a shared tier. Thus a shared code host may select a project `fragments/code/<id>.md`. The Analyst can use only shared fragments.
 
-## One compiler and three host policies
+## One compiler and one discriminated host contract
 
 The production compiler in `src/utils/prompt-api.ts` parses literals, value placeholders, and direct `{{> fragment-id}}` includes. It resolves each include independently, rejects a fragment containing another include, splices literal/value tokens in semantic order, validates the fully composed stream once, and freezes it. Repeated direct references are allowed. There are no arguments, recursion, cycles, conditions, labels, or inheritance.
 
-Closed value sets are:
+The closed `PromptHost` variants select both artifact scope and placeholder policy, so callers cannot pair a card name with a contradictory policy. Their value sets are:
 
 - global agent: `toolList`, `vocabularySnippet`, `projectContext`
 - workflow agent: `cardId`, `cardTitle`, `cardBrief`, `cardType`, `contractDescription`, `toolList`
@@ -55,7 +55,7 @@ Unknown or host-inapplicable placeholders fail startup. Every effective workflow
 
 `compileProjectWorkflows()` owns exact root/scope selection and fragment reads. It compiles each selected agent template once. Process templates render raw `cardType` eagerly and are stored as final frozen non-empty text. Source edits after compilation cannot affect the artifact.
 
-`PromptTemplateRegistry` substitutes runtime variables into already-compiled agent tokens without re-tokenization. The Analyst supplies tools, vocabulary, and exact-or-throw project context. Card agents supply card identity/brief/type, generated node contract, and tools. `ProcessPromptRegistry` is a strict lookup over already-rendered process strings; transition ordering and message placement are unchanged.
+`PromptTemplateRegistry` stores global Analyst and card-type workflow entries structurally separately and substitutes runtime variables into already-compiled agent tokens without re-tokenization. The Analyst supplies tools, the selected compiled card-type vocabulary, and exact-or-throw project context. Card agents supply card identity/brief/type, generated node contract, and tools. `ProcessPromptRegistry` is a strict lookup over already-rendered process strings; transition ordering and message placement are unchanged.
 
 The authenticated Debug Graphs projection exposes prompt reference and one of `override-card | override-shared | bundled-card | bundled-shared`. It omits bodies and paths. The projection is computed from the installed immutable workflow artifact, not recorded state.
 
@@ -73,7 +73,7 @@ The authenticated Debug Graphs projection exposes prompt reference and one of `o
 | File | Responsibility |
 | --- | --- |
 | `src/runtime/card-process/card-process-config.ts` | roots, exact selection, fragment reads, workflow compilation, eager process rendering |
-| `src/utils/prompt-api.ts` | singular tokenizer/compiler, composition, host policy, rendering, agent registry |
+| `src/utils/prompt-api.ts` | singular tokenizer/compiler, composition, discriminated host/placeholder policy, rendering, structurally scoped agent registry |
 | `src/runtime/card-process/process-prompt-registry.ts` | strict final process-text lookup |
 | `src/application/runtime-composition.ts` | runtime wiring |
 | `src/prompts/**` | exact bundled 14-file defaults |

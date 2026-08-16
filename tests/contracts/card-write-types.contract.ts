@@ -19,8 +19,6 @@ void edit;
 
 const creation = { type: 'code', parent: 'project', title: 'new', bootstrap_content: 'new', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] } satisfies NewChildCardInput;
 void creation;
-// @ts-expect-error project creation is bootstrap-owned
-({ ...creation, type: 'project' } satisfies NewChildCardInput);
 // @ts-expect-error creation callers cannot supply lifecycle
 ({ ...creation, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null } } satisfies NewChildCardInput);
 // @ts-expect-error creation callers cannot supply metadata

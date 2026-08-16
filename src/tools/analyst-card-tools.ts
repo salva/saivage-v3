@@ -1,9 +1,8 @@
 import { z } from 'zod';
 
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
-import { analystCancelCardInputSchema, analystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { analystCancelCardInputSchema, createAnalystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema, type AnalystCreateCardInput } from '../contracts/builtin-tool-inputs.js';
 import {
-  CREATE_CARD_TYPE_VALUES,
   URGENCY_VALUES,
   emptyInput,
 } from './tool-definition.js';
@@ -11,8 +10,8 @@ import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { defaultParentForCreate, getStore, normalizeParentValue, preflightEnum, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineToolBinder, type ToolBinder } from './invocation.js';
 
-export async function create_card(ctx: ToolContext, params: z.infer<typeof analystCreateCardInputSchema>, signal?: AbortSignal): Promise<ToolResult> {
-  const typeCheck = preflightEnum(params.type, CREATE_CARD_TYPE_VALUES, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
+export async function create_card(ctx: ToolContext, params: AnalystCreateCardInput, signal?: AbortSignal): Promise<ToolResult> {
+  const typeCheck = preflightEnum(params.type, ctx.cardTypeVocabulary, 'type', 'create_card'); if (!typeCheck.ok) return { success: false, error: typeCheck.error };
   const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return { success: false, error: urgencyCheck.error };
   const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(getStore(ctx), typeCheck.value!) ?? null;
   const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: typeCheck.value!, parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: urgencyCheck.value, depends_on: params.depends_on, related: params.related };
@@ -42,10 +41,10 @@ export async function reopen_card(ctx: ToolContext, params: z.infer<typeof analy
 }
 
 export const analystCardToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Every created child receives backlog lifecycle.`, inputSchema: analystCreateCardInputSchema, executor: (ctx, args, signal) => create_card(ctx, args, signal) }),
-  defineToolBinder({ name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', inputSchema: analystReorderChildInputSchema, executor: (ctx, args, signal) => reorder_child(ctx, args, signal) }),
-  defineToolBinder({ name: 'reopen_card', description: 'Reopen a done, failed, or blocked card without editing its content while Analyst intervention is ready (runtime stopped or settled paused). Changes the target and eligible resting ancestors through normal changed propagation.', inputSchema: analystReopenCardInputSchema, executor: (ctx, args, signal) => reopen_card(ctx, args, signal) }),
-  defineToolBinder({ name: 'get_status', description: 'Get the overall project status.', inputSchema: emptyInput, executor: (ctx, args) => get_status(ctx, args) }),
-  defineToolBinder({ name: 'cancel_card', description: 'Cancel non-completed work. Analyst cancellation allows every status except done and cancelled, rejects the root project card, and requires exact runtime ownership for running work.', inputSchema: analystCancelCardInputSchema, executor: (ctx, args, signal) => cancel_card(ctx, args, signal) }),
-  defineToolBinder({ name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused. Deleted ids remain reserved; no card restore/archive content is produced. Denies the root project card and any running subtree member.', inputSchema: analystDeleteCardInputSchema, executor: (ctx, args, signal) => delete_card(ctx, args, signal) }),
+  defineToolBinder({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Every created child receives backlog lifecycle.`, inputSchema: (ctx) => createAnalystCreateCardInputSchema(ctx.cardTypeVocabulary), executor: (ctx, args, signal) => create_card(ctx, args, signal) }),
+  defineToolBinder({ name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', inputSchema: () => analystReorderChildInputSchema, executor: (ctx, args, signal) => reorder_child(ctx, args, signal) }),
+  defineToolBinder({ name: 'reopen_card', description: 'Reopen a done, failed, or blocked card without editing its content while Analyst intervention is ready (runtime stopped or settled paused). Changes the target and eligible resting ancestors through normal changed propagation.', inputSchema: () => analystReopenCardInputSchema, executor: (ctx, args, signal) => reopen_card(ctx, args, signal) }),
+  defineToolBinder({ name: 'get_status', description: 'Get the overall project status.', inputSchema: () => emptyInput, executor: (ctx, args) => get_status(ctx, args) }),
+  defineToolBinder({ name: 'cancel_card', description: 'Cancel non-completed work. Analyst cancellation allows every status except done and cancelled, rejects the root project card, and requires exact runtime ownership for running work.', inputSchema: () => analystCancelCardInputSchema, executor: (ctx, args, signal) => cancel_card(ctx, args, signal) }),
+  defineToolBinder({ name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused. Deleted ids remain reserved; no card restore/archive content is produced. Denies the root project card and any running subtree member.', inputSchema: () => analystDeleteCardInputSchema, executor: (ctx, args, signal) => delete_card(ctx, args, signal) }),
 ]);

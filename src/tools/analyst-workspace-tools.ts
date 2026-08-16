@@ -15,6 +15,6 @@ export async function navigate_back(_ctx: ToolContext, _params: Record<string, n
 }
 
 export const analystNavigationToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'navigate_workspace', description: 'Navigate the workspace area.', inputSchema: navigateWorkspaceInputSchema, executor: (ctx, args) => navigate_workspace(ctx, args) }),
-  defineToolBinder({ name: 'navigate_back', description: 'Navigate back in the workspace area.', inputSchema: emptyInput, executor: (ctx, args) => navigate_back(ctx, args) }),
+  defineToolBinder({ name: 'navigate_workspace', description: 'Navigate the workspace area.', inputSchema: () => navigateWorkspaceInputSchema, executor: (ctx, args) => navigate_workspace(ctx, args) }),
+  defineToolBinder({ name: 'navigate_back', description: 'Navigate back in the workspace area.', inputSchema: () => emptyInput, executor: (ctx, args) => navigate_back(ctx, args) }),
 ]);

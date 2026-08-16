@@ -1,10 +1,10 @@
-import { cardNotificationSchema, type CardNotification, type CardRecord, type CardType, type CreatedBy, type Urgency } from '../schemas/index.js';
+import { cardNotificationSchema, type CardNotification, type CardRecord, type CardTypeName, type CreatedBy, type Urgency } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { acceptsCardNotifications } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 
 export interface NewChildCardInput {
-  type: Exclude<CardType, 'project'>;
+  type: CardTypeName;
   parent: string;
   title: string;
   bootstrap_content: string;

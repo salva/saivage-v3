@@ -1,4 +1,4 @@
-import type { CardType } from '../schemas/index.js';
+import type { CardTypeName } from '../schemas/index.js';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
 
 export const DEFAULT_AGENTS = Object.freeze({
@@ -17,7 +17,7 @@ export const DEFAULT_MODEL_ROUTES = Object.freeze({
 
 const allNonRootTypes = ['goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
 
-function planningCardType(): SaivageConfig['card_types'][CardType] {
+function planningCardType(): SaivageConfig['card_types'][CardTypeName] {
   return {
     permitted_child_types: [...allNonRootTypes],
     records: {
@@ -51,7 +51,7 @@ function planningCardType(): SaivageConfig['card_types'][CardType] {
   };
 }
 
-function executionCardType(): SaivageConfig['card_types'][CardType] {
+function executionCardType(): SaivageConfig['card_types'][CardTypeName] {
   return {
     permitted_child_types: [],
     records: {

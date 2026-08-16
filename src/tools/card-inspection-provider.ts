@@ -1,7 +1,5 @@
-import { z } from 'zod';
-
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
-import { type CardRecord, type CardStatus, type CardType } from '../schemas/index.js';
+import { type CardRecord, type CardStatus, type CardTypeName } from '../schemas/index.js';
 import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
@@ -9,7 +7,7 @@ import { effectiveRecordContent } from '../persistence/canonical-record-artifact
 import { cardParentId } from '../schemas/card-id.js';
 import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
 import { redactSnippetForOutbound, redactTextForOutbound } from '../redaction/index.js';
-import { getCardInputSchema, getTreeInputSchema, listCardsInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { createListCardsInputSchema, getCardInputSchema, getTreeInputSchema, type ListCardsInput } from '../contracts/builtin-tool-inputs.js';
 import { ModelRecordTargetWireSchema } from '../contracts/record-mutation.js';
 
 interface CardInspectionStore {
@@ -22,26 +20,27 @@ export interface CardInspectionProviderContext {
   readonly store: CardInspectionStore;
   readonly agentName?: string;
   readonly cardId?: string;
+  readonly cardTypeVocabulary: readonly CardTypeName[];
 }
 
 export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'list_cards', description: 'List and filter cards in the project.', inputSchema: listCardsInputSchema, executor: async (ctx, args) => listCards(ctx.store, args) }),
-  defineToolBinder({ name: 'get_card', description: 'Get full details of a single card.', inputSchema: getCardInputSchema, executor: async (ctx, args) => getCard(ctx, args.id) }),
-  defineToolBinder({ name: 'get_tree', description: 'Show the card tree.', inputSchema: getTreeInputSchema, executor: async (ctx, args) => getTree(ctx.store, args.rootId ?? PROJECT_CARD_ID) }),
+  defineToolBinder({ name: 'list_cards', description: 'List and filter cards in the project.', inputSchema: (ctx) => createListCardsInputSchema(ctx.cardTypeVocabulary), executor: async (ctx, args) => listCards(ctx.store, args) }),
+  defineToolBinder({ name: 'get_card', description: 'Get full details of a single card.', inputSchema: () => getCardInputSchema, executor: async (ctx, args) => getCard(ctx, args.id) }),
+  defineToolBinder({ name: 'get_tree', description: 'Show the card tree.', inputSchema: () => getTreeInputSchema, executor: async (ctx, args) => getTree(ctx.store, args.rootId ?? PROJECT_CARD_ID) }),
 ]);
 
 export function createCardInspectionProvider(ctx: CardInspectionProviderContext): ToolProvider {
   return bindToolProvider('card-inspection', cardInspectionToolBinders, ctx);
 }
 
-function listCards(store: CardInspectionStore, params: z.infer<typeof listCardsInputSchema>): ToolResult {
+function listCards(store: CardInspectionStore, params: ListCardsInput): ToolResult {
   let cards = orderedCardViews(store);
   if (params.status) {
     const statuses: CardStatus[] = Array.isArray(params.status) ? params.status : [params.status];
     cards = cards.filter((card) => statuses.includes(card.lifecycle.status));
   }
   if (params.type) {
-    const types: CardType[] = Array.isArray(params.type) ? params.type : [params.type];
+    const types: CardTypeName[] = Array.isArray(params.type) ? params.type : [params.type];
     cards = cards.filter((card) => types.includes(card.type));
   }
   if (params.parent !== undefined) {

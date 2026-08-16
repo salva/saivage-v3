@@ -1,6 +1,6 @@
 import type { CardService } from '../cards/card-service.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
-import type { AgentName, CardNotification, CardType } from '../schemas/index.js';
+import type { AgentName, CardNotification, CardTypeName } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import { getAnalystControlToolBinders } from './analyst-control-provider.js';
@@ -20,7 +20,6 @@ import {
   type WorkspaceProviderContext,
 } from './workspace-provider.js';
 import {
-  llmToolDefinition,
   type InvocationSurface,
   type ToolBinder,
   type ToolDefinition,
@@ -38,8 +37,9 @@ export interface CardToolBindingContext {
   readonly cardId: string;
   readonly sessionId: string;
   readonly parentControl: PlannerControlProviderContext['parentControl'];
-  readonly childCreationTypes: ReadonlySet<CardType>;
-  readonly childActivationTypes: ReadonlySet<CardType>;
+  readonly childCreationTypes: ReadonlySet<CardTypeName>;
+  readonly childActivationTypes: ReadonlySet<CardTypeName>;
+  readonly cardTypeVocabulary: readonly CardTypeName[];
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
   readonly processRunner: ProcessRunner;
   readonly processScope?: ManagedProcessScope;
@@ -58,6 +58,7 @@ export interface GlobalToolBindingContext {
   readonly processOwnerId: string;
   readonly mcpToolInvocation: McpToolInvocationPort;
   readonly analystToolContext: ToolContext;
+  readonly cardTypeVocabulary: readonly CardTypeName[];
 }
 
 export type RuntimeToolBindingContext = CardToolBindingContext | GlobalToolBindingContext;
@@ -79,7 +80,6 @@ export type CompiledToolReference = Readonly<{
   name: string;
   providerGroupId: string;
   description: string;
-  inputSchema: ToolDefinition['inputSchema'];
 }>;
 
 const card = (runtime: RuntimeToolBindingContext): CardToolBindingContext => {
@@ -102,9 +102,9 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
   if (defaultGroups) return defaultGroups;
   const source: AnyProviderGroup[] = [
   { key: 'global:analyst', providerName: 'analyst', scope: 'global', binders: getAnalystControlToolBinders(), context: (runtime) => global(runtime).analystToolContext },
-  { key: 'card:planner-control', providerName: 'planner-control', scope: 'card', binders: plannerControlToolBinders, context: (runtime) => { const value = card(runtime); return { agentName: value.agentName, projectRoot: value.projectRoot, parentCardId: value.cardId, sessionId: value.sessionId, store: value.store, parentControl: value.parentControl, notifyCard: value.notifyCard, childCreationTypes: value.childCreationTypes, childActivationTypes: value.childActivationTypes }; } },
+  { key: 'card:planner-control', providerName: 'planner-control', scope: 'card', binders: plannerControlToolBinders, context: (runtime) => { const value = card(runtime); return { agentName: value.agentName, projectRoot: value.projectRoot, parentCardId: value.cardId, sessionId: value.sessionId, store: value.store, parentControl: value.parentControl, notifyCard: value.notifyCard, childCreationTypes: value.childCreationTypes, childActivationTypes: value.childActivationTypes, cardTypeVocabulary: value.cardTypeVocabulary }; } },
   ...(['global', 'card'] as const).flatMap((scope): AnyProviderGroup[] => [
-    { key: `${scope}:card-inspection`, providerName: 'card-inspection', scope, binders: cardInspectionToolBinders, context: (runtime): CardInspectionProviderContext => ({ store: runtime.store, agentName: runtime.agentName, ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) }) },
+    { key: `${scope}:card-inspection`, providerName: 'card-inspection', scope, binders: cardInspectionToolBinders, context: (runtime): CardInspectionProviderContext => ({ store: runtime.store, agentName: runtime.agentName, cardTypeVocabulary: runtime.cardTypeVocabulary, ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) }) },
     { key: `${scope}:card-version`, providerName: 'card-version', scope, binders: cardVersionToolBinders, context: (runtime): CardVersionProviderContext => ({ store: runtime.store }) },
     { key: `${scope}:workspace`, providerName: 'workspace', scope, binders: scope === 'global' ? analystWorkspaceToolBinders : workspaceToolBinders, context: (runtime) => scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)) },
     { key: `${scope}:patch`, providerName: 'patch', scope, binders: scope === 'global' ? analystPatchToolBinders : patchToolBinders, context: (runtime) => scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)) },
@@ -143,19 +143,26 @@ const runtimeToolCatalog = (): ReadonlyMap<string, CatalogEntry> => catalog ??= 
 export function resolveRuntimeTool(scope: RuntimeToolScope, name: string): CompiledToolReference {
   const entry = runtimeToolCatalog().get(`${scope}\u0000${name}`);
   if (!entry) throw new Error(`unknown tool '${name}' for ${scope} session scope`);
-  return Object.freeze({ scope, name, providerGroupId: entry.group.key, description: entry.binder.description, inputSchema: entry.binder.inputSchema });
+  return Object.freeze({ scope, name, providerGroupId: entry.group.key, description: entry.binder.description });
+}
+
+export function effectiveCardNodeToolReferences(
+  references: readonly CompiledToolReference[],
+  childCreationTypes: ReadonlySet<CardTypeName>,
+): readonly CompiledToolReference[] {
+  return Object.freeze(childCreationTypes.size === 0
+    ? references.filter((reference) => reference.name !== 'create_card')
+    : [...references]);
 }
 
 export class BoundAgentToolSet {
   readonly references: readonly CompiledToolReference[];
   readonly names: readonly string[];
-  readonly definitions: readonly ReturnType<typeof llmToolDefinition>[];
   readonly requiresProcessScope: boolean;
 
   constructor(references: readonly CompiledToolReference[]) {
     this.references = Object.freeze([...references]);
     this.names = Object.freeze(references.map((reference) => reference.name));
-    this.definitions = Object.freeze(references.map((reference) => llmToolDefinition(reference)));
     this.requiresProcessScope = references.some((reference) => reference.providerGroupId.endsWith(':process'));
     Object.freeze(this);
   }
@@ -164,7 +171,8 @@ export class BoundAgentToolSet {
     const selectedGroups = new Map<string, CatalogEntry[]>();
     for (const reference of this.references) {
       if (reference.scope !== runtime.scope) throw new Error(`Tool '${reference.name}' cannot bind to ${runtime.scope} scope.`);
-      const entry = runtimeToolCatalog().get(`${reference.scope}\u0000${reference.name}`)!;
+      const entry = runtimeToolCatalog().get(`${reference.scope}\u0000${reference.name}`);
+      if (!entry) throw new Error(`Compiled tool '${reference.scope}/${reference.name}' is absent from the runtime catalog.`);
       const selected = selectedGroups.get(reference.providerGroupId) ?? [];
       selected.push(entry);
       selectedGroups.set(reference.providerGroupId, selected);
@@ -179,6 +187,6 @@ export class BoundAgentToolSet {
       for (const definition of tools) definitions.set(definition.name, definition);
       providers.push({ providerName: group.providerName, tools: Object.freeze(tools), ...(group.cleanup ? { cleanup: (reason) => group.cleanup!(context, reason) } : {}) });
     }
-    return { agentName: runtime.agentName, tools: new Map(this.names.map((name) => [name, definitions.get(name)!] as const)), providers: Object.freeze(providers) };
+    return { agentName: runtime.agentName, tools: new Map(this.names.map((name) => { const definition=definitions.get(name);if(!definition)throw new Error(`Bound tool '${name}' is missing its definition.`);return [name,definition] as const; })), providers: Object.freeze(providers) };
   }
 }

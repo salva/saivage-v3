@@ -160,6 +160,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         cancelCard: runtimeApi.cancelCard.bind(runtimeApi),
       });
       const context: ToolContext = {
+        cardTypeVocabulary: workflows.cardTypeVocabulary,
         projectRoot,
         configAuthority: services.configAuthority,
         interventionReadiness: runtimeSupervisor,
@@ -186,6 +187,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         processOwnerId: analystSessionId,
         mcpToolInvocation: services.mcpToolInvocation,
         analystToolContext: context,
+        cardTypeVocabulary: workflows.cardTypeVocabulary,
       });
     };
     const shutdownProcesses = async (): Promise<void> => {
@@ -222,6 +224,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       createInvocationSurface,
       shutdownProcesses,
       fatalPort: services.fatalPort,
+      cardTypeVocabulary: workflows.cardTypeVocabulary,
     });
   };
   const getAnalystToolNames = (): string[] => [...analystBinding.toolSet.names];

@@ -10,7 +10,7 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { createAnalystControlProvider } from '../../src/tools/analyst-control-provider.js';
 
 function context(projectRoot: string, restartServerAvailable: boolean): ToolContext {
-  return { projectRoot, actor: 'analyst', surface: 'web-chat', restartServerAvailable } as ToolContext;
+  return { projectRoot, actor: 'analyst', surface: 'web-chat', restartServerAvailable, cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] } as unknown as ToolContext;
 }
 
 describe('restart_server', () => {

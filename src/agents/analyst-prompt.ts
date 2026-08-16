@@ -1,9 +1,9 @@
 import {
   ANALYST_ISSUE_SEVERITY_VALUES,
   CARD_STATUS_VALUES,
-  CARD_TYPE_VALUES,
   URGENCY_VALUES,
 } from '../tools/tool-definition.js';
+import type { CardTypeName } from '../schemas/index.js';
 
 export const ANALYST_NO_MODEL_REPLY = "Analyst LLM unavailable: no model candidate is configured for role 'analyst'. Configure a provider/model for role 'analyst' in the project configuration and try again.";
 
@@ -14,11 +14,11 @@ export class AnalystOfflineError extends Error {
   }
 }
 
-export function formatVocabularySnippet(): string {
+export function formatVocabularySnippet(cardTypeVocabulary: readonly CardTypeName[]): string {
   return [
     `Card status: ${CARD_STATUS_VALUES.join(' | ')}`,
     'Reopenable card status: blocked | done | failed. Reopen target status: changed',
-    `Card type: ${CARD_TYPE_VALUES.join(' | ')}`,
+    `Card type: ${cardTypeVocabulary.join(' | ')}`,
     `Urgency: ${URGENCY_VALUES.join(' | ')}`,
     `AnalystIssue severity: ${ANALYST_ISSUE_SEVERITY_VALUES.join(' | ')}`,
   ].join('. ');

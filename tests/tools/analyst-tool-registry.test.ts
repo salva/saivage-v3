@@ -5,15 +5,16 @@ import type { ToolDefinition } from '../../src/tools/invocation.js';
 import { createAnalystControlProvider } from '../../src/tools/analyst-control-provider.js';
 
 describe('registered Analyst card mutation catalog', () => {
+  const context={cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops']} as never;
   it('lazily installs one stable immutable binder order after circular module initialization',()=>{
     const first=getAnalystControlToolBinders();
     expect(getAnalystControlToolBinders()).toBe(first);
     expect(Object.isFrozen(first)).toBe(true);
-    expect(first.map((binder)=>binder.name)).toEqual(createAnalystControlTools({} as never).map((tool)=>tool.name));
+    expect(first.map((binder)=>binder.name)).toEqual(createAnalystControlTools(context).map((tool)=>tool.name));
   });
 
   it('selects type only during creation and exposes no post-creation edit or update input', () => {
-    const tools: readonly ToolDefinition<any>[] = createAnalystControlTools({} as never);
+    const tools: readonly ToolDefinition<any>[] = createAnalystControlTools(context);
     expect(tools.map(({ name }) => name)).toEqual([
       'create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server',
       'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions',
@@ -49,7 +50,7 @@ describe('registered Analyst card mutation catalog', () => {
   });
 
   it('keeps restart_server stable across published authentication capability', () => {
-    const names = (restartServerAvailable: boolean) => createAnalystControlProvider({ restartServerAvailable, actor: 'analyst', surface: 'web-chat' } as never).tools.map(({ name }) => name);
+    const names = (restartServerAvailable: boolean) => createAnalystControlProvider({ restartServerAvailable, actor: 'analyst', surface: 'web-chat',cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] } as never).tools.map(({ name }) => name);
     expect(names(false)).toContain('restart_server');
     expect(names(true)).toContain('restart_server');
   });

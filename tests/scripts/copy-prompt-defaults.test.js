@@ -49,6 +49,8 @@ function runCopyPromptDefaultsTest() {
   try {
     writeFixtureTree(sourceRoot);
     writeFileSync(join(outputRoot, 'stale.md'), 'stale');
+    // This utility validates and copies only the shipped DEFAULT_SAIVAGE_CONFIG prompt closure;
+    // arbitrary configured card-type compilation is covered by workflow compiler tests.
     copyPromptDefaults({ sourceRoot, outputRoot });
     if (existsSync(join(outputRoot, 'stale.md'))) fail('stale output file survived copy');
     assertTreesEqual(sourceRoot, outputRoot);

@@ -6,7 +6,6 @@ import {
   analystIssueSeverityValues,
   cardActionValues,
   cardStatusValues,
-  cardTypeValues,
   urgencyValues,
 } from './types.js';
 import { loggedEventSchema, loggedEventSchemaByKind } from './event-catalog.js';
@@ -16,6 +15,7 @@ import { cardLifecycleStateSchema } from './lifecycle.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from './message-identity.js';
 import { cardIdSchema, cardParentId } from './card-id.js';
 import { agentNameSchema } from './agent-name.js';
+import { cardTypeNameSchema } from './card-type-name.js';
 import { ConversationSessionIdSchema } from './conversation-session-id.js';
 import { CONTENT_POLICY_RETRY_TEXT, parseCanonicalContentPolicyRefusal } from './content-policy.js';
 export { nonRootCardIdSchema } from './card-id.js';
@@ -25,7 +25,7 @@ export { roundIdGrammar, assertRoundId, type RoundKind } from './round-id.js';
 
 function enumFromCatalog(values: readonly string[]) { return z.enum(values as unknown as [string, ...string[]]); }
 
-export const cardTypeSchema = z.enum(cardTypeValues);
+export const cardTypeSchema = cardTypeNameSchema;
 export const cardStatusSchema = z.enum(cardStatusValues);
 export const cardActionSchema = z.enum(cardActionValues);
 export const positiveSafeIntegerSchema = z.number().int().safe().positive();

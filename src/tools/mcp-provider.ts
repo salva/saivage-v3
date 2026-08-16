@@ -12,7 +12,7 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
   defineToolBinder({
     name: 'mcp_tool_call',
     description: 'Call an MCP tool on a configured MCP server.',
-    inputSchema: McpToolCallArgumentsSchema,
+    inputSchema: () => McpToolCallArgumentsSchema,
     executor: async (ctx, args) => {
       try {
         const data = await ctx.mcpToolInvocation.invokeTool(args.serverName, args.toolName, args.args ?? {});

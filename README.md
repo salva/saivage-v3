@@ -60,9 +60,9 @@ cd "$TARGET_PROJECT"
 
 The pre-acquisition identity read does not mutate. A known-unsuccessful exclusive open publishes no lock; failure after that open is outcome-unknown and may retain the lock. After successful acquisition, ordinary failure releases the exact current bound or bootstrap-unbound lock but preserves completed config, identity, and generated durable effects, including identity after create succeeds but lock binding fails. Every indexed current card, authored-record, and conversation head is strict: missing, malformed, unreadable, schema-invalid, or identity-mismatched authority blocks startup without shortening its index or opening a predecessor. Startup's explicit conversation owner alone may truncate bytes after the final newline when the retained nonempty complete prefix fully validates; uncertainty from attempted truncation is fatal and authorizes no follow-up operation. A generated-publication failure may leave retained partial state. The explicit remedy is to stop Saivage, run the current built `"$SAIVAGE_BIN" reset`, and retry `init`; do not selectively delete roots or expect `init` or `start --create-runtime` to repair them. There is no `init --force`.
 
-Before starting, configure the required named-agent catalog, selected global Analyst, named model routes, and all nine card-type workflows in `$TARGET_PROJECT/.saivage/saivage.yaml`. Agent names are configuration identities, not code-owned roles. Every agent owns one generic prompt reference, exact ordered tools, model route, skill capability, session scope, and child-creation ceiling. Every card type independently owns its permitted child types, records, bootstrap record, lifecycle entries, nodes, outcome edges, exports, and result promotion. Unknown fields and incomplete card-type maps fail startup.
+Before starting, configure the required named-agent catalog, selected global Analyst, named model routes, and the project's card-type workflows in `$TARGET_PROJECT/.saivage/saivage.yaml`. `card_types` must contain the fixed reserved `project` root entry and may contain any number of non-root names matching `[a-z][a-z0-9-]{0,63}`; only `project` is reserved, so `global` is a valid ordinary card type. Every `permitted_child_types` reference must name another configured entry, be unique, and must not be `project`. Agent names are configuration identities, not code-owned roles. Every agent owns one generic prompt reference, exact ordered tools, model route, skill capability, session scope, and child-creation ceiling. Every card type independently owns its permitted child types, records, bootstrap record, lifecycle entries, nodes, outcome edges, exports, and result promotion. Unknown fields and unclosed references fail startup.
 
-The following abbreviated shape shows the current contract; `saivage init` publishes the complete default with all nine workflows:
+The following abbreviated shape shows the current contract; `saivage init` publishes nine shipped defaults in this order: `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`, `ops`.
 
 ```yaml
 agents:
@@ -140,12 +140,15 @@ card_types:
           failed: {target: {terminal: FAILED, promote: current, export_records: [status.md]}}
 # goal has an independent copy of the project-style workflow. Architecture,
 # code, test, doc, data, research, and ops each have an independent one-node
-# workflow in the generated default; aliases or missing types are not accepted.
+# workflow in the generated default. Operators may replace these non-root
+# defaults with a closed configured set; aliases and missing references are not accepted.
 ```
 
 This example intentionally abbreviates each tool list, but capability booleans remain exact: the Analyst lists `skill` and has `skills: true`, while Planner has `skills: false`.
 
 The generated default preserves the visible project/goal plan-review loop and one-node execution workflows, but these are independent card-type artifacts rather than families. Edges are strict tagged objects; terminal edges choose ordered record exports and either the current accepted result or an earlier reachable node result. Configuration is required—there is no runtime family fallback.
+
+Card-type additions and matching prompt/config changes are ordinary stopped configuration changes: stop, edit, and start so the selected set is recompiled; no generated-state reset is required. Removing or renaming a type still referenced by any reached active or tombstoned canonical card makes strict startup fail. Restore the matching config entry or intentionally perform the existing stopped whole-generated-state reset. Saivage never migrates, aliases, selectively repairs, or normalizes those cards, and rolling back to a static-type binary after custom cards exist is unsupported.
 
 Non-empty model equivalence groups use nested arrays, for example `equivalents: [["model-a", "model-b"]]`. Legacy mapping/object forms are invalid and must be manually corrected to nested arrays before restart; Saivage does not rewrite them.
 

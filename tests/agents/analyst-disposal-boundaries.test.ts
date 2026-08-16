@@ -174,6 +174,7 @@ function createFixture(options: {
   const shutdownProcesses = jest.fn(async () => {});
   const terminateRoot = jest.fn(async () => emptyStopReport);
   const session = new AnalystSession({
+    cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
     fatalPort: testApplicationFatalPort,
     projectRoot,
     sessionId,

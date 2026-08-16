@@ -241,13 +241,13 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
       defineToolBinder({
         name: 'websearch',
         description: 'Search the public web for documentation and data sources.',
-        inputSchema: websearchSchema,
+        inputSchema: () => websearchSchema,
         executor: async (_ctx, args, signal, invocation) => websearchCore(args, signal, invocation?.waits.waitExternal),
       }),
       defineToolBinder({
         name: 'webfetch',
         description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Oversized text is stashed as stash_url, a work:///tmp/stash/<file> URL readable with read or grep.',
-        inputSchema: webfetchSchema,
+        inputSchema: () => webfetchSchema,
         executor: async (ctx, args, signal, invocation) => {
           const analyst = ctx.analystToolContext;
           if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);

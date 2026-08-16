@@ -1,7 +1,5 @@
 import type { ConversationSessionId } from './conversation-session-id.js';
-
-export const cardTypeValues = ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] as const;
-export type CardType = typeof cardTypeValues[number];
+import type { CardTypeName } from './card-type-name.js';
 
 
 export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'stopped', 'done', 'failed', 'cancelled'] as const;
@@ -28,7 +26,7 @@ export interface CardNotification {
 }
 
 export interface CardRecord {
-  id: string; type: CardType; title: string;
+  id: string; type: CardTypeName; title: string;
   children: string[];
   subtype: null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to: null; depends_on: string[]; related: string[];

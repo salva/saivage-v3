@@ -17,7 +17,13 @@ export interface ChangedPropagation {
   flipped: Array<{ card_id: string; previous_status: CardStatus }>;
 }
 
-type PropagationStore = Pick<CardService, 'read' | 'getAncestors' | 'setStatus'>;
+type PropagationStore = Pick<CardService, 'read' | 'getAncestors' | 'setStatus' | 'workflows'>;
+
+function isChildCapable(store: PropagationStore, cardType: string): boolean {
+  const workflow = store.workflows.cardTypes.get(cardType);
+  if (!workflow) throw new Error(`No compiled workflow exists for card type '${cardType}'.`);
+  return workflow.permittedChildTypes.size > 0;
+}
 
 function originSummary(origin: ChangeOrigin): string {
   if (origin.kind === 'analyst_edit') return sanitizeAnalystText(origin.summary, 1000);
@@ -76,7 +82,7 @@ function analystRecordEditedCardAndAncestorRecipients(store: PropagationStore, p
   for (const cardId of path) {
     const card = store.read(cardId);
     if (!card) continue;
-    if (cardId !== editedCardId && (card.type === 'goal' || card.type === 'project')) recipients.push(cardId);
+    if (cardId !== editedCardId && isChildCapable(store, card.type)) recipients.push(cardId);
     if (card.lifecycle.status === 'running') break;
   }
   return recipients;
@@ -87,7 +93,7 @@ function analystRecordAncestorRecipients(store: PropagationStore, path: readonly
   for (const cardId of path) {
     const card = store.read(cardId);
     if (!card) continue;
-    if (card.type === 'goal' || card.type === 'project') recipients.push(cardId);
+    if (isChildCapable(store, card.type)) recipients.push(cardId);
     if (card.lifecycle.status === 'running') break;
   }
   return recipients;

@@ -21,6 +21,7 @@ export {
   type ConversationSessionId,
 } from './conversation-session-id.js';
 export { agentNameSchema, parseAgentName, type AgentName } from './agent-name.js';
+export { cardTypeNameSchema, parseCardTypeName, type CardTypeName } from './card-type-name.js';
 export { recordNameSchema, parseRecordName, type RecordName } from './record-name.js';
 export type {
   ActorPauseMode,
@@ -44,7 +45,6 @@ export {
   createActionableErrorEnvelope,
 } from './actionable-error.js';
 export {
-  cardTypeValues,
   cardStatusValues,
   cardActionValues,
   urgencyValues,
@@ -73,7 +73,6 @@ export {
   selfReportSchema,
 } from './lifecycle.js';
 export type {
-  CardType,
   CardStatus,
   CardAction,
   ActionableErrorEnvelope,

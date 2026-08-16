@@ -131,7 +131,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       defineToolBinder({
         name: 'run_command',
         description: 'Run a Bash command. For a card-scoped run_command, ordinary source edits, builds, and tests stay in the project workspace; SAIVAGE_CARD_WORK_ROOT is supplied and disposable copies, extraction areas, caches, and intermediate command work must use a purpose-named child of that directory. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT. A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
-        inputSchema: runCommandInputSchema,
+        inputSchema: () => runCommandInputSchema,
         executor: async (ctx, args, signal, invocation) => {
           try {
             throwIfAborted(signal);
@@ -167,7 +167,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       defineToolBinder({
         name: 'wait_process',
         description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
-        inputSchema: waitProcessInputSchema,
+        inputSchema: () => waitProcessInputSchema,
         executor: async (ctx, args, signal, invocation) => {
           try {
             throwIfAborted(signal);
@@ -188,7 +188,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
       defineToolBinder({
         name: 'kill_process',
         description: 'Signal a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep.',
-        inputSchema: killProcessInputSchema,
+        inputSchema: () => killProcessInputSchema,
         executor: async (ctx, args) => {
           try {
             assertOwned(ctx, args.process_id);

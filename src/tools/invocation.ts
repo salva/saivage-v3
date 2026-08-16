@@ -25,7 +25,9 @@ export interface ToolSpecification<Args = unknown> {
   readonly inputSchema: z.ZodType<Args>;
 }
 
-export interface ToolBinder<Context, Args = unknown> extends ToolSpecification<Args> {
+export interface ToolBinder<Context, Args = unknown> {
+  readonly name: string;
+  readonly description: string;
   bind(context: Context): ToolDefinition<Args>;
 }
 
@@ -58,17 +60,16 @@ export function defineTool<Schema extends z.ZodTypeAny>(definition: {
 export function defineToolBinder<Schema extends z.ZodTypeAny, Context = any>(definition: {
   readonly name: string;
   readonly description: string;
-  readonly inputSchema: Schema;
+  readonly inputSchema: (context: Context) => Schema;
   readonly executor: (context: Context, args: z.infer<Schema>, signal: AbortSignal, invocation?: LlmToolInvocationContext) => Promise<ToolResult>;
 }): ToolBinder<Context, z.infer<Schema>> {
   return Object.freeze({
     name: definition.name,
     description: definition.description,
-    inputSchema: definition.inputSchema,
     bind: (context: Context) => defineTool({
       name: definition.name,
       description: definition.description,
-      inputSchema: definition.inputSchema,
+      inputSchema: definition.inputSchema(context),
       executor: (args, signal, invocation) => definition.executor(context, args, signal, invocation),
     }),
   });

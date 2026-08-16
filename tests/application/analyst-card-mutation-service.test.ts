@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { CardService } from '../helpers/canonical-project.js';
-import type { CardRecord, CardStatus, CardType } from '../../src/schemas/index.js';
+import type { CardRecord, CardStatus, CardTypeName } from '../../src/schemas/index.js';
 import { initProjectTree, testAnalystMutationServices, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
@@ -13,7 +13,7 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-
 const FIRST = 'card-a';
 const SECOND = 'card-a-b';
 
-function card(status: CardStatus, id = FIRST, type: CardType = 'code'): CardRecord {
+function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): CardRecord {
   const common = { id, type, children: [], title: id, subtype: null, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
   switch (status) {
     case 'done': return { ...common, lifecycle: { status, result: workflowResult('DONE', 'done'), error: null, completed_at: '2026-07-20T00:00:00.000Z' } };

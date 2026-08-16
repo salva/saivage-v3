@@ -1,13 +1,15 @@
 import { z } from 'zod';
 
-import { cardIdSchema, cardStatusValues, cardTypeValues, ConversationSessionIdSchema, eventKindValues, positiveSafeIntegerSchema, urgencyValues } from '../schemas/index.js';
+import { cardIdSchema, cardStatusValues, ConversationSessionIdSchema, eventKindValues, positiveSafeIntegerSchema, urgencyValues, type CardStatus, type CardTypeName } from '../schemas/index.js';
 import { workspaceNavigationTargetSchema } from './workspace-navigation.js';
 
 export const EVENT_QUERY_MAX_LIMIT = 1000;
 export const emptyToolInputSchema = z.object({}).strict();
 
-export const analystCreateCardInputSchema = z.object({
-  type: z.enum(cardTypeValues).describe(`The non-project card type. Allowed values: ${cardTypeValues.join(', ')}.`),
+const cardTypeEnum = (cardTypeVocabulary: readonly CardTypeName[]) => z.enum(cardTypeVocabulary as [CardTypeName, ...CardTypeName[]]);
+
+export const createAnalystCreateCardInputSchema = (cardTypeVocabulary: readonly CardTypeName[]) => z.object({
+  type: cardTypeEnum(cardTypeVocabulary).describe(`The non-project card type. Allowed values: ${cardTypeVocabulary.join(', ')}.`),
   parent: z.string().nullable().optional().describe("The ID of the parent card. Use null only when creating the root project card; use 'project' for top-level goals."),
   title: z.string().describe('A short title.'),
   bootstrap_content: z.string().trim().min(1).describe('Non-empty Markdown content for the child type configured bootstrap record.'),
@@ -17,6 +19,7 @@ export const analystCreateCardInputSchema = z.object({
   depends_on: z.array(z.string().describe('A card ID')).optional().describe('Optional dependency list.'),
   related: z.array(z.string().describe('A card ID')).optional().describe('Optional related-card list.'),
 }).strict();
+export type AnalystCreateCardInput = z.infer<ReturnType<typeof createAnalystCreateCardInputSchema>>;
 export const analystReorderChildInputSchema = z.object({ parentId: z.string().describe('Parent whose children to reorder.'), orderedChildIds: z.array(z.string()).describe('New child id order; must be a permutation of the current child set.') }).strict();
 export const analystReopenCardInputSchema = z.object({ cardId: cardIdSchema.describe('The exact card id to reopen.') }).strict();
 export const analystCancelCardInputSchema = z.object({ cardId: z.string().describe('The ID of the card to cancel.'), reason: z.string().optional().describe('Optional cancellation reason.') }).strict();
@@ -31,9 +34,15 @@ export const listProcessesInputSchema = z.object({ status: z.string().optional()
 export const navigateWorkspaceInputSchema = z.object({ target: workspaceNavigationTargetSchema }).strict();
 export type NavigateWorkspaceInput = z.infer<typeof navigateWorkspaceInputSchema>;
 
-export const listCardsInputSchema = z.object({
+export interface ListCardsInput {
+  status?: CardStatus | CardStatus[];
+  type?: CardTypeName | CardTypeName[];
+  parent?: string;
+  tag?: string;
+}
+export const createListCardsInputSchema = (cardTypeVocabulary: readonly CardTypeName[]): z.ZodType<ListCardsInput> => z.object({
   status: z.union([z.enum(cardStatusValues), z.array(z.enum(cardStatusValues))]).optional(),
-  type: z.union([z.enum(cardTypeValues), z.array(z.enum(cardTypeValues))]).optional(),
+  type: z.union([cardTypeEnum(cardTypeVocabulary), z.array(cardTypeEnum(cardTypeVocabulary))]).optional(),
   parent: z.string().optional(),
   tag: z.string().optional(),
 }).strict();

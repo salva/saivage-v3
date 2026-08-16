@@ -68,10 +68,9 @@ describe('startup workflow binding authority', () => {
     expect(planner.toolSet.names).not.toContain('emit_result');
     const project = bound.cardTypes.get('project')!;
     const terminal = nodeResultToolDefinition(project, 'node:plan');
-    const finalDefinitions = [...planner.toolSet.definitions, terminal];
-    expect(finalDefinitions.at(-1)).toEqual(expect.objectContaining({ function: expect.objectContaining({ name: 'emit_result', parameters: expect.objectContaining({ required: ['outcome','summary'] }) }) }));
-    expect(capabilityRequestForLlmOptions({tools:finalDefinitions,stream:false})).toEqual(planner.capabilityRequest);
-    expect(capabilityRequestForLlmOptions({tools:[...analyst.toolSet.definitions],stream:false})).toEqual(analyst.capabilityRequest);
+    expect(terminal).toEqual(expect.objectContaining({ function: expect.objectContaining({ name: 'emit_result', parameters: expect.objectContaining({ required: ['outcome','summary'] }) }) }));
+    expect(capabilityRequestForLlmOptions({tools:[...planner.toolSet.names,terminal],stream:false})).toEqual(planner.capabilityRequest);
+    expect(capabilityRequestForLlmOptions({tools:[...analyst.toolSet.names],stream:false})).toEqual(analyst.capabilityRequest);
   });
 
   it('discovers participant bindings in direct canonical state-table order and skips unused configured agents',()=>{

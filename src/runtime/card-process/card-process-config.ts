@@ -4,13 +4,13 @@ import { fileURLToPath } from 'node:url';
 import type { AgentName } from '../../schemas/agent-name.js';
 import { parseRecordName, type RecordName } from '../../schemas/record-name.js';
 import type { CardTypeSource, SaivageConfig } from '../../schemas/saivage-config.js';
-import { cardTypeValues, type CardStatus, type CardType } from '../../schemas/index.js';
+import { parseCardTypeName, type CardStatus, type CardTypeName } from '../../schemas/index.js';
 import { validateCompiledActorTable } from '../micro-actor/index.js';
-import { compilePromptTemplate, renderCompiledPrompt, type CompiledPromptTemplate, type PromptHostPolicy } from '../../utils/prompt-api.js';
+import { compilePromptTemplate, renderCompiledPrompt, type AgentPromptHost, type CompiledPromptTemplate, type ProcessPromptHost, type PromptHost } from '../../utils/prompt-api.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 import type { ModelRouter } from '../../agents/model-router.js';
 import { capabilityRequestForLlmOptions, type CapabilityRequest } from '../../agents/provider-capabilities.js';
-import { BoundAgentToolSet, resolveRuntimeTool, type CompiledToolReference } from '../../tools/runtime-tool-catalog.js';
+import { BoundAgentToolSet, effectiveCardNodeToolReferences, resolveRuntimeTool, type CompiledToolReference } from '../../tools/runtime-tool-catalog.js';
 import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
@@ -40,15 +40,15 @@ export type ProcessTransitionSemantic =
   | Readonly<{ kind: 'runtime-terminal'; cause: 'failed' | 'blocked' }>;
 export type CompiledProcessTransition = Readonly<{ targetStateId: string; reenter: boolean; semantic: ProcessTransitionSemantic }>;
 type ProcessStateBase = Readonly<{ on: ReadonlyMap<string, CompiledProcessTransition>; isTerminal: boolean; isParked: boolean }>;
-export type CompiledNodeContract = ProcessStateBase & Readonly<{ kind: 'node'; nodeId: string; agent: CompiledAgentContract; selectedAgentPrompt:CompiledAgentPrompt; promptId: ProcessPromptId; correctionPromptId: ProcessPromptId; requirements: readonly CompiledRecordRequirement[]; descendantContext: CompiledDescendantContext | null; childCreationTypes: ReadonlySet<CardType>; childActivationTypes: ReadonlySet<CardType>; readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition> }>;
+export type CompiledNodeContract = ProcessStateBase & Readonly<{ kind: 'node'; nodeId: string; agent: CompiledAgentContract; selectedAgentPrompt:CompiledAgentPrompt; promptId: ProcessPromptId; correctionPromptId: ProcessPromptId; requirements: readonly CompiledRecordRequirement[]; descendantContext: CompiledDescendantContext | null; childCreationTypes: ReadonlySet<CardTypeName>; childActivationTypes: ReadonlySet<CardTypeName>; readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition> }>;
 export type CompiledProcessState =
   | (ProcessStateBase & Readonly<{ kind: 'ready' }>)
   | (ProcessStateBase & Readonly<{ kind: 'entry'; entry: CardProcessEntry }>)
   | CompiledNodeContract
   | (ProcessStateBase & Readonly<{ kind: 'terminal'; terminal: CardProcessTerminal }>);
-export type ProcessPosition = Readonly<{ cardType: CardType; stateId: string; kind: 'ready' }> | Readonly<{ cardType: CardType; stateId: string; kind: 'entry'; entry: CardProcessEntry }> | Readonly<{ cardType: CardType; stateId: string; kind: 'node'; nodeId: string; executionOrdinal: number }> | Readonly<{ cardType: CardType; stateId: string; kind: 'terminal'; terminal: CardProcessTerminal }>;
-export interface CompiledCardTypeWorkflow { readonly cardType: CardType; readonly permittedChildTypes: ReadonlySet<CardType>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly initialStateId: 'lifecycle:ready'; readonly states: ReadonlyMap<string, CompiledProcessState>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
-export interface CompiledProjectWorkflows { readonly analyst: CompiledAgentContract; readonly analystPrompt:CompiledAgentPrompt; readonly agents: ReadonlyMap<AgentName, CompiledAgentContract>; readonly cardTypes: ReadonlyMap<CardType, CompiledCardTypeWorkflow> }
+export type ProcessPosition = Readonly<{ cardType: CardTypeName; stateId: string; kind: 'ready' }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'entry'; entry: CardProcessEntry }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'node'; nodeId: string; executionOrdinal: number }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'terminal'; terminal: CardProcessTerminal }>;
+export interface CompiledCardTypeWorkflow { readonly cardType: CardTypeName; readonly permittedChildTypes: ReadonlySet<CardTypeName>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly initialStateId: 'lifecycle:ready'; readonly states: ReadonlyMap<string, CompiledProcessState>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
+export interface CompiledProjectWorkflows { readonly analyst: CompiledAgentContract; readonly analystPrompt:CompiledAgentPrompt; readonly agents: ReadonlyMap<AgentName, CompiledAgentContract>; readonly cardTypes: ReadonlyMap<CardTypeName, CompiledCardTypeWorkflow>; readonly cardTypeVocabulary: readonly CardTypeName[] }
 export type BoundAgentContract = Readonly<{ contract: CompiledAgentContract; candidateChain: readonly Candidate[]; toolSet: BoundAgentToolSet; capabilityRequest: CapabilityRequest }>;
 export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows { readonly runtimeBound: true;readonly agentBindings:ReadonlyMap<AgentName,BoundAgentContract> }
 
@@ -68,37 +68,38 @@ function readUtf8(path:string):string{const text=new TextDecoder('utf-8',{fatal:
 function readOptional(path:string):string|null{try{return readUtf8(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}}
 type PromptPurpose='agents'|'process'|'fragments';
 type SelectedPrompt=Readonly<{source:PromptArtifactSource;path:string;text:string}>;
-function selectPrompt(purpose:PromptPurpose,cardType:CardType|'global',reference:string,roots:PromptRoots):SelectedPrompt{
+function selectPrompt(purpose:PromptPurpose,host:PromptHost,reference:string,roots:PromptRoots):SelectedPrompt{
   const candidates:Array<readonly[PromptArtifactSource,string]>=[];
-  if(roots.overrideRoot){if(cardType!=='global')candidates.push(['override-card',join(roots.overrideRoot,purpose,cardType,`${reference}.md`)]);candidates.push(['override-shared',join(roots.overrideRoot,purpose,'_shared',`${reference}.md`)]);}
-  if(cardType!=='global')candidates.push(['bundled-card',join(roots.defaultRoot,purpose,cardType,`${reference}.md`)]);
+  if(roots.overrideRoot){if(host.kind!=='global-agent')candidates.push(['override-card',join(roots.overrideRoot,purpose,host.cardType,`${reference}.md`)]);candidates.push(['override-shared',join(roots.overrideRoot,purpose,'_shared',`${reference}.md`)]);}
+  if(host.kind!=='global-agent')candidates.push(['bundled-card',join(roots.defaultRoot,purpose,host.cardType,`${reference}.md`)]);
   candidates.push(['bundled-shared',join(roots.defaultRoot,purpose,'_shared',`${reference}.md`)]);
   for(const[source,path]of candidates){const text=readOptional(path);if(text!==null)return Object.freeze({source,path,text});}
   const [source,path]=candidates[candidates.length-1]!;
   return Object.freeze({source,path,text:readUtf8(path)});
 }
-function compileSelected(cardType:CardType|'global',name:AgentName,reference:string,policy:PromptHostPolicy,roots:PromptRoots):CompiledAgentPrompt{
-  const cacheKey=`${policy}/${cardType}/${reference}`;
+function compileSelected(host:AgentPromptHost,name:AgentName,reference:string,roots:PromptRoots):CompiledAgentPrompt{
+  const cacheKey=host.kind==='global-agent'?`${host.kind}/${reference}`:`${host.kind}/${host.cardType}/${reference}`;
   const cached=roots.agentCache.get(cacheKey);if(cached)return cached;
-  const selected=selectPrompt('agents',cardType,reference,roots);
-  const compiled=compilePromptTemplate({cardType,name,path:selected.path,text:selected.text,policy,resolveFragment:(id)=>{const fragment=selectPrompt('fragments',cardType,id,roots);return{path:fragment.path,text:fragment.text};}});
+  const selected=selectPrompt('agents',host,reference,roots);
+  const compiled=compilePromptTemplate({host,name,path:selected.path,text:selected.text,resolveFragment:(id)=>{const fragment=selectPrompt('fragments',host,id,roots);return{path:fragment.path,text:fragment.text};}});
   const artifact=Object.freeze({source:selected.source,reference,path:selected.path,compiled});roots.agentCache.set(cacheKey,artifact);return artifact;
 }
 function selectAgentPrompt(
-  cardType: CardType | 'global',
+  host: AgentPromptHost,
   agent: CompiledAgentContract,
   roots: PromptRoots,
 ): CompiledAgentPrompt {
-  return compileSelected(cardType,agent.name,agent.prompt,cardType==='global'?'global-agent':'workflow-agent',roots);
+  return compileSelected(host,agent.name,agent.prompt,roots);
 }
 function selectProcessPrompt(
-  cardType: CardType,
+  cardType: CardTypeName,
   id: ProcessPromptId,
   roots: PromptRoots,
 ): CompiledProcessPrompt {
-  const selected=selectPrompt('process',cardType,id,roots);
-  const compiled=compilePromptTemplate({cardType,name:id,path:selected.path,text:selected.text,policy:'process',resolveFragment:(fragmentId)=>{const fragment=selectPrompt('fragments',cardType,fragmentId,roots);return{path:fragment.path,text:fragment.text};}});
-  return Object.freeze({reference:id,source:selected.source,path:selected.path,text:renderCompiledPrompt(cardType,id,compiled,{cardType})});
+  const host:ProcessPromptHost={kind:'process',cardType};
+  const selected=selectPrompt('process',host,id,roots);
+  const compiled=compilePromptTemplate({host,name:id,path:selected.path,text:selected.text,resolveFragment:(fragmentId)=>{const fragment=selectPrompt('fragments',host,fragmentId,roots);return{path:fragment.path,text:fragment.text};}});
+  return Object.freeze({reference:id,source:selected.source,path:selected.path,text:renderCompiledPrompt(host,id,compiled,{cardType})});
 }
 function identifier(value:string,location:string):string { if(!IDENTIFIER.test(value))throw new Error(`${location} must be a lowercase identifier of at most 64 characters.`);return value; }
 function promptId(value:string,location:string):ProcessPromptId{return identifier(value,location) as ProcessPromptId;}
@@ -135,13 +136,13 @@ type ProcessNodeDraft = Readonly<{
   requirements: readonly CompiledRecordRequirement[];
   descendantContext: CompiledDescendantContext | null;
   edges: ReadonlyMap<string, ProcessEdgeDraft>;
-  childCreationTypes: ReadonlySet<CardType>;
-  childActivationTypes: ReadonlySet<CardType>;
+  childCreationTypes: ReadonlySet<CardTypeName>;
+  childActivationTypes: ReadonlySet<CardTypeName>;
 }>;
 type CardTypeCompileDraft = Readonly<{
-  cardType: CardType;
+  cardType: CardTypeName;
   location: string;
-  permittedChildTypes: ReadonlySet<CardType>;
+  permittedChildTypes: ReadonlySet<CardTypeName>;
   records: ReadonlyMap<RecordName, CompiledRecordDefinition>;
   bootstrapRecord: CompiledRecordDefinition;
   nodes: ReadonlyMap<string, ProcessNodeDraft>;
@@ -152,18 +153,21 @@ type CardTypeCompileDraft = Readonly<{
 }>;
 
 function compileCardTypeInputs(
-  cardType: CardType,
+  cardType: CardTypeName,
   source: CardTypeSource,
   agents: ReadonlyMap<AgentName, CompiledAgentContract>,
   roots: PromptRoots,
+  configuredCardTypes: ReadonlySet<CardTypeName>,
 ): CardTypeCompileDraft {
   const location = `card_types.${cardType}`;
-  const children = new Set<CardType>();
+  const children = new Set<CardTypeName>();
   for (const child of source.permitted_child_types) {
     if (child === 'project')
       throw new Error(`${location}.permitted_child_types cannot contain project.`);
     if (children.has(child))
       throw new Error(`${location}.permitted_child_types contains duplicate '${child}'.`);
+    if (!configuredCardTypes.has(child))
+      throw new Error(`${location}.permitted_child_types references missing card type '${child}'.`);
     children.add(child);
   }
   const permittedChildTypes = immutableSet(children);
@@ -285,7 +289,7 @@ function compileCardTypeInputs(
           requireUnchangedUntilAccept: node.descendant_context.require_unchanged_until_accept,
         })
       : null;
-    const selectedAgentPrompt = selectAgentPrompt(cardType, agent, roots);
+    const selectedAgentPrompt = selectAgentPrompt({kind:'workflow-agent',cardType}, agent, roots);
     nodes.set(
       nodeId,
       Object.freeze({
@@ -583,13 +587,13 @@ function validateProcessStateTable(
       }
     }
 }
-function validateDescendantContextClosure(drafts:ReadonlyMap<CardType,CardTypeCompileDraft>):void{
+function validateDescendantContextClosure(drafts:ReadonlyMap<CardTypeName,CardTypeCompileDraft>):void{
   for(const [cardType,draft] of drafts){
-    const reachable=new Set<CardType>();
-    const visit=(type:CardType):void=>{for(const child of drafts.get(type)!.permittedChildTypes){if(reachable.has(child))continue;reachable.add(child);visit(child);}};
+    const reachable=new Set<CardTypeName>();
+    const visit=(type:CardTypeName):void=>{const current=drafts.get(type);if(!current)throw new Error(`No compile draft exists for configured card type '${type}'.`);for(const child of current.permittedChildTypes){if(reachable.has(child))continue;reachable.add(child);visit(child);}};
     visit(cardType);
     for(const node of draft.nodes.values())for(const definition of node.descendantContext?.records??[]){
-      for(const descendantType of reachable)if(!drafts.get(descendantType)!.records.has(definition.name))throw new Error(`${draft.location}.workflow.nodes.${node.nodeId}.descendant_context record '${definition.name}' is not declared by reachable descendant type '${descendantType}'.`);
+      for(const descendantType of reachable){const descendant=drafts.get(descendantType);if(!descendant)throw new Error(`No compile draft exists for configured card type '${descendantType}'.`);if(!descendant.records.has(definition.name))throw new Error(`${draft.location}.workflow.nodes.${node.nodeId}.descendant_context record '${definition.name}' is not declared by reachable descendant type '${descendantType}'.`);}
     }
   }
 }
@@ -617,18 +621,16 @@ export function compileProjectWorkflows(
   if (!analyst)
     throw new Error(`analyst_agent references missing agent '${config.analyst_agent}'.`);
   if (analyst.session !== 'global') throw new Error('analyst_agent must use global session scope.');
-  const analystPrompt = selectAgentPrompt('global', analyst, roots);
-  const sourceKeys = Object.keys(config.card_types);
-  if (
-    sourceKeys.length !== cardTypeValues.length ||
-    cardTypeValues.some((type) => !(type in config.card_types))
-  )
-    throw new Error(`card_types must contain exactly: ${cardTypeValues.join(', ')}.`);
-  const drafts=immutableMap(cardTypeValues.map((type)=>[type,compileCardTypeInputs(type,config.card_types[type]!,agents,roots)] as const));
+  const analystPrompt = selectAgentPrompt({kind:'global-agent'}, analyst, roots);
+  const sourceEntries = Object.entries(config.card_types).map(([rawCardType, source]) => [parseCardTypeName(rawCardType), source] as const);
+  const cardTypeVocabulary = Object.freeze(sourceEntries.map(([cardType]) => cardType));
+  if (!cardTypeVocabulary.includes('project')) throw new Error("card_types must contain the reserved 'project' entry.");
+  const configuredCardTypes = immutableSet(cardTypeVocabulary);
+  const drafts=immutableMap(sourceEntries.map(([type,source])=>[type,compileCardTypeInputs(type,source,agents,roots,configuredCardTypes)] as const));
   for(const draft of drafts.values())validateCardTypeTopology(draft);
   validateDescendantContextClosure(drafts);
-  const cardTypes=immutableMap(cardTypeValues.map((type)=>[type,buildCardTypeStateTable(drafts.get(type)!,roots)] as const));
-  return Object.freeze({ analyst, analystPrompt, agents, cardTypes });
+  const cardTypes=immutableMap([...drafts].map(([type,draft])=>[type,buildCardTypeStateTable(draft,roots)] as const));
+  return Object.freeze({ analyst, analystPrompt, agents, cardTypes, cardTypeVocabulary });
 }
 export function bindRuntimeWorkflows(
   structural: CompiledProjectWorkflows,
@@ -636,15 +638,14 @@ export function bindRuntimeWorkflows(
 ): CompiledRuntimeWorkflows {
   const participants = new Map<AgentName, Readonly<{ agent: CompiledAgentContract; toolSet: BoundAgentToolSet; request: CapabilityRequest }>>();
   const analystToolSet = new BoundAgentToolSet(structural.analyst.tools);
-  const analystRequest = Object.freeze(capabilityRequestForLlmOptions({ tools: [...analystToolSet.definitions], stream: false }));
+  const analystRequest = Object.freeze(capabilityRequestForLlmOptions({ tools: [...analystToolSet.names], stream: false }));
   participants.set(structural.analyst.name, Object.freeze({ agent: structural.analyst, toolSet: analystToolSet, request: analystRequest }));
-  for (const cardType of cardTypeValues) {
-    const workflow = structural.cardTypes.get(cardType)!;
+  for (const workflow of structural.cardTypes.values()) {
     for (const state of workflow.states.values()) {
       if (state.kind !== 'node') continue;
+      const effectiveReferences=effectiveCardNodeToolReferences(state.agent.tools,state.childCreationTypes);
       const toolSet = new BoundAgentToolSet(state.agent.tools);
-      const providerDefinitions = [...toolSet.definitions, nodeResultToolDefinition(workflow, `node:${state.nodeId}`)];
-      const request = Object.freeze(capabilityRequestForLlmOptions({ tools: providerDefinitions, stream: false }));
+      const request = Object.freeze(capabilityRequestForLlmOptions({ tools: [...effectiveReferences, TERMINAL_RESULT_TOOL_NAME], stream: false }));
       const existing = participants.get(state.agent.name);
       if (existing && JSON.stringify(existing.request) !== JSON.stringify(request))
         throw new Error(`Agent '${state.agent.name}' has inconsistent node capability requests.`);

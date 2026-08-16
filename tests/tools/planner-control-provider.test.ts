@@ -27,7 +27,7 @@ describe('planner control provider ownership delegation', () => {
     const activateChild = jest.fn(async ({ childCardId }: { childCardId: string; invocation: ChildInvocationLease }) => ({ status: 'done' as const, summary: childCardId, result: workflowResult('DONE',childCardId) }));
     const cancelChild = jest.fn(async ({ childCardId }: { childCardId: string; reason: string }) => ({ card_id: childCardId, status: 'cancelled' as const, cancelled_card_ids: [childCardId] }));
     const notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'unused' }));
-    const surface = buildInvocationSurfaceFixture('planner', [createPlannerControlProvider({ agentName:'planner',projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store, parentControl: { activateChild, cancelChild }, notifyCard,childCreationTypes:new Set(),childActivationTypes:new Set(['code']) })]);
+    const surface = buildInvocationSurfaceFixture('planner', [createPlannerControlProvider({ agentName:'planner',projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store, parentControl: { activateChild, cancelChild }, notifyCard,childCreationTypes:new Set(),childActivationTypes:new Set(['code']),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
     return { store, activateChild, cancelChild, notifyCard, surface };
   }
 
@@ -92,7 +92,7 @@ describe('planner control provider ownership delegation', () => {
       else if (status === 'failed') store.commitActivationOutcome(child.id, { status, summary: 'failed', result: runtimeFailure('failed') }, '2026-08-15T00:00:00.000Z');
       else store.commitActivationOutcome(child.id, { status, summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');
     }
-    const provider = createPlannerControlProvider({ agentName: 'planner', projectRoot: root, parentCardId: 'project', sessionId: 'agent:planner:project', store, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), childCreationTypes: new Set(), childActivationTypes: new Set() });
+    const provider = createPlannerControlProvider({ agentName: 'planner', projectRoot: root, parentCardId: 'project', sessionId: 'agent:planner:project', store, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] });
     const surface = buildInvocationSurfaceFixture('planner', [provider]);
     return { store, child: store.read(child.id)!, surface };
   }
@@ -133,7 +133,7 @@ describe('planner control provider ownership delegation', () => {
     const updated = { ...blocked, title: 'Corrected', lifecycle: { status: 'changed' } } as CardRecord;
     const setStatus = jest.fn();
     const store = { read: jest.fn(() => blocked), editCard: jest.fn(() => updated), setStatus };
-    const surface = buildInvocationSurfaceFixture('planner', [createPlannerControlProvider({ agentName: 'planner', projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store: store as unknown as CardService, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), childCreationTypes: new Set(), childActivationTypes: new Set() })]);
+    const surface = buildInvocationSurfaceFixture('planner', [createPlannerControlProvider({ agentName: 'planner', projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store: store as unknown as CardService, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
     await expect(invokeEdit(surface, { card_id: CHILD, title: 'Corrected' })).resolves.toMatchObject({ success: true, data: { card: { status: 'changed' } } });
     expect(store.editCard).toHaveBeenCalledTimes(1);
     expect(setStatus).not.toHaveBeenCalled();

@@ -12,9 +12,9 @@ export interface CardVersionProviderContext {
 }
 
 export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'list_card_versions', description: 'List committed card versions without opening version content.', inputSchema: listCardVersionsInputSchema, executor: async (ctx, args) => listCardVersions(ctx, args) }),
-  defineToolBinder({ name: 'get_card_version', description: 'Read one exact committed card version.', inputSchema: getCardVersionInputSchema, executor: async (ctx, args) => getCardVersion(ctx, args) }),
-  defineToolBinder({ name: 'diff_card_versions', description: 'Get a field-level diff between two card versions.', inputSchema: diffCardVersionsInputSchema, executor: async (ctx, args) => diffCardVersions(ctx, args) }),
+  defineToolBinder({ name: 'list_card_versions', description: 'List committed card versions without opening version content.', inputSchema: () => listCardVersionsInputSchema, executor: async (ctx, args) => listCardVersions(ctx, args) }),
+  defineToolBinder({ name: 'get_card_version', description: 'Read one exact committed card version.', inputSchema: () => getCardVersionInputSchema, executor: async (ctx, args) => getCardVersion(ctx, args) }),
+  defineToolBinder({ name: 'diff_card_versions', description: 'Get a field-level diff between two card versions.', inputSchema: () => diffCardVersionsInputSchema, executor: async (ctx, args) => diffCardVersions(ctx, args) }),
 ]);
 
 export function createCardVersionProvider(ctx: CardVersionProviderContext): ToolProvider {

@@ -29,7 +29,7 @@ export const cardStatusTone: Record<CardStatus, Tone> = {
   cancelled: 'neutral',
 };
 
-export const cardTypeLabel: Record<CardType, string> = {
+export const cardTypeLabel: Partial<Record<CardType, string>> = {
   project: 'Project',
   goal: 'Goal',
   architecture: 'Architecture',

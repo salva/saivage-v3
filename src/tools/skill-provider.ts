@@ -12,7 +12,7 @@ export const skillToolBinders: readonly ToolBinder<SkillProviderContext, any>[] 
   defineToolBinder({
     name: 'skill',
     description: 'List role-available skills or load one role-available skill on demand during an agent session. Omit name to list skill names; provide name to load exact skill content.',
-    inputSchema: skillInputSchema,
+    inputSchema: () => skillInputSchema,
     executor: async (ctx, args) => {
       const catalog = new SkillCatalog(ctx.projectRoot);
       try {

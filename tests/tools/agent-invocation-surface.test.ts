@@ -66,18 +66,17 @@ describe('named-agent inventories and composition', () => {
       projectRoot,
       store: new CardService(projectRoot),
       cardId: 'project',
-      sessionId:'agent:reviewer:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never,
+      sessionId:'agent:reviewer:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never,
     });
     expect([...surface.tools.keys()]).toEqual(expected.reviewer);
     expect(surfaceToolDefinitions(surface).map((tool) => tool.function.name)).toEqual(expected.reviewer);
-    expect(surfaceToolDefinitions(surface)).toEqual(toolSet.definitions);
     expect(surface.providers.map((provider) => provider.providerName)).toEqual(['card-version', 'workspace', 'web', 'skill']);
     expect(surface.tools.has('mcp_tool_call')).toBe(false);
   });
 
   it('grants configured MCP solely from the named tool declaration without an agent-name or annotation policy',()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'saivage-configured-mcp-'));roots.push(projectRoot);initProjectTree(projectRoot);
-    const surface=new BoundAgentToolSet([resolveRuntimeTool('card','mcp_tool_call')]).bind({scope:'card',agentName:'reviewer',projectRoot,store:new CardService(projectRoot),cardId:'project',sessionId:'agent:reviewer:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{getServerTools:()=>[],findToolCapability:()=>null,invokeTool:()=>Promise.resolve({})}});
+    const surface=new BoundAgentToolSet([resolveRuntimeTool('card','mcp_tool_call')]).bind({scope:'card',agentName:'reviewer',projectRoot,store:new CardService(projectRoot),cardId:'project',sessionId:'agent:reviewer:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{getServerTools:()=>[],findToolCapability:()=>null,invokeTool:()=>Promise.resolve({})}});
     expect([...surface.tools.keys()]).toEqual(['mcp_tool_call']);
     expect(surface.providers.map((provider)=>provider.providerName)).toEqual(['mcp']);
   });
@@ -85,7 +84,7 @@ describe('named-agent inventories and composition', () => {
   it('binds only selected process definitions and cleans the shared selected group once',async()=>{
     const closeAndTerminateDirectScope=jest.fn(async()=>({failed:[]}));
     const toolSet=new BoundAgentToolSet(['wait_process','kill_process'].map((name)=>resolveRuntimeTool('card',name)));
-    const surface=toolSet.bind({scope:'card',agentName:'executor',projectRoot:'/',store:{} as never,cardId:'project',sessionId:'agent:executor:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{closeAndTerminateDirectScope} as never,processScope:{} as never,processOwnerId:'activation',mcpToolInvocation:{} as never});
+    const surface=toolSet.bind({scope:'card',agentName:'executor',projectRoot:'/',store:{} as never,cardId:'project',sessionId:'agent:executor:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{closeAndTerminateDirectScope} as never,processScope:{} as never,processOwnerId:'activation',mcpToolInvocation:{} as never});
     expect(surface.providers).toHaveLength(1);
     expect(surface.providers[0]!.tools.map((tool)=>tool.name)).toEqual(['wait_process','kill_process']);
     await cleanupInvocationSurface(surface,{kind:'activation_settled',status:'done'});

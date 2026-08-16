@@ -13,7 +13,7 @@ import type {
   ServerAvailability,
   RestartChatAcknowledgement,
 } from './contracts';
-export { cardStatusValues, cardTypeValues } from '@saivage/schemas';
+export { cardStatusValues } from '@saivage/schemas';
 export type { CardDiffRow };
 
 export type {

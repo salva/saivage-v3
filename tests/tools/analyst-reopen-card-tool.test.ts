@@ -31,8 +31,8 @@ describe('Analyst reopen_card tool', () => {
   it('owns the exact strict schema and audited low-safety intervention-ready success path', async () => {
     const data = { card: { id: 'card-a', lifecycle: { status: 'changed' } }, status: 'changed' };
     const test = harness({ kind: 'returned', success: true, data });
-    expect(test.binder.inputSchema.safeParse({ cardId: 'card-a' }).success).toBe(true);
-    expect(test.binder.inputSchema.safeParse({ cardId: 'card-a', reason: 'legacy' }).success).toBe(false);
+    expect(test.tool.inputSchema.safeParse({ cardId: 'card-a' }).success).toBe(true);
+    expect(test.tool.inputSchema.safeParse({ cardId: 'card-a', reason: 'legacy' }).success).toBe(false);
 
     await expect(test.tool.executor({ cardId: 'card-a' }, new AbortController().signal)).resolves.toEqual({ success: true, data });
     expect(test.assertInterventionReady).toHaveBeenCalledTimes(1);

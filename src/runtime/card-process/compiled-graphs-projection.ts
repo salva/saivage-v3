@@ -2,7 +2,7 @@ import {
   DebugGraphsResponseSchema,
   type DebugGraphsResponse,
 } from '../../contracts/operator-api-files-debug.js';
-import { cardTypeValues } from '../../schemas/index.js';
+import { effectiveCardNodeToolReferences } from '../../tools/runtime-tool-catalog.js';
 import {
   type CardProcessEntry,
   type CompiledCardTypeWorkflow,
@@ -36,9 +36,8 @@ function entryPrompt(workflow: CompiledCardTypeWorkflow, entry: CardProcessEntry
 
 /** Safe operator projection of the already-bound startup artifact. No source or runtime-state reads occur here. */
 export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): DebugGraphsResponse {
-  const graphs = cardTypeValues.map((cardType) => {
-    const workflow = workflows.cardTypes.get(cardType);
-    if (!workflow) throw new Error(`Compiled startup artifact is missing card type '${cardType}'.`);
+  const graphs = [...workflows.cardTypes.values()].map((workflow) => {
+    const cardType=workflow.cardType;
     const graphEntries = entries.map((entry) => ({
       entry,
       node_id: entryTarget(workflow, entry),
@@ -64,7 +63,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
           max_tokens: node.agent.model.maxTokens,
         },
         skills: node.agent.skills,
-        tools: [...binding.toolSet.names],
+        tools: effectiveCardNodeToolReferences(node.agent.tools,node.childCreationTypes).map((reference)=>reference.name),
         child_creation_types: [...node.childCreationTypes],
         child_activation_types: [...node.childActivationTypes],
         readable_records: [...node.readableRecords.keys()],

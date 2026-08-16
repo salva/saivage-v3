@@ -18,7 +18,7 @@ function walkFiles(root, current = root) {
   return files.sort();
 }
 
-function assertPromptTree(root) {
+function assertDefaultPromptTree(root) {
   if (!existsSync(root) || !statSync(root).isDirectory()) {
     throw new Error(`Prompt defaults directory is missing: ${relative(repoRoot, root)}`);
   }
@@ -59,9 +59,9 @@ function copyTree(sourceRoot, outputRoot) {
 }
 
 export function copyPromptDefaults({ sourceRoot = join(repoRoot, 'src', 'prompts'), outputRoot = join(repoRoot, 'dist', 'prompts') } = {}) {
-  assertPromptTree(sourceRoot);
+  assertDefaultPromptTree(sourceRoot);
   copyTree(sourceRoot, outputRoot);
-  assertPromptTree(outputRoot);
+  assertDefaultPromptTree(outputRoot);
   return walkFiles(outputRoot);
 }
 

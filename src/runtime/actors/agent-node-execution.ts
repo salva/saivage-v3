@@ -17,6 +17,7 @@ import { appendActivationMarker, appendUserContextMessage, providerConversationP
 import { stabilizeAgentSession } from './conversation-recovery.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
 import { cleanupInvocationSurface, invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface } from '../../tools/invocation.js';
+import { BoundAgentToolSet, effectiveCardNodeToolReferences } from '../../tools/runtime-tool-catalog.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
@@ -280,7 +281,7 @@ export class AgentNodeExecution {
   }
 
   private buildLlmInput(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition, binding: import('../card-process/card-process-config.js').BoundAgentContract): PreparedLlmInvocationInput {
-    const systemPrompt = this.deps.promptTemplates.render(input.card.type, node.agent.name, {
+    const systemPrompt = this.deps.promptTemplates.render({kind:'workflow-agent',cardType:input.card.type}, node.agent.name, {
       cardId: input.card.id, cardTitle: input.card.title, cardBrief: cardBootstrapForPrompt(this.deps.store, input.card), contractDescription,
       toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
     });
@@ -289,7 +290,8 @@ export class AgentNodeExecution {
   }
 
   private buildSurface(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number, writtenRecords: Set<string>): InvocationSurface {
-    return runtimeAgentBinding(this.deps.workflows, node.agent.name).toolSet.bind({scope:'card',agentName:node.agent.name,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation,onRecordWritten:(name)=>writtenRecords.add(name)});
+    const references=effectiveCardNodeToolReferences(node.agent.tools,node.childCreationTypes);
+    return new BoundAgentToolSet(references).bind({scope:'card',agentName:node.agent.name,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,cardTypeVocabulary:this.deps.workflows.cardTypeVocabulary,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation,onRecordWritten:(name)=>writtenRecords.add(name)});
   }
 
   private executorScope(input: CardActivationInput, ordinal: number): ManagedProcessScope {

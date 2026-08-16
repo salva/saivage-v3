@@ -486,6 +486,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
 
   it('keeps hierarchy, displayed detail, records, and history as distinct exact shapes', () => {
     expect(parseOperatorResponse('cards.get', 200, { card: canonicalCardDetail }).card).toEqual(canonicalCardDetail);
+    expect(parseOperatorResponse('cards.get',200,{card:{...canonicalCardDetail,id:'card-a',type:'custom-leaf'}}).card.type).toBe('custom-leaf');
+    expect(()=>parseOperatorResponse('cards.get',200,{card:{...canonicalCardDetail,id:'card-a',type:'Not Valid'}})).toThrow();
     expect(parseOperatorResponse('cards.children', 200, { parent: canonicalHierarchyCard, children: [] }).parent).toEqual(canonicalHierarchyCard);
     expect(parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:canonicalRecordDescriptors }).records).toEqual(canonicalRecordDescriptors);
     const record = parseOperatorResponse('cards.records.get', 200, { card_id:'project',record:{name:'brief.md',head_version:1,head_entry_id:'11111111-1111-4111-8111-111111111111',state:'closed',accepted:{source_version:1,source_entry_id:'11111111-1111-4111-8111-111111111111',committed_at:canonicalCard.created_at,writer_agent:'runtime:bootstrap',card_version_seq:1,content:'Brief',content_sha256:'a'.repeat(64),size_bytes:5},draft:null,discarded:null,effective_content_source:'accepted'} }).record;
@@ -497,8 +499,9 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(()=>parseOperatorResponse('cards.children',200,{parent:canonicalHierarchyCard,children:[missingPolicy]})).toThrow();
     const missingParentPolicy={...canonicalHierarchyCard} as Record<string,unknown>;delete missingParentPolicy.permitted_child_types;
     expect(()=>parseOperatorResponse('cards.children',200,{parent:missingParentPolicy,children:[]})).toThrow();
-    expect(()=>parseOperatorResponse('cards.children',200,{parent:{...canonicalHierarchyCard,permitted_child_types:['unknown']},children:[]})).toThrow();
-    expect(()=>parseOperatorResponse('cards.children',200,{parent:canonicalHierarchyCard,children:[{...canonicalHierarchyChild,permitted_child_types:['unknown']}]})).toThrow();
+    expect(()=>parseOperatorResponse('cards.children',200,{parent:{...canonicalHierarchyCard,permitted_child_types:['unknown']},children:[]})).not.toThrow();
+    expect(()=>parseOperatorResponse('cards.children',200,{parent:canonicalHierarchyCard,children:[{...canonicalHierarchyChild,permitted_child_types:['unknown']}]})).not.toThrow();
+    expect(()=>parseOperatorResponse('cards.children',200,{parent:{...canonicalHierarchyCard,permitted_child_types:['Not Valid']},children:[]})).toThrow();
     expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[...canonicalRecordDescriptors,...canonicalRecordDescriptors] })).toThrow();
     expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],writers:['analyst']}] })).toThrow();
     expect(() => parseOperatorResponse('cards.records.list', 200, { card_id:'project',records:[{...canonicalRecordDescriptors[0],bootstrap:false}] })).toThrow();

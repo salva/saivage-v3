@@ -9,7 +9,7 @@ import {
 } from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import { queueNotification } from '../notifications/index.js';
-import { cardTypeValues, urgencyValues, type CardRecord, type CardType, type Urgency } from '../schemas/index.js';
+import { urgencyValues, type CardRecord, type CardTypeName, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
@@ -35,17 +35,18 @@ export interface PlannerControlProviderContext {
   readonly store: PlannerControlStore;
   readonly parentControl: PlannerChildControlPort;
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
-  readonly childCreationTypes:ReadonlySet<CardType>;
-  readonly childActivationTypes:ReadonlySet<CardType>;
+  readonly childCreationTypes:ReadonlySet<CardTypeName>;
+  readonly childActivationTypes:ReadonlySet<CardTypeName>;
+  readonly cardTypeVocabulary: readonly CardTypeName[];
 }
 
 export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: plannerCreateCardInputSchema, executor: async (ctx, args) => createCard(ctx, args) }),
-  defineToolBinder({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: plannerEditCardInputSchema, executor: async (ctx, args) => editCard(ctx, args) }),
-  defineToolBinder({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: plannerCancelCardInputSchema, executor: async (ctx, args) => cancelCard(ctx, args) }),
-  defineToolBinder({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: activateCardArgumentsSchema, executor: async (ctx, args, _signal, invocation) => activateCard(ctx, args, invocation) }),
-  defineToolBinder({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: plannerReorderChildInputSchema, executor: async (ctx, args) => reorderChild(ctx, args) }),
-  defineToolBinder({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: plannerQueueNotificationInputSchema, executor: async (ctx, args) => queueNotificationTool(ctx, args) }),
+  defineToolBinder({ name: 'create_card', description: 'Create a direct child card under the current planner card. The parent is inferred from the planner session and cannot be supplied.', inputSchema: () => plannerCreateCardInputSchema, executor: async (ctx, args) => createCard(ctx, args) }),
+  defineToolBinder({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', inputSchema: () => plannerEditCardInputSchema, executor: async (ctx, args) => editCard(ctx, args) }),
+  defineToolBinder({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', inputSchema: () => plannerCancelCardInputSchema, executor: async (ctx, args) => cancelCard(ctx, args) }),
+  defineToolBinder({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', inputSchema: () => activateCardArgumentsSchema, executor: async (ctx, args, _signal, invocation) => activateCard(ctx, args, invocation) }),
+  defineToolBinder({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: () => plannerReorderChildInputSchema, executor: async (ctx, args) => reorderChild(ctx, args) }),
+  defineToolBinder({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: () => plannerQueueNotificationInputSchema, executor: async (ctx, args) => queueNotificationTool(ctx, args) }),
 ]);
 
 export function createPlannerControlProvider(ctx: PlannerControlProviderContext): ToolProvider {
@@ -53,7 +54,7 @@ export function createPlannerControlProvider(ctx: PlannerControlProviderContext)
 }
 
 function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolResult {
-  const type = plannerCreatedType(record.type);
+  const type = plannerCreatedType(record.type, ctx.cardTypeVocabulary);
   if (!type.success) return type;
   if(!ctx.childCreationTypes.has(type.type))return failure(`Child type '${type.type}' is not permitted for this node.`);
   const dependsOn = record.depends_on ?? [];
@@ -142,10 +143,10 @@ function validateImmediateChildDependencies(ctx: PlannerControlProviderContext, 
   return null;
 }
 
-function plannerCreatedType(value: string): { success: true; type: Exclude<CardType, 'project'> } | { success: false; error: string } {
-  if (!cardTypeValues.includes(value as CardType)) return failure(`create_card.type must be one of: ${cardTypeValues.filter((type) => type !== 'project').join(', ')}.`);
+function plannerCreatedType(value: string, cardTypeVocabulary: readonly CardTypeName[]): { success: true; type: CardTypeName } | { success: false; error: string } {
+  if (!cardTypeVocabulary.includes(value)) return failure(`create_card.type must be one of: ${cardTypeVocabulary.filter((type) => type !== 'project').join(', ')}.`);
   if (value === 'project') return failure('create_card cannot create project cards.');
-  return { success: true, type: value as Exclude<CardType, 'project'> };
+  return { success: true, type: value };
 }
 
 function plannerEditablePatch(record: z.infer<typeof plannerEditCardInputSchema>): CardEditPatch {
@@ -172,7 +173,7 @@ function optionalUrgency(value: string | undefined): Urgency {
   return value === undefined ? 'normal' : requireUrgency(value);
 }
 
-function compactPlannerToolCard(card: CardRecord): { id: string; type: CardType; parent: string | null; status: CardRecord['lifecycle']['status']; title: string; depends_on: string[]; related: string[]; tags: string[]; priority: number; urgency: Urgency } {
+function compactPlannerToolCard(card: CardRecord): { id: string; type: CardTypeName; parent: string | null; status: CardRecord['lifecycle']['status']; title: string; depends_on: string[]; related: string[]; tags: string[]; priority: number; urgency: Urgency } {
   return { id: card.id, type: card.type, parent: cardParentId(card.id), status: card.lifecycle.status, title: card.title, depends_on: card.depends_on, related: card.related, tags: card.tags, priority: card.priority, urgency: card.urgency };
 }
 
