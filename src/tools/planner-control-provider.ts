@@ -12,7 +12,7 @@ import { queueNotification } from '../notifications/index.js';
 import { urgencyValues, type CardRecord, type CardTypeName, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
-import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
+import { defineToolBinder, type ToolBinder, type ToolResult } from './invocation.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import type { PlannerChildControlPort } from '../runtime/actors/card-activation-owner.js';
 import { cardParentId } from '../schemas/card-id.js';
@@ -48,10 +48,6 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
   defineToolBinder({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', inputSchema: () => plannerReorderChildInputSchema, executor: async (ctx, args) => reorderChild(ctx, args) }),
   defineToolBinder({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', inputSchema: () => plannerQueueNotificationInputSchema, executor: async (ctx, args) => queueNotificationTool(ctx, args) }),
 ]);
-
-export function createPlannerControlProvider(ctx: PlannerControlProviderContext): ToolProvider {
-  return bindToolProvider('planner-control', plannerControlToolBinders, ctx);
-}
 
 function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolResult {
   const type = plannerCreatedType(record.type, ctx.cardTypeVocabulary);

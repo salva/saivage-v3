@@ -1,23 +1,17 @@
 import { describe, expect, it } from '@jest/globals';
-import type { AgentMessage } from '../../src/schemas/index.js';
 import type { LlmCompleteOptions, ToolDefinition } from '../../src/agents/llm-contracts.js';
 import {
-  appendLlmRequestSectionSizesDiagnostic,
-  measureLlmRequestSectionSizes,
+  appendFinalOutboundLlmRequestSectionSizesDiagnostic,
+  measureFinalOutboundLlmRequestSectionSizes,
+  type LlmRequestDiagnosticMessage,
 } from '../../src/agents/llm-request-diagnostics.js';
 
-function message(partial: Partial<AgentMessage> & { content: string }): AgentMessage {
+function message(partial: Partial<LlmRequestDiagnosticMessage> & { content: string }): LlmRequestDiagnosticMessage {
   return {
-    id: partial.id ?? 'msg-1',
-    session_id: 'agent:planner:project',
     role: partial.role ?? 'user',
     kind: partial.kind ?? 'text',
     content: partial.content,
     tool: partial.tool,
-    round_id: 'round-1',
-    message_index: 0,
-    block_index: 0,
-    timestamp: '2026-06-01T00:00:00.000Z',
   };
 }
 
@@ -48,12 +42,14 @@ const opts: LlmCompleteOptions = {
 
 describe('LLM request section diagnostics', () => {
   it('identifies largest outbound request section without including raw content', () => {
-    const sizes = measureLlmRequestSectionSizes(
+    const sizes = measureFinalOutboundLlmRequestSectionSizes(
       'small system prompt',
       [
-        message({ id: 'small', content: 'short' }),
-        message({ id: 'large', role: 'assistant', kind: 'text', content: 'x'.repeat(9000) }),
+        message({ content: 'short' }),
+        message({ role: 'assistant', kind: 'text', content: 'x'.repeat(9000) }),
       ],
+      opts.tools.length,
+      JSON.stringify(opts.tools).length,
       opts,
     );
 
@@ -68,10 +64,12 @@ describe('LLM request section diagnostics', () => {
   });
 
   it('formats a compact diagnostic suitable for token-budget blocker persistence', () => {
-    const diagnostic = appendLlmRequestSectionSizesDiagnostic(
+    const diagnostic = appendFinalOutboundLlmRequestSectionSizesDiagnostic(
       'LLM token budget exceeded (HTTP 400)',
       'system ' + 's'.repeat(200),
       [message({ content: 'message ' + 'm'.repeat(400) })],
+      opts.tools.length,
+      JSON.stringify(opts.tools).length,
       opts,
     );
 

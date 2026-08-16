@@ -87,6 +87,7 @@ describe('named-agent inventories and composition', () => {
     const surface=toolSet.bind({scope:'card',agentName:'executor',projectRoot:'/',store:{} as never,cardId:'project',sessionId:'agent:executor:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{closeAndTerminateDirectScope} as never,processScope:{} as never,processOwnerId:'activation',mcpToolInvocation:{} as never});
     expect(surface.providers).toHaveLength(1);
     expect(surface.providers[0]!.tools.map((tool)=>tool.name)).toEqual(['wait_process','kill_process']);
+    expect(surface.providers[0]!.cleanup).toEqual(expect.any(Function));
     await cleanupInvocationSurface(surface,{kind:'activation_settled',status:'done'});
     expect(closeAndTerminateDirectScope).toHaveBeenCalledTimes(1);
   });

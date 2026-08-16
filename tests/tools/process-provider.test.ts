@@ -3,20 +3,20 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
-import { createProcessProvider } from '../../src/tools/process-provider.js';
+import { cleanupProcessProvider, processToolBinders, type ProcessProviderContext } from '../../src/tools/process-provider.js';
 import { cleanupTestProcessRunners, createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { cardWorkRoot } from '../../src/persistence/layout.js';
 
 function executorProvider(root: string, processes: TestProcessRunnerComposition, ownerId = 'activation-1') {
-  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });
+  return bindToolProvider('process', processToolBinders, { projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });
 }
 
 function analystProvider(root: string, processes: TestProcessRunnerComposition) {
-  return createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.analystProcessRootScope, 'test:analyst', 'operator_session'), category: 'operator_session', ownerId: 'agent:analyst:global', ownerKind: 'operator' });
+  return bindToolProvider('process', processToolBinders, { projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.analystProcessRootScope, 'test:analyst', 'operator_session'), category: 'operator_session', ownerId: 'agent:analyst:global', ownerKind: 'operator' });
 }
 
 function expectUnifiedProcessResult(data: unknown, processId?: string): void {
@@ -43,12 +43,12 @@ describe('process provider', () => {
   it('labels every cleanup reason before terminating the direct scope', async () => withRoot(async (root) => {
     const processes = createTestProcessRunner(root);
     const directScope = processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, 'test:cleanup-labels', 'runtime_card');
-    const provider = createProcessProvider({ projectRoot: root, processRunner: processes.processRunner, directScope, category: 'runtime_card', ownerId: 'activation-1', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });
+    const context: ProcessProviderContext = { projectRoot: root, processRunner: processes.processRunner, directScope, category: 'runtime_card', ownerId: 'activation-1', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' };
     const terminate = jest.spyOn(processes.processRunner, 'closeAndTerminateDirectScope').mockResolvedValue({ selected: [], stopped: [], failed: [] });
 
-    await provider.cleanup?.({ kind: 'activation_settled', status: 'done' });
-    await provider.cleanup?.({ kind: 'session_closed' });
-    await provider.cleanup?.({ kind: 'runtime_shutdown' });
+    await cleanupProcessProvider(context, { kind: 'activation_settled', status: 'done' });
+    await cleanupProcessProvider(context, { kind: 'session_closed' });
+    await cleanupProcessProvider(context, { kind: 'runtime_shutdown' });
 
     expect(terminate.mock.calls.map(([options]) => options)).toEqual([
       { directScope, category: 'runtime_card', reason: 'activation settled: done', graceMs: 5000 },

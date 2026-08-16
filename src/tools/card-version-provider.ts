@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { ToolContext } from './analyst-tool-types.js';
-import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
+import { defineToolBinder, type ToolBinder, type ToolResult } from './invocation.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersionsInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { CardDiffResponseSchema, CardHistoryEntryResponseSchema, CardHistoryListResponseSchema } from '../contracts/index.js';
@@ -16,10 +16,6 @@ export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderCont
   defineToolBinder({ name: 'get_card_version', description: 'Read one exact committed card version.', inputSchema: () => getCardVersionInputSchema, executor: async (ctx, args) => getCardVersion(ctx, args) }),
   defineToolBinder({ name: 'diff_card_versions', description: 'Get a field-level diff between two card versions.', inputSchema: () => diffCardVersionsInputSchema, executor: async (ctx, args) => diffCardVersions(ctx, args) }),
 ]);
-
-export function createCardVersionProvider(ctx: CardVersionProviderContext): ToolProvider {
-  return bindToolProvider('card-version', cardVersionToolBinders, ctx);
-}
 
 async function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof listCardVersionsInputSchema>): Promise<ToolResult> {
   const result = ctx.store.listCardVersions(params.card_id);

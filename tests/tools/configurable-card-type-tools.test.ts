@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { invokeTool, surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
@@ -12,7 +12,7 @@ import { create_card } from '../../src/tools/analyst-card-tools.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createPlannerControlProvider } from '../../src/tools/planner-control-provider.js';
+import { plannerControlToolBinders } from '../../src/tools/planner-control-provider.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 
 const DEFAULT_TYPES=['project','goal','architecture','code','test','doc','data','research','ops'] as const;
@@ -78,7 +78,7 @@ describe('configuration-bound card-type tool vocabulary',()=>{
   it('keeps Planner wire schema open while enforcing compiled membership, root denial, and node child admission in order',async()=>{
     const created=card('card-a','custom-leaf');
     const store={read:jest.fn((id:string)=>id==='project'?card('project','project'):null),create:jest.fn(()=>created)};
-    const provider=createPlannerControlProvider({agentName:'planner',projectRoot:'/',parentCardId:'project',sessionId:'agent:planner:project',store,parentControl:{} as never,notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),childCreationTypes:new Set(['custom-leaf']),childActivationTypes:new Set(),cardTypeVocabulary:['project','custom-leaf','other']});
+    const provider=bindToolProvider('planner-control',plannerControlToolBinders,{agentName:'planner',projectRoot:'/',parentCardId:'project',sessionId:'agent:planner:project',store,parentControl:{} as never,notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),childCreationTypes:new Set(['custom-leaf']),childActivationTypes:new Set<string>(),cardTypeVocabulary:['project','custom-leaf','other']});
     const surface=buildInvocationSurfaceFixture('planner',[provider]);
     const schema=surface.tools.get('create_card')!.inputSchema;
     expect(schema.safeParse({type:'wire-unknown',title:'x',bootstrap_content:'x'}).success).toBe(true);

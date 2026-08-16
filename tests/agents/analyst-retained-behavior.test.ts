@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
-import { ANALYST_CAPABILITY_CLASSES, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
+import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
 import { reorder_child } from '../../src/tools/analyst-card-tools.js';
 
@@ -30,10 +30,8 @@ describe('Analyst retained navigation and capability behavior', () => {
     expect(buildWorkspaceContextNote({ view: 'cards', entityId: 'project', refinement: { tab: 'history', filter: 'failed' } })).toBe('[workspace-context]\nview: cards\nentity: project\nrefinement: tab=history;filter=failed');
   });
 
-  it('keeps unsupported/unknown capability replies constrained to the registered catalog', () => {
-    expect(ANALYST_CAPABILITY_CLASSES).toContain('Investigate and repair');
+  it('keeps unsupported capability replies constrained to the registered catalog', () => {
     expect(ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Navigate', ['open_card'])).toContain('Closest available capability: Navigate');
-    expect(ANALYST_UNKNOWN_CAPABILITY_TEMPLATE('delete_everything')).toContain('it is not a registered capability');
   });
 });
 

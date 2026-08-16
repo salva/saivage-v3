@@ -3,7 +3,7 @@ import { analystMiscToolBinders } from './analyst-misc-tools.js';
 import { analystRuntimeToolBinders } from './analyst-runtime-tools.js';
 import { analystNavigationToolBinders } from './analyst-workspace-tools.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import type { ToolBinder, ToolDefinition } from './invocation.js';
+import type { ToolBinder } from './invocation.js';
 
 const analystToolOrder = [
   'create_card',
@@ -52,8 +52,4 @@ export function getAnalystControlToolBinders(): readonly ToolBinder<ToolContext,
     return tool;
   }));
   return analystControlToolBinderCache;
-}
-
-export function createAnalystControlTools(ctx: ToolContext): readonly ToolDefinition<any>[] {
-  return getAnalystControlToolBinders().map((binder) => binder.bind(ctx));
 }

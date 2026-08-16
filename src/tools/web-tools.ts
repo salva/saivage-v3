@@ -9,7 +9,7 @@ import type { AgentName } from '../schemas/index.js';
 import { buildScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult as InvocationToolResult } from './invocation.js';
+import { defineToolBinder, type ToolBinder, type ToolResult as InvocationToolResult } from './invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
@@ -269,7 +269,3 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
         },
       }),
 ]);
-
-export function createWebProvider(ctx: WebProviderContext): ToolProvider {
-  return bindToolProvider('web', webToolBinders, ctx);
-}

@@ -1,6 +1,6 @@
 import type { AgentName } from '../schemas/index.js';
 import { skillInputSchema } from '../contracts/builtin-tool-inputs.js';
-import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider } from './invocation.js';
+import { defineToolBinder, type ToolBinder } from './invocation.js';
 import { SkillCatalog } from './skill-catalog.js';
 
 export interface SkillProviderContext {
@@ -25,7 +25,3 @@ export const skillToolBinders: readonly ToolBinder<SkillProviderContext, any>[] 
     },
   }),
 ]);
-
-export function createSkillProvider(ctx: SkillProviderContext): ToolProvider {
-  return bindToolProvider('skill', skillToolBinders, ctx);
-}

@@ -3,7 +3,7 @@ import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import type { AgentName, CardNotification, CardTypeName } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
-import { getAnalystControlToolBinders } from './analyst-control-provider.js';
+import { getAnalystControlToolBinders } from './analyst-tool-registry.js';
 import type { ToolContext } from './analyst-tool-types.js';
 import { cardVersionToolBinders, type CardVersionProviderContext } from './card-version-provider.js';
 import { cardInspectionToolBinders, type CardInspectionProviderContext } from './card-inspection-provider.js';

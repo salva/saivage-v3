@@ -1,6 +1,6 @@
 import { applyProjectPatch, editProject, globProject, grepProject, readProject, WorkspaceToolInputError, writeProject } from './project-file-tools.js';
 import { applyPatchInputSchema, editWorkspaceInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema, readWorkspaceInputSchema, writeWorkspaceInputSchema } from '../contracts/builtin-tool-inputs.js';
-import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolResult } from './invocation.js';
+import { defineToolBinder, type ToolBinder, type ToolResult } from './invocation.js';
 import type { AgentName } from '../schemas/index.js';
 import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
@@ -63,8 +63,3 @@ export const analystWorkspaceToolBinders: readonly ToolBinder<AnalystToolContext
 export const analystPatchToolBinders: readonly ToolBinder<AnalystToolContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'apply_patch', description: 'Apply a text-only unified diff.', inputSchema: () => applyPatchInputSchema, executor: (ctx, args) => runWorkspaceTool(() => applyProjectPatch({ projectRoot: ctx.projectRoot,agentName:ctx.actor,filesystemWrite:true }, args)) }),
 ]);
-
-export const createWorkspaceProvider = (ctx: WorkspaceProviderContext): ToolProvider => bindToolProvider('workspace', workspaceToolBinders, ctx);
-export const createPatchProvider = (ctx: WorkspaceProviderContext): ToolProvider => bindToolProvider('patch', patchToolBinders, ctx);
-export const createAnalystWorkspaceProvider = (ctx: AnalystToolContext): ToolProvider => bindToolProvider('workspace', analystWorkspaceToolBinders, ctx);
-export const createAnalystPatchProvider = (ctx: AnalystToolContext): ToolProvider => bindToolProvider('patch', analystPatchToolBinders, ctx);

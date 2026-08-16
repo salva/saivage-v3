@@ -103,13 +103,7 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
   return result;
 }
 
-export const ANALYST_CAPABILITY_CLASSES = ['Inspect', 'Navigate', 'Manage cards', 'Queue notifications', 'Control the runtime', 'Reconfigure', 'Investigate and repair'] as const;
-
 export function ANALYST_UNSUPPORTED_ACTION_TEMPLATE(capabilityClass?: string, toolNames?: string[]): string {
   const suffix = capabilityClass && toolNames && toolNames.length > 0 ? ` Closest available capability: ${capabilityClass}. Available tools in that class: ${toolNames.join(', ')}.` : '';
   return `That action is not supported by the Analyst on this surface.${suffix}`;
-}
-
-export function ANALYST_UNKNOWN_CAPABILITY_TEMPLATE(proposedToolName: string): string {
-  return `The Analyst cannot perform ${proposedToolName}; it is not a registered capability. Available capability classes: ${ANALYST_CAPABILITY_CLASSES.join(', ')}.`;
 }

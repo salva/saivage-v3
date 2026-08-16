@@ -7,7 +7,8 @@ import { join } from 'node:path';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
 import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
-import { createAnalystControlProvider } from '../../src/tools/analyst-control-provider.js';
+import { getAnalystControlToolBinders } from '../../src/tools/analyst-tool-registry.js';
+import { bindToolProvider } from '../../src/tools/invocation.js';
 
 function context(projectRoot: string, restartServerAvailable: boolean): ToolContext {
   return { projectRoot, actor: 'analyst', surface: 'web-chat', restartServerAvailable, cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] } as unknown as ToolContext;
@@ -17,8 +18,8 @@ describe('restart_server', () => {
   it('is catalogued only when operator authentication publishes restart capability', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-restart-tool-'));
     try {
-      expect(createAnalystControlProvider(context(projectRoot, true)).tools.map((tool) => tool.name)).toContain('restart_server');
-      expect(createAnalystControlProvider({ ...context(projectRoot, false) }).tools.map((tool) => tool.name)).toContain('restart_server');
+      expect(bindToolProvider('analyst', getAnalystControlToolBinders(), context(projectRoot, true)).tools.map((tool) => tool.name)).toContain('restart_server');
+      expect(bindToolProvider('analyst', getAnalystControlToolBinders(), context(projectRoot, false)).tools.map((tool) => tool.name)).toContain('restart_server');
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 

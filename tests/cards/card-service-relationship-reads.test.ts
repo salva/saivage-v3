@@ -54,10 +54,8 @@ describe('CardService scoped relationship reads', () => {
     expect(cards.getParent('project')).toBeNull();
     expect(cards.getParent(nested.id)).toBe(first.id);
     expect(cards.getAncestors(nested.id)).toEqual(['project', goal.id, first.id]);
-    expect(cards.isDescendantOf(nested.id, goal.id)).toBe(true);
-    expect(cards.isDescendantOf(goal.id, nested.id)).toBe(false);
     expect(cards.getDescendantIds(goal.id)).toEqual([first.id, nested.id, second.id]);
-    expect(cards.blocksFor(first.id)).toEqual([second.id]);
+    expect(cards.list().map((card) => card.id)).toEqual(['project', goal.id, first.id, second.id, nested.id]);
   });
 
   it('returns operation-specific absence for well-formed inactive targets and rejects every malformed ID', () => {
@@ -65,10 +63,8 @@ describe('CardService scoped relationship reads', () => {
     expect(cards.getParent('card-z')).toBeNull();
     expect(cards.getAncestors('card-z')).toEqual([]);
     expect(cards.getDescendantIds('card-z')).toEqual([]);
-    expect(cards.isDescendantOf('card-z', 'project')).toBe(false);
     for (const call of [
       () => cards.getParent('bad'), () => cards.getAncestors('bad'), () => cards.getDescendantIds('bad'),
-      () => cards.isDescendantOf('bad', 'project'), () => cards.isDescendantOf('project', 'bad'), () => cards.blocksFor('bad'),
     ]) expect(call).toThrow();
   });
 
@@ -83,8 +79,6 @@ describe('CardService scoped relationship reads', () => {
     expect(cards.getAncestors(reached.id)).toEqual(['project', healthy.id]);
     expect(cards.getDescendantIds(healthy.id)).toEqual([reached.id]);
     expect(() => cards.list()).toThrow();
-    expect(() => cards.blocksFor(healthy.id)).toThrow();
-
     corruptCurrent(root, reached.id);
     expect(() => cards.getParent(reached.id)).toThrow();
     expect(() => cards.getDescendantIds(healthy.id)).toThrow();

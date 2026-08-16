@@ -8,7 +8,7 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/c
 import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
 import { cardWorkRoot } from '../persistence/layout.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
-import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider, type ToolProviderCleanupReason, type ToolResult } from './invocation.js';
+import { defineToolBinder, type ToolBinder, type ToolProviderCleanupReason, type ToolResult } from './invocation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface ProcessProviderContext {
@@ -207,8 +207,4 @@ export async function cleanupProcessProvider(ctx: ProcessProviderContext, reason
   const label = cleanupReasonLabel(reason);
   const report = await ctx.processRunner.closeAndTerminateDirectScope({ directScope: ctx.directScope, category: ctx.category, reason: label, graceMs: 5000 });
   if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
-}
-
-export function createProcessProvider(ctx: ProcessProviderContext): ToolProvider {
-  return { ...bindToolProvider('process', processToolBinders, ctx), cleanup: (reason) => cleanupProcessProvider(ctx, reason) };
 }

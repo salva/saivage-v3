@@ -73,7 +73,7 @@ import { canCreateChildInStatus } from './card-status.js';
 import { valuesEqual } from './value-equality.js';
 import type { CardNotification } from '../schemas/types.js';
 import { CardServiceInvariantError } from './errors.js';
-import { cardDepth, cardIdSchema, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
+import { cardDepth, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
 import type { CardActivationOutcome } from '../contracts/tool-api.js';
 
 export type CardActivationAdmissionProjection = {
@@ -175,7 +175,6 @@ export class CardService {
   listChildren(parentId: string): string[] { return readLinkedChildren(this.projectRoot, parentId).map((card) => card.id); }
   getParent(id: string): string | null { return readCanonicalCard(this.projectRoot, id).kind === 'found' ? cardParentId(id) : null; }
   getAncestors(id: string): string[] { if (readCanonicalCard(this.projectRoot, id).kind === 'card-not-found') return []; const out: string[] = []; let parent = cardParentId(id); while (parent) { out.unshift(parent); parent = cardParentId(parent); } return out; }
-  isDescendantOf(id: string, ancestorId: string): boolean { cardIdSchema.parse(ancestorId); return this.getAncestors(id).includes(ancestorId); }
   getDescendantIds(id: string): string[] {
     const root = readCanonicalCardHierarchy(this.projectRoot, id);
     if (root.kind === 'card-not-found') return [];
@@ -191,8 +190,6 @@ export class CardService {
     visit(root.value.activeChildren);
     return out;
   }
-  blocksFor(id: string): string[] { cardIdSchema.parse(id); return this.list().filter((card) => card.depends_on.includes(id)).map((card) => card.id); }
-
   readCurrentRecord(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection { const current = readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); if (!current) throw new AuthoredRecordNotFoundError(); return current; }
   readCurrentRecordOrNull(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection | null { return readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); }
   classifyCurrentRecord(cardId:string,filename:string,instrumentation?:CanonicalReadInstrumentation):CurrentAuthoredRecordClassification{return classifyCurrentAuthoredRecord(this.projectRoot,cardId,this.recordDefinition(cardId,filename),instrumentation);}

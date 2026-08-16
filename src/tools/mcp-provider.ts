@@ -1,6 +1,6 @@
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
-import { bindToolProvider, defineToolBinder, type ToolBinder, type ToolProvider } from './invocation.js';
+import { defineToolBinder, type ToolBinder } from './invocation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
 
@@ -25,7 +25,3 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
     },
   }),
 ]);
-
-export function createMcpProvider(ctx: McpProviderContext): ToolProvider {
-  return bindToolProvider('mcp', mcpToolBinders, ctx);
-}
