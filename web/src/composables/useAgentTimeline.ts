@@ -74,9 +74,10 @@ export function useAgentTimeline(entries: Ref<readonly AgentConversationEntry[]>
     (volume, previousVolume) => {
       if (volume <= previousVolume) return;
       const delta = volume - previousVolume;
-      if (pinnedToLatest.value && !autoScrollPaused.value) void nextTick(() => scrollToLatest());
+      if (pinnedToLatest.value && !autoScrollPaused.value) scrollToLatest();
       else unseenCount.value += delta;
     },
+    { flush: 'post' },
   );
 
   return {

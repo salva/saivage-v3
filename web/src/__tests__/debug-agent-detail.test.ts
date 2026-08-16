@@ -45,7 +45,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     );
   });
 
-  it('claims, subscribes, then fetches and unregisters before token clear', async () => {
+  it('wires acknowledged conversation loading and Reload through the selected conversation', async () => {
     const store = useAgentStore();
     const order: string[] = [];
     const begin = store.beginConversationSelection;
@@ -80,10 +80,13 @@ describe('DebugAgentDetail keyed lifecycle', () => {
       'agent:executor:project',
       expect.any(Function),
     );
+    await wrapper.get('.sv-fetch-btn').trigger('click');
+    await flushPromises();
+    expect(api.getAgentConversation).toHaveBeenCalledTimes(2);
 
     const callback = live.openConversation.mock.calls[0][1] as () => Promise<void>;
     await callback();
-    expect(api.getAgentConversation).toHaveBeenCalledTimes(2);
+    expect(api.getAgentConversation).toHaveBeenCalledTimes(3);
     wrapper.unmount();
     expect(order.slice(-2)).toEqual(['unregister', 'clear']);
     expect(store.selectedConversationSessionId).toBeNull();
@@ -116,5 +119,8 @@ describe('DebugAgentDetail keyed lifecycle', () => {
   it('contains no prop/list synchronization watcher', () => {
     expect(source).not.toContain('watch(');
     expect(source).not.toContain('fetchSessions');
+    expect(source).toContain("props.kind === 'conversation' ? useSelectedConversation(props.sessionId) : null");
+    expect(source).not.toContain('beginConversationSelection');
+    expect(source).not.toContain('openConversation(');
   });
 });

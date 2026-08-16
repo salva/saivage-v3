@@ -27,7 +27,6 @@ function scrollElement(scrollTop = 0): HTMLElement {
 
 async function flushScrollWatch(): Promise<void> {
   await nextTick();
-  await nextTick();
 }
 
 function setup(initialEntries: AgentConversationEntry[] = [textEntry('m1')]) {
@@ -126,5 +125,21 @@ describe('useAgentTimeline auto-scroll trigger', () => {
 
     expect(el.scrollTop).toBe(0);
     expect(controls.unseenCount.value).toBe(0);
+  });
+
+  it('retains next-tick scrolling for explicit jump and reset actions', async () => {
+    const jumped = setup();
+    markScrolledAway(jumped.controls, jumped.el);
+    const jump = jumped.controls.jumpToLatest();
+    expect(jumped.el.scrollTop).toBe(0);
+    await jump;
+    expect(jumped.el.scrollTop).toBe(jumped.el.scrollHeight);
+
+    const reset = setup();
+    reset.el.scrollTop = 12;
+    reset.controls.resetScrollState();
+    expect(reset.el.scrollTop).toBe(12);
+    await nextTick();
+    expect(reset.el.scrollTop).toBe(reset.el.scrollHeight);
   });
 });

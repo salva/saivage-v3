@@ -109,6 +109,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { storeToRefs } from 'pinia';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
+import { useSelectedConversation } from '../../composables/useSelectedConversation';
 import { useAgentStore } from '../../stores/agents';
 import { useSyncStore } from '../../stores/sync';
 import { formatJson } from '../../utils/format-json';
@@ -146,31 +147,23 @@ const endpointPath = computed(
     `/api/agents/${encodeURIComponent(props.sessionId)}/${props.kind === 'conversation' ? 'conversation' : 'llm-exchange'}`,
 );
 
-let conversationToken: ReturnType<typeof agentStore.beginConversationSelection> | null = null;
+const selectedConversation =
+  props.kind === 'conversation' ? useSelectedConversation(props.sessionId) : null;
 let exchangeToken: ReturnType<typeof agentStore.beginLlmExchangeSelection> | null = null;
-let unregisterConversation: (() => void) | null = null;
 let unregisterExchange: (() => void) | null = null;
-const conversationLeaseReady = ref(false);
 const exchangeLeaseReady = ref(false);
 
 async function refreshConversation(): Promise<void> {
-  if (conversationToken && conversationLeaseReady.value)
-    await agentStore.fetchConversation(conversationToken).catch(() => {});
+  if (!selectedConversation)
+    throw new Error('Conversation reload invoked for an LLM exchange detail.');
+  await selectedConversation.reload();
 }
 async function refreshExchange(): Promise<void> {
   if (exchangeToken && exchangeLeaseReady.value) await agentStore.fetchLlmExchange(exchangeToken);
 }
 
 onMounted(() => {
-  if (props.kind === 'conversation') {
-    conversationToken = agentStore.beginConversationSelection(props.sessionId);
-    const token = conversationToken;
-    unregisterConversation = liveSyncStore.openConversation(props.sessionId, (frame) => {
-      conversationLeaseReady.value = true;
-      return agentStore.refetchConversation(token, frame);
-    });
-    return;
-  }
+  if (props.kind === 'conversation') return;
   exchangeToken = agentStore.beginLlmExchangeSelection(props.sessionId);
   const token = exchangeToken;
   unregisterExchange = liveSyncStore.openLlmExchange(props.sessionId, () => {
@@ -180,10 +173,6 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  if (conversationToken) {
-    unregisterConversation?.();
-    agentStore.clearConversationSelection(conversationToken);
-  }
   if (exchangeToken) {
     unregisterExchange?.();
     agentStore.clearLlmExchange(exchangeToken);

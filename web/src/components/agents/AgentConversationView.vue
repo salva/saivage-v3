@@ -111,11 +111,11 @@
   </div>
 </template>
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick, computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { ComponentPublicInstance } from 'vue';
 import { storeToRefs } from 'pinia';
+import { useSelectedConversation } from '../../composables/useSelectedConversation';
 import { useAgentStore } from '../../stores/agents';
-import { useSyncStore } from '../../stores/sync';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import PanelHeader from '../ui/PanelHeader.vue';
@@ -126,7 +126,6 @@ import type { ConversationSessionId } from '../../api/contracts';
 import { entriesToTimeline } from '../../utils/agent-timeline/timeline';
 const props = defineProps<{ sessionId: ConversationSessionId; entryId: string | null }>();
 const agentStore = useAgentStore();
-const liveSyncStore = useSyncStore();
 const {
   currentSession,
   entries,
@@ -144,39 +143,41 @@ const {
   selectedConversationVersionLoading,
   selectedConversationVersionError,
 } = storeToRefs(agentStore);
+const selectedConversation = useSelectedConversation(props.sessionId);
 const rawPanelOpen = ref(false);
 const timelineControls = useAgentTimeline(entries);
 const entryTargetState = ref<'idle' | 'found' | 'missing'>('idle');
-let unsubscribeConversation: (() => void) | null = null;
-let conversationToken: ReturnType<typeof agentStore.beginConversationSelection> | null = null;
 const historicalExpandedIds = ref(new Set<string>());
 const historicalTimeline = computed(() => entriesToTimeline(selectedConversationVersion.value?.entries ?? []));
 function toggleHistoricalExpanded(id: string): void { const next = new Set(historicalExpandedIds.value); next.has(id) ? next.delete(id) : next.add(id); historicalExpandedIds.value = next; }
-function onVersionHistoryToggle(event: Event): void { if ((event.currentTarget as HTMLDetailsElement).open && conversationToken) void agentStore.fetchConversationVersions(conversationToken); }
-function selectVersion(version: number): void { if (conversationToken) void agentStore.selectConversationVersion(conversationToken, version); }
+function onVersionHistoryToggle(event: Event): void { if ((event.currentTarget as HTMLDetailsElement).open) void selectedConversation.fetchVersions(); }
+function selectVersion(version: number): void { void selectedConversation.selectVersion(version); }
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
   timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
 }
-onMounted(async () => {
-  conversationToken = agentStore.beginConversationSelection(props.sessionId);
-  const token = conversationToken;
-  unsubscribeConversation = liveSyncStore.openConversation(props.sessionId, async (frame) => {
-    await agentStore.refetchConversation(token, frame);
-    await focusRequestedEntry();
-  });
-});
-async function focusRequestedEntry(): Promise<void> {
-  if (props.entryId) {
-    await nextTick();
-    const row = timelineControls.scrollAreaRef.value?.querySelector<HTMLElement>(`[data-entry-id="${props.entryId}"]`) ?? null;
+watch(
+  [entries, loading, conversationRefreshing],
+  (current, previous) => {
+    if (
+      current[0] === previous[0] ||
+      current[1] ||
+      current[2] ||
+      currentSession.value?.id !== props.sessionId ||
+      !props.entryId
+    )
+      return;
+    const row =
+      timelineControls.scrollAreaRef.value?.querySelector<HTMLElement>(
+        `[data-entry-id="${props.entryId}"]`,
+      ) ?? null;
     entryTargetState.value = row ? 'found' : 'missing';
-    if (row) { row.classList.add('targeted-conversation-entry'); row.scrollIntoView({ block: 'center' }); }
-  }
-}
-onUnmounted(() => {
-  unsubscribeConversation?.();
-  if (conversationToken) agentStore.clearConversationSelection(conversationToken);
-});
+    if (row) {
+      row.classList.add('targeted-conversation-entry');
+      row.scrollIntoView({ block: 'center' });
+    }
+  },
+  { flush: 'post' },
+);
 </script>
 <style scoped>
 .conversation-container {
