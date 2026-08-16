@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentName } from '../../schemas/agent-name.js';
 import { parseRecordName, type RecordName } from '../../schemas/record-name.js';
@@ -22,10 +22,11 @@ export type ProcessPromptId = string & { readonly __processPromptId: unique symb
 export type RecordRequirementMode = 'clean' | 'continue';
 export type RecordRequirementGate = 'exists' | 'updated';
 export type PromptArtifactSource = 'override-card'|'override-shared'|'bundled-card'|'bundled-shared';
+export type PromptArtifactObservation = Readonly<{ source: PromptArtifactSource; path: string }>;
 export type CompiledAgentPrompt = Readonly<{ source:PromptArtifactSource; reference:string; path:string; compiled:CompiledPromptTemplate }>;
 export type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source:PromptArtifactSource; path:string; text:string }>;
-export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly overridePromptRoot?:string }
-type PromptRoots = Readonly<{ defaultRoot:string; overrideRoot:string|undefined; agentCache:Map<string,CompiledAgentPrompt> }>;
+export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly overridePromptRoot?:string; readonly artifactObserver?:(artifact:PromptArtifactObservation)=>void }
+type PromptRoots = Readonly<{ defaultRoot:string; overrideRoot:string|undefined; artifactObserver:((artifact:PromptArtifactObservation)=>void)|undefined; agentCache:Map<string,CompiledAgentPrompt> }>;
 
 export type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
 export type CompiledRecordWritePattern = Readonly<{ source: string; matcher: RegExp }>;
@@ -63,7 +64,7 @@ class ImmutableSet<T> implements ReadonlySet<T> { readonly #values:Set<T>; const
 const immutableMap=<K,V>(entries:Iterable<readonly [K,V]>):ReadonlyMap<K,V>=>new ImmutableMap(entries);
 const immutableSet=<T>(values:Iterable<T>):ReadonlySet<T>=>new ImmutableSet(values);
 function bundledPromptRoot():string{const moduleDir=dirname(fileURLToPath(import.meta.url));const source=join(moduleDir,'..','..','prompts');return existsSync(source)?source:join(moduleDir,'..','..','..','prompts');}
-function promptRoots(options:WorkflowCompileOptions):PromptRoots{return{defaultRoot:options.defaultPromptRoot??bundledPromptRoot(),overrideRoot:options.overridePromptRoot??(options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined),agentCache:new Map()};}
+function promptRoots(options:WorkflowCompileOptions):PromptRoots{return{defaultRoot:options.defaultPromptRoot??bundledPromptRoot(),overrideRoot:options.overridePromptRoot??(options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined),artifactObserver:options.artifactObserver,agentCache:new Map()};}
 function readUtf8(path:string):string{const text=new TextDecoder('utf-8',{fatal:true}).decode(readFileSync(path));if(text.trim().length===0)throw new Error(`Prompt artifact '${path}' must contain non-whitespace UTF-8 text.`);return text;}
 function readOptional(path:string):string|null{try{return readUtf8(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}}
 type PromptPurpose='agents'|'process'|'fragments';
@@ -73,9 +74,9 @@ function selectPrompt(purpose:PromptPurpose,host:PromptHost,reference:string,roo
   if(roots.overrideRoot){if(host.kind!=='global-agent')candidates.push(['override-card',join(roots.overrideRoot,purpose,host.cardType,`${reference}.md`)]);candidates.push(['override-shared',join(roots.overrideRoot,purpose,'_shared',`${reference}.md`)]);}
   if(host.kind!=='global-agent')candidates.push(['bundled-card',join(roots.defaultRoot,purpose,host.cardType,`${reference}.md`)]);
   candidates.push(['bundled-shared',join(roots.defaultRoot,purpose,'_shared',`${reference}.md`)]);
-  for(const[source,path]of candidates){const text=readOptional(path);if(text!==null)return Object.freeze({source,path,text});}
+  for(const[source,path]of candidates){const text=readOptional(path);if(text!==null){roots.artifactObserver?.(Object.freeze({source,path:resolve(path)}));return Object.freeze({source,path,text});}}
   const [source,path]=candidates[candidates.length-1]!;
-  return Object.freeze({source,path,text:readUtf8(path)});
+  const text=readUtf8(path);roots.artifactObserver?.(Object.freeze({source,path:resolve(path)}));return Object.freeze({source,path,text});
 }
 function compileSelected(host:AgentPromptHost,name:AgentName,reference:string,roots:PromptRoots):CompiledAgentPrompt{
   const cacheKey=host.kind==='global-agent'?`${host.kind}/${reference}`:`${host.kind}/${host.cardType}/${reference}`;

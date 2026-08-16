@@ -2,11 +2,19 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, relative } from 'node:path';
-import { copyPromptDefaults } from '../../scripts/copy-prompt-defaults.js';
+import { basename, dirname, join, relative } from 'node:path';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { MINIMAL_CARD_TYPE_SET } from '../fixtures/card-type-sets/minimal.js';
+import { collectPromptPackageClosure, copyPromptDefaults } from '../../scripts/copy-prompt-defaults.js';
 
-function fail(message) {
-  throw new Error(message);
+function fail(message) { throw new Error(message); }
+function assert(condition, message) { if (!condition) fail(message); }
+function expectThrows(run, pattern, message) {
+  try { run(); } catch (error) {
+    if (pattern.test(error instanceof Error ? error.message : String(error))) return;
+    throw error;
+  }
+  fail(message);
 }
 
 function walkFiles(root, current = root) {
@@ -19,53 +27,123 @@ function walkFiles(root, current = root) {
   return files.sort();
 }
 
-function writeFixtureTree(root) {
+function write(root, purpose, scope, id, text) {
+  const path = join(root, purpose, scope, `${id}.md`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, text);
+}
+
+function writeStandardTree(root) {
   for (const agent of ['analyst', 'planner', 'reviewer', 'executor']) {
-    const path = join(root, 'agents', '_shared', `${agent}.md`);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, agent === 'analyst' ? `${agent} {{toolList}} {{projectContext}} {{vocabularySnippet}}` : `${agent} {{contractDescription}} {{toolList}}`);
+    write(root, 'agents', '_shared', agent, agent === 'analyst' ? `${agent} {{toolList}} {{projectContext}} {{vocabularySnippet}}` : `${agent} {{contractDescription}} {{toolList}}`);
   }
   for (const id of ['plan', 'recover', 'review', 'correct-plan-result', 'correct-review-result', 'plan-to-review', 'review-to-plan', 'execute', 'correct-execution-result', 'stopped-recovery']) {
-    const path = join(root, 'process', '_shared', `${id}.md`);
-    mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, `${id} {{cardType}}`);
+    write(root, 'process', '_shared', id, `${id} {{cardType}}`);
   }
 }
 
 function assertTreesEqual(sourceRoot, outputRoot) {
   const sourceFiles = walkFiles(sourceRoot);
   const outputFiles = walkFiles(outputRoot);
-  if (sourceFiles.join('\n') !== outputFiles.join('\n')) fail('copied prompt file set does not match source tree');
+  assert(sourceFiles.join('\n') === outputFiles.join('\n'), 'copied prompt file set does not match source tree');
   for (const file of sourceFiles) {
-    const source = readFileSync(join(sourceRoot, file), 'utf8');
-    const output = readFileSync(join(outputRoot, file), 'utf8');
-    if (source !== output) fail(`copied prompt content does not match for ${file}`);
+    assert(readFileSync(join(sourceRoot, file), 'utf8') === readFileSync(join(outputRoot, file), 'utf8'), `copied prompt content does not match for ${file}`);
   }
 }
 
+function fixtureInputs() {
+  const { card_types: _cardTypes, ...globals } = structuredClone(DEFAULT_SAIVAGE_CONFIG);
+  globals.agents.specialist = { ...structuredClone(globals.agents.executor), prompt: 'specialist' };
+  const secondCardTypes = structuredClone(MINIMAL_CARD_TYPE_SET.cardTypes);
+  secondCardTypes.project.workflow.nodes.execute.agent = 'specialist';
+  secondCardTypes.project.workflow.nodes.execute.prompt = 'second-execute';
+  return {
+    globals,
+    setDefinitions: [
+      MINIMAL_CARD_TYPE_SET,
+      Object.freeze({ name: 'second', cardTypes: secondCardTypes }),
+    ],
+  };
+}
+
+function writeFixtureUnion(root) {
+  write(root, 'agents', '_shared', 'analyst', 'analyst {{toolList}} {{projectContext}} {{vocabularySnippet}}');
+  write(root, 'agents', '_shared', 'executor', 'executor {{contractDescription}}');
+  write(root, 'agents', '_shared', 'specialist', 'specialist {{> specialist-piece}} {{contractDescription}}');
+  write(root, 'fragments', '_shared', 'specialist-piece', 'SECOND SET FRAGMENT');
+  write(root, 'process', '_shared', 'execute', 'execute {{cardType}}');
+  write(root, 'process', '_shared', 'second-execute', 'second execute {{cardType}}');
+  write(root, 'process', '_shared', 'correct-execution-result', 'correct {{cardType}}');
+  write(root, 'process', '_shared', 'stopped-recovery', 'recover {{cardType}}');
+}
+
 function runCopyPromptDefaultsTest() {
-  const sourceRoot = mkdtempSync(join(tmpdir(), 'saivage-copy-source-'));
-  const outputRoot = mkdtempSync(join(tmpdir(), 'saivage-copy-output-'));
+  const roots = [];
+  const temporary = (prefix) => { const root = mkdtempSync(join(tmpdir(), prefix)); roots.push(root); return root; };
   try {
-    writeFixtureTree(sourceRoot);
+    const unionRoot = temporary('saivage-prompt-union-');
+    writeFixtureUnion(unionRoot);
+    const inputs = fixtureInputs();
+    const closure = collectPromptPackageClosure({ ...inputs, promptRoot: unionRoot });
+    const expectedUnion = [
+      'agents/_shared/analyst.md', 'agents/_shared/executor.md', 'agents/_shared/specialist.md',
+      'fragments/_shared/specialist-piece.md', 'process/_shared/correct-execution-result.md',
+      'process/_shared/execute.md', 'process/_shared/second-execute.md', 'process/_shared/stopped-recovery.md',
+    ].sort();
+    assert(Object.isFrozen(closure), 'collected closure is not frozen');
+    assert(closure.join('\n') === expectedUnion.join('\n'), 'two-set closure omitted a second-set-only prompt or direct fragment');
+    assert(collectPromptPackageClosure({ ...inputs, promptRoot: unionRoot }).join('\n') === closure.join('\n'), 'closure collection is not deterministic');
+
+    const outside = temporary('saivage-prompt-outside-');
+    const escapedRoot = temporary('saivage-prompt-escaped-');
+    writeFixtureUnion(escapedRoot);
+    writeFileSync(join(outside, 'analyst.md'), 'outside {{toolList}} {{projectContext}} {{vocabularySnippet}}');
+    const escapedInputs = fixtureInputs();
+    escapedInputs.globals.agents.analyst.prompt = `../../../${basename(outside)}/analyst`;
+    expectThrows(
+      () => collectPromptPackageClosure({ ...escapedInputs, promptRoot: escapedRoot }),
+      /outside the supplied prompt root/u,
+      'closure accepted a selected artifact outside the bundled root',
+    );
+
+    const sourceRoot = temporary('saivage-copy-source-');
+    const outputRoot = temporary('saivage-copy-output-');
+    writeStandardTree(sourceRoot);
     writeFileSync(join(outputRoot, 'stale.md'), 'stale');
-    // This utility validates and copies only the shipped DEFAULT_SAIVAGE_CONFIG prompt closure;
-    // arbitrary configured card-type compilation is covered by workflow compiler tests.
-    copyPromptDefaults({ sourceRoot, outputRoot });
-    if (existsSync(join(outputRoot, 'stale.md'))) fail('stale output file survived copy');
+    copyPromptDefaults({ sourceRoot, outputRoot, setDefinitions: [], globals: {} });
+    assert(!existsSync(join(outputRoot, 'stale.md')), 'stale output file survived copy');
     assertTreesEqual(sourceRoot, outputRoot);
     copyPromptDefaults({ sourceRoot, outputRoot });
     assertTreesEqual(sourceRoot, outputRoot);
+
+    writeFileSync(join(sourceRoot, 'extra.md'), 'unselected');
+    expectThrows(() => copyPromptDefaults({ sourceRoot, outputRoot }), /registered-set union/u, 'copy accepted an extra unselected source artifact');
+    rmSync(join(sourceRoot, 'extra.md'));
+    const fragmentPath = join(unionRoot, 'fragments', '_shared', 'specialist-piece.md');
+    rmSync(fragmentPath);
+    expectThrows(
+      () => collectPromptPackageClosure({ ...inputs, promptRoot: unionRoot }),
+      /ENOENT|specialist-piece\.md/u,
+      'closure accepted a missing selected direct fragment',
+    );
+    rmSync(join(sourceRoot, 'process', '_shared', 'execute.md'));
+    expectThrows(() => copyPromptDefaults({ sourceRoot, outputRoot }), /ENOENT|execute\.md/u, 'copy accepted a missing selected source artifact');
+
+    const emptyBundledRoot = temporary('saivage-copy-empty-');
+    const overrideRoot = temporary('saivage-copy-override-');
+    writeStandardTree(overrideRoot);
+    expectThrows(
+      () => copyPromptDefaults({ sourceRoot: emptyBundledRoot, outputRoot, overridePromptRoot: overrideRoot }),
+      /ENOENT|analyst\.md/u,
+      'production copy accepted non-bundled prompt injection',
+    );
   } finally {
-    rmSync(sourceRoot, { recursive: true, force: true });
-    rmSync(outputRoot, { recursive: true, force: true });
+    for (const root of roots) rmSync(root, { recursive: true, force: true });
   }
 }
 
 if (typeof globalThis.test === 'function') {
-  globalThis.test('copies prompt defaults as a directory tree idempotently', () => {
-    runCopyPromptDefaultsTest();
-  });
+  globalThis.test('collects the registered union and copies its exact tree idempotently', runCopyPromptDefaultsTest);
 } else {
   runCopyPromptDefaultsTest();
   console.log('copy-prompt-defaults test passed');

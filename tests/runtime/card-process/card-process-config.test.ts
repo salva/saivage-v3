@@ -256,11 +256,17 @@ describe('named-agent card-type workflow compilation',()=>{
     write(defaults,'process','code','execute','bundled-card-process {{cardType}}');
     write(overrides,'process','_shared','execute','override-shared-process {{cardType}}');
     const value=source();value.agents.executor!.prompt='executor';value.agents.reviewer!.prompt='executor';
-    const compiled=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
+    const observations:Array<{source:string;path:string}>=[];
+    const compiled=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides,artifactObserver:(artifact)=>observations.push(artifact)});
     const code=compiled.cardTypes.get('code')!;const node=code.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');
     expect(node.selectedAgentPrompt.source).toBe('override-shared');
     expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('override-shared override-code-fragment contract');
     expect(code.processPrompts.get('execute' as never)).toMatchObject({source:'override-shared',text:'override-shared-process code'});
+    expect(observations).toEqual(expect.arrayContaining([
+      expect.objectContaining({source:'override-shared',path:join(overrides,'agents','_shared','executor.md')}),
+      expect.objectContaining({source:'override-card',path:join(overrides,'fragments','code','shared-piece.md')}),
+      expect.objectContaining({source:'override-shared',path:join(overrides,'process','_shared','execute.md')}),
+    ]));
     const review=compiled.cardTypes.get('goal')!.states.get('node:review')!;if(review.kind!=='node')throw new Error('missing review');
     expect(review.selectedAgentPrompt.reference).toBe('executor');
     expect(review.selectedAgentPrompt.source).toBe('override-shared');
