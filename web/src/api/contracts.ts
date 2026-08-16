@@ -3,14 +3,12 @@ export {
   parseOperatorResponse,
   ProcessViewSchema,
   DebugGraphsResponseSchema,
-  DoctorResponseSchema,
   AgentSessionSummarySchema,
   AnalystTurnBusyErrorSchema,
-  ANALYST_TURN_BUSY_ERROR,
   CardDiffRowSchema,
 } from '@saivage/contracts/operator-api';
 
-export { ConversationSessionIdSchema, parseConversationSessionId } from '@saivage/schemas';
+export { parseConversationSessionId } from '@saivage/schemas';
 export type { ConversationSessionId } from '@saivage/schemas';
 
 export type {
@@ -21,8 +19,6 @@ export type {
   OperatorApiBody,
   OperatorApiParams,
   ServerAvailability,
-  AvailabilityComponent,
-  AvailabilityState,
   AgentConversationResponse,
   AgentConversationEntry,
   AgentLlmExchangeResponse,
@@ -33,7 +29,6 @@ export type {
   CardDetail,
   CardRecordDescriptor,
   CardRecordListResponse,
-  CardRecordContent,
   CardRecordContentResponse,
   CardHierarchyParent,
   CardHierarchyChildSummary,
@@ -42,60 +37,31 @@ export type {
   CardDiffResponse,
   CardHistoryEntryResponse,
   CardHistoryListResponse,
-  ChatIdentityResponse,
-  ChatSendResponse,
-  AnalystTurnBusyErrorResponse,
   RestartChatAcknowledgement,
   ChatWorkspaceContext,
   DebugErrorsResponse,
   DebugGraph,
   DebugGraphsResponse,
   DoctorResponse,
-  HealthLivenessResponse,
-  HealthReadinessResponse,
   McpToolsResponse,
-  McpTransport,
   ProcessListResponse,
   ProcessView,
-  RuntimeGetStateResponse,
   ContentPolicyRuntimeResponse,
   RuntimeStatusResponse,
-  WorkspaceFileContentResponse,
-  WorkspaceFilesListResponse,
 } from '@saivage/contracts/operator-api';
 
 export {
-  AnalystActivityEventNames,
-  ConnectedStatusEnvelopeSchema,
-  InboundAnalystMessageEnvelopeSchema,
-  KnownWsContentSchema,
-  KnownWsEnvelopeSchema,
   LiveSyncClientFrameSchema,
-  LiveSyncCardInvalidateFrameSchema,
-  LiveSyncCardRecordNameSchema,
   LiveSyncInvalidateFrameSchema,
   LiveSyncSubscribedFrameSchema,
-  LiveSyncSubscribeFrameSchema,
-  LiveSyncUnscopedResourceSchema,
-  LiveSyncUnsubscribeFrameSchema,
-  WsEnvelopeSchema,
-  WsEventTypeSchema,
   buildConnectedEnvelope,
-  buildInboundAnalystMessageEnvelope,
   isAnalystActivityContent,
   parseAnalystTurnAcknowledgedStatusContent,
-  parseLiveSyncClientFrame,
   parseKnownWsContent,
   parseKnownWsEnvelope,
-  parseWsEnvelope,
 } from '@saivage/contracts/operator-events';
 
 export type {
-  AnalystActivityContent,
-  InboundAnalystMessageEnvelope,
-  KnownActivityWsEnvelope,
-  KnownStatusWsEnvelope,
-  KnownWsContent,
   KnownWsEnvelope,
   LiveSyncClientFrame,
   LiveSyncCardInvalidateFrame,
@@ -106,15 +72,12 @@ export type {
   LiveSyncInvalidateTarget,
   LiveSyncUnscopedResource,
   WsEnvelope,
-  WsEnvelopeContract,
 } from '@saivage/contracts/operator-events';
 
-export { providerExchangePayloadSchema } from '@saivage/contracts/provider-exchange';
 export type { ProviderExchangePayload } from '@saivage/contracts/provider-exchange';
 
 export {
   workspaceNavigationIntentSchema,
-  workspaceNavigationTargetSchema,
 } from '@saivage/contracts/workspace-navigation';
 export type {
   WorkspaceNavigationIntent,
@@ -127,15 +90,11 @@ export type {
   CardHistoryEntry,
   CardHistoryKind,
   CardRecord,
-  CardView,
   CardStatus,
-  ControlActionAuditEntry,
   ControlActionSurface,
-  CreatedBy,
   EntityLink,
   MessageKind,
   MessageRole,
-  NoteAuthor,
   RuntimeState,
   RuntimeStatus,
   Urgency,

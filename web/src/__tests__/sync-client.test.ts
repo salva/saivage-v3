@@ -37,11 +37,8 @@ function createConn(initial: WsConnectionState = 'offline') {
   const eventHandlers = new Set<WsEventHandler>();
   const conn: WsConnectionManager = {
     state: { value: initial },
-    sessionId: { value: null },
     connect: vi.fn(),
-    disconnect: vi.fn(),
     reconfigure: vi.fn(),
-    sendMessage: vi.fn(),
     sendRaw: vi.fn(() => true),
     onEvent: vi.fn((handler) => {
       eventHandlers.add(handler);

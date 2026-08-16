@@ -104,11 +104,6 @@ export class SyncClient {
     this.conn.connect();
   }
 
-  stop(): void {
-    this.conn.disconnect();
-    this.connectionStateRef.value = 'offline';
-  }
-
   reconfigure(): void {
     this.cardsBaselineOpenPending = true;
     this.conn.reconfigure();
@@ -149,10 +144,6 @@ export class SyncClient {
     callback: (frame: LeaseInvalidation) => Promise<void>,
   ): () => void {
     return this.openLease('llm-exchange', sessionId, callback);
-  }
-
-  sendMessage(text: string): void {
-    this.conn.sendMessage(text);
   }
 
   private handleSyncFrame(frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame): void {

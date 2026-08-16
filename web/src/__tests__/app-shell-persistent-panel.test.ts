@@ -16,7 +16,6 @@ vi.mock('../api/client', async (importOriginal) => ({
 vi.mock('../stores/sync', () => ({
   useSyncStore: () => ({
     connect: vi.fn(),
-    disconnect: vi.fn(),
     registerResource: vi.fn(() => vi.fn()),
     openConversation: vi.fn(() => vi.fn()),
     connectionState: ref('connected'),

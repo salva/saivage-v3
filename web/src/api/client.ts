@@ -30,7 +30,6 @@ import type {
   CardHistoryListResponse,
   CardHistoryEntryResponse,
   CardDiffResponse,
-  ControlActionsListResponse,
   ContentPolicyRuntimeResponse,
 } from './types';
 import { type ConversationSessionId } from './contracts';
@@ -327,13 +326,6 @@ export function getAgentLlmExchange(
     params: { id: sessionId },
     signal,
   });
-}
-
-export function listControlActions(query?: {
-  card_id?: string;
-  since?: string;
-}): Promise<ControlActionsListResponse> {
-  return operatorRequest('controlActions.list', { query });
 }
 
 export function getChatEntries(signal?: AbortSignal): Promise<ChatEntriesResponse> {

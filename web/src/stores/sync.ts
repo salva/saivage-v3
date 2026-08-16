@@ -10,9 +10,6 @@ export const useSyncStore = defineStore('sync', () => {
     syncClient.start();
   }
 
-  function disconnect(): void {
-    syncClient.stop();
-  }
   function reconfigure(): void {
     syncClient.reconfigure();
   }
@@ -38,20 +35,14 @@ export const useSyncStore = defineStore('sync', () => {
     callback: (frame: LeaseInvalidation) => Promise<void>,
   ) => syncClient.openLlmExchange(sessionId, callback);
 
-  function sendMessage(text: string): void {
-    syncClient.sendMessage(text);
-  }
-
   return {
     connectionState,
     connect,
-    disconnect,
     reconfigure,
     registerResource,
     openAgents,
     openCardAgentSessions,
     openConversation,
     openLlmExchange,
-    sendMessage,
   };
 });

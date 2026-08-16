@@ -12,7 +12,7 @@
 import type { WsConnectionState } from './types';
 import { issueWebSocketTicket } from './client';
 import { getAuthToken } from './auth';
-import { buildInboundAnalystMessageEnvelope, LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseKnownWsEnvelope, type KnownWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
+import { LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseKnownWsEnvelope, type KnownWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
 import { createLogger } from '../utils/logger';
 
 // ── Re-export auth helper ────────────────────────────────────
@@ -30,18 +30,10 @@ export interface WsConnectionManager {
   /** Current connection state (reactive ref). */
   readonly state: { value: WsConnectionState };
 
-  /** The session ID assigned by the server on connect. */
-  readonly sessionId: { value: string | null };
-
   /** Connect (or reconnect) the WebSocket. */
   connect(): void;
 
-  /** Disconnect and stop auto-reconnect. */
-  disconnect(): void;
   reconfigure(): void;
-
-  /** Send a chat message to the analyst via WebSocket. */
-  sendMessage(text: string): void;
 
   /** Send a low-level JSON payload over the socket. */
   sendRaw(payload: unknown): boolean;
@@ -78,7 +70,6 @@ export function createWsConnection(): WsConnectionManager {
   // ── State ─────────────────────────────────────────────────
 
   const state = makeRef<WsConnectionState>('offline');
-  const sessionId = makeRef<string | null>(null);
   const reconnectAttempts = makeRef<number>(0);
 
   let ws: WebSocket | null = null;
@@ -120,7 +111,6 @@ export function createWsConnection(): WsConnectionManager {
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     const previous = ws;
     ws = null;
-    sessionId.value = null;
     if (previous) previous.close(1000, 'Connection reconfigured');
     setState('connecting');
     void openWithFreshTicket(generation);
@@ -160,7 +150,6 @@ export function createWsConnection(): WsConnectionManager {
         if (event.code === 1008) {
           // Policy violation — authentication failure
           setState('unauthorized');
-          sessionId.value = null;
           shouldReconnect = false;
         } else if (shouldReconnect) {
           setState('connecting');
@@ -200,11 +189,6 @@ export function createWsConnection(): WsConnectionManager {
             return;
           }
 
-          // Extract session ID from connect status event
-          if (envelope.type === 'status' && envelope.content?.event === 'connected') {
-            sessionId.value = envelope.content.sessionId;
-          }
-
           // Dispatch to all handlers
           for (const handler of handlers) {
             try {
@@ -221,7 +205,6 @@ export function createWsConnection(): WsConnectionManager {
       if (attempt !== connectAttempt) return;
       log.error('Failed to create WebSocket', err);
       setState('unauthorized');
-      sessionId.value = null;
       shouldReconnect = false;
     }
   }
@@ -246,30 +229,6 @@ export function createWsConnection(): WsConnectionManager {
         connect();
       }
     }, delay);
-  }
-
-  // ── Disconnect ────────────────────────────────────────────
-
-  function disconnect(): void {
-    shouldReconnect = false;
-    connectAttempt++;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    if (ws) {
-      ws.close(1000, 'Client disconnect');
-      ws = null;
-    }
-    setState('offline');
-    sessionId.value = null;
-    reconnectAttempts.value = 0;
-  }
-
-  // ── Send Message ──────────────────────────────────────────
-
-  function sendMessage(text: string): void {
-    sendRaw(buildInboundAnalystMessageEnvelope(text));
   }
 
   function sendRaw(payload: unknown): boolean {
@@ -307,11 +266,8 @@ export function createWsConnection(): WsConnectionManager {
 
   return {
     state,
-    sessionId,
     connect,
-    disconnect,
     reconfigure,
-    sendMessage,
     sendRaw,
     onEvent,
     onSyncFrame,

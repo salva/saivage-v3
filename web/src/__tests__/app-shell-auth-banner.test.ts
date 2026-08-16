@@ -17,7 +17,7 @@ vi.mock('../api/client', async (importOriginal) => ({
   sendChatMessage: vi.fn(),
 }));
 vi.mock('../stores/sync', () => ({
-  useSyncStore: () => ({ connect: vi.fn(), disconnect: vi.fn(), registerResource: vi.fn(() => vi.fn()), openConversation: vi.fn(() => vi.fn()), connectionState: ref('connected') }),
+  useSyncStore: () => ({ connect: vi.fn(), registerResource: vi.fn(() => vi.fn()), openConversation: vi.fn(() => vi.fn()), connectionState: ref('connected') }),
 }));
 vi.mock('../stores/cards', () => ({ useCardStore: () => ({ ensureRoot: vi.fn(async () => undefined) }) }));
 

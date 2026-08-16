@@ -17,12 +17,6 @@ describe('websocket bootstrap boundary after S06', () => {
     expect(websocketSource).not.toMatch(/searchParams\.set\(['\"](?:token|apiToken|bearer|authorization)['\"]/i);
   });
 
-  it('keeps analyst chat as the only websocket send payload path', () => {
-    expect(websocketSource).toContain('buildInboundAnalystMessageEnvelope(text)');
-    expect(websocketSource).toContain('sendMessage(text: string)');
-    expect(websocketSource).not.toMatch(/createCard|updateCard|deleteCard|startProject|terminateProcess/);
-  });
-
   it.each(['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'])('rejects malformed exact-identity server frames for %s', (id) => {
     expect(LiveSyncSubscribedFrameSchema.safeParse({ t: 'subscribed', resource: 'conversation', id, lease: 'lease' }).success).toBe(false);
     expect(LiveSyncInvalidateFrameSchema.safeParse({ t: 'invalidate', resource: 'conversation', id }).success).toBe(false);

@@ -88,7 +88,7 @@ describe('websocket ticket client', () => {
     expect(MockWebSocket.instances).toHaveLength(0);
   });
 
-  it('dispatches the parsed known envelope and extracts its session', async () => {
+  it('dispatches the parsed known envelope', async () => {
     mocks.issueWebSocketTicket.mockResolvedValueOnce({ ticket: 'known', expiresAt: '2026-01-01T00:00:00.000Z' });
     const conn = createWsConnection();
     const handler = vi.fn();
@@ -107,7 +107,6 @@ describe('websocket ticket client', () => {
     };
     MockWebSocket.instances[0]!.onmessage?.({ data: JSON.stringify(connected) });
 
-    expect(conn.sessionId.value).toBe('agent:analyst:global');
     expect(handler).toHaveBeenCalledWith(connected);
   });
 
@@ -124,7 +123,6 @@ describe('websocket ticket client', () => {
     socket.onmessage?.({ data: JSON.stringify({ type: 'activity', content: { event: 'card_history_appended' } }) });
 
     expect(handler).not.toHaveBeenCalled();
-    expect(conn.sessionId.value).toBeNull();
   });
 
   it('replaces a closing socket without letting its close callback take the new generation offline', async () => {

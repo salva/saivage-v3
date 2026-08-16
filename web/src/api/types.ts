@@ -13,7 +13,6 @@ import type {
   ServerAvailability,
   RestartChatAcknowledgement,
 } from './contracts';
-export { cardStatusValues } from '@saivage/schemas';
 export type { CardDiffRow };
 
 export type {
@@ -50,9 +49,6 @@ export interface DetailErrorState {
   message: string;
 }
 
-export type ControlActionAuditEntry =
-  OperatorApiSuccess<'controlActions.list'>['control_actions'][number];
-
 export type DoctorResponse = OperatorApiSuccess<'debug.doctor'>;
 export type DoctorCheck = DoctorResponse['checks'][number];
 export type DoctorIssue = DoctorResponse['issues'][number];
@@ -76,7 +72,6 @@ export type DebugGraph = OperatorApiSuccess<'debug.graphs'>['graphs'][number];
 export type DebugGraphsResponse = OperatorApiSuccess<'debug.graphs'>;
 export type DebugTimelineEvent = OperatorApiSuccess<'events.list'>['events'][number];
 
-export type McpToolWithStats = ContractMcpToolsResponse['servers'][number]['tools'][number];
 export type McpServerWithTools = ContractMcpToolsResponse['servers'][number];
 export type McpToolsResponse = OperatorApiSuccess<'mcp.tools'>;
 
@@ -112,7 +107,6 @@ export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
 export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & {
   sessions: AgentSession[];
 };
-export type ControlActionsListResponse = OperatorApiSuccess<'controlActions.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'>;
 export type AnalystSession = AgentSessionSummary;
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;

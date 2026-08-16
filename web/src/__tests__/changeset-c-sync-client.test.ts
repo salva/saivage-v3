@@ -8,11 +8,8 @@ function harness() {
   const sent: unknown[] = [];
   const conn = {
     state: { value: 'connected' as const },
-    sessionId: { value: null },
     connect: vi.fn(),
-    disconnect: vi.fn(),
     reconfigure: vi.fn(),
-    sendMessage: vi.fn(),
     sendRaw: vi.fn((value) => {
       sent.push(value);
       return true;
