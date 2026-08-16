@@ -34,8 +34,7 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
     'health.liveness': () => ({ body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' } }),
     'health.readiness': () => {
       const serverAvailability = options.serverAvailabilityProvider();
-      const ready = serverAvailability.components.runtime.state !== 'unavailable';
-      return { statusCode: ready ? 200 : 503, body: { status: ready ? 'ready' : 'not_ready', serverAvailability } };
+      return { body: { status: 'ready', serverAvailability } };
     },
     'runtime.getState': () => getCardsReadModel().getRuntimeState(options.serverAvailabilityProvider()),
     'runtime.contentPolicy': () => ({ body: buildContentPolicyReadModel(projectRoot) }),

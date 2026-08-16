@@ -32,7 +32,6 @@ export const eventsOperatorApiContracts = {
     path: '/api/events',
     query: EventsQuerySchema,
     success: EventsListResponseSchema,
-    error: ValidationErrorSchema,
     response: { 200: EventsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'EventsListResponse',

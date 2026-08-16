@@ -97,8 +97,6 @@ export {
   EventsQuerySchema } from './operator-api-events.js';
 export type { EventsListResponse, EventsQuery } from './operator-api-events.js';
 export {
-  ForbiddenErrorSchema,
-  HttpMethodSchema,
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
   UnexpectedInternalServerErrorSchema,

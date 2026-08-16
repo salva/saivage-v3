@@ -39,7 +39,6 @@ export const mcpOperatorApiContracts = {
     method: 'GET',
     path: '/api/mcp/tools',
     success: McpToolsResponseSchema,
-    error: UnauthorizedErrorSchema,
     response: { 200: McpToolsResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'McpToolsResponse',

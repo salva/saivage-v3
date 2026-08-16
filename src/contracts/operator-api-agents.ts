@@ -168,7 +168,6 @@ export const agentOperatorApiContracts = {
     method: 'GET',
     path: '/api/agents',
     success: AgentListResponseSchema,
-    error: UnauthorizedErrorSchema,
     response: {
       200: AgentListResponseSchema,
       401: UnauthorizedErrorSchema,
@@ -183,7 +182,6 @@ export const agentOperatorApiContracts = {
     path: '/api/agents/:id',
     params: AgentSessionParamsSchema,
     success: AgentDetailResponseSchema,
-    error: AgentSessionNotFoundErrorSchema,
     response: {
       200: AgentDetailResponseSchema,
       400: ValidationErrorSchema,
@@ -195,15 +193,14 @@ export const agentOperatorApiContracts = {
     ...operatorSessionContract,
     successSchemaName: 'AgentDetailResponse',
   },
-  'agents.conversationVersions.list': { operationId: 'agents.conversationVersions.list', method: 'GET', path: '/api/agents/:id/conversation/versions', params: AgentConversationParamsSchema, success: ConversationVersionListResponseSchema, error: z.union([AgentSessionNotFoundErrorSchema, CurrentStateUnavailableSchema]), response: { 200: ConversationVersionListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: AgentSessionNotFoundErrorSchema, 503: CurrentStateUnavailableSchema, 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'ConversationVersionListResponse' },
-  'agents.conversationVersions.get': { operationId: 'agents.conversationVersions.get', method: 'GET', path: '/api/agents/:id/conversation/versions/:version', params: ConversationVersionParamsSchema, success: ConversationVersionContentResponseSchema, error: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalNotFoundSchema, ConversationHistoricalUnavailableSchema, CurrentStateUnavailableSchema]), response: { 200: ConversationVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalNotFoundSchema, ConversationHistoricalUnavailableSchema]), 409: ConversationHistoricalUnavailableSchema, 503: z.union([CurrentStateUnavailableSchema, ConversationHistoricalUnavailableSchema]), 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'ConversationVersionContentResponse' },
+  'agents.conversationVersions.list': { operationId: 'agents.conversationVersions.list', method: 'GET', path: '/api/agents/:id/conversation/versions', params: AgentConversationParamsSchema, success: ConversationVersionListResponseSchema, response: { 200: ConversationVersionListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: AgentSessionNotFoundErrorSchema, 503: CurrentStateUnavailableSchema, 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'ConversationVersionListResponse' },
+  'agents.conversationVersions.get': { operationId: 'agents.conversationVersions.get', method: 'GET', path: '/api/agents/:id/conversation/versions/:version', params: ConversationVersionParamsSchema, success: ConversationVersionContentResponseSchema, response: { 200: ConversationVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalNotFoundSchema, ConversationHistoricalUnavailableSchema]), 409: ConversationHistoricalUnavailableSchema, 503: z.union([CurrentStateUnavailableSchema, ConversationHistoricalUnavailableSchema]), 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'ConversationVersionContentResponse' },
   'agents.cardSessions': {
     operationId: 'agents.cardSessions',
     method: 'GET',
     path: '/api/cards/:id/agent-sessions',
     params: CardAgentSessionsParamsSchema,
     success: CardAgentSessionsResponseSchema,
-    error: CardNotFoundErrorSchema,
     response: {
       200: CardAgentSessionsResponseSchema,
       400: ValidationErrorSchema,
@@ -222,7 +219,6 @@ export const agentOperatorApiContracts = {
     params: AgentConversationParamsSchema,
     query: AgentConversationQuerySchema,
     success: AgentConversationResponseSchema,
-    error: z.union([AgentConversationBadRequestSchema, AgentSessionNotFoundErrorSchema, CurrentStateUnavailableSchema]),
     response: {
       200: AgentConversationResponseSchema,
       400: AgentConversationBadRequestSchema,
@@ -242,7 +238,6 @@ export const agentOperatorApiContracts = {
     path: '/api/agents/:id/llm-exchange',
     params: AgentLlmExchangeParamsSchema,
     success: AgentLlmExchangeResponseSchema,
-    error: z.union([AgentLlmExchangeNotFoundErrorSchema, AgentSessionNotFoundErrorSchema, CurrentStateUnavailableSchema]),
     response: {
       200: AgentLlmExchangeResponseSchema,
       400: ValidationErrorSchema,

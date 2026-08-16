@@ -18,7 +18,6 @@ afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, f
 const contract = {
   operationId: 'test.response', method: 'GET', path: '/test', auth: 'public', successSchemaName: 'TestResponse',
   success: z.object({ ok: z.literal(true) }).strict(),
-  error: z.object({ error: z.string(), message: z.string().optional() }).strict(),
   response: { 200: z.object({ ok: z.literal(true) }).strict(), 500: z.object({ error: z.string(), message: z.string().optional() }).strict() },
 } as const;
 

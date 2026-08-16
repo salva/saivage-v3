@@ -14,7 +14,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const serverAvailability = { generatedAt: '2026-01-01T00:00:00.000Z', components: { api: { state: 'available' as const, source: 'health-check' as const, checkedAt: '2026-01-01T00:00:00.000Z' }, runtime: { state: 'unavailable' as const, source: 'runtime-application' as const, checkedAt: '2026-01-01T00:00:00.000Z' }, mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: '2026-01-01T00:00:00.000Z' } } };
+const serverAvailability = { generatedAt: '2026-01-01T00:00:00.000Z', components: { api: { state: 'available' as const, source: 'health-check' as const, checkedAt: '2026-01-01T00:00:00.000Z' }, runtime: { state: 'degraded' as const, source: 'runtime-application' as const, checkedAt: '2026-01-01T00:00:00.000Z', diagnostic: { code: 'runtime-status-read-failed', summary: 'Runtime status read failed.' } }, mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: '2026-01-01T00:00:00.000Z' } } };
 
 describe('runtime-control route request contracts', () => {
   let fastify: FastifyInstance;
@@ -84,10 +84,10 @@ describe('runtime-control route request contracts', () => {
     { label: 'arbitrary array', payload: '["payload"]' },
   ];
 
-  it('projects concrete unavailable availability through readiness and stopped-independent runtime status', async () => {
+  it('projects concrete degraded availability through ready and stopped-independent runtime responses', async () => {
     const readiness = await fastify.inject({ method: 'GET', url: '/health/ready' });
-    expect(readiness.statusCode).toBe(503);
-    expect(readiness.json()).toEqual({ status: 'not_ready', serverAvailability });
+    expect(readiness.statusCode).toBe(200);
+    expect(readiness.json()).toEqual({ status: 'ready', serverAvailability });
     const status = await fastify.inject({ method: 'GET', url: '/api/runtime/status', headers: { authorization: 'Bearer route-token' } });
     expect(status.statusCode).toBe(200);
     expect(status.json()).toMatchObject({ runtime: 'stopped', serverAvailability });

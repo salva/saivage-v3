@@ -19,7 +19,6 @@ export const authOperatorApiContracts = {
     method: 'POST',
     path: '/api/auth/ws-ticket',
     success: WebSocketTicketResponseSchema,
-    error: UnauthorizedErrorSchema,
     response: { 200: WebSocketTicketResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'WebSocketTicketResponse',

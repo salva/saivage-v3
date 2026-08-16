@@ -25,12 +25,10 @@ export function selectAvailabilityDetail(availability: ServerAvailability | null
   const runtimeComponent = availability.components.runtime;
   const mcpComponent = availability.components.mcp;
   const parts: string[] = [];
-  if (runtimeComponent.state === 'unavailable') parts.push(`Runtime unavailable: ${runtimeComponent.diagnostic?.summary ?? runtimeComponent.source}.`);
-  else if (runtimeComponent.state === 'degraded') parts.push(runtimeComponent.diagnostic?.summary ?? 'Runtime availability is degraded.');
-  else if (runtimeComponent.state === 'unknown') parts.push('Runtime startup availability is unknown.');
-  if (mcpComponent.state === 'unavailable') parts.push(`MCP unavailable: ${mcpComponent.diagnostic?.summary ?? mcpComponent.source}.`);
-  else if (mcpComponent.state === 'degraded') parts.push(mcpComponent.diagnostic?.summary ?? 'MCP manager is degraded or empty.');
-  else if (mcpComponent.state === 'unknown') parts.push('MCP startup availability is unknown.');
+  if (runtimeComponent.state === 'degraded') parts.push(runtimeComponent.diagnostic?.summary ?? 'Runtime availability is degraded.');
+  else if (runtimeComponent.state === 'unknown') parts.push('Runtime availability is unknown.');
+  if (mcpComponent.state === 'degraded') parts.push(mcpComponent.diagnostic?.summary ?? 'MCP manager is degraded or empty.');
+  else if (mcpComponent.state === 'unknown') parts.push('MCP availability is unknown.');
   return parts.length > 0 ? parts.join(' ') : null;
 }
 

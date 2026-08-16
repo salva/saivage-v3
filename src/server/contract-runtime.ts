@@ -25,25 +25,18 @@ type ParsedContractRequest<TContract extends OperatorRouteContract> = {
   body: ContractSchemaOutput<TContract, 'body'>;
 };
 
-export interface ContractPermissionContext<TContract extends OperatorRouteContract = OperatorRouteContract> {
+export interface ContractRequestContext<TContract extends OperatorRouteContract = OperatorRouteContract> {
   contract: TContract;
   params: ContractSchemaOutput<TContract, 'params'>;
   query: ContractSchemaOutput<TContract, 'query'>;
   body: ContractSchemaOutput<TContract, 'body'>;
   request: FastifyRequest;
+  reply: ContractPreSendReply;
 }
-
-export type ContractPermissionPredicate<TContract extends OperatorRouteContract = OperatorRouteContract> = (
-  context: ContractPermissionContext<TContract>,
-) => boolean | { allowed: true } | { allowed: false; reason?: string } | Promise<boolean | { allowed: true } | { allowed: false; reason?: string }>;
 
 export interface ContractPreSendReply {
   readonly raw: { once(event: string, listener: (...args: unknown[]) => void): unknown };
   header(name: string, value: string | number | string[] | undefined): void;
-}
-
-export interface ContractRequestContext<TContract extends OperatorRouteContract = OperatorRouteContract> extends ContractPermissionContext<TContract> {
-  reply: ContractPreSendReply;
 }
 
 export type ContractHandler<TContract extends OperatorRouteContract = OperatorRouteContract> = (
@@ -65,7 +58,6 @@ type FailureCode =
   | 'auth_evaluation_failed'
   | 'request_validation_failed'
   | 'failure_identity_projection_failed'
-  | 'permission_evaluation_failed'
   | 'handler_failed'
   | 'response_validation_failed';
 
@@ -87,15 +79,6 @@ function validationErrorBody(operationId: string, target: string, error: z.ZodEr
 
 function unauthorizedBody(): Record<string, unknown> {
   return { error: 'Unauthorized', statusCode: 401 };
-}
-
-function forbiddenBody(reason?: string): Record<string, unknown> {
-  return { error: 'Forbidden', statusCode: 403, ...(reason ? { message: reason } : {}) };
-}
-
-function isPermissionAllowed(result: Awaited<ReturnType<ContractPermissionPredicate>>): { allowed: boolean; reason?: string } {
-  if (typeof result === 'boolean') return { allowed: result };
-  return result.allowed ? { allowed: true } : { allowed: false, reason: result.reason };
 }
 
 export class ContractRuntime {
@@ -156,10 +139,6 @@ export class ContractRuntime {
           if (!candidate && parsed) {
             failureCode = 'failure_identity_projection_failed';
             safeIdentity = this.projectFailureIdentity(contract, parsed);
-
-            failureCode = 'permission_evaluation_failed';
-            const permissionFailure = await this.validatePermission(contract, request, parsed);
-            if (permissionFailure) candidate = { statusCode: 403, body: permissionFailure };
           }
 
           if (!candidate && parsed) {
@@ -235,16 +214,6 @@ export class ContractRuntime {
       return { sessionId: ConversationSessionIdSchema.parse(params[contract.failureIdentity.parameter]) };
     }
     return { cardId: cardIdSchema.parse(params[contract.failureIdentity.parameter]) };
-  }
-
-  private async validatePermission<TContract extends OperatorRouteContract>(
-    contract: TContract,
-    request: FastifyRequest,
-    parsed: ParsedContractRequest<TContract>,
-  ): Promise<Record<string, unknown> | null> {
-    if (!contract.permissions) return null;
-    const decision = isPermissionAllowed(await contract.permissions({ contract, request, params: parsed.params, query: parsed.query, body: parsed.body }));
-    return decision.allowed ? null : forbiddenBody(decision.reason);
   }
 
 }

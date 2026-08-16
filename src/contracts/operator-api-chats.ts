@@ -74,7 +74,6 @@ export const chatOperatorApiContracts = {
     method: 'GET',
     path: '/api/chat',
     success: ChatIdentityResponseSchema,
-    error: UnauthorizedErrorSchema,
     response: {
       200: ChatIdentityResponseSchema,
       401: UnauthorizedErrorSchema,
@@ -89,7 +88,6 @@ export const chatOperatorApiContracts = {
     path: '/api/chat',
     body: ChatSendRequestSchema,
     success: ChatSendResponseSchema,
-    error: z.union([ValidationErrorSchema, AnalystTurnBusyErrorSchema]),
     response: {
       200: ChatSendResponseSchema,
       400: ValidationErrorSchema,

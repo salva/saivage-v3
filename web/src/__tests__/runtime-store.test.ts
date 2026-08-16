@@ -7,7 +7,7 @@ const serverAvailability = {
   generatedAt: '2026-08-14T00:00:00.000Z',
   components: {
     api: { state: 'available' as const, source: 'health-check' as const, checkedAt: '2026-08-14T00:00:00.000Z' },
-    runtime: { state: 'unavailable' as const, source: 'runtime-application' as const, checkedAt: '2026-08-14T00:00:00.000Z', diagnostic: { code: 'runtime-unavailable', summary: 'Runtime is unavailable.' } },
+    runtime: { state: 'degraded' as const, source: 'runtime-application' as const, checkedAt: '2026-08-14T00:00:00.000Z', diagnostic: { code: 'runtime-status-read-failed', summary: 'Runtime status read failed.' } },
     mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: '2026-08-14T00:00:00.000Z' },
   },
 };

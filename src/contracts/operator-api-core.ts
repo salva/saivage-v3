@@ -2,8 +2,7 @@ import { z } from 'zod';
 
 export type ContractAuthClass = 'public' | 'operator-session';
 
-export const HttpMethodSchema = z.enum(['GET', 'POST', 'PATCH', 'DELETE']);
-export type HttpMethod = z.infer<typeof HttpMethodSchema>;
+export type HttpMethod = 'GET' | 'POST';
 
 export const UnexpectedInternalServerErrorSchema = z.object({
   error: z.literal('InternalServerError'),
@@ -25,11 +24,6 @@ export const UnauthorizedErrorSchema = z.object({
   statusCode: z.literal(401),
 }).strict();
 
-export const ForbiddenErrorSchema = z.union([
-  z.object({ error: z.literal('Forbidden'), statusCode: z.literal(403) }).strict(),
-  z.object({ error: z.literal('Forbidden'), statusCode: z.literal(403), message: z.string().min(1) }).strict(),
-]);
-
 export const operatorSessionContract = { auth: 'operator-session' } as const;
 export const publicContract = { auth: 'public' } as const;
 
@@ -42,20 +36,16 @@ export type OperatorRouteContract<
   TQuery extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
   TBody extends z.ZodTypeAny | undefined = z.ZodTypeAny | undefined,
   TSuccess extends z.ZodTypeAny = z.ZodTypeAny,
-  TError extends z.ZodTypeAny = z.ZodTypeAny,
 > = {
   operationId: string;
-  method: z.infer<typeof HttpMethodSchema>;
+  method: HttpMethod;
   path: string;
   params?: TParams;
   query?: TQuery;
   body?: TBody;
   success: TSuccess;
-  error: TError;
   response: Record<number, z.ZodTypeAny>;
   auth: ContractAuthClass;
-  permissions?: (context: { contract: OperatorRouteContract; params: unknown; query: unknown; body: unknown; request: unknown }) => boolean | { allowed: true } | { allowed: false; reason?: string } | Promise<boolean | { allowed: true } | { allowed: false; reason?: string }>;
-  audit?: { kind: string; action?: string; targetKind?: string | null; targetId?: (context: { request: unknown; body: unknown }) => string | null };
   failureIdentity?: ContractFailureIdentity;
   describe?: string;
   successSchemaName: string;

@@ -73,7 +73,6 @@ export const processesOperatorApiContracts = {
     method: 'GET',
     path: '/api/processes',
     success: ProcessListResponseSchema,
-    error: UnauthorizedErrorSchema,
     response: { 200: ProcessListResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
     successSchemaName: 'ProcessListResponse',

@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import * as contractsModule from '../../src/contracts/index.js';
 import * as operatorApiModule from '../../src/contracts/operator-api.js';
-import { AvailabilityComponentSourceSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody, type OperatorApiResponse, type OperatorApiResponseStatus } from '../../src/contracts/operator-api.js';
+import { AvailabilityComponentSourceSchema, AvailabilityStateSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody, type OperatorApiResponse, type OperatorApiResponseStatus } from '../../src/contracts/operator-api.js';
 import type { CardDiffRow as OperatorApiCardDiffRow } from '../../src/contracts/operator-api.js';
 import type { CardDiffRow as IndexCardDiffRow } from '../../src/contracts/index.js';
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
@@ -12,7 +12,7 @@ const serverAvailability = {
   generatedAt: timestamp,
   components: {
     api: { state: 'available' as const, source: 'health-check' as const, checkedAt: timestamp },
-    runtime: { state: 'unavailable' as const, source: 'runtime-application' as const, checkedAt: timestamp, diagnostic: { code: 'runtime-unavailable', summary: 'Runtime is unavailable.' } },
+    runtime: { state: 'degraded' as const, source: 'runtime-application' as const, checkedAt: timestamp, diagnostic: { code: 'runtime-status-read-failed', summary: 'Runtime status read failed.' } },
     mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: timestamp },
   },
 };
@@ -71,7 +71,14 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const contract of Object.values(operatorApiContracts)) {
       expect(contract.response).toHaveProperty('200');
       expect(contract.response[200]).toBe(contract.success);
+      expect(Object.hasOwn(contract, 'error')).toBe(false);
+      expect(Object.hasOwn(contract, 'permissions')).toBe(false);
+      expect(Object.hasOwn(contract, 'audit')).toBe(false);
     }
+  });
+
+  it('registers only the exact mounted HTTP methods', () => {
+    expect(new Set(operatorRouteInventory().map(({ method }) => method))).toEqual(new Set(['GET', 'POST']));
   });
 
   it('parses only the exact schema declared for the operation and status', () => {
@@ -238,16 +245,13 @@ describe('operator API runtime contract without runtime ledgers', () => {
 
     expect(contractsModule.UnauthorizedErrorSchema.parse({ error: 'Unauthorized', statusCode: 401 })).toEqual({ error: 'Unauthorized', statusCode: 401 });
     expect(contractsModule.UnauthorizedErrorSchema.safeParse({ error: 'Unauthorized' }).success).toBe(false);
-    expect(contractsModule.ForbiddenErrorSchema.parse({ error: 'Forbidden', statusCode: 403 })).toEqual({ error: 'Forbidden', statusCode: 403 });
-    expect(contractsModule.ForbiddenErrorSchema.parse({ error: 'Forbidden', statusCode: 403, message: 'denied' })).toEqual({ error: 'Forbidden', statusCode: 403, message: 'denied' });
-    expect(contractsModule.ForbiddenErrorSchema.safeParse({ error: 'Forbidden', statusCode: 403, message: '' }).success).toBe(false);
   });
 
   it('rejects representative top-level and nested extras in every REST contract family', () => {
     const availability = {
       generatedAt: '2026-01-01T00:00:00.000Z',
       components: {
-        api: { state: 'available', source: 'startup', checkedAt: '2026-01-01T00:00:00.000Z' },
+        api: { state: 'available', source: 'health-check', checkedAt: '2026-01-01T00:00:00.000Z' },
         runtime: { state: 'idle', source: 'runtime-application', checkedAt: '2026-01-01T00:00:00.000Z' },
         mcp: { state: 'unknown', source: 'mcp-manager', checkedAt: '2026-01-01T00:00:00.000Z' },
       },
@@ -424,14 +428,14 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(statusSchema.shape).not.toHaveProperty('runtimeSummary');
   });
 
-  it('requires concrete availability while preserving unavailable, null, and stopped domain values', () => {
+  it('requires concrete availability while preserving degraded, null, and stopped domain values', () => {
     const state = { projectRoot: '/work/test', projectId: 'test', runtime: null, serverAvailability };
     const status = { runtime: 'stopped', currentCardId: null, started_at: timestamp, restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'idle', cards: [] }, serverAvailability };
-    expect(parseOperatorResponse('health.readiness', 503, { status: 'not_ready', serverAvailability })).toEqual({ status: 'not_ready', serverAvailability });
+    expect(parseOperatorResponse('health.readiness', 200, { status: 'ready', serverAvailability })).toEqual({ status: 'ready', serverAvailability });
     expect(parseOperatorResponse('runtime.getState', 200, state)).toEqual(state);
     expect(parseOperatorResponse('runtime.status', 200, status)).toEqual(status);
     expect(() => parseOperatorResponse('health.readiness', 200, { status: 'ready' })).toThrow();
-    expect(() => parseOperatorResponse('health.readiness', 503, { status: 'not_ready' })).toThrow();
+    expect(operatorApiContracts['health.readiness'].response).not.toHaveProperty('503');
     expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: null })).toThrow();
     expect(() => parseOperatorResponse('runtime.status', 200, { ...status, serverAvailability: undefined })).toThrow();
   });
@@ -563,7 +567,6 @@ describe('operator API runtime contract without runtime ledgers', () => {
   it('uses the exact card-not-found contract for card Agent sessions', () => {
     const contract = operatorApiContracts['agents.cardSessions'];
     const body = { error: 'Card not found', cardId: 'project' };
-    expect(contract.error).toBe(contractsModule.CardNotFoundErrorSchema);
     expect(contract.response[404]).toBe(contractsModule.CardNotFoundErrorSchema);
     expect(contract.response[404].parse(body)).toEqual(body);
     for (const invalid of [
@@ -573,8 +576,10 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('accepts only current availability component sources', () => {
-    expect(AvailabilityComponentSourceSchema.safeParse('runtime-application').success).toBe(true);
-    expect(AvailabilityComponentSourceSchema.safeParse('runtime-state').success).toBe(false);
+    for (const source of ['health-check', 'runtime-application', 'mcp-manager']) expect(AvailabilityComponentSourceSchema.safeParse(source).success).toBe(true);
+    for (const source of ['startup', 'unknown', 'runtime-state']) expect(AvailabilityComponentSourceSchema.safeParse(source).success).toBe(false);
+    for (const state of ['available', 'degraded', 'idle', 'unknown']) expect(AvailabilityStateSchema.safeParse(state).success).toBe(true);
+    expect(AvailabilityStateSchema.safeParse('unavailable').success).toBe(false);
   });
 
   it('labels provider availability as process-local and resettable', () => {
