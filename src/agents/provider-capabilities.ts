@@ -8,7 +8,6 @@ export interface EffectiveProviderCapabilities {
   transportProtocol: TransportProtocol;
   toolsMode: ToolsModeCapability;
   exclusiveToolChoiceSupport: ExclusiveToolChoiceCapability;
-  streaming: boolean;
   responsesReasoning?: { effort?: 'minimal' | 'low' | 'medium' | 'high' };
   contextWindowTokens?: number;
   maxOutputTokens?: number;
@@ -19,14 +18,12 @@ export interface CapabilityRequest {
   transportProtocol?: TransportProtocol;
   requiresTools?: boolean;
   requiresExclusiveToolChoice?: boolean;
-  streaming?: boolean;
 }
 
 export type CapabilitySkipReason =
   | 'unsupported_transport_protocol'
   | 'unsupported_tools_mode'
-  | 'unsupported_exclusive_tool_choice'
-  | 'unsupported_streaming';
+  | 'unsupported_exclusive_tool_choice';
 
 export type CapabilityMatch =
   | { supported: true }
@@ -36,7 +33,6 @@ export const GLOBAL_DEFAULT_CAPABILITIES: EffectiveProviderCapabilities = {
   transportProtocol: 'openai-chat-completions',
   toolsMode: 'native',
   exclusiveToolChoiceSupport: 'native',
-  streaming: false,
   quirks: [],
 };
 
@@ -65,7 +61,6 @@ export function mergeCapabilities(
     transportProtocol: override.transportProtocol ?? base.transportProtocol,
     toolsMode: override.toolsMode ?? base.toolsMode,
     exclusiveToolChoiceSupport: override.exclusiveToolChoiceSupport ?? base.exclusiveToolChoiceSupport,
-    streaming: override.streaming ?? base.streaming,
     responsesReasoning: override.responsesReasoning ?? base.responsesReasoning,
     contextWindowTokens: override.contextWindowTokens ?? base.contextWindowTokens,
     maxOutputTokens: override.maxOutputTokens ?? base.maxOutputTokens,
@@ -94,19 +89,12 @@ export function supportsCapabilityRequest(
   if (request.requiresExclusiveToolChoice && capabilities.exclusiveToolChoiceSupport === 'unsupported') {
     reasons.push('unsupported_exclusive_tool_choice');
   }
-  if (request.streaming === true && capabilities.streaming !== true) {
-    reasons.push('unsupported_streaming');
-  }
   return reasons.length === 0 ? { supported: true } : { supported: false, reasons };
 }
 
-export function capabilityRequestForLlmOptions(opts?: {
-  tools?: unknown[];
-  stream?: boolean;
-}): CapabilityRequest {
+export function capabilityRequestForTools(tools: readonly unknown[]): CapabilityRequest {
   return {
-    requiresTools: Boolean(opts?.tools && opts.tools.length > 0),
+    requiresTools: tools.length > 0,
     requiresExclusiveToolChoice: true,
-    streaming: opts?.stream === true,
   };
 }

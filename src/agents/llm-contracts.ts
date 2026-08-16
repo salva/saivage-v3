@@ -37,7 +37,6 @@ export interface LlmModelParams {
 
 export interface LlmCompleteOptions extends LlmModelParams {
   inputId: string;
-  stream?: boolean;
   signal?: AbortSignal;
   capabilityRequest?: CapabilityRequest;
   contract_id: string;

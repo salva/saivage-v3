@@ -93,7 +93,6 @@ describe('production-composed Analyst provider-exchange recording', () => {
               transportProtocol: 'openai-chat-completions',
               toolsMode: 'native',
               exclusiveToolChoiceSupport: 'native',
-              streaming: false,
               contextWindowTokens: 100_000,
               maxOutputTokens: 10_000,
             },

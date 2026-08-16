@@ -15,7 +15,6 @@ describe('provider routing read model', () => {
         baseUrl: 'https://provider.example/v1',
         capabilities: {
           transportProtocol: 'openai-responses',
-          streaming: true,
           contextWindowTokens: 100000,
           quirks: ['provider-override'],
         },
@@ -54,7 +53,6 @@ describe('provider routing read model', () => {
               transportProtocol: 'openai-responses',
               toolsMode: 'unsupported',
               exclusiveToolChoiceSupport: 'native',
-              streaming: true,
               contextWindowTokens: 100000,
               maxOutputTokens: 4096,
               quirks: ['provider-override'],
@@ -63,7 +61,6 @@ describe('provider routing read model', () => {
               transportProtocol: 'openai-responses',
               toolsMode: 'native',
               exclusiveToolChoiceSupport: 'native',
-              streaming: true,
               contextWindowTokens: 100000,
               quirks: ['provider-override'],
             },

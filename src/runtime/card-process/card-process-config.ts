@@ -9,7 +9,7 @@ import { validateCompiledActorTable } from '../micro-actor/index.js';
 import { compilePromptTemplate, renderCompiledPrompt, type AgentPromptHost, type CompiledPromptTemplate, type ProcessPromptHost, type PromptHost } from '../../utils/prompt-api.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 import type { ModelRouter } from '../../agents/model-router.js';
-import { capabilityRequestForLlmOptions, type CapabilityRequest } from '../../agents/provider-capabilities.js';
+import { capabilityRequestForTools, type CapabilityRequest } from '../../agents/provider-capabilities.js';
 import { BoundAgentToolSet, effectiveCardNodeToolReferences, resolveRuntimeTool, type CompiledToolReference } from '../../tools/runtime-tool-catalog.js';
 import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
@@ -638,14 +638,14 @@ export function bindRuntimeWorkflows(
 ): CompiledRuntimeWorkflows {
   const participants = new Map<AgentName, Readonly<{ agent: CompiledAgentContract; toolSet: BoundAgentToolSet; request: CapabilityRequest }>>();
   const analystToolSet = new BoundAgentToolSet(structural.analyst.tools);
-  const analystRequest = Object.freeze(capabilityRequestForLlmOptions({ tools: [...analystToolSet.names], stream: false }));
+  const analystRequest = Object.freeze(capabilityRequestForTools(analystToolSet.names));
   participants.set(structural.analyst.name, Object.freeze({ agent: structural.analyst, toolSet: analystToolSet, request: analystRequest }));
   for (const workflow of structural.cardTypes.values()) {
     for (const state of workflow.states.values()) {
       if (state.kind !== 'node') continue;
       const effectiveReferences=effectiveCardNodeToolReferences(state.agent.tools,state.childCreationTypes);
       const toolSet = new BoundAgentToolSet(state.agent.tools);
-      const request = Object.freeze(capabilityRequestForLlmOptions({ tools: [...effectiveReferences, TERMINAL_RESULT_TOOL_NAME], stream: false }));
+      const request = Object.freeze(capabilityRequestForTools([...effectiveReferences, TERMINAL_RESULT_TOOL_NAME]));
       const existing = participants.get(state.agent.name);
       if (existing && JSON.stringify(existing.request) !== JSON.stringify(request))
         throw new Error(`Agent '${state.agent.name}' has inconsistent node capability requests.`);

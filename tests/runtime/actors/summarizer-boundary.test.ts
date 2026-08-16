@@ -28,7 +28,7 @@ describe('compaction summarizer projection boundary', () => {
     })).resolves.toBe('summary');
     expect(completeTurn).toHaveBeenCalledTimes(1);
     const providerInput = (completeTurn.mock.calls as unknown as [[{ capabilityRequest: unknown; modelParams: unknown }]])[0][0];
-    expect(providerInput.capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true, streaming: false });
+    expect(providerInput.capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true });
     expect(providerInput.modelParams).toEqual({ temperature: 0, maxTokens: 2000 });
   });
 

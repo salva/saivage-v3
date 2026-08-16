@@ -64,6 +64,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
     expect(body.parallel_tool_calls).toBe(false);
     expect(body.temperature).toBe(0.2);
     expect(body.max_tokens).toBe(1234);
+    expect(body.stream).toBe(false);
     expect(body.tool_choice).toBe('auto');
     expect(body.tools).toEqual([
       {
@@ -105,12 +106,18 @@ describe('buildOpenAIChatRequest wire shape', () => {
   });
 
   it('records current request parameters without an LLM phase while retaining terminal evidence', async () => {
-    jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 }));
+    let sentBody: Record<string, unknown> | undefined;
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      return new Response(JSON.stringify({ choices: [{ message: { tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }, finish_reason: 'tool_calls' }] }), { status: 200 });
+    });
     const completion = await new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: 'key' }).complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, 'agent:analyst:global', {
       inputId: 'test:input:record', temperature: 0.4, max_tokens: 3456, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: ['emit_result'], tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL], tool_choice: 'auto',
     });
 
-    expect(completion.provider_exchanges[0]).toMatchObject({ request_params: { offered_tools_count: 1, method: 'POST', temperature: 0.4, max_tokens: 3456 }, terminal_tool_fired: 'emit_result' });
+    expect(sentBody?.stream).toBe(false);
+    expect(completion.result).toMatchObject({ kind: 'tool_calls' });
+    expect(completion.provider_exchanges[0]).toMatchObject({ request_params: { stream: false, offered_tools_count: 1, method: 'POST', temperature: 0.4, max_tokens: 3456 }, terminal_tool_fired: 'emit_result' });
     expect(completion.provider_exchanges[0]!.request_params).not.toHaveProperty('phase');
   });
 });

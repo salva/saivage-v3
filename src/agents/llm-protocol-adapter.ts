@@ -27,7 +27,6 @@ export interface LlmAdapterWire {
   headers: Record<string, string>;
   requestParams: Record<string, unknown>;
   transport: 'generic' | 'codex' | 'openai-responses';
-  streaming: boolean;
 }
 
 export interface LlmAdapterSuccess {

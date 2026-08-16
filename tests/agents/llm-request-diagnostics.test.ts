@@ -41,7 +41,6 @@ const opts: LlmCompleteOptions = {
   tool_choice: 'auto',
   temperature: 0,
   max_tokens: 1234,
-  stream: false,
   contract_id: 'planner.v1',
   contractName: 'planner',
   terminalToolOffered: ['emit_result'],

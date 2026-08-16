@@ -4,10 +4,7 @@ import type { LlmCompleteOptions, ProviderConversationProjection } from './llm-c
 import { LlmRequestError } from './llm-errors.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
-import {
-  parseOpenAIResponsesJson,
-  readOpenAIResponsesStream,
-} from './llm-openai-responses-parser.js';
+import { parseOpenAIResponsesJson } from './llm-openai-responses-parser.js';
 import {
   serializeToolsForResponses,
   type WireToolDefinitionResponses,
@@ -20,7 +17,7 @@ interface OpenAIResponsesRequest {
   input: Record<string, unknown>[];
   store: false;
   include: ['reasoning.encrypted_content'];
-  stream: boolean;
+  stream: false;
   max_output_tokens: number;
   tools?: readonly WireToolDefinitionResponses[];
   tool_choice?: 'auto';
@@ -53,14 +50,12 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
       Connection: 'close',
       Authorization: `Bearer ${transport.apiKey}`,
     };
-    if (request.stream) headers.Accept = 'text/event-stream';
     return {
       endpoint,
       headers,
       transport: 'openai-responses',
-      streaming: request.stream,
       requestParams: {
-        stream: request.stream,
+        stream: false,
         offered_tools_count: request.tools?.length ?? 0,
         max_output_tokens: request.max_output_tokens,
         include: request.include,
@@ -84,18 +79,7 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
       sourceInputId: options.inputId,
       responseStatus: response.status,
     };
-    const parsed = options.stream
-      ? response.body
-        ? await readOpenAIResponsesStream(response.body, context)
-        : (() => {
-            throw new LlmRequestError({
-              kind: 'server_transient',
-              provider: candidate.provider,
-              status: response.status,
-              message: 'OpenAI Responses streaming response has no body',
-            });
-          })()
-      : parseOpenAIResponsesJson(await response.text(), context);
+    const parsed = parseOpenAIResponsesJson(await response.text(), context);
     return {
       result: parsed.result,
       privateContext: parsed.privateContext,
@@ -120,7 +104,7 @@ export function buildOpenAIResponsesRequest(
     store: false,
     include: ['reasoning.encrypted_content'],
     max_output_tokens: opts.max_tokens,
-    stream: opts.stream === true,
+    stream: false,
   };
   if (opts.tools.length) {
     body.tools = serializeToolsForResponses(opts.tools);

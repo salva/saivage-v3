@@ -43,7 +43,6 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
     return {
       endpoint,
       transport: 'codex',
-      streaming: true,
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',

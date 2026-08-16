@@ -10,7 +10,6 @@ import type {
 } from './llm-contracts.js';
 import { LlmRequestError } from './llm-errors.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
-import { readOpenAIChatStream } from './llm-stream-parser.js';
 import { appendFinalOutboundLlmRequestSectionSizesDiagnostic } from './llm-request-diagnostics.js';
 import {
   serializeToolsForChat,
@@ -29,7 +28,7 @@ interface ChatCompletionRequest {
   messages: ChatMessage[];
   temperature: number;
   max_tokens: number;
-  stream: boolean;
+  stream: false;
   tools?: readonly WireToolDefinitionChat[];
   tool_choice?: 'auto';
   parallel_tool_calls?: false;
@@ -74,11 +73,10 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       endpoint,
       headers,
       transport: 'generic',
-      streaming: request.stream,
       requestParams: {
         temperature: options.temperature,
         max_tokens: options.max_tokens,
-        stream: options.stream ?? false,
+        stream: false,
         offered_tools_count: request.tools?.length ?? 0,
       },
     };
@@ -107,17 +105,7 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       );
     return new LlmRequestError(failure);
   },
-  async parseSuccess(candidate, response, options) {
-    if (options.stream ?? false) {
-      if (!response.body)
-        throw new LlmRequestError({
-          kind: 'server_transient',
-          provider: candidate.provider,
-          status: response.status,
-          message: 'Streaming response has no body',
-        });
-      return { result: await readOpenAIChatStream(response.body) };
-    }
+  async parseSuccess(candidate, response) {
     const rawText = await response.text();
     let parsed: ChatCompletionResponse;
     try {
@@ -181,7 +169,7 @@ export function buildOpenAIChatRequest(
     messages: sanitizeToolCallSequences(messages),
     temperature: opts.temperature,
     max_tokens: opts.max_tokens,
-    stream: opts.stream ?? false,
+    stream: false,
   };
   if (opts.tools.length) {
     body.tools = serializeToolsForChat(opts.tools);

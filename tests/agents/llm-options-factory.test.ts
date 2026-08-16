@@ -10,7 +10,6 @@ describe('LLM options authority', () => {
       temperature: 0.2,
       max_tokens: 1234,
       signal: undefined,
-      stream: false,
       contract_id: 'planner.v1',
       contractName: 'planner',
       terminalToolOffered: [],

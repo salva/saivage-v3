@@ -9,15 +9,15 @@ import { LlmRequestError } from '../../src/agents/llm-errors.js';
 
 const candidate = { provider: 'test', account: null, model: 'model' } as const;
 const options = (signal?: AbortSignal): LlmCompleteOptions => ({ inputId: 'input', temperature: 0.2, max_tokens: 321, contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });
-const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, streaming: false, quirks: [] };
-const capabilityRequest = { requiresTools: false, requiresExclusiveToolChoice: true, streaming: false } as const;
+const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] };
+const capabilityRequest = { requiresTools: false, requiresExclusiveToolChoice: true } as const;
 
 function fixture(overrides: Partial<LlmProtocolAdapter> = {}): { plan: CandidateRequestPlan; registry: never; trace: string[] } {
   const trace: string[] = [];
   const adapter: LlmProtocolAdapter = {
     credentialRequirement: 'standard',
     buildRequestBody: () => ({ value: 1 }),
-    deriveWire: () => { trace.push('wire'); return { endpoint: 'https://provider.test/v1/chat/completions', headers: {}, requestParams: {}, transport: 'generic', streaming: false }; },
+    deriveWire: () => { trace.push('wire'); return { endpoint: 'https://provider.test/v1/chat/completions', headers: {}, requestParams: {}, transport: 'generic' }; },
     classifyHttpFailure: (_candidate, response) => new LlmRequestError({ kind: 'server_transient', provider: 'test', status: response.status, message: 'http failed' }),
     parseSuccess: async () => ({ result: { kind: 'message', content: 'ok', usage: { total_tokens: 2 } }, finishReason: 'stop' }),
     ...overrides,
@@ -135,7 +135,7 @@ describe('shared LLM provider attempt', () => {
   it('records a Codex-style typed SSE failure after HTTP 200 with no ok envelope', async () => {
     const streamFailure = new LlmRequestError({ kind: 'input_context_exhausted', provider: 'openai-codex', status: 200, message: 'context exhausted in stream' });
     const value = fixture({
-      deriveWire: () => { value.trace.push('wire'); return { endpoint: 'https://provider.test/codex/responses', headers: {}, requestParams: {}, transport: 'codex', streaming: true }; },
+      deriveWire: () => { value.trace.push('wire'); return { endpoint: 'https://provider.test/codex/responses', headers: {}, requestParams: {}, transport: 'codex' }; },
       parseSuccess: async () => { throw streamFailure; },
     });
     jest.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('data: failure\n\n', { status: 200, headers: { 'content-type': 'text/event-stream' } }));
@@ -167,7 +167,6 @@ describe('shared LLM provider attempt', () => {
           headers: {},
           requestParams: {},
           transport: 'codex',
-          streaming: true,
         };
       },
       parseSuccess: async (_candidate, response) => {

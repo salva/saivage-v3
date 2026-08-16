@@ -9,7 +9,7 @@ import {
   nodeResultToolDefinition,
   runtimeAgentBinding,
 } from '../../src/runtime/card-process/card-process-config.js';
-import { capabilityRequestForLlmOptions } from '../../src/agents/provider-capabilities.js';
+import { capabilityRequestForTools } from '../../src/agents/provider-capabilities.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
@@ -61,16 +61,16 @@ describe('startup workflow binding authority', () => {
     const planner = runtimeAgentBinding(bound, 'planner');
 
     expect(analyst.toolSet.names).toEqual([]);
-    expect(analyst.capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true, streaming: false });
-    expect(planner.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true, streaming: false });
+    expect(analyst.capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true });
+    expect(planner.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true });
     expect(requests[0]).toBe(analyst.capabilityRequest);
     expect(requests[1]).toBe(planner.capabilityRequest);
     expect(planner.toolSet.names).not.toContain('emit_result');
     const project = bound.cardTypes.get('project')!;
     const terminal = nodeResultToolDefinition(project, 'node:plan');
     expect(terminal).toEqual(expect.objectContaining({ function: expect.objectContaining({ name: 'emit_result', parameters: expect.objectContaining({ required: ['outcome','summary'] }) }) }));
-    expect(capabilityRequestForLlmOptions({tools:[...planner.toolSet.names,terminal],stream:false})).toEqual(planner.capabilityRequest);
-    expect(capabilityRequestForLlmOptions({tools:[...analyst.toolSet.names],stream:false})).toEqual(analyst.capabilityRequest);
+    expect(capabilityRequestForTools([...planner.toolSet.names,terminal])).toEqual(planner.capabilityRequest);
+    expect(capabilityRequestForTools(analyst.toolSet.names)).toEqual(analyst.capabilityRequest);
   });
 
   it('discovers participant bindings in direct canonical state-table order and skips unused configured agents',()=>{
@@ -107,6 +107,6 @@ describe('startup workflow binding authority', () => {
     } as ModelRouter;
 
     expect(() => bindRuntimeWorkflows(structural, recording)).toThrow("Agent 'empty' model route 'empty' has no capability-compatible configured provider candidate.");
-    expect(requests).toEqual([{ requiresTools: true, requiresExclusiveToolChoice: true, streaming: false }]);
+    expect(requests).toEqual([{ requiresTools: true, requiresExclusiveToolChoice: true }]);
   });
 });

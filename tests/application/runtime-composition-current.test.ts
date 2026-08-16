@@ -40,7 +40,7 @@ describe('current runtime composition',()=>{
     initProjectTree(projectRoot);
     const config = saivageConfigSchema.parse({
       ...structuredClone(TEST_SAIVAGE_CONFIG),
-      providers: { test: { models: ['test-model'], baseUrl: 'https://provider.example.test/v1', apiKey: 'synthetic-test-key', capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', streaming: false, contextWindowTokens: 100_000, maxOutputTokens: 10_000 } } },
+      providers: { test: { models: ['test-model'], baseUrl: 'https://provider.example.test/v1', apiKey: 'synthetic-test-key', capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', contextWindowTokens: 100_000, maxOutputTokens: 10_000 } } },
       compaction: { ...structuredClone(TEST_SAIVAGE_CONFIG.compaction), input_budget_tokens: 100_000 },
     });
     const registry = new ProviderRegistry(config);

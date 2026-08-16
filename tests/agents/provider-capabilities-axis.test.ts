@@ -1,18 +1,19 @@
 import { describe, it, expect } from '@jest/globals';
 import {
   BUILT_IN_PROVIDER_CAPABILITIES,
-  capabilityRequestForLlmOptions,
+  capabilityRequestForTools,
   type EffectiveProviderCapabilities,
 } from '../../src/agents/provider-capabilities.js';
+import { providerCapabilitySchema } from '../../src/schemas/saivage-config.js';
 
 describe('provider capability axes', () => {
-  it('built-in providers expose only the new tool-related axes', () => {
-    const legacyKeys = new Set(['toolCalls', 'toolChoice', 'responseShape', 'envelopeMode', 'responseFormat']);
+  it('built-in providers expose only the current capability axes', () => {
+    const removedKeys = new Set(['toolCalls', 'toolChoice', 'responseShape', 'envelopeMode', 'responseFormat', 'streaming']);
     for (const [providerId, capsRaw] of Object.entries(BUILT_IN_PROVIDER_CAPABILITIES)) {
       const caps = capsRaw as EffectiveProviderCapabilities;
       const keys = Object.keys(caps);
       for (const key of keys) {
-        expect(legacyKeys.has(key)).toBe(false);
+        expect(removedKeys.has(key)).toBe(false);
       }
       expect(caps).toHaveProperty('toolsMode');
       expect(caps).toHaveProperty('exclusiveToolChoiceSupport');
@@ -46,19 +47,20 @@ describe('provider capability axes', () => {
     });
   });
 
-  it('capabilityRequestForLlmOptions always requires exclusive tool choice', () => {
-    const empty = capabilityRequestForLlmOptions({});
-    expect(empty.requiresExclusiveToolChoice).toBe(true);
-
-    const withTools = capabilityRequestForLlmOptions({
-      tools: [{ type: 'function', function: { name: 'f', description: 'd', parameters: {} } }],
-      stream: false,
+  it('capabilityRequestForTools derives only tool requirements', () => {
+    expect(capabilityRequestForTools([])).toEqual({
+      requiresTools: false,
+      requiresExclusiveToolChoice: true,
     });
-    expect(withTools.requiresExclusiveToolChoice).toBe(true);
-    expect(withTools.requiresTools).toBe(true);
+    expect(capabilityRequestForTools([
+      { type: 'function', function: { name: 'f', description: 'd', parameters: {} } },
+    ])).toEqual({
+      requiresTools: true,
+      requiresExclusiveToolChoice: true,
+    });
+  });
 
-    const streaming = capabilityRequestForLlmOptions({ stream: true });
-    expect(streaming.requiresExclusiveToolChoice).toBe(true);
-    expect(streaming.streaming).toBe(true);
+  it('rejects streaming as an unknown source capability', () => {
+    expect(providerCapabilitySchema.safeParse({ streaming: false }).success).toBe(false);
   });
 });

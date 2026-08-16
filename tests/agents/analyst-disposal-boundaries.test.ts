@@ -178,7 +178,7 @@ function createFixture(options: {
     fatalPort: testApplicationFatalPort,
     projectRoot,
     sessionId,
-    agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false },
+    agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => 'test analyst prompt' },
     restartServerAvailable: true,

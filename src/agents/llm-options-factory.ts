@@ -14,7 +14,6 @@ export function buildLlmOptions(
     temperature: modelParams.temperature,
     max_tokens: modelParams.max_tokens,
     signal,
-    stream: false as const,
     contract_id: `${agentName}.v1`,
     contractName: agentName,
     terminalToolOffered,

@@ -36,7 +36,6 @@ export const providerCapabilitySchema = z.object({
   transportProtocol: z.enum(['openai-chat-completions', 'openai-codex-backend', 'openai-responses']).optional(),
   toolsMode: z.enum(['native', 'unsupported']).optional(),
   exclusiveToolChoiceSupport: z.enum(['native', 'parallel_off', 'unsupported']).optional(),
-  streaming: z.boolean().optional(),
   responsesReasoning: z.object({ effort: z.enum(['minimal', 'low', 'medium', 'high']).optional() }).strict().optional(),
   contextWindowTokens: z.number().int().positive().optional(),
   maxOutputTokens: z.number().int().positive().optional(),

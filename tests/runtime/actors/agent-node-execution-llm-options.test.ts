@@ -55,7 +55,7 @@ describe('AgentNodeExecution LLM options', () => {
 
     const operationalTool = { name: 'lookup', description: 'Lookup', inputSchema: z.object({ query: z.string() }).strict(), executor: async () => ({ success: true as const }) };
     const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'Emit result', parameters: { type: 'object' } } };
-    const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false } as const;
+    const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
     const prepared = runner.buildLlmInput(
       { agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
       { card: { id: 'project', type: 'project', title: 'Project' }, caller: 'runtime' },
@@ -75,7 +75,7 @@ describe('AgentNodeExecution LLM options', () => {
     expect(prepared.tools.map((tool) => tool.function.name)).toEqual(['lookup', 'emit_result']);
     expect(prepared.tools.filter((tool) => tool.function.name === 'emit_result')).toEqual([terminalToolDefinition]);
     expect(prepared.terminalToolNames).toEqual(['emit_result']);
-    expect(prepared.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true, streaming: false });
+    expect(prepared.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true });
     expect(prepared.capabilityRequest).toBe(retainedCapabilityRequest);
     expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
     expect(String(renderedVariables?.toolList)).toContain('lookup');

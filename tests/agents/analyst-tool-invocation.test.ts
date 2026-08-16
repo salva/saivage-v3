@@ -35,7 +35,7 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     executor,
   });
   const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'demo', tools: [definition] }] };
-  const capabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true, streaming: false } as const;
+  const capabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
   let turns = 0;
   const completeTurn = jest.fn(async (_input:LlmInvocationInput): Promise<ProviderTurnCompletion> => ++turns === 1
     ? toolCall(argumentsJson)

@@ -18,7 +18,6 @@ export function invocationProviderRegistry(candidates: readonly Candidate[]): Pr
         transportProtocol: 'openai-chat-completions',
         toolsMode: 'native',
         exclusiveToolChoiceSupport: 'native',
-        streaming: false,
         contextWindowTokens: 100_000,
         maxOutputTokens: 10_000,
       },

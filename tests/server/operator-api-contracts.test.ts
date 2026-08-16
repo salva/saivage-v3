@@ -275,7 +275,6 @@ describe('operator API runtime contract without runtime ledgers', () => {
       transportProtocol: 'openai-responses',
       toolsMode: 'native',
       exclusiveToolChoiceSupport: 'parallel_off',
-      streaming: true,
       responsesReasoning: { effort: 'high' },
       contextWindowTokens: 128000,
       maxOutputTokens: 16000,
@@ -299,6 +298,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(operatorApiModule.ProviderSummarySchema.safeParse({ ...provider, availability: [{ ...provider.availability[0], candidate: { ...provider.availability[0]!.candidate, unexpected: true } }] }).success).toBe(false);
     for (const invalid of [
       { ...provider, capabilitiesByModel: { model: { deliberatelyOpaque: true } } },
+      { ...provider, capabilitiesByModel: { model: { ...capabilities, streaming: true } } },
       { ...provider, capabilitiesByModel: { model: { ...capabilities, unexpected: true } } },
       { ...provider, capabilitiesByModel: { model: { ...capabilities, responsesReasoning: { effort: 'high', unexpected: true } } } },
       { ...provider, availability: [{ candidate, state: 'available' }] },

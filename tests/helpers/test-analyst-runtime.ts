@@ -79,7 +79,7 @@ export function createTestAnalystRuntime(options: TestAnalystRuntimeOptions): { 
       sessionId: 'agent:analyst:global' as const,
       agentName,
       modelParams:{temperature:route.temperature,maxTokens:route.max_tokens},
-      capabilityRequest:{requiresTools:toolSet.names.length>0,requiresExclusiveToolChoice:true,streaming:false},
+      capabilityRequest:{requiresTools:toolSet.names.length>0,requiresExclusiveToolChoice:true},
       candidateChain:[{provider:'test',account:null,model:'test-model'}],
       promptTemplates: options.promptTemplates,
       restartServerAvailable: options.restartServerAvailable ?? false,

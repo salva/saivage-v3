@@ -3,6 +3,7 @@ import { buildOpenAIResponsesRequest } from '../../src/agents/llm-openai-respons
 import type { LlmCompleteOptions, ToolDefinition } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
+import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
 const MSG: AgentMessage = { id: 'm1', session_id: 'agent:analyst:global', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
@@ -19,6 +20,7 @@ describe('OpenAI Responses request shape', () => {
     expect(body.model).toBe('gpt-5.6');
     expect(body.instructions).toBe('sys');
     expect(body.store).toBe(false);
+    expect(body.stream).toBe(false);
     expect(body.include).toEqual(['reasoning.encrypted_content']);
     expect(body.max_output_tokens).toBe(1234);
     expect(body).not.toHaveProperty('max_tokens');
@@ -46,6 +48,43 @@ describe('OpenAI Responses request shape', () => {
     expect(body).not.toHaveProperty('tools');
     expect(body).not.toHaveProperty('tool_choice');
     expect(body).not.toHaveProperty('parallel_tool_calls');
+  });
+
+  it('uses complete JSON without requesting SSE and records the fixed wire mode', async () => {
+    let sentBody: Record<string, unknown> | undefined;
+    let sentHeaders: Headers | undefined;
+    const output = [
+      { type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque' },
+      { type: 'message', id: 'msg_1', content: [{ type: 'output_text', text: 'done' }] },
+    ];
+    jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+      sentBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      sentHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({ status: 'completed', output, usage: { input_tokens: 1, output_tokens: 2, total_tokens: 3 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+    });
+    const client = new LlmPipelineTestClient({
+      baseUrl: 'https://api.openai.test/v1',
+      apiKey: 'key',
+      capabilities: {
+        transportProtocol: 'openai-responses',
+        toolsMode: 'native',
+        exclusiveToolChoiceSupport: 'native',
+        quirks: [],
+      },
+    });
+    const completion = await client.complete(
+      CANDIDATE,
+      'sys',
+      { sourceSessionId: 'agent:analyst:global', messages: [MSG] },
+      'agent:analyst:global',
+      { inputId: 'input-json', temperature: 0.2, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 1234 },
+    );
+
+    expect(sentBody?.stream).toBe(false);
+    expect(sentHeaders?.has('Accept')).toBe(false);
+    expect(completion.result).toEqual({ kind: 'message', content: 'done', usage: { prompt_tokens: 1, completion_tokens: 2, total_tokens: 3 } });
+    expect(completion.provider_private_context).toEqual({ kind: 'openai_responses', source_input_id: 'input-json', provider: 'openai', model: 'gpt-5.6', output });
+    expect(completion.provider_exchanges[0]!.request_params).toMatchObject({ method: 'POST', stream: false, store: false, include: ['reasoning.encrypted_content'] });
   });
 
 });
