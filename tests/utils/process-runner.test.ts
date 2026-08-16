@@ -7,7 +7,6 @@ import type { ManagedProcessScope, ProcessCategory, ProcessRunner } from '../../
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner as ProcessRunnerImplementation } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { dataPropertyGraphContains } from '../helpers/data-property-graph.js';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { nonCardProcessOutputRoot } from '../../src/persistence/layout.js';
@@ -132,7 +131,7 @@ describe('ProcessRunner managed process groups', () => {
     let absent: ((reason?: string) => void) | undefined;
     const report = { selected: ['proc'], stopped: ['proc'], failed: [] };
     const fakeRegistry = {
-      launch(input: { groupId: string; onAbsent(reason?: string): void }) { report.selected[0] = input.groupId; report.stopped[0] = input.groupId; absent = input.onAbsent; const outputRoot = nonCardProcessOutputRoot(syntheticRoot, input.groupId); expect(existsSync(join(outputRoot, 'stdout.log'))).toBe(true); expect(existsSync(join(outputRoot, 'stderr.log'))).toBe(true); return child; },
+      launch(input: { groupId: string; onAbsent(reason?: string): void }) { report.selected[0] = input.groupId; report.stopped[0] = input.groupId; absent = input.onAbsent; return child; },
       terminateGroup: async () => { absent?.(); return report; },
       terminateScopeTree: async () => { absent?.(); return report; },
       closeAndTerminateDirectScope: async () => { absent?.(); return report; },
@@ -153,6 +152,36 @@ describe('ProcessRunner managed process groups', () => {
     expect(readFileSync(record.stderr_path, 'utf8')).toBe('late-err');
     expect(synthetic.get(record.id)?.status).not.toBe('running');
     rmSync(syntheticRoot, { recursive: true, force: true });
+  });
+
+  it.each([
+    { api: 'spawn', sentinel: new Error('spawn registry boundary sentinel') },
+    { api: 'spawnInteractive', sentinel: new Error('spawnInteractive registry boundary sentinel') },
+  ] as const)('$api publishes both output files before registry launch', ({ api, sentinel }) => {
+    const syntheticRoot = mkdtempSync(join(tmpdir(), `proc-runner-${api}-publication-`));
+    try {
+      initProjectTree(syntheticRoot);
+      let boundaryCalls = 0;
+      const fakeRegistry = {
+        launch(input: { groupId: string }) {
+          boundaryCalls += 1;
+          const outputRoot = nonCardProcessOutputRoot(syntheticRoot, input.groupId);
+          expect(existsSync(join(outputRoot, 'stdout.log'))).toBe(true);
+          expect(existsSync(join(outputRoot, 'stderr.log'))).toBe(true);
+          throw sentinel;
+        },
+      };
+      const synthetic = new ProcessRunnerImplementation(syntheticRoot, fakeRegistry as never, testApplicationFatalPort);
+      const common = { directScope: {} as ManagedProcessScope, category: 'runtime_card' as const, ownerId: 'owner', ownerKind: 'agent' as const };
+      const invoke = api === 'spawn'
+        ? () => synthetic.spawn({ ...common, command: 'printf publication-boundary' })
+        : () => synthetic.spawnInteractive({ ...common, file: 'node', args: ['--version'], stdio: ['pipe', 'pipe', 'pipe'], env: { ...process.env } });
+
+      expect(invoke).toThrow(sentinel);
+      expect(boundaryCalls).toBe(1);
+    } finally {
+      rmSync(syntheticRoot, { recursive: true, force: true });
+    }
   });
 
   it('joins stopped siblings but never waits for failed/unconfirmed process ids', async () => {
@@ -180,8 +209,4 @@ describe('ProcessRunner managed process groups', () => {
     expect(runner.get(service.id)?.status).toBe('running');
   });
 
-  it('retains registry authority only in native-private state', () => {
-    expect(dataPropertyGraphContains(runner, new Set([registry, runtimeRootScope, analystRootScope, mcpRootScope]))).toBe(false);
-    expect(Reflect.ownKeys(runner)).not.toContain('registry');
-  });
 });

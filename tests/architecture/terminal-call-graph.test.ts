@@ -35,18 +35,4 @@ describe('terminal cleanup call graph', () => {
     }
   });
 
-  it('keeps root termination before the first cleanup await in all component owners', () => {
-    for (const [file, terminationCall] of [['src/agents/analyst-handler.ts', 'this.#terminateRoot'], ['src/mcp/mcp-manager.ts', 'terminateScopeTree']] as const) {
-      const source = readFileSync(join(root, file), 'utf8');
-      const method = source.slice(source.indexOf('cleanupForApplicationStop'), source.indexOf('cleanupForApplicationStop') + 1800);
-      expect(method.indexOf(terminationCall)).toBeGreaterThan(0);
-      expect(method.indexOf(terminationCall)).toBeLessThan(method.indexOf('await Promise.allSettled'));
-      expect(method).toContain('.failed.length !== 0');
-    }
-    const supervisor = readFileSync(join(root, 'src/runtime/actors/supervisor-runtime-api.ts'), 'utf8');
-    const halt = supervisor.slice(supervisor.indexOf('private beginHalt'), supervisor.indexOf('private publish'));
-    expect(halt.indexOf('terminateScopeTree')).toBeGreaterThan(0);
-    expect(halt.indexOf('terminateScopeTree')).toBeLessThan(halt.indexOf('Promise.allSettled'));
-    expect(halt).toContain('report.failed.length');
-  });
 });

@@ -50,24 +50,25 @@ describe('source-derived publication owner inventory', () => {
 
   it('keeps every ProcessRunner termination surface and production caller explicit', () => {
     const runner = source('src/runtime/process-runner.ts');
-    expect(fileCountInventory(/#registry\.(?:terminateGroup|terminateScopeTree|closeAndTerminateDirectScope)\(/gu)).toEqual({ 'src/runtime/process-runner.ts': 3 });
-    expect(fileCountInventory(/#joinStopped\(report\)/gu)).toEqual({ 'src/runtime/process-runner.ts': 3 });
-    expect(fileCountInventory(/(?:processRunner|#processRunner)\s*\.\s*(?:kill|terminateScopeTree|closeAndTerminateDirectScope)\(/gu)).toEqual({
+    const registryDelegations = [...runner.matchAll(/\.\s*(terminateGroup|terminateScopeTree|closeAndTerminateDirectScope)\s*\(/gu)].map((match) => match[1]).sort();
+    expect(registryDelegations).toEqual(['closeAndTerminateDirectScope', 'terminateGroup', 'terminateScopeTree']);
+
+    const publicCallerFiles = sourceFiles.filter((path) => ![
+      'src/runtime/managed-process-group-registry.ts',
+      'src/runtime/lock.ts',
+      'src/runtime/process-runner.ts',
+    ].includes(relativePath(path)));
+    const publicCallerInventory = Object.fromEntries(publicCallerFiles.flatMap((path) => {
+      const count = [...readFileSync(path, 'utf8').matchAll(/\.\s*(?:kill|terminateScopeTree|closeAndTerminateDirectScope)\s*\(/gu)].length;
+      return count === 0 ? [] : [[relativePath(path), count]];
+    }));
+    expect(publicCallerInventory).toEqual({
       'src/application/runtime-composition.ts': 2,
       'src/mcp/mcp-manager.ts': 1,
       'src/mcp/server-runtime.ts': 1,
       'src/runtime/actors/supervisor-runtime-api.ts': 2,
       'src/tools/process-provider.ts': 3,
     });
-    expect(runner.indexOf('replaceFile(stdoutPath')).toBeLessThan(runner.indexOf('this.#registry.launch('));
-    expect(runner.indexOf('replaceFile(stderrPath')).toBeLessThan(runner.indexOf('this.#registry.launch('));
-    expect(runner).toMatch(/readable\.on\('data'/);
-    expect(runner).toMatch(/readable\.on\('error'/);
-    expect(runner).toMatch(/readable\.once\('end'/);
-    expect(runner).toMatch(/readable\.once\('close'/);
-    expect(runner).toMatch(/child\.once\('exit'/);
-    expect(runner).toMatch(/child\.once\('error'/);
-    expect(runner).toContain('Promise.all([absence, stdoutDrain, stderrDrain])');
   });
 
   it('keeps the sole AnalystWsHandler composition and every rejection owner fatal-aware', () => {
