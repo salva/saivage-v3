@@ -5,11 +5,14 @@ import { join } from 'node:path';
 
 import { startApp, type App } from '../../src/boot/app.js';
 import { publishInitialProjectRuntime } from '../../src/boot/project-runtime-bootstrap.js';
+import { CardService } from '../../src/cards/card-service.js';
 import { appendConversationBatch, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { appLogFile, cardRecordVersionIndexFile, globalAgentConversationVersionFile, globalAgentConversationVersionIndexFile, runtimeProcessLockFile, saivageCardsRoot } from '../../src/persistence/layout.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { replaceConfigYaml } from '../../src/config/config-file.js';
+import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
+import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { agentMessageSchema } from '../../src/schemas/index.js';
 import { testRecordDefinition } from '../helpers/record-definitions.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
@@ -54,7 +57,41 @@ describe('application startup generated-state admission', () => {
     const root=projectRoot();publishInitialProjectRuntime(root,compileProjectWorkflows(TEST_SAIVAGE_CONFIG));const index=cardRecordVersionIndexFile(root,'project',testRecordDefinition('status.md','project'));rmSync(index);
     await expect(start(root,false)).rejects.toThrow(expect.objectContaining({code:'ENOENT'}));expect(existsSync(index)).toBe(false);expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });
+
+  it('rejects retained explicit-family authority after selecting standard before optional effects and releases the lifecycle lock', async () => {
+    const root = projectRoot();
+    const explicitConfig = explicitFixtureFamilyConfig();
+    const explicitWorkflows = compileProjectWorkflows(explicitConfig);
+    replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), explicitConfig);
+    publishInitialProjectRuntime(root, explicitWorkflows);
+    new CardService(root, explicitWorkflows).create({ type: 'fixture-leaf', parent: 'project', title: 'Fixture-family child', bootstrap_content: 'Fixture-family authority.', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    expect(() => initializeAndValidateCurrentGeneratedState(root, explicitWorkflows)).not.toThrow();
+
+    replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), selectedStandardConfig());
+    const optionalIndex = cardRecordVersionIndexFile(root, 'project', testRecordDefinition('status.md', 'project'));
+    rmSync(optionalIndex);
+    const timestamp = '2026-08-14T00:00:00.000Z';
+    appendConversationBatch({ projectRoot: root }, [agentMessageSchema.parse({ id: 'set-change', session_id: 'agent:analyst:global', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: '00000000-0000-4000-8000-000000000002', timestamp }), round_id: `r-pre-${'1'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
+    const segment = readCurrentConversationSegment(root, 'agent:analyst:global')!;
+    const conversationPath = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
+    appendFileSync(conversationPath, 'unterminated');
+    const conversationBytes = readFileSync(conversationPath);
+
+    await expect(start(root, false)).rejects.toThrow(/No compiled workflow exists for card type 'fixture-leaf'/);
+    expect(existsSync(appLogFile(root))).toBe(false);
+    expect(existsSync(optionalIndex)).toBe(false);
+    expect(readFileSync(conversationPath)).toEqual(conversationBytes);
+    expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  });
 });
 
 function projectRoot(): string { const root = mkdtempSync(join(tmpdir(), 'saivage-app-startup-')); roots.push(root); createProjectIdentity(root, 'Startup test'); replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), TEST_SAIVAGE_CONFIG); return root; }
 function start(root: string, createRuntime: boolean): Promise<App> { return startApp({ argv: ['node', 'saivage', 'start', '--project-root', root, ...(createRuntime ? ['--create-runtime'] : [])], env: { NODE_ENV: 'test', SAIVAGE_PORT: '0', SAIVAGE_HOST: '127.0.0.1' } }); }
+function explicitFixtureFamilyConfig() {
+  const config = structuredClone(TEST_SAIVAGE_CONFIG);
+  const project = config.card_types.project!;
+  config.card_types.project = { ...project, permitted_child_types: [...project.permitted_child_types, 'fixture-leaf'] };
+  config.card_types['fixture-leaf'] = structuredClone(config.card_types.code!);
+  return effectiveSaivageConfigSchema.parse(config);
+}
+function selectedStandardConfig(): Record<string, unknown> { const config = structuredClone(TEST_SAIVAGE_CONFIG) as unknown as Record<string, unknown>; delete config['card_types']; config['card_type_set'] = 'standard'; return config; }
