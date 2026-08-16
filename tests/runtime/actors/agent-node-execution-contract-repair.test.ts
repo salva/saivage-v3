@@ -33,6 +33,7 @@ function harness(args: {
   reviewerPreparationError?: Error;
   writtenRecords?: string[];
   discardError?: Error;
+  useRealCorrection?: boolean;
 }) {
   const events: string[] = [];
   const handoffs: unknown[] = [];
@@ -40,6 +41,7 @@ function harness(args: {
   const appendedToolResults: Array<{ toolCallId: string; result: unknown }> = [];
   const settledToolResults: Array<{ toolCallId: string; result: unknown }> = [];
   const llmInputArguments: unknown[][] = [];
+  const plainTextCorrections: string[] = [];
   const continuations = [...(args.continuations ?? [])];
   const next = (): LLMActorOutcome => {
     const outcome = continuations.shift();
@@ -48,7 +50,7 @@ function harness(args: {
   };
   const llm = {
     turn: async (_input: unknown, _signal: AbortSignal, handoff: unknown) => { events.push('turn'); handoffs.push(handoff); return args.initial; },
-    continueAfterPlainText: async (_correction: string, _signal: AbortSignal, handoff: unknown) => { events.push('continue-plain-text'); handoffs.push(handoff); return next(); },
+    continueAfterPlainText: async (correction: string, _signal: AbortSignal, handoff: unknown) => { events.push('continue-plain-text'); plainTextCorrections.push(correction); handoffs.push(handoff); return next(); },
     appendToolResult: async (toolCallId: string, result: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); return next(); },
     toolInvocationContext: () => { events.push('tool-context'); return {}; },
     claimResultAndCloseContinuation: (_outcome: ToolOutcome, _reason: Error, claim: () => void) => { events.push('claim-continuation'); claim(); },
@@ -75,6 +77,7 @@ function harness(args: {
   const node = {
     kind: 'node',
     nodeId: 'work',
+    correctionPromptId: 'correct',
     agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } },
     requirements: args.terminalVariant === 'records' ? [{ mode: 'continue', gate: 'updated', definition: { name: 'status.md' } }] : [],
     descendantContext: args.terminalVariant === 'stale' || args.reviewerPreparationError ? { records: [] } : null,
@@ -89,6 +92,7 @@ function harness(args: {
       [stateId, node],
       ['terminal:DONE', { kind: 'terminal', terminal: 'DONE' }],
     ]),
+    processPrompts: new Map([['correct', { text: 'correct the result' }]]),
   };
   const selectNotifications = args.terminalVariant === 'pending'
     ? jest.fn().mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])
@@ -111,7 +115,6 @@ function harness(args: {
     },
     processRunner: { createDirectScope },
     runtimeProcessRootScope: {},
-    processPrompts: { get: () => 'correct the result' },
     workflows: { agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false } }]]) },
   } as never, {
     createLlm: () => llm,
@@ -126,7 +129,7 @@ function harness(args: {
     captureRecordHead: () => number | null;
     buildLlmInput: (...args: unknown[]) => object;
     buildSurface: (...args: unknown[]) => InvocationSurface;
-    correction: (_node: unknown, violations: readonly string[]) => string;
+    correction: (_process: unknown, _node: unknown, violations: readonly string[]) => string;
     closeAcceptedRecords: () => Array<{ name: string; url: string; version: number }>;
     validateRecords: () => { candidates: Map<string, unknown> } | { violations: string[] };
     captureReviewerPair: () => unknown;
@@ -137,7 +140,7 @@ function harness(args: {
   internals.captureRecordHead = () => 1;
   internals.buildLlmInput = (...values) => { llmInputArguments.push(values); return {}; };
   internals.buildSurface = (...values) => { const written=values[5] as Set<string>;for(const name of args.writtenRecords??[])written.add(name);return surface; };
-  internals.correction = (_node, violations) => `correction: ${violations.join('; ')}`;
+  if (!args.useRealCorrection) internals.correction = (_process, _node, violations) => `correction: ${violations.join('; ')}`;
   internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
   if (args.reviewerPreparationError) internals.captureReviewerPair = () => { throw args.reviewerPreparationError; };
   if (args.terminalVariant === 'records') {
@@ -159,6 +162,7 @@ function harness(args: {
     appendedToolResults,
     settledToolResults,
     llmInputArguments,
+    plainTextCorrections,
     createDirectScope,
     run: () => execution.execute({ process, stateId, node, transition: {}, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
   };
@@ -298,12 +302,13 @@ describe('AgentNodeExecution contract repair behavior', () => {
   });
 
   it('checks currentness around plain-text repair before accepting the continuation', async () => {
-    const test = harness({ initial: resultOutcome, continuations: [terminal('accepted')] });
+    const test = harness({ initial: resultOutcome, continuations: [terminal('accepted')], useRealCorrection: true });
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
     expect(test.events.slice(0, 5)).toEqual(['turn', 'current', 'current', 'continue-plain-text', 'current']);
     expect(test.handoffs).toHaveLength(2);
     expect(test.handoffs[1]).toBe(test.handoffs[0]);
+    expect(test.plainTextCorrections).toEqual(['correct the result\n\nValidation errors:\n- emit_result is required.']);
   });
 
   it('invokes and appends a nonterminal result before continuing to terminal acceptance', async () => {

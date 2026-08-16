@@ -4,9 +4,8 @@ import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contr
 import { cardAgentSessionId, type AgentName, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
 import type { CardActivationInput, PlannerChildControlPort } from './card-activation-owner.js';
 import type { CardService } from '../../cards/card-service.js';
-import { agentCanWriteRecord, describeNodeResultContract, nodeResultSchema, nodeResultToolDefinition, runtimeAgentBinding, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition, type CompiledRuntimeWorkflows } from '../card-process/card-process-config.js';
+import { agentCanWriteRecord, describeNodeResultContract, nodeResultSchema, nodeResultToolDefinition, runtimeAgentBinding, type CompiledCardTypeWorkflow, type CompiledNodeContract, type CompiledProcessTransition, type CompiledRuntimeWorkflows, type ProcessPromptId } from '../card-process/card-process-config.js';
 import type { ActorTransitionContext } from '../micro-actor/index.js';
-import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import type { ConversationLLMActor } from './llm-actor.js';
 import type { PreparedLlmInvocationInput } from './llm-invocation.js';
 import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
@@ -68,7 +67,6 @@ export interface AgentNodeExecutionDeps {
   runtimeProcessRootScope: ManagedProcessScope;
   mcpToolInvocation: McpToolInvocationPort;
   promptTemplates: PromptTemplateRegistry;
-  processPrompts: ProcessPromptRegistry;
   conversations: ConversationFileContext;
   compactionConfig: AutonomousCompactionPolicy;
   workflows: CompiledRuntimeWorkflows;
@@ -109,7 +107,7 @@ export class AgentNodeExecution {
       for (;;) {
         if (outcome.type === 'result') {
           this.host.assertCurrentActivation(input);
-          outcome = await llm.continueAfterPlainText(this.correction(node, ['emit_result is required.']), signal, terminalHandoff);
+          outcome = await llm.continueAfterPlainText(this.correction(process, node, ['emit_result is required.']), signal, terminalHandoff);
           this.host.assertCurrentActivation(input);
           continue;
         }
@@ -130,7 +128,7 @@ export class AgentNodeExecution {
             if (!parsed.success) throw new Error(parsed.error.message);
             nodeResult = parsed.data;
           }
-          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(node, [errorMessage(error)]) }), signal); continue; }
+          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(process, node, [errorMessage(error)]) }), signal); continue; }
           const route = node.on.get(`result:${nodeResult.outcome}`);
           if (!route || route.semantic.kind !== 'configured-outcome')
             throw new Error(
@@ -145,13 +143,13 @@ export class AgentNodeExecution {
           if (selected.length > 0) {
             const messages: ProviderVisibleUserContextMessage[] = [
               ...selected.map((notification) => ({ role: 'user' as const, content: notification.content })),
-              { role: 'user', content: this.correction(node, ['pending_notifications: reconsider the appended context, update required records if needed, and call emit_result again.']) },
+              { role: 'user', content: this.correction(process, node, ['pending_notifications: reconsider the appended context, update required records if needed, and call emit_result again.']) },
             ];
             outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }), signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }));
             continue;
           }
           const records = this.validateRecords(node, baseline);
-          if ('violations' in records) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(node, records.violations) }), signal); continue; }
+          if ('violations' in records) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(process, node, records.violations) }), signal); continue; }
           if (reviewerPair) {
             const stale = this.reviewerStaleReason(input.card.id, reviewerPair.snapshot, node.descendantContext!.records.map((record)=>record.name));
             if (stale) {
@@ -160,14 +158,14 @@ export class AgentNodeExecution {
               this.prepareRecordRequirements(node);
               recordFinalizationBegun = false;
               const refreshed = this.captureReviewerPair(input.card.id,node.descendantContext!.records.map((record)=>record.name));
-              const messages = [refreshed.exactContext, { role: 'user' as const, content: this.correction(node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) }];
+              const messages = [refreshed.exactContext, { role: 'user' as const, content: this.correction(process, node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) }];
               outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: `Review context is stale: ${stale}.` }), signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }));
               continue;
             }
           }
            if (target.kind === 'terminal' && target.terminal === 'DONE') {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
-            if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }), signal); continue; }
+            if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }), signal); continue; }
           }
           if (target.kind === 'terminal') {
             this.host.assertPromotionAvailable(route);
@@ -242,12 +240,12 @@ export class AgentNodeExecution {
     if (reviewerPair) roleContext.push(reviewerPair.exactContext);
     roleContext.forEach((message, index) => appendUserContextMessage(this.deps.conversations, sessionId, inputId, message === reviewerPair?.exactContext ? 'reviewer_descendant' : 'notification', index, message));
     if (selected.length > 0) input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id));
-    const transitionMessage = this.transitionContext(process, input.card, transition);
+    const transitionMessage = this.transitionContext(process, transition);
     if (transitionMessage) appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_transition', 0, transitionMessage);
-    appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_node', 0, { role: 'user', content: this.deps.processPrompts.get(input.card.type, node.promptId) });
+    appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_node', 0, { role: 'user', content: promptText(process, node.promptId) });
   }
 
-  private transitionContext(process: CompiledCardTypeWorkflow, card: CardRecord, transition: NodeTransition): ProviderVisibleUserContextMessage | null {
+  private transitionContext(process: CompiledCardTypeWorkflow, transition: NodeTransition): ProviderVisibleUserContextMessage | null {
     const { context, acceptedResult } = transition;
     const route = process.states.get(context.source)?.on.get(context.event);
     if (!route || route.targetStateId !== context.target)
@@ -261,9 +259,9 @@ export class AgentNodeExecution {
       const promptId = route.semantic.promptId;
       if (source.entry === 'STOPPED') {
         if (!promptId) throw new Error('STOPPED process entry has no configured prompt.');
-        return { role: 'user', content: `The prior live card process was lost or stopped. Its graph position was discarded; recover from current durable facts.\n\n${this.deps.processPrompts.get(card.type, promptId)}` };
+        return { role: 'user', content: `The prior live card process was lost or stopped. Its graph position was discarded; recover from current durable facts.\n\n${promptText(process, promptId)}` };
       }
-      return promptId ? { role: 'user', content: this.deps.processPrompts.get(card.type, promptId) } : null;
+      return promptId ? { role: 'user', content: promptText(process, promptId) } : null;
     }
     if (route.semantic.kind !== 'configured-outcome')
       throw new Error(
@@ -276,7 +274,7 @@ export class AgentNodeExecution {
     )
       throw new Error('Node transition context disagrees with its staged accepted result.');
     const promptId = route.semantic.promptId;
-    const edgePrompt = promptId ? `\n\n${this.deps.processPrompts.get(card.type, promptId)}` : '';
+    const edgePrompt = promptId ? `\n\n${promptText(process, promptId)}` : '';
     return { role: 'user', content: `Previous process node: ${context.source.slice('node:'.length)}\nAccepted outcome: ${acceptedResult.outcome}\nSummary: ${acceptedResult.summary}\nRecords:\n${acceptedResult.acceptedRecords.map((record) => `- ${record.url}`).join('\n') || '(none)'}${edgePrompt}` };
   }
 
@@ -299,7 +297,7 @@ export class AgentNodeExecution {
     return this.deps.processRunner.createDirectScope(this.deps.runtimeProcessRootScope, `card-activation:${input.activationId}:node:${ordinal}`, 'runtime_card');
   }
 
-  private correction(node: CompiledNodeContract, violations: readonly string[]): string { return `${this.deps.processPrompts.get(this.deps.store.read(this.deps.cardId)!.type, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
+  private correction(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, violations: readonly string[]): string { return `${promptText(process, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
   private ordinaryNotificationContext(input: CardActivationInput, _inputId: string) { const selected = input.notificationDelivery.selectNotifications(); return selected.length === 0 ? undefined : { messages: selected.map((notification) => ({ role: 'user' as const, content: notification.content })), afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }; }
 
   private prepareRecordRequirements(node: CompiledNodeContract): void {
@@ -366,3 +364,4 @@ function errorMessage(error: unknown): string { return error instanceof Error ? 
 function readCandidate(store: CardService, cardId: string, filename: string): RecordProjection | null { try { const current=store.readCurrentRecord(cardId,filename);const selected=current.artifact.state==='open'?current.artifact.draft?.content:current.artifact.accepted?.content;return selected?.trim()?current:null;}catch(error){if(error instanceof AuthoredRecordNotFoundError)return null;throw error;} }
 function firstIncompleteDescendant(cardId: string, store: CardService): { id: string; status: string } | null { for (const childId of store.listChildren(cardId)) { const child = store.read(childId); if (!child) throw new Error(`Child '${childId}' was listed but not found.`); if (child.lifecycle.status !== 'done' && child.lifecycle.status !== 'cancelled') return { id: child.id, status: child.lifecycle.status }; const nested = firstIncompleteDescendant(childId, store); if (nested) return nested; } return null; }
 function acceptedRecordVersion(store: CardService, cardId: string,filename:string): ReviewerSnapshot['includedRecordVersions'][number] { try { const record = store.readCurrentRecord(cardId, filename);return { cardId, filename, sourceVersion: record.artifact.accepted?.source_version??null }; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return { cardId, filename, sourceVersion: null }; throw error; } }
+function promptText(process: CompiledCardTypeWorkflow, promptId: ProcessPromptId): string { const prompt=process.processPrompts.get(promptId);if(!prompt)throw new Error(`Compiled workflow '${process.cardType}' has no process prompt '${promptId}'.`);return prompt.text; }

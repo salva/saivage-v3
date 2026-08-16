@@ -55,7 +55,7 @@ Unknown or host-inapplicable placeholders fail startup. Every effective workflow
 
 `compileProjectWorkflows()` owns exact root/scope selection and fragment reads. It compiles each selected agent template once. Process templates render raw `cardType` eagerly and are stored as final frozen non-empty text. Source edits after compilation cannot affect the artifact.
 
-`PromptTemplateRegistry` stores global Analyst and card-type workflow entries structurally separately and substitutes runtime variables into already-compiled agent tokens without re-tokenization. The Analyst supplies tools, the selected compiled card-type vocabulary, and exact-or-throw project context. Card agents supply card identity/brief/type, generated node contract, and tools. `ProcessPromptRegistry` is a strict lookup over already-rendered process strings; transition ordering and message placement are unchanged.
+`PromptTemplateRegistry` stores global Analyst and card-type workflow entries structurally separately and substitutes runtime variables into already-compiled agent tokens without re-tokenization. The Analyst supplies tools, the selected compiled card-type vocabulary, and exact-or-throw project context. Card agents supply card identity/brief/type, generated node contract, and tools. Node execution reads already-rendered process strings by ID directly from the exact compiled workflow's `processPrompts` map; transition ordering and message placement are unchanged.
 
 The authenticated Debug Graphs projection exposes prompt reference and one of `override-card | override-shared | bundled-card | bundled-shared`. It omits bodies and paths. The projection is computed from the installed immutable workflow artifact, not recorded state.
 
@@ -74,7 +74,7 @@ The authenticated Debug Graphs projection exposes prompt reference and one of `o
 | --- | --- |
 | `src/runtime/card-process/card-process-config.ts` | roots, exact selection, fragment reads, workflow compilation, eager process rendering |
 | `src/utils/prompt-api.ts` | singular tokenizer/compiler, composition, discriminated host/placeholder policy, rendering, structurally scoped agent registry |
-| `src/runtime/card-process/process-prompt-registry.ts` | strict final process-text lookup |
+| `src/runtime/actors/agent-node-execution.ts` | direct exact-workflow process-text consumption |
 | `src/application/runtime-composition.ts` | runtime wiring |
 | `src/prompts/**` | exact bundled 14-file defaults |
 | `scripts/copy-prompt-defaults.js` | exact inventory validation and copy to `dist/prompts` |

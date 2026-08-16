@@ -14,7 +14,6 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
-import { createProcessPromptRegistry } from '../../src/runtime/card-process/process-prompt-registry.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
@@ -45,7 +44,7 @@ describe('custom card type execution admission',()=>{
       throw new Error(`Unexpected session '${input.sessionId}'.`);
     })};
     const registry=new ManagedProcessGroupRegistry();const processRunner=new ProcessRunner(root,registry,testApplicationFatalPort);const runtimeProcessRootScope=registry.createContainerScope(registry.rootScope,'runtime-cards');
-    const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,processPrompts:createProcessPromptRegistry(workflows),projectRoot:root,actorStore:cards,provider,conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner,runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
+    const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider,conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner,runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
     const started=await supervisor.startProject();expect(started.started).toBe(true);
     const input=await admitted.promise;
     expect(input.sessionId).toBe(`agent:executor:${taskCard.id}`);

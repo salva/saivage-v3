@@ -67,7 +67,6 @@ export const testAutonomousCompaction = {
   summarizerProvider: unusedSummarizerProvider,
   mcpToolInvocation: unusedMcpToolInvocation,
   workflows: bindRuntimeWorkflows(TEST_WORKFLOWS,new ModelRouter(new ProviderRegistry(TEST_SAIVAGE_CONFIG))),
-  processPrompts: { get: (_cardType: string, promptId: string) => `test process prompt: ${promptId}` },
 };
 
 export function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {

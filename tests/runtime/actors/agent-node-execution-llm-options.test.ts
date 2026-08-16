@@ -92,12 +92,15 @@ describe('AgentNodeExecution LLM options', () => {
       projectRoot,
       cardId: 'project',
       conversations: { projectRoot },
-      processPrompts: { get: () => 'node prompt' },
     } as never, {} as never) as unknown as {
       prepareNodeEntry(process: unknown, node: unknown, transition: unknown, input: unknown, sessionId: string, inputId: string, reviewerPair: null): void;
     };
     const node = { nodeId: 'work', agent: { name: 'planner' }, promptId: 'work' };
-    const process = { states: new Map([['entry:READY', { kind: 'entry', entry: 'READY', on: new Map([['begin', { targetStateId: 'node:work', semantic: { kind: 'entry-route', promptId: null } }]]) }]]) };
+    const process = {
+      cardType: 'project',
+      states: new Map([['entry:READY', { kind: 'entry', entry: 'READY', on: new Map([['begin', { targetStateId: 'node:work', semantic: { kind: 'entry-route', promptId: null } }]]) }]]),
+      processPrompts: new Map([['work', { text: 'selected node prompt body' }], ['other', { text: 'unselected prompt body' }]]),
+    };
     const transition = { context: { source: 'entry:READY', event: 'begin', target: 'node:work' }, acceptedResult: null };
     const input = { card: { id: 'project', type: 'project' }, alreadyStabilizedAgents: new Set(), notificationDelivery: { selectNotifications: () => [], removeNotifications: () => undefined } };
     const firstInputId = '00000000-0000-4000-8000-000000000001';
@@ -107,10 +110,16 @@ describe('AgentNodeExecution LLM options', () => {
     expect(readConversation(projectRoot, sessionId).sourceRows
       .filter((row) => row.kind === 'activity')
       .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId]);
+    expect(readConversation(projectRoot, sessionId).sourceRows
+      .filter((row) => row.role === 'user')
+      .map((row) => row.content)).toEqual(['selected node prompt body']);
 
     runner.prepareNodeEntry(process, node, transition, input, sessionId, secondInputId, null);
     expect(readConversation(projectRoot, sessionId).sourceRows
       .filter((row) => row.kind === 'activity')
       .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId, secondInputId]);
+    expect(readConversation(projectRoot, sessionId).sourceRows
+      .filter((row) => row.role === 'user')
+      .map((row) => row.content)).toEqual(['selected node prompt body', 'selected node prompt body']);
   });
 });

@@ -24,7 +24,6 @@ import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { RuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import type { RuntimeProcessIdentity } from '../lock.js';
 import { cardProcessEntryForStatus, type CompiledRuntimeWorkflows, type CardProcessEntry } from '../card-process/card-process-config.js';
-import type { ProcessPromptRegistry } from '../card-process/process-prompt-registry.js';
 import { stabilizeAgentSession } from './conversation-recovery.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import { cardParentId } from '../../schemas/card-id.js';
@@ -37,7 +36,7 @@ export interface SupervisorRuntimeApiOptions {
   conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentMembershipChanged'>;
   compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort;
   processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry;
-  workflows: CompiledRuntimeWorkflows; processPrompts: ProcessPromptRegistry;
+  workflows: CompiledRuntimeWorkflows;
   runtimeGate: RuntimeGate; mcpToolInvocation: McpToolInvocationPort;
   processIdentity: RuntimeProcessIdentity;
   fatalPort: ApplicationFatalPort;
@@ -307,7 +306,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     const parentControl = this.boundParentControl(card.id, activationId);
     const process = this.behavior.workflows.cardTypes.get(card.type);
     if (!process) throw new Error(`No compiled workflow for card type '${card.type}'.`);
-    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, workflows:this.behavior.workflows,processPrompts: this.behavior.processPrompts, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => { this.ownershipInvalidated(); this.behavior.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id }); }, onActorMainFailure: (error) => this.onProcessorActorMainFailure(card.id, activationId, error), fatalPort: this.behavior.fatalPort, gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
+    const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, workflows:this.behavior.workflows, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => { this.ownershipInvalidated(); this.behavior.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id }); }, onActorMainFailure: (error) => this.onProcessorActorMainFailure(card.id, activationId, error), fatalPort: this.behavior.fatalPort, gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
     processor.start();
     return new CardActivationOwner({ card, store: this.behavior.actorStore, processor, activationId, entry, caller, phase, parentRelationship: relationship ?? undefined, alreadyStabilizedAgents: stabilized });
   }

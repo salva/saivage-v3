@@ -36,7 +36,6 @@ import type { ConversationSessionId, GlobalConversationSessionId } from '../sche
 import type { ToolContext } from '../tools/analyst-tool-types.js';
 import { createAnalystMutationServices } from './analyst-mutation-services.js';
 import { runtimeAgentBinding } from '../runtime/card-process/card-process-config.js';
-import { createProcessPromptRegistry } from '../runtime/card-process/process-prompt-registry.js';
 import { EventQueryService } from './event-query-service.js';
 import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
@@ -120,7 +119,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const promptTemplates = createPromptTemplateRegistry(services.workflows);
   const workflows = services.workflows;
   const analystBinding = runtimeAgentBinding(workflows, workflows.analyst.name);
-  const processPrompts = createProcessPromptRegistry(workflows);
   const runtimeSupervisor = createSupervisorRuntimeApi({
     projectRoot,
     processIdentity: services.processIdentity,
@@ -128,7 +126,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     provider: createInvocationServiceProvider(invocationService),
     promptTemplates,
     workflows,
-    processPrompts,
     compactionConfig: compactionPolicy,
     compactor,
     summarizerProvider,
