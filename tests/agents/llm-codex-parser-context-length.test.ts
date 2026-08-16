@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { handleOpenAICodexEvent } from '../../src/agents/llm-codex-parser.js';
-import { LlmRequestError } from '../../src/agents/llm-errors.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 
 describe('OpenAI Codex SSE error classification', () => {
   function failureFor(event: Record<string, unknown>, responseStatus = 200) {

@@ -8,7 +8,7 @@ import type {
   ProviderConversationProjection,
   ToolCall,
 } from './llm-contracts.js';
-import { LlmRequestError } from './llm-errors.js';
+import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { appendFinalOutboundLlmRequestSectionSizesDiagnostic } from './llm-request-diagnostics.js';
 import {

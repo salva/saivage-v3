@@ -1,9 +1,6 @@
 export {
   actorPauseModeSchema,
   actorPauseModes,
-  llmActorPhaseSchema,
-  llmActorPhases,
-  parseLlmActorPhase,
   publicCardActorStateSchema,
   publicCardActorStates,
   toPublicCardActorState,
@@ -63,14 +60,10 @@ export type {
 } from './lifecycle.js';
 export {
   CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY,
-  activationOutcomeSchema,
   blockedResultSchema,
   cardLifecycleStateSchema,
-  cardResultSchema,
   doneResultSchema,
   failedResultSchema,
-  runtimeRunOutcomeSchema,
-  selfReportSchema,
 } from './lifecycle.js';
 export type {
   CardStatus,
@@ -126,7 +119,6 @@ export {
   cardRecordSchema,
   cardOperatorSummarySchema,
   operatorCardSchema,
-  cardViewSchema,
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   cardHistoryKindSchema,

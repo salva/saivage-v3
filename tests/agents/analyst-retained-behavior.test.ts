@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { ANALYST_CAPABILITY_CLASSES, ANALYST_UNKNOWN_CAPABILITY_TEMPLATE, ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
-import { listControlActions } from '../../src/persistence/index.js';
+import { listControlActions } from '../../src/persistence/control-action-audit.js';
 import { reorder_child } from '../../src/tools/analyst-card-tools.js';
 
 const roots: string[] = [];

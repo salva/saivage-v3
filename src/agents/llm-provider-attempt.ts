@@ -7,7 +7,7 @@ import {
 } from './candidate-request.js';
 import type { LlmCompleteOptions, ProviderTurnCompletion } from './llm-contracts.js';
 import { ProviderTurnFailure } from './llm-contracts.js';
-import { LlmRequestError } from './llm-errors.js';
+import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyTransportFailure } from './llm-failure-classifiers.js';
 import { createProviderExchangeRecorder } from './provider-exchange-recorder.js';
 import { resolveLlmTransportConfig } from './llm-transport.js';

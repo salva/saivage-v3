@@ -60,7 +60,9 @@ function isPackageRootImport(parts) {
 }
 
 function isExplicitPublicEntrypoint(parts) {
-  return parts.length === 2 && EXPLICIT_PUBLIC_ENTRYPOINT_RE.test(parts[1]);
+  if (parts.length !== 2) return false;
+  if (parts[0] === 'runtime') return parts[1] === 'runtime-api.js';
+  return EXPLICIT_PUBLIC_ENTRYPOINT_RE.test(parts[1]);
 }
 
 function isCrossPackageAllowed(fromPkg, parts) {
@@ -103,12 +105,13 @@ function runSelfTest() {
     { fromPkg: 'cards', parts: ['cards', 'card-store.js'], ok: true, label: 'same-package deep' },
     { fromPkg: 'runtime', parts: ['agents', 'nested', 'module.js'], ok: false, label: 'runtime must not import agent internals' },
     { fromPkg: 'runtime', parts: ['agents', 'index.js'], ok: false, label: 'runtime must not import agents index' },
-    { fromPkg: 'server', parts: ['runtime', 'control-api.js'], ok: true, label: 'server may use runtime control API' },
+    { fromPkg: 'server', parts: ['runtime', 'runtime-api.js'], ok: true, label: 'server may use the canonical runtime API' },
+    { fromPkg: 'server', parts: ['runtime', 'control-api.js'], ok: false, label: 'server must not use the deleted runtime control API' },
+    { fromPkg: 'server', parts: ['runtime', 'state-api.js'], ok: false, label: 'server must not use unrelated runtime deep APIs' },
     { fromPkg: 'server', parts: ['runtime'], ok: false, label: 'server must not use runtime root' },
     { fromPkg: 'agents', parts: ['runtime'], ok: false, label: 'agents must not use runtime package root' },
     { fromPkg: 'agents', parts: ['runtime', 'index.js'], ok: false, label: 'agents must not use runtime index' },
     { fromPkg: 'agents', parts: ['runtime', 'state.js'], ok: false, label: 'agents must not deep-import runtime state' },
-    { fromPkg: 'agents', parts: ['runtime', 'state-api.js'], ok: false, label: 'agents still cannot depend on runtime state API' },
     { fromPkg: 'schemas', parts: ['events', 'index.js'], ok: false, label: 'schemas must not import events' },
     { fromPkg: 'events', parts: ['schemas', 'event-catalog.js'], ok: true, label: 'events may import schema catalog owner' },
     { fromPkg: null, parts: ['agents', 'index.js'], ok: false, label: 'root entrypoint must not import central package root' },

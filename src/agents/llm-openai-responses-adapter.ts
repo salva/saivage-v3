@@ -1,7 +1,7 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { EffectiveProviderCapabilities } from './provider-capabilities.js';
 import type { LlmCompleteOptions, ProviderConversationProjection } from './llm-contracts.js';
-import { LlmRequestError } from './llm-errors.js';
+import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
 import { parseOpenAIResponsesJson } from './llm-openai-responses-parser.js';

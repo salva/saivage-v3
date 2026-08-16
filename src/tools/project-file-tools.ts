@@ -10,7 +10,7 @@ import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp
 import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
-import { replaceFile } from '../persistence/index.js';
+import { replaceFile } from '../persistence/replace-file.js';
 import { mutateRecord } from '../application/record-mutation-service.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 

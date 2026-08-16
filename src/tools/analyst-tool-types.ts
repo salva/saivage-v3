@@ -1,6 +1,6 @@
 import type { CardService } from '../cards/card-api.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
-import type { RuntimeApi } from '../runtime/control-api.js';
+import type { RuntimeApi } from '../runtime/runtime-api.js';
 import type { ToolResult } from './invocation.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';

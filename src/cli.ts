@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
 import { publishInitialProjectRuntime, startApp } from './boot/index.js';
-import { findProjectRoot } from './persistence/index.js';
+import { findProjectRoot } from './persistence/discovery.js';
 import { readRuntimeLockStatus } from './runtime/lock.js';
 import { resetOwnedGeneratedRoots } from './persistence/layout.js';
 import { withDirectMutationComposition } from './boot/direct-mutation-composition.js';

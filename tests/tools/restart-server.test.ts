@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 
-import { listControlActions } from '../../src/persistence/index.js';
+import { listControlActions } from '../../src/persistence/control-action-audit.js';
 import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { createAnalystControlProvider } from '../../src/tools/analyst-control-provider.js';

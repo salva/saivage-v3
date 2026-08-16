@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 import { parseOpenAIResponsesJson } from '../../src/agents/llm-openai-responses-parser.js';
-import { LlmRequestError } from '../../src/agents/llm-errors.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 
 const CTX = { provider: 'openai', model: 'gpt-5.6', sourceInputId: 'input-1', responseStatus: 200 };
 

@@ -1,4 +1,4 @@
-import { listControlActions } from '../persistence/index.js';
+import { listControlActions } from '../persistence/control-action-audit.js';
 import { eventKindValues } from '../schemas/index.js';
 import { buildProcessView } from '../application/read-models/process-view.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';

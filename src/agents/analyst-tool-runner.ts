@@ -1,4 +1,4 @@
-import { recordControlAction, stableStringify } from '../persistence/index.js';
+import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
 import type { ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';

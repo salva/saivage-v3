@@ -5,7 +5,7 @@ import { executeLlmProviderAttempt } from '../../src/agents/llm-provider-attempt
 import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
 import type { LlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
-import { LlmRequestError } from '../../src/agents/llm-errors.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 
 const candidate = { provider: 'test', account: null, model: 'model' } as const;
 const options = (signal?: AbortSignal): LlmCompleteOptions => ({ inputId: 'input', temperature: 0.2, max_tokens: 321, contract_id: 'planner.v1', contractName: 'planner', terminalToolOffered: ['done'], tools: [], tool_choice: 'auto', signal });

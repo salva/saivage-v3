@@ -18,7 +18,7 @@ import { redactUrl } from '../redaction/text.js';
 import { WebfetchInvocationSchema, WebfetchResultSchema, WorkspaceWriteSuccessSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
 import { RecordMutationResultSchema, RecordMutationSuccessSchema } from '../contracts/record-mutation.js';
 import { websearchInputSchema } from '../contracts/builtin-tool-inputs.js';
-import { replaceFile } from '../persistence/index.js';
+import { replaceFile } from '../persistence/replace-file.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { admitRecordMutation } from '../application/record-mutation-service.js';
 

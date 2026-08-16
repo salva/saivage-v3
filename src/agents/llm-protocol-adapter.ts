@@ -7,7 +7,7 @@ import type {
   ProviderConversationProjection,
   ProviderPrivateContext,
 } from './llm-contracts.js';
-import type { LlmRequestError } from './llm-errors.js';
+import type { LlmRequestError } from '../contracts/llm-failure.js';
 import { openAIChatAdapter } from './llm-openai-chat-adapter.js';
 import { openAIResponsesAdapter } from './llm-openai-responses-adapter.js';
 import { openAICodexAdapter } from './llm-openai-codex-adapter.js';

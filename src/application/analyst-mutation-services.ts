@@ -5,7 +5,7 @@ import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js
 import { queueNotification } from '../notifications/index.js';
 import type { CardRecord, CardTypeName } from '../schemas/index.js';
 import { propagateAnalystRecordEdit, propagateChange } from '../runtime/changed-propagation.js';
-import type { RuntimeApi } from '../runtime/control-api.js';
+import type { RuntimeApi } from '../runtime/runtime-api.js';
 import { toCardView } from './read-models/card-view.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import type { AnalystPreNetworkAdmission } from '../contracts/record-mutation.js';

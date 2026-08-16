@@ -1,4 +1,4 @@
-import { LlmRequestError } from './llm-errors.js';
+import { LlmRequestError } from '../contracts/llm-failure.js';
 import type { LlmCompleteResult, LlmUsage, OpenAIResponsesPrivateContext, ToolCall } from './llm-contracts.js';
 import { classifyDirectProviderFailure } from './llm-failure-classifiers.js';
 

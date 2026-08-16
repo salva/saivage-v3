@@ -2,12 +2,9 @@ import { mkdirSync } from 'node:fs';
 import { basename } from 'node:path';
 
 import type { Environment } from '../config/index.js';
-import {
-  initializeConversation,
-  publishInitialProjectCard,
-  saivageCardsRoot,
-  type InitialProjectCardInput,
-} from '../persistence/index.js';
+import { publishInitialProjectCard, type InitialProjectCardInput } from '../persistence/card-files.js';
+import { initializeConversation } from '../persistence/conversation-file.js';
+import { saivageCardsRoot } from '../persistence/layout.js';
 import { globalAgentSessionId } from '../schemas/index.js';
 
 function newProjectRootInput(projectRoot: string): InitialProjectCardInput {

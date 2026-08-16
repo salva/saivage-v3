@@ -1,4 +1,4 @@
-import type { RuntimeApi } from '../../runtime/control-api.js';
+import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import type { RuntimeStatusResponse, ServerAvailability } from '../../contracts/index.js';
 
 export type RuntimeStatusReadModel = Omit<RuntimeStatusResponse, 'restart_server_available'>;

@@ -6,7 +6,7 @@ import {
   sourceInputIdFromToolResultMessageId,
 } from '../schemas/message-identity.js';
 import type { LlmCompleteOptions, ProviderConversationProjection } from './llm-contracts.js';
-import { LlmRequestError } from './llm-errors.js';
+import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';

@@ -1,5 +1,5 @@
 import type { OperatorApiSuccess } from '../../contracts/index.js';
-import { listControlActions } from '../../persistence/index.js';
+import { listControlActions } from '../../persistence/control-action-audit.js';
 import { redactForOutbound } from '../../redaction/index.js';
 import { defineOperatorContractHandlers, type OperatorConfigContext, type OperatorProjectContext } from './operator-handler-context.js';
 

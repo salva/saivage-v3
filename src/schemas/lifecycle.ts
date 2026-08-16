@@ -51,14 +51,6 @@ export type RuntimeRunOutcome =
   | { outcome: 'cancelled'; completed_at: string | null }
   | { outcome: 'stopped'; stopped_at: string; reason: string | null };
 
-export const selfReportSchema: z.ZodType<SelfReport> = z.object({
-  result: z.string(),
-  outcome: z.string(),
-  summary: z.string(),
-  status_text: z.string(),
-  at: timestampSchema,
-}).strict();
-
 const workflowResultSchema: z.ZodType<WorkflowResult> = z.object({kind:z.literal('workflow-result'),terminal:z.enum(['DONE','BLOCKED','FAILED']),agent_name:nonEmptyStringSchema,node_id:nonEmptyStringSchema,outcome:nonEmptyStringSchema,summary:nonEmptyStringSchema,records:z.array(z.object({name:nonEmptyStringSchema,url:nonEmptyStringSchema,version:z.number().int().positive()}).strict())}).strict();
 const runtimeFailureResultSchema: z.ZodType<RuntimeFailureResult> = z.object({kind:z.literal('runtime-failure'),summary:nonEmptyStringSchema}).strict();
 const contentPolicyRefusalBlockedResultSchema: z.ZodType<ContentPolicyRefusalBlockedResult> = z.object({ kind: z.literal('content-policy-refusal'), summary: z.literal(CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY), session_id: ConversationSessionIdSchema, marker_id: nonEmptyStringSchema, evidence_url: nonEmptyStringSchema }).strict();
@@ -66,37 +58,13 @@ export const doneResultSchema: z.ZodType<DoneResult> = workflowResultSchema;
 export const failedResultSchema: z.ZodType<FailedResult> = z.union([workflowResultSchema,runtimeFailureResultSchema]);
 export const blockedResultSchema: z.ZodType<BlockedResult> = z.union([workflowResultSchema, contentPolicyRefusalBlockedResultSchema]);
 
-export const cardResultSchema: z.ZodType<CardResult> = z.union([
-  doneResultSchema,
-  failedResultSchema,
-  blockedResultSchema,
-]);
-
-export const failedLifecycleResultSchema: z.ZodType<FailedResult> = failedResultSchema;
-export const blockedLifecycleResultSchema: z.ZodType<BlockedResult> = blockedResultSchema;
-
 export const cardLifecycleStateSchema: z.ZodType<CardLifecycleState> = z.discriminatedUnion('status', [
   z.object({ status: z.literal('backlog'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('running'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('changed'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('stopped'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
   z.object({ status: z.literal('done'), result: doneResultSchema, error: z.null(), completed_at: timestampSchema }).strict(),
-  z.object({ status: z.literal('failed'), result: failedLifecycleResultSchema, error: nonEmptyStringSchema, completed_at: timestampSchema }).strict(),
-  z.object({ status: z.literal('blocked'), result: blockedLifecycleResultSchema, error: nonEmptyStringSchema, completed_at: z.null() }).strict(),
+  z.object({ status: z.literal('failed'), result: failedResultSchema, error: nonEmptyStringSchema, completed_at: timestampSchema }).strict(),
+  z.object({ status: z.literal('blocked'), result: blockedResultSchema, error: nonEmptyStringSchema, completed_at: z.null() }).strict(),
   z.object({ status: z.literal('cancelled'), result: z.null(), error: z.null(), completed_at: z.null() }).strict(),
-]);
-
-export const activationOutcomeSchema: z.ZodType<ActivationOutcome> = z.discriminatedUnion('outcome', [
-  z.object({ outcome: z.literal('done'), completed_at: timestampSchema, result: doneResultSchema }).strict(),
-  z.object({ outcome: z.literal('failed'), completed_at: timestampSchema, error: nonEmptyStringSchema, result: failedLifecycleResultSchema }).strict(),
-  z.object({ outcome: z.literal('blocked'), error: nonEmptyStringSchema, result: blockedLifecycleResultSchema }).strict(),
-  z.object({ outcome: z.literal('cancelled'), completed_at: timestampSchema.nullable() }).strict(),
-]);
-
-export const runtimeRunOutcomeSchema: z.ZodType<RuntimeRunOutcome> = z.discriminatedUnion('outcome', [
-  z.object({ outcome: z.literal('done'), completed_at: timestampSchema, result: doneResultSchema }).strict(),
-  z.object({ outcome: z.literal('failed'), completed_at: timestampSchema, error: nonEmptyStringSchema, result: failedLifecycleResultSchema }).strict(),
-  z.object({ outcome: z.literal('blocked'), error: nonEmptyStringSchema, result: blockedLifecycleResultSchema }).strict(),
-  z.object({ outcome: z.literal('cancelled'), completed_at: timestampSchema.nullable() }).strict(),
-  z.object({ outcome: z.literal('stopped'), stopped_at: timestampSchema, reason: z.string().nullable() }).strict(),
 ]);

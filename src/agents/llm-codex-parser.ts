@@ -1,6 +1,6 @@
 import type { LlmCompleteResult, ToolCall } from './llm-contracts.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { LlmRequestError } from './llm-errors.js';
+import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyDirectProviderFailure, parseFiniteRetryAfterMs } from './llm-failure-classifiers.js';
 import { IncrementalSseReader, SSE_DONE, type SseOutput } from './llm-sse.js';
 

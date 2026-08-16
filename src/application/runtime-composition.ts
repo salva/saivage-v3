@@ -7,7 +7,7 @@ import { MemoryCandidateAvailability } from '../agents/candidate-availability.js
 import { AnalystRuntime, AnalystSession, type AnalystTurnInput } from '../agents/analyst-api.js';
 import { ProviderRegistry } from '../agents/provider.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
-import type { RuntimeApi } from '../runtime/control-api.js';
+import type { RuntimeApi } from '../runtime/runtime-api.js';
 
 import { CardService } from '../cards/card-service.js';
 import { InvocationService } from '../agents/invocation-service.js';

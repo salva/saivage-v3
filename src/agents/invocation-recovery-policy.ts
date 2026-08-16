@@ -1,5 +1,5 @@
 import type { AgentName } from '../schemas/index.js';
-import { unwrapFailure } from './llm-errors.js';
+import { unwrapFailure } from '../contracts/llm-failure.js';
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision } from './candidate-availability.js';

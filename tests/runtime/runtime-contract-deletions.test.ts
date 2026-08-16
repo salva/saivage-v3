@@ -30,15 +30,13 @@ describe('runtime ledger contract deletions', () => {
   });
 
   it('removes obsolete runtime lock and conversation-barrel exports', async () => {
-    const [lock, control, actors] = await Promise.all([
+    const [lock, actors] = await Promise.all([
       import('../../src/runtime/lock.js'),
-      import('../../src/runtime/control-api.js'),
       import('../../src/runtime/actors/index.js'),
     ]);
 
     expect('parseRuntimeLockOwnerRecord' in lock).toBe(false);
     expect('isLocked' in lock).toBe(false);
-    expect('isLocked' in control).toBe(false);
     expect('parseConversationSessionId' in actors).toBe(false);
   });
 
@@ -77,10 +75,8 @@ describe('runtime ledger contract deletions', () => {
       expect(removed in schemas).toBe(false);
     }
 
-    expect(schemas.activationOutcomeSchema).toBeDefined();
     expect(schemas.runtimeStatusSchema).toBeDefined();
     expect(schemas.runtimeStatusSchema.safeParse('uninitialized').success).toBe(false);
-    expect(schemas.runtimeRunOutcomeSchema).toBeDefined();
     expect(schemas.eventKindValues).toEqual([
       'runtime_diagnostic',
       'runtime_actionable_error',
@@ -100,7 +96,7 @@ describe('runtime ledger contract deletions', () => {
     }
   });
 
-  it('removes rework results and admits only the exact workflow result in every shared runtime schema', async () => {
+  it('removes rework results and admits only the exact workflow result in the card lifecycle schema', async () => {
     const schemas = await import('../../src/schemas/index.js');
     const schemaIndexSource = readFileSync(join(process.cwd(), 'src/schemas/index.ts'), 'utf8');
     expect(schemaIndexSource).not.toContain('ReworkResult');
@@ -110,17 +106,9 @@ describe('runtime ledger contract deletions', () => {
 
     const blockedResult = { kind: 'workflow-result',terminal:'BLOCKED',agent_name:'executor',node_id:'execute',outcome:'blocked',summary:'waiting',records:[] };
     const reworkResult = { kind: 'rework', summary: 'revise', feedback: 'incorrect' };
-    expect(schemas.cardResultSchema.parse(blockedResult)).toEqual(blockedResult);
     expect(schemas.cardLifecycleStateSchema.parse({ status: 'blocked', result: blockedResult, error: 'waiting', completed_at: null }))
       .toEqual({ status: 'blocked', result: blockedResult, error: 'waiting', completed_at: null });
-    expect(schemas.activationOutcomeSchema.parse({ outcome: 'blocked', result: blockedResult, error: 'waiting' }))
-      .toEqual({ outcome: 'blocked', result: blockedResult, error: 'waiting' });
-    expect(schemas.runtimeRunOutcomeSchema.parse({ outcome: 'blocked', result: blockedResult, error: 'waiting' }))
-      .toEqual({ outcome: 'blocked', result: blockedResult, error: 'waiting' });
 
-    expect(schemas.cardResultSchema.safeParse(reworkResult).success).toBe(false);
     expect(schemas.cardLifecycleStateSchema.safeParse({ status: 'blocked', result: reworkResult, error: 'revise', completed_at: null }).success).toBe(false);
-    expect(schemas.activationOutcomeSchema.safeParse({ outcome: 'blocked', result: reworkResult, error: 'revise' }).success).toBe(false);
-    expect(schemas.runtimeRunOutcomeSchema.safeParse({ outcome: 'blocked', result: reworkResult, error: 'revise' }).success).toBe(false);
   });
 });
