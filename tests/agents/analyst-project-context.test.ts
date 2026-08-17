@@ -8,7 +8,7 @@ import type { CardService as CardServiceType } from '../../src/cards/card-api.js
 import type { InvocationSurface } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -39,7 +39,7 @@ describe('Analyst project context', () => {
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
       promptTemplates: { render },
       restartServerAvailable: false,
-      provider: { completeTurn },
+      provider: scriptedAdmissionProvider(completeTurn),
       conversations: { projectRoot },
       compactionPolicy: testCompactionPolicy,
       compactor: { shouldCompact: () => false, compact: async () => { throw new Error('compaction must not run'); } },

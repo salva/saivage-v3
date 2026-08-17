@@ -3,7 +3,8 @@ import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtim
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
-import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
@@ -18,7 +19,7 @@ const runtime = new SupervisorRuntimeApi({
   runtimeGate: new RuntimeGate(),
   projectRoot,
   actorStore: cards,
-  provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
+  provider: scriptedAdmissionProvider((_input: LlmInvocationInput, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))),
   conversations: { projectRoot },
   freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
   processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),

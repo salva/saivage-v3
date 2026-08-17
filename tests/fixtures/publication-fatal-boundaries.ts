@@ -20,7 +20,7 @@ import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
 import { AnalystSession } from '../../src/agents/analyst-handler.js';
-import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 const mode = process.argv[2];
@@ -72,7 +72,7 @@ if (mode === 'llm-conversation') {
     gate: new RuntimeGate(),
     fatalPort,
     agentId: 'agent:planner:project',
-    provider: { completeTurn: async () => { throw new PublicationOutcomeUnknownError(); } },
+    provider: scriptedAdmissionProvider(async () => { throw new PublicationOutcomeUnknownError(); }),
     conversations: { projectRoot: root },
     compactor: { shouldCompact: () => false, compact: async () => { throw new Error('not reached'); } },
     summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
@@ -166,7 +166,7 @@ if (mode === 'analyst-project-context') {
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => { mark('prompt'); return 'rendered prompt'; } },
     restartServerAvailable: false,
-    provider: { completeTurn: async () => { mark('provider'); throw new Error('Provider must not run.'); } },
+    provider: scriptedAdmissionProvider(async () => { mark('provider'); throw new Error('Provider must not run.'); }),
     conversations: { projectRoot: root },
     compactionPolicy: testCompactionPolicy,
     compactor: { shouldCompact: () => false, compact: async () => { throw new Error('Compaction must not run.'); } },

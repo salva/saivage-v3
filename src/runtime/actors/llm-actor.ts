@@ -1,5 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion } from '../../agents/llm-contracts.js';
+import {
+  AdmittedProviderTurnFailure,
+  LocalExactAdmissionError,
+  projectAdmissionDiagnostics,
+  type AdmittedRecoveryPreparation,
+  type OrdinaryAdmittedExecution,
+  type OrdinaryPrimaryRequestAdmission,
+  type PinnedAdmittedContentPolicyRequest,
+  type PinnedContentPolicyPreflight,
+  type SuspendedAdmittedExecution,
+} from '../../agents/invocation-admission.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
 import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, conversationSessionIdentity, parseConversationSessionId, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';
@@ -34,7 +45,12 @@ export class LastChanceSummaryProviderUnavailableError extends Error {
 }
 
 export interface LLMProviderPort {
-  completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>;
+  preparePrimaryRequestAdmission(input: PreparedLlmInvocationInput, signal: AbortSignal): OrdinaryPrimaryRequestAdmission;
+  executeAdmittedWithRecovery(admission: OrdinaryAdmittedExecution, signal: AbortSignal): Promise<ProviderTurnCompletion>;
+  prepareAdmittedRecovery(args: Readonly<{ suspension: SuspendedAdmittedExecution; input: PreparedLlmInvocationInput; signal: AbortSignal }>): AdmittedRecoveryPreparation;
+  resumeAdmittedExecution(preparation: AdmittedRecoveryPreparation, signal: AbortSignal): Promise<ProviderTurnCompletion>;
+  preflightPinnedContentPolicyRequest(input: LlmInvocationInput, signal: AbortSignal): PinnedContentPolicyPreflight;
+  executePinnedContentPolicyRequest(preflight: PinnedAdmittedContentPolicyRequest, signal: AbortSignal): Promise<ProviderTurnCompletion>;
   projectProviderExchanges?(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void;
 }
 
@@ -349,12 +365,39 @@ export class ConversationLLMActor {
       input = { ...input, providerConversation: compacted.providerConversation }; operation.input = input;
     }
     this.#assertPersistenceOwnership(input);
+    const admission = await this.#admitPrimaryRequest(input, signal);
     appendLlmTurnStarted(this.conversations, input);
     await this.gate.waitUntilOpen(signal); this.#invocations.assertCurrent(operation.lease!); operation.providerBoundaryEntered = true;
-    const completion = await this.#callProvider(operation, input, signal); this.#invocations.assertCurrent(operation.lease!);
+    const completion = await this.#callProvider(operation, input, admission, signal); this.#invocations.assertCurrent(operation.lease!);
     if (completion.kind === 'content-policy-blocked') return completion;
     operation.completionPersistenceEntered = true;
     return this.#persistProviderCompletion(input, completion.completion);
+  }
+
+  async #admitPrimaryRequest(input: PreparedLlmInvocationInput, signal: AbortSignal): Promise<OrdinaryAdmittedExecution> {
+    const first = this.provider.preparePrimaryRequestAdmission(input, signal);
+    if (first.kind === 'admitted') return first;
+    if (first.kind === 'local_admission_failed') throw new LocalExactAdmissionError({ localCompactionAttempted: false, diagnostics: projectAdmissionDiagnostics(first.candidates) });
+    signal.throwIfAborted();
+    let compacted: Extract<CompactionResult, { kind: 'compacted' }>;
+    try {
+      const result = await this.compactor.compact({ strategy: 'local_exact_admission', conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal });
+      signal.throwIfAborted();
+      if (result.kind === 'no_smaller_projection')
+        throw new LocalExactAdmissionError({ localCompactionAttempted: true, diagnostics: projectAdmissionDiagnostics(first.candidates) });
+      compacted = result;
+    } catch (error) {
+      this.#deliverPublicationFatal(error);
+      if (error instanceof LocalExactAdmissionError) throw error;
+      if (error instanceof CompactionSummaryConstructionError)
+        throw new LocalExactAdmissionError({ localCompactionAttempted: true, diagnostics: projectAdmissionDiagnostics(first.candidates), cause: error });
+      throw error;
+    }
+    if (compacted.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compacted.providerConversation.sourceSessionId}'.`);
+    const recomposed: PreparedLlmInvocationInput = { ...input, providerConversation: compacted.providerConversation };
+    const second = this.provider.preparePrimaryRequestAdmission(recomposed, signal);
+    if (second.kind === 'admitted') return second;
+    throw new LocalExactAdmissionError({ localCompactionAttempted: true, diagnostics: projectAdmissionDiagnostics(second.candidates) });
   }
 
   async #completeInvocation(operation: InvocationOperation, persisted: PersistedProviderCompletion): Promise<void> {
@@ -504,15 +547,22 @@ export class ConversationLLMActor {
   #publishExecutingActivityChange(): void { this.runtimeProjectionChanged?.(); }
   #assertPersistenceOwnership(input: CanonicalLlmInvocationInput): void { if (input.sessionId !== input.providerConversation.sourceSessionId) throw new Error(`Persisted LLM invocation '${input.inputId}' session '${input.sessionId}' does not match provider conversation source session '${input.providerConversation.sourceSessionId}'.`); }
 
-  async #callProvider(operation: InvocationOperation, input: CanonicalLlmInvocationInput, signal: AbortSignal): Promise<{ kind: 'completion'; completion: ProviderTurnCompletion } | Extract<PersistedProviderCompletion, { kind: 'content-policy-blocked' }>> {
-    let firstFailure: AuthoritativeContextFailure;
-    try { return { kind: 'completion', completion: await this.provider.completeTurn(input, signal) }; }
-    catch (error) {
+  async #callProvider(operation: InvocationOperation, input: CanonicalLlmInvocationInput, admission: OrdinaryAdmittedExecution, signal: AbortSignal): Promise<{ kind: 'completion'; completion: ProviderTurnCompletion } | Extract<PersistedProviderCompletion, { kind: 'content-policy-blocked' }>> {
+    try {
+      return { kind: 'completion', completion: await this.provider.executeAdmittedWithRecovery(admission, signal) };
+    } catch (error) {
+      this.#deliverPublicationFatal(error);
+      if (error instanceof AdmittedProviderTurnFailure) return this.#recoverAuthoritativeContext(operation, input, signal, error);
       if (isAuthoritativeContentPolicyFailure(error)) return this.#recoverContentPolicyRefusal(operation, input, signal, error);
-      if (!isAuthoritativeContextFailure(error)) throw error;
-      firstFailure = error;
+      throw error;
     }
+  }
+
+  async #recoverAuthoritativeContext(operation: InvocationOperation, input: CanonicalLlmInvocationInput, signal: AbortSignal, handoff: AdmittedProviderTurnFailure): Promise<{ kind: 'completion'; completion: ProviderTurnCompletion } | Extract<PersistedProviderCompletion, { kind: 'content-policy-blocked' }>> {
     if (!operation.providerBoundaryEntered || operation.completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover outside the provider boundary.`);
+    const firstFailure = handoff.turnFailure;
+    if (!(firstFailure.originalFailure instanceof LlmRequestError) || firstFailure.originalFailure.failure.kind !== 'input_context_exhausted')
+      throw new Error(`Admitted provider turn failure for '${input.inputId}' does not carry authoritative input-context exhaustion.`);
     const firstAttempts = strictContextFailureAttempts(firstFailure, input.inputId); signal.throwIfAborted();
     let compaction: Extract<CompactionResult, { kind: 'compacted' }>;
     try {
@@ -534,17 +584,20 @@ export class ConversationLLMActor {
       throw error;
     }
     if (compaction.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compaction.providerConversation.sourceSessionId}'.`);
+    let preparation: AdmittedRecoveryPreparation;
     try {
-      const completion = await this.provider.completeTurn({ ...input, providerConversation: compaction.providerConversation }, signal);
-      return { kind: 'completion', completion: { ...completion, provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, completion.provider_exchanges) } };
+      preparation = this.provider.prepareAdmittedRecovery({ suspension: handoff.suspension, input: { ...input, providerConversation: compaction.providerConversation } as PreparedLlmInvocationInput, signal });
     } catch (error) {
       this.#deliverPublicationFatal(error);
-      if (!(error instanceof ProviderTurnFailure)) throw error;
-      if (isAuthoritativeContextFailure(error)) {
-        const secondAttempts = strictContextFailureAttempts(error, input.inputId);
-        throw normalContextFailure(`Provider input context remained exhausted after one forced compacted retry (first_pass_attempts=${firstAttempts.length}, second_pass_attempts=${secondAttempts.length}, compacted_estimated_message_tokens=${compaction.estimatedProviderMessageTokens}).`, combineProviderAttempts(input.inputId, firstAttempts, secondAttempts), error.originalFailure);
-      }
-      throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, error.provider_exchanges), originalFailure: error.originalFailure, message: error.message, candidate:error.candidate });
+      throw error;
+    }
+    try {
+      const completion = await this.provider.resumeAdmittedExecution(preparation, signal);
+      return { kind: 'completion', completion };
+    } catch (error) {
+      this.#deliverPublicationFatal(error);
+      if (error instanceof AdmittedProviderTurnFailure) throw new Error(`LLMActor '${this.agentId}' authoritative context recovery cannot suspend a second time.`);
+      throw error;
     }
   }
 
@@ -564,8 +617,24 @@ export class ConversationLLMActor {
       routePass: { kind: 'pinned-content-policy-retry', candidate: firstFailure.candidate },
     };
     operation.input = retryInput;
+    let preflight: PinnedContentPolicyPreflight;
     try {
-      const completion = await this.provider.completeTurn(retryInput, signal);
+      preflight = this.provider.preflightPinnedContentPolicyRequest(retryInput, signal);
+    } catch (error) {
+      this.#deliverPublicationFatal(error);
+      throw new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: firstAttempts, originalFailure: error, candidate: firstFailure.candidate });
+    }
+    if (preflight.kind === 'rejected') {
+      throw new ProviderTurnFailure({
+        failure_phase: 'provider_attempt',
+        provider_exchanges: firstAttempts,
+        originalFailure: firstFailure.originalFailure,
+        message: `Pinned content-policy retry for '${input.inputId}' was rejected before transport: ${pinnedPreflightRejection(preflight)}.`,
+        candidate: firstFailure.candidate,
+      });
+    }
+    try {
+      const completion = await this.provider.executePinnedContentPolicyRequest(preflight, signal);
       return { kind: 'completion', completion: { ...completion, provider_exchanges: combineProviderAttempts(input.inputId, firstAttempts, completion.provider_exchanges) } };
     } catch (error) {
       this.#deliverPublicationFatal(error);
@@ -607,10 +676,14 @@ type PersistedProviderCompletion =
   | { kind: 'tool_call'; input: CanonicalLlmInvocationInput; result: Extract<LlmCompleteResult, { kind: 'tool_calls' }>; toolCallArguments: string }
   | { kind: 'error'; input: CanonicalLlmInvocationInput; error: string; toolCallArguments: null }
   | { kind: 'content-policy-blocked'; input: CanonicalLlmInvocationInput; result: ContentPolicyRefusalBlockedResult; toolCallArguments: null };
-type AuthoritativeContextFailure = ProviderTurnFailure & { originalFailure: LlmRequestError & { failure: Extract<LlmTransportFailure, { kind: 'input_context_exhausted' }> } };
-function isAuthoritativeContextFailure(error: unknown): error is AuthoritativeContextFailure { return error instanceof ProviderTurnFailure && error.originalFailure instanceof LlmRequestError && error.originalFailure.failure.kind === 'input_context_exhausted'; }
 type AuthoritativeContentPolicyFailure = ProviderTurnFailure & { originalFailure: LlmRequestError & { failure: Extract<LlmTransportFailure, { kind: 'content_policy' }> } };
 function isAuthoritativeContentPolicyFailure(error: unknown): error is AuthoritativeContentPolicyFailure { return error instanceof ProviderTurnFailure && error.originalFailure instanceof LlmRequestError && error.originalFailure.failure.kind === 'content_policy'; }
+function pinnedPreflightRejection(preflight: Extract<PinnedContentPolicyPreflight, { kind: 'rejected' }>): string {
+  const verdict = preflight.verdict;
+  if (verdict.kind === 'candidate_ineligible')
+    return `candidate_ineligible(${verdict.reason.kind}${verdict.reason.kind === 'capability_mismatch' ? `: ${verdict.reason.reasons.join(', ')}` : ''}) for ${preflight.candidate.provider}/${preflight.candidate.account ?? '_implicit'}/${preflight.candidate.model}`;
+  return `projection_too_large(estimated_input_tokens=${verdict.estimatedInputTokens}, requested_completion_tokens=${verdict.requestedCompletionTokens}, input_budget_tokens=${verdict.inputBudgetTokens ?? 'undeclared'}, context_window_tokens=${verdict.contextWindowTokens}) for ${preflight.candidate.provider}/${preflight.candidate.account ?? '_implicit'}/${preflight.candidate.model}`;
+}
 function strictContextFailureAttempts(error: ProviderTurnFailure, inputId: string): ProviderExchangeAttempt[] {
   if (error.failure_phase !== 'provider_attempt' || error.provider_exchanges.length === 0) throw new Error(`Context failure for '${inputId}' carried no provider exchange.`);
   return error.provider_exchanges.map((attempt, index) => {

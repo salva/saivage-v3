@@ -13,7 +13,7 @@ import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
@@ -23,7 +23,7 @@ function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { 
 function tool(id: string, name: string, args: object): LlmCompleteResult { return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }; }
 async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
 
-function supervisor(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> }): SupervisorRuntimeApi {
+function supervisor(projectRoot: string, cards: CardService, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort): SupervisorRuntimeApi {
   const registry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
   return new SupervisorRuntimeApi({
@@ -52,11 +52,11 @@ describe('Stage-I runtime lifecycle E2E', () => {
     cards.setStatus(child.id, 'running');
     const inputs: LlmInvocationInput[] = [];
     let releaseFirst!: () => void;
-    const provider = { completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
+    const provider = scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
       inputs.push(input);
       if (inputs.length === 1) return new Promise<ProviderTurnCompletion>((resolve) => { releaseFirst = () => resolve(complete(tool('write-status', 'write', { path: 'record:///status.md?card=project', content: 'work started' }))); });
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
-    }) };
+    }));
     const runtime = supervisor(projectRoot, cards, provider);
 
     const started = await runtime.startProject();
@@ -108,14 +108,14 @@ describe('Stage-I runtime lifecycle E2E', () => {
     cards.setStatus(active.id, 'running');
     let releaseTerminal!: () => void;
     let calls = 0;
-    const provider = { completeTurn: jest.fn(async (_input: LlmInvocationInput, signal: AbortSignal) => {
+    const provider = scriptedAdmissionProvider(jest.fn(async (_input: LlmInvocationInput, signal: AbortSignal) => {
       calls += 1;
       if (calls === 1) return complete(tool('write-status', 'write', { path: 'record:///status.md?card=project', content: 'candidate' }));
       return new Promise<ProviderTurnCompletion>((resolve, reject) => {
         releaseTerminal = () => resolve(complete(tool('emit-late', 'emit_result', { outcome: 'done', summary: 'late' })));
         signal.addEventListener('abort', () => reject(signal.reason), { once: true });
       });
-    }) };
+    }));
     const runtime = supervisor(projectRoot, cards, provider);
     const started = await runtime.startProject();
     if (!started.started) throw new Error('Run was not accepted.');

@@ -13,7 +13,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const roots: string[] = [];
@@ -33,7 +33,7 @@ type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
 };
 
-function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> }): SupervisorRuntimeApi {
+function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort): SupervisorRuntimeApi {
   return new SupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
@@ -74,8 +74,7 @@ describe('dependency-completion activation admission E2E', () => {
     let projectCalls = 0;
     let firstDependentToolResult: unknown;
 
-    const provider = {
-      completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
+    const provider = scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
         if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
@@ -121,8 +120,7 @@ describe('dependency-completion activation admission E2E', () => {
           throw new Error('Dependent executor received an unexpected extra turn.');
         }
         throw new Error(`Unexpected provider session '${input.sessionId}'.`);
-      }),
-    };
+      }));
     const registry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
     const processRunner = new ProcessRunner(projectRoot, registry, testApplicationFatalPort);

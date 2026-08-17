@@ -5,6 +5,7 @@ import {
   CandidateRequestPlanIntegrityError,
   type CandidateRequestPlan,
 } from './candidate-request.js';
+import { AdmissionIntegrityError } from './invocation-admission.js';
 import type { LlmCompleteOptions, ProviderTurnCompletion } from './llm-contracts.js';
 import { ProviderTurnFailure } from './llm-contracts.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
@@ -35,14 +36,9 @@ export async function executeLlmProviderAttempt(args: {
     args.capabilityRequest,
   );
   if (!match.supported)
-    throw new LlmRequestError({
-      kind: 'capability_mismatch',
-      provider: plan.candidate.provider,
-      model: plan.candidate.model,
-      requested: match.reasons,
-      supported: [],
-      message: `Candidate ${JSON.stringify(plan.candidate)} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
-    });
+    throw new AdmissionIntegrityError(
+      `Admitted candidate request plan for ${plan.candidate.provider}/${plan.candidate.account ?? '_implicit'}/${plan.candidate.model} no longer supports its bound capability request: ${match.reasons.join(', ')}.`,
+    );
   const transport = await resolveLlmTransportConfig(
     args.projectRoot,
     args.registry,

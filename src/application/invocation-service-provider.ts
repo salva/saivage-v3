@@ -1,12 +1,36 @@
 import type { InvocationRequest, InvocationService } from '../agents/invocation-service.js';
+import {
+  AdmittedProviderTurnFailure,
+  LocalExactAdmissionError,
+  projectAdmissionDiagnostics,
+} from '../agents/invocation-admission.js';
 import type { LLMProviderPort } from '../runtime/actors/index.js';
 import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
+import type { ProviderTurnCompletion } from '../agents/llm-contracts.js';
 
 export function createInvocationServiceProvider(invocationService: InvocationService): LLMProviderPort {
   return {
-    completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
+    preparePrimaryRequestAdmission: (input, signal) => invocationService.preparePrimaryRequestAdmission(invocationRequest(input, signal)),
+    executeAdmittedWithRecovery: (admission, signal) => invocationService.executeAdmittedWithRecovery(admission, signal),
+    prepareAdmittedRecovery: ({ suspension, input, signal }) =>
+      invocationService.prepareAdmittedRecovery({ suspension, request: invocationRequest(input, signal) }),
+    resumeAdmittedExecution: (preparation, signal) => invocationService.resumeAdmittedExecution(preparation, signal),
+    preflightPinnedContentPolicyRequest: (input, signal) => invocationService.preflightPinnedContentPolicyRequest(invocationRequest(input, signal)),
+    executePinnedContentPolicyRequest: (preflight, signal) => invocationService.executePinnedContentPolicyRequest(preflight, signal),
     projectProviderExchanges: (sessionId, sourceInputId, attempts, context) => invocationService.projectProviderExchanges(sessionId, sourceInputId, attempts, context),
   };
+}
+
+export async function executeAdmittedTurn(service: InvocationService, input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
+  const admission = service.preparePrimaryRequestAdmission(invocationRequest(input, signal));
+  if (admission.kind !== 'admitted')
+    throw new LocalExactAdmissionError({ localCompactionAttempted: false, diagnostics: projectAdmissionDiagnostics(admission.candidates) });
+  try {
+    return await service.executeAdmittedWithRecovery(admission, signal);
+  } catch (error) {
+    if (error instanceof AdmittedProviderTurnFailure) throw error.turnFailure;
+    throw error;
+  }
 }
 
 export function invocationRequest(input: LlmInvocationInput, signal: AbortSignal): InvocationRequest {

@@ -8,7 +8,7 @@ import {agentMessageSchema} from '../../../src/schemas/index.js';
 import {prepareCompaction} from '../../../src/runtime/actors/compaction/compactor.js';
 import {initProjectTree} from '../../helpers/canonical-project.js';
 import {testApplicationFatalPort} from '../../helpers/test-application-fatal-port.js';
-import {testCompactor,unusedSummarizerProvider} from '../../helpers/llm-test-helpers.js';
+import {scriptedAdmissionProvider,testCompactor,unusedSummarizerProvider} from '../../helpers/llm-test-helpers.js';
 import type {ToolResult} from '../../../src/tools/invocation.js';
 
 const roots:string[]=[];
@@ -61,7 +61,7 @@ async function toolCallFixture(toolName:string){
   const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:observer.conversationChanged,agentMembershipChanged:jest.fn()}};
   appendConversationBatch(conversations,[agentMessageSchema.parse({id:'activation',session_id:sessionId,role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',agent_name:'analyst',input_id:inputId,timestamp}),round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
   const completeTurn=jest.fn(async()=>({result:{kind:'tool_calls' as const,tool_calls:[{id:'call-1',type:'function' as const,function:{name:toolName,arguments:'{}'}}]},provider_exchanges:[]}));
-  const actor=new ConversationLLMActor({purpose:{kind:'analyst'},agentId:sessionId,provider:{completeTurn},conversations,compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,fatalPort:testApplicationFatalPort});
+  const actor=new ConversationLLMActor({purpose:{kind:'analyst'},agentId:sessionId,provider:scriptedAdmissionProvider(completeTurn),conversations,compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,fatalPort:testApplicationFatalPort});
   const input={inputId,agentId:sessionId,agentName:'analyst' as const,sessionId,systemPrompt:'system',providerConversation:{sourceSessionId:sessionId,messages:[]},tools:[],terminalToolNames:[],modelParams:{temperature:0},preparedCompaction:prepareCompaction({input_budget_tokens:1000,trigger_fraction:.8,completion_reserve_fraction:.2,merge_line_fraction:.3,summary_line_fraction:.5,escalate_merge_line_fraction:.4,escalate_summary_line_fraction:.6,snap:'compact_straddler'},'system',[]),capabilityRequest:{},routePass:{kind:'ordinary' as const,candidateChain:[{provider:'test',account:null,model:'test-model'}]},episodeContext:{}};
   const outcome=await actor.turn(input,undefined,jest.fn());
   if(outcome.type!=='tool_call')throw new Error('Fixture provider did not produce a tool call.');

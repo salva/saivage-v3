@@ -1,30 +1,53 @@
-import { ConversationSessionIdSchema, type AgentName } from '../schemas/index.js';
+import { createHash } from 'node:crypto';
+import { ConversationSessionIdSchema, canonicalJson, type AgentName } from '../schemas/index.js';
 import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { buildLlmOptions } from './llm-options-factory.js';
 import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import type { CandidateAvailability } from './candidate-availability.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
+import { supportsCapabilityRequest, type EffectiveProviderCapabilities } from './provider-capabilities.js';
 import { defaultInvocationRecoveryPolicy } from './invocation-recovery-policy.js';
 import {
   assertProviderConversationSourceRows,
   ProviderTurnFailure,
+  type LlmCompleteOptions,
   type ProviderConversationProjection,
   type ProviderTurnCompletion,
   type ToolDefinition,
 } from './llm-contracts.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../contracts/provider-exchange.js';
 import { appendAppLogEntry } from '../persistence/app-log.js';
-import {
-  buildCandidateRequest,
-  CandidateRequestPlanIntegrityError,
-  type CandidateRequestPlan,
-} from './candidate-request.js';
+import { buildCandidateRequest, CandidateRequestPlanIntegrityError, type CandidateRequestPlan } from './candidate-request.js';
 import type { InvocationRoutePass, PreparedCompaction } from '../runtime/actors/llm-invocation.js';
 import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { LlmRequestError } from '../contracts/llm-failure.js';
 import { selectLlmProtocolAdapter } from './llm-protocol-adapter.js';
 import { executeLlmProviderAttempt } from './llm-provider-attempt.js';
+import {
+  AdmittedProviderTurnFailure,
+  AdmittedRecoveryIntegrityError,
+  AdmissionIntegrityError,
+  capabilityRequestSha256,
+  classifyCandidateLocalAdmission,
+  ordinaryAdmittedExecutionAuthority,
+  retainedAdmissionStateDiagnostics,
+  verifySuspendedAdmittedExecution,
+  type AdmittedCandidateAttemptState,
+  type AdmittedExecutionBindings,
+  type AdmittedRecoveryPreparation,
+  type AdmissionSizeLimits,
+  type CandidateLocalAdmission,
+  type CandidateLocalAdmissionVerdict,
+  type OrdinaryAdmittedExecution,
+  type OrdinaryAdmittedExecutionAuthority,
+  type OrdinaryAdmittedExecutionInputs,
+  type OrdinaryPrimaryRequestAdmission,
+  type PinnedAdmittedContentPolicyRequest,
+  type PinnedContentPolicyPreflight,
+  type SuspendedAdmittedExecution,
+} from './invocation-admission.js';
 
 const INVOCATION_RECOVERY_DELAY_MS = 60_000;
 const MAX_INVOCATION_RECOVERY_RETRIES = 3;
@@ -36,22 +59,6 @@ const WAITABLE_UNAVAILABILITY_REASONS = new Set([
   'unknown',
   'parse_error',
 ]);
-
-type CandidateRecoveryState =
-  | 'UNTRIED'
-  | 'RETRY_WAITING_UNTIL'
-  | 'RETRYABLE_READY'
-  | 'RATE_LIMIT_WAITING_UNTIL'
-  | 'RATE_LIMIT_READY'
-  | 'EXHAUSTED';
-
-interface CandidateRecoveryRecord {
-  candidate: Candidate;
-  attempts: number;
-  state: CandidateRecoveryState;
-  untilMs?: number;
-  lastFailure?: unknown;
-}
 
 interface InvocationRequestBase {
   inputId: string;
@@ -82,6 +89,22 @@ export interface InvocationServiceConfig {
   freshness: Pick<FreshnessEffects, 'llmExchangeChanged'>;
 }
 
+type MutableAdmittedRecord = { readonly identity: Candidate; readonly routeIndex: number; state: AdmittedCandidateAttemptState };
+
+type AdmittedExecutionRun = {
+  authority: OrdinaryAdmittedExecutionAuthority;
+  records: MutableAdmittedRecord[];
+  plans: Map<number, CandidateRequestPlan>;
+  execution: OrdinaryAdmittedExecutionInputs;
+  bindings: AdmittedExecutionBindings;
+  settled: ProviderExchangeAttempt[];
+  deadlineMs: number;
+  lastFailure: unknown;
+  mandatoryFirst: Candidate | null;
+  recoveryMode: boolean;
+  signal?: AbortSignal;
+};
+
 export class InvocationService {
   private readonly projectRoot: string;
   private readonly candidateAvailability: CandidateAvailability;
@@ -99,28 +122,21 @@ export class InvocationService {
     this.freshness = config.freshness;
   }
 
-  async invokeCall(
-    request: InvocationRequest,
-    candidate: Candidate,
-    plans?: Array<{ candidate: Candidate; plan: CandidateRequestPlan }>,
-  ): Promise<ProviderTurnCompletion> {
+  preparePrimaryRequestAdmission(request: InvocationRequest): OrdinaryPrimaryRequestAdmission {
+    if (request.routePass.kind !== 'ordinary') throw new Error('Ordinary primary-request admission requires an ordinary route pass.');
     assertProviderConversationSourceRows(request.providerConversation);
-    const outputTokens = request.preparedCompaction !== undefined
-      ? request.preparedCompaction.requestedCompletionTokens
-      : request.modelParams.maxTokens;
-    const options = buildLlmOptions(
-      request.agentName,
-      request.tools,
-      request.terminalToolNames,
-      { temperature: request.modelParams.temperature, max_tokens: outputTokens },
-      request.abortSignal,
-      request.inputId,
-    );
-    let plan = plans?.find((entry) => candidatesEqual(entry.candidate, candidate))?.plan;
-    if (!plan) {
+    const chain = [...request.routePass.candidateChain];
+    for (const [index, candidate] of chain.entries())
+      if (chain.some((other, otherIndex) => otherIndex > index && candidatesEqual(other, candidate)))
+        throw new Error(`Ordinary candidate chain contains a duplicate configured identity: ${candidate.provider}/${candidate.account ?? '_implicit'}/${candidate.model}.`);
+    const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
+    const capabilityHash = capabilityRequestSha256(capabilityRequest);
+    const limits = admissionSizeLimits(request);
+    const options = this.buildRequestOptions(request);
+    const candidates: CandidateLocalAdmission[] = chain.map((candidate) => {
       const capabilities = this.registry.getEffectiveCapabilities(candidate);
       const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
-      plan = buildCandidateRequest({
+      const plan = buildCandidateRequest({
         candidate,
         capabilities,
         adapter,
@@ -128,53 +144,155 @@ export class InvocationService {
         providerConversation: request.providerConversation,
         options,
       });
-      plans?.push({ candidate, plan });
-    }
-    if (request.preparedCompaction) {
-      const requestedCompletionTokens = request.preparedCompaction.requestedCompletionTokens;
-      const reason = candidateAdmissionFailure(
-        plan.capabilities,
-        plan.request.estimatedWireInputTokens,
-        requestedCompletionTokens,
-      );
-      if (reason)
-        throw new CandidateAdmissionError(
-          candidate,
-          plan.capabilities.transportProtocol,
-          plan.request.estimatedWireInputTokens,
-          requestedCompletionTokens,
-          plan.capabilities.contextWindowTokens,
-          plan.capabilities.maxOutputTokens,
-          reason,
-        );
-    }
-    return executeLlmProviderAttempt({
-      projectRoot: this.projectRoot,
-      registry: this.registry,
-      sessionId: request.sessionId,
-      plan,
+      return admissionVerdict(candidate, capabilityRequest, capabilityHash, capabilities, plan, limits);
+    });
+    const bindings = executionBindings(request, capabilityRequest, capabilityHash);
+    const execution: OrdinaryAdmittedExecutionInputs = Object.freeze({ sessionId: request.sessionId, capabilityRequest, options });
+    const admitted = candidates.filter((verdict): verdict is Extract<CandidateLocalAdmission, { kind: 'admitted' }> => verdict.kind === 'admitted');
+    if (admitted.length > 0)
+      return Object.freeze({
+        kind: 'admitted',
+        routePass: request.routePass,
+        candidates: Object.freeze(candidates),
+        executionAuthority: ordinaryAdmittedExecutionAuthority(admitted.map((verdict) => verdict.candidate)),
+        bindings,
+        execution,
+      });
+    if (candidates.some((verdict) => verdict.kind === 'projection_too_large'))
+      return Object.freeze({ kind: 'local_compaction_required', routePass: request.routePass, candidates: Object.freeze(candidates), bindings });
+    return Object.freeze({ kind: 'local_admission_failed', routePass: request.routePass, candidates: Object.freeze(candidates), bindings });
+  }
+
+  preflightPinnedContentPolicyRequest(request: InvocationRequest): PinnedContentPolicyPreflight {
+    if (request.routePass.kind !== 'pinned-content-policy-retry') throw new Error('Pinned content-policy preflight requires a pinned route pass.');
+    assertProviderConversationSourceRows(request.providerConversation);
+    const candidate = this.registry.assertCandidate(request.routePass.candidate);
+    const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
+    const capabilityHash = capabilityRequestSha256(capabilityRequest);
+    const limits = admissionSizeLimits(request);
+    const options = this.buildRequestOptions(request);
+    const capabilities = this.registry.getEffectiveCapabilities(candidate);
+    const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
+    const plan = buildCandidateRequest({
+      candidate,
+      capabilities,
+      adapter,
+      systemPrompt: request.systemPrompt,
+      providerConversation: request.providerConversation,
       options,
-      capabilityRequest: request.capabilityRequest,
+    });
+    const verdict = admissionVerdict(candidate, capabilityRequest, capabilityHash, capabilities, plan, limits);
+    if (verdict.kind === 'admitted')
+      return Object.freeze({ kind: 'admitted', plan, candidate, capabilityRequest, sessionId: request.sessionId, inputId: request.inputId, options });
+    return Object.freeze({ kind: 'rejected', candidate, verdict });
+  }
+
+  async executeAdmittedWithRecovery(admission: OrdinaryAdmittedExecution, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
+    if (admission.kind !== 'admitted') throw new AdmissionIntegrityError('Ordinary admitted execution requires an admitted admission object.');
+    const records: MutableAdmittedRecord[] = [];
+    const plans = new Map<number, CandidateRequestPlan>();
+    for (const [routeIndex, verdict] of admission.candidates.entries()) {
+      if (verdict.kind !== 'admitted') continue;
+      records.push({ identity: verdict.candidate, routeIndex, state: { kind: 'untried', attempts: 0 } });
+      plans.set(routeIndex, verdict.plan);
+    }
+    if (records.length !== admission.executionAuthority.admittedCandidateIdentities.length)
+      throw new AdmissionIntegrityError('Ordinary admitted records do not match the frozen execution authority membership.');
+    return this.runAdmittedExecution({
+      authority: admission.executionAuthority,
+      records,
+      plans,
+      execution: admission.execution,
+      bindings: admission.bindings,
+      settled: [],
+      deadlineMs: Date.now() + LLM_UNAVAILABILITY_TIMEOUT_MS,
+      lastFailure: null,
+      mandatoryFirst: null,
+      recoveryMode: false,
+      signal,
     });
   }
 
-  async invokeWithRecovery(request: InvocationRequest): Promise<ProviderTurnCompletion> {
-    switch (request.routePass.kind) {
-      case 'ordinary':
-        return this.invokeOrdinary(request, request.routePass.candidateChain);
-      case 'pinned-content-policy-retry':
-        return this.invokePinned(request, request.routePass.candidate);
+  prepareAdmittedRecovery(args: { suspension: SuspendedAdmittedExecution; request: InvocationRequest }): AdmittedRecoveryPreparation {
+    const { suspension, request } = args;
+    if (request.routePass.kind !== 'ordinary') throw new AdmittedRecoveryIntegrityError('Admitted recovery preparation requires an ordinary route pass.');
+    assertProviderConversationSourceRows(request.providerConversation);
+    verifySuspendedAdmittedExecution(suspension);
+    const capabilityRequest = Object.freeze({ ...request.capabilityRequest });
+    const capabilityHash = capabilityRequestSha256(capabilityRequest);
+    const bindings = executionBindings(request, capabilityRequest, capabilityHash);
+    assertBindingsUnchanged(suspension.bindings, bindings);
+    const limits = admissionSizeLimits(request);
+    const options = this.buildRequestOptions(request);
+    const plans: { routeIndex: number; plan: CandidateRequestPlan }[] = [];
+    for (const record of suspension.records) {
+      if (record.state.kind === 'exhausted') continue;
+      const capabilities = this.registry.getEffectiveCapabilities(record.identity);
+      const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
+      const plan = buildCandidateRequest({
+        candidate: record.identity,
+        capabilities,
+        adapter,
+        systemPrompt: request.systemPrompt,
+        providerConversation: request.providerConversation,
+        options,
+      });
+      const verdict = admissionVerdict(record.identity, capabilityRequest, capabilityHash, capabilities, plan, limits);
+      if (record.state.kind === 'context_failed') {
+        if (verdict.kind !== 'admitted')
+          throw new ProviderTurnFailure({
+            failure_phase: 'provider_attempt',
+            provider_exchanges: [...suspension.settledProviderAttempts],
+            originalFailure: recoveryTerminalFailure(suspension, `the mandatory context-failed candidate did not re-admit for the compacted projection (verdict=${verdict.kind})`),
+            candidate: record.identity,
+          });
+        plans.push({ routeIndex: record.routeIndex, plan });
+        continue;
+      }
+      if (verdict.kind !== 'admitted')
+        throw new AdmittedRecoveryIntegrityError(`Retained admitted candidate at route index ${record.routeIndex} no longer admits against the strictly smaller compacted projection.`);
+      plans.push({ routeIndex: record.routeIndex, plan });
     }
+    return Object.freeze({
+      kind: 'recovery_prepared',
+      authority: suspension.authority,
+      bindings,
+      records: suspension.records.map((record) => Object.freeze({ identity: record.identity, routeIndex: record.routeIndex, state: Object.freeze({ ...record.state }) })),
+      plans: Object.freeze(plans),
+      mandatoryFirstIdentity: suspension.contextFailedIdentity,
+      settledProviderAttempts: suspension.settledProviderAttempts,
+      deadlineMs: suspension.deadlineMs,
+      execution: Object.freeze({ sessionId: request.sessionId, capabilityRequest, options }),
+    });
   }
 
-  private async invokePinned(request: InvocationRequest, candidate: Candidate): Promise<ProviderTurnCompletion> {
+  async resumeAdmittedExecution(preparation: AdmittedRecoveryPreparation, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
+    if (preparation.kind !== 'recovery_prepared') throw new AdmittedRecoveryIntegrityError('Admitted recovery resume requires a recovery preparation object.');
+    const records: MutableAdmittedRecord[] = preparation.records.map((record) => ({ identity: record.identity, routeIndex: record.routeIndex, state: record.state }));
+    const plans = new Map(preparation.plans.map((entry) => [entry.routeIndex, entry.plan]));
+    return this.runAdmittedExecution({
+      authority: preparation.authority,
+      records,
+      plans,
+      execution: preparation.execution,
+      bindings: preparation.bindings,
+      settled: [...preparation.settledProviderAttempts],
+      deadlineMs: preparation.deadlineMs,
+      lastFailure: null,
+      mandatoryFirst: preparation.mandatoryFirstIdentity,
+      recoveryMode: true,
+      signal,
+    });
+  }
+
+  async executePinnedContentPolicyRequest(preflight: PinnedAdmittedContentPolicyRequest, signal?: AbortSignal): Promise<ProviderTurnCompletion> {
+    const candidate = preflight.candidate;
     try {
-      this.registry.assertCandidate(candidate);
-      throwIfAborted(request.abortSignal);
-      const completion = await this.invokeCall(request, candidate);
-      const attempts = indexProviderExchangeAttempts(request.inputId, 0, completion.provider_exchanges);
+      throwIfAborted(signal);
+      const completion = await this.executeAdmittedPlan(preflight.plan, { ...preflight.options, signal }, preflight.capabilityRequest, preflight.sessionId);
+      const attempts = indexProviderExchangeAttempts(preflight.inputId, 0, completion.provider_exchanges);
       try {
-        throwIfAborted(request.abortSignal);
+        throwIfAborted(signal);
       } catch (error) {
         throw new ProviderTurnFailure({
           failure_phase: 'provider_attempt',
@@ -187,7 +305,7 @@ export class InvocationService {
     } catch (error) {
       throwIfPublicationOutcomeUnknown(error);
       if (error instanceof ProviderTurnFailure) {
-        const attempts = error.failure_phase === 'provider_attempt' ? indexProviderExchangeAttempts(request.inputId, 0, error.provider_exchanges) : [];
+        const attempts = error.failure_phase === 'provider_attempt' ? indexProviderExchangeAttempts(preflight.inputId, 0, error.provider_exchanges) : [];
         throw new ProviderTurnFailure({
           failure_phase: attempts.length > 0 ? 'provider_attempt' : 'pre_provider',
           provider_exchanges: attempts,
@@ -201,129 +319,6 @@ export class InvocationService {
         originalFailure: error,
         candidate,
       });
-    }
-  }
-
-  private async invokeOrdinary(request: InvocationRequest, chain: readonly Candidate[]): Promise<ProviderTurnCompletion> {
-    const settled: ProviderExchangeAttempt[] = [];
-    let lastFailure: unknown = null;
-    const deadlineMs = Date.now() + LLM_UNAVAILABILITY_TIMEOUT_MS;
-    if (chain.length === 0) this.throwNoCandidates(request, settled);
-    const states: CandidateRecoveryRecord[] = chain.map((candidate) => ({
-      candidate,
-      attempts: 0,
-      state: 'UNTRIED',
-    }));
-    const plans: Array<{ candidate: Candidate; plan: CandidateRequestPlan }> = [];
-
-    for (;;) {
-      throwIfAborted(request.abortSignal);
-      updateReadyStates(states);
-      const next = this.nextCandidateState(states, deadlineMs);
-      if (next.kind === 'timeout') {
-        const message = `No LLM candidate became available for agent '${request.agentName}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
-        throw new ProviderTurnFailure({
-          failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
-          provider_exchanges: settled,
-          originalFailure: lastFailure ?? new Error(message),
-          message,
-          candidate: null,
-        });
-      }
-      if (next.kind === 'wait') {
-        await delayWithAbort(next.waitMs, request.abortSignal);
-        continue;
-      }
-      if (next.kind === 'none') {
-        const originalFailure =
-          lastFailure ??
-          new Error(`No healthy candidates available for agent '${request.agentName}'.`);
-        throw new ProviderTurnFailure({
-          failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
-          provider_exchanges: settled,
-          originalFailure,
-          candidate: null,
-        });
-      }
-
-      const record = next.record;
-      const candidate = record.candidate;
-      if (!this.candidateAvailability.isAvailable(candidate)) {
-        record.state = 'EXHAUSTED';
-        continue;
-      }
-      try {
-        const result = await this.invokeCall(request, candidate, plans);
-        settled.push(
-          ...indexProviderExchangeAttempts(
-            request.inputId,
-            settled.length,
-            result.provider_exchanges,
-          ),
-        );
-        throwIfAborted(request.abortSignal);
-        this.candidateAvailability.markSucceeded(candidate);
-        return {
-          result: result.result,
-          provider_exchanges: settled,
-          provider_private_context: result.provider_private_context,
-        };
-      } catch (err) {
-        throwIfPublicationOutcomeUnknown(err);
-        if (err instanceof CandidateRequestPlanIntegrityError) throw err;
-        if (err instanceof CandidateAdmissionError) {
-          record.state = 'EXHAUSTED';
-          lastFailure = err;
-          continue;
-        }
-        if (isAbortFromSignal(err, request.abortSignal)) throw err;
-        const originalFailure = err instanceof ProviderTurnFailure ? err.originalFailure : err;
-        if (isAbortFromSignal(originalFailure, request.abortSignal)) throw originalFailure;
-        record.attempts += 1;
-        const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
-          candidate,
-          recoveryDelayMs: this.recoveryDelayMs,
-        });
-        if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
-          if (err.provider_exchanges.length === 0)
-            throw new Error(
-              `Provider attempt for input '${request.inputId}' settled without a provider_exchange envelope.`,
-            );
-          settled.push(
-            ...indexProviderExchangeAttempts(
-              request.inputId,
-              settled.length,
-              err.provider_exchanges,
-            ),
-          );
-        }
-        if (decision.availability) {
-          throwIfAborted(request.abortSignal);
-          this.candidateAvailability.markFailed(candidate, decision.availability);
-        }
-        if (decision.kind === 'terminal') {
-          throw new ProviderTurnFailure({
-            failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
-            provider_exchanges: settled,
-            originalFailure,
-            candidate,
-          });
-        }
-        lastFailure = originalFailure;
-        const hasBudget = record.attempts < 1 + this.maxRecoveryRetries;
-        if (!hasBudget) {
-          record.state = 'EXHAUSTED';
-          continue;
-        }
-        if (decision.wait === 'rate-limit') {
-          record.state = 'RATE_LIMIT_WAITING_UNTIL';
-          record.untilMs = decision.availability.untilMs;
-        } else {
-          record.state = 'RETRY_WAITING_UNTIL';
-          record.untilMs = Date.now() + decision.retryDelayMs;
-        }
-        record.lastFailure = originalFailure;
-      }
     }
   }
 
@@ -366,84 +361,342 @@ export class InvocationService {
     }
   }
 
-  private throwNoCandidates(request: InvocationRequest, settled: ProviderExchangeAttempt[]): never {
-    const message = defaultInvocationRecoveryPolicy.decideNoCandidates({ agentName: request.agentName });
-    throw new ProviderTurnFailure({
-      failure_phase: settled.length > 0 ? 'provider_attempt' : 'pre_provider',
-      provider_exchanges: settled,
-      originalFailure: new Error(message),
-      message,
-      candidate: null,
+  protected async executeAdmittedPlan(
+    plan: CandidateRequestPlan,
+    options: LlmCompleteOptions,
+    capabilityRequest: Readonly<CapabilityRequest>,
+    sessionId: string,
+  ): Promise<ProviderTurnCompletion> {
+    return executeLlmProviderAttempt({
+      projectRoot: this.projectRoot,
+      registry: this.registry,
+      sessionId,
+      plan,
+      options,
+      capabilityRequest,
     });
   }
 
+  private buildRequestOptions(request: InvocationRequest): LlmCompleteOptions {
+    const outputTokens = request.preparedCompaction !== undefined
+      ? request.preparedCompaction.requestedCompletionTokens
+      : request.modelParams.maxTokens;
+    return buildLlmOptions(
+      request.agentName,
+      request.tools,
+      request.terminalToolNames,
+      { temperature: request.modelParams.temperature, max_tokens: outputTokens },
+      undefined,
+      request.inputId,
+    );
+  }
+
+  private async runAdmittedExecution(run: AdmittedExecutionRun): Promise<ProviderTurnCompletion> {
+    const { signal } = run;
+    for (;;) {
+      throwIfAborted(signal);
+      this.refreshRecordStates(run.records);
+      let record: MutableAdmittedRecord;
+      if (run.mandatoryFirst) {
+        const mandatory = run.records.find((entry) => candidatesEqual(entry.identity, run.mandatoryFirst!));
+        if (!mandatory) throw new AdmittedRecoveryIntegrityError('The mandatory context-failed candidate is not part of the retained admission records.');
+        run.mandatoryFirst = null;
+        record = mandatory;
+      } else {
+        const next = this.nextCandidateState(run.records, run.deadlineMs);
+        if (next.kind === 'timeout') {
+          const message = `No LLM candidate became available for agent '${run.bindings.agentName}' within ${LLM_UNAVAILABILITY_TIMEOUT_MS}ms.`;
+          throw new ProviderTurnFailure({
+            failure_phase: run.settled.length > 0 ? 'provider_attempt' : 'pre_provider',
+            provider_exchanges: run.settled,
+            originalFailure: run.lastFailure ?? new Error(message),
+            message,
+            candidate: null,
+          });
+        }
+        if (next.kind === 'wait') {
+          await delayWithAbort(next.waitMs, signal);
+          continue;
+        }
+        if (next.kind === 'none') {
+          const originalFailure =
+            run.lastFailure ??
+            new Error(`No healthy candidates available for agent '${run.bindings.agentName}'.`);
+          throw new ProviderTurnFailure({
+            failure_phase: run.settled.length > 0 ? 'provider_attempt' : 'pre_provider',
+            provider_exchanges: run.settled,
+            originalFailure,
+            candidate: null,
+          });
+        }
+        record = next.record;
+        if (!this.candidateAvailability.isAvailable(record.identity)) {
+          const entry = this.candidateAvailability.getEntry(record.identity);
+          const attempts = attemptsOf(record.state);
+          if (entry && entry.state !== 'HEALTHY' && entry.reason && WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason)) {
+            record.state = { kind: 'temporarily_unavailable', attempts, untilMs: entry.untilMs, reason: entry.reason };
+          } else {
+            record.state = { kind: 'exhausted', attempts, lastFailure: lastFailureOf(record.state) };
+          }
+          continue;
+        }
+      }
+      const plan = run.plans.get(record.routeIndex);
+      if (!plan) throw new AdmittedRecoveryIntegrityError(`No admitted plan is retained for route index ${record.routeIndex}.`);
+      try {
+        const result = await this.executeAdmittedPlan(plan, { ...run.execution.options, signal }, run.execution.capabilityRequest, run.execution.sessionId);
+        run.settled.push(
+          ...indexProviderExchangeAttempts(
+            run.bindings.inputId,
+            run.settled.length,
+            result.provider_exchanges,
+          ),
+        );
+        throwIfAborted(signal);
+        this.candidateAvailability.markSucceeded(record.identity);
+        return {
+          result: result.result,
+          provider_exchanges: run.settled,
+          provider_private_context: result.provider_private_context,
+        };
+      } catch (err) {
+        const outcome = this.handleAdmittedAttemptFailure(run, record, err);
+        if (outcome !== null) throw outcome;
+      }
+    }
+  }
+
+  private handleAdmittedAttemptFailure(run: AdmittedExecutionRun, record: MutableAdmittedRecord, err: unknown): unknown {
+    const signal = run.signal;
+    throwIfPublicationOutcomeUnknown(err);
+    if (err instanceof CandidateRequestPlanIntegrityError || err instanceof AdmissionIntegrityError) return err;
+    if (isAbortFromSignal(err, signal)) return err;
+    const originalFailure = err instanceof ProviderTurnFailure ? err.originalFailure : err;
+    if (isAbortFromSignal(originalFailure, signal)) return originalFailure;
+    const attempts = attemptsOf(record.state) + 1;
+    const decision = defaultInvocationRecoveryPolicy.decideFailure(originalFailure, {
+      candidate: record.identity,
+      recoveryDelayMs: this.recoveryDelayMs,
+    });
+    if (err instanceof ProviderTurnFailure && err.failure_phase === 'provider_attempt') {
+      if (err.provider_exchanges.length === 0)
+        return new Error(
+          `Provider attempt for input '${run.bindings.inputId}' settled without a provider_exchange envelope.`,
+        );
+      run.settled.push(
+        ...indexProviderExchangeAttempts(
+          run.bindings.inputId,
+          run.settled.length,
+          err.provider_exchanges,
+        ),
+      );
+    }
+    if (decision.availability) {
+      throwIfAborted(signal);
+      this.candidateAvailability.markFailed(record.identity, decision.availability);
+    }
+    const contextExhausted =
+      err instanceof ProviderTurnFailure &&
+      err.failure_phase === 'provider_attempt' &&
+      originalFailure instanceof LlmRequestError &&
+      originalFailure.failure.kind === 'input_context_exhausted';
+    if (contextExhausted && !run.recoveryMode) {
+      record.state = Object.freeze({ kind: 'context_failed', attempts, failure: err });
+      const turnFailure = new ProviderTurnFailure({
+        failure_phase: 'provider_attempt',
+        provider_exchanges: run.settled,
+        originalFailure,
+        candidate: record.identity,
+      });
+      return new AdmittedProviderTurnFailure(
+        turnFailure,
+        Object.freeze({
+          authority: run.authority,
+          records: Object.freeze(run.records.map((entry) => Object.freeze({ identity: entry.identity, routeIndex: entry.routeIndex, state: Object.freeze({ ...entry.state }) }))),
+          contextFailedIdentity: record.identity,
+          settledProviderAttempts: Object.freeze([...run.settled]),
+          deadlineMs: run.deadlineMs,
+          bindings: run.bindings,
+        }),
+      );
+    }
+    if (decision.kind === 'terminal') {
+      if (contextExhausted && run.recoveryMode) {
+        const failure = originalFailure as LlmRequestError;
+        return new ProviderTurnFailure({
+          failure_phase: 'provider_attempt',
+          provider_exchanges: run.settled,
+          originalFailure: new LlmRequestError({
+            ...failure.failure,
+            message: 'Provider input context remained exhausted after one forced compacted retry.',
+          }),
+          candidate: record.identity,
+        });
+      }
+      return new ProviderTurnFailure({
+        failure_phase: run.settled.length > 0 ? 'provider_attempt' : 'pre_provider',
+        provider_exchanges: run.settled,
+        originalFailure,
+        candidate: record.identity,
+      });
+    }
+    run.lastFailure = originalFailure;
+    const hasBudget = attempts < 1 + this.maxRecoveryRetries;
+    if (!hasBudget) {
+      record.state = { kind: 'exhausted', attempts, lastFailure: originalFailure };
+      return null;
+    }
+    if (decision.wait === 'rate-limit') {
+      record.state = { kind: 'retry_waiting', wait: 'rate_limit', attempts, untilMs: decision.availability.untilMs, lastFailure: originalFailure };
+    } else {
+      record.state = { kind: 'retry_waiting', wait: 'standard', attempts, untilMs: Date.now() + decision.retryDelayMs, lastFailure: originalFailure };
+    }
+    return null;
+  }
+
   private nextCandidateState(
-    states: CandidateRecoveryRecord[],
+    records: MutableAdmittedRecord[],
     deadlineMs: number,
   ):
-    | { kind: 'attempt'; record: CandidateRecoveryRecord }
+    | { kind: 'attempt'; record: MutableAdmittedRecord }
     | { kind: 'wait'; waitMs: number }
     | { kind: 'timeout' }
     | { kind: 'none' } {
     const now = Date.now();
-    const retryWaiting = states.find((s) => s.state === 'RETRY_WAITING_UNTIL');
-    if (retryWaiting) return waitUntil(retryWaiting.untilMs ?? now, now, deadlineMs);
-    const retryReady = states.find((s) => s.state === 'RETRYABLE_READY');
-    if (retryReady) return { kind: 'attempt', record: retryReady };
-    const untried = states.find(
-      (s) => s.state === 'UNTRIED' && this.candidateAvailability.isAvailable(s.candidate),
+    const standardWaiting = records.find((record) => record.state.kind === 'retry_waiting' && record.state.wait === 'standard');
+    if (standardWaiting && standardWaiting.state.kind === 'retry_waiting') return waitUntil(standardWaiting.state.untilMs, now, deadlineMs);
+    const standardReady = records.find((record) => record.state.kind === 'retry_ready' && record.state.wait === 'standard');
+    if (standardReady) return { kind: 'attempt', record: standardReady };
+    const untried = records.find(
+      (record) => record.state.kind === 'untried' && this.candidateAvailability.isAvailable(record.identity),
     );
     if (untried) return { kind: 'attempt', record: untried };
-    const rateReady = states.find((s) => s.state === 'RATE_LIMIT_READY');
+    const rateReady = records.find((record) => record.state.kind === 'retry_ready' && record.state.wait === 'rate_limit');
     if (rateReady) return { kind: 'attempt', record: rateReady };
-    const waitingUntil = states
-      .filter((s) => s.state === 'RATE_LIMIT_WAITING_UNTIL')
-      .map((s) => s.untilMs ?? now)
+    const rateWaiting = records
+      .map((record) => (record.state.kind === 'retry_waiting' && record.state.wait === 'rate_limit' ? record.state.untilMs : undefined))
+      .filter((untilMs): untilMs is number => untilMs !== undefined)
       .sort((a, b) => a - b)[0];
-    if (waitingUntil !== undefined) return waitUntil(waitingUntil, now, deadlineMs);
-    for (const state of states) {
-      const entry = this.candidateAvailability.getEntry(state.candidate);
+    if (rateWaiting !== undefined) return waitUntil(rateWaiting, now, deadlineMs);
+    for (const record of records) {
+      const entry = this.candidateAvailability.getEntry(record.identity);
       if (!entry || entry.state === 'HEALTHY') continue;
       if (entry.reason && WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason))
         return waitUntil(entry.untilMs, now, deadlineMs);
     }
     return { kind: 'none' };
   }
+
+  private refreshRecordStates(records: MutableAdmittedRecord[]): void {
+    const now = Date.now();
+    for (const record of records) {
+      const state = record.state;
+      if (state.kind === 'retry_waiting' && state.untilMs <= now)
+        record.state = { kind: 'retry_ready', wait: state.wait, attempts: state.attempts, lastFailure: state.lastFailure };
+      else if (state.kind === 'temporarily_unavailable') {
+        const entry = this.candidateAvailability.getEntry(record.identity);
+        if (!entry || entry.state === 'HEALTHY' || now >= entry.untilMs)
+          record.state = { kind: 'retry_ready', wait: 'standard', attempts: state.attempts, lastFailure: undefined };
+        else record.state = { kind: 'temporarily_unavailable', attempts: state.attempts, untilMs: entry.untilMs, reason: entry.reason };
+      }
+    }
+  }
 }
 
-type AdmissionReason =
-  | 'missing_context_window'
-  | 'missing_max_output'
-  | 'context_window_too_small'
-  | 'max_output_too_small';
-function candidateAdmissionFailure(
-  capabilities: ReturnType<ProviderRegistry['getEffectiveCapabilities']>,
-  estimated: number,
-  requested: number,
-): AdmissionReason | null {
-  if (capabilities.contextWindowTokens === undefined) return 'missing_context_window';
-  if (capabilities.maxOutputTokens === undefined) return 'missing_max_output';
-  if (requested > capabilities.maxOutputTokens) return 'max_output_too_small';
-  if (estimated + requested > capabilities.contextWindowTokens) return 'context_window_too_small';
+function attemptsOf(state: AdmittedCandidateAttemptState): number {
+  return state.attempts;
+}
+
+function lastFailureOf(state: AdmittedCandidateAttemptState): unknown {
+  if (state.kind === 'retry_waiting' || state.kind === 'retry_ready' || state.kind === 'exhausted') return state.lastFailure;
   return null;
 }
 
-class CandidateAdmissionError extends Error {
-  constructor(
-    candidate: Candidate,
-    protocol: string,
-    estimated: number,
-    requested: number,
-    context: number | undefined,
-    output: number | undefined,
-    reason: AdmissionReason,
-  ) {
-    const deficit = context === undefined ? null : Math.max(0, estimated + requested - context);
-    super(
-      `Compacted candidate skipped: protocol=${protocol}, candidate=${candidate.provider}/${candidate.account ?? '_implicit'}/${candidate.model}, estimated_wire_input_tokens=${estimated}, requested_completion_tokens=${requested}, context_window_tokens=${context ?? 'undeclared'}, max_output_tokens=${output ?? 'undeclared'}, heuristic_deficit=${deficit ?? 'unknown'}, reason=${reason}. Lower compaction.input_budget_tokens or adjust routes/capabilities.`,
-    );
-    this.name = 'CandidateAdmissionError';
+function admissionSizeLimits(request: InvocationRequest): AdmissionSizeLimits {
+  const requestedCompletionTokens = request.preparedCompaction !== undefined
+    ? request.preparedCompaction.requestedCompletionTokens
+    : request.modelParams.maxTokens;
+  if (request.preparedCompaction && requestedCompletionTokens > request.preparedCompaction.reservedCompletionTokens)
+    throw new Error('Prepared completion request exceeds the prepared compaction output reserve.');
+  return {
+    inputBudgetTokens: request.preparedCompaction?.inputBudgetTokens ?? null,
+    requestedCompletionTokens,
+    reservedCompletionTokens: request.preparedCompaction?.reservedCompletionTokens ?? null,
+  };
+}
+
+function admissionVerdict(
+  candidate: Candidate,
+  capabilityRequest: Readonly<CapabilityRequest>,
+  capabilityHash: string,
+  capabilities: EffectiveProviderCapabilities,
+  plan: CandidateRequestPlan,
+  limits: AdmissionSizeLimits,
+): CandidateLocalAdmission {
+  const match = supportsCapabilityRequest(capabilities, capabilityRequest);
+  const verdict: CandidateLocalAdmissionVerdict = classifyCandidateLocalAdmission({ capabilities, match, plan, limits });
+  return Object.freeze({ candidate, capabilityRequest, capabilityRequestSha256: capabilityHash, ...verdict });
+}
+
+function executionBindings(request: InvocationRequest, capabilityRequest: Readonly<CapabilityRequest>, capabilityHash: string): AdmittedExecutionBindings {
+  const requestedCompletionTokens = request.preparedCompaction !== undefined
+    ? request.preparedCompaction.requestedCompletionTokens
+    : request.modelParams.maxTokens;
+  return Object.freeze({
+    inputId: request.inputId,
+    sessionId: request.sessionId,
+    agentName: request.agentName,
+    sourceSessionId: request.providerConversation.sourceSessionId,
+    systemPromptSha256: sha256Of(request.systemPrompt),
+    toolsSha256: sha256Of(canonicalJson(request.tools)),
+    terminalToolNamesSha256: sha256Of(canonicalJson(request.terminalToolNames)),
+    capabilityRequest,
+    capabilityRequestSha256: capabilityHash,
+    temperature: request.modelParams.temperature,
+    requestedCompletionTokens,
+    inputBudgetTokens: request.preparedCompaction?.inputBudgetTokens ?? null,
+    preparedCompactionSha256: sha256Of(canonicalJson(request.preparedCompaction ?? null)),
+  });
+}
+
+function assertBindingsUnchanged(expected: AdmittedExecutionBindings, actual: AdmittedExecutionBindings): void {
+  const fields: readonly (keyof AdmittedExecutionBindings)[] = [
+    'inputId',
+    'sessionId',
+    'agentName',
+    'sourceSessionId',
+    'systemPromptSha256',
+    'toolsSha256',
+    'terminalToolNamesSha256',
+    'capabilityRequestSha256',
+    'temperature',
+    'requestedCompletionTokens',
+    'inputBudgetTokens',
+    'preparedCompactionSha256',
+  ];
+  for (const field of fields) {
+    const left = expected[field];
+    const right = actual[field];
+    if (left !== right)
+      throw new AdmittedRecoveryIntegrityError(`Suspended admitted execution binding '${field}' changed across authoritative compaction ('${String(left)}' != '${String(right)}').`);
   }
+}
+
+function recoveryTerminalFailure(suspension: SuspendedAdmittedExecution, detail: string): LlmRequestError {
+  const contextRecord = suspension.records.find((record) => record.state.kind === 'context_failed');
+  if (!contextRecord || contextRecord.state.kind !== 'context_failed') throw new AdmittedRecoveryIntegrityError('Suspended admitted execution lost its context-failed record.');
+  const original = contextRecord.state.failure.originalFailure;
+  const diagnostics = JSON.stringify(retainedAdmissionStateDiagnostics(suspension));
+  if (original instanceof LlmRequestError)
+    return new LlmRequestError({
+      ...original.failure,
+      message: `Provider input context exhausted; ordinary authoritative recovery terminated because ${detail}. ${diagnostics}`,
+    });
+  return new LlmRequestError({ kind: 'input_context_exhausted', provider: 'unknown', status: 0, message: `Provider input context exhausted; ordinary authoritative recovery terminated because ${detail}.` });
+}
+
+function sha256Of(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
 function waitUntil(
@@ -454,16 +707,6 @@ function waitUntil(
   const remainingMs = deadlineMs - now;
   if (remainingMs <= 0) return { kind: 'timeout' };
   return { kind: 'wait', waitMs: Math.min(Math.max(0, untilMs - now), remainingMs) };
-}
-
-function updateReadyStates(states: CandidateRecoveryRecord[]): void {
-  const now = Date.now();
-  for (const state of states) {
-    if (state.state === 'RETRY_WAITING_UNTIL' && (state.untilMs ?? 0) <= now)
-      state.state = 'RETRYABLE_READY';
-    if (state.state === 'RATE_LIMIT_WAITING_UNTIL' && (state.untilMs ?? 0) <= now)
-      state.state = 'RATE_LIMIT_READY';
-  }
 }
 
 function delayWithAbort(delayMs: number, signal?: AbortSignal): Promise<void> {

@@ -15,7 +15,7 @@ import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtim
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
@@ -37,12 +37,12 @@ describe('custom card type execution admission',()=>{
     const taskCard=cards.create({type:'task',parent:initiativeCard.id,title:'Task',bootstrap_content:'execute',tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
     expect([initiativeCard.type,taskCard.type]).toEqual(['initiative','task']);
     const admitted=deferred<LlmInvocationInput>();
-    const provider={completeTurn:jest.fn(async(input:LlmInvocationInput,signal:AbortSignal)=>{
+    const provider=scriptedAdmissionProvider(jest.fn(async(input:LlmInvocationInput,signal:AbortSignal)=>{
       if(input.sessionId==='agent:planner:project')return tool('activate-initiative','activate_card',{card_id:initiativeCard.id});
       if(input.sessionId===`agent:planner:${initiativeCard.id}`)return tool('activate-task','activate_card',{card_id:taskCard.id});
       if(input.sessionId===`agent:executor:${taskCard.id}`){admitted.resolve(input);return new Promise<never>((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}
       throw new Error(`Unexpected session '${input.sessionId}'.`);
-    })};
+    }));
     const registry=new ManagedProcessGroupRegistry();const processRunner=new ProcessRunner(root,registry,testApplicationFatalPort);const runtimeProcessRootScope=registry.createContainerScope(registry.rootScope,'runtime-cards');
     const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider,conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner,runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
     const started=await supervisor.startProject();expect(started.started).toBe(true);

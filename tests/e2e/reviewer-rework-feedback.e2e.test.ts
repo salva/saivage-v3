@@ -14,7 +14,7 @@ import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import type { AgentMembershipFreshnessTarget } from '../../src/application/freshness-effects.js';
 
@@ -56,8 +56,7 @@ describe('reviewer rework completion E2E', () => {
     let plannerCalls = 0;
     let reviewerCalls = 0;
     let remediationProjection: LlmInvocationInput['providerConversation'] | null = null;
-    const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+    const providerTurn = jest.fn(async (input: LlmInvocationInput) => {
         if (input.agentName === 'planner') {
           plannerCalls += 1;
           if (plannerCalls === 1) return complete(tool('planner-write-initial', 'write', { path: 'record:///status.md?card=project', content: 'Initial completion evidence.' }));
@@ -83,8 +82,8 @@ describe('reviewer rework completion E2E', () => {
         if (reviewerCalls === 5) return complete(tool('reviewer-write-done', 'write', { path: 'record:///review.md?card=project', content: 'Approved after concrete remediation.' }));
         if (reviewerCalls === 6) return complete(tool('reviewer-done', 'emit_result', { outcome: 'approved', summary: 'Approved after concrete remediation.' }));
         throw new Error(`Unexpected reviewer provider call ${reviewerCalls}.`);
-      }),
-    };
+      });
+    const provider: LLMProviderPort = scriptedAdmissionProvider(providerTurn);
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
     const membershipRecords: Array<{ target: AgentMembershipFreshnessTarget; liveIds: string[] }> = [];
@@ -120,7 +119,7 @@ describe('reviewer rework completion E2E', () => {
     expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'Approved after concrete remediation.' } } });
     expect(plannerCalls).toBe(4);
     expect(reviewerCalls).toBe(6);
-    expect(provider.completeTurn).toHaveBeenCalledTimes(10);
+    expect(providerTurn).toHaveBeenCalledTimes(10);
     expect(membershipRecords.length).toBeGreaterThan(0);
     expect(new Set(membershipRecords.map(({ target }) => target.scope))).toEqual(new Set(['card']));
     expect(new Set(membershipRecords.map(({ target }) => target.scope === 'card' ? target.cardId : target.sessionId))).toEqual(new Set(['project']));

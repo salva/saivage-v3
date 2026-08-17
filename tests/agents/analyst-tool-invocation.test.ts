@@ -11,7 +11,7 @@ import type { LlmToolInvocationContext } from '../../src/runtime/actors/executin
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { defineTool, type InvocationSurface } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 const roots: string[] = [];
@@ -49,7 +49,7 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => 'test analyst prompt' },
     restartServerAvailable: false,
-    provider: { completeTurn },
+    provider: scriptedAdmissionProvider(completeTurn),
     conversations: { projectRoot },
     compactionPolicy: testCompactionPolicy,
     compactor: { shouldCompact: () => false, compact: () => Promise.reject(new Error('Unexpected compaction.')) },

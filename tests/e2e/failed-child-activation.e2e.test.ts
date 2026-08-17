@@ -17,7 +17,7 @@ import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { parseCanonicalContentPolicyRefusal } from '../../src/schemas/index.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
@@ -35,7 +35,7 @@ type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
 };
 
-function runtime(projectRoot: string, cards: CardService, provider: { completeTurn(input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion>; projectProviderExchanges?: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort['projectProviderExchanges'] }, processes?: { processRunner: ProcessRunner; runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope }): SupervisorRuntimeApi {
+function runtime(projectRoot: string, cards: CardService, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort, processes?: { processRunner: ProcessRunner; runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope }): SupervisorRuntimeApi {
   const registry = processes ? null : new ManagedProcessGroupRegistry();
   const processRunner = processes?.processRunner ?? new ProcessRunner(projectRoot, registry!, testApplicationFatalPort);
   const runtimeProcessRootScope = processes?.runtimeProcessRootScope ?? registry!.createContainerScope(registry!.rootScope, 'runtime-cards');
@@ -87,7 +87,7 @@ describe('failed child activation lifecycle E2E', () => {
     const childInputs: LlmInvocationInput[] = [];
     const provider = {
       projectProviderExchanges: jest.fn(),
-      completeTurn: jest.fn(async (input: LlmInvocationInput): Promise<ProviderTurnCompletion> => {
+      ...scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput): Promise<ProviderTurnCompletion> => {
         if (input.sessionId === 'agent:planner:project') {
           plannerCalls += 1;
           if (plannerCalls === 1) return complete(tool('activate-refusal-child', 'activate_card', { card_id: child.id }));
@@ -103,7 +103,7 @@ describe('failed child activation lifecycle E2E', () => {
           throw contentPolicyFailure(input, childCalls === 1 ? '{"error":{"code":"content_filter","message":"first"}}' : '{"error":{"code":"content_filter","message":"second"}}');
         }
         throw new Error(`Unexpected provider session '${input.sessionId}'.`);
-      }),
+      })),
     };
     const supervisor = runtime(projectRoot, cards, provider);
     const started = await supervisor.startProject(); if (!started.started) throw new Error('Run was not accepted.');
@@ -144,7 +144,7 @@ describe('failed child activation lifecycle E2E', () => {
     let rejectedRetryToolResult: unknown;
     const provider = {
       projectProviderExchanges: jest.fn(),
-      completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
+      ...scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> => {
         if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-parent', 'activate_card', { card_id: parent.id }));
@@ -187,7 +187,7 @@ describe('failed child activation lifecycle E2E', () => {
           return complete(tool('done-b', 'emit_result', { outcome: 'done', summary: 'B complete.' }));
         }
         throw new Error(`Unexpected provider session '${input.sessionId}'.`);
-      }),
+      })),
     };
     const supervisor = runtime(projectRoot, cards, provider);
     const started = await supervisor.startProject();
@@ -246,7 +246,7 @@ describe('failed child activation lifecycle E2E', () => {
     let firstActivationResult: unknown;
     const provider = {
       projectProviderExchanges: jest.fn(),
-      completeTurn: jest.fn(async (input: LlmInvocationInput): Promise<ProviderTurnCompletion> => {
+      ...scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput): Promise<ProviderTurnCompletion> => {
         if (input.sessionId === 'agent:planner:project') {
           projectCalls += 1;
           if (projectCalls === 1) return complete(tool('activate-child-first', 'activate_card', { card_id: child.id }));
@@ -270,7 +270,7 @@ describe('failed child activation lifecycle E2E', () => {
           if (childCalls === 3) return complete(tool('complete-child', 'emit_result', { outcome: 'done', summary: 'Changed child completed.' }));
         }
         throw new Error(`Unexpected provider session '${input.sessionId}'.`);
-      }),
+      })),
     };
     const supervisor = runtime(projectRoot, cards, provider);
     const ownership = supervisor as unknown as RuntimeOwnership;
@@ -305,7 +305,7 @@ describe('failed child activation lifecycle E2E', () => {
     jest.spyOn(processRunner, 'closeAndTerminateDirectScope').mockResolvedValue({ selected: ['cleanup'], stopped: [], failed: [{ groupId: 'cleanup', state: 'unconfirmed', diagnostic: 'cleanup exploded' }] });
     let executorCalls = 0;
     let plannerCalls = 0;
-    const provider = { completeTurn: jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
+    const provider = scriptedAdmissionProvider(jest.fn(async (input: LlmInvocationInput, signal: AbortSignal) => {
       if (input.agentName === 'planner') {
         plannerCalls += 1;
         if (plannerCalls === 1) return complete(tool('activate-cleanup-child', 'activate_card', { card_id: child.id }));
@@ -316,7 +316,7 @@ describe('failed child activation lifecycle E2E', () => {
         ? tool('write', 'write', { path: `record:///status.md?card=${child.id}`, content: 'Accepted output.' })
         : tool('accepted', 'emit_result', { outcome: 'done', summary: 'Accepted before cleanup.' }));
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
-    }) };
+    }));
     const supervisor = runtime(projectRoot, cards, provider, { processRunner, runtimeProcessRootScope });
     const started = await supervisor.startProject();
     if (!started.started) throw new Error('Run was not accepted.');
@@ -341,7 +341,7 @@ describe('failed child activation lifecycle E2E', () => {
     cards.setStatus('project', 'running');
     const runningVersion = cards.read('project')!.version_seq;
     const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const supervisor = runtime(projectRoot, cards, { completeTurn: async () => { throw new Error('malformed provider envelope'); } });
+    const supervisor = runtime(projectRoot, cards, scriptedAdmissionProvider(async () => { throw new Error('malformed provider envelope'); }));
     const started = await supervisor.startProject();
     if (!started.started) throw new Error('Run was not accepted.');
     await waitUntil(() => supervisor.getStatus().status === 'stopped');

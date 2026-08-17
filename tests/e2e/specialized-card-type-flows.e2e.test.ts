@@ -19,7 +19,7 @@ import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 import { specializedConfig } from '../fixtures/card-type-sets/specialized.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 const complete=(result:LlmCompleteResult):ProviderTurnCompletion=>({result,provider_exchanges:[]});
@@ -32,7 +32,7 @@ function harness(type:'code'|'architecture',provider:(input:LlmInvocationInput)=
   const structural=compileProjectWorkflows(config);const workflows=bindRuntimeWorkflows(structural,new ModelRouter(new ProviderRegistry(config)));publishInitialProjectRuntime(root,structural);
   const cards=new CardService(root,structural);const child=cards.create({type,parent:'project',title:`${type} flow`,bootstrap_content:`Exercise ${type}.`,tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
   const registry=new ManagedProcessGroupRegistry();const runtimeProcessRootScope=registry.createContainerScope(registry.rootScope,'runtime-cards');
-  const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider:{completeTurn:jest.fn(async(input:LlmInvocationInput)=>provider(input))},conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner:new ProcessRunner(root,registry,testApplicationFatalPort),runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
+  const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider:scriptedAdmissionProvider(jest.fn(async(input:LlmInvocationInput)=>provider(input))),conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner:new ProcessRunner(root,registry,testApplicationFatalPort),runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
   return{root,cards,child,supervisor};
 }
 

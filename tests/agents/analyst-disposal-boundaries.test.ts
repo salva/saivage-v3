@@ -12,7 +12,7 @@ import { readConversation, type ConversationFileContext } from '../../src/persis
 import { defineTool, type InvocationSurface, type ToolResult } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
 
@@ -183,7 +183,7 @@ function createFixture(options: {
     promptTemplates: { render: () => 'test analyst prompt' },
     restartServerAvailable: true,
     restartPort,
-    provider: { completeTurn },
+    provider: scriptedAdmissionProvider(completeTurn),
     conversations,
     compactionPolicy: testCompactionPolicy,
     compactor: { shouldCompact: () => false, compact: () => Promise.reject(new Error('Unexpected compaction.')) },

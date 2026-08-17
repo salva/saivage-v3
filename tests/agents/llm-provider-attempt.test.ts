@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { CandidateRequestPlanIntegrityError, type CandidateRequestPlan } from '../../src/agents/candidate-request.js';
+import { AdmissionIntegrityError } from '../../src/agents/invocation-admission.js';
 import { executeLlmProviderAttempt } from '../../src/agents/llm-provider-attempt.js';
 import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
 import type { LlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
@@ -49,9 +50,17 @@ describe('shared LLM provider attempt', () => {
     await expect(pending).rejects.toBeInstanceOf(CandidateRequestPlanIntegrityError); expect(value.trace).toEqual([]); expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('checks capabilities before credentials and attempt start', async () => {
+  it('throws the internal admission-integrity error before credentials, wire, recorder, or fetch when the admitted binding no longer supports its request', async () => {
     const value = fixture(); value.plan.capabilities = { ...capabilities, toolsMode: 'unsupported' }; const opts = options(); opts.tools = [{ type: 'function', function: { name: 'x', description: 'x', parameters: {} } }]; const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest: { ...capabilityRequest, requiresTools: true }, options: opts })).rejects.toMatchObject({ failure: { kind: 'capability_mismatch' } });
+    let rejection: unknown;
+    try {
+      await executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest: { ...capabilityRequest, requiresTools: true }, options: opts });
+      throw new Error('Expected admission integrity failure.');
+    } catch (error) { rejection = error; }
+    expect(rejection).toBeInstanceOf(AdmissionIntegrityError);
+    expect(rejection).not.toBeInstanceOf(LlmRequestError);
+    expect((rejection as LlmRequestError).failure).toBeUndefined();
+    expect((rejection as AdmissionIntegrityError).message).toContain('no longer supports its bound capability request');
     expect(value.trace).toEqual([]); expect(fetchSpy).not.toHaveBeenCalled();
   });
 

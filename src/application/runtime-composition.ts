@@ -13,7 +13,7 @@ import { CardService } from '../cards/card-service.js';
 import { InvocationService } from '../agents/invocation-service.js';
 import {
   createInvocationServiceProvider,
-  invocationRequest,
+  executeAdmittedTurn,
 } from './invocation-service-provider.js';
 import { createSupervisorRuntimeApi } from '../runtime/actors/index.js';
 import { ProcessRunner } from '../runtime/process-runner.js';
@@ -95,7 +95,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const summarizerProvider: SummarizerProviderPort = {
     candidate:summarizerCandidate,
-    completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
+    completeTurn: (input, signal) => executeAdmittedTurn(invocationService, input, signal),
     projectProviderExchanges: (sessionId, sourceInputId, attempts, context) =>
       invocationService.projectProviderExchanges(
         sessionId,

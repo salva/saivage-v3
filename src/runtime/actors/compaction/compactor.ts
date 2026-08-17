@@ -122,7 +122,8 @@ export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery';
+// local_exact_admission maximal safe-prefix reduction/smallest-projection selection lands with the Unit 7 compactor rework; it currently shares the authoritative smaller-than-rejected path.
+export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
 export type CompactionResult =
   | {
       kind: 'compacted';

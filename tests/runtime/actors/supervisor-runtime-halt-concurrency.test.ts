@@ -17,7 +17,7 @@ import { testApplicationFatalDelivery, testApplicationFatalPort } from '../../he
 import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
 import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
-import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
+import { scriptedAdmissionProvider, testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import type { AgentMembershipFreshnessTarget } from '../../../src/application/freshness-effects.js';
 
@@ -100,7 +100,7 @@ function harness(withChild = false) {
     runtimeGate: new RuntimeGate(),
     projectRoot,
     actorStore: store,
-    provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
+    provider: scriptedAdmissionProvider(async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))),
     conversations: { projectRoot },
     freshness: { runtimeChanged, agentMembershipChanged: (target: AgentMembershipFreshnessTarget) => membershipRecords.push({ target: target as { scope: 'card'; cardId: string }, liveIds: [...supervisor.captureAutonomousExecutingLlmSessionIds()], ownersCleared: (supervisor as unknown as SupervisorInternals).activationOwners.size === 0 }) },
     processRunner: { terminateScopeTree }, runtimeProcessRootScope: {}, processIdentity: { pid: 1, startedAt: 'now' },
@@ -210,7 +210,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       projectRoot,
       processIdentity: { pid: 1, startedAt: 'now' },
       actorStore: cards,
-      provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
+      provider: scriptedAdmissionProvider(async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))),
       conversations: { projectRoot },
       freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
       processRunner: processes.processRunner,
