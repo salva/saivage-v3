@@ -4,7 +4,6 @@ import { buildCandidateRequest } from '../../src/agents/candidate-request.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 import type { EffectiveProviderCapabilities } from '../../src/agents/provider-capabilities.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
-import { durableContentPolicy, structuralContextPolicy } from '../helpers/message-context-policy.js';
 import type { LlmCompleteOptions, ProviderConversationProjection, ToolDefinition } from '../../src/agents/llm-contracts.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 
@@ -41,8 +40,8 @@ describe('candidate request admission artifact', () => {
     const sourceInputId = '00000000-0000-4000-8000-000000000001';
     const privateContent = 'opaque-provider-private-payload';
     const common = { session_id: 'agent:planner:project' as const, round_id: 'r-assistant-00000000000000000000000000000000', message_index: 1, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' };
-    const privateRow: AgentMessage = { ...common, id: 'private', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: sourceInputId, projection_message_id: 'visible', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'message', content: [{ type: 'output_text', text: privateContent }] }] }), context_policy: structuralContextPolicy('responses_private') };
-    const visible: AgentMessage = { ...common, id: 'visible', role: 'assistant', kind: 'text', content: 'visible summary', context_policy: durableContentPolicy(), provider_projection: { kind: 'openai_responses', source_input_id: sourceInputId, private_message_id: 'private', projection_kind: 'assistant_message' } };
+    const privateRow: AgentMessage = { ...common, id: 'private', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: sourceInputId, projection_message_id: 'visible', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'message', content: [{ type: 'output_text', text: privateContent }] }] }) };
+    const visible: AgentMessage = { ...common, id: 'visible', role: 'assistant', kind: 'text', content: 'visible summary', provider_projection: { kind: 'openai_responses', source_input_id: sourceInputId, private_message_id: 'private', projection_kind: 'assistant_message' } };
     const providerConversation = { sourceSessionId: 'agent:planner:project', messages: [privateRow, visible] } satisfies ProviderConversationProjection;
 
     const responses = buildCandidateRequest({ ...base, providerConversation, capabilities: capabilities('openai-responses'), adapter: selectLlmProtocolAdapter('openai-responses') }).request;

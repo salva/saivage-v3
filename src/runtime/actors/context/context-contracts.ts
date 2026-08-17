@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { canonicalJson, type CanonicalContextPolicy } from '../../../schemas/index.js';
+import { canonicalJson } from '../../../schemas/index.js';
 
 export type ContextStorage = 'durable' | 'activation_local';
 
@@ -74,14 +74,6 @@ export function sha256Utf8(value: string): string {
 
 export function contextBlockContentSha256(content: string): string {
   return sha256Utf8(content);
-}
-
-export function durableContentPolicy(): Extract<CanonicalContextPolicy, { kind: 'content' }> {
-  return Object.freeze({ kind: 'content', storage: 'durable', replacement: Object.freeze({ kind: 'retain' }), audience: 'primary_and_summarizer', evidence: Object.freeze({ kind: 'none' }) });
-}
-
-export function structuralContextPolicy(behavior: Extract<CanonicalContextPolicy, { kind: 'structural' }>['behavior']): Extract<CanonicalContextPolicy, { kind: 'structural' }> {
-  return Object.freeze({ kind: 'structural', behavior });
 }
 
 export function canonicalSourceIdentityKey(identity: CanonicalSourceIdentity): string {

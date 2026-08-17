@@ -1,12 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { defineTool, invokeTool, invokeToolForLlm, noneToolExecution, providerResultFromSettlement, surfaceCompiledInvocationTools, type ToolExecutionResult, type ToolProvider } from '../../src/tools/invocation.js';
+import { defineTool, invokeTool, invokeToolForLlm, surfaceCompiledInvocationTools, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
-import { PRIMARY_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/runtime/actors/llm-invocation.js';
 
 describe('tool invocation surface', () => {
   const provider = (providerName: string, toolName = 'demo'): ToolProvider => ({
@@ -16,8 +15,7 @@ describe('tool invocation surface', () => {
         name: toolName,
         description: 'Demo tool.',
         inputSchema: z.object({ value: z.string() }).strict(),
-        resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
-        executor: async (args) => noneToolExecution({ success: true, data: { value: args.value } }),
+        executor: async (args) => ({ success: true, data: { value: args.value } }),
       }),
     ],
   });
@@ -36,8 +34,7 @@ describe('tool invocation surface', () => {
   it('returns model-visible errors for unsupported tool names', async () => {
     const surface = buildInvocationSurfaceFixture('reviewer', [provider('a')]);
 
-    const settlement = await invokeTool(surface, 'missing', {});
-    expect(settlement).toMatchObject({ kind: 'synthetic', settlementOrigin: 'unsupported_tool', providerResult: { success: false, error: "Unsupported tool 'missing' for agent 'reviewer'." } });
+    await expect(invokeTool(surface, 'missing', {})).resolves.toEqual({ success: false, error: "Unsupported tool 'missing' for agent 'reviewer'." });
   });
 
   it('returns model-visible errors for invalid parsed arguments', async () => {
@@ -45,10 +42,8 @@ describe('tool invocation surface', () => {
 
     const result = await invokeTool(surface, 'demo', { value: 1 });
 
-    expect(result).toMatchObject({ kind: 'synthetic', settlementOrigin: 'rejected_before_execution' });
-    const providerResult = providerResultFromSettlement(result);
-    expect(providerResult.success).toBe(false);
-    if (!providerResult.success) expect(providerResult.error).toContain('Expected string');
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error).toContain('Expected string');
   });
 
   it('does not catch executor exceptions', async () => {
@@ -59,7 +54,6 @@ describe('tool invocation surface', () => {
           name: 'buggy',
           description: 'Buggy tool.',
           inputSchema: z.object({}).strict(),
-          resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
           executor: async () => { throw new Error('programmer bug'); },
         }),
       ],
@@ -76,13 +70,12 @@ describe('tool invocation surface', () => {
           name: 'buggy',
           description: 'Buggy tool.',
           inputSchema: z.object({}).strict(),
-          resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
           executor: async () => { throw new Error('programmer bug'); },
         }),
       ],
     }]);
 
-    await expect(invokeToolForLlm(surface, 'buggy', {}, testLlmToolInvocationContext({ toolName: 'buggy' }))).resolves.toMatchObject({ kind: 'synthetic', settlementOrigin: 'execution_failed', providerResult: { success: false, error: 'programmer bug' } });
+    await expect(invokeToolForLlm(surface, 'buggy', {}, testLlmToolInvocationContext({ toolName: 'buggy' }))).resolves.toEqual({ success: false, error: 'programmer bug' });
   });
 
   it('rethrows from the LLM boundary when the signal is already aborted', async () => {
@@ -98,23 +91,23 @@ describe('tool invocation surface', () => {
     const publicationError = new PublicationOutcomeUnknownError();
     const surface = buildInvocationSurfaceFixture('analyst', [{
       providerName: 'publication',
-      tools: [defineTool({ name: 'publish', description: 'Publish.', inputSchema: z.object({}).strict(), resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE, executor: async () => { throw publicationError; } })],
+      tools: [defineTool({ name: 'publish', description: 'Publish.', inputSchema: z.object({}).strict(), executor: async () => { throw publicationError; } })],
     }]);
 
     await expect(invokeToolForLlm(surface, 'publish', {}, testLlmToolInvocationContext({ toolName: 'publish' }))).rejects.toBe(publicationError);
   });
 
   it.each(['fulfill', 'same-reject', 'different-reject'] as const)('gives exact Stop identity priority after abort-ignoring tool %s', async (mode) => {
-    let resolve!: (value: ToolExecutionResult<'none'>) => void;
+    let resolve!: (value: ToolResult) => void;
     let reject!: (error: unknown) => void;
-    const tool = new Promise<ToolExecutionResult<'none'>>((done, fail) => { resolve = done; reject = fail; });
-    const surface = buildInvocationSurfaceFixture('planner', [{ providerName: 'controlled', tools: [defineTool({ name: 'controlled', description: 'controlled', inputSchema: z.object({}).strict(), resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE, executor: () => tool })] }]);
+    const tool = new Promise<ToolResult>((done, fail) => { resolve = done; reject = fail; });
+    const surface = buildInvocationSurfaceFixture('planner', [{ providerName: 'controlled', tools: [defineTool({ name: 'controlled', description: 'controlled', inputSchema: z.object({}).strict(), executor: () => tool })] }]);
     const controller = new AbortController();
     const interruption = new RuntimeStoppedInterruption();
     const pending = invokeToolForLlm(surface, 'controlled', {}, testLlmToolInvocationContext({ toolName: 'controlled' }), controller.signal);
     await Promise.resolve();
     controller.abort(interruption);
-    if (mode === 'fulfill') resolve(noneToolExecution({ success: true }));
+    if (mode === 'fulfill') resolve({ success: true });
     else if (mode === 'same-reject') reject(interruption);
     else reject(new Error('different tool failure'));
     await expect(pending).rejects.toBe(interruption);
@@ -133,16 +126,5 @@ describe('tool invocation surface', () => {
         }),
       }),
     ]);
-    expect(surfaceCompiledInvocationTools(surface)[0]!.providerDefinition).not.toHaveProperty('resultPolicyTemplate');
-  });
-
-  it('enforces evidence mode at compile time and runtime', async () => {
-    defineTool({ name: 'none', description: 'none', inputSchema: z.object({}).strict(), resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE, executor: async () => noneToolExecution({ success: true }) });
-    const wrong: ToolExecutionResult<'observational_query'> = { providerResult: { success: true }, evidence: { kind: 'observational_result_bytes' } };
-    // @ts-expect-error observational evidence cannot implement a none-mode definition
-    defineTool({ name: 'wrong', description: 'wrong', inputSchema: z.object({}).strict(), resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE, executor: async () => wrong });
-    const base = provider('forged').tools[0]!;
-    const forged = { ...base, executor: async () => wrong as never };
-    await expect(invokeTool(buildInvocationSurfaceFixture('executor', [{ providerName: 'forged', tools: [forged] }]), 'demo', { value: 'x' })).rejects.toThrow(/does not match fixed mode/);
   });
 });

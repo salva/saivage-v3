@@ -1,23 +1,20 @@
 import { z } from 'zod';
 
 import type { ToolContext } from './analyst-tool-types.js';
-import { canonicalToolExecution, defineToolBinder, observationalToolExecution, type ToolBinder, type ToolResult } from './invocation.js';
+import { defineToolBinder, type ToolBinder, type ToolResult } from './invocation.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersionsInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { CardDiffResponseSchema, CardHistoryEntryResponseSchema, CardHistoryListResponseSchema } from '../contracts/index.js';
 import { projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/read-models/card-outbound.js';
-import { CANONICAL_TOOL_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE } from '../runtime/actors/llm-invocation.js';
-import { canonicalJson } from '../schemas/index.js';
-import { createHash } from 'node:crypto';
 
 export interface CardVersionProviderContext {
   readonly store: ToolContext['store'];
 }
 
 export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'list_card_versions', description: 'List committed card versions without opening version content.', inputSchema: () => listCardVersionsInputSchema, resultPolicyTemplate: OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE, executor: async (ctx, args) => observationalToolExecution(await listCardVersions(ctx, args)) }),
-  defineToolBinder({ name: 'get_card_version', description: 'Read one exact committed card version.', inputSchema: () => getCardVersionInputSchema, resultPolicyTemplate: CANONICAL_TOOL_RESULT_POLICY_TEMPLATE, executor: async (ctx, args) => getCardVersion(ctx, args) }),
-  defineToolBinder({ name: 'diff_card_versions', description: 'Get a field-level diff between two card versions.', inputSchema: () => diffCardVersionsInputSchema, resultPolicyTemplate: OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE, executor: async (ctx, args) => observationalToolExecution(await diffCardVersions(ctx, args)) }),
+  defineToolBinder({ name: 'list_card_versions', description: 'List committed card versions without opening version content.', inputSchema: () => listCardVersionsInputSchema, executor: async (ctx, args) => listCardVersions(ctx, args) }),
+  defineToolBinder({ name: 'get_card_version', description: 'Read one exact committed card version.', inputSchema: () => getCardVersionInputSchema, executor: async (ctx, args) => getCardVersion(ctx, args) }),
+  defineToolBinder({ name: 'diff_card_versions', description: 'Get a field-level diff between two card versions.', inputSchema: () => diffCardVersionsInputSchema, executor: async (ctx, args) => diffCardVersions(ctx, args) }),
 ]);
 
 async function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof listCardVersionsInputSchema>): Promise<ToolResult> {
@@ -27,14 +24,13 @@ async function listCardVersions(ctx: CardVersionProviderContext, params: z.infer
   return { success: true, data: CardHistoryListResponseSchema.parse({ card_id: params.card_id, versions, total: versions.length }) };
 }
 
-async function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof getCardVersionInputSchema>) {
+async function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof getCardVersionInputSchema>): Promise<ToolResult> {
   const result = ctx.store.readCardVersion(params.card_id, params.version);
-  if (result.kind === 'card-not-found') return canonicalToolExecution({ success: false, error: 'Card not found.', data: { code: 'card_not_found', card_id: params.card_id } }, { locator: '', sha256: '' });
-  if (result.kind === 'version-not-found') return canonicalToolExecution({ success: false, error: 'Card version not found.', data: { code: 'card_version_not_found', card_id: params.card_id, version: params.version, side: 'selected' } }, { locator: '', sha256: '' });
-  if (result.kind === 'historical-unavailable') return canonicalToolExecution({ success: false, error: 'Historical card version content unavailable.', data: { code: 'historical_version_content_unavailable', resource: 'card', owner_id: params.card_id, version: params.version, reason: result.reason } }, { locator: '', sha256: '' });
+  if (result.kind === 'card-not-found') return { success: false, error: 'Card not found.', data: { code: 'card_not_found', card_id: params.card_id } };
+  if (result.kind === 'version-not-found') return { success: false, error: 'Card version not found.', data: { code: 'card_version_not_found', card_id: params.card_id, version: params.version, side: 'selected' } };
+  if (result.kind === 'historical-unavailable') return { success: false, error: 'Historical card version content unavailable.', data: { code: 'historical_version_content_unavailable', resource: 'card', owner_id: params.card_id, version: params.version, reason: result.reason } };
   const value = result.value; const artifact = value.kind === 'card-version' ? { kind: value.kind, card: projectCardRecordForOutbound(value.card), change: projectCardVersionChangeForOutbound(value.change) } : { kind: value.kind, final_card: projectCardRecordForOutbound(value.final_card), change: projectCardVersionChangeForOutbound(value.change)! };
-  const providerResult = { success: true as const, data: CardHistoryEntryResponseSchema.parse({ card_id: params.card_id, version: params.version, entry_id: value.entry_id, published_at: value.committed_at, artifact }) };
-  return canonicalToolExecution(providerResult, { locator: `card:///${encodeURIComponent(params.card_id)}?v=${params.version}#entry=${value.entry_id}`, sha256: createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex') });
+  return { success: true, data: CardHistoryEntryResponseSchema.parse({ card_id: params.card_id, version: params.version, entry_id: value.entry_id, published_at: value.committed_at, artifact }) };
 }
 
 async function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof diffCardVersionsInputSchema>): Promise<ToolResult> {

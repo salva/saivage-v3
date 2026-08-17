@@ -7,7 +7,6 @@ export {
 } from './actor-vocabulary.js';
 export { canonicalJson, contextCompactionAppliedPolicySchema, contextCompactionContentSchema, contextCompactionSummaryGroupSchema, contextCompactionSummaryRoundSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
 export { CONTENT_POLICY_RETRY_TEXT, contentPolicyRefusalContentSchema, parseCanonicalContentPolicyRefusal, type ContentPolicyRefusalContent } from './content-policy.js';
-export { canonicalContextPolicySchema, contextAudienceSchema, contextReplacementTemplateSchema, settledToolEvidenceSchema, toolResultPolicyTemplateSchema, type CanonicalContextPolicy, type CanonicalToolResultPolicyTemplate, type ContextAudienceValue, type SettledToolEvidence } from './context-policy.js';
 export {
   ConversationSessionIdSchema,
   parseConversationSessionId,

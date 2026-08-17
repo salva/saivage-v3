@@ -3,11 +3,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { bindToolProvider, invokeTool as invokeToolSettlement, providerResultFromSettlement } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { skillToolBinders } from '../../src/tools/skill-provider.js';
-
-const invokeTool = async (...args: Parameters<typeof invokeToolSettlement>) => providerResultFromSettlement(await invokeToolSettlement(...args));
 
 function temporaryProject(test: (root: string, skillsDir: string) => Promise<void>): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), 'saivage-skill-provider-'));

@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { bindToolProvider, invokeTool as invokeToolSettlement, providerResultFromSettlement, surfaceCompiledInvocationTools } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool, surfaceCompiledInvocationTools } from '../../src/tools/invocation.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
@@ -12,8 +12,6 @@ import { create_card } from '../../src/tools/analyst-card-tools.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-const invokeTool = async (...args: Parameters<typeof invokeToolSettlement>) => providerResultFromSettlement(await invokeToolSettlement(...args));
 import { plannerControlToolBinders } from '../../src/tools/planner-control-provider.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 

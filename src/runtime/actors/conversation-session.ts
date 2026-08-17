@@ -9,7 +9,6 @@ import { appendConversationBatch, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
 import type { SummarizerProviderRow } from './compaction/result-dropping.js';
-import { durableContentPolicy, structuralContextPolicy } from './context/index.js';
 
 export type UserContextMessageCategory =
   | 'notification' | 'reviewer_descendant' | 'process_transition' | 'process_node' | 'continuation_hook';
@@ -63,7 +62,6 @@ export function buildUserContextMessage(
     role: 'user',
     kind: 'text',
     content,
-    context_policy: durableContentPolicy(),
     round_id: deterministicRoundId('user', seed),
     message_index: 1,
     block_index: 0,
@@ -84,7 +82,6 @@ export function appendActivationMarker(
     role: 'system',
     kind: 'activity',
     content: JSON.stringify({ ...payload, timestamp }),
-    context_policy: structuralContextPolicy('activation_boundary'),
     round_id: generateRoundId('pre'),
     message_index: 0,
     block_index: 0,
@@ -134,7 +131,6 @@ export function buildAnalystActivationMarker(
       input_id: inputId,
       timestamp,
     }),
-    context_policy: structuralContextPolicy('activation_boundary'),
     round_id: generateRoundId('pre'),
     message_index: 0,
     block_index: 0,
@@ -155,7 +151,6 @@ export function appendRecoveryNotice(
     kind: 'model_recovered',
     content:
       'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.',
-    context_policy: structuralContextPolicy('model_recovery_notice'),
     round_id: deterministicRoundId('pre', inputId),
     message_index: 0,
     block_index: 1,
@@ -196,7 +191,6 @@ export function buildContextTextMessage(
     role,
     kind: 'text',
     content,
-    context_policy: durableContentPolicy(),
     round_id: deterministicRoundId(role === 'system' ? 'pre' : 'user', seed),
     message_index: role === 'system' ? 0 : 1,
     block_index: 0,
@@ -227,7 +221,7 @@ export function providerConversationProjection(
 function projectGenesisCompactedConversation(conversation: ValidatedConversation): AgentMessage[] {
   const genesis = conversation.compactedGenesis!;
   const retained = conversation.sourceRows.slice(0, genesis.retainedStaticRowCount).flatMap(projectProviderConversationMessage);
-  const synthetic = agentMessageSchema.parse({ id: `${genesis.id}:rendered`, session_id: conversation.sourceSessionId, role: 'system', kind: 'text', content: renderContextCompactionPayload(genesis.payload), context_policy: durableContentPolicy(), round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: genesis.timestamp });
+  const synthetic = agentMessageSchema.parse({ id: `${genesis.id}:rendered`, session_id: conversation.sourceSessionId, role: 'system', kind: 'text', content: renderContextCompactionPayload(genesis.payload), round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: genesis.timestamp });
   return [...retained, synthetic, ...conversation.sourceRows.slice(genesis.retainedStaticRowCount).flatMap(projectProviderConversationMessage)];
 }
 
@@ -261,7 +255,6 @@ function projectCompactedConversation(
     role: 'system',
     kind: 'text',
     content: latest.renderedContext,
-    context_policy: durableContentPolicy(),
     round_id: metadata.round_id,
     message_index: metadata.message_index,
     block_index: metadata.block_index,
@@ -282,11 +275,16 @@ function projectCompactedConversation(
 }
 
 export function isProviderConversationMessage(message: AgentMessage): boolean {
-  switch (message.kind) {
-    case 'text': case 'tool_call': case 'tool_result': case 'model_repair': case 'model_recovered': case 'provider_private': case 'content_policy_retry': case 'content_policy_refusal': return true;
-    case 'activity': case 'model_issue': return false;
-    default: return assertUnreachableMessageKind(message.kind);
-  }
+  return (
+    message.kind === 'text' ||
+    message.kind === 'tool_call' ||
+    message.kind === 'tool_result' ||
+    message.kind === 'model_repair' ||
+    message.kind === 'model_recovered' ||
+    message.kind === 'provider_private' ||
+    message.kind === 'content_policy_retry' ||
+    message.kind === 'content_policy_refusal'
+  );
 }
 
 export function isConversationBudgetVisible(message: AgentMessage): boolean {
@@ -302,7 +300,6 @@ function projectProviderConversationMessage(message: AgentMessage): AgentMessage
         kind: 'text',
         role: 'user',
         content: CONTENT_POLICY_RETRY_TEXT,
-        context_policy: durableContentPolicy(),
       }),
     ];
   if (message.kind === 'content_policy_refusal')
@@ -312,10 +309,7 @@ function projectProviderConversationMessage(message: AgentMessage): AgentMessage
         kind: 'text',
         role: 'user',
         content: contentPolicyRefusalProjectionText(message.session_id, message.id),
-        context_policy: durableContentPolicy(),
       }),
     ];
   return [message];
 }
-
-function assertUnreachableMessageKind(value: never): never { throw new Error(`Unclassified canonical message kind '${String(value)}'.`); }

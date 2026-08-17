@@ -4,14 +4,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-recovery.js';
-import { canonicalJson, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
+import { type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
 import { codexMessages } from '../../src/agents/llm-openai-codex-adapter.js';
 import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-adapter.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { durableContentPolicy, structuralContextPolicy, testToolCallPolicy, testToolResultPolicy } from '../helpers/message-context-policy.js';
 
 const roots: string[] = [];
 const source = '11111111-1111-4111-8111-111111111111';
@@ -25,10 +24,9 @@ describe('stable same-session recovery', () => {
     roots.push(projectRoot);
     const sessionId: ConversationSessionId = 'agent:planner:project';
     const base = { session_id: sessionId, round_id: 'r-pre-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
-    const callPolicy = testToolCallPolicy();
     const rows: AgentMessage[] = [
-      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }), context_policy: structuralContextPolicy('activation_boundary') },
-      { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }) } }] }), context_policy: callPolicy, tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
+      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
+      { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: 'card-bbbbbbbbbbbbbbbbbbbbbbbbbbbb' }) } }] }), tool: 'activate_card', tool_call_id: 'call-1', message_index: 1 },
     ];
     appendConversationBatch({ projectRoot }, rows);
     const result = stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
@@ -49,12 +47,10 @@ describe('stable same-session recovery', () => {
     initProjectTree(projectRoot);
     roots.push(projectRoot);
     const base = { session_id: sessionId, round_id: 'r-pre-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
-    const callPolicy = testToolCallPolicy();
-    const deferred = { success: false, error: 'deferred', data: { reason: 'pending_notifications' } };
     appendConversationBatch({ projectRoot }, [
-      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: sessionId.split(':')[1], card_id: sessionId.split(':').slice(2).join(':'), input_id: source, timestamp: base.timestamp }), context_policy: structuralContextPolicy('activation_boundary') },
-      { ...base, id: `${source}:tool-call:emit-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'emit-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }), context_policy: callPolicy, tool: 'emit_result', tool_call_id: 'emit-1', message_index: 1 },
-      { ...base, id: `${source}:tool-result:emit-1`, role: 'tool', kind: 'tool_result', content: canonicalJson(deferred), context_policy: testToolResultPolicy(deferred, callPolicy), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 2 },
+      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: sessionId.split(':')[1], card_id: sessionId.split(':').slice(2).join(':'), input_id: source, timestamp: base.timestamp }) },
+      { ...base, id: `${source}:tool-call:emit-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'emit-1', type: 'function', function: { name: 'emit_result', arguments: '{}' } }] }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 1 },
+      { ...base, id: `${source}:tool-result:emit-1`, role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: false, error: 'deferred', data: { reason: 'pending_notifications' } }), tool: 'emit_result', tool_call_id: 'emit-1', message_index: 2 },
     ] satisfies AgentMessage[]);
 
     expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
@@ -66,10 +62,9 @@ describe('stable same-session recovery', () => {
     roots.push(projectRoot);
     const sessionId: ConversationSessionId = 'agent:planner:project';
     const base = { session_id: sessionId, round_id: 'r-pre-cccccccccccccccccccccccccccccccc', message_index: 0, block_index: 0, timestamp: '2026-07-15T00:00:00.000Z' };
-    const callPolicy = testToolCallPolicy();
     appendConversationBatch({ projectRoot }, [
-      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }), context_policy: structuralContextPolicy('activation_boundary') },
-      { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), context_policy: callPolicy, tool: 'read', tool_call_id: 'call-1', message_index: 1 },
+      { ...base, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp: base.timestamp }) },
+      { ...base, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', message_index: 1 },
     ] satisfies AgentMessage[]);
     stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
@@ -104,12 +99,12 @@ describe('stable same-session recovery', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-refusal-recovery-')); initProjectTree(projectRoot); roots.push(projectRoot);
     const sessionId: ConversationSessionId = 'agent:planner:project';
     const timestamp = '2026-07-26T00:00:00.000Z';
-    const activation: AgentMessage = { session_id: sessionId, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp }), context_policy: structuralContextPolicy('activation_boundary'), round_id: 'r-pre-dddddddddddddddddddddddddddddddd', message_index: 0, block_index: 0, timestamp };
+    const activation: AgentMessage = { session_id: sessionId, id: `${sessionId}:activation:one`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp }), round_id: 'r-pre-dddddddddddddddddddddddddddddddd', message_index: 0, block_index: 0, timestamp };
     const marker = buildContentPolicyRefusalMessage({ sessionId, sourceInputId: source, candidate: { provider: 'test', account: null, model: 'model' }, providerResponse: 'raw' });
     appendConversationBatch({ projectRoot }, [activation, marker]);
     expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) })).toMatchObject({ disposition: 'clean' });
     expect(readConversation(projectRoot, sessionId).sourceRows.at(-1)?.kind).toBe('content_policy_refusal');
-    const after = { ...marker, id: 'after-marker', kind: 'text' as const, role: 'user' as const, content: 'invalid suffix', context_policy: durableContentPolicy() };
+    const after = { ...marker, id: 'after-marker', kind: 'text' as const, role: 'user' as const, content: 'invalid suffix' };
     appendConversationBatch({ projectRoot }, [after]);
     expect(() => stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) })).toThrow(/rows after or colliding/);
   });

@@ -1,13 +1,10 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { bindToolProvider, invokeTool as invokeToolSettlement, invokeToolForLlm as invokeToolForLlmSettlement, providerResultFromSettlement } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool, invokeToolForLlm } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { mcpToolBinders, type McpProviderContext } from '../../src/tools/mcp-provider.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { createMcpToolInvocationInstallation, McpToolInvocationNotInstalledError } from '../../src/mcp/tool-invocation-installation.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
-
-const invokeTool = async (...args: Parameters<typeof invokeToolSettlement>) => providerResultFromSettlement(await invokeToolSettlement(...args));
-const invokeToolForLlm = async (...args: Parameters<typeof invokeToolForLlmSettlement>) => providerResultFromSettlement(await invokeToolForLlmSettlement(...args));
 
 describe('MCP activity segmentation', () => {
   const provider = (context: McpProviderContext) => bindToolProvider('mcp', mcpToolBinders, context);

@@ -9,14 +9,13 @@ import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import type { InvocationJoinOutcome } from '../../src/runtime/actors/invocation-lifecycle.js';
 import type { RestartPort } from '../../src/boot/restart-port.js';
 import { readConversation, type ConversationFileContext } from '../../src/persistence/conversation-file.js';
-import { defineTool, noneToolExecution, type InvocationSurface, type ToolResult } from '../../src/tools/invocation.js';
-import { PRIMARY_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/runtime/actors/llm-invocation.js';
+import { defineTool, type InvocationSurface, type ToolResult } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { actorProvider } from '../helpers/actor-provider.js';
+import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
-import { canonicalJson } from '../../src/schemas/index.js';
 
 const sessionId = 'agent:analyst:global' as const;
 const emptyStopReport = { selected: [], stopped: [], failed: [] };
@@ -48,7 +47,8 @@ describe('Analyst application-disposal ownership boundaries', () => {
   it('retains the caller-supplied ordinary tool result and admits no continuation', async () => {
     const reason = new Error('application disposed during ordinary tool-result publication');
     const suppliedResult: ToolResult = { success: true, data: { value: 'caller supplied' } };
-    const fixture = createFixture({
+    let fixture!: ReturnType<typeof createFixture>;
+    fixture = createFixture({
       toolName: 'demo',
       toolResult: suppliedResult,
       beforeToolReturns: () => fixture.observer.arm(() => fixture.startDisposal(reason)),
@@ -66,7 +66,8 @@ describe('Analyst application-disposal ownership boundaries', () => {
   it('retains a successful restart result without installing confirmation or continuing', async () => {
     const reason = new Error('application disposed during restart result publication');
     const suppliedResult: ToolResult = { success: true, data: { restart: 'confirmation_required' } };
-    const fixture = createFixture({
+    let fixture!: ReturnType<typeof createFixture>;
+    fixture = createFixture({
       toolName: 'restart_server',
       toolResult: suppliedResult,
       beforeToolReturns: () => fixture.observer.arm(() => fixture.startDisposal(reason)),
@@ -104,8 +105,9 @@ describe('Analyst application-disposal ownership boundaries', () => {
   });
 
   it('preserves an entered restart schedule and consumes confirmation', async () => {
+    let fixture!: ReturnType<typeof createFixture>;
     const reason = new Error('application disposed after restart schedule entry');
-    const fixture = createFixture({
+    fixture = createFixture({
       toolName: 'restart_server',
       schedule: () => fixture.startDisposal(reason),
     });
@@ -150,10 +152,9 @@ function createFixture(options: {
         name: options.toolName,
         description: 'Test Analyst tool.',
         inputSchema: z.object({}).strict(),
-        resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
         executor: async () => {
           options.beforeToolReturns?.();
-          return noneToolExecution(suppliedResult);
+          return suppliedResult;
         },
       })
     : null;
@@ -285,7 +286,7 @@ function expectToolSequence(projectRoot: string, toolName: string, result: ToolR
     kind: 'tool_result',
     tool: toolName,
     tool_call_id: 'call-1',
-    content: canonicalJson(result),
+    content: JSON.stringify(result),
   });
   expect(rows.some((row) => row.content.includes('Cancelled:'))).toBe(false);
 }

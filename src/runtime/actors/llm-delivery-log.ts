@@ -1,26 +1,24 @@
-import { createHash } from 'node:crypto';
-import { agentMessageSchema, canonicalJson, type SettledToolEvidence } from '../../schemas/index.js';
+import { agentMessageSchema } from '../../schemas/index.js';
 import type { AgentMessage, ConversationSessionId } from '../../schemas/index.js';
 import { deterministicRoundId } from '../../schemas/round-id-server.js';
 import type { ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
 import { appendConversationBatch, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
-import { durableContentPolicy, structuralContextPolicy } from './context/index.js';
-import { compileInvocationToolContract, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from './llm-invocation.js';
-import type { ToolResult, ToolSettlementInput, ToolSettlementOrigin } from '../../tools/invocation.js';
-import { ToolInvocationResultSchema } from '../../contracts/tool-invocation-projection.js';
 interface ToolSettlementRecord {
   session_id: ConversationSessionId;
   source_input_id: string;
   tool_call_id: string;
   tool_name: string;
-  settlement: ToolSettlementInput;
-  call_policy_sha256: string;
+  result: unknown;
   created_at: string;
 }
 
-export type SettledToolResult = Readonly<{ providerResult: ToolResult; settledResultBytes: string; resultContentSha256: string; evidence: SettledToolEvidence; settlementOrigin: ToolSettlementOrigin }>;
+interface SyntheticFailedToolResultPayload {
+  success: false;
+  error: string;
+  data?: unknown;
+}
 
 export function appendLlmTurnStarted(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput): AgentMessage[] {
   const messages: AgentMessage[] = [agentMessageSchema.parse({
@@ -29,7 +27,6 @@ export function appendLlmTurnStarted(conversations: ConversationFileContext, inp
     role: 'system',
     kind: 'activity',
     content: JSON.stringify({ event: 'llm_turn_started', inputId: input.inputId, agent_name: input.agentName }),
-    context_policy: structuralContextPolicy('activation_boundary'),
     round_id: deterministicRoundId('pre', input.inputId),
     message_index: 0,
     block_index: 0,
@@ -52,7 +49,6 @@ export function buildLlmTurnMessage(input: CanonicalLlmInvocationInput, content:
       role: 'assistant',
       kind: 'text',
       content,
-      context_policy: durableContentPolicy(),
       round_id: deterministicRoundId('assistant', input.inputId),
       message_index: 1,
       block_index: 0,
@@ -69,7 +65,6 @@ function providerPrivateResponsesMessage(input: CanonicalLlmInvocationInput, pro
     role: 'system',
     kind: 'provider_private',
     content: JSON.stringify({ transport: 'openai-responses', source_input_id: input.inputId, projection_message_id: projectionMessageId, provider: privateContext.provider, model: privateContext.model, output: privateContext.output }),
-    context_policy: structuralContextPolicy('responses_private'),
     round_id: deterministicRoundId('assistant', `${input.inputId}:provider-private`),
     message_index: 1,
     block_index: 0,
@@ -94,7 +89,6 @@ export function appendLlmTurnError(conversations: ConversationFileContext, input
     role: 'assistant',
     kind: 'model_issue',
     content: error,
-    context_policy: structuralContextPolicy('provider_failure'),
     round_id: deterministicRoundId('assistant', input.inputId),
     message_index: 1,
     block_index: 0,
@@ -104,26 +98,20 @@ export function appendLlmTurnError(conversations: ConversationFileContext, input
   return message;
 }
 
-export function appendToolResult(conversations: ConversationFileContext, record: Omit<ToolSettlementRecord, 'created_at'>): SettledToolResult {
-  const settlementPolicySha256 = sha256(canonicalJson(record.settlement.resultPolicyTemplate));
-  if (settlementPolicySha256 !== record.call_policy_sha256) throw new Error('Tool settlement policy does not match the call-owned policy commitment.');
+export function appendToolResult(conversations: ConversationFileContext, record: Omit<ToolSettlementRecord, 'created_at'>): ToolSettlementRecord {
   const parsed: ToolSettlementRecord = { ...record, created_at: new Date().toISOString() };
-  const settled = settleToolResult(parsed.settlement);
-  const message = buildToolResultMessage({ ...parsed, settled });
+  const message = buildToolResultMessage(parsed);
   appendOne(conversations, message);
-  return settled;
+  return parsed;
 }
 
 function toolCallAgentMessage(input: CanonicalLlmInvocationInput, toolCall: ToolCall, index = 0, timestamp = new Date().toISOString()): AgentMessage {
-  const compiled = input.compiledTools.find((tool) => tool.providerDefinition.function.name === toolCall.function.name);
-  const policy = compiled ?? compileInvocationToolContract({ type: 'function', function: { name: toolCall.function.name, description: 'Unsupported provider-emitted tool.', parameters: { type: 'object', additionalProperties: true } } }, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE);
   return agentMessageSchema.parse({
     id: `${input.inputId}:tool-call:${toolCall.id}`,
     session_id: input.sessionId,
     role: 'assistant',
     kind: 'tool_call',
     content: JSON.stringify(toolCallAgentContent(toolCall)),
-    context_policy: { kind: 'tool_call', template: policy.resultPolicyTemplate, template_bytes: policy.resultPolicyTemplateBytes, template_sha256: policy.resultPolicyTemplateSha256 },
     tool: toolCall.function.name,
     tool_call_id: toolCall.id,
     round_id: deterministicRoundId('assistant', input.inputId),
@@ -143,16 +131,14 @@ export function appendLlmTurnToolCallBatch(conversations: ConversationFileContex
   return visible;
 }
 
-export function buildToolResultMessage(record: Omit<ToolSettlementRecord, 'created_at'> & { created_at?: string; settled?: SettledToolResult }): AgentMessage {
+export function buildToolResultMessage(record: Omit<ToolSettlementRecord, 'created_at'> & { created_at?: string }): AgentMessage {
   const complete = { ...record, created_at: record.created_at ?? new Date().toISOString() };
-  const settled = record.settled ?? settleToolResult(record.settlement);
   return agentMessageSchema.parse({
     id: `${complete.source_input_id}:tool-result:${complete.tool_call_id}`,
     session_id: complete.session_id,
     role: 'tool',
     kind: 'tool_result',
-    content: settled.settledResultBytes,
-    context_policy: { kind: 'tool_result', settlement_origin: settled.settlementOrigin, result_content_sha256: settled.resultContentSha256, call_policy_sha256: complete.call_policy_sha256, evidence: settled.evidence },
+    content: JSON.stringify(complete.result),
     tool: complete.tool_name,
     tool_call_id: complete.tool_call_id,
     round_id: deterministicRoundId('user', complete.source_input_id),
@@ -162,8 +148,23 @@ export function buildToolResultMessage(record: Omit<ToolSettlementRecord, 'creat
   });
 }
 
-export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; settlement: Extract<ToolSettlementInput, { kind: 'synthetic' }>; callPolicySha256: string }): SettledToolResult {
-  return appendToolResult(conversations, { session_id: record.sessionId, source_input_id: record.sourceInputId, tool_call_id: record.toolCallId, tool_name: record.toolName, settlement: record.settlement, call_policy_sha256: record.callPolicySha256 });
+export function appendProviderVisibleSyntheticFailedToolResult(conversations: ConversationFileContext, record: { sessionId: ConversationSessionId; sourceInputId: string; toolCallId: string; toolName: string; error: string; data?: unknown }): void {
+  const payload: SyntheticFailedToolResultPayload = { success: false, error: record.error };
+  if (record.data !== undefined) payload.data = record.data;
+  const message = agentMessageSchema.parse({
+    id: `${record.sourceInputId}:tool-result:${record.toolCallId}`,
+    session_id: record.sessionId,
+    role: 'tool',
+    kind: 'tool_result',
+    content: JSON.stringify(payload),
+    tool: record.toolName,
+    tool_call_id: record.toolCallId,
+    round_id: deterministicRoundId('user', record.sourceInputId),
+    message_index: 2,
+    block_index: 0,
+    timestamp: new Date().toISOString(),
+  });
+  appendOne(conversations, message);
 }
 
 function appendLlmTurnToolCall(conversations: ConversationFileContext, input: CanonicalLlmInvocationInput, toolCall: ToolCall): AgentMessage {
@@ -199,7 +200,6 @@ export function appendModelRepairMessage(conversations: ConversationFileContext,
     role: 'user',
     kind: 'model_repair',
     content,
-    context_policy: durableContentPolicy(),
     round_id: deterministicRoundId('user', input.inputId),
     message_index: 3,
     block_index: 0,
@@ -208,26 +208,6 @@ export function appendModelRepairMessage(conversations: ConversationFileContext,
   appendOne(conversations, message);
   return message;
 }
-
-export function settleToolResult(settlement: ToolSettlementInput): SettledToolResult {
-  const providerResult = ToolInvocationResultSchema.parse(settlement.kind === 'executed' ? settlement.execution.providerResult : settlement.providerResult) as ToolResult;
-  const settledResultBytes = canonicalJson(providerResult);
-  const resultContentSha256 = sha256(settledResultBytes);
-  const evidence = settledEvidence(settlement, providerResult, resultContentSha256);
-  return Object.freeze({ providerResult: Object.freeze(providerResult), settledResultBytes, resultContentSha256, evidence, settlementOrigin: settlement.kind === 'executed' ? 'executed' : settlement.settlementOrigin });
-}
-
-function settledEvidence(settlement: ToolSettlementInput, providerResult: ToolResult, resultHash: string): SettledToolEvidence {
-  if (!providerResult.success || settlement.kind === 'synthetic') return Object.freeze({ kind: 'none' });
-  const evidence = settlement.execution.evidence;
-  switch (settlement.resultPolicyTemplate.evidenceMode) {
-    case 'none': if (evidence.kind !== 'none') throw new Error('None-mode tool execution supplied evidence.'); return Object.freeze({ kind: 'none' });
-    case 'observational_query': if (evidence.kind !== 'observational_result_bytes') throw new Error('Observational tool execution supplied wrong evidence.'); return Object.freeze({ kind: 'observational_query', observedSha256: resultHash });
-    case 'canonical_locator': if (evidence.kind !== 'canonical_locator') throw new Error('Canonical tool execution supplied wrong evidence.'); return Object.freeze({ kind: 'canonical_locator', locator: evidence.locator, sha256: evidence.sha256 });
-  }
-}
-
-function sha256(value: string): string { return createHash('sha256').update(value, 'utf8').digest('hex'); }
 
 function appendOne(conversations: ConversationFileContext, message: AgentMessage): void {
   appendConversationBatch(conversations, [message]);

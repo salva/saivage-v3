@@ -106,11 +106,6 @@ export function validateResponsesPairs(sourceSessionId: ConversationSessionId, m
     if (!privateEntry) throw new Error(`Responses visible projection '${visible.id}' is missing private row '${marker.private_message_id}'.`);
     if (privateEntry.content.source_input_id !== marker.source_input_id) throw new Error(`Responses projection '${visible.id}' has mismatched source_input_id.`);
     if (privateEntry.content.projection_message_id !== visible.id) throw new Error(`Responses projection '${visible.id}' is not referenced by private row '${marker.private_message_id}'.`);
-    if (visible.kind === 'tool_call') {
-      const call = parseToolCallMessageForModel(JSON.parse(visible.content));
-      const privateCalls = privateEntry.content.output.filter(isCompleteFunctionCallItem);
-      if (privateCalls.length !== 1 || privateCalls[0]!.call_id !== call.id || privateCalls[0]!.name !== call.name || privateCalls[0]!.arguments !== call.arguments) throw new Error(`Responses tool projection '${visible.id}' does not match its private function_call.`);
-    }
   }
   for (const [privateId, entry] of privateById) {
     const projection = messages.find((message) => message.id === entry.content.projection_message_id && message.provider_projection?.private_message_id === privateId);
@@ -120,10 +115,6 @@ export function validateResponsesPairs(sourceSessionId: ConversationSessionId, m
 
 function isFunctionCallItem(item: unknown): item is { type: 'function_call'; call_id: string } {
   return item !== null && typeof item === 'object' && (item as { type?: unknown }).type === 'function_call' && typeof (item as { call_id?: unknown }).call_id === 'string';
-}
-
-function isCompleteFunctionCallItem(item: unknown): item is { type: 'function_call'; call_id: string; name: string; arguments: string } {
-  return isFunctionCallItem(item) && typeof (item as { name?: unknown }).name === 'string' && typeof (item as { arguments?: unknown }).arguments === 'string';
 }
 
 function toolPairKey(sourceInputId: string, callId: string): string {

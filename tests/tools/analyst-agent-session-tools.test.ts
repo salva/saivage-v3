@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
-import { canonicalJson, type AgentMessage } from '../../src/schemas/index.js';
+import type { AgentMessage } from '../../src/schemas/index.js';
 import {
   ListAgentSessionsToolResultSchema,
   ReadAgentSessionToolResultSchema,
@@ -15,7 +15,6 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { CardService } from '../helpers/canonical-project.js';
 import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
-import { durableContentPolicy, structuralContextPolicy, testToolCallPolicy, testToolResultPolicy } from '../helpers/message-context-policy.js';
 import {
   OUTBOUND_RAW_MARKER,
   OUTBOUND_REDACTED_URL,
@@ -39,7 +38,6 @@ function context(projectRoot: string): ToolContext {
   return { projectRoot, store: new CardService(projectRoot), captureExecutingLlmSessionIds: () => new Set(['agent:planner:project']) } as unknown as ToolContext;
 }
 function rows(): AgentMessage[] {
-  const callPolicy = testToolCallPolicy();
   return [
     {
       id: 'activation',
@@ -53,7 +51,6 @@ function rows(): AgentMessage[] {
         input_id: sourceInputId,
         timestamp,
       }),
-      context_policy: structuralContextPolicy('activation_boundary'),
       round_id: `r-pre-${sourceInputId.replaceAll('-', '')}`,
       message_index: 0,
       block_index: 0,
@@ -65,7 +62,6 @@ function rows(): AgentMessage[] {
       role: 'user',
       kind: 'text',
       content: 'first',
-      context_policy: durableContentPolicy(),
       round_id: `r-user-${sourceInputId.replaceAll('-', '')}`,
       message_index: 1,
       block_index: 0,
@@ -88,7 +84,6 @@ function rows(): AgentMessage[] {
           },
         ],
       }),
-      context_policy: callPolicy,
       round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
       message_index: 2,
       block_index: 0,
@@ -155,8 +150,7 @@ describe('Analyst agent-session tools', () => {
       kind: 'tool_result',
       tool: 'webfetch',
       tool_call_id: 'call-1',
-      content: canonicalJson({ success: false, error: 'failed token=synthetic-result-secret' }),
-      context_policy: testToolResultPolicy({ success: false, error: 'failed token=synthetic-result-secret' }),
+      content: '{"success":false,"error":"failed token=synthetic-result-secret"}',
       round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
       message_index: 2,
       block_index: 0,
@@ -204,8 +198,7 @@ describe('Analyst agent-session tools', () => {
       kind: 'tool_result',
       tool: 'webfetch',
       tool_call_id: 'call-1',
-      content: canonicalJson({ success: false, error: 'settled' }),
-      context_policy: testToolResultPolicy({ success: false, error: 'settled' }),
+      content: '{"success":false,"error":"settled"}',
       round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
       message_index: 2,
       block_index: 0,

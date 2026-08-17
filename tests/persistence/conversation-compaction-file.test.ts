@@ -10,7 +10,6 @@ import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-in
 import { preparedInvocationContextFixture } from '../helpers/prepared-invocation-context.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
-import { durableContentPolicy, structuralContextPolicy } from '../helpers/message-context-policy.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
@@ -32,5 +31,5 @@ describe('conversation compaction file persistence', () => {
   });
 });
 
-function round(ordinal: number): AgentMessage[] { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; return [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), context_policy: structuralContextPolicy('activation_boundary'), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id: SESSION, role: 'user', kind: 'text', content: 'x'.repeat(400), context_policy: durableContentPolicy(), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]; }
+function round(ordinal: number): AgentMessage[] { const timestamp = `2026-08-11T00:${String(ordinal).padStart(2, '0')}:00.000Z`; return [{ id: `activation-${ordinal}`, session_id: SESSION, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: `00000000-0000-4000-8000-${String(ordinal).padStart(12, '0')}`, timestamp }), round_id: `r-pre-${String(ordinal).padStart(32, '0')}`, message_index: 0, block_index: 0, timestamp }, { id: `message-${ordinal}`, session_id: SESSION, role: 'user', kind: 'text', content: 'x'.repeat(400), round_id: `r-user-${String(ordinal).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp }]; }
 function invocation(messages: readonly AgentMessage[]): PreparedLlmInvocationInput { return { inputId: '00000000-0000-4000-8000-000000000001', agentId: SESSION, agentName: 'planner', sessionId: SESSION, ...preparedInvocationContextFixture(), providerConversation: { sourceSessionId: SESSION, messages: [...messages] }, modelParams: { temperature: 0 }, preparedCompaction: prepareCompaction(POLICY, 'system', []), capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {} }; }
