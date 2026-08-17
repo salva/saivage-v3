@@ -16,7 +16,6 @@ import {
   type WireToolDefinitionChat,
 } from './tool-definition-serializer.js';
 import type { LlmProtocolAdapter } from './llm-protocol-adapter.js';
-import type { ContextBlock } from '../runtime/actors/context/index.js';
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
@@ -44,11 +43,10 @@ interface ChatCompletionResponse {
 
 export const openAIChatAdapter: LlmProtocolAdapter = {
   credentialRequirement: 'standard',
-  buildRequestBody: ({ candidate, instructionText, dynamicBlocks, providerConversation, options }) =>
+  buildRequestBody: ({ candidate, systemPrompt, providerConversation, options }) =>
     buildOpenAIChatRequest(
       candidate,
-      instructionText,
-      dynamicBlocks,
+      systemPrompt,
       providerConversation,
       options,
     ) as unknown as Record<string, unknown>,
@@ -138,16 +136,12 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
 
 export function buildOpenAIChatRequest(
   candidate: Candidate,
-  instructionText: string,
-  dynamicBlocks: readonly ContextBlock[],
+  systemPrompt: string,
   providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
 ): ChatCompletionRequest {
   const messages: ChatMessage[] = [
-    { role: 'system', content: instructionText },
-    ...dynamicBlocks.map((block): ChatMessage => block.role === 'tool'
-      ? { role: 'tool', content: block.content, tool_call_id: block.id }
-      : { role: block.role, content: block.content }),
+    { role: 'system', content: systemPrompt },
     ...providerConversation.messages
       .filter((m) => m.kind !== 'provider_private')
       .map((m): ChatMessage => {

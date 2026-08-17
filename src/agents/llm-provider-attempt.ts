@@ -13,13 +13,6 @@ import { createProviderExchangeRecorder } from './provider-exchange-recorder.js'
 import { resolveLlmTransportConfig } from './llm-transport.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
-export class CandidateAdmissionIntegrityError extends Error {
-  constructor(readonly plan: CandidateRequestPlan, readonly reasons: readonly string[]) {
-    super(`Admitted candidate no longer satisfies its immutable capability request: ${reasons.join(', ')}.`);
-    this.name = 'CandidateAdmissionIntegrityError';
-  }
-}
-
 export async function executeLlmProviderAttempt(args: {
   projectRoot: string;
   registry: ProviderRegistry;
@@ -42,7 +35,14 @@ export async function executeLlmProviderAttempt(args: {
     args.capabilityRequest,
   );
   if (!match.supported)
-    throw new CandidateAdmissionIntegrityError(plan, match.reasons);
+    throw new LlmRequestError({
+      kind: 'capability_mismatch',
+      provider: plan.candidate.provider,
+      model: plan.candidate.model,
+      requested: match.reasons,
+      supported: [],
+      message: `Candidate ${JSON.stringify(plan.candidate)} does not support requested LLM capabilities: ${match.reasons.join(', ')}`,
+    });
   const transport = await resolveLlmTransportConfig(
     args.projectRoot,
     args.registry,

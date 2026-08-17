@@ -3,7 +3,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 
-export function invocationProviderRegistry(candidates: readonly Candidate[], capabilitiesFor?: (candidate: Candidate) => Partial<NonNullable<SaivageConfig['providers'][string]['capabilities']>>): ProviderRegistry {
+export function invocationProviderRegistry(candidates: readonly Candidate[]): ProviderRegistry {
   if (candidates.length === 0) throw new Error('Invocation provider fixture requires a candidate.');
   const providers: SaivageConfig['providers'] = {};
   for (const candidate of candidates) {
@@ -20,7 +20,6 @@ export function invocationProviderRegistry(candidates: readonly Candidate[], cap
         exclusiveToolChoiceSupport: 'native',
         contextWindowTokens: 100_000,
         maxOutputTokens: 10_000,
-        ...capabilitiesFor?.(candidate),
       },
     };
   }

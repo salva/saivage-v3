@@ -20,7 +20,6 @@ import { specializedConfig } from '../fixtures/card-type-sets/specialized.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
-import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 const complete=(result:LlmCompleteResult):ProviderTurnCompletion=>({result,provider_exchanges:[]});
@@ -33,11 +32,11 @@ function harness(type:'code'|'architecture',provider:(input:LlmInvocationInput)=
   const structural=compileProjectWorkflows(config);const workflows=bindRuntimeWorkflows(structural,new ModelRouter(new ProviderRegistry(config)));publishInitialProjectRuntime(root,structural);
   const cards=new CardService(root,structural);const child=cards.create({type,parent:'project',title:`${type} flow`,bootstrap_content:`Exercise ${type}.`,tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
   const registry=new ManagedProcessGroupRegistry();const runtimeProcessRootScope=registry.createContainerScope(registry.rootScope,'runtime-cards');
-  const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider:actorProvider(jest.fn(async(input:LlmInvocationInput)=>provider(input))),conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner:new ProcessRunner(root,registry,testApplicationFatalPort),runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
+  const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider:{completeTurn:jest.fn(async(input:LlmInvocationInput)=>provider(input))},conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner:new ProcessRunner(root,registry,testApplicationFatalPort),runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
   return{root,cards,child,supervisor};
 }
 
-function transitionRows(input:LlmInvocationInput){return input.dynamicBlocks.filter((row)=>row.role==='user'&&row.content.startsWith('Previous process node:'));}
+function transitionRows(input:LlmInvocationInput){return input.providerConversation.messages.filter((row)=>row.role==='user'&&row.kind==='text'&&row.content.startsWith('Previous process node:'));}
 
 describe('specialized production card-type flows',()=>{
   it('re-enters code green with increasing ordinals and versioned status evidence before refactor completion',async()=>{
@@ -82,7 +81,7 @@ describe('specialized production card-type flows',()=>{
     expect((await supervisor.startProject()).started).toBe(true);await waitUntil(()=>supervisor.getStatus().status==='stopped');
     expect(nodeStarts.map(({node})=>node)).toEqual(['draft','component-review','system-review','draft','component-review','system-review']);
     const contexts=nodeStarts.slice(1).map(({input})=>transitionRows(input).at(-1)!.content);expect(contexts.map((text)=>text.match(/^Previous process node: ([^\n]+)/u)?.[1])).toEqual(['draft','component-review','system-review','draft','component-review']);
-    for(const {node,input} of nodeStarts.slice(1)){const blocks=input.dynamicBlocks;const transitionIndex=blocks.findIndex((row)=>row.id==='process-transition');expect(transitionIndex).toBeGreaterThanOrEqual(0);expect(blocks[transitionIndex]!.content).toMatch(/record:\/\/\/(status|review)\.md\?card=card-[a-z-]+&v=\d+/u);const destinationPhrase=node==='draft'?'architecture proposal':node==='component-review'?'component-scope architecture review':'system-scope architecture review';expect(blocks.slice(transitionIndex+1).some((row)=>row.role==='user'&&row.content.includes(destinationPhrase))).toBe(true);}
+    for(const {node,input} of nodeStarts.slice(1)){const messages=input.providerConversation.messages;let transitionIndex=-1;for(let index=messages.length-1;index>=0;index-=1){const row=messages[index]!;if(row.role==='user'&&row.kind==='text'&&row.content.startsWith('Previous process node:')){transitionIndex=index;break;}}expect(transitionIndex).toBeGreaterThanOrEqual(0);expect(messages[transitionIndex]!.content).toMatch(/record:\/\/\/(status|review)\.md\?card=card-[a-z-]+&v=\d+/u);const destinationPhrase=node==='draft'?'architecture proposal':node==='component-review'?'component-scope architecture review':'system-scope architecture review';expect(messages.slice(transitionIndex+1).some((row)=>row.role==='user'&&row.kind==='text'&&row.content.includes(destinationPhrase))).toBe(true);}
     const reviewUrls=contexts.filter((text)=>text.includes('review.md?')).map((text)=>text.match(/record:\/\/\/review\.md\?card=[^\s]+&v=\d+/u)![0]);expect(new Set(reviewUrls).size).toBe(reviewUrls.length);for(const url of reviewUrls){const version=Number(url.match(/&v=(\d+)$/u)![1]);expect(run.cards.readHistoricalRecord(childId,'review.md',version).versionUrl).toBe(url);}
     expect(run.cards.read(childId)!.lifecycle).toMatchObject({status:'done',result:{kind:'workflow-result',agent_name:'executor',node_id:'draft',outcome:'ready_for_component_review',summary:'Revised draft ready.',records:[{name:'review.md',url:expect.stringMatching(/&v=\d+$/u)}]}});
     expect(run.cards.readCurrentRecord(childId,'review.md').artifact.accepted?.content).toBe('Final system review approved.');

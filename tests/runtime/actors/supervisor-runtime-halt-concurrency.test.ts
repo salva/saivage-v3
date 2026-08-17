@@ -19,7 +19,6 @@ import { createTestProcessRunner } from '../../helpers/test-process-runner.js';
 import { createTestPromptTemplateRegistry } from '../../helpers/prompt-template-registry.js';
 import { testAutonomousCompaction } from '../../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
-import { actorProvider } from '../../helpers/actor-provider.js';
 import type { AgentMembershipFreshnessTarget } from '../../../src/application/freshness-effects.js';
 
 function barrier<T>() {
@@ -211,7 +210,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       projectRoot,
       processIdentity: { pid: 1, startedAt: 'now' },
       actorStore: cards,
-      provider: actorProvider(async (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))),
+      provider: { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
       conversations: { projectRoot },
       freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
       processRunner: processes.processRunner,

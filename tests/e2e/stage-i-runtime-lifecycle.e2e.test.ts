@@ -15,7 +15,6 @@ import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
-import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -33,7 +32,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: { complet
     runtimeGate: new RuntimeGate(),
     projectRoot,
     actorStore: cards,
-    provider: actorProvider(provider.completeTurn.bind(provider)),
+    provider,
     conversations: { projectRoot },
     freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner: new ProcessRunner(projectRoot, registry, testApplicationFatalPort),

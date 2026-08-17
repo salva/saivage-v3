@@ -13,9 +13,6 @@ import { prepareCompaction } from '../../../src/runtime/actors/compaction/compac
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
-import { preparedInvocationContextFixture } from '../../helpers/prepared-invocation-context.js';
-import { actorProvider } from '../../helpers/actor-provider.js';
-import { AdmittedProviderTurnFailure } from '../../../src/agents/invocation-service.js';
 
 const CANDIDATE = { provider: 'test', account: null, model: 'test-model' } as const;
 const roots: string[] = [];
@@ -81,13 +78,11 @@ function actorFixture(plannerPublicationFailure?: Error) {
   const summaryProjection = jest.fn();
   const compact = jest.fn<CompactorPort['compact']>();
   const publicationOutcomeUnknown = jest.fn((_error: PublicationOutcomeUnknownError) => undefined);
-  const provider = actorProvider(jest.fn(async () => { throw firstFailure; }), plannerProjection);
-  provider.executeAdmitted = async () => { throw new AdmittedProviderTurnFailure(firstFailure, {} as never); };
   const actor = new ConversationLLMActor({
     purpose: { kind: 'autonomous-card', cardId: 'project' },
     gate: new RuntimeGate(),
     agentId: input.sessionId,
-    provider,
+    provider: { completeTurn: jest.fn(async () => { throw firstFailure; }), projectProviderExchanges: plannerProjection },
     conversations: { projectRoot: root },
     compactor: { shouldCompact: () => false, compact },
     summarizerProvider: { candidate: CANDIDATE, completeTurn: jest.fn(async () => { throw new Error('unexpected summary provider call'); }), projectProviderExchanges: summaryProjection },
@@ -100,7 +95,7 @@ function invocation(): PreparedLlmInvocationInput {
   const sessionId = 'agent:planner:project' as const;
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: 'planner', sessionId,
-    ...preparedInvocationContextFixture(), providerConversation: { sourceSessionId: sessionId, messages: [] }, modelParams: { temperature: 0 },
+    systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], terminalToolNames: [], modelParams: { temperature: 0 },
     preparedCompaction: prepareCompaction({ input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', []),
     capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
   };

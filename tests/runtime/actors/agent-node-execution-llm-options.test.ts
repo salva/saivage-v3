@@ -10,8 +10,7 @@ import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/ll
 import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {
-  buildLlmInput(process: unknown, node: unknown, transition: unknown, input: unknown, sessionId: string, inputId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown): PreparedLlmInvocationInput;
-  correction(process: unknown, node: unknown, violations: readonly string[]): string;
+  buildLlmInput(node: unknown, input: unknown, sessionId: string, inputId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown): PreparedLlmInvocationInput;
 };
 
 const roots: string[] = [];
@@ -35,12 +34,13 @@ describe('AgentNodeExecution LLM options', () => {
       readCurrentRecord: () => ({ artifact: { accepted: { content: 'brief' } } }),
       listChildren: () => [],
     };
+    let renderedVariables: Record<string, unknown> | undefined;
     const runner = new AgentNodeExecution({
       projectRoot,
       cardId: 'project',
       store,
       conversations: { projectRoot },
-      promptTemplates: { render: (_cardType: string, _agentName: string) => 'system' },
+      promptTemplates: { render: (_cardType: string, _agentName: string, variables: Record<string, unknown>) => { renderedVariables = variables; return 'system'; } },
       compactionConfig: {
         input_budget_tokens: 1_000,
         trigger_fraction: 0.7,
@@ -57,9 +57,7 @@ describe('AgentNodeExecution LLM options', () => {
     const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'Emit result', parameters: { type: 'object' } } };
     const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
     const prepared = runner.buildLlmInput(
-      { states: new Map([['entry:BACKLOG', { kind: 'entry', entry: 'BACKLOG', on: new Map([['begin', { targetStateId: 'node:work', semantic: { kind: 'entry-route', promptId: 'recover' } }]]) }]]), processPrompts: new Map([['work', { text: 'selected node prompt' }], ['recover', { text: 'selected recovery prompt' }], ['correct', { text: 'selected correction prompt' }]]) },
-      { promptId: 'work', correctionPromptId: 'correct', agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
-      { context: { source: 'entry:BACKLOG', event: 'begin', target: 'node:work' }, acceptedResult: null },
+      { agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
       { card: { id: 'project', type: 'project', title: 'Project' }, caller: 'runtime' },
       sessionId,
       'input',
@@ -74,19 +72,14 @@ describe('AgentNodeExecution LLM options', () => {
       requestedCompletionTokens: 73,
     });
     expect(prepared.modelParams).toEqual({ temperature: 0.2 });
-    expect(prepared.compiledTools.map((tool) => tool.providerDefinition.function.name)).toEqual(['lookup', 'emit_result']);
-    expect(prepared.compiledTools.filter((tool) => tool.providerDefinition.function.name === 'emit_result').map((tool) => tool.providerDefinition)).toEqual([terminalToolDefinition]);
-    expect(prepared.prefix.terminalToolNames).toEqual(['emit_result']);
+    expect(prepared.tools.map((tool) => tool.function.name)).toEqual(['lookup', 'emit_result']);
+    expect(prepared.tools.filter((tool) => tool.function.name === 'emit_result')).toEqual([terminalToolDefinition]);
+    expect(prepared.terminalToolNames).toEqual(['emit_result']);
     expect(prepared.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true });
     expect(prepared.capabilityRequest).toBe(retainedCapabilityRequest);
-    expect(prepared.prefix.instructionText).toContain('direct result contract');
-    expect(prepared.prefix.instructionText).not.toContain('lookup');
-    expect(prepared.dynamicBlocks.map((block) => block.content)).toEqual(expect.arrayContaining([expect.stringContaining('Project'), 'selected recovery prompt', 'selected node prompt']));
-    expect(prepared.prefix.instructionText).not.toContain('selected recovery prompt');
-    expect(prepared.prefix.instructionText).not.toContain('selected node prompt');
-    const correction = runner.correction({ processPrompts: new Map([['correct', { text: 'selected correction prompt' }]]) }, { correctionPromptId: 'correct' }, ['invalid result']);
-    expect(correction).toContain('selected correction prompt');
-    expect(prepared.prefix.instructionText).not.toContain('selected correction prompt');
+    expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
+    expect(String(renderedVariables?.toolList)).toContain('lookup');
+    expect(String(renderedVariables?.toolList)).not.toContain('emit_result');
   });
 
   it('appends exactly one activation marker on first and subsequent node entry', () => {
@@ -119,7 +112,7 @@ describe('AgentNodeExecution LLM options', () => {
       .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId]);
     expect(readConversation(projectRoot, sessionId).sourceRows
       .filter((row) => row.role === 'user')
-      .map((row) => row.content)).toEqual([]);
+      .map((row) => row.content)).toEqual(['selected node prompt body']);
 
     runner.prepareNodeEntry(process, node, transition, input, sessionId, secondInputId, null);
     expect(readConversation(projectRoot, sessionId).sourceRows
@@ -127,6 +120,6 @@ describe('AgentNodeExecution LLM options', () => {
       .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId, secondInputId]);
     expect(readConversation(projectRoot, sessionId).sourceRows
       .filter((row) => row.role === 'user')
-      .map((row) => row.content)).toEqual([]);
+      .map((row) => row.content)).toEqual(['selected node prompt body', 'selected node prompt body']);
   });
 });

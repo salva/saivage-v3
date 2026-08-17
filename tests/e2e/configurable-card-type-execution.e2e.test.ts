@@ -17,7 +17,6 @@ import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 function tool(id:string,name:string,args:object){return {result:{kind:'tool_calls' as const,tool_calls:[{id,type:'function' as const,function:{name,arguments:JSON.stringify(args)}}]},provider_exchanges:[]};}
@@ -38,19 +37,19 @@ describe('custom card type execution admission',()=>{
     const taskCard=cards.create({type:'task',parent:initiativeCard.id,title:'Task',bootstrap_content:'execute',tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
     expect([initiativeCard.type,taskCard.type]).toEqual(['initiative','task']);
     const admitted=deferred<LlmInvocationInput>();
-    const completeTurn=jest.fn(async(input:LlmInvocationInput,signal:AbortSignal)=>{
+    const provider={completeTurn:jest.fn(async(input:LlmInvocationInput,signal:AbortSignal)=>{
       if(input.sessionId==='agent:planner:project')return tool('activate-initiative','activate_card',{card_id:initiativeCard.id});
       if(input.sessionId===`agent:planner:${initiativeCard.id}`)return tool('activate-task','activate_card',{card_id:taskCard.id});
       if(input.sessionId===`agent:executor:${taskCard.id}`){admitted.resolve(input);return new Promise<never>((_resolve,reject)=>signal.addEventListener('abort',()=>reject(signal.reason),{once:true}));}
       throw new Error(`Unexpected session '${input.sessionId}'.`);
-    });const provider=actorProvider(completeTurn);
+    })};
     const registry=new ManagedProcessGroupRegistry();const processRunner=new ProcessRunner(root,registry,testApplicationFatalPort);const runtimeProcessRootScope=registry.createContainerScope(registry.rootScope,'runtime-cards');
     const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider,conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner,runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
     const started=await supervisor.startProject();expect(started.started).toBe(true);
     const input=await admitted.promise;
     expect(input.sessionId).toBe(`agent:executor:${taskCard.id}`);
     expect(input.episodeContext).toMatchObject({cardId:taskCard.id});
-    expect(input.compiledTools.map((contract)=>contract.providerDefinition.function.name)).toContain('emit_result');
+    expect(input.tools.map((definition)=>definition.function.name)).toContain('emit_result');
     await supervisor.stopProject();
     expect(supervisor.getStatus().status).toBe('stopped');
   });

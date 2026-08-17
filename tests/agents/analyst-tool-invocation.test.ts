@@ -13,7 +13,6 @@ import { defineTool, type InvocationSurface } from '../../src/tools/invocation.j
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
-import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -50,7 +49,7 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => 'test analyst prompt' },
     restartServerAvailable: false,
-    provider: actorProvider(completeTurn),
+    provider: { completeTurn },
     conversations: { projectRoot },
     compactionPolicy: testCompactionPolicy,
     compactor: { shouldCompact: () => false, compact: () => Promise.reject(new Error('Unexpected compaction.')) },

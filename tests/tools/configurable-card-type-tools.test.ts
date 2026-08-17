@@ -2,7 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { bindToolProvider, invokeTool, surfaceCompiledInvocationTools } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
@@ -30,14 +30,14 @@ describe('configuration-bound card-type tool vocabulary',()=>{
   it('preserves identical default list_cards schema bytes in global and card scopes',()=>{
     const read=jest.fn((id:string)=>id==='project'?card('project','project',['card-a']):card('card-a','code'));
     const bound=surfaces(DEFAULT_TYPES,read);
-    expect(JSON.stringify(surfaceCompiledInvocationTools(bound.global).map((contract)=>contract.providerDefinition))).toBe(JSON.stringify(surfaceCompiledInvocationTools(bound.card).map((contract)=>contract.providerDefinition)));
-    expect(surfaceCompiledInvocationTools(bound.global)[0]!.providerDefinition.function.parameters).toMatchObject({properties:{type:{anyOf:[{enum:[...DEFAULT_TYPES]},{items:{enum:[...DEFAULT_TYPES]}}]}}});
+    expect(JSON.stringify(surfaceToolDefinitions(bound.global))).toBe(JSON.stringify(surfaceToolDefinitions(bound.card)));
+    expect(surfaceToolDefinitions(bound.global)[0]!.function.parameters).toMatchObject({properties:{type:{anyOf:[{enum:[...DEFAULT_TYPES]},{items:{enum:[...DEFAULT_TYPES]}}]}}});
   });
 
   it('admits custom scalar/array filters and rejects unconfigured values before store reads in both scopes',async()=>{
     const read=jest.fn((id:string)=>id==='project'?card('project','project',['card-a']):card('card-a','custom-leaf'));
     const bound=surfaces(['project','custom-plan','custom-leaf'],read);
-    expect(JSON.stringify(surfaceCompiledInvocationTools(bound.global).map((contract)=>contract.providerDefinition))).toBe(JSON.stringify(surfaceCompiledInvocationTools(bound.card).map((contract)=>contract.providerDefinition)));
+    expect(JSON.stringify(surfaceToolDefinitions(bound.global))).toBe(JSON.stringify(surfaceToolDefinitions(bound.card)));
     for(const surface of [bound.global,bound.card]){
       read.mockClear();
       await expect(invokeTool(surface,'list_cards',{type:'custom-leaf'})).resolves.toMatchObject({success:true,data:[expect.objectContaining({type:'custom-leaf'})]});
@@ -55,7 +55,7 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     const binder=getAnalystControlToolBinders().find((candidate)=>candidate.name==='create_card')!;
     const tool=binder.bind({cardTypeVocabulary:workflows.cardTypeVocabulary} as ToolContext);
     expect(tool.inputSchema.safeParse({type:'project',parent:null,title:'root',bootstrap_content:'root'}).success).toBe(true);
-    expect((surfaceCompiledInvocationTools({agentName:'analyst',tools:new Map([['create_card',tool]]),providers:[]})[0]!.providerDefinition.function.parameters as any).properties.type.enum).toEqual(['project']);
+    expect((surfaceToolDefinitions({agentName:'analyst',tools:new Map([['create_card',tool]]),providers:[]})[0]!.function.parameters as any).properties.type.enum).toEqual(['project']);
   });
 
   it('keeps project admission in the mutation owner and rejects unknown configured membership before mutation',async()=>{

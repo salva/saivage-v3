@@ -8,16 +8,17 @@ export type AgentPromptHost = Extract<PromptHost, { kind: 'global-agent' | 'work
 export type ProcessPromptHost = Extract<PromptHost, { kind: 'process' }>;
 export interface PromptTemplateVariables { readonly [key: string]: string }
 export interface PromptTemplateRegistry {
-  render(host: AgentPromptHost, agentName: AgentName): string;
+  render(host: AgentPromptHost, agentName: AgentName, variables: PromptTemplateVariables): string;
 }
+export interface PromptToolDisplay { readonly function: { readonly name: string; readonly description: string } }
 export type CompiledPromptToken = Readonly<{ kind: 'literal'; text: string } | { kind: 'placeholder'; key: string }>;
 export type CompiledPromptTemplate = Readonly<{ tokens: readonly CompiledPromptToken[] }>;
 export type ResolvedPromptFragment = Readonly<{ path: string; text: string }>;
 export type PromptFragmentResolver = (id: string) => ResolvedPromptFragment;
 
 const PLACEHOLDERS: Readonly<Record<PromptHost['kind'], ReadonlySet<string>>> = Object.freeze({
-  'global-agent': new Set<string>(),
-  'workflow-agent': new Set<string>(),
+  'global-agent': new Set(['toolList', 'vocabularySnippet', 'projectContext']),
+  'workflow-agent': new Set(['cardId', 'cardTitle', 'cardBrief', 'cardType', 'contractDescription', 'toolList']),
   process: new Set(['cardType']),
 });
 const FRAGMENT_IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
@@ -101,6 +102,8 @@ export function compilePromptTemplate(options: Readonly<{
   const allowed = PLACEHOLDERS[options.host.kind];
   for (const token of effective) if (token.kind === 'placeholder' && !allowed.has(token.key)) fail(options.host, options.name, token.key, 'unknown or inapplicable placeholder');
   if (options.host.kind === 'workflow-agent') {
+    const count = effective.filter((token) => token.kind === 'placeholder' && token.key === 'contractDescription').length;
+    if (count !== 1) fail(options.host, options.name, options.path, `effective workflow-agent template must contain {{contractDescription}} exactly once; found ${count}`);
     const reconstructed = effective.map((token) => token.kind === 'literal' ? token.text : `{{${token.key}}}`).join('');
     if (OBSOLETE_PROCESS_DIRECTIVES.some((pattern) => pattern.test(reconstructed))) fail(options.host, options.name, options.path, 'effective workflow-agent template contains an obsolete emit_result terminal directive');
   }
@@ -134,12 +137,16 @@ export function createPromptTemplateRegistry(workflows: RegistryWorkflows): Prom
     workflowTemplates.set(cardType, templates);
   }
   return Object.freeze({
-    render(host: AgentPromptHost, agentName: AgentName): string {
+    render(host: AgentPromptHost, agentName: AgentName, variables: PromptTemplateVariables): string {
       const compiled = host.kind === 'global-agent'
         ? agentName === workflows.analyst.name ? workflows.analystPrompt.compiled : undefined
         : workflowTemplates.get(host.cardType)?.get(agentName);
       if (!compiled) fail(host, agentName, agentName, 'inactive prompt pair');
-      return renderCompiledPrompt(host, agentName, compiled, {});
+      return renderCompiledPrompt(host, agentName, compiled, variables);
     },
   });
+}
+
+export function formatPromptToolList(tools: readonly PromptToolDisplay[]): string {
+  return tools.map((tool) => `- ${tool.function.name}: ${tool.function.description}`).join('\n');
 }

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { DEFAULT_AGENTS, DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, buildRuntimeToolCatalog, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { cleanupInvocationSurface, surfaceCompiledInvocationTools } from '../../src/tools/invocation.js';
+import { cleanupInvocationSurface, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
@@ -69,7 +69,7 @@ describe('named-agent inventories and composition', () => {
       sessionId:'agent:reviewer:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never,
     });
     expect([...surface.tools.keys()]).toEqual(expected.reviewer);
-    expect(surfaceCompiledInvocationTools(surface).map((tool) => tool.providerDefinition.function.name)).toEqual(expected.reviewer);
+    expect(surfaceToolDefinitions(surface).map((tool) => tool.function.name)).toEqual(expected.reviewer);
     expect(surface.providers.map((provider) => provider.providerName)).toEqual(['card-version', 'workspace', 'web', 'skill']);
     expect(surface.tools.has('mcp_tool_call')).toBe(false);
   });

@@ -15,7 +15,6 @@ import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.j
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
-import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -41,7 +40,7 @@ function runtime(projectRoot: string, cards: CardService, processRunner: Process
     runtimeGate: new RuntimeGate(),
     projectRoot,
     actorStore: cards,
-    provider: actorProvider(provider.completeTurn.bind(provider)),
+    provider,
     conversations: { projectRoot },
     freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner,

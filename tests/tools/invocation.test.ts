@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { defineTool, invokeTool, invokeToolForLlm, surfaceCompiledInvocationTools, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
+import { defineTool, invokeTool, invokeToolForLlm, surfaceToolDefinitions, type ToolProvider, type ToolResult } from '../../src/tools/invocation.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
@@ -116,7 +116,7 @@ describe('tool invocation surface', () => {
   it('projects invocation surface tools to LLM tool definitions', () => {
     const surface = buildInvocationSurfaceFixture('planner', [provider('a')]);
 
-    expect(surfaceCompiledInvocationTools(surface).map((contract) => contract.providerDefinition)).toEqual([
+    expect(surfaceToolDefinitions(surface)).toEqual([
       expect.objectContaining({
         type: 'function',
         function: expect.objectContaining({

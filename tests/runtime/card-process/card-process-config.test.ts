@@ -75,17 +75,17 @@ describe('named-agent card-type workflow compilation',()=>{
     config.card_types={project:config.card_types.project!,global:structuredClone(config.card_types.code!)};
     const promptRoot=join(projectRoot,'.saivage','config','prompts');
     const write=(purpose:string,scope:string,id:string,text:string)=>{const dir=join(promptRoot,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
-    write('agents','global','executor','GLOBAL CARD {{> scope-fragment}}');
+    write('agents','global','executor','GLOBAL CARD {{> scope-fragment}} {{contractDescription}}');
     write('fragments','global','scope-fragment','CARD FRAGMENT');
     write('process','global','execute','GLOBAL PROCESS {{cardType}}');
     const compiled=compileProjectWorkflows(config,{projectRoot});
     expect(compiled.cardTypeVocabulary).toEqual(['project','global']);
     const workflow=compiled.cardTypes.get('global')!;const node=workflow.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing global execute node');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'global'},node.agent.name,node.selectedAgentPrompt.compiled,{})).toBe('GLOBAL CARD CARD FRAGMENT');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'global'},node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('GLOBAL CARD CARD FRAGMENT contract');
     expect(workflow.processPrompts.get('execute' as never)?.text).toBe('GLOBAL PROCESS global');
     const registry=createPromptTemplateRegistry(compiled);
-    expect(registry.render({kind:'workflow-agent',cardType:'global'},'executor')).toBe('GLOBAL CARD CARD FRAGMENT');
-    expect(registry.render({kind:'global-agent'},'analyst')).toContain('Saivage Analyst');
+    expect(registry.render({kind:'workflow-agent',cardType:'global'},'executor',{contractDescription:'contract'})).toBe('GLOBAL CARD CARD FRAGMENT contract');
+    expect(registry.render({kind:'global-agent'},'analyst',{toolList:'tools',vocabularySnippet:'types',projectContext:'context'})).toContain('Saivage Analyst');
   });
   it('projects exactly configured graphs and the same effective leaf tool selection used by execution',()=>{
     const config=source();config.providers={test:{models:['gpt-5.6']}};
@@ -243,7 +243,7 @@ describe('named-agent card-type workflow compilation',()=>{
     roots.push(projectRoot);
     const path=join(projectRoot,'.saivage','config','prompts','agents','code');
     mkdirSync(path,{recursive:true});
-    const override='UNIQUE EXECUTOR OVERRIDE';
+    const override='UNIQUE EXECUTOR OVERRIDE {{contractDescription}}';
     writeFileSync(join(path,'executor.md'),override);
     const processPath=join(projectRoot,'.saivage','config','prompts','process','code');
     mkdirSync(processPath,{recursive:true});
@@ -254,7 +254,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const node=process.states.get('node:execute')!;
     if(node.kind!=='node') throw new Error('missing execute node');
     expect(node.selectedAgentPrompt).toMatchObject({source:'override-card'});
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{})).toBe('UNIQUE EXECUTOR OVERRIDE');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('UNIQUE EXECUTOR OVERRIDE contract');
     const cardRunCommand=node.agent.tools.find((tool)=>tool.name==='run_command');
     const analystRunCommand=compiled.agents.get('analyst')!.tools.find((tool)=>tool.name==='run_command');
     expect(cardRunCommand?.description).toContain('For a card-scoped run_command');
@@ -280,7 +280,7 @@ describe('named-agent card-type workflow compilation',()=>{
     writeFileSync(join(path,'executor.md'),'changed after compile');
     writeFileSync(join(processPath,'execute.md'),'changed node after compile');
     writeFileSync(join(processPath,'correct-execution-result.md'),'changed correction after compile');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{})).toBe('UNIQUE EXECUTOR OVERRIDE');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('UNIQUE EXECUTOR OVERRIDE contract');
     expect(process.processPrompts.get(node.promptId)!.text).toBe('Selected node prompt');
     expect(process.processPrompts.get(node.correctionPromptId)!.text).toBe(
       'Selected correction prompt',
@@ -291,10 +291,10 @@ describe('named-agent card-type workflow compilation',()=>{
     const root=mkdtempSync(join(tmpdir(),'workflow-precedence-'));roots.push(root);
     const defaults=join(root,'defaults');const overrides=join(root,'overrides');
     const write=(base:string,purpose:string,scope:string,id:string,text:string)=>{const dir=join(base,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
-    for(const id of ['analyst','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id);
+    for(const id of ['analyst','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{toolList}} {{projectContext}} {{vocabularySnippet}}':`${id} {{contractDescription}}`);
     for(const id of ['plan','recover','review','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
-    write(defaults,'agents','code','executor','bundled-card');
-    write(overrides,'agents','_shared','executor','override-shared {{> shared-piece}}');
+    write(defaults,'agents','code','executor','bundled-card {{contractDescription}}');
+    write(overrides,'agents','_shared','executor','override-shared {{> shared-piece}} {{contractDescription}}');
     write(defaults,'fragments','_shared','shared-piece','bundled-fragment');
     write(overrides,'fragments','code','shared-piece','override-code-fragment');
     write(defaults,'process','code','execute','bundled-card-process {{cardType}}');
@@ -304,7 +304,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const compiled=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides,artifactObserver:(artifact)=>observations.push(artifact)});
     const code=compiled.cardTypes.get('code')!;const node=code.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');
     expect(node.selectedAgentPrompt.source).toBe('override-shared');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{})).toBe('override-shared override-code-fragment');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('override-shared override-code-fragment contract');
     expect(code.processPrompts.get('execute' as never)).toMatchObject({source:'override-shared',text:'override-shared-process code'});
     expect(observations).toEqual(expect.arrayContaining([
       expect.objectContaining({source:'override-shared',path:join(overrides,'agents','_shared','executor.md')}),
@@ -325,7 +325,7 @@ describe('named-agent card-type workflow compilation',()=>{
     value.card_types.code!.workflow.nodes.execute!.edges.done={target:{terminal:'DONE',promote:'current',export_records:['status.md']}};
     expect(compiled.analystPrompt.source).toBe('bundled-shared');
 
-    write(overrides,'agents','code','executor','override-card');
+    write(overrides,'agents','code','executor','override-card {{contractDescription}}');
     write(overrides,'process','code','execute','override-card-process {{cardType}}');
     let selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
     let selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
@@ -345,20 +345,20 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(selectedNode.selectedAgentPrompt.source).toBe('bundled-shared');
     expect(selected.cardTypes.get('code')!.processPrompts.get('execute' as never)?.source).toBe('bundled-shared');
 
-    write(defaults,'agents','code','executor','host {{> shared-piece}}');
+    write(defaults,'agents','code','executor','host {{> shared-piece}} {{contractDescription}}');
     write(defaults,'fragments','code','shared-piece','bundled-code-fragment');
     rmSync(join(overrides,'fragments','code','shared-piece.md'));
     selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
     selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{})).toContain('bundled-code-fragment');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toContain('bundled-code-fragment');
     write(overrides,'fragments','_shared','shared-piece','override-shared-fragment');
     selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
     selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{})).toContain('override-shared-fragment');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toContain('override-shared-fragment');
     rmSync(join(overrides,'fragments','_shared','shared-piece.md'));rmSync(join(defaults,'fragments','code','shared-piece.md'));
     selected=compileProjectWorkflows(value,{defaultPromptRoot:defaults,overridePromptRoot:overrides});
     selectedNode=selected.cardTypes.get('code')!.states.get('node:execute')!;if(selectedNode.kind!=='node')throw new Error('missing node');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{})).toContain('bundled-fragment');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},selectedNode.agent.name,selectedNode.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toContain('bundled-fragment');
   });
 
   it('renders every default process prompt eagerly and preserves corrected agent guidance',()=>{
@@ -368,7 +368,8 @@ describe('named-agent card-type workflow compilation',()=>{
       for(const prompt of workflow.processPrompts.values())expect(prompt.text).not.toMatch(/\{\{[^}]+\}\}/u);
       expect(workflow.processPrompts.get('stopped-recovery' as never)?.text).toBe(stopped);
       for(const state of workflow.states.values())if(state.kind==='node'){
-        const rendered=renderCompiledPrompt({kind:'workflow-agent',cardType},state.agent.name,state.selectedAgentPrompt.compiled,{});
+        const rendered=renderCompiledPrompt({kind:'workflow-agent',cardType},state.agent.name,state.selectedAgentPrompt.compiled,{cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType,contractDescription:'GENERATED CONTRACT',toolList:'tools'});
+        expect(rendered.match(/GENERATED CONTRACT/gu)).toHaveLength(1);
         expect(rendered).not.toMatch(/\{\{[^}]+\}\}/u);
       }
     }
@@ -377,13 +378,14 @@ describe('named-agent card-type workflow compilation',()=>{
     const goal=compiled.cardTypes.get('goal')!;
     const plan=goal.states.get('node:plan')!;const review=goal.states.get('node:review')!;
     if(plan.kind!=='node'||review.kind!=='node')throw new Error('missing goal nodes');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},plan.agent.name,plan.selectedAgentPrompt.compiled,{})).not.toContain('canonical project card');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},review.agent.name,review.selectedAgentPrompt.compiled,{})).not.toContain('project/root tree');
+    const variables={cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType:'goal',contractDescription:'contract',toolList:'tools'};
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},plan.agent.name,plan.selectedAgentPrompt.compiled,variables)).not.toContain('canonical project card');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},review.agent.name,review.selectedAgentPrompt.compiled,variables)).not.toContain('project/root tree');
     const executor=compiled.cardTypes.get('doc')!.states.get('node:execute')!;if(executor.kind!=='node')throw new Error('missing executor');
-    const executorText=renderCompiledPrompt({kind:'workflow-agent',cardType:'doc'},executor.agent.name,executor.selectedAgentPrompt.compiled,{});
+    const executorText=renderCompiledPrompt({kind:'workflow-agent',cardType:'doc'},executor.agent.name,executor.selectedAgentPrompt.compiled,{...variables,cardType:'doc'});
     expect(executorText).not.toContain('code card');
     expect(executorText).toContain('Reference cards durably as `[[card:<id>]]` in operator-facing Markdown.');
-    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},review.agent.name,review.selectedAgentPrompt.compiled,{})).toContain('Reference cards durably as `[[card:<id>]]`; do not rely on friendly display paths.');
+    expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},review.agent.name,review.selectedAgentPrompt.compiled,variables)).toContain('Reference cards durably as `[[card:<id>]]`; do not rely on friendly display paths.');
   });
 
   it('fails rather than falling through when an exact prompt candidate is present but unreadable as a file',()=>{

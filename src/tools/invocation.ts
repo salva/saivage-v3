@@ -7,11 +7,6 @@ import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-import {
-  compileInvocationToolContract,
-  PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
-  type CompiledInvocationToolContract,
-} from '../runtime/actors/llm-invocation.js';
 
 export type ToolResult =
   | { success: true; data?: unknown; error?: never }
@@ -129,9 +124,6 @@ export function llmToolDefinition(tool: ToolSpecification<any>): LlmToolDefiniti
   };
 }
 
-export function surfaceCompiledInvocationTools(surface: InvocationSurface): CompiledInvocationToolContract[] {
-  return Array.from(surface.tools.values(), (tool) => compileInvocationToolContract(
-    llmToolDefinition(tool),
-    PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
-  ));
+export function surfaceToolDefinitions(surface: InvocationSurface): LlmToolDefinition[] {
+  return Array.from(surface.tools.values(), llmToolDefinition);
 }
