@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { AgentNodeExecution, parseEmitResultSettlement } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/llm-actor.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
-import type { InvocationSurface, ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
+import { noneToolExecution, providerResultFromSettlement, type InvocationSurface, type ToolProviderCleanupReason, type ToolSettlementInput } from '../../../src/tools/invocation.js';
+import { PRIMARY_TOOL_RESULT_POLICY_TEMPLATE } from '../../../src/runtime/actors/llm-invocation.js';
 
 type ToolOutcome = Extract<LLMActorOutcome, { type: 'tool_call' }>;
 
@@ -51,16 +52,16 @@ function harness(args: {
   const llm = {
     turn: async (_input: unknown, _signal: AbortSignal, handoff: unknown) => { events.push('turn'); handoffs.push(handoff); return args.initial; },
     continueAfterPlainText: async (correction: string, _signal: AbortSignal, handoff: unknown) => { events.push('continue-plain-text'); plainTextCorrections.push(correction); handoffs.push(handoff); return next(); },
-    appendToolResult: async (toolCallId: string, result: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); return next(); },
+    appendToolResult: async (toolCallId: string, settlement: ToolSettlementInput) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result: providerResultFromSettlement(settlement) }); return next(); },
     toolInvocationContext: () => { events.push('tool-context'); return {}; },
     claimResultAndCloseContinuation: (_outcome: ToolOutcome, _reason: Error, claim: () => void) => { events.push('claim-continuation'); claim(); },
-    settleToolResultWithoutContinuation: async (toolCallId: string, result: unknown) => { events.push('settle-terminal'); settledToolResults.push({ toolCallId, result }); },
+    settleToolResultWithoutContinuation: async (toolCallId: string, settlement: ToolSettlementInput) => { events.push('settle-terminal'); settledToolResults.push({ toolCallId, result: providerResultFromSettlement(settlement) }); },
   };
   const provider = {
     providerName: 'node-test',
-    tools: args.toolExecutor ? [{ name: 'lookup', description: 'lookup', inputSchema: z.object({}).strict(), executor: async () => {
+    tools: args.toolExecutor ? [{ name: 'lookup', description: 'lookup', inputSchema: z.object({}).strict(), resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE, executor: async () => {
       events.push('tool-execute');
-      return args.toolExecutor!();
+      return noneToolExecution(await args.toolExecutor!());
     } }] : [],
     cleanup: async (reason: ToolProviderCleanupReason) => {
       events.push('cleanup');
@@ -328,8 +329,8 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const accepted = await test.run();
     expect(Object.isFrozen(accepted)).toBe(true);
     expect(Object.isFrozen(accepted.acceptedRecords)).toBe(true);
-    expect(test.llmInputArguments[0]?.[4]).toBe('Call emit_result with exactly two fields: outcome (one of: complete) and summary (a trimmed non-empty string of at most 2000 characters).');
-    expect(test.llmInputArguments[0]?.[6]).toEqual({
+    expect(test.llmInputArguments[0]?.[6]).toBe('Call emit_result with exactly two fields: outcome (one of: complete) and summary (a trimmed non-empty string of at most 2000 characters).');
+    expect(test.llmInputArguments[0]?.[8]).toEqual({
       type: 'function',
       function: {
         name: 'emit_result',

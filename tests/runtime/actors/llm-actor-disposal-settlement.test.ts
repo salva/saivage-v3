@@ -4,14 +4,15 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ConversationLLMActor} from '../../../src/runtime/actors/llm-actor.js';
 import {appendConversationBatch,readConversation,type ConversationFileContext} from '../../../src/persistence/conversation-file.js';
-import {agentMessageSchema} from '../../../src/schemas/index.js';
+import {agentMessageSchema,canonicalJson} from '../../../src/schemas/index.js';
 import {prepareCompaction} from '../../../src/runtime/actors/compaction/compactor.js';
 import {initProjectTree} from '../../helpers/canonical-project.js';
 import {testApplicationFatalPort} from '../../helpers/test-application-fatal-port.js';
 import {testCompactor,unusedSummarizerProvider} from '../../helpers/llm-test-helpers.js';
-import type {ToolResult} from '../../../src/tools/invocation.js';
+import {executedNoneToolSettlement,type ToolResult} from '../../../src/tools/invocation.js';
 import {preparedInvocationContextFixture} from '../../helpers/prepared-invocation-context.js';
 import {actorProvider} from '../../helpers/actor-provider.js';
+import {structuralContextPolicy} from '../../helpers/message-context-policy.js';
 
 const roots:string[]=[];
 afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
@@ -24,7 +25,7 @@ describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
     fixture.observer.arm(()=>fixture.actor.dispose(disposalReason));
     const result:ToolResult={success:true,data:{value:'caller supplied'}};
 
-    await expect(fixture.actor.appendToolResult(fixture.outcome.toolCallId,result,undefined,continuation)).rejects.toBe(disposalReason);
+    await expect(fixture.actor.appendToolResult(fixture.outcome.toolCallId,executedNoneToolSettlement(result),undefined,continuation)).rejects.toBe(disposalReason);
 
     fixture.observer.expectOnePublication();
     expectToolResult(fixture,result,'demo');
@@ -32,7 +33,7 @@ describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
     expect(fixture.completeTurn).toHaveBeenCalledTimes(1);
     await expect(fixture.actor.turn(fixture.input,undefined,jest.fn())).rejects.toThrow('invocation admission is closed');
     await expect(fixture.actor.continueAfterPlainText('repair',undefined,jest.fn())).rejects.toThrow('no open plain-text result');
-    await expect(fixture.actor.appendToolResult(fixture.outcome.toolCallId,result)).rejects.toThrow('not waiting for a tool result');
+    await expect(fixture.actor.appendToolResult(fixture.outcome.toolCallId,executedNoneToolSettlement(result))).rejects.toThrow('not waiting for a tool result');
     await expect(fixture.actor.join()).resolves.toEqual({status:'joined'});
   });
 
@@ -42,14 +43,14 @@ describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
     fixture.observer.arm(()=>fixture.actor.dispose(disposalReason));
     const result:ToolResult={success:true,data:{accepted:true}};
 
-    await expect(fixture.actor.settleToolResultWithoutContinuation(fixture.outcome.toolCallId,result)).rejects.toBe(disposalReason);
+    await expect(fixture.actor.settleToolResultWithoutContinuation(fixture.outcome.toolCallId,executedNoneToolSettlement(result))).rejects.toBe(disposalReason);
 
     fixture.observer.expectOnePublication();
     expectToolResult(fixture,result,'restart_server');
     expect(fixture.completeTurn).toHaveBeenCalledTimes(1);
     await expect(fixture.actor.turn(fixture.input,undefined,jest.fn())).rejects.toThrow('invocation admission is closed');
     await expect(fixture.actor.continueAfterPlainText('repair',undefined,jest.fn())).rejects.toThrow('no open plain-text result');
-    await expect(fixture.actor.settleToolResultWithoutContinuation(fixture.outcome.toolCallId,result)).rejects.toThrow('not waiting for a tool result');
+    await expect(fixture.actor.settleToolResultWithoutContinuation(fixture.outcome.toolCallId,executedNoneToolSettlement(result))).rejects.toThrow('not waiting for a tool result');
     await expect(fixture.actor.join()).resolves.toEqual({status:'joined'});
   });
 });
@@ -61,7 +62,7 @@ async function toolCallFixture(toolName:string){
   const timestamp='2026-08-11T00:00:00.000Z';
   const observer=publicationObserver();
   const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:observer.conversationChanged,agentMembershipChanged:jest.fn()}};
-  appendConversationBatch(conversations,[agentMessageSchema.parse({id:'activation',session_id:sessionId,role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',agent_name:'analyst',input_id:inputId,timestamp}),round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
+  appendConversationBatch(conversations,[agentMessageSchema.parse({id:'activation',session_id:sessionId,role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',agent_name:'analyst',input_id:inputId,timestamp}),context_policy:structuralContextPolicy('activation_boundary'),round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
   const completeTurn=jest.fn(async()=>({result:{kind:'tool_calls' as const,tool_calls:[{id:'call-1',type:'function' as const,function:{name:toolName,arguments:'{}'}}]},provider_exchanges:[]}));
   const actor=new ConversationLLMActor({purpose:{kind:'analyst'},agentId:sessionId,provider:actorProvider(completeTurn),conversations,compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,fatalPort:testApplicationFatalPort});
   const input={inputId,agentId:sessionId,agentName:'analyst' as const,sessionId,...preparedInvocationContextFixture(),providerConversation:{sourceSessionId:sessionId,messages:[]},modelParams:{temperature:0},preparedCompaction:prepareCompaction({input_budget_tokens:1000,trigger_fraction:.8,completion_reserve_fraction:.2,merge_line_fraction:.3,summary_line_fraction:.5,escalate_merge_line_fraction:.4,escalate_summary_line_fraction:.6,snap:'compact_straddler'},'system',[]),capabilityRequest:{},routePass:{kind:'ordinary' as const,candidateChain:[{provider:'test',account:null,model:'test-model'}]},episodeContext:{}};
@@ -84,7 +85,7 @@ function expectToolResult(fixture:Awaited<ReturnType<typeof toolCallFixture>>,re
   const rows=readConversation(fixture.conversations.projectRoot,fixture.input.sessionId).sourceRows;
   const results=rows.filter(row=>row.kind==='tool_result');
   expect(results).toHaveLength(1);
-  expect(results[0]).toMatchObject({id:`${fixture.input.inputId}:tool-result:${fixture.outcome.toolCallId}`,session_id:fixture.input.sessionId,role:'tool',kind:'tool_result',tool:toolName,tool_call_id:fixture.outcome.toolCallId,content:JSON.stringify(result)});
+  expect(results[0]).toMatchObject({id:`${fixture.input.inputId}:tool-result:${fixture.outcome.toolCallId}`,session_id:fixture.input.sessionId,role:'tool',kind:'tool_result',tool:toolName,tool_call_id:fixture.outcome.toolCallId,content:canonicalJson(result)});
   expect(rows.at(-1)).toBe(results[0]);
   expect(rows.some(row=>row.content.includes('confirmation_required'))).toBe(false);
   expect(rows.some(row=>row.content.includes('Cancelled:'))).toBe(false);

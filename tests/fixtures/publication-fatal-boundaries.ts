@@ -17,13 +17,13 @@ import { preparedInvocationContextFixture } from '../helpers/prepared-invocation
 import { actorProvider } from '../helpers/actor-provider.js';
 import { replaceFile, type ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
-import { defineTool, invokeToolForLlm, type InvocationSurface } from '../../src/tools/invocation.js';
+import { defineTool, invokeToolForLlm, noneToolExecution, type InvocationSurface } from '../../src/tools/invocation.js';
+import { PRIMARY_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/runtime/actors/llm-invocation.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
 import { AnalystSession } from '../../src/agents/analyst-handler.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
-import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 
 const mode = process.argv[2];
 const path = process.argv[3];
@@ -55,7 +55,7 @@ if (mode === 'base-actor-task') {
   class FatalActor extends BaseActor {
     constructor() { const definition=compileActorDefinition({ initial: 'run', states: { run: {} } });super(definition.initial,definition.states); }
     protected onStateEntered(_context: ActorLifecycleContext): void {
-      this.runTask(async () => invokeToolForLlm({ agentName: 'planner', providers: [], tools: new Map([['publish', { name: 'publish', description: 'publication owner', inputSchema: z.object({}), executor: async () => { throw new PublicationOutcomeUnknownError(); } }]]) }, 'publish', {}, {} as never), { onDone() {}, onFailed() { process.stdout.write('failed-task'); } });
+      this.runTask(async () => invokeToolForLlm({ agentName: 'planner', providers: [], tools: new Map([['publish', { name: 'publish', description: 'publication owner', inputSchema: z.object({}), resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE, executor: async () => { throw new PublicationOutcomeUnknownError(); } }]]) }, 'publish', {}, {} as never), { onDone() {}, onFailed() { process.stdout.write('failed-task'); } });
     }
     protected onTransition(_context: ActorTransitionContext): void {}
     protected onActorMainFailure(): void { process.stdout.write('main-failed'); }
@@ -150,9 +150,10 @@ if (mode === 'analyst-project-context') {
     name: 'forbidden_tool',
     description: 'Must not run after failed project-context construction.',
     inputSchema: z.object({}).strict(),
+    resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
     executor: async () => {
       mark('tool');
-      return { success: true, data: null };
+      return noneToolExecution({ success: true, data: null });
     },
   });
   const surface: InvocationSurface = {

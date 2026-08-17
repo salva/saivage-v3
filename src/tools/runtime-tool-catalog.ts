@@ -26,6 +26,8 @@ import {
   type ToolProvider,
   type ToolProviderCleanupReason,
 } from './invocation.js';
+import { canonicalJson } from '../schemas/index.js';
+import type { ToolEvidenceMode, ToolResultPolicyTemplate } from '../runtime/actors/llm-invocation.js';
 
 export type RuntimeToolScope = 'global' | 'card';
 
@@ -67,19 +69,20 @@ export type RuntimeToolProviderGroup<Context> = Readonly<{
   key: string;
   providerName: string;
   scope: RuntimeToolScope;
-  binders: readonly ToolBinder<Context, any>[];
+  binders: readonly ToolBinder<Context, any, ToolEvidenceMode>[];
   context(runtime: RuntimeToolBindingContext): Context;
   cleanup?(context: Context, reason: ToolProviderCleanupReason): Promise<void> | void;
 }>;
 
 type AnyProviderGroup = RuntimeToolProviderGroup<any>;
-type CatalogEntry = Readonly<{ group: AnyProviderGroup; binder: ToolBinder<any, any> }>;
+type CatalogEntry = Readonly<{ group: AnyProviderGroup; binder: ToolBinder<any, any, ToolEvidenceMode> }>;
 
 export type CompiledToolReference = Readonly<{
   scope: RuntimeToolScope;
   name: string;
   providerGroupId: string;
   description: string;
+  resultPolicyTemplate: ToolResultPolicyTemplate;
 }>;
 
 const card = (runtime: RuntimeToolBindingContext): CardToolBindingContext => {
@@ -143,7 +146,14 @@ const runtimeToolCatalog = (): ReadonlyMap<string, CatalogEntry> => catalog ??= 
 export function resolveRuntimeTool(scope: RuntimeToolScope, name: string): CompiledToolReference {
   const entry = runtimeToolCatalog().get(`${scope}\u0000${name}`);
   if (!entry) throw new Error(`unknown tool '${name}' for ${scope} session scope`);
-  return Object.freeze({ scope, name, providerGroupId: entry.group.key, description: entry.binder.description });
+  return Object.freeze({ scope, name, providerGroupId: entry.group.key, description: entry.binder.description, resultPolicyTemplate: entry.binder.resultPolicyTemplate });
+}
+
+export function runtimeToolPolicyInventory(): readonly Readonly<{ scope: RuntimeToolScope; name: string; resultPolicyTemplate: ToolResultPolicyTemplate }>[] {
+  return Object.freeze([...runtimeToolCatalog()].map(([key, entry]) => {
+    const [scope, name] = key.split('\u0000') as [RuntimeToolScope, string];
+    return Object.freeze({ scope, name, resultPolicyTemplate: entry.binder.resultPolicyTemplate });
+  }).sort((left, right) => left.scope.localeCompare(right.scope) || left.name.localeCompare(right.name)));
 }
 
 export function effectiveCardNodeToolReferences(
@@ -168,22 +178,26 @@ export class BoundAgentToolSet {
   }
 
   bind(runtime: RuntimeToolBindingContext): InvocationSurface {
-    const selectedGroups = new Map<string, CatalogEntry[]>();
+    const selectedGroups = new Map<string, Array<Readonly<{ entry: CatalogEntry; reference: CompiledToolReference }>>>();
     for (const reference of this.references) {
       if (reference.scope !== runtime.scope) throw new Error(`Tool '${reference.name}' cannot bind to ${runtime.scope} scope.`);
       const entry = runtimeToolCatalog().get(`${reference.scope}\u0000${reference.name}`);
       if (!entry) throw new Error(`Compiled tool '${reference.scope}/${reference.name}' is absent from the runtime catalog.`);
       const selected = selectedGroups.get(reference.providerGroupId) ?? [];
-      selected.push(entry);
+      selected.push({ entry, reference });
       selectedGroups.set(reference.providerGroupId, selected);
     }
-    const definitions = new Map<string, ToolDefinition>();
+    const definitions = new Map<string, ToolDefinition<any, ToolEvidenceMode>>();
     const providers: ToolProvider[] = [];
     for (const group of runtimeToolGroups()) {
       const selected = selectedGroups.get(group.key);
       if (!selected) continue;
       const context = group.context(runtime);
-      const tools = selected.map((entry) => entry.binder.bind(context));
+      const tools = selected.map(({ entry, reference }) => {
+        const definition = entry.binder.bind(context);
+        if (canonicalJson(definition.resultPolicyTemplate) !== canonicalJson(reference.resultPolicyTemplate)) throw new Error(`Compiled tool '${reference.scope}/${reference.name}' result policy disagrees with its catalog binder.`);
+        return definition;
+      });
       for (const definition of tools) definitions.set(definition.name, definition);
       providers.push({ providerName: group.providerName, tools: Object.freeze(tools), ...(group.cleanup ? { cleanup: (reason) => group.cleanup!(context, reason) } : {}) });
     }

@@ -9,6 +9,7 @@ import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-sess
 import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
 import { readConversation, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
+import { syntheticToolSettlement } from '../../tools/invocation.js';
 import {
   validateConversation, type ValidatedConversation,
 } from '../../contracts/conversation-validation.js';
@@ -123,13 +124,14 @@ export function stabilizeAgentSession(args: {
   const latestPhysicalIndex = physicalIndexForSource(messages, sourceRows[latestActivationIndex]!);
   const unmatched = validateCallSettlementPairs(conversation, latestPhysicalIndex, true);
   if (unmatched) {
+    if (unmatched.message.context_policy.kind !== 'tool_call') throw new Error('Interrupted unmatched call has no call-owned result policy.');
     appendProviderVisibleSyntheticFailedToolResult(args.conversations, {
       sessionId: args.sessionId,
       sourceInputId: unmatched.sourceInputId,
       toolCallId: unmatched.toolCallId,
       toolName: unmatched.toolName,
-      error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.',
-      data: { outcome_unknown: true },
+      settlement: syntheticToolSettlement('execution_failed', unmatched.message.context_policy.template, 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', { outcome_unknown: true }),
+      callPolicySha256: unmatched.message.context_policy.template_sha256,
     });
   }
   appendRecoveryNotice(args.conversations, args.sessionId, marker.inputId, 'ordinary_interruption');

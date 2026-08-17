@@ -8,8 +8,9 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/c
 import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
 import { cardWorkRoot } from '../persistence/layout.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
-import { defineToolBinder, type ToolBinder, type ToolProviderCleanupReason, type ToolResult } from './invocation.js';
+import { defineToolBinder, noneToolExecution, observationalToolExecution, type ToolBinder, type ToolProviderCleanupReason, type ToolResult } from './invocation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE, PRIMARY_TOOL_RESULT_POLICY_TEMPLATE } from '../runtime/actors/llm-invocation.js';
 
 export interface ProcessProviderContext {
   readonly projectRoot: string;
@@ -132,6 +133,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
         name: 'run_command',
         description: 'Run a Bash command. For a card-scoped run_command, ordinary source edits, builds, and tests stay in the project workspace; SAIVAGE_CARD_WORK_ROOT is supplied and disposable copies, extraction areas, caches, and intermediate command work must use a purpose-named child of that directory. Do not invent a .card-*-work sibling at the project root, and do not use the reserved processes/ or tmp/ children beneath SAIVAGE_CARD_WORK_ROOT. A global/non-card run_command does not supply SAIVAGE_CARD_WORK_ROOT and must not use it. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass work:/// stdout_url/stderr_url to read or grep to page through output. Set wait=false to start a background process for later wait_process or kill_process.',
         inputSchema: () => runCommandInputSchema,
+        resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
         executor: async (ctx, args, signal, invocation) => {
           try {
             throwIfAborted(signal);
@@ -146,21 +148,21 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               ...(ctx.cardId ? { env: { SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(ctx.projectRoot, ctx.cardId) } } : {}),
               ownerKind: ctx.ownerKind,
             });
-            if (args.wait === false) return { success: true, data: processResult(ctx, record.id) };
+            if (args.wait === false) return noneToolExecution({ success: true, data: processResult(ctx, record.id) });
             try {
               const pending = waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
               await (invocation ? invocation.waits.waitProcess(record.id, pending) : pending);
             } catch (err) {
               throwIfPublicationOutcomeUnknown(err);
               await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted', graceMs: 5000 });
-              if (isAbortError(err, signal)) return { success: true, data: processResult(ctx, record.id) };
+              if (isAbortError(err, signal)) return noneToolExecution({ success: true, data: processResult(ctx, record.id) });
               throw err;
             }
-            return { success: true, data: processResult(ctx, record.id) };
+            return noneToolExecution({ success: true, data: processResult(ctx, record.id) });
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             if (isAbortError(err, signal)) throw err;
-            return failureFromError(err);
+            return noneToolExecution(failureFromError(err));
           }
         },
       }),
@@ -168,20 +170,21 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
         name: 'wait_process',
         description: 'Wait for a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep. Use timeout_ms=0 for non-blocking inspection.',
         inputSchema: () => waitProcessInputSchema,
+        resultPolicyTemplate: OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE,
         executor: async (ctx, args, signal, invocation) => {
           try {
             throwIfAborted(signal);
             const current = assertOwned(ctx, args.process_id);
-            if (args.timeout_ms === 0 && current.status === 'running') return { success: true, data: processResult(ctx, args.process_id) };
-            if (current.status !== 'running') return { success: true, data: processResult(ctx, args.process_id) };
+            if (args.timeout_ms === 0 && current.status === 'running') return observationalToolExecution({ success: true, data: processResult(ctx, args.process_id) });
+            if (current.status !== 'running') return observationalToolExecution({ success: true, data: processResult(ctx, args.process_id) });
             const pending = waitForProcess(ctx, args.process_id, timeoutMs(args.timeout_ms), signal);
             const result = await (invocation ? invocation.waits.waitProcess(args.process_id, pending) : pending);
-            if (result.timedOut) return { success: true, data: processResult(ctx, args.process_id) };
-            return { success: true, data: processResult(ctx, args.process_id) };
+            if (result.timedOut) return observationalToolExecution({ success: true, data: processResult(ctx, args.process_id) });
+            return observationalToolExecution({ success: true, data: processResult(ctx, args.process_id) });
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             if (isAbortError(err, signal)) throw err;
-            return failureFromError(err);
+            return observationalToolExecution(failureFromError(err));
           }
         },
       }),
@@ -189,15 +192,16 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
         name: 'kill_process',
         description: 'Signal a process owned by this activation or session. Results use process_id, exit_code, status, stdout_url, stderr_url, and byte counts; pass the work:/// output URLs to read or grep.',
         inputSchema: () => killProcessInputSchema,
+        resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
         executor: async (ctx, args) => {
           try {
             assertOwned(ctx, args.process_id);
             const record = await ctx.processRunner.kill(args.process_id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool kill_process' });
             if (!record) throw new Error(`Unknown process '${args.process_id}'.`);
-            return { success: true, data: processResult(ctx, args.process_id) };
+            return noneToolExecution({ success: true, data: processResult(ctx, args.process_id) });
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
-            return failureFromError(err);
+            return noneToolExecution(failureFromError(err));
           }
         },
       }),

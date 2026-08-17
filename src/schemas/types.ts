@@ -1,5 +1,6 @@
 import type { ConversationSessionId } from './conversation-session-id.js';
 import type { CardTypeName } from './card-type-name.js';
+import type { CanonicalContextPolicy } from './context-policy.js';
 
 
 export const cardStatusValues = ['backlog', 'running', 'blocked', 'changed', 'stopped', 'done', 'failed', 'cancelled'] as const;
@@ -60,7 +61,7 @@ export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'model_issue' | 'model_repair' | 'content_policy_retry' | 'content_policy_refusal' | 'model_recovered' | 'provider_private';
 export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
 export interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; source_input_id: string; private_message_id: string; projection_kind: 'assistant_message' | 'assistant_tool_call'; }
-export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
+export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; context_policy: CanonicalContextPolicy; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
 export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
 export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id: string; updated_at: string; }
 export interface SkillIndexEntry { name: string; file: string; target_agents: import('./agent-name.js').AgentName[]; }

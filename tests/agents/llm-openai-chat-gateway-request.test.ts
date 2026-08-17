@@ -8,6 +8,7 @@ import type {
 } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
+import { durableContentPolicy } from '../helpers/message-context-policy.js';
 
 const CANDIDATE: Candidate = { provider: 'openai-chat', account: null, model: 'gpt-5' };
 const SYSTEM = 'system-prompt';
@@ -18,6 +19,7 @@ const MESSAGES: AgentMessage[] = [
     role: 'user',
     kind: 'text',
     content: 'hi',
+    context_policy: durableContentPolicy(),
     round_id: 'r1',
     message_index: 0,
     block_index: 0,

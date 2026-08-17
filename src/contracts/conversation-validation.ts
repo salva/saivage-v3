@@ -8,10 +8,12 @@ import {
   type AgentMessage,
   type ContextCompactionContent,
   type ConversationSessionId,
+  type CanonicalContextPolicy,
 } from '../schemas/index.js';
 import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/message-identity.js';
 import { parseToolCallMessageForModel } from './persisted-tool-call.js';
 import { ToolInvocationResultSchema } from './tool-invocation-projection.js';
+import { deterministicRoundId } from '../schemas/round-id-server.js';
 
 export type SourceSegment = {
   readonly kind: 'initial' | 'repair';
@@ -65,6 +67,8 @@ export type CanonicalConversationCall = {
   readonly sourceIndex: number;
   readonly physicalIndex: number;
   readonly resultSourceIndex: number | null;
+  readonly resultMessage: AgentMessage | null;
+  readonly settledPolicy: Readonly<{ storage: 'durable'; replacement: { kind: 'retain' } | { kind: 'latest_snapshot'; key: string; contentSha256: string }; audience: 'primary_and_summarizer' | 'summarizer_only' | 'evidence_only'; evidence: Extract<CanonicalContextPolicy, { kind: 'tool_result' }>['evidence'] }> | null;
 };
 
 export type ValidatedConversation = {
@@ -117,6 +121,7 @@ interface CanonicalToolCallCheckpoint {
   readonly toolCallId: string;
   readonly sourceOrdinal: number;
   readonly physicalOrdinal: number;
+  readonly policy: Extract<CanonicalContextPolicy, { kind: 'tool_call' }>;
   resultOrdinal: number | null;
 }
 interface CanonicalCompactionRoundCheckpoint {
@@ -190,7 +195,7 @@ export function reduceCanonicalConversationRow(
   state: CanonicalConversationValidationState,
   row: AgentMessage,
   checkpoint: GrowingFileRowCheckpoint,
-  replay: GrowingFileReplay<AgentMessage>,
+  _replay: GrowingFileReplay<AgentMessage>,
 ): CanonicalConversationValidationState {
   if (row.session_id !== state.sessionId)
     throw new Error(
@@ -204,6 +209,10 @@ export function reduceCanonicalConversationRow(
   if (inherited && ordinal === inherited.startOrdinal) state.rounds.push({ label: inherited.markerId, activationInputId: inherited.inputId, activationOrdinal: null, start: ordinal, end: ordinal, segments: [{ kind: inherited.activeSegmentKind, start: ordinal, end: ordinal }] });
 
   const toolFacts = validateToolContent(row);
+  if (row.kind === 'model_recovered') {
+    const activationInputId = state.rounds.at(-1)?.activationInputId;
+    if (!activationInputId || row.id !== `${activationInputId}:model-recovered` || row.round_id !== deterministicRoundId('pre', activationInputId)) throw new Error(`Recovery notice '${row.id}' does not match the current activation identity.`);
+  }
   const repairAnchor =
     row.kind === 'model_repair' || row.kind === 'content_policy_retry' || toolFacts.failedResult;
   const opensRound = validateActivationOpenMarker(state.sessionId, row);
@@ -250,7 +259,7 @@ export function reduceCanonicalConversationRow(
     lineEnd: checkpoint.lineEnd,
     rowOrdinal: checkpoint.rowOrdinal,
   });
-  validateToolOrdering(state, source, callIdentity, resultIdentity);
+  validateToolOrdering(state, source, row, callIdentity, resultIdentity);
   state.sources.push(source);
   state.sourceOrdinals.set(source.id, ordinal);
   return state;
@@ -454,6 +463,8 @@ function materializeValidatedConversation(
           sourceIndex: call.sourceOrdinal,
           physicalIndex: call.physicalOrdinal,
           resultSourceIndex: call.resultOrdinal,
+          resultMessage: call.resultOrdinal === null ? null : sourceRows[call.resultOrdinal]!,
+          settledPolicy: call.resultOrdinal === null ? null : deriveSettledToolPolicy(sourceRows[call.resultOrdinal]!, call.policy),
         }),
     ),
   );
@@ -486,6 +497,7 @@ function materializeValidatedConversation(
 function validateToolOrdering(
   state: CanonicalConversationValidationState,
   source: CanonicalConversationSourceCheckpoint,
+  row: AgentMessage,
   callIdentity: ReturnType<typeof loggedToolCallIdentity>,
   resultIdentity: ReturnType<typeof loggedToolResultIdentity>,
 ): void {
@@ -500,6 +512,7 @@ function validateToolOrdering(
       toolCallId: callIdentity.tool_call_id,
       sourceOrdinal: state.sources.length,
       physicalOrdinal: source.rowOrdinal,
+      policy: requireToolCallPolicy(row),
       resultOrdinal: null,
     });
     return;
@@ -514,6 +527,7 @@ function validateToolOrdering(
         'Conversation tool result has no matching earlier call with the same identity and tool name.',
       );
     const resultOrdinal = state.sources.length;
+    validateSettledToolPair(call, row);
     state.toolResults.set(key, resultOrdinal);
     call.resultOrdinal = resultOrdinal;
   }
@@ -717,20 +731,56 @@ function validateToolContent(row: AgentMessage): { failedResult: boolean } {
     }
     if (embedded.id !== row.tool_call_id || embedded.name !== row.tool)
       throw new Error(`Tool call '${row.id}' embedded identity does not match row metadata.`);
+    const policy = requireToolCallPolicy(row);
+    const bytes = canonicalJson(policy.template);
+    if (policy.template_bytes !== bytes || policy.template_sha256 !== sha256(bytes)) throw new Error(`Tool call '${row.id}' result policy bytes/hash do not match its template.`);
     return { failedResult: false };
   }
   if (row.kind === 'tool_result') {
     if (row.role !== 'tool') throw new Error(`Tool result '${row.id}' must use tool role.`);
     try {
-      return {
-        failedResult: ToolInvocationResultSchema.parse(JSON.parse(row.content)).success === false,
-      };
+      const result = ToolInvocationResultSchema.parse(JSON.parse(row.content));
+      if (row.context_policy.kind !== 'tool_result') throw new Error(`Tool result '${row.id}' lacks result context policy.`);
+      if (row.content !== canonicalJson(result)) throw new Error(`Tool result '${row.id}' content is not exact canonical JSON.`);
+      if (row.context_policy.result_content_sha256 !== sha256(row.content)) throw new Error(`Tool result '${row.id}' content hash is invalid.`);
+      if (!result.success && row.context_policy.evidence.kind !== 'none') throw new Error(`Failed tool result '${row.id}' must carry no evidence.`);
+      if (row.context_policy.settlement_origin !== 'executed' && result.success) throw new Error(`Synthetic tool result '${row.id}' cannot be successful.`);
+      return { failedResult: result.success === false };
     } catch (error) {
       throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);
     }
   }
   return { failedResult: false };
 }
+
+function requireToolCallPolicy(row: AgentMessage): Extract<CanonicalContextPolicy, { kind: 'tool_call' }> {
+  if (row.kind !== 'tool_call' || row.context_policy.kind !== 'tool_call') throw new Error(`Tool call '${row.id}' lacks call context policy.`);
+  return row.context_policy;
+}
+
+function validateSettledToolPair(call: CanonicalToolCallCheckpoint, result: AgentMessage): void {
+  if (result.context_policy.kind !== 'tool_result') throw new Error(`Tool result '${result.id}' lacks result context policy.`);
+  const policy = result.context_policy;
+  if (policy.call_policy_sha256 !== call.policy.template_sha256) throw new Error(`Tool result '${result.id}' call-policy commitment does not match its call.`);
+  const parsed = ToolInvocationResultSchema.parse(JSON.parse(result.content));
+  if (parsed.success) {
+    const expected = call.policy.template.evidenceMode;
+    if (expected === 'none' && policy.evidence.kind !== 'none' || expected === 'observational_query' && policy.evidence.kind !== 'observational_query' || expected === 'canonical_locator' && policy.evidence.kind !== 'canonical_locator') throw new Error(`Tool result '${result.id}' evidence does not match its call template.`);
+    if (policy.evidence.kind === 'observational_query' && policy.evidence.observedSha256 !== policy.result_content_sha256) throw new Error(`Tool result '${result.id}' observational commitment does not match its exact result bytes.`);
+  } else if (policy.evidence.kind !== 'none') throw new Error(`Failed tool result '${result.id}' carries evidence.`);
+  if (policy.settlement_origin === 'unsupported_tool') {
+    const template = call.policy.template;
+    if (template.storage !== 'durable' || template.replacement.kind !== 'retain' || template.settledAudience !== 'primary_and_summarizer' || template.evidenceMode !== 'none' || parsed.success || !parsed.error.startsWith('Unsupported tool ')) throw new Error(`Unsupported tool result '${result.id}' is inconsistent with its fixed call policy/body.`);
+  }
+}
+
+function deriveSettledToolPolicy(result: AgentMessage, callPolicy: Extract<CanonicalContextPolicy, { kind: 'tool_call' }>): CanonicalConversationCall['settledPolicy'] {
+  if (result.context_policy.kind !== 'tool_result') throw new Error(`Tool result '${result.id}' lacks result context policy.`);
+  const replacement = callPolicy.template.replacement.kind === 'retain' ? Object.freeze({ kind: 'retain' as const }) : Object.freeze({ kind: 'latest_snapshot' as const, key: callPolicy.template.replacement.key, contentSha256: result.context_policy.result_content_sha256 });
+  return Object.freeze({ storage: 'durable', replacement, audience: callPolicy.template.settledAudience, evidence: result.context_policy.evidence });
+}
+
+function sha256(value: string): string { return createHash('sha256').update(value, 'utf8').digest('hex'); }
 
 function validateActivationOpenMarker(
   sourceSessionId: ConversationSessionId,

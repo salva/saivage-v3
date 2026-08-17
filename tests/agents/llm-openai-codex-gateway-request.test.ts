@@ -10,6 +10,7 @@ import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
+import { durableContentPolicy } from '../helpers/message-context-policy.js';
 
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -22,6 +23,7 @@ const MESSAGES: AgentMessage[] = [
     role: 'user',
     kind: 'text',
     content: 'hi',
+    context_policy: durableContentPolicy(),
     round_id: 'r1',
     message_index: 0,
     block_index: 0,

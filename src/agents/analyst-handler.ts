@@ -17,8 +17,9 @@ import { buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext,
 } from '../persistence/conversation-file.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
-import { invokeToolForLlm, surfaceCompiledInvocationTools, type InvocationSurface, type ToolResult,
+import { invokeToolForLlm, providerResultFromSettlement, surfaceCompiledInvocationTools, syntheticToolSettlement, type InvocationSurface, type ToolResult, type ToolSettlementInput,
 } from '../tools/invocation.js';
+import { UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../runtime/actors/llm-invocation.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
@@ -284,13 +285,10 @@ export class AnalystSession {
       const rawArguments = this.#llm.waitingToolArguments(outcome);
       const parsed = parseProtocolToolArgs(rawArguments);
       let params: Record<string, unknown>;
-      let result: ToolResult;
+      let settlement: ToolSettlementInput;
       if (!surface.tools.has(outcome.toolName)) {
         params = parsed.kind === 'ok' ? parsed.args : {};
-        result = {
-          success: false,
-          error: ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys())),
-        };
+        settlement = syntheticToolSettlement('unsupported_tool', UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, `Unsupported tool '${outcome.toolName}' for agent '${surface.agentName}'. ${ANALYST_UNSUPPORTED_ACTION_TEMPLATE('Analyst', Array.from(surface.tools.keys()))}`);
       } else if (parsed.kind === 'violation') {
         params = {};
         const violation = buildAgentProtocolViolation({
@@ -301,11 +299,12 @@ export class AnalystSession {
           violation: parsed.violation,
           raw: rawArguments,
         });
-        result = { success: false, error: JSON.stringify(violation) };
+        const definition = surface.tools.get(outcome.toolName);
+        settlement = syntheticToolSettlement(definition ? 'rejected_before_execution' : 'unsupported_tool', definition?.resultPolicyTemplate ?? UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, JSON.stringify(violation));
       } else {
         params = parsed.args;
         operation.toolInFlight = outcome.toolName;
-        result = await invokeToolForLlm(
+        settlement = await invokeToolForLlm(
           surface,
           outcome.toolName,
           parsed.args,
@@ -315,6 +314,7 @@ export class AnalystSession {
         operation.toolInFlight = null;
         this.assertCurrent(operation, signal);
       }
+      const result = providerResultFromSettlement(settlement);
       operation.toolInvocations.push({
         tool: outcome.toolName,
         params,
@@ -323,14 +323,14 @@ export class AnalystSession {
         toolCallId: outcome.toolCallId,
       });
       if (outcome.toolName === 'restart_server' && result.success) {
-        await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, result);
+        await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, settlement);
         operation.newlyRequestedRestart = true;
         return this.response(operation, {
           status: 'confirmation_required',
           confirmationMessage: 'RESTART SERVER',
         });
       }
-      outcome = await this.#llm.appendToolResult(outcome.toolCallId, result, signal);
+      outcome = await this.#llm.appendToolResult(outcome.toolCallId, settlement, signal);
     }
   }
 
@@ -620,6 +620,7 @@ export class AnalystSession {
     return settled.map((entry) => (entry as PromiseFulfilledResult<InvocationJoinOutcome>).value);
   }
 }
+
 
 export class AnalystRuntime {
   #session: AnalystSession | null = null;

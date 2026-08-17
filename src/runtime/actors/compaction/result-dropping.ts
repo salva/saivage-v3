@@ -1,141 +1,59 @@
 import type { AgentMessage } from '../../../schemas/index.js';
+import { canonicalJson } from '../../../schemas/index.js';
+import { loggedToolCallIdentity, loggedToolCallKey, loggedToolResultIdentity } from '../../../schemas/message-identity.js';
 
 declare const summarizerProviderRow: unique symbol;
 export type SummarizerProviderRow = AgentMessage & { readonly [summarizerProviderRow]: true };
 
 export type RecoverableEvidenceDescriptor =
-  | { flavor: 'stash'; url: string; label: string; bytes?: number }
-  | { flavor: 'process_stdout' | 'process_stderr'; url: string; label: string; bytes?: number }
-  | { flavor: 'source_recallable'; tool: string; args: unknown; label: string };
+  | { flavor: 'observational_query'; tool: string; args: unknown; observed_sha256: string; label: string }
+  | { flavor: 'canonical_locator'; locator: string; sha256: string; label: string };
 
-const SOURCE_RECALLABLE_TOOLS = new Set(['read', 'glob', 'grep', 'get_card', 'list_cards', 'list_files', 'list_processes', 'list_agents',
-]);
-
-export function buildSummarizerProviderRows(messages: readonly AgentMessage[],
-): SummarizerProviderRow[] {
-  const calls = toolCallsById(messages);
+export function buildSummarizerProviderRows(messages: readonly AgentMessage[]): SummarizerProviderRow[] {
+  const calls = toolCallsByCompositeIdentity(messages);
   return messages.map((message) => {
-    if (message.kind !== 'tool_result') return cloneMessage(message);
-    const call = message.tool_call_id ? calls.get(message.tool_call_id) : undefined;
-    const tool = message.tool ?? call?.tool;
-    const content = parseJsonObject(message.content);
-    const data = objectValue(content.data);
-
-    if (tool && isSourceRecallableTool(tool) && call) {
-      return withContent(message, { success: content.success, recovered_from: { tool, args: toolCallArgs(call) }, note: 'compacted; re-run source-recallable tool to recover full result',
-      });
-    }
-    if (typeof data.stash_url === 'string') {
-      return withContent(message, { success: content.success, recovered_from: data.stash_url, bytes: numberValue(data.bytes), note: 'compacted to stash; use read to recover full content',
-      });
-    }
-    if (typeof data.stdout_url === 'string' || typeof data.stderr_url === 'string') {
-      const compacted: Record<string, unknown> = { success: content.success, note: 'compacted process output; use read to recover full content',
-      };
-      for (const [key, value] of Object.entries(data)) {
-        compacted[key] = value;
-      }
-      return withContent(message, { success: content.success, data: compacted });
-    }
-    return cloneMessage(message);
+    if (message.kind !== 'tool_result' || message.context_policy.kind !== 'tool_result') return cloneMessage(message);
+    const identity = loggedToolResultIdentity(message);
+    const call = identity ? calls.get(loggedToolCallKey(identity)) : undefined;
+    if (!call || call.context_policy.kind !== 'tool_call') throw new Error(`Tool result '${message.id}' has no exact call policy.`);
+    if (call.context_policy.template.settledAudience !== 'evidence_only') return cloneMessage(message);
+    return withContent(message, canonicalJson({ success: JSON.parse(message.content).success, evidence: message.context_policy.evidence }));
   });
 }
 
-export function recoverableEvidenceDescriptors(messages: AgentMessage[],
-): RecoverableEvidenceDescriptor[] {
-  const calls = toolCallsById(messages);
+export function recoverableEvidenceDescriptors(messages: readonly AgentMessage[]): RecoverableEvidenceDescriptor[] {
+  const calls = toolCallsByCompositeIdentity(messages);
   const descriptors: RecoverableEvidenceDescriptor[] = [];
   for (const message of messages) {
-    if (message.kind !== 'tool_result') continue;
-    const call = message.tool_call_id ? calls.get(message.tool_call_id) : undefined;
-    const tool = message.tool ?? call?.tool;
-    const content = parseJsonObject(message.content);
-    const data = objectValue(content.data);
-    if (tool && isSourceRecallableTool(tool) && call) {
-      const args = toolCallArgs(call);
-      descriptors.push({ flavor: 'source_recallable', tool, args, label: sourceLabel(args) });
-    }
-    if (typeof data.stash_url === 'string') {
-      descriptors.push({ flavor: 'stash', url: data.stash_url, label: webfetchLabel(call), bytes: numberValue(data.bytes),
-      });
-    }
-    if (typeof data.stdout_url === 'string') {
-      descriptors.push({ flavor: 'process_stdout', url: data.stdout_url, label: processLabel(call), bytes: numberValue(data.stdout_bytes),
-      });
-    }
-    if (typeof data.stderr_url === 'string') {
-      descriptors.push({ flavor: 'process_stderr', url: data.stderr_url, label: processLabel(call), bytes: numberValue(data.stderr_bytes),
-      });
-    }
+    if (message.kind !== 'tool_result' || message.context_policy.kind !== 'tool_result') continue;
+    const identity = loggedToolResultIdentity(message);
+    const call = identity ? calls.get(loggedToolCallKey(identity)) : undefined;
+    if (!call) throw new Error(`Tool result '${message.id}' has no exact composite-identity call.`);
+    const evidence = message.context_policy.evidence;
+    if (evidence.kind === 'observational_query') descriptors.push({ flavor: 'observational_query', tool: call.tool!, args: toolCallArgs(call), observed_sha256: evidence.observedSha256, label: call.tool! });
+    if (evidence.kind === 'canonical_locator') descriptors.push({ flavor: 'canonical_locator', locator: evidence.locator, sha256: evidence.sha256, label: call.tool! });
   }
   return descriptors;
 }
 
-function toolCallsById(messages: readonly AgentMessage[]): Map<string, AgentMessage> {
+function toolCallsByCompositeIdentity(messages: readonly AgentMessage[]): Map<string, AgentMessage> {
   const calls = new Map<string, AgentMessage>();
-  for (const message of messages) if (message.kind === 'tool_call' && message.tool_call_id) calls.set(message.tool_call_id, message);
+  for (const message of messages) {
+    const identity = loggedToolCallIdentity(message);
+    if (!identity) continue;
+    const key = loggedToolCallKey(identity);
+    if (calls.has(key)) throw new Error(`Duplicate tool call composite identity '${key}'.`);
+    calls.set(key, message);
+  }
   return calls;
 }
 
-function isSourceRecallableTool(tool: string): boolean {
-  return SOURCE_RECALLABLE_TOOLS.has(tool) || tool.startsWith('list_');
-}
-
 function toolCallArgs(message: AgentMessage): unknown {
-  const content = parseJsonObject(message.content);
-  const toolCalls = Array.isArray(content.tool_calls) ? content.tool_calls : [];
-  const first = objectValue(toolCalls[0]);
-  const fn = objectValue(first.function);
-  if (typeof fn.arguments !== 'string') return {};
-  try { return JSON.parse(fn.arguments) as unknown; } catch { throw new Error(`Tool call '${message.id}' has malformed JSON arguments.`);
-  }
+  const content = JSON.parse(message.content) as { tool_calls?: Array<{ function?: { arguments?: string } }> };
+  const value = content.tool_calls?.[0]?.function?.arguments;
+  if (typeof value !== 'string') throw new Error(`Tool call '${message.id}' has malformed arguments.`);
+  return JSON.parse(value) as unknown;
 }
 
-function sourceLabel(args: unknown): string {
-  if (typeof args !== 'object' || args === null) return 'source recallable tool result';
-  const record = args as Record<string, unknown>;
-  for (const key of ['path', 'filePath', 'pattern', 'card_id', 'query']) if (typeof record[key] === 'string') return record[key];
-  return 'source recallable tool result';
-}
-
-function webfetchLabel(call: AgentMessage | undefined): string {
-  const args = call ? toolCallArgs(call) : undefined;
-  if (typeof args === 'object' && args !== null && typeof (args as Record<string, unknown>).url === 'string') return `webfetch of ${(args as Record<string, unknown>).url}`;
-  return 'webfetch stashed result';
-}
-
-function processLabel(call: AgentMessage | undefined): string {
-  const args = call ? toolCallArgs(call) : undefined;
-  if (
-    typeof args === 'object' &&
-    args !== null &&
-    typeof (args as Record<string, unknown>).command === 'string'
-  )
-    return (args as Record<string, unknown>).command as string;
-  return 'process output';
-}
-
-function withContent(message: AgentMessage, content: unknown): SummarizerProviderRow {
-  return { ...message, content: JSON.stringify(content) } as SummarizerProviderRow;
-}
-
-function cloneMessage(message: AgentMessage): SummarizerProviderRow {
-  return { ...message } as SummarizerProviderRow;
-}
-
-function parseJsonObject(content: string): Record<string, unknown> {
-  const parsed = JSON.parse(content) as unknown;
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed))
-    throw new Error('Recoverable tool result content must be a JSON object.');
-  return parsed as Record<string, unknown>;
-}
-
-function objectValue(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === 'number' ? value : undefined;
-}
+function withContent(message: AgentMessage, content: string): SummarizerProviderRow { return { ...message, content } as SummarizerProviderRow; }
+function cloneMessage(message: AgentMessage): SummarizerProviderRow { return { ...message } as SummarizerProviderRow; }

@@ -3,11 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { bindToolProvider, invokeToolForLlm } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeToolForLlm as invokeToolForLlmSettlement, providerResultFromSettlement } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { plannerControlToolBinders, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';
 import { ChildInvocationLease } from '../../src/runtime/actors/child-invocation-wait.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
+
+const invokeToolForLlm = async (...args: Parameters<typeof invokeToolForLlmSettlement>) => providerResultFromSettlement(await invokeToolForLlmSettlement(...args));
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import { runtimeFailure } from '../helpers/workflow-result.js';

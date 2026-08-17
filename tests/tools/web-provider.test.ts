@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool as invokeToolSettlement, providerResultFromSettlement } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { webToolBinders, type WebProviderContext } from '../../src/tools/web-tools.js';
 import { workspaceToolBinders, type WorkspaceProviderContext } from '../../src/tools/workspace-provider.js';
@@ -11,6 +11,7 @@ import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 
 const bindWeb = (context: WebProviderContext) => bindToolProvider('web', webToolBinders, context);
 const bindWorkspace = (context: WorkspaceProviderContext) => bindToolProvider('workspace', workspaceToolBinders, context);
+const invokeTool = async (...args: Parameters<typeof invokeToolSettlement>) => providerResultFromSettlement(await invokeToolSettlement(...args));
 
 describe('WebProvider', () => {
   it('waits only around public fetch and resumes before result publication/finalization', async () => {

@@ -4,9 +4,10 @@ import type { LlmCompleteOptions, ToolDefinition } from '../../src/agents/llm-co
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
+import { durableContentPolicy } from '../helpers/message-context-policy.js';
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
-const MSG: AgentMessage = { id: 'm1', session_id: 'agent:analyst:global', role: 'user', kind: 'text', content: 'hi', round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
+const MSG: AgentMessage = { id: 'm1', session_id: 'agent:analyst:global', role: 'user', kind: 'text', content: 'hi', context_policy: durableContentPolicy(), round_id: 'r-user-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-01-01T00:00:00.000Z' };
 const TOOL: ToolDefinition = { type: 'function', function: { name: 'read_file', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } } } } };
 const TERMINAL_TOOL: ToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'finish', parameters: { type: 'object', properties: { summary: { type: 'string' } } } } };
 

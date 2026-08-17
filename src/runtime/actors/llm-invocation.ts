@@ -1,18 +1,15 @@
-import type { AgentName, ConversationSessionId } from '../../schemas/index.js';
+import type { AgentName, CanonicalToolResultPolicyTemplate, ConversationSessionId } from '../../schemas/index.js';
 import { createHash } from 'node:crypto';
 
 import type { ProviderConversationProjection, ProviderToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 import { canonicalJson } from '../../schemas/index.js';
-import { dynamicBlocksSha256, selectLatestContextSnapshots, type ContextAudience, type ContextBlock } from './context/index.js';
+import { dynamicBlocksSha256, selectLatestContextSnapshots, type ContextBlock } from './context/index.js';
 
-export type ToolResultPolicyTemplate = Readonly<{
-  storage: 'durable';
-  replacement: Readonly<{ kind: 'retain' }> | Readonly<{ kind: 'latest_snapshot'; key: string }>;
-  settledAudience: ContextAudience;
-  evidenceMode: 'none' | 'observational_query' | 'canonical_locator';
-}>;
+export type ToolResultPolicyTemplate = Readonly<CanonicalToolResultPolicyTemplate>;
+
+export type ToolEvidenceMode = ToolResultPolicyTemplate['evidenceMode'];
 
 export type CompiledInvocationToolContract = Readonly<{
   providerDefinition: ProviderToolDefinition;
@@ -29,12 +26,36 @@ export type StaticInvocationPrefix = Readonly<{
   immutablePrefixSha256: string;
 }>;
 
-export const PRIMARY_TOOL_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate = Object.freeze({
+export const PRIMARY_TOOL_RESULT_POLICY_TEMPLATE = Object.freeze({
   storage: 'durable',
   replacement: Object.freeze({ kind: 'retain' }),
   settledAudience: 'primary_and_summarizer',
   evidenceMode: 'none',
-});
+} as const) satisfies ToolResultPolicyTemplate;
+
+export const OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE = Object.freeze({
+  storage: 'durable',
+  replacement: Object.freeze({ kind: 'retain' }),
+  settledAudience: 'summarizer_only',
+  evidenceMode: 'observational_query',
+} as const) satisfies ToolResultPolicyTemplate;
+
+export const CANONICAL_TOOL_RESULT_POLICY_TEMPLATE = Object.freeze({
+  storage: 'durable',
+  replacement: Object.freeze({ kind: 'retain' }),
+  settledAudience: 'summarizer_only',
+  evidenceMode: 'canonical_locator',
+} as const) satisfies ToolResultPolicyTemplate;
+
+export const EVIDENCE_ONLY_TOOL_RESULT_POLICY_TEMPLATE = Object.freeze({
+  storage: 'durable',
+  replacement: Object.freeze({ kind: 'retain' }),
+  settledAudience: 'evidence_only',
+  evidenceMode: 'none',
+} as const) satisfies ToolResultPolicyTemplate;
+
+export const MCP_TOOL_RESULT_POLICY_TEMPLATE = PRIMARY_TOOL_RESULT_POLICY_TEMPLATE;
+export const UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE = PRIMARY_TOOL_RESULT_POLICY_TEMPLATE;
 
 export function compileInvocationToolContract(
   providerDefinition: ProviderToolDefinition,

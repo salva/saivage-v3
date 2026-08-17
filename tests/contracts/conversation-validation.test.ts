@@ -2,6 +2,7 @@ import { describe, expect, it } from '@jest/globals';
 
 import { hashConversationRows, renderContextCompactionPayload, validateConversation, validateProspectiveContextCompaction, type ContextCompactionMetadata } from '../../src/contracts/conversation-validation.js';
 import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, type AgentMessage } from '../../src/schemas/index.js';
+import { durableContentPolicy, structuralContextPolicy } from '../helpers/message-context-policy.js';
 
 const SESSION = 'agent:planner:project' as const;
 describe('canonical conversation validation', () => {
@@ -29,5 +30,5 @@ describe('canonical conversation validation', () => {
 });
 
 const INPUT = '00000000-0000-4000-8000-000000000001';
-function activation(): AgentMessage { const timestamp = '2026-08-11T00:00:00.000Z'; return agentMessageSchema.parse({ id: 'activation', session_id: SESSION, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: INPUT, timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp }); }
-function text(id: string): AgentMessage { return agentMessageSchema.parse({ id, session_id: SESSION, role: 'assistant', kind: 'text', content: id, round_id: `r-assistant-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:01.000Z' }); }
+function activation(): AgentMessage { const timestamp = '2026-08-11T00:00:00.000Z'; return agentMessageSchema.parse({ id: 'activation', session_id: SESSION, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: INPUT, timestamp }), context_policy: structuralContextPolicy('activation_boundary'), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp }); }
+function text(id: string): AgentMessage { return agentMessageSchema.parse({ id, session_id: SESSION, role: 'assistant', kind: 'text', content: id, context_policy: durableContentPolicy(), round_id: `r-assistant-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-11T00:00:01.000Z' }); }

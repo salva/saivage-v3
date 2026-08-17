@@ -3,13 +3,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool as invokeToolSettlement, providerResultFromSettlement } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { cleanupProcessProvider, processToolBinders, type ProcessProviderContext } from '../../src/tools/process-provider.js';
 import { cleanupTestProcessRunners, createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { cardWorkRoot } from '../../src/persistence/layout.js';
+
+const invokeTool = async (...args: Parameters<typeof invokeToolSettlement>) => providerResultFromSettlement(await invokeToolSettlement(...args));
 
 function executorProvider(root: string, processes: TestProcessRunnerComposition, ownerId = 'activation-1') {
   return bindToolProvider('process', processToolBinders, { projectRoot: root, processRunner: processes.processRunner, directScope: processes.processRunner.createDirectScope(processes.runtimeProcessRootScope, `test:${ownerId}`, 'runtime_card'), category: 'runtime_card', ownerId, cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerKind: 'agent' });

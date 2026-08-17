@@ -9,7 +9,8 @@ import type { AgentName } from '../schemas/index.js';
 import { buildScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import { defineToolBinder, type ToolBinder, type ToolResult as InvocationToolResult } from './invocation.js';
+import { defineToolBinder, observationalToolExecution, observationalToolExecutionPromise, type ToolBinder, type ToolResult as InvocationToolResult } from './invocation.js';
+import { OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE } from '../runtime/actors/llm-invocation.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
@@ -242,20 +243,22 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
         name: 'websearch',
         description: 'Search the public web for documentation and data sources.',
         inputSchema: () => websearchSchema,
-        executor: async (_ctx, args, signal, invocation) => websearchCore(args, signal, invocation?.waits.waitExternal),
+        resultPolicyTemplate: OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE,
+        executor: (_ctx, args, signal, invocation) => observationalToolExecutionPromise(websearchCore(args, signal, invocation?.waits.waitExternal)),
       }),
       defineToolBinder({
         name: 'webfetch',
         description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Oversized text is stashed as stash_url, a work:///tmp/stash/<file> URL readable with read or grep.',
         inputSchema: () => webfetchSchema,
+        resultPolicyTemplate: OBSERVATIONAL_TOOL_RESULT_POLICY_TEMPLATE,
         executor: async (ctx, args, signal, invocation) => {
           const analyst = ctx.analystToolContext;
-          if (!analyst || !args.save_as?.startsWith('record:///')) return webfetchCore(ctx, args, signal, invocation?.waits.waitExternal);
+          if (!analyst || !args.save_as?.startsWith('record:///')) return observationalToolExecution(await webfetchCore(ctx, args, signal, invocation?.waits.waitExternal));
           const preparedContext: ToolContext = { ...analyst, analystPreparation: { records: analyst.analystMutations!.recordMutations, web: { fetchText: (input) => {
             const pending = fetchAnalystRecord(input, signal);
             return invocation ? invocation.waits.waitExternal(pending) : pending;
           } } } };
-          return runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
+          return observationalToolExecution(await runAuditedAnalystTool(preparedContext, { url: args.url, read_mode: args.read_mode, max_bytes: args.max_bytes, save_as: args.save_as }, {
             action: 'record.write', safety_class: 'low', target_kind: 'card', getTargetId: (input) => input.save_as, lifecycle: { kind: 'intervention_ready', timing: 'before_pre_network_admission_and_immediate_before_mutation' },
             admitBeforePrepare: admitAnalystRecordWebfetch,
             prepare: prepareAnalystRecordWebfetch,
@@ -265,7 +268,7 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
                const result = RecordMutationSuccessSchema.parse({ success: true, data: outcome.data });
                return { kind: 'returned', success: true, data: { ...prepared.metadata, saved_as: result.data.current_url, write: { kind: 'record', result }, bytes: Buffer.byteLength(prepared.content, 'utf8') } };
             },
-          }, signal);
+          }, signal));
         },
       }),
 ]);

@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult } from '../../src/runtime/actors/llm-delivery-log.js';
+import { executedNoneToolSettlement, syntheticToolSettlement } from '../../src/tools/invocation.js';
+import { PRIMARY_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/runtime/actors/llm-invocation.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { CanonicalLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { preparedInvocationContextFixture } from '../helpers/prepared-invocation-context.js';
@@ -47,15 +49,17 @@ describe('runtime ledger contract deletions', () => {
     initProjectTree(projectRoot);
     const inputId = '00000000-0000-4000-8000-000000000001';
     const invocation: CanonicalLlmInvocationInput = { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', ...preparedInvocationContextFixture(), providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [{ provider: 'test', account: null, model: 'test-model' }] }, episodeContext: {} };
-    appendLlmTurnToolCallBatch({ projectRoot }, invocation, { id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } });
+    const firstCall = appendLlmTurnToolCallBatch({ projectRoot }, invocation, { id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } });
 
-    const settlement = appendToolResult({ projectRoot }, { session_id: 'agent:planner:project', source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', result: { success: true } });
-    expect(settlement).toMatchObject({ source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', result: { success: true } });
+    if (firstCall.context_policy.kind !== 'tool_call') throw new Error('fixture call policy missing');
+    const settlement = appendToolResult({ projectRoot }, { session_id: 'agent:planner:project', source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', settlement: executedNoneToolSettlement({ success: true }), call_policy_sha256: firstCall.context_policy.template_sha256 });
+    expect(settlement).toMatchObject({ providerResult: { success: true }, settlementOrigin: 'executed' });
     expect('message' in settlement).toBe(false);
 
     const secondInputId = '00000000-0000-4000-8000-000000000002';
-    appendLlmTurnToolCallBatch({ projectRoot }, { ...invocation, inputId: secondInputId }, { id: 'call-2', type: 'function', function: { name: 'write', arguments: '{}' } });
-    expect(appendProviderVisibleSyntheticFailedToolResult({ projectRoot }, { sessionId: 'agent:planner:project', sourceInputId: secondInputId, toolCallId: 'call-2', toolName: 'write', error: 'interrupted' })).toBeUndefined();
+    const secondCall = appendLlmTurnToolCallBatch({ projectRoot }, { ...invocation, inputId: secondInputId }, { id: 'call-2', type: 'function', function: { name: 'write', arguments: '{}' } });
+    if (secondCall.context_policy.kind !== 'tool_call') throw new Error('fixture call policy missing');
+    expect(appendProviderVisibleSyntheticFailedToolResult({ projectRoot }, { sessionId: 'agent:planner:project', sourceInputId: secondInputId, toolCallId: 'call-2', toolName: 'write', settlement: syntheticToolSettlement('execution_failed', PRIMARY_TOOL_RESULT_POLICY_TEMPLATE, 'interrupted'), callPolicySha256: secondCall.context_policy.template_sha256 })).toMatchObject({ settlementOrigin: 'execution_failed' });
 
     const delivery = await import('../../src/runtime/actors/llm-delivery-log.js');
     expect('appendLlmTurnMessage' in delivery).toBe(false);

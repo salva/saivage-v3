@@ -8,11 +8,11 @@ import { AnalystSession } from '../../src/agents/analyst-handler.js';
 import type { CardService } from '../../src/cards/card-api.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
-import { defineTool, type InvocationSurface } from '../../src/tools/invocation.js';
+import { defineTool, noneToolExecution, type InvocationSurface } from '../../src/tools/invocation.js';
+import { PRIMARY_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/runtime/actors/llm-invocation.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
-import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots: string[] = [];
@@ -22,7 +22,7 @@ afterEach(() => {
 });
 
 describe('Analyst project-context failure', () => {
-  it('rejects with the original error before prompt, ingress, diagnostic, provider, or tool effects and poisons the session', async () => {
+  it('rejects with the original error after static prompt preparation but before ingress, diagnostic, provider, or tool effects and poisons the session', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-project-context-failure-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -37,11 +37,12 @@ describe('Analyst project-context failure', () => {
     const completeTurn = jest.fn(async () => {
       throw new Error('provider must not run');
     });
-    const execute = jest.fn(async () => ({ success: true as const, data: null }));
+    const execute = jest.fn(async () => noneToolExecution({ success: true as const, data: null }));
     const tool = defineTool({
       name: 'forbidden_tool',
       description: 'Must not run after failed project-context construction.',
       inputSchema: z.object({}).strict(),
+      resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
       executor: execute,
     });
     const surface: InvocationSurface = {
@@ -75,7 +76,7 @@ describe('Analyst project-context failure', () => {
     await expect(session.submit({ userContent: 'inspect the project' })).rejects.toBe(sentinel);
 
     expect(list).toHaveBeenCalledTimes(1);
-    expect(render).not.toHaveBeenCalled();
+    expect(render).toHaveBeenCalledTimes(1);
     expect(completeTurn).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
     expect(existsSync(globalAgentConversationVersionIndexFile(projectRoot, 'analyst'))).toBe(true);
@@ -84,7 +85,7 @@ describe('Analyst project-context failure', () => {
 
     await expect(session.submit({ userContent: 'try again' })).rejects.toBe(sentinel);
     expect(list).toHaveBeenCalledTimes(1);
-    expect(render).not.toHaveBeenCalled();
+    expect(render).toHaveBeenCalledTimes(1);
     expect(completeTurn).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
   });

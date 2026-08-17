@@ -13,6 +13,7 @@ export { actionableErrorEnvelopeSchema, actionableEnumError, createActionableErr
 import { roundIdGrammar } from './round-id.js';
 import { cardLifecycleStateSchema } from './lifecycle.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from './message-identity.js';
+import { canonicalContextPolicySchema } from './context-policy.js';
 import { cardIdSchema, cardParentId } from './card-id.js';
 import { agentNameSchema } from './agent-name.js';
 import { cardTypeNameSchema } from './card-type-name.js';
@@ -74,7 +75,18 @@ export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool'])
 export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'model_issue', 'model_repair', 'content_policy_retry', 'content_policy_refusal', 'model_recovered', 'provider_private']);
 export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment']), entity_id: z.string().min(1), label: z.string().optional() }).strict();
 const providerProjectionSchema = z.object({ kind: z.literal('openai_responses'), source_input_id: z.string().uuid(), private_message_id: z.string().min(1), projection_kind: z.enum(['assistant_message', 'assistant_tool_call']) }).strict();
-export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: ConversationSessionIdSchema, role: messageRoleSchema, kind: messageKindSchema, content: z.string(), round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional(), provider_projection: providerProjectionSchema.optional() }).strict().superRefine((message, ctx) => {
+export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: ConversationSessionIdSchema, role: messageRoleSchema, kind: messageKindSchema, content: z.string(), context_policy: canonicalContextPolicySchema, round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional(), provider_projection: providerProjectionSchema.optional() }).strict().superRefine((message, ctx) => {
+  const expectedPolicyKind = message.kind === 'tool_call' ? 'tool_call' : message.kind === 'tool_result' ? 'tool_result' : message.kind === 'activity' || message.kind === 'model_issue' || message.kind === 'content_policy_refusal' || message.kind === 'model_recovered' || message.kind === 'provider_private' ? 'structural' : 'content';
+  if (message.context_policy.kind !== expectedPolicyKind) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${message.kind} rows require ${expectedPolicyKind} context policy.`, path: ['context_policy', 'kind'] });
+  if (message.context_policy.kind === 'content' && (message.context_policy.storage !== 'durable' || message.context_policy.replacement.kind !== 'retain' || message.context_policy.audience !== 'primary_and_summarizer' || message.context_policy.evidence.kind !== 'none')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${message.kind} row has incorrect durable content policy.`, path: ['context_policy'] });
+  if (message.context_policy.kind === 'structural') {
+    const expectedBehavior = message.kind === 'activity' ? 'activation_boundary' : message.kind === 'model_issue' ? 'provider_failure' : message.kind === 'content_policy_refusal' ? 'content_policy_refusal' : message.kind === 'model_recovered' ? 'model_recovery_notice' : message.kind === 'provider_private' ? 'responses_private' : null;
+    if (message.context_policy.behavior !== expectedBehavior) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${message.kind} row has incorrect structural behavior.`, path: ['context_policy', 'behavior'] });
+  }
+  if (message.kind === 'activity' && message.role !== 'system') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'activity rows must use system role.', path: ['role'] });
+  if (message.kind === 'model_issue' && message.role !== 'assistant') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'model_issue rows must use assistant role.', path: ['role'] });
+  if (message.kind === 'model_repair' && message.role !== 'user') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'model_repair rows must use user role.', path: ['role'] });
+  if (message.kind !== 'tool_call' && message.kind !== 'tool_result' && (message.tool !== undefined || message.tool_call_id !== undefined)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${message.kind} rows forbid tool metadata.` });
   if (message.kind === 'content_policy_retry') {
     if (message.role !== 'user' || message.content !== CONTENT_POLICY_RETRY_TEXT) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'content_policy_retry rows require the exact code-owned user message.', path: ['content'] });
     if (message.tool !== undefined || message.tool_call_id !== undefined || message.links !== undefined || message.provider_projection !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'content_policy_retry rows forbid tool, link, and provider metadata.' });
@@ -92,6 +104,11 @@ export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: 
   if (message.kind === 'provider_private') {
     if (message.role !== 'system') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provider_private rows must use system role', path: ['role'] });
     if (message.provider_projection) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'provider_private rows must not carry provider_projection', path: ['provider_projection'] });
+  }
+  if (message.kind === 'model_recovered') {
+    const exact = 'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.';
+    const inputId = message.id.endsWith(':model-recovered') ? message.id.slice(0, -':model-recovered'.length) : '';
+    if (message.role !== 'system' || message.content !== exact || !z.string().uuid().safeParse(inputId).success || message.session_id === 'agent:analyst:global' || message.message_index !== 0 || message.block_index !== 1 || message.tool !== undefined || message.tool_call_id !== undefined || message.links !== undefined || message.provider_projection !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'model_recovered rows require the exact code-owned recovery notice and identity.', path: ['content'] });
   }
   if ((message.kind === 'tool_call' || message.kind === 'tool_result') && message.tool_call_id !== undefined && typeof message.tool_call_id !== 'string') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'tool_call_id must be a scalar string when present on tool entries', path: ['tool_call_id'] });
   if (message.kind !== 'tool_call' && message.kind !== 'tool_result') return;

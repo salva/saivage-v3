@@ -6,10 +6,12 @@ import type {
   ToolInvocationProjector,
 } from '../../src/contracts/tool-invocation-projection.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
+import { durableContentPolicy, testToolCallPolicy, testToolResultPolicy } from '../helpers/message-context-policy.js';
 
 const timestamp = '2026-07-22T10:00:00.000Z';
 const source = '11111111-1111-4111-8111-111111111111';
 const sessionId = 'agent:planner:project' as const;
+const callContextPolicy = testToolCallPolicy();
 const identityProjector: ToolInvocationProjector = (input) => input;
 
 const classifiedProjector: ToolInvocationProjector = (input) => {
@@ -154,6 +156,7 @@ function call(
         },
       ],
     }),
+    context_policy: callContextPolicy,
     round_id: `r-assistant-${source.replaceAll('-', '')}`,
     message_index: 0,
     block_index: 0,
@@ -175,6 +178,7 @@ function result(): AgentMessage {
       error: 'failed tok_secret',
       data: { historical_wrapper: ['unchanged'] },
     }),
+    context_policy: testToolResultPolicy({ success: false, error: 'failed tok_secret', data: { historical_wrapper: ['unchanged'] } }, callContextPolicy),
     round_id: `r-assistant-${source.replaceAll('-', '')}`,
     message_index: 1,
     block_index: 0,
@@ -189,6 +193,7 @@ function ordinary(): AgentMessage {
     role: 'assistant',
     kind: 'text',
     content: 'message tok_secret',
+    context_policy: durableContentPolicy(),
     round_id: `r-assistant-${source.replaceAll('-', '')}`,
     message_index: 0,
     block_index: 0,

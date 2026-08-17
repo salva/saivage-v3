@@ -13,10 +13,12 @@ import { buildChatOperatorContractHandlers } from '../../src/server/routes/opera
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
+import { testToolCallPolicy, testToolResultPolicy } from '../helpers/message-context-policy.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createEventLog } from '../../src/observability/index.js';
 import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
+import { canonicalJson } from '../../src/schemas/index.js';
 import {
   OUTBOUND_IDENTITY,
   OUTBOUND_RAW_MARKER,
@@ -266,6 +268,7 @@ describe('operator chat route request contracts', () => {
       { projectRoot },
       buildAnalystIngressRows('agent:analyst:global', sourceInputId, 'workspace', 'invoke'),
     );
+    const callPolicy = testToolCallPolicy();
     appendConversationBatch({ projectRoot }, [
       {
         id: `${sourceInputId}:tool-call:${toolCallId}`,
@@ -284,6 +287,7 @@ describe('operator chat route request contracts', () => {
             },
           ],
         }),
+        context_policy: callPolicy,
         round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
         message_index: 3,
         block_index: 0,
@@ -296,7 +300,8 @@ describe('operator chat route request contracts', () => {
         kind: 'tool_result',
         tool: invocation.tool,
         tool_call_id: toolCallId,
-        content: JSON.stringify(invocation.result),
+        content: canonicalJson(invocation.result),
+        context_policy: testToolResultPolicy(invocation.result, callPolicy),
         round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
         message_index: 4,
         block_index: 0,
@@ -523,6 +528,7 @@ describe('operator chat route request contracts', () => {
       'question',
     );
     appendConversationBatch({ projectRoot }, ingress);
+    const callPolicy = testToolCallPolicy();
     appendConversationBatch({ projectRoot }, [
       {
         id: `${inputId}:tool-call:call-1`,
@@ -541,6 +547,7 @@ describe('operator chat route request contracts', () => {
             },
           ],
         }),
+        context_policy: callPolicy,
         round_id: `r-assistant-${inputId.replaceAll('-', '')}`,
         message_index: 3,
         block_index: 0,

@@ -14,7 +14,7 @@ import { cardBootstrapForPrompt } from '../records/card-bootstrap.js';
 import { appendActivationMarker, appendUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { stabilizeAgentSession } from './conversation-recovery.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
-import { cleanupInvocationSurface, invokeToolForLlm, surfaceCompiledInvocationTools, type InvocationSurface } from '../../tools/invocation.js';
+import { cleanupInvocationSurface, executedNoneToolSettlement, invokeToolForLlm, surfaceCompiledInvocationTools, type InvocationSurface } from '../../tools/invocation.js';
 import { BoundAgentToolSet, effectiveCardNodeToolReferences } from '../../tools/runtime-tool-catalog.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
@@ -146,7 +146,7 @@ export class AgentNodeExecution {
             if (!parsed.success) throw new Error(parsed.error.message);
             nodeResult = parsed.data;
           }
-          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(process, node, [errorMessage(error)]) }), signal); continue; }
+          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneToolSettlement(parseEmitResultSettlement({ success: false, error: this.correction(process, node, [errorMessage(error)]) })), signal); continue; }
           const route = node.on.get(`result:${nodeResult.outcome}`);
           if (!route || route.semantic.kind !== 'configured-outcome')
             throw new Error(
@@ -163,11 +163,11 @@ export class AgentNodeExecution {
               ...selected.map((notification) => ({ role: 'user' as const, content: notification.content })),
               { role: 'user', content: this.correction(process, node, ['pending_notifications: reconsider the appended context, update required records if needed, and call emit_result again.']) },
             ];
-            outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }), signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }));
+            outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneToolSettlement(parseEmitResultSettlement({ success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } })), signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }));
             continue;
           }
           const records = this.validateRecords(node, baseline);
-          if ('violations' in records) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(process, node, records.violations) }), signal); continue; }
+          if ('violations' in records) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneToolSettlement(parseEmitResultSettlement({ success: false, error: this.correction(process, node, records.violations) })), signal); continue; }
           if (reviewerPair) {
             const stale = this.reviewerStaleReason(input.card.id, reviewerPair.snapshot, node.descendantContext!.records.map((record)=>record.name));
             if (stale) {
@@ -177,13 +177,13 @@ export class AgentNodeExecution {
               recordFinalizationBegun = false;
               const refreshed = this.captureReviewerPair(input.card.id,node.descendantContext!.records.map((record)=>record.name));
               const messages = [refreshed.exactContext, { role: 'user' as const, content: this.correction(process, node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) }];
-              outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: `Review context is stale: ${stale}.` }), signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }));
+              outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneToolSettlement(parseEmitResultSettlement({ success: false, error: `Review context is stale: ${stale}.` })), signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }));
               continue;
             }
           }
            if (target.kind === 'terminal' && target.terminal === 'DONE') {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
-            if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, parseEmitResultSettlement({ success: false, error: this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) }), signal); continue; }
+            if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneToolSettlement(parseEmitResultSettlement({ success: false, error: this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) })), signal); continue; }
           }
           if (target.kind === 'terminal') {
             this.host.assertPromotionAvailable(route);
@@ -198,7 +198,7 @@ export class AgentNodeExecution {
           const acceptedRecords = this.closeAcceptedRecords(node, records.candidates, writtenRecords);
           await llm.settleToolResultWithoutContinuation(
             terminalOutcome.toolCallId,
-            parseEmitResultSettlement({ success: true, data: { accepted: true } }),
+            executedNoneToolSettlement(parseEmitResultSettlement({ success: true, data: { accepted: true } })),
           );
           this.host.assertCurrentActivation(input);
           cleanupStatus =
@@ -214,9 +214,7 @@ export class AgentNodeExecution {
           primaryCompletion = { kind: 'success', value: accepted };
           break;
         }
-        const toolResult = surface.tools.has(outcome.toolName)
-          ? await invokeToolForLlm(surface, outcome.toolName, outcome.args, llm.toolInvocationContext(outcome), signal)
-          : { success: false as const, error: `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.` };
+        const toolResult = await invokeToolForLlm(surface, outcome.toolName, outcome.args, llm.toolInvocationContext(outcome), signal);
         signal.throwIfAborted();
         this.host.assertCurrentActivation(input);
         outcome = await llm.appendToolResult(outcome.toolCallId, toolResult, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId));

@@ -5,10 +5,8 @@ const jsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
 ]));
 
 const evidenceSchema = z.discriminatedUnion('flavor', [
-  z.object({ flavor: z.literal('stash'), url: z.string(), label: z.string(), bytes: z.number().int().nonnegative().optional() }).strict(),
-  z.object({ flavor: z.literal('process_stdout'), url: z.string(), label: z.string(), bytes: z.number().int().nonnegative().optional() }).strict(),
-  z.object({ flavor: z.literal('process_stderr'), url: z.string(), label: z.string(), bytes: z.number().int().nonnegative().optional() }).strict(),
-  z.object({ flavor: z.literal('source_recallable'), tool: z.string(), args: jsonValueSchema, label: z.string() }).strict(),
+  z.object({ flavor: z.literal('observational_query'), tool: z.string(), args: jsonValueSchema, observed_sha256: z.string().regex(/^[a-f0-9]{64}$/u), label: z.string() }).strict(),
+  z.object({ flavor: z.literal('canonical_locator'), locator: z.string().min(1), sha256: z.string().regex(/^[a-f0-9]{64}$/u), label: z.string() }).strict(),
 ]);
 
 export const contextCompactionSummaryRoundSchema = z.object({

@@ -5,11 +5,12 @@ import { join } from 'node:path';
 
 import { CardService } from '../helpers/canonical-project.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool as invokeToolSettlement, providerResultFromSettlement } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
+const invokeTool = async (...args: Parameters<typeof invokeToolSettlement>) => providerResultFromSettlement(await invokeToolSettlement(...args));
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('card inspection authored-record summaries', () => {

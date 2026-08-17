@@ -2,14 +2,17 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { cardVersionToolBinders } from '../../src/tools/card-version-provider.js';
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool as invokeToolSettlement, providerResultFromSettlement } from '../../src/tools/invocation.js';
 import { cardVersionIndexFile, cardVersionFile } from '../../src/persistence/layout.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { canonicalJson } from '../../src/schemas/index.js';
 
 const roots: string[] = [];
+const invokeTool = async (...args: Parameters<typeof invokeToolSettlement>) => providerResultFromSettlement(await invokeToolSettlement(...args));
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 describe('card version provider', () => {
@@ -21,7 +24,12 @@ describe('card version provider', () => {
     const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('card-version', cardVersionToolBinders, { store: cards })]);
 
     await expect(invokeTool(surface, 'list_card_versions', { card_id: child.id })).resolves.toMatchObject({ success: true, data: { card_id: child.id, total: 2, versions: [{ version: 1, content_availability: 'unchecked' }, { version: 2, content_availability: 'unchecked' }] } });
-    await expect(invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2 })).resolves.toMatchObject({ success: true, data: { card_id: child.id, version: 2, artifact: { kind: 'card-version', card: { title: 'After' } } } });
+    const index = JSON.parse(readFileSync(cardVersionIndexFile(root, child.id), 'utf8')) as { versions: Array<{ filename: string; entry_id: string }> };
+    const exactEntry = index.versions[1]!;
+    const exactArtifact = JSON.parse(readFileSync(cardVersionFile(root, child.id, exactEntry.filename), 'utf8')) as unknown;
+    const settlement = await invokeToolSettlement(surface, 'get_card_version', { card_id: child.id, version: 2 });
+    expect(providerResultFromSettlement(settlement)).toMatchObject({ success: true, data: { card_id: child.id, version: 2, artifact: { kind: 'card-version', card: { title: 'After' } } } });
+    expect(settlement).toMatchObject({ kind: 'executed', execution: { evidence: { kind: 'canonical_locator', locator: `card:///${child.id}?v=2#entry=${exactEntry.entry_id}`, sha256: createHash('sha256').update(canonicalJson(exactArtifact), 'utf8').digest('hex') } } });
     await expect(invokeTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 2 })).resolves.toMatchObject({ success: true, data: { card_id: child.id, from: 1, to: 2, diff: expect.arrayContaining([expect.objectContaining({ field: 'title', before: 'Before', after: 'After' })]) } });
   });
 

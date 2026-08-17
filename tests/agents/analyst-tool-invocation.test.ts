@@ -9,10 +9,10 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import { defineTool, type InvocationSurface } from '../../src/tools/invocation.js';
+import { defineTool, noneToolExecution, type InvocationSurface } from '../../src/tools/invocation.js';
+import { PRIMARY_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/runtime/actors/llm-invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
-import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots: string[] = [];
@@ -33,7 +33,8 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     name: 'demo',
     description: 'Demo tool.',
     inputSchema: z.object({ value: z.string() }).strict(),
-    executor,
+    resultPolicyTemplate: PRIMARY_TOOL_RESULT_POLICY_TEMPLATE,
+    executor: async (args, signal, context) => noneToolExecution(await executor(args, signal, context)),
   });
   const surface: InvocationSurface = { agentName: 'analyst', tools: new Map([[definition.name, definition]]), providers: [{ providerName: 'demo', tools: [definition] }] };
   const capabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
