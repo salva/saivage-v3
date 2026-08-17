@@ -2,34 +2,16 @@ import { describe, expect, it } from '@jest/globals';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { createTestPromptTemplateRegistry } from '../helpers/prompt-template-registry.js';
-import { formatVocabularySnippet } from '../../src/agents/analyst-prompt.js';
-import { formatPromptToolList } from '../../src/utils/prompt-api.js';
-
-const localPromptDisplayFixture = [{
-  type: 'function' as const,
-  function: {
-    name: 'fixture_tool',
-    description: 'Local non-authoritative fixture for prompt interpolation.',
-    parameters: { type: 'object', properties: {}, additionalProperties: false },
-  },
-}];
 
 describe('analyst workspace-context prompt contract', () => {
   it('includes the deictic-resolution paragraph in the rendered system prompt', () => {
-    const prompt = createTestPromptTemplateRegistry().render({kind:'global-agent'}, 'analyst', {
-      toolList: formatPromptToolList(localPromptDisplayFixture),
-      vocabularySnippet: formatVocabularySnippet(['project','goal','architecture','code','test','doc','data','research','ops']),
-      projectContext: '{"projectRoot":"test"}',
-    });
+    const prompt = createTestPromptTemplateRegistry().render({kind:'global-agent'}, 'analyst');
     expect(prompt).toContain('Resolve deictic phrases');
     expect(prompt).toContain('workspace context');
     expect(prompt).toContain('none — no entity is currently in focus');
     expect(prompt).toContain('ask exactly one clarifying question');
-    expect(prompt).toContain('{"projectRoot":"test"}');
-    expect(prompt).toContain('Registered tools:');
-    expect(prompt).toContain('fixture_tool');
+    expect(prompt).not.toContain('fixture_tool');
     expect(prompt).toContain('reopening done, failed, or blocked cards to changed without editing content');
-    expect(prompt).toContain('Reopenable card status: blocked | done | failed. Reopen target status: changed');
   });
 
   it('renders the no-entity workspace-context fixture deterministically', () => {

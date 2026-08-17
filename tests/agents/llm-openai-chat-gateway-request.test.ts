@@ -57,7 +57,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL],
       tool_choice: 'auto',
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, [], { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
@@ -97,7 +97,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       tools: [],
       tool_choice: 'auto',
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, [], { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
 
     expect(Object.prototype.hasOwnProperty.call(body, 'tools')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'tool_choice')).toBe(false);

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { CandidateRequestPlanIntegrityError, type CandidateRequestPlan } from '../../src/agents/candidate-request.js';
-import { executeLlmProviderAttempt } from '../../src/agents/llm-provider-attempt.js';
+import { CandidateAdmissionIntegrityError, executeLlmProviderAttempt } from '../../src/agents/llm-provider-attempt.js';
 import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
 import type { LlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
@@ -51,7 +51,7 @@ describe('shared LLM provider attempt', () => {
 
   it('checks capabilities before credentials and attempt start', async () => {
     const value = fixture(); value.plan.capabilities = { ...capabilities, toolsMode: 'unsupported' }; const opts = options(); opts.tools = [{ type: 'function', function: { name: 'x', description: 'x', parameters: {} } }]; const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest: { ...capabilityRequest, requiresTools: true }, options: opts })).rejects.toMatchObject({ failure: { kind: 'capability_mismatch' } });
+    await expect(executeLlmProviderAttempt({ projectRoot: '.', registry: value.registry, sessionId: 'agent:planner:project', plan: value.plan, capabilityRequest: { ...capabilityRequest, requiresTools: true }, options: opts })).rejects.toBeInstanceOf(CandidateAdmissionIntegrityError);
     expect(value.trace).toEqual([]); expect(fetchSpy).not.toHaveBeenCalled();
   });
 

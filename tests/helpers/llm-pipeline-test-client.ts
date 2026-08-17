@@ -13,7 +13,7 @@ export class LlmPipelineTestClient {
     const configured = this.config.capabilities ?? this.config.registry?.getEffectiveCapabilities(candidate) ?? builtInCapabilitiesForProvider(candidate.provider);
     const capabilities: EffectiveProviderCapabilities = configured;
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
-    const plan = buildCandidateRequest({ candidate, capabilities, adapter, systemPrompt, providerConversation, options });
+    const plan = buildCandidateRequest({ candidate, capabilities, adapter, instructionText: systemPrompt, dynamicBlocks: [], providerConversation, options });
     const implicitAccount = { name: '_implicit', models: [candidate.model], apiKey: undefined, baseUrl: undefined, authProfile: undefined };
     const provider = { name: candidate.provider, models: [candidate.model], apiKey: this.config.apiKey, baseUrl: this.config.baseUrl, authProfile: undefined, implicitAccount, getAllAccounts: () => [] };
     const registry = { get: () => provider, getEffectiveCapabilities: () => capabilities } as unknown as ProviderRegistry;

@@ -9,6 +9,7 @@ import {
 } from './llm-contracts.js';
 import type { EffectiveProviderCapabilities } from './provider-capabilities.js';
 import type { LlmProtocolAdapter } from './llm-protocol-adapter.js';
+import type { ContextBlock } from '../runtime/actors/context/index.js';
 
 export interface CandidateRequestPlan {
   candidate: Candidate;
@@ -36,7 +37,8 @@ export function buildCandidateRequest(args: {
   candidate: Candidate;
   capabilities: EffectiveProviderCapabilities;
   adapter: LlmProtocolAdapter;
-  systemPrompt: string;
+  instructionText: string;
+  dynamicBlocks: readonly ContextBlock[];
   providerConversation: ProviderConversationProjection;
   options: LlmCompleteOptions;
 }): CandidateRequestPlan {
@@ -44,20 +46,28 @@ export function buildCandidateRequest(args: {
   const body = args.adapter.buildRequestBody({
     candidate: args.candidate,
     capabilities: args.capabilities,
-    systemPrompt: args.systemPrompt,
+    instructionText: args.instructionText,
+    dynamicBlocks: args.dynamicBlocks,
     providerConversation: args.providerConversation,
     options: args.options,
   });
   const serializedBody = canonicalJson(body);
-  return {
+  const request = Object.freeze({
+    body: deepFreeze(body),
+    serializedBody,
+    estimatedWireInputTokens: Math.ceil(Buffer.byteLength(serializedBody, 'utf8') / 4),
+    requestHash: createHash('sha256').update(serializedBody, 'utf8').digest('hex'),
+  });
+  return Object.freeze({
     candidate: args.candidate,
     capabilities: args.capabilities,
     adapter: args.adapter,
-    request: {
-      body,
-      serializedBody,
-      estimatedWireInputTokens: Math.ceil(Buffer.byteLength(serializedBody, 'utf8') / 4),
-      requestHash: createHash('sha256').update(serializedBody, 'utf8').digest('hex'),
-    },
-  };
+    request,
+  });
+}
+
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== 'object' || value === null || Object.isFrozen(value)) return value;
+  for (const member of Object.values(value as Record<string, unknown>)) deepFreeze(member);
+  return Object.freeze(value);
 }

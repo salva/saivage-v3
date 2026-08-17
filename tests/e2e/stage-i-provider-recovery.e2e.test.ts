@@ -85,7 +85,7 @@ describe('stable same-session recovery', () => {
     ]));
     const chat = buildOpenAIChatRequest(
       { provider: 'openai', model: 'gpt-test', account: 'default' },
-      'system', providerConversation,
+      'system', [], providerConversation,
       { inputId: 'wire-check', contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto', terminalToolOffered: [], temperature: 0, max_tokens: 10 },
     );
     expect(chat.messages).toEqual(expect.arrayContaining([

@@ -6,7 +6,6 @@ import { canonicalJson, contextCompactionContentSchema, type AgentMessage, type 
 import { hashConversationRows,
   isSafeValidatedSourcePrefix,
   validateProspectiveContextCompaction,
-  validateConversation,
   validatedSourceSegmentsForPrefix,
   type ValidatedContextCompaction,
   type ValidatedConversation,
@@ -35,7 +34,7 @@ export type AutonomousCompactionPolicy = {
   snap: SnapPolicy;
 };
 
-export function prepareCompaction(config: AutonomousCompactionPolicy, systemPrompt: string, tools: readonly ToolDefinition[], requestedCompletionTokens?: number,
+export function prepareCompaction(config: AutonomousCompactionPolicy, instructionText: string, tools: readonly ToolDefinition[], requestedCompletionTokens?: number,
 ): PreparedCompaction {
   const B = config.input_budget_tokens;
   if (!Number.isInteger(B) || B <= 0) throw new Error('compaction.input_budget_tokens must be a positive integer.');
@@ -70,7 +69,7 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
   const escalatedTailBudget = Math.floor(B * escalatedTailWidth);
   const escalatedMiddleBudget = Math.floor(B * escalatedMiddleWidth);
   const triggerLineTokens = Math.floor(B * config.trigger_fraction);
-  const estimatedStaticTokens = estimateCanonicalStaticTokens(systemPrompt, tools);
+  const estimatedStaticTokens = estimateCanonicalStaticTokens(instructionText, tools);
   const triggerMessageThreshold = triggerLineTokens - estimatedStaticTokens;
   const canonicalMessageHardCeiling = B - estimatedStaticTokens - reservedCompletionTokens;
   if (
@@ -107,10 +106,10 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
 }
 
 export function estimateCanonicalStaticTokens(
-  systemPrompt: string,
+  instructionText: string,
   tools: readonly ToolDefinition[],
 ): number {
-  return estimateTextTokens(systemPrompt) + estimateTextTokens(canonicalJson(tools));
+  return estimateTextTokens(instructionText) + estimateTextTokens(canonicalJson(tools));
 }
 
 export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
@@ -122,7 +121,7 @@ export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery';
+export type CompactionStrategy = 'preventive' | 'local_exact_admission' | 'authoritative_context_recovery';
 export type CompactionResult =
   | {
       kind: 'compacted';

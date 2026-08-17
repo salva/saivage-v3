@@ -10,6 +10,7 @@ import {
   type WireToolDefinitionResponses,
 } from './tool-definition-serializer.js';
 import type { LlmProtocolAdapter } from './llm-protocol-adapter.js';
+import type { ContextBlock } from '../runtime/actors/context/index.js';
 
 interface OpenAIResponsesRequest {
   model: string;
@@ -26,10 +27,11 @@ interface OpenAIResponsesRequest {
 }
 export const openAIResponsesAdapter: LlmProtocolAdapter = {
   credentialRequirement: 'openai_responses_api_key',
-  buildRequestBody: ({ candidate, systemPrompt, providerConversation, options, capabilities }) =>
+  buildRequestBody: ({ candidate, instructionText, dynamicBlocks, providerConversation, options, capabilities }) =>
     buildOpenAIResponsesRequest(
       candidate,
-      systemPrompt,
+      instructionText,
+      dynamicBlocks,
       providerConversation,
       options,
       capabilities,
@@ -89,18 +91,22 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
 };
 export function buildOpenAIResponsesRequest(
   candidate: Candidate,
-  systemPrompt: string,
+  instructionText: string,
+  dynamicBlocks: readonly ContextBlock[],
   providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
   capabilities?: Pick<EffectiveProviderCapabilities, 'responsesReasoning'>,
 ): OpenAIResponsesRequest {
-  const systemContext = providerConversation.messages
+  const systemContext = [...dynamicBlocks.filter((block) => block.role === 'system').map((block) => block.content), ...providerConversation.messages
     .filter((m) => m.role === 'system' && (m.kind === 'model_recovered' || m.kind === 'text'))
-    .map((m) => m.content);
+    .map((m) => m.content)];
+  const dynamicInput = dynamicBlocks.filter((block) => block.role !== 'system').map((block) => block.role === 'tool'
+    ? { type: 'function_call_output', call_id: block.id, output: block.content }
+    : { role: block.role === 'assistant' ? 'assistant' : 'user', content: [{ type: block.role === 'assistant' ? 'output_text' : 'input_text', text: block.content }] });
   const body: OpenAIResponsesRequest = {
     model: candidate.model,
-    instructions: [systemPrompt, ...systemContext].join('\n\n--- system context ---\n'),
-    input: responsesInputFromProviderConversation(providerConversation),
+    instructions: [instructionText, ...systemContext].join('\n\n--- system context ---\n'),
+    input: [...dynamicInput, ...responsesInputFromProviderConversation(providerConversation)],
     store: false,
     include: ['reasoning.encrypted_content'],
     max_output_tokens: opts.max_tokens,

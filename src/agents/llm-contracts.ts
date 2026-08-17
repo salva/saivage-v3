@@ -21,6 +21,9 @@ export interface ToolDefinition {
   function: ToolFunctionDefinition;
 }
 
+/** Provider-neutral function definition sent to an LLM protocol adapter. */
+export type ProviderToolDefinition = ToolDefinition;
+
 export interface ToolCall {
   id: string;
   type: 'function';

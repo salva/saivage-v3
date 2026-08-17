@@ -9,6 +9,7 @@ import { testApplicationFatalPort } from '../../helpers/test-application-fatal-p
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
 import { ConversationLLMActor, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
+import { actorProvider } from '../../helpers/actor-provider.js';
 import { ActivationOperationTracker } from '../../../src/runtime/actors/invocation-lifecycle.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
 import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
@@ -32,7 +33,7 @@ interface SupervisorInternals {
   launchStartedProject(launch: LaunchPlan): unknown;
 }
 
-function harness(provider: LLMProviderPort = { completeTurn: async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) }) {
+function harness(provider: LLMProviderPort = actorProvider(async (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })))) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-actor-main-failure-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
@@ -168,11 +169,11 @@ describe('real CardProcess actor-main fatal containment', () => {
     let releaseFirst!: () => void;
     const first = new Promise<void>((resolve) => { releaseFirst = resolve; });
     let calls = 0;
-    const provider: LLMProviderPort = { completeTurn: async () => {
+    const provider: LLMProviderPort = actorProvider(async () => {
       calls += 1;
       if (calls === 1) await first;
       return { result: { kind: 'tool_calls', tool_calls: [{ id: String(calls), type: 'function', function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'done' }) } }] }, provider_exchanges: [] };
-    } };
+    });
     const h = harness(provider);
     const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const notification = fatalNotificationSpy(h.supervisor);
@@ -209,10 +210,10 @@ describe('real CardProcess actor-main fatal containment', () => {
 
   it('keeps a completed normal result authoritative when a later Stop observes no live runtime', async () => {
     let calls = 0;
-    const provider: LLMProviderPort = { completeTurn: async () => {
+    const provider: LLMProviderPort = actorProvider(async () => {
       calls += 1;
       return { result: { kind: 'tool_calls', tool_calls: [{ id: String(calls), type: 'function', function: { name: calls === 1 ? 'write' : 'emit_result', arguments: calls === 1 ? JSON.stringify({ path: 'record:///status.md?card=project', content: 'done' }) : JSON.stringify({ outcome: 'complete_direct', summary: 'normal result wins' }) } }] }, provider_exchanges: [] };
-    } };
+    });
     const h = harness(provider);
     const notification = fatalNotificationSpy(h.supervisor);
     const { activation } = await launchCapturingActivation(h);
@@ -230,12 +231,12 @@ describe('real CardProcess actor-main fatal containment', () => {
     const rootBarrier = new Promise<void>((resolve) => { releaseRoot = resolve; });
     let rootStarted = false;
     let childId = '';
-    const provider: LLMProviderPort = { completeTurn: async (input) => {
+    const provider: LLMProviderPort = actorProvider(async (input) => {
       if (input.sessionId !== 'agent:planner:project') throw new Error(`Unexpected child-fatal provider session '${input.sessionId}'.`);
       rootStarted = true;
       await rootBarrier;
       return { result: { kind: 'tool_calls', tool_calls: [{ id: 'activate-child', type: 'function', function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
-    } };
+    });
     const h = harness(provider);
     childId = h.cards.create({ type: 'code', parent: 'project', title: 'Fatal child', bootstrap_content: 'Fail in actor callback', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] }).id;
     const commit = jest.spyOn(h.cards, 'commitActivationOutcome');
@@ -286,7 +287,7 @@ describe('real CardProcess actor-main fatal containment', () => {
   it.each(['llm-order', 'tracker', 'lifecycle'] as const)('selects CardProcess %s precedence while observing both LLMs, tracker, and lifecycle', async (winner) => {
     let reviewerStarted = false;
     let calls = 0;
-    const provider: LLMProviderPort = { completeTurn: async (input, signal) => {
+    const provider: LLMProviderPort = actorProvider(async (input, signal) => {
       if (input.sessionId === 'agent:planner:project') {
         calls += 1;
         if (calls === 1) return { result: { kind: 'tool_calls', tool_calls: [{ id: 'write-plan', type: 'function', function: { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?card=project', content: 'plan' }) } }] }, provider_exchanges: [] };
@@ -297,7 +298,7 @@ describe('real CardProcess actor-main fatal containment', () => {
         return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
       }
       throw new Error(`Unexpected precedence provider session '${input.sessionId}'.`);
-    } };
+    });
     const h = harness(provider);
     const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const notification = fatalNotificationSpy(h.supervisor);

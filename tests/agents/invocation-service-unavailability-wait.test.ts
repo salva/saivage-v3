@@ -12,6 +12,10 @@ import { handleOpenAICodexEvent } from '../../src/agents/llm-codex-parser.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
 import { chatSuccess, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
+import { preparedInvocationContextFixture } from '../helpers/prepared-invocation-context.js';
+import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
+import type { CandidateRequestPlan } from '../../src/agents/candidate-request.js';
+import type { LlmCompleteOptions } from '../../src/agents/llm-contracts.js';
 
 const candidate: Candidate = { provider: 'p', account: null, model: 'm' };
 const alternate: Candidate = { provider: 'alt', account: null, model: 'm-alt' };
@@ -21,15 +25,20 @@ function request(chain: Candidate[] = [candidate], signal?: AbortSignal): Invoca
     inputId: 'agent:planner:card:1',
     agentName: 'planner',
     sessionId: 'agent:planner:card',
-    systemPrompt: 'system',
+    ...preparedInvocationContextFixture(),
     providerConversation: { sourceSessionId: 'agent:planner:card', messages: [] },
-    tools: [],
-    terminalToolNames: [],
-    modelParams: { temperature: 0, maxTokens: 2000 },
+    modelParams: { temperature: 0 },
+    preparedCompaction: prepareCompaction({input_budget_tokens:10000,trigger_fraction:.8,completion_reserve_fraction:.2,merge_line_fraction:.3,summary_line_fraction:.5,escalate_merge_line_fraction:.4,escalate_summary_line_fraction:.6,snap:'compact_straddler'},'system',[],2000),
     capabilityRequest: {},
     routePass: {kind:'ordinary',candidateChain:chain},
     abortSignal: signal,
   };
+}
+
+function invoke(service: InvocationService, value: InvocationRequest): Promise<ProviderTurnCompletion> {
+  const admission = service.preparePrimaryRequestAdmission(value);
+  if (admission.kind !== 'admitted') throw new Error(`Fixture request was not admitted: ${admission.kind}`);
+  return service.executeAdmittedWithRecovery(admission);
 }
 
 const roots: string[] = [];
@@ -63,7 +72,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       controller.abort(reason);
       throw init?.signal?.reason;
     });
-    const invocation = service({ availability }).invokeWithRecovery(request([candidate], controller.signal));
+    const invocation = invoke(service({ availability }), request([candidate], controller.signal));
 
     await expect(invocation).rejects.toMatchObject({
       originalFailure: { failure: { kind: 'cancelled', reason: 'abort' } },
@@ -88,7 +97,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       controller.abort(reason);
       throw init?.signal?.reason;
     });
-    const invocation = service({ availability }).invokeWithRecovery(request([candidate], controller.signal));
+    const invocation = invoke(service({ availability }), request([candidate], controller.signal));
 
     const rejection = expect(invocation).rejects.toMatchObject({
       provider_exchanges: [
@@ -116,7 +125,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       markStarted();
     }));
     const invocation = service({ availability });
-    const pending = invocation.invokeWithRecovery(request([candidate], controller.signal));
+    const pending = invoke(invocation, request([candidate], controller.signal));
     await started;
     controller.abort(new Error('owner stopped'));
     release(chatSuccess('late'));
@@ -131,7 +140,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       bodies.push(init?.body as string);
       return fetch.mock.calls.length === 1 ? serverUnavailable() : chatSuccess('ok');
     });
-    const invocation = service().invokeWithRecovery(request());
+    const invocation = invoke(service(), request());
 
     await jest.advanceTimersByTimeAsync(60_000);
 
@@ -148,7 +157,8 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const seen: Candidate[] = [];
     let calls = 0;
     class ScriptedService extends InvocationService {
-      override async invokeCall(_request: InvocationRequest, selected: Candidate): Promise<ProviderTurnCompletion> {
+      override async executePlan(_request: InvocationRequest, plan: CandidateRequestPlan, _options: LlmCompleteOptions): Promise<ProviderTurnCompletion> {
+        const selected = plan.candidate;
         seen.push(selected);
         calls++;
         if (calls === 1) {
@@ -159,7 +169,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       }
     }
     const invocation = new ScriptedService({ projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([candidate]), candidateAvailability: new MemoryCandidateAvailability() });
-    const pending = invocation.invokeWithRecovery(request([candidate]));
+    const pending = invoke(invocation, request([candidate]));
 
     await jest.advanceTimersByTimeAsync(60_000);
 
@@ -172,7 +182,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const availability = new MemoryCandidateAvailability();
     availability.markFailed(candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
     const fetch = jest.spyOn(globalThis, 'fetch').mockResolvedValue(chatSuccess('ok'));
-    const invocation = service({ availability }).invokeWithRecovery(request());
+    const invocation = invoke(service({ availability }), request());
 
     await jest.advanceTimersByTimeAsync(59_999);
     expect(fetch).not.toHaveBeenCalled();
@@ -186,7 +196,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     jest.useFakeTimers({ now: 0 });
     const availability = new MemoryCandidateAvailability();
     availability.markFailed(candidate, { state: 'COOLING', untilMs: 3 * 60 * 60 * 1000, reason: 'server_transient' });
-    const invocation = service({ availability }).invokeWithRecovery(request());
+    const invocation = invoke(service({ availability }), request());
     const rejection = expect(invocation).rejects.toThrow("No LLM candidate became available for agent 'planner' within 7200000ms.");
 
     await jest.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
@@ -195,7 +205,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
   });
 
   it('does not wait when no configured or capability-compatible candidates exist', async () => {
-    await expect(service({ chain: [] }).invokeWithRecovery({ ...request([]), routePass:{kind:'ordinary',candidateChain:[]} })).rejects.toBeInstanceOf(ProviderTurnFailure);
+    await expect(() => invoke(service({ chain: [] }), { ...request([]), routePass:{kind:'ordinary',candidateChain:[]} })).toThrow();
   });
 
   it('does not wait for auth-permanent-only unavailability', async () => {
@@ -203,7 +213,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     const availability = new MemoryCandidateAvailability();
     availability.markFailed(candidate, { state: 'BLOCKED_UNTIL', untilMs: 60_000, reason: 'auth_permanent' });
 
-    await expect(service({ availability }).invokeWithRecovery(request())).rejects.toThrow("No healthy candidates available for agent 'planner'.");
+    await expect(invoke(service({ availability }), request())).rejects.toThrow("No healthy candidates available for agent 'planner'.");
     expect(jest.getTimerCount()).toBe(0);
   });
 
@@ -217,7 +227,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
       seen.push(provider);
       return chatSuccess(provider);
     });
-    const completion = await service({ availability, chain: [candidate, alternate] }).invokeWithRecovery(request([candidate, alternate]));
+    const completion = await invoke(service({ availability, chain: [candidate, alternate] }), request([candidate, alternate]));
 
     expect(completion.result).toMatchObject({ kind: 'message', content: 'alt' });
     expect(seen).toEqual(['alt']);
@@ -230,7 +240,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     availability.markFailed(candidate, { state: 'COOLING', untilMs: 60_000, reason: 'server_transient' });
     const controller = new AbortController();
     const reason = new Error('stop');
-    const invocation = service({ availability }).invokeWithRecovery(request([candidate], controller.signal));
+    const invocation = invoke(service({ availability }), request([candidate], controller.signal));
 
     controller.abort(reason);
 

@@ -11,6 +11,7 @@ import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
 import { serializeToolsForCodex } from './tool-definition-serializer.js';
 import type { LlmProtocolAdapter } from './llm-protocol-adapter.js';
+import type { ContextBlock } from '../runtime/actors/context/index.js';
 
 interface CodexInputText {
   type: 'input_text';
@@ -24,8 +25,8 @@ type CodexMessage =
 
 export const openAICodexAdapter: LlmProtocolAdapter = {
   credentialRequirement: 'standard',
-  buildRequestBody: ({ candidate, systemPrompt, providerConversation, options }) =>
-    buildOpenAICodexRequest(candidate, systemPrompt, providerConversation, options),
+  buildRequestBody: ({ candidate, instructionText, dynamicBlocks, providerConversation, options }) =>
+    buildOpenAICodexRequest(candidate, instructionText, dynamicBlocks, providerConversation, options),
   deriveWire(candidate, transport, _body, options) {
     if (!transport.apiKey || !transport.openAICodexAccountId)
       throw new LlmRequestError({
@@ -77,14 +78,20 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
 
 export function buildOpenAICodexRequest(
   candidate: Candidate,
-  systemPrompt: string,
+  instructionText: string,
+  dynamicBlocks: readonly ContextBlock[],
   providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
 ): Record<string, unknown> {
   const messages = providerConversation.messages.filter(
     (message) => message.kind !== 'provider_private',
   );
-  const input = codexMessages(messages);
+  const input = [
+    ...dynamicBlocks.filter((block) => block.role !== 'system').map((block): CodexMessage => block.role === 'tool'
+      ? { type: 'function_call_output', call_id: block.id, output: block.content }
+      : { role: block.role === 'assistant' ? 'assistant' : 'user', content: [{ type: block.role === 'assistant' ? 'output_text' : 'input_text', text: block.content }] }),
+    ...codexMessages(messages),
+  ];
   if (!input.length)
     input.push({
       role: 'user',
@@ -97,7 +104,8 @@ export function buildOpenAICodexRequest(
     store: false,
     stream: true,
     instructions: [
-      systemPrompt,
+      instructionText,
+      ...dynamicBlocks.filter((block) => block.role === 'system').map((block) => block.content),
       ...messages.filter((message) => message.role === 'system').map((message) => message.content),
     ].join('\n\n--- system context ---\n'),
     input,

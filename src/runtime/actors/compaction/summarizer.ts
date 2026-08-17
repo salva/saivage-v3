@@ -5,7 +5,7 @@ import type { ProviderExchangeAttempt, ProviderExchangePublicationContext,
 } from '../../../contracts/provider-exchange.js';
 import { conversationSessionIdentity,globalAgentSessionId,type ConversationSessionId,
 } from '../../../schemas/index.js';
-import type { LlmInvocationInput } from '../llm-invocation.js';
+import { prepareInvocationContext, type LlmInvocationInput } from '../llm-invocation.js';
 import type { Candidate } from '../../../contracts/provider-candidate.js';
 import type { ValidatedConversation } from '../../../contracts/conversation-validation.js';
 import {
@@ -130,19 +130,18 @@ function projectSummaryExchanges(
 function buildSummaryInput(
   inputId: string,
   sessionId: ConversationSessionId,
-  systemPrompt: string,
+  instructionText: string,
   providerConversation: LlmInvocationInput['providerConversation'],
   candidate: Candidate,
 ): LlmInvocationInput {
+  const preparedContext = prepareInvocationContext({ instructionText, compiledTools: [], terminalToolNames: [], dynamicBlocks: [] });
   return {
     inputId,
     agentId: 'llm:compaction-summarizer',
     agentName: conversationSessionIdentity(sessionId).agentName,
     sessionId,
-    systemPrompt,
+    ...preparedContext,
     providerConversation,
-    tools: [],
-    terminalToolNames: [],
     modelParams: { temperature: 0, maxTokens: 2000 },
     capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },
     routePass: { kind: 'ordinary', candidateChain: [candidate] },

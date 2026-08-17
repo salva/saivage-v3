@@ -17,10 +17,10 @@ import { buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext,
 } from '../persistence/conversation-file.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
-import { invokeToolForLlm, surfaceToolDefinitions, type InvocationSurface, type ToolResult,
+import { invokeToolForLlm, surfaceCompiledInvocationTools, type InvocationSurface, type ToolResult,
 } from '../tools/invocation.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
-import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
+import type { PromptTemplateRegistry } from '../utils/prompt-api.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome,
@@ -34,6 +34,8 @@ import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocati
 import { randomUUID } from 'node:crypto';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 import { cardParentId } from '../schemas/card-id.js';
+import { contextBlockContentSha256, type ContextBlock } from '../runtime/actors/context/index.js';
+import { prepareInvocationContext } from '../runtime/actors/llm-invocation.js';
 
 
 export interface WorkspaceContext {
@@ -396,25 +398,32 @@ export class AnalystSession {
   private prepareInvocationInput(
     surface: InvocationSurface,
   ): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
-    const tools = surfaceToolDefinitions(surface);
-    const systemPrompt = this.#promptTemplates.render({kind:'global-agent'}, this.#agentName, {
-      toolList: formatPromptToolList(tools),
-      vocabularySnippet: formatVocabularySnippet(this.#cardTypeVocabulary),
-      projectContext: this.buildProjectContext(),
-    });
+    const compiledTools = surfaceCompiledInvocationTools(surface);
+    const instructionText = `${this.#promptTemplates.render({kind:'global-agent'}, this.#agentName)}\n\nConfigured card types:\n${formatVocabularySnippet(this.#cardTypeVocabulary)}`;
+    const projectContext = this.buildProjectContext();
+    const dynamicBlocks: readonly ContextBlock[] = Object.freeze([Object.freeze({
+      id: 'analyst.project_tree',
+      role: 'system',
+      content: projectContext,
+      storage: 'activation_local',
+      replacement: Object.freeze({ kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: contextBlockContentSha256(projectContext) }),
+      audience: 'primary_and_summarizer',
+      evidence: Object.freeze({ kind: 'none' }),
+      canonicalSource: null,
+    })]);
+    const preparedContext = prepareInvocationContext({ instructionText, compiledTools, terminalToolNames: [], dynamicBlocks });
+    const providerDefinitions = compiledTools.map((tool) => tool.providerDefinition);
     return {
       inputId: randomUUID(),
       agentId: this.#llm.agentId,
       agentName: this.#agentName,
       sessionId: this.#sessionId,
-      systemPrompt,
-      tools,
-      terminalToolNames: [],
+      ...preparedContext,
       modelParams: { temperature: this.#modelParams.temperature },
       preparedCompaction: prepareCompaction(
         this.#compactionPolicy,
-        systemPrompt,
-        tools,
+        instructionText,
+        providerDefinitions,
         this.#modelParams.maxTokens,
       ),
       capabilityRequest: this.#capabilityRequest,

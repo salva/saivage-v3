@@ -13,6 +13,8 @@ import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner, type ProcessOutputIo } from '../../src/runtime/process-runner.js';
+import { preparedInvocationContextFixture } from '../helpers/prepared-invocation-context.js';
+import { actorProvider } from '../helpers/actor-provider.js';
 import { replaceFile, type ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { defineTool, invokeToolForLlm, type InvocationSurface } from '../../src/tools/invocation.js';
@@ -72,13 +74,13 @@ if (mode === 'llm-conversation') {
     gate: new RuntimeGate(),
     fatalPort,
     agentId: 'agent:planner:project',
-    provider: { completeTurn: async () => { throw new PublicationOutcomeUnknownError(); } },
+    provider: actorProvider(async () => { throw new PublicationOutcomeUnknownError(); }),
     conversations: { projectRoot: root },
     compactor: { shouldCompact: () => false, compact: async () => { throw new Error('not reached'); } },
     summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
   });
   const policy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' as const };
-  void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction: prepareCompaction(policy, 'system', []), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
+  void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', ...preparedInvocationContextFixture(), providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, modelParams: { temperature: 0 }, preparedCompaction: prepareCompaction(policy, 'system', []), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
 }
 
 if (mode === 'process-chunk') {
@@ -166,7 +168,7 @@ if (mode === 'analyst-project-context') {
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => { mark('prompt'); return 'rendered prompt'; } },
     restartServerAvailable: false,
-    provider: { completeTurn: async () => { mark('provider'); throw new Error('Provider must not run.'); } },
+    provider: actorProvider(async () => { mark('provider'); throw new Error('Provider must not run.'); }),
     conversations: { projectRoot: root },
     compactionPolicy: testCompactionPolicy,
     compactor: { shouldCompact: () => false, compact: async () => { throw new Error('Compaction must not run.'); } },

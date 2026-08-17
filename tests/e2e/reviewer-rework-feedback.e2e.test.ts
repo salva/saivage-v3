@@ -11,6 +11,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
+import { actorProvider } from '../helpers/actor-provider.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -55,16 +56,15 @@ describe('reviewer rework completion E2E', () => {
 
     let plannerCalls = 0;
     let reviewerCalls = 0;
-    let remediationProjection: LlmInvocationInput['providerConversation'] | null = null;
-    const provider: LLMProviderPort = {
-      completeTurn: jest.fn(async (input: LlmInvocationInput) => {
+    let remediationInput: LlmInvocationInput | null = null;
+    const completeTurn = jest.fn(async (input: LlmInvocationInput) => {
         if (input.agentName === 'planner') {
           plannerCalls += 1;
           if (plannerCalls === 1) return complete(tool('planner-write-initial', 'write', { path: 'record:///status.md?card=project', content: 'Initial completion evidence.' }));
           if (plannerCalls === 2) return complete(tool('planner-done-initial', 'emit_result', { outcome: 'admit_review', summary: 'Initial submission.' }));
           if (plannerCalls === 3) {
-            remediationProjection = input.providerConversation;
-            const feedbackRows = input.providerConversation.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK);
+            remediationInput = input;
+            const feedbackRows = input.dynamicBlocks.filter((row) => row.role === 'user' && row.content.startsWith('Previous process node: review') && row.content.includes(REVIEW_SUMMARY));
             if (feedbackRows.length !== 1) throw new Error(`Expected one projected reviewer feedback row, received ${feedbackRows.length}.`);
             return complete(tool('planner-write-revised', 'write', { path: 'record:///status.md?card=project', content: REVISED_EVIDENCE }));
           }
@@ -83,8 +83,8 @@ describe('reviewer rework completion E2E', () => {
         if (reviewerCalls === 5) return complete(tool('reviewer-write-done', 'write', { path: 'record:///review.md?card=project', content: 'Approved after concrete remediation.' }));
         if (reviewerCalls === 6) return complete(tool('reviewer-done', 'emit_result', { outcome: 'approved', summary: 'Approved after concrete remediation.' }));
         throw new Error(`Unexpected reviewer provider call ${reviewerCalls}.`);
-      }),
-    };
+      });
+    const provider: LLMProviderPort = actorProvider(completeTurn);
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
     const membershipRecords: Array<{ target: AgentMembershipFreshnessTarget; liveIds: string[] }> = [];
@@ -120,7 +120,7 @@ describe('reviewer rework completion E2E', () => {
     expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'Approved after concrete remediation.' } } });
     expect(plannerCalls).toBe(4);
     expect(reviewerCalls).toBe(6);
-    expect(provider.completeTurn).toHaveBeenCalledTimes(10);
+    expect(completeTurn).toHaveBeenCalledTimes(10);
     expect(membershipRecords.length).toBeGreaterThan(0);
     expect(new Set(membershipRecords.map(({ target }) => target.scope))).toEqual(new Set(['card']));
     expect(new Set(membershipRecords.map(({ target }) => target.scope === 'card' ? target.cardId : target.sessionId))).toEqual(new Set(['project']));
@@ -128,10 +128,10 @@ describe('reviewer rework completion E2E', () => {
     expect(membershipRecords.some(({ liveIds }) => liveIds.includes('agent:reviewer:project'))).toBe(true);
     expect(membershipRecords.some(({ liveIds }) => liveIds.length === 0)).toBe(true);
 
-    expect(remediationProjection).not.toBeNull();
-    expect(remediationProjection!.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
+    expect(remediationInput).not.toBeNull();
+    expect(remediationInput!.dynamicBlocks.filter((row) => row.role === 'user' && row.content.startsWith('Previous process node: review') && row.content.includes(REVIEW_SUMMARY))).toHaveLength(1);
     const plannerRows = readConversation(projectRoot, 'agent:planner:project').physicalRows;
-    expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
+    expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(0);
     expect(cards.readHistoricalRecord('project', 'status.md', 6).artifact.accepted?.content).toBe(REVISED_EVIDENCE);
     expect(cards.readHistoricalRecord('project', 'review.md', 2)).toMatchObject({ versionUrl: 'record:///review.md?card=project&v=2', artifact: { draft: { content: 'Rework required: add explicit remediation evidence.' } } });
     expect(cards.readHistoricalRecord('project', 'review.md', 6)).toMatchObject({ versionUrl: 'record:///review.md?card=project&v=6', artifact: { accepted: { content: 'Approved after concrete remediation.' } } });

@@ -21,6 +21,7 @@ import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { parseCanonicalContentPolicyRefusal } from '../../src/schemas/index.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
+import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -43,7 +44,7 @@ function runtime(projectRoot: string, cards: CardService, provider: { completeTu
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),
-    projectRoot, actorStore: cards, provider,
+    projectRoot, actorStore: cards, provider: actorProvider(provider.completeTurn.bind(provider), provider.projectProviderExchanges),
     conversations: { projectRoot },
     freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
     processRunner, runtimeProcessRootScope, promptTemplates: { render: () => 'test prompt' },
@@ -61,7 +62,7 @@ function permanentFailure(input: LlmInvocationInput): ProviderTurnFailure {
       endpoint: 'https://provider.example.test/v1/chat/completions',
       method: 'POST',
       stream: false,
-      offered_tools_count: input.tools.length,
+      offered_tools_count: input.compiledTools.length,
       temperature: 0,
       max_tokens: 256,
     },
@@ -73,7 +74,7 @@ function permanentFailure(input: LlmInvocationInput): ProviderTurnFailure {
 function contentPolicyFailure(input: LlmInvocationInput, providerResponse: string): ProviderTurnFailure {
   const candidate = input.routePass.kind === 'ordinary' ? input.routePass.candidateChain[0]! : input.routePass.candidate;
   const originalFailure = new LlmRequestError({ kind: 'content_policy', provider: candidate.provider, message: 'Provider content policy refusal.', providerResponse });
-  const exchange: ProviderExchangeAttempt = { contract_id: 'test-contract', contract_name: 'test contract', transport: 'generic', provider: candidate.provider, ...(candidate.account === null ? {} : { account: candidate.account }), model: candidate.model, source_input_id: input.inputId, attempt_index: 0, request_params: { endpoint: 'https://provider.example.test/v1/chat/completions', method: 'POST', stream: false, offered_tools_count: input.tools.length, temperature: 0, max_tokens: 256 }, started_at: '2026-07-26T00:00:00.000Z', completed_at: '2026-07-26T00:00:00.001Z', status: 'error', response_status: 400, terminal_tool_fired: null, error: { name: 'LlmRequestError', message: 'Provider content policy refusal.', status: 400 } };
+  const exchange: ProviderExchangeAttempt = { contract_id: 'test-contract', contract_name: 'test contract', transport: 'generic', provider: candidate.provider, ...(candidate.account === null ? {} : { account: candidate.account }), model: candidate.model, source_input_id: input.inputId, attempt_index: 0, request_params: { endpoint: 'https://provider.example.test/v1/chat/completions', method: 'POST', stream: false, offered_tools_count: input.compiledTools.length, temperature: 0, max_tokens: 256 }, started_at: '2026-07-26T00:00:00.000Z', completed_at: '2026-07-26T00:00:00.001Z', status: 'error', response_status: 400, terminal_tool_fired: null, error: { name: 'LlmRequestError', message: 'Provider content policy refusal.', status: 400 } };
   return new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [exchange], originalFailure, candidate });
 }
 

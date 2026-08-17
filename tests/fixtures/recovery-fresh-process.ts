@@ -5,6 +5,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
+import { actorProvider } from '../helpers/actor-provider.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 const projectRoot = process.argv[2];
@@ -18,7 +19,7 @@ const runtime = new SupervisorRuntimeApi({
   runtimeGate: new RuntimeGate(),
   projectRoot,
   actorStore: cards,
-  provider: { completeTurn: (_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true })) },
+  provider: actorProvider((_input, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))),
   conversations: { projectRoot },
   freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
   processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),

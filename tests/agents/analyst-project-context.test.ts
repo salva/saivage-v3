@@ -9,6 +9,8 @@ import type { InvocationSurface } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
+import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
+import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -24,12 +26,9 @@ describe('Analyst project context', () => {
     const list = jest.fn(() => listed);
     const getParent = jest.fn(() => { throw new Error('parent lookup must not run'); });
     const cardStore = { list, getParent } as unknown as CardServiceType;
-    let projectContext = '';
-    const render = jest.fn((_host: {kind:string}, _agent: string, variables: Record<string, string>) => {
-      projectContext = variables.projectContext!;
-      return 'rendered prompt';
-    });
-    const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
+    const render = jest.fn((_host: {kind:string}, _agent: string) => 'rendered prompt');
+    let invocation: LlmInvocationInput | undefined;
+    const completeTurn = jest.fn(async (input: LlmInvocationInput) => { invocation = input; return { result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }; });
     const surface: InvocationSurface = { agentName: 'analyst', tools: new Map(), providers: [] };
     const session = new AnalystSession({
       cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
@@ -39,7 +38,7 @@ describe('Analyst project context', () => {
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
       promptTemplates: { render },
       restartServerAvailable: false,
-      provider: { completeTurn },
+      provider: actorProvider(completeTurn),
       conversations: { projectRoot },
       compactionPolicy: testCompactionPolicy,
       compactor: { shouldCompact: () => false, compact: async () => { throw new Error('compaction must not run'); } },
@@ -55,7 +54,8 @@ describe('Analyst project context', () => {
 
     expect(list).toHaveBeenCalledTimes(1);
     expect(getParent).not.toHaveBeenCalled();
-    const context = JSON.parse(projectContext) as { cards: Array<{ id: string; parent: string | null }> };
+    const context = JSON.parse(invocation!.dynamicBlocks[0]!.content) as { cards: Array<{ id: string; parent: string | null }> };
+    expect(invocation!.prefix.instructionText).toContain('Reopenable card status: blocked | done | failed. Reopen target status: changed');
     expect(context.cards.find((card) => card.id === 'project')?.parent).toBeNull();
     expect(context.cards.find((card) => card.id === child.id)?.parent).toBe('project');
   });

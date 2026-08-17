@@ -11,12 +11,14 @@ import type { LlmRequestError } from '../contracts/llm-failure.js';
 import { openAIChatAdapter } from './llm-openai-chat-adapter.js';
 import { openAIResponsesAdapter } from './llm-openai-responses-adapter.js';
 import { openAICodexAdapter } from './llm-openai-codex-adapter.js';
+import type { ContextBlock } from '../runtime/actors/context/index.js';
 
 export type LlmCredentialRequirement = 'standard' | 'openai_responses_api_key';
 
 export interface LlmAdapterRequestInput {
   candidate: Candidate;
-  systemPrompt: string;
+  instructionText: string;
+  dynamicBlocks: readonly ContextBlock[];
   providerConversation: ProviderConversationProjection;
   options: LlmCompleteOptions;
   capabilities: EffectiveProviderCapabilities;

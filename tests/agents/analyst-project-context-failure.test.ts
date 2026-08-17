@@ -13,6 +13,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { actorProvider } from '../helpers/actor-provider.js';
 
 const roots: string[] = [];
 
@@ -56,7 +57,7 @@ describe('Analyst project-context failure', () => {
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
       promptTemplates: { render },
       restartServerAvailable: false,
-      provider: { completeTurn },
+      provider: actorProvider(completeTurn),
       conversations: { projectRoot },
       compactionPolicy: testCompactionPolicy,
       compactor: {

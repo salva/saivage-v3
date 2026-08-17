@@ -95,7 +95,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const summarizerProvider: SummarizerProviderPort = {
     candidate:summarizerCandidate,
-    completeTurn: (input, signal) => invocationService.invokeWithRecovery(invocationRequest(input, signal)),
+    completeTurn: (input, signal) => invocationService.invokeInternalSummary(invocationRequest(input, signal)),
     projectProviderExchanges: (sessionId, sourceInputId, attempts, context) =>
       invocationService.projectProviderExchanges(
         sessionId,
