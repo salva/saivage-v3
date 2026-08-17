@@ -8,6 +8,9 @@ import { projectCompiledGraphs } from '../../../src/runtime/card-process/compile
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { compileProjectWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
+import { EXPECTED_SPECIALIZED_CARD_TYPES, specializedConfig } from '../../fixtures/card-type-sets/specialized.js';
+import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 
 describe('compiled Debug graph projection', () => {
   it('remains the startup projection after restart-only reconfiguration and changes only with a fresh artifact', () => {
@@ -64,5 +67,31 @@ describe('compiled Debug graph projection', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('projects every specialized entry, node, requirement, edge, export, and promotion exactly',()=>{
+    const selected=specializedConfig();selected.models=structuredClone(TEST_SAIVAGE_CONFIG.models);selected.providers=structuredClone(TEST_SAIVAGE_CONFIG.providers);
+    const config=effectiveSaivageConfigSchema.parse(selected);
+    const bound=bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(new ProviderRegistry(config)));
+    const projected=projectCompiledGraphs(bound);
+    expect(projected.graphs.map(({card_type})=>card_type)).toEqual(Object.keys(EXPECTED_SPECIALIZED_CARD_TYPES));
+    for(const [cardType,source] of Object.entries(EXPECTED_SPECIALIZED_CARD_TYPES)){
+      const graph=projected.graphs.find((candidate)=>candidate.card_type===cardType)!;
+      expect(graph.permitted_child_types).toEqual(source.permitted_child_types);
+      expect(graph.records).toEqual(Object.entries(source.records).map(([name,record])=>({name,...record})));
+      expect(graph.entries).toEqual(Object.entries(source.workflow.entries).map(([entry,target])=>({entry,node_id:target.node,prompt_reference:target.prompt??null})));
+      expect(graph.nodes.map((node)=>({node_id:node.node_id,agent_name:node.agent_name,process_reference:node.prompt.process_reference,correction_reference:node.prompt.correction_reference,requirements:node.requirements,descendant_context:node.descendant_context,outcomes:node.outcomes}))).toEqual(Object.entries(source.workflow.nodes).map(([nodeId,node])=>({node_id:nodeId,agent_name:node.agent,process_reference:node.prompt,correction_reference:node.correction_prompt,requirements:Object.entries(node.records).map(([record_name,{mode,gate}])=>({record_name,mode,gate})),descendant_context:node.descendant_context?{records:node.descendant_context.records,require_unchanged_until_accept:node.descendant_context.require_unchanged_until_accept}:null,outcomes:Object.keys(node.edges)})));
+      const expectedEdges=Object.entries(source.workflow.nodes).flatMap(([nodeId,node])=>[
+        ...Object.entries(node.edges).map(([outcome,edge])=>({source_node_id:nodeId,outcome,runtime_owned:false,prompt_reference:edge.prompt??null,target:'node'in edge.target?{kind:'node',node_id:edge.target.node}:{kind:'terminal',terminal:edge.target.terminal},export_records:'terminal'in edge.target?edge.target.export_records:[],promotion:'terminal'in edge.target?(edge.target.promote==='current'?{kind:'current'}:{kind:'latest-node',node_id:edge.target.promote.latest_node}):null})),
+        {source_node_id:nodeId,outcome:'execution:failed',runtime_owned:true,prompt_reference:null,target:{kind:'terminal',terminal:'FAILED'},export_records:[],promotion:null},
+        {source_node_id:nodeId,outcome:'execution:blocked',runtime_owned:true,prompt_reference:null,target:{kind:'terminal',terminal:'BLOCKED'},export_records:[],promotion:null},
+      ]);
+      expect(graph.edges).toEqual(expectedEdges);
+    }
+  });
+
+  it('keeps selected standard projection byte-identical to the explicit historical default',()=>{
+    const explicit=bindRuntimeWorkflows(compileProjectWorkflows(TEST_SAIVAGE_CONFIG),new ModelRouter(new ProviderRegistry(TEST_SAIVAGE_CONFIG)));
+    const root=mkdtempSync(join(tmpdir(),'saivage-selected-standard-'));try{const globals=structuredClone(TEST_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;const selected=createTestConfigAuthority(root,{config:{...globals,card_type_set:'standard'}}).loadEffective();const selectedBound=bindRuntimeWorkflows(selected.workflows,new ModelRouter(new ProviderRegistry(selected.config)));expect(projectCompiledGraphs(selectedBound)).toEqual(projectCompiledGraphs(explicit));}finally{rmSync(root,{recursive:true,force:true});}
   });
 });

@@ -1,0 +1,1 @@
+Address every concrete finding in the immediately preceding accepted review. Preserve its versioned `review.md` URL in the updated `status.md`, revise the plan or coordinated child work, and choose the next outcome from new evidence.

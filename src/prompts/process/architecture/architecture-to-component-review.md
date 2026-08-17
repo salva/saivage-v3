@@ -1,0 +1,1 @@
+Review the accepted architecture draft first at component scope: local cohesion, contracts, feasibility, and unnecessary complexity. Use the preceding accepted draft summary and versioned `status.md` evidence.

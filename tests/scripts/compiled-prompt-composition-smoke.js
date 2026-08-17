@@ -18,8 +18,10 @@ if (existsSync(impossibleSourceRelativePrompts)) {
   throw new Error(`Compiled prompt smoke requires the source-relative prompt root to be absent: ${impossibleSourceRelativePrompts}`);
 }
 const walk = (root, current = root) => readdirSync(current, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? walk(root, join(current, entry.name)) : [join(current, entry.name).slice(root.length + 1)]).sort();
-const expected = [...['analyst','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`), ...['correct-execution-result','correct-plan-result','correct-review-result','execute','plan','plan-to-review','recover','review','review-to-plan','stopped-recovery'].map((id)=>`process/_shared/${id}.md`)].sort();
-if (JSON.stringify(walk(copiedPrompts)) !== JSON.stringify(expected)) throw new Error('Compiled prompt smoke requires the exact 14-file bundled prompt inventory.');
+const standardExpected = [...['analyst','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`), ...['correct-execution-result','correct-plan-result','correct-review-result','execute','plan','plan-to-review','recover','review','review-to-plan','stopped-recovery'].map((id)=>`process/_shared/${id}.md`)].sort();
+const specializedExpected=[...['specialized-plan','specialized-review','specialized-recover','specialized-plan-to-review','specialized-review-to-plan'].map((id)=>`process/_shared/${id}.md`),...['code-red','code-green','code-refactor','code-red-to-green','code-to-refactor','code-green-retry','code-regression-to-green'].map((id)=>`process/code/${id}.md`),...['test-diagnose','test-add-coverage','test-repair','test-verify','test-to-add-coverage','test-to-repair','test-to-verify','test-repair-retry'].map((id)=>`process/test/${id}.md`),...['research-explore','research-assess','research-report','research-to-assess','research-continue-exploration','research-supported-to-report','research-refuted-to-report','research-inconclusive-to-report'].map((id)=>`process/research/${id}.md`),...['data-schema','data-validate','data-implement','data-to-validate','data-to-implement','data-revise-schema','data-implementation-retry'].map((id)=>`process/data/${id}.md`),...['architecture-draft','architecture-component-review','architecture-system-review','architecture-to-component-review','architecture-to-system-review','architecture-component-revision','architecture-system-revision'].map((id)=>`process/architecture/${id}.md`)];
+const expected=[...standardExpected,...specializedExpected].sort();
+if (JSON.stringify(walk(copiedPrompts)) !== JSON.stringify(expected)) throw new Error('Compiled prompt smoke requires the exact registered standard-plus-specialized prompt union.');
 if (existsSync(join(copiedPrompts, 'fragments'))) throw new Error('Compiled prompt smoke requires no bundled fragments subtree.');
 
 function compiledModule(relativePath) {
@@ -42,6 +44,7 @@ const [
   { renderCompiledPrompt },
   { createApplicationFatalPort },
   { globalAgentSessionId },
+  { BUNDLED_CARD_TYPE_SETS, resolveCardTypeSelection },
 ] = await Promise.all([
   import(compiledModule('schemas/saivage-config.js')),
   import(compiledModule('agents/default-workflow-config.js')),
@@ -58,6 +61,7 @@ const [
   import(compiledModule('utils/prompt-api.js')),
   import(compiledModule('contracts/index.js')),
   import(compiledModule('schemas/conversation-session-id.js')),
+  import(compiledModule('config/card-type-sets/registry.js')),
 ]);
 
 const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-compiled-prompt-composition-'));
@@ -77,7 +81,13 @@ try {
       summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
     },
   });
-  const structuralWorkflows = compileProjectWorkflows(config, { projectRoot });
+  const {card_types:_cardTypes,...globals}=config;
+  const compileSet=(name)=>compileProjectWorkflows(saivageConfigSchema.parse(resolveCardTypeSelection(saivageConfigSchema.parse({...globals,card_type_set:name}),BUNDLED_CARD_TYPE_SETS)), { projectRoot });
+  const standardWorkflows=compileSet('standard');
+  const structuralWorkflows = compileSet('specialized');
+  const explicitStandard=compileProjectWorkflows(config,{projectRoot});
+  const standardRender=(workflows)=>[...workflows.cardTypes].flatMap(([cardType,workflow])=>[...workflow.states.values()].filter((state)=>state.kind==='node').map((state)=>renderCompiledPrompt(cardType,state.agent.name,state.selectedAgentPrompt.compiled,{cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType,contractDescription:'contract',toolList:'tools'})));
+  if(JSON.stringify(standardRender(standardWorkflows))!==JSON.stringify(standardRender(explicitStandard)))throw new Error('Selected standard rendered prompt baseline changed.');
   const analystText = renderCompiledPrompt('global', structuralWorkflows.analyst.name, structuralWorkflows.analystPrompt.compiled, { toolList: 'tools', vocabularySnippet: 'vocabulary', projectContext: 'context' });
   if (analystText.includes('{{')) throw new Error('Unresolved Analyst template syntax.');
   for (const [cardType, workflow] of structuralWorkflows.cardTypes) for (const prompt of workflow.processPrompts.values()) {
@@ -88,6 +98,16 @@ try {
     const text = renderCompiledPrompt(cardType, state.agent.name, state.selectedAgentPrompt.compiled, { cardId: 'card-a', cardTitle: 'Title', cardBrief: 'Brief', cardType, contractDescription: 'contract', toolList: 'tools' });
     if (text.includes('{{')) throw new Error(`Unresolved agent template syntax for ${cardType}/${state.agent.name}`);
   }
+  const plan=structuralWorkflows.cardTypes.get('goal').states.get('node:plan');
+  const standardPlan=standardWorkflows.cardTypes.get('goal').states.get('node:plan');
+  if(plan.kind!=='node'||standardPlan.kind!=='node')throw new Error('Missing planning nodes.');
+  const planText=structuralWorkflows.cardTypes.get('goal').processPrompts.get(plan.promptId).text;
+  for(const required of ['Inspect all direct children','BACKLOG, CHANGED, BLOCKED, or STOPPED','`title`, `tags`, `priority`, `urgency`, or `related`','Planner has no `reopen_card` tool','reopen_card({cardId:"<id>"})','stopped or settled paused','independently reviewable or parallelizable'])if(!planText.includes(required))throw new Error(`Specialized Planner composition lacks '${required}'.`);
+  const standardPlanText=standardWorkflows.cardTypes.get('goal').processPrompts.get(standardPlan.promptId).text;
+  if(standardPlanText.includes('Planner has no `reopen_card` tool')||standardPlanText.includes('reopen_card({cardId:"<id>"})'))throw new Error('Specialized planning guidance leaked into standard.');
+  const architecture=structuralWorkflows.cardTypes.get('architecture');
+  for(const nodeId of ['component-review','system-review']){const node=architecture.states.get(`node:${nodeId}`);if(node.kind!=='node')throw new Error(`Missing ${nodeId}.`);const agent=renderCompiledPrompt('architecture',node.agent.name,node.selectedAgentPrompt.compiled,{cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType:'architecture',contractDescription:'contract',toolList:'tools'});if(node.selectedAgentPrompt.source!=='bundled-shared'||!agent.includes('record:///review.md?card=<card-id>')||!architecture.processPrompts.get(node.promptId).text.includes('record:///review.md?card=<card-id>'))throw new Error(`${nodeId} does not compose the shared Reviewer with current review.md.`);}
+  for(const prompt of architecture.processPrompts.values())if(prompt.reference.includes('revision')||prompt.reference==='architecture-to-system-review'){if(!prompt.text.includes('versioned `review.md` URL'))throw new Error(`${prompt.reference} lacks immutable transition evidence guidance.`);}
   const providerRegistry = new ProviderRegistry(config);
   const workflows = bindRuntimeWorkflows(structuralWorkflows, new ModelRouter(providerRegistry));
   const configAuthority = createResolvedConfigAuthority({

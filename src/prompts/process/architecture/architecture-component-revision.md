@@ -1,0 +1,1 @@
+Revise the architecture draft to address the immediately preceding component-review findings. Preserve and cite the immutable versioned `review.md` URL in cumulative `status.md` before requesting another component review.

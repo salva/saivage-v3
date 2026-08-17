@@ -3,6 +3,7 @@ import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config
 import { cardTypeNameSchema } from '../../src/schemas/index.js';
 import { cardTypeSetNameSchema, effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
+import { specializedDefinition } from '../fixtures/card-type-sets/specialized.js';
 
 function projectOnly() {
   const config:SaivageConfig=effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));
@@ -18,11 +19,18 @@ describe('configuration-owned card types',()=>{
     delete globals.card_types;
     expect(saivageConfigSchema.parse(globals)).not.toHaveProperty('card_types');
     expect(saivageConfigSchema.parse({...globals,card_type_set:'standard'}).card_type_set).toBe('standard');
+    expect(saivageConfigSchema.parse({...globals,card_type_set:'specialized'}).card_type_set).toBe('specialized');
     expect(saivageConfigSchema.safeParse({...globals,card_type_set:'standard',card_types:DEFAULT_SAIVAGE_CONFIG.card_types}).error?.issues[0]).toMatchObject({path:[],message:expect.stringContaining('mutually exclusive')});
     expect(cardTypeSetNameSchema.safeParse('Standard').success).toBe(false);
     expect(saivageConfigSchema.safeParse({...globals,card_type_set:'Standard'}).error?.issues[0]?.path).toEqual(['card_type_set']);
     expect(effectiveSaivageConfigSchema.safeParse({...globals,card_type_set:'standard'}).success).toBe(false);
     expect(outboundEffectiveSaivageConfigSchema.safeParse({...globals,card_type_set:'standard'}).success).toBe(false);
+  });
+
+  it('parses the complete specialized identifier inventory while node keys remain compiler-strict',()=>{
+    expect(saivageConfigSchema.parse({ ...structuredClone(DEFAULT_SAIVAGE_CONFIG), card_types: structuredClone(specializedDefinition().cardTypes) }).card_types).toEqual(specializedDefinition().cardTypes);
+    for(const id of ['specialized','project','goal','architecture','code','test','doc','data','research','ops','add-coverage','component-review','system-review'])expect(cardTypeSetNameSchema.safeParse(id).success).toBe(true);
+    for(const id of ['complete_direct','revision_required','ready_for_component_review'])expect(/^[a-z][a-z0-9_-]{0,63}$/u.test(id)).toBe(true);
   });
 
   it('accepts project-only and arbitrary valid configured identifiers in declaration order',()=>{

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { MINIMAL_CARD_TYPE_SET } from '../fixtures/card-type-sets/minimal.js';
 import { collectPromptPackageClosure, copyPromptDefaults } from '../../scripts/copy-prompt-defaults.js';
+import { BUNDLED_CARD_TYPE_SETS } from '../../src/config/card-type-sets/registry.js';
 
 function fail(message) { throw new Error(message); }
 function assert(condition, message) { if (!condition) fail(message); }
@@ -106,11 +107,27 @@ function runCopyPromptDefaultsTest() {
       'closure accepted a selected artifact outside the bundled root',
     );
 
+    const productionRoot=resolve('src/prompts');
+    const {card_types:_cardTypes,...productionGlobals}=structuredClone(DEFAULT_SAIVAGE_CONFIG);
+    const specializedFiles=[
+      ...['specialized-plan','specialized-review','specialized-recover','specialized-plan-to-review','specialized-review-to-plan'].map((id)=>`process/_shared/${id}.md`),
+      ...['code-red','code-green','code-refactor','code-red-to-green','code-to-refactor','code-green-retry','code-regression-to-green'].map((id)=>`process/code/${id}.md`),
+      ...['test-diagnose','test-add-coverage','test-repair','test-verify','test-to-add-coverage','test-to-repair','test-to-verify','test-repair-retry'].map((id)=>`process/test/${id}.md`),
+      ...['research-explore','research-assess','research-report','research-to-assess','research-continue-exploration','research-supported-to-report','research-refuted-to-report','research-inconclusive-to-report'].map((id)=>`process/research/${id}.md`),
+      ...['data-schema','data-validate','data-implement','data-to-validate','data-to-implement','data-revise-schema','data-implementation-retry'].map((id)=>`process/data/${id}.md`),
+      ...['architecture-draft','architecture-component-review','architecture-system-review','architecture-to-component-review','architecture-to-system-review','architecture-component-revision','architecture-system-revision'].map((id)=>`process/architecture/${id}.md`),
+    ];
+    const historicalStandard=[...['analyst','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`),...['correct-execution-result','correct-plan-result','correct-review-result','execute','plan','plan-to-review','recover','review','review-to-plan','stopped-recovery'].map((id)=>`process/_shared/${id}.md`)].sort();
+    const productionClosure=collectPromptPackageClosure({setDefinitions:BUNDLED_CARD_TYPE_SETS,globals:productionGlobals,promptRoot:productionRoot});
+    assert(productionClosure.join('\n')===[...historicalStandard,...specializedFiles].sort().join('\n'),'production closure differs from the exact standard-plus-specialized inventory');
+    assert(walkFiles(productionRoot).join('\n')===productionClosure.join('\n'),'production source tree contains an unselected or missing artifact');
+    assert(!existsSync(join(productionRoot,'fragments')),'production prompt package unexpectedly contains fragments');
+
     const sourceRoot = temporary('saivage-copy-source-');
     const outputRoot = temporary('saivage-copy-output-');
-    writeStandardTree(sourceRoot);
+    cpSync(productionRoot,sourceRoot,{recursive:true});
     writeFileSync(join(outputRoot, 'stale.md'), 'stale');
-    copyPromptDefaults({ sourceRoot, outputRoot, setDefinitions: [], globals: {} });
+    copyPromptDefaults({ sourceRoot, outputRoot });
     assert(!existsSync(join(outputRoot, 'stale.md')), 'stale output file survived copy');
     assertTreesEqual(sourceRoot, outputRoot);
     copyPromptDefaults({ sourceRoot, outputRoot });

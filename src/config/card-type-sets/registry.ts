@@ -1,4 +1,5 @@
 import { cardTypesSchema, type CardTypesSource, type CardTypeSetName, type SaivageConfigSource } from '../../schemas/index.js';
+import { SPECIALIZED_CARD_TYPE_SET } from './specialized/index.js';
 import { STANDARD_CARD_TYPE_SET } from './standard/index.js';
 
 export interface CardTypeSetDefinition {
@@ -10,6 +11,7 @@ export const DEFAULT_CARD_TYPE_SET = 'standard' satisfies CardTypeSetName;
 
 export const BUNDLED_CARD_TYPE_SETS: readonly CardTypeSetDefinition[] = Object.freeze([
   STANDARD_CARD_TYPE_SET,
+  SPECIALIZED_CARD_TYPE_SET,
 ]);
 
 export type ResolvedCardTypeSelection = Omit<SaivageConfigSource, 'card_type_set' | 'card_types'> & {

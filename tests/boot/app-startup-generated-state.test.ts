@@ -53,6 +53,16 @@ describe('application startup generated-state admission', () => {
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });
 
+  it('boots a newly published runtime with the selected specialized compiled authority',async()=>{
+    const root=projectRoot();replaceConfigYaml(join(root,'.saivage','saivage.yaml'),selectedSpecializedConfig());
+    const app=await start(root,true);apps.push(app);
+    expect(app.environment.config.card_types.test!.workflow.nodes).toHaveProperty('add-coverage');
+    expect(app.environment.config.card_types.architecture!.workflow.nodes).toHaveProperty('component-review');
+    expect(app.environment.config.card_types.architecture!.workflow.nodes).toHaveProperty('system-review');
+    expect(app.environment.workflows.cardTypes.get('architecture')!.states).toHaveProperty('get');
+    expect(app.environment.workflows.cardTypes.get('architecture')!.states.get('node:system-review')).toMatchObject({kind:'node',nodeId:'system-review'});
+  });
+
   it('fails startup on a missing declared optional index without recreating it',async()=>{
     const root=projectRoot();publishInitialProjectRuntime(root,compileProjectWorkflows(TEST_SAIVAGE_CONFIG));const index=cardRecordVersionIndexFile(root,'project',testRecordDefinition('status.md','project'));rmSync(index);
     await expect(start(root,false)).rejects.toThrow(expect.objectContaining({code:'ENOENT'}));expect(existsSync(index)).toBe(false);expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
@@ -95,3 +105,4 @@ function explicitFixtureFamilyConfig() {
   return effectiveSaivageConfigSchema.parse(config);
 }
 function selectedStandardConfig(): Record<string, unknown> { const config = structuredClone(TEST_SAIVAGE_CONFIG) as unknown as Record<string, unknown>; delete config['card_types']; config['card_type_set'] = 'standard'; return config; }
+function selectedSpecializedConfig(): Record<string, unknown> { const config = structuredClone(TEST_SAIVAGE_CONFIG) as unknown as Record<string, unknown>; delete config['card_types']; config['card_type_set'] = 'specialized'; return config; }
