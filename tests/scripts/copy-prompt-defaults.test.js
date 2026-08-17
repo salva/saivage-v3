@@ -36,7 +36,7 @@ function write(root, purpose, scope, id, text) {
 
 function writeStandardTree(root) {
   for (const agent of ['analyst', 'planner', 'reviewer', 'executor']) {
-    write(root, 'agents', '_shared', agent, agent === 'analyst' ? `${agent} {{toolList}} {{projectContext}} {{vocabularySnippet}}` : `${agent} {{contractDescription}} {{toolList}}`);
+    write(root, 'agents', '_shared', agent, agent === 'analyst' ? `${agent} {{vocabularySnippet}}` : `${agent} {{contractDescription}}`);
   }
   for (const id of ['plan', 'recover', 'review', 'correct-plan-result', 'correct-review-result', 'plan-to-review', 'review-to-plan', 'execute', 'correct-execution-result', 'stopped-recovery']) {
     write(root, 'process', '_shared', id, `${id} {{cardType}}`);
@@ -68,7 +68,7 @@ function fixtureInputs() {
 }
 
 function writeFixtureUnion(root) {
-  write(root, 'agents', '_shared', 'analyst', 'analyst {{toolList}} {{projectContext}} {{vocabularySnippet}}');
+  write(root, 'agents', '_shared', 'analyst', 'analyst {{vocabularySnippet}}');
   write(root, 'agents', '_shared', 'executor', 'executor {{contractDescription}}');
   write(root, 'agents', '_shared', 'specialist', 'specialist {{> specialist-piece}} {{contractDescription}}');
   write(root, 'fragments', '_shared', 'specialist-piece', 'SECOND SET FRAGMENT');
@@ -98,7 +98,7 @@ function runCopyPromptDefaultsTest() {
     const outside = temporary('saivage-prompt-outside-');
     const escapedRoot = temporary('saivage-prompt-escaped-');
     writeFixtureUnion(escapedRoot);
-    writeFileSync(join(outside, 'analyst.md'), 'outside {{toolList}} {{projectContext}} {{vocabularySnippet}}');
+    writeFileSync(join(outside, 'analyst.md'), 'outside {{vocabularySnippet}}');
     const escapedInputs = fixtureInputs();
     escapedInputs.globals.agents.analyst.prompt = `../../../${basename(outside)}/analyst`;
     expectThrows(

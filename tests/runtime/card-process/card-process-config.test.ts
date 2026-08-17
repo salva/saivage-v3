@@ -291,7 +291,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const root=mkdtempSync(join(tmpdir(),'workflow-precedence-'));roots.push(root);
     const defaults=join(root,'defaults');const overrides=join(root,'overrides');
     const write=(base:string,purpose:string,scope:string,id:string,text:string)=>{const dir=join(base,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
-    for(const id of ['analyst','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{toolList}} {{projectContext}} {{vocabularySnippet}}':`${id} {{contractDescription}}`);
+    for(const id of ['analyst','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{vocabularySnippet}}':`${id} {{contractDescription}}`);
     for(const id of ['plan','recover','review','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
     write(defaults,'agents','code','executor','bundled-card {{contractDescription}}');
     write(overrides,'agents','_shared','executor','override-shared {{> shared-piece}} {{contractDescription}}');

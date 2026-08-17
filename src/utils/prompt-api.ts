@@ -17,8 +17,8 @@ export type ResolvedPromptFragment = Readonly<{ path: string; text: string }>;
 export type PromptFragmentResolver = (id: string) => ResolvedPromptFragment;
 
 const PLACEHOLDERS: Readonly<Record<PromptHost['kind'], ReadonlySet<string>>> = Object.freeze({
-  'global-agent': new Set(['toolList', 'vocabularySnippet', 'projectContext']),
-  'workflow-agent': new Set(['cardId', 'cardTitle', 'cardBrief', 'cardType', 'contractDescription', 'toolList']),
+  'global-agent': new Set(['vocabularySnippet']),
+  'workflow-agent': new Set(['contractDescription']),
   process: new Set(['cardType']),
 });
 const FRAGMENT_IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
