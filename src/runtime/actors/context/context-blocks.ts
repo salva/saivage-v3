@@ -81,3 +81,29 @@ export function selectLatestContextBlocks(blocks: readonly ContextBlock[]): read
   for (const [index, block] of blocks.entries()) if (block.replacement.kind === 'latest_snapshot') latest.set(block.replacement.key, index);
   return Object.freeze(blocks.filter((block, index) => block.replacement.kind !== 'latest_snapshot' || latest.get(block.replacement.key) === index));
 }
+
+export function buildPreparedInvocationContext(input: Readonly<{
+  instructionText: string;
+  terminalToolNames: readonly string[];
+  compiledTools: readonly CompiledInvocationToolContract[];
+  dynamicBlocks: readonly ContextBlock[];
+  preparedCompaction: PreparedCompaction;
+}>): PreparedInvocationContext {
+  return Object.freeze({
+    prefix: buildStaticInvocationPrefix(input.instructionText, input.terminalToolNames, input.compiledTools),
+    compiledTools: Object.freeze([...input.compiledTools]),
+    internalToolContractSha256: internalToolContractSha256(input.compiledTools),
+    dynamicBlocks: Object.freeze([...input.dynamicBlocks]),
+    dynamicBlocksSha256: dynamicBlocksSha256(input.dynamicBlocks),
+    preparedCompaction: input.preparedCompaction,
+  });
+}
+
+export function assertPreparedContextContinuity(before: PreparedInvocationContext, after: PreparedInvocationContext, identity: string): void {
+  if (before.prefix.immutablePrefixSha256 !== after.prefix.immutablePrefixSha256 || before.prefix.immutablePrefixBytes !== after.prefix.immutablePrefixBytes)
+    throw new Error(`Prepared invocation prefix changed across ${identity} continuation.`);
+  if (before.internalToolContractSha256 !== after.internalToolContractSha256)
+    throw new Error(`Prepared internal tool contract changed across ${identity} continuation.`);
+  if (before.dynamicBlocksSha256 !== after.dynamicBlocksSha256)
+    throw new Error(`Prepared dynamic context blocks changed across ${identity} continuation.`);
+}

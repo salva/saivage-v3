@@ -20,6 +20,7 @@ import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from
 import { appendAppLogEntry } from '../persistence/app-log.js';
 import { buildCandidateRequest, CandidateRequestPlanIntegrityError, type CandidateRequestPlan } from './candidate-request.js';
 import type { InvocationRoutePass, PreparedCompaction } from '../runtime/actors/llm-invocation.js';
+import type { PreparedInvocationContext } from '../runtime/actors/context/context-blocks.js';
 import { projectProviderExchangeForPublication } from './provider-exchange-projection.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
@@ -77,9 +78,10 @@ export type InvocationRequest = InvocationRequestBase &
   (
     | {
         preparedCompaction: PreparedCompaction;
+        preparedContext: PreparedInvocationContext;
         modelParams: { temperature: number; maxTokens?: never };
       }
-    | { preparedCompaction?: never; modelParams: { temperature: number; maxTokens: number } }
+    | { preparedCompaction?: never; preparedContext?: never; modelParams: { temperature: number; maxTokens: number } }
   );
 
 export interface InvocationServiceConfig {

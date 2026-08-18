@@ -9,7 +9,7 @@ import { validateConversation } from '../../../src/contracts/conversation-valida
 import { canonicalJson, type AgentMessage, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult, InvocationResultPolicy, selectInvocationResultPolicy, settleToolResultForConversation } from '../../../src/runtime/actors/llm-delivery-log.js';
 import type { CanonicalLlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
-import { compileInvocationToolContract } from '../../../src/runtime/actors/context/context-blocks.js';
+import { compileInvocationToolContract, buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
 import { executedNoneSettlement, executedProviderResult, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
@@ -21,6 +21,7 @@ const SESSION: ConversationSessionId = 'agent:planner:project';
 const CANDIDATE = { provider: 'test', account: null, model: 'test-model' } as const;
 
 function invocation(inputId: string, contracts: readonly InvocationContract[]): PreparedLlmInvocationInput {
+  const preparedCompaction = prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', []);
   return {
     inputId,
     agentId: SESSION,
@@ -32,7 +33,8 @@ function invocation(inputId: string, contracts: readonly InvocationContract[]): 
     compiledToolContracts: contracts,
     terminalToolNames: [],
     modelParams: { temperature: 0 },
-    preparedCompaction: prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', []),
+    preparedCompaction,
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: contracts, dynamicBlocks: [], preparedCompaction }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] },
     episodeContext: {},

@@ -599,6 +599,17 @@ function validateDescendantContextClosure(drafts:ReadonlyMap<CardTypeName,CardTy
   }
 }
 
+function validateParticipantCompletionReserve(config:SaivageConfig,analyst:CompiledAgentContract,drafts:ReadonlyMap<CardTypeName,CardTypeCompileDraft>):void{
+  const budget=config.compaction.input_budget_tokens;
+  const fraction=config.compaction.completion_reserve_fraction;
+  const reserved=Math.floor(budget*fraction);
+  const participants=new Map<AgentName,CompiledAgentContract>([[analyst.name,analyst]]);
+  for(const draft of drafts.values())for(const node of draft.nodes.values())participants.set(node.agent.name,node.agent);
+  const offenders:string[]=[];
+  for(const [name,agent] of participants)if(agent.model.maxTokens>reserved)offenders.push(`agents.${name}.model_route '${agent.modelRoute}' requests max_tokens ${agent.model.maxTokens}, exceeding reserved completion tokens ${reserved} (floor(input_budget_tokens ${budget} * completion_reserve_fraction ${fraction}))`);
+  if(offenders.length>0)throw new Error(`Configured workflow participants exceed the compaction completion reserve: ${offenders.join('; ')}.`);
+}
+
 export function compileProjectWorkflows(
   config: SaivageConfig,
   options: WorkflowCompileOptions = {},
@@ -628,6 +639,7 @@ export function compileProjectWorkflows(
   if (!cardTypeVocabulary.includes('project')) throw new Error("card_types must contain the reserved 'project' entry.");
   const configuredCardTypes = immutableSet(cardTypeVocabulary);
   const drafts=immutableMap(sourceEntries.map(([type,source])=>[type,compileCardTypeInputs(type,source,agents,roots,configuredCardTypes)] as const));
+  validateParticipantCompletionReserve(config,analyst,drafts);
   for(const draft of drafts.values())validateCardTypeTopology(draft);
   validateDescendantContextClosure(drafts);
   const cardTypes=immutableMap([...drafts].map(([type,draft])=>[type,buildCardTypeStateTable(draft,roots)] as const));

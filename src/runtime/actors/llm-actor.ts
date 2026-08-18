@@ -20,6 +20,7 @@ import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, ap
 import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { ToolSettlementInput } from '../../tools/invocation.js';
+import { assertPreparedContextContinuity } from './context/context-blocks.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
@@ -250,6 +251,7 @@ export class ConversationLLMActor {
       continuation?.afterAppend?.();
       this.#assertRepairOpen(repair);
       const next = { ...input, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, input.sessionId)), episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id } };
+      this.#assertContinuationPreparedContext(retained.input, next);
       this.#assertRepairOpen(repair);
       repair.settlement.resolve();
       const nested = this.#arm(next, signal, { terminal }, repair.disposition);
@@ -453,6 +455,7 @@ export class ConversationLLMActor {
       signal?.throwIfAborted(); const facts = this.#appendClaimedToolResult(operation, settlement);
       if (operation.disposal) return this.#settleDisposedTool(operation);
       let continuationInput = { ...operation.parked.input, inputId: randomUUID(), episodeContext: { ...operation.parked.input.episodeContext, lastToolResult: { toolCallId: operation.parked.waiting.toolCallId, toolName: operation.parked.waiting.toolName, result: facts.providerResult } } };
+      this.#assertContinuationPreparedContext(operation.parked.input, continuationInput);
       const continuation = hook?.(continuationInput.inputId);
       if (operation.disposal) return this.#settleDisposedTool(operation);
       const contextRows = (continuation?.messages ?? []).map((message, index) => buildUserContextMessage(continuationInput.sessionId, continuationInput.inputId, 'continuation_hook', index, message));
@@ -546,6 +549,10 @@ export class ConversationLLMActor {
   }
   #publishExecutingActivityChange(): void { this.runtimeProjectionChanged?.(); }
   #assertPersistenceOwnership(input: CanonicalLlmInvocationInput): void { if (input.sessionId !== input.providerConversation.sourceSessionId) throw new Error(`Persisted LLM invocation '${input.inputId}' session '${input.sessionId}' does not match provider conversation source session '${input.providerConversation.sourceSessionId}'.`); }
+  #assertContinuationPreparedContext(before: CanonicalLlmInvocationInput, after: CanonicalLlmInvocationInput): void {
+    if (!before.preparedCompaction || !after.preparedCompaction) throw new Error(`LLMActor '${this.agentId}' continuation requires prepared invocation contexts.`);
+    assertPreparedContextContinuity(before.preparedContext, after.preparedContext, `LLMActor '${this.agentId}'`);
+  }
 
   async #callProvider(operation: InvocationOperation, input: CanonicalLlmInvocationInput, admission: OrdinaryAdmittedExecution, signal: AbortSignal): Promise<{ kind: 'completion'; completion: ProviderTurnCompletion } | Extract<PersistedProviderCompletion, { kind: 'content-policy-blocked' }>> {
     try {

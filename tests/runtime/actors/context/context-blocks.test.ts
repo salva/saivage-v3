@@ -2,6 +2,8 @@ import { describe, expect, it } from '@jest/globals';
 import { conversationSha256 } from '../../../../src/persistence/canonical-conversation-artifacts.js';
 import { canonicalJson } from '../../../../src/schemas/index.js';
 import {
+  assertPreparedContextContinuity,
+  buildPreparedInvocationContext,
   buildStaticInvocationPrefix,
   compileInvocationToolContract,
   contextContentSha256,
@@ -13,6 +15,7 @@ import {
   type ProviderToolDefinition,
   type ToolResultPolicyTemplate,
 } from '../../../../src/runtime/actors/context/context-blocks.js';
+import type { PreparedCompaction } from '../../../../src/runtime/actors/llm-invocation.js';
 
 const block = (id: string, overrides: Partial<Omit<ContextBlock, 'id'>> = {}): ContextBlock => ({
   id,
@@ -96,5 +99,39 @@ describe('context contracts', () => {
     expect(dynamicBlocksSha256([first, second])).toBe(conversationSha256(canonicalJson([first, second])));
     expect(dynamicBlocksSha256([second, first])).not.toBe(dynamicBlocksSha256([first, second]));
     expect(contextContentSha256(first.content)).toBe(conversationSha256(first.content));
+  });
+  it('builds one frozen prepared invocation context from its exact inputs', () => {
+    const preparedCompaction = { inputBudgetTokens: 1 } as PreparedCompaction;
+    const compiledTools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
+    const prepared = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
+    expect(prepared.prefix).toEqual(buildStaticInvocationPrefix('instruction', ['emit_result'], compiledTools));
+    expect(prepared.compiledTools).toEqual(compiledTools);
+    expect(prepared.internalToolContractSha256).toBe(internalToolContractSha256(compiledTools));
+    expect(prepared.dynamicBlocksSha256).toBe(dynamicBlocksSha256([snapshotBlock('a', 'k', 'v1')]));
+    expect(prepared.preparedCompaction).toBe(preparedCompaction);
+    expect(Object.isFrozen(prepared)).toBe(true);
+    expect(Object.isFrozen(prepared.compiledTools)).toBe(true);
+    expect(Object.isFrozen(prepared.dynamicBlocks)).toBe(true);
+  });
+  it('accepts byte-identical prepared contexts and rejects every frozen-contract drift across continuations', () => {
+    const preparedCompaction = { inputBudgetTokens: 1 } as PreparedCompaction;
+    const compiledTools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
+    const base = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
+    expect(() => assertPreparedContextContinuity(base, buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }), 'actor-x')).not.toThrow();
+    expect(() => assertPreparedContextContinuity(
+      base,
+      buildPreparedInvocationContext({ instructionText: 'changed', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }),
+      "agent:planner:project 'call-1'",
+    )).toThrow(/Prepared invocation prefix changed across agent:planner:project 'call-1' continuation/u);
+    expect(() => assertPreparedContextContinuity(
+      base,
+      buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools: [compileInvocationToolContract(providerDefinition, retainTemplate)], dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }),
+      'actor-x',
+    )).toThrow(/Prepared internal tool contract changed across actor-x continuation/u);
+    expect(() => assertPreparedContextContinuity(
+      base,
+      buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v2')], preparedCompaction }),
+      'actor-x',
+    )).toThrow(/Prepared dynamic context blocks changed across actor-x continuation/u);
   });
 });

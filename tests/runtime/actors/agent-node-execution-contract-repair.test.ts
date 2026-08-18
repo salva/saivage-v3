@@ -127,7 +127,8 @@ function harness(args: {
     prepareNodeEntry: () => void;
     prepareRecordRequirements: () => void;
     captureRecordHead: () => number | null;
-    buildLlmInput: (...args: unknown[]) => object;
+    prepareNodeInvocation: (...args: unknown[]) => object;
+    enterNodeConversation: (prepared: object) => object;
     buildSurface: (...args: unknown[]) => InvocationSurface;
     correction: (_process: unknown, _node: unknown, violations: readonly string[]) => string;
     closeAcceptedRecords: () => Array<{ name: string; url: string; version: number }>;
@@ -138,7 +139,8 @@ function harness(args: {
   internals.prepareNodeEntry = () => undefined;
   internals.prepareRecordRequirements = () => undefined;
   internals.captureRecordHead = () => 1;
-  internals.buildLlmInput = (...values) => { llmInputArguments.push(values); return {}; };
+  internals.prepareNodeInvocation = (...values) => { llmInputArguments.push(values); return { inputId: 'input-1' }; };
+  internals.enterNodeConversation = (prepared) => ({ ...prepared, providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] } });
   internals.buildSurface = (...values) => { const written=values[5] as Set<string>;for(const name of args.writtenRecords??[])written.add(name);return surface; };
   if (!args.useRealCorrection) internals.correction = (_process, _node, violations) => `correction: ${violations.join('; ')}`;
   internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
@@ -328,8 +330,8 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const accepted = await test.run();
     expect(Object.isFrozen(accepted)).toBe(true);
     expect(Object.isFrozen(accepted.acceptedRecords)).toBe(true);
-    expect(test.llmInputArguments[0]?.[4]).toBe('Call emit_result with exactly two fields: outcome (one of: complete) and summary (a trimmed non-empty string of at most 2000 characters).');
-    expect(test.llmInputArguments[0]?.[6]).toEqual({
+    expect(test.llmInputArguments[0]?.[3]).toBe('Call emit_result with exactly two fields: outcome (one of: complete) and summary (a trimmed non-empty string of at most 2000 characters).');
+    expect(test.llmInputArguments[0]?.[5]).toEqual({
       type: 'function',
       function: {
         name: 'emit_result',

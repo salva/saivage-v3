@@ -7,6 +7,7 @@ import { MemoryCandidateAvailability } from '../../src/agents/candidate-availabi
 import { InvocationService, type InvocationRequest } from '../../src/agents/invocation-service.js';
 import { LocalExactAdmissionError, projectAdmissionDiagnostics } from '../../src/agents/invocation-admission.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
+import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { agentMessageSchema } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
@@ -22,6 +23,10 @@ const C: Candidate = { provider: 'cand-c', account: null, model: 'model-c' };
 const SESSION = 'agent:planner:project';
 const TOOL: ToolDefinition = { type: 'function', function: { name: 'probe_tool', description: 'probe', parameters: { type: 'object', properties: {} } } };
 const roots: string[] = [];
+
+function preparedCompactionFixture() {
+  return prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', [TOOL], 2000);
+}
 
 afterEach(() => {
   jest.useRealTimers();
@@ -39,7 +44,8 @@ function request(chain: readonly Candidate[]): InvocationRequest {
     tools: [TOOL],
     terminalToolNames: [],
     modelParams: { temperature: 0 },
-    preparedCompaction: prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', [TOOL], 2000),
+    preparedCompaction: preparedCompactionFixture(),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction: preparedCompactionFixture() }),
     capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     routePass: { kind: 'ordinary', candidateChain: [...chain] },
   };

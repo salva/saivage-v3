@@ -15,6 +15,7 @@ import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js'
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
+import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
@@ -228,10 +229,12 @@ function actorFixture(plannerPublicationFailure?: Error) {
 
 function invocation(): PreparedLlmInvocationInput {
   const sessionId = 'agent:planner:project' as const;
+  const preparedCompaction = prepareCompaction({ input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', []);
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: 'planner', sessionId,
     systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 },
-    preparedCompaction: prepareCompaction({ input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', []),
+    preparedCompaction,
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
     capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [CANDIDATE] }, episodeContext: {},
   };
 }

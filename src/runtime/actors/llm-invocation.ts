@@ -2,7 +2,7 @@ import type { AgentName, ConversationSessionId } from '../../schemas/index.js';
 import type { ProviderConversationProjection, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
-import type { CompiledInvocationToolContract } from './context/context-blocks.js';
+import type { CompiledInvocationToolContract, PreparedInvocationContext } from './context/context-blocks.js';
 
 export type PreparedCompaction = {
   readonly inputBudgetTokens: number;
@@ -47,8 +47,8 @@ interface LlmInvocationInputBase {
 }
 
 export type LlmInvocationInput = LlmInvocationInputBase & (
-  | { preparedCompaction: PreparedCompaction; modelParams: { temperature: number; maxTokens?: never } }
-  | { preparedCompaction?: never; modelParams: { temperature: number; maxTokens: number } }
+  | { preparedCompaction: PreparedCompaction; preparedContext: PreparedInvocationContext; modelParams: { temperature: number; maxTokens?: never } }
+  | { preparedCompaction?: never; preparedContext?: never; modelParams: { temperature: number; maxTokens: number } }
 );
 
 export type CanonicalLlmInvocationInput = LlmInvocationInput & { sessionId: ConversationSessionId };

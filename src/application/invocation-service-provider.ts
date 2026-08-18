@@ -41,6 +41,6 @@ export function invocationRequest(input: LlmInvocationInput, signal: AbortSignal
     routePass: input.routePass.kind === 'ordinary' ? { kind: 'ordinary' as const, candidateChain: [...input.routePass.candidateChain] } : { kind: 'pinned-content-policy-retry' as const, candidate: input.routePass.candidate },
   };
   return input.preparedCompaction
-    ? { ...common, modelParams: input.modelParams, preparedCompaction: input.preparedCompaction }
+    ? { ...common, modelParams: input.modelParams, preparedCompaction: input.preparedCompaction, preparedContext: input.preparedContext }
     : { ...common, modelParams: input.modelParams };
 }

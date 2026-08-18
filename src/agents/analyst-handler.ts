@@ -29,6 +29,7 @@ import { ActivationOperationTracker, type InvocationJoinOutcome,
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import { prepareCompaction, type AutonomousCompactionPolicy,
 } from '../runtime/actors/compaction/compactor.js';
+import { buildPreparedInvocationContext, contextContentSha256, type ContextBlock } from '../runtime/actors/context/context-blocks.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
@@ -396,11 +397,19 @@ export class AnalystSession {
     surface: InvocationSurface,
   ): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const tools = surfaceToolDefinitions(surface);
+    const compiledToolContracts = surfaceToolContracts(surface);
+    const projectContext = this.buildProjectContext();
     const systemPrompt = this.#promptTemplates.render({kind:'global-agent'}, this.#agentName, {
       toolList: formatPromptToolList(tools),
       vocabularySnippet: formatVocabularySnippet(this.#cardTypeVocabulary),
-      projectContext: this.buildProjectContext(),
+      projectContext,
     });
+    const preparedCompaction = prepareCompaction(
+      this.#compactionPolicy,
+      systemPrompt,
+      tools,
+      this.#modelParams.maxTokens,
+    );
     return {
       inputId: randomUUID(),
       agentId: this.#llm.agentId,
@@ -408,19 +417,34 @@ export class AnalystSession {
       sessionId: this.#sessionId,
       systemPrompt,
       tools,
-      compiledToolContracts: surfaceToolContracts(surface),
+      compiledToolContracts,
       terminalToolNames: [],
       modelParams: { temperature: this.#modelParams.temperature },
-      preparedCompaction: prepareCompaction(
-        this.#compactionPolicy,
-        systemPrompt,
-        tools,
-        this.#modelParams.maxTokens,
-      ),
+      preparedCompaction,
+      preparedContext: buildPreparedInvocationContext({
+        instructionText: systemPrompt,
+        terminalToolNames: [],
+        compiledTools: compiledToolContracts,
+        dynamicBlocks: [this.projectTreeBlock(projectContext)],
+        preparedCompaction,
+      }),
       capabilityRequest: this.#capabilityRequest,
       routePass: { kind: 'ordinary', candidateChain: this.#candidateChain },
       episodeContext: { surface: 'web-chat' },
     };
+  }
+
+  private projectTreeBlock(projectContext: string): ContextBlock {
+    return Object.freeze({
+      id: 'analyst.project_tree',
+      role: 'system',
+      content: projectContext,
+      storage: 'activation_local',
+      replacement: Object.freeze({ kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: contextContentSha256(projectContext) }),
+      audience: 'primary_and_summarizer',
+      evidence: Object.freeze({ kind: 'none' }),
+      canonicalSource: null,
+    });
   }
 
   private errorMessage(err: unknown): string {

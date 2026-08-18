@@ -473,4 +473,48 @@ describe('named-agent card-type workflow compilation',()=>{
       'kind','outcome','promptId','terminalBehavior',
     ]);
   });
+
+  it('validates the completion reserve over the global Analyst and every selected-graph node participant',()=>{
+    const reserved=Math.floor(32768*0.25);
+    failure((value)=>{value.models.routes.executor!.max_tokens=reserved+1;},new RegExp(`Configured workflow participants exceed the compaction completion reserve: agents\\.executor\\.model_route 'executor' requests max_tokens ${reserved+1}, exceeding reserved completion tokens ${reserved} \\(floor\\(input_budget_tokens 32768 \\* completion_reserve_fraction 0\\.25\\)\\)`));
+    failure((value)=>{value.models.routes.analyst!.max_tokens=reserved+1;},/agents\.analyst\.model_route 'analyst' requests max_tokens/);
+  });
+
+  it('reports custom-named node participants and every offender precisely',()=>{
+    const value=source();
+    value.agents['custom-worker']={...structuredClone(value.agents.executor!),model_route:'worker-route'};
+    value.models.routes['worker-route']={candidates:['gpt-5.6'],temperature:0.3,max_tokens:9000};
+    value.card_types.code!.workflow.nodes.execute!.agent='custom-worker';
+    value.models.routes.analyst!.max_tokens=9000;
+    expect(()=>compileProjectWorkflows(value)).toThrow(new RegExp([
+      `^Configured workflow participants exceed the compaction completion reserve: `,
+      `agents\\.analyst\\.model_route 'analyst' requests max_tokens 9000, exceeding reserved completion tokens 8192 \\(floor\\(input_budget_tokens 32768 \\* completion_reserve_fraction 0\\.25\\)\\); `,
+      `agents\\.custom-worker\\.model_route 'worker-route' requests max_tokens 9000, exceeding reserved completion tokens 8192 \\(floor\\(input_budget_tokens 32768 \\* completion_reserve_fraction 0\\.25\\)\\)\\.$`,
+    ].join('')));
+  });
+
+  it('reports a shared node participant once across every selected graph node',()=>{
+    const value=source();
+    value.models.routes.planner!.max_tokens=9000;
+    expect(()=>compileProjectWorkflows(value)).toThrow(/participants exceed the compaction completion reserve/);
+    try { compileProjectWorkflows(value); } catch (error) {
+      expect((error as Error).message.match(/agents\.planner\.model_route 'planner'/gu)).toHaveLength(1);
+      expect((error as Error).message.match(/agents\./gu)).toHaveLength(1);
+    }
+  });
+
+  it('exempts unused configured agents from the participant completion reserve',()=>{
+    const value=source();
+    value.agents['unused-worker']={...structuredClone(value.agents.executor!),model_route:'unused-route'};
+    value.models.routes['unused-route']={candidates:['gpt-5.6'],temperature:0.3,max_tokens:32000};
+    expect(()=>compileProjectWorkflows(value)).not.toThrow();
+  });
+
+  it('validates specialized-only node participants that no standard graph references',()=>{
+    const config=specializedConfig();
+    config.agents['specialized-worker']={...structuredClone(config.agents.executor!),model_route:'specialized-worker-route'};
+    config.models.routes['specialized-worker-route']={candidates:['gpt-5.6'],temperature:0.3,max_tokens:9000};
+    config.card_types.architecture!.workflow.nodes.draft!.agent='specialized-worker';
+    expect(()=>compileProjectWorkflows(config)).toThrow(/agents\.specialized-worker\.model_route 'specialized-worker-route' requests max_tokens 9000/u);
+  });
 });

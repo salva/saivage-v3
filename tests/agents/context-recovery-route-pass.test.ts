@@ -15,6 +15,7 @@ import {
 } from '../../src/agents/invocation-admission.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
+import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { agentMessageSchema } from '../../src/schemas/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
@@ -25,6 +26,10 @@ const B: Candidate = { provider: 'cand-b', account: null, model: 'model-b' };
 const C: Candidate = { provider: 'cand-c', account: null, model: 'model-c' };
 const SESSION = 'agent:planner:project';
 const roots: string[] = [];
+
+function preparedCompactionFixture() {
+  return prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', [], 2000);
+}
 
 afterEach(() => {
   jest.restoreAllMocks();
@@ -45,7 +50,8 @@ function request(chain: readonly Candidate[], messages = [message('m1', 'x'.repe
     tools: [],
     terminalToolNames: [],
     modelParams: { temperature: 0 },
-    preparedCompaction: prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', [], 2000),
+    preparedCompaction: preparedCompactionFixture(),
+    preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction: preparedCompactionFixture() }),
     capabilityRequest: {},
     routePass: { kind: 'ordinary', candidateChain: [...chain] },
   };

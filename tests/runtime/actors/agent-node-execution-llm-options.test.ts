@@ -11,7 +11,7 @@ import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/ll
 import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {
-  buildLlmInput(node: unknown, input: unknown, sessionId: string, inputId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown): PreparedLlmInvocationInput;
+  prepareNodeInvocation(node: unknown, input: unknown, sessionId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown): Omit<PreparedLlmInvocationInput, 'providerConversation'>;
 };
 
 const roots: string[] = [];
@@ -53,16 +53,15 @@ describe('AgentNodeExecution LLM options', () => {
         escalate_summary_line_fraction: 0.5,
         snap: 'keep_straddler_verbatim',
       },
-    } as never, {} as never) as unknown as LlmInputBuilder;
+    } as never, { freshInputId: () => 'input-1' } as never) as unknown as LlmInputBuilder;
 
     const operationalTool = { name: 'lookup', description: 'Lookup', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({ query: z.string() }).strict(), executor: async () => ({ success: true as const }) };
     const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'Emit result', parameters: { type: 'object' } } };
     const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
-    const prepared = runner.buildLlmInput(
+    const prepared = runner.prepareNodeInvocation(
       { agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
       { card: { id: 'project', type: 'project', title: 'Project' }, caller: 'runtime' },
       sessionId,
-      'input',
       'direct result contract',
       { agentName: 'planner', tools: new Map([['lookup', operationalTool]]), providers: [] },
       terminalToolDefinition,
@@ -79,6 +78,15 @@ describe('AgentNodeExecution LLM options', () => {
     expect(prepared.terminalToolNames).toEqual(['emit_result']);
     expect(prepared.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true });
     expect(prepared.capabilityRequest).toBe(retainedCapabilityRequest);
+    expect(prepared.inputId).toBe('input-1');
+    expect(prepared.preparedContext.prefix.instructionText).toBe('system');
+    expect(prepared.preparedContext.prefix.terminalToolNames).toEqual(['emit_result']);
+    expect(prepared.preparedContext.compiledTools).toEqual(prepared.compiledToolContracts);
+    expect(prepared.preparedContext.internalToolContractSha256).toMatch(/^[0-9a-f]{64}$/u);
+    expect(prepared.preparedContext.dynamicBlocks).toHaveLength(1);
+    expect(prepared.preparedContext.dynamicBlocks[0]).toMatchObject({ id: 'card-activation:project', storage: 'activation_local', replacement: { kind: 'retain' } });
+    expect(prepared.preparedContext.preparedCompaction).toBe(prepared.preparedCompaction);
+    expect(Object.keys(prepared)).not.toContain('providerConversation');
     expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
     expect(String(renderedVariables?.toolList)).toContain('lookup');
     expect(String(renderedVariables?.toolList)).not.toContain('emit_result');

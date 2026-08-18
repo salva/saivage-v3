@@ -289,7 +289,6 @@ export const saivageConfigSchema = z.object({
   card_types: cardTypesSchema.optional(),
   mcpServers: z.record(z.string(), mcpServerEntrySchema).optional(),
 }).strict().superRefine((value, ctx) => {
-  validateAnalystReserve(value, ctx);
   if (value.card_type_set !== undefined && value.card_types !== undefined) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'card_type_set and card_types are mutually exclusive' });
   }
@@ -306,34 +305,12 @@ const effectiveSaivageConfigShape = {
   mcpServers: z.record(z.string(), effectiveMcpServerEntrySchema).optional(),
 };
 
-export const effectiveSaivageConfigSchema = z.object(effectiveSaivageConfigShape).strict().superRefine(validateAnalystReserve);
+export const effectiveSaivageConfigSchema = z.object(effectiveSaivageConfigShape).strict();
 
 export const outboundEffectiveSaivageConfigSchema = z.object({
   ...effectiveSaivageConfigShape,
   providers: z.record(z.string(), outboundEffectiveProviderEntrySchema),
-}).strict().superRefine(validateAnalystReserve);
-
-function validateAnalystReserve(value: {
-  agents: Record<string, { model_route: string }>;
-  analyst_agent: string;
-  models: { routes: Record<string, { max_tokens: number }> };
-  compaction: { input_budget_tokens: number; completion_reserve_fraction: number };
-}, ctx: z.RefinementCtx): void {
-  const analyst = value.agents[value.analyst_agent];
-  const route = analyst ? value.models.routes[analyst.model_route] : undefined;
-  if (!route) return;
-  const requested = route.max_tokens;
-  const budget = value.compaction.input_budget_tokens;
-  const fraction = value.compaction.completion_reserve_fraction;
-  const reserved = Math.floor(budget * fraction);
-  if (requested > reserved) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['models', 'routes', analyst.model_route, 'max_tokens'],
-      message: `Effective Analyst max tokens ${requested} exceed reserved completion tokens ${reserved} (floor(input_budget_tokens ${budget} * completion_reserve_fraction ${fraction})).`,
-    });
-  }
-}
+}).strict();
 
 // ── Derived Types ─────────────────────────────────────────────
 

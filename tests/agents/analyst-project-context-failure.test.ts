@@ -9,6 +9,7 @@ import type { CardService } from '../../src/cards/card-api.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
 import { defineTool, executedProviderResult, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
+import { readConversation } from '../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
@@ -87,5 +88,60 @@ describe('Analyst project-context failure', () => {
     expect(render).not.toHaveBeenCalled();
     expect(completeTurn).not.toHaveBeenCalled();
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it('rejects a static capacity failure after surface binding with zero durable ingress rows', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-static-capacity-failure-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+
+    const cardStore = { list: jest.fn(() => []) } as unknown as CardService;
+    const render = jest.fn(() => 'x'.repeat(8_000));
+    const completeTurn = jest.fn(async () => {
+      throw new Error('provider must not run');
+    });
+    const execute = jest.fn(async () => ({ success: true as const, data: null }));
+    const tool = defineTool({
+      name: 'forbidden_tool',
+      description: 'Must not run after failed static preparation.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
+      inputSchema: z.object({}).strict(),
+      executor: async () => executedProviderResult('none', await execute()),
+    });
+    const surface: InvocationSurface = {
+      agentName: 'analyst',
+      tools: new Map([[tool.name, tool]]),
+      providers: [],
+    };
+    const session = new AnalystSession({
+      cardTypeVocabulary: ['project'],
+      projectRoot,
+      sessionId: 'agent:analyst:global',
+      agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 100 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
+      candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+      promptTemplates: { render },
+      restartServerAvailable: false,
+      provider: scriptedAdmissionProvider(completeTurn),
+      conversations: { projectRoot },
+      compactionPolicy: { input_budget_tokens: 1_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim' },
+      compactor: {
+        shouldCompact: () => false,
+        compact: async () => { throw new Error('compaction must not run'); },
+      },
+      summarizerProvider: unusedSummarizerProvider,
+      cardStore,
+      runtimeProjectionChanged() {},
+      createInvocationSurface: () => surface,
+      shutdownProcesses: async () => {},
+      fatalPort: testApplicationFatalPort,
+    });
+
+    await expect(session.submit({ userContent: 'inspect the project' })).rejects.toThrow(/does not fit the compaction budget/u);
+
+    expect(readConversation(projectRoot, 'agent:analyst:global').sourceRows).toEqual([]);
+    expect(render).toHaveBeenCalledTimes(1);
+    expect(completeTurn).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(readAppLogEntries(projectRoot)).toEqual([]);
   });
 });
