@@ -154,11 +154,14 @@ provider.
    first publication; required current-format project/card/bootstrap authorities
    enter initialization; partial required publication and every old or mixed format
    fail reset-required without compatibility probing;
-7. publish the root card/bootstrap version indexes and artifacts plus the global
+7. publish the root card's nonempty `card.jsonl` first envelope, the bootstrap
+   record's closed first row in its `record-<stem>.jsonl` stream, and the global
    Analyst conversation through the singular bootstrap helper; then require one
    nonempty canonical linked-card projection, validate active dependencies and
    compiled parent/type admission read-only, and only afterward initialize exact
-   missing optional record/session indexes and strictly read current authority.
+   missing conversation indexes and strictly read current authority. A reached
+   tombstone terminates startup traversal before workflow, record, or
+   conversation initialization.
 
 The first identity read is non-mutating. A known-unsuccessful exclusive lock open
 publishes no new lock; failure after that open is outcome-unknown, halts, and may
@@ -171,19 +174,23 @@ repair, or rollback.
 
 Existing current state is derived only from the project, committed child links,
 configured record names, and configured active/global/retained-tombstone session
-identities—never directory enumeration. Initialization may recreate one exact
-missing deterministic optional record/session index as strict empty without
-adopting old files. Every present current index selects exactly its head; missing,
-malformed, unreadable, schema-invalid, or identity-mismatched selected artifacts
-fail without index shortening or predecessor fallback. Startup's conversation owner
-may truncate only bytes after the final newline after the retained nonempty complete
-prefix fully validates against its index, genesis, session, and semantics. Complete
-malformed data remains unchanged. App-log initialization strictly rejects nonempty
-incomplete content without mutation. Unindexed files remain ignored forever.
+identities—never directory enumeration. Cards and authored records persist to
+exact append-only streams (`card.jsonl` and one `record-<stem>.jsonl` per
+record), while conversations keep their unchanged index/immutable-segment
+model. Initialization creates no record stream: a missing optional record stream
+classifies empty, and a present empty canonical stream fails. Missing,
+malformed, unreadable, schema-invalid, or identity-mismatched complete
+card/record stream state fails directly without truncation or repair.
+Startup's conversation owner may truncate only bytes after the final newline
+after the retained nonempty complete prefix fully validates against its index,
+genesis, session, and semantics. Complete malformed data remains unchanged.
+App-log initialization admits only exact missing `app.jsonl`; a present
+zero-byte or malformed log fails. Noncanonical files remain ignored forever.
 
 `saivage reset` is a separate explicit destructive decision, run with the
 service confirmed stopped. It replaces the four generated roots wholesale;
-there is no `init --force` and no selective repair.
+there is no `init --force` and no selective repair. Durable-format changes are
+reset-only: rollback is another wholesale reset that loses generated history.
 
 Preserve the complete generated topology. Ask now about authorized provider and
 cost constraints, choose a strong current tool-capable model by default, and
@@ -219,8 +226,8 @@ identifies the source address by which the deployment host reaches the guest.
 Before the first `systemctl enable --now`, require either all generated roots
 absent or an already current-format installation. Stop and reset an old, mixed,
 or partially published installation under Stage 7 first. `saivage start`
-completes strict required-card admission and projection-driven optional initialization
-as its whole-current-graph validation boundary before constructing actors or opening
+completes strict required-card/bootstrap admission as its
+whole-current-graph validation boundary before constructing actors or opening
 the listener. Startup failure authorizes
 neither selective file edits nor a compatibility start.
 Never guess that address. If firewall state is existing or custom, stop this
@@ -340,10 +347,10 @@ After that actual restart, prove all of the following again:
 - `saivage.service` is active with its required unit satisfied;
 - guest-loopback and deployment-host health/readiness/UI/API probes succeed;
 - any naturally available non-host probe is still rejected.
-- root current card/bootstrap content is available; configured optional records
-  appear as absent-current with empty history rather than missing authority;
-  deterministic configured sessions appear as known empty or populated catalogs;
-  and no current-state restart-required error exists.
+- root current card/bootstrap content is available; a missing optional record
+  stream appears as absent current rather than missing authority; deterministic
+  configured sessions appear as known empty or populated catalogs; and no
+  current-state restart-required error exists.
 
 If the restart cannot be performed, or any mandatory rule, dependency, or
 positive reachability check fails, use classic `lxc-attach` to stop and disable
@@ -356,8 +363,10 @@ segment/card/record history, semantic `card.json` Files views, and reusable curr
 record URLs in the exact `record:///<name>?card=<id>` form. Explain that writing an
 absent current target creates it, repeated writes and edits keep using that URL,
 framework acceptance closes agent drafts, and only numeric `&v=N` URLs address
-immutable history. Never teach mutation URLs, head tokens, physical indexes/version filenames,
-`card.jsonl`, whole-history reconstructed sessions, or `v=next`. The Analyst is
+immutable history. Physical card/record persistence is one exact append-only
+`card.jsonl` stream per card and one `record-<stem>.jsonl` stream per record,
+never separately stored versions. Never teach mutation URLs, head tokens, or
+`v=next`. The Analyst is
 the ordinary mutation surface. Inspect existing project
 authority and ask only the unresolved goal, constraint, and acceptance
 questions. Have the Analyst align the root brief to that accepted authority and
@@ -390,11 +399,12 @@ that no live lifecycle owner remains. Run the current built `saivage reset` to
 replace the complete four generated roots wholesale while preserving configuration,
 credentials, operator inputs, source, and documentation; then start only the
 current binary and repeat Stage 6 verification. Reset permanently destroys
-generated cards, records, conversations, and history. There is no migration,
-selective repair, index reconstruction, orphan adoption, mixed-version rollback,
-or copying retained version files into new state. For runtime current corruption,
-restart once to permit initialization-only correction; if required current
-authority remains unrecoverable, use the same stopped wholesale reset.
+generated cards, records, conversations, and history. Rollback is another
+wholesale reset-only reset with the chosen binary that loses generated history.
+There is no migration, selective repair, stream reconstruction, orphan adoption,
+or mixed-version rollback. For retained malformed generated state, use the same
+stopped wholesale reset; there is no restart-time correction of card/record
+streams.
 
 Only now offer compact, deliberate alternatives: bearer authentication and
 remote access; custom firewall, bridge, proxy, or TLS design; guest SSH using
