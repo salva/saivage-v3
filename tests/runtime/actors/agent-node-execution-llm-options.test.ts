@@ -86,11 +86,12 @@ describe('AgentNodeExecution LLM options', () => {
     expect(prepared.preparedContext.dynamicBlocks).toHaveLength(1);
     expect(prepared.preparedContext.dynamicBlocks[0]).toMatchObject({ id: 'card-activation:project', storage: 'activation_local', replacement: { kind: 'retain' } });
     expect(prepared.preparedContext.preparedCompaction).toBe(prepared.preparedCompaction);
-    expect(Object.keys(prepared)).not.toContain('providerConversation');
-    expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
-    expect(String(renderedVariables?.toolList)).toContain('lookup');
-    expect(String(renderedVariables?.toolList)).not.toContain('emit_result');
-  });
+  expect(Object.keys(prepared)).not.toContain('providerConversation');
+  expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
+  expect(renderedVariables).not.toHaveProperty('toolList');
+  expect(renderedVariables).not.toHaveProperty('cardId');
+  expect(prepared.preparedContext.compiledTools.map((tool) => tool.providerDefinition.function.name)).toEqual(['lookup', 'emit_result']);
+});
 
   it('appends exactly one activation marker on first and subsequent node entry', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-agent-node-entry-'));

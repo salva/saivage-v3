@@ -19,7 +19,7 @@ import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import type { AgentMembershipFreshnessTarget } from '../../src/application/freshness-effects.js';
 
 const REVIEW_SUMMARY = 'Add explicit remediation evidence before approval.';
-const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\ntest process prompt: review-to-plan';
+const FEEDBACK = 'Previous process node: review\nAccepted outcome: revision_required\nSummary: Add explicit remediation evidence before approval.\nRecords:\n- record:///review.md?card=project&v=3\n\nThe Reviewer requires revision. Address the immediately preceding findings and update the `project` card evidence before selecting the next route.\n';
 const REVISED_EVIDENCE = 'Revised remediation evidence addressing the concrete review.';
 const roots: string[] = [];
 
