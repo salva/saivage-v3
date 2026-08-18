@@ -10,7 +10,6 @@ export interface PromptTemplateVariables { readonly [key: string]: string }
 export interface PromptTemplateRegistry {
   render(host: AgentPromptHost, agentName: AgentName, variables: PromptTemplateVariables): string;
 }
-export interface PromptToolDisplay { readonly function: { readonly name: string; readonly description: string } }
 export type CompiledPromptToken = Readonly<{ kind: 'literal'; text: string } | { kind: 'placeholder'; key: string }>;
 export type CompiledPromptTemplate = Readonly<{ tokens: readonly CompiledPromptToken[] }>;
 export type ResolvedPromptFragment = Readonly<{ path: string; text: string }>;
@@ -145,8 +144,4 @@ export function createPromptTemplateRegistry(workflows: RegistryWorkflows): Prom
       return renderCompiledPrompt(host, agentName, compiled, variables);
     },
   });
-}
-
-export function formatPromptToolList(tools: readonly PromptToolDisplay[]): string {
-  return tools.map((tool) => `- ${tool.function.name}: ${tool.function.description}`).join('\n');
 }

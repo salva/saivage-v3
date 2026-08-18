@@ -86,16 +86,16 @@ try {
   const standardWorkflows=compileSet('standard');
   const structuralWorkflows = compileSet('specialized');
   const explicitStandard=compileProjectWorkflows(config,{projectRoot});
-  const standardRender=(workflows)=>[...workflows.cardTypes].flatMap(([cardType,workflow])=>[...workflow.states.values()].filter((state)=>state.kind==='node').map((state)=>renderCompiledPrompt(cardType,state.agent.name,state.selectedAgentPrompt.compiled,{cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType,contractDescription:'contract',toolList:'tools'})));
+  const standardRender=(workflows)=>[...workflows.cardTypes].flatMap(([cardType,workflow])=>[...workflow.states.values()].filter((state)=>state.kind==='node').map((state)=>renderCompiledPrompt(cardType,state.agent.name,state.selectedAgentPrompt.compiled,{contractDescription:'contract'})));
   if(JSON.stringify(standardRender(standardWorkflows))!==JSON.stringify(standardRender(explicitStandard)))throw new Error('Selected standard rendered prompt baseline changed.');
-  const analystText = renderCompiledPrompt('global', structuralWorkflows.analyst.name, structuralWorkflows.analystPrompt.compiled, { toolList: 'tools', vocabularySnippet: 'vocabulary', projectContext: 'context' });
+  const analystText = renderCompiledPrompt('global', structuralWorkflows.analyst.name, structuralWorkflows.analystPrompt.compiled, { vocabularySnippet: 'vocabulary' });
   if (analystText.includes('{{')) throw new Error('Unresolved Analyst template syntax.');
   for (const [cardType, workflow] of structuralWorkflows.cardTypes) for (const prompt of workflow.processPrompts.values()) {
     if (prompt.text.includes('{{')) throw new Error(`Unresolved process template syntax for ${cardType}/${prompt.reference}`);
     if ((prompt.reference === 'execute' || prompt.reference === 'plan') && !prompt.text.includes(cardType)) throw new Error(`Missing eager cardType rendering for ${cardType}/${prompt.reference}`);
   }
   for (const [cardType, workflow] of structuralWorkflows.cardTypes) for (const state of workflow.states.values()) if (state.kind === 'node') {
-    const text = renderCompiledPrompt(cardType, state.agent.name, state.selectedAgentPrompt.compiled, { cardId: 'card-a', cardTitle: 'Title', cardBrief: 'Brief', cardType, contractDescription: 'contract', toolList: 'tools' });
+    const text = renderCompiledPrompt(cardType, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: 'contract' });
     if (text.includes('{{')) throw new Error(`Unresolved agent template syntax for ${cardType}/${state.agent.name}`);
   }
   const plan=structuralWorkflows.cardTypes.get('goal').states.get('node:plan');
@@ -106,7 +106,7 @@ try {
   const standardPlanText=standardWorkflows.cardTypes.get('goal').processPrompts.get(standardPlan.promptId).text;
   if(standardPlanText.includes('Planner has no `reopen_card` tool')||standardPlanText.includes('reopen_card({cardId:"<id>"})'))throw new Error('Specialized planning guidance leaked into standard.');
   const architecture=structuralWorkflows.cardTypes.get('architecture');
-  for(const nodeId of ['component-review','system-review']){const node=architecture.states.get(`node:${nodeId}`);if(node.kind!=='node')throw new Error(`Missing ${nodeId}.`);const agent=renderCompiledPrompt('architecture',node.agent.name,node.selectedAgentPrompt.compiled,{cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType:'architecture',contractDescription:'contract',toolList:'tools'});if(node.selectedAgentPrompt.source!=='bundled-shared'||!agent.includes('record:///review.md?card=<card-id>')||!architecture.processPrompts.get(node.promptId).text.includes('record:///review.md?card=<card-id>'))throw new Error(`${nodeId} does not compose the shared Reviewer with current review.md.`);}
+  for(const nodeId of ['component-review','system-review']){const node=architecture.states.get(`node:${nodeId}`);if(node.kind!=='node')throw new Error(`Missing ${nodeId}.`);const agent=renderCompiledPrompt('architecture',node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'});if(node.selectedAgentPrompt.source!=='bundled-shared'||!agent.includes('record:///review.md?card=<card-id>')||!architecture.processPrompts.get(node.promptId).text.includes('record:///review.md?card=<card-id>'))throw new Error(`${nodeId} does not compose the shared Reviewer with current review.md.`);}
   for(const prompt of architecture.processPrompts.values())if(prompt.reference.includes('revision')||prompt.reference==='architecture-to-system-review'){if(!prompt.text.includes('versioned `review.md` URL'))throw new Error(`${prompt.reference} lacks immutable transition evidence guidance.`);}
   const providerRegistry = new ProviderRegistry(config);
   const workflows = bindRuntimeWorkflows(structuralWorkflows, new ModelRouter(providerRegistry));

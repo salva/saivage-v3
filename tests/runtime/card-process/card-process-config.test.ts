@@ -85,7 +85,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(workflow.processPrompts.get('execute' as never)?.text).toBe('GLOBAL PROCESS global');
     const registry=createPromptTemplateRegistry(compiled);
     expect(registry.render({kind:'workflow-agent',cardType:'global'},'executor',{contractDescription:'contract'})).toBe('GLOBAL CARD CARD FRAGMENT contract');
-    expect(registry.render({kind:'global-agent'},'analyst',{toolList:'tools',vocabularySnippet:'types',projectContext:'context'})).toContain('Saivage Analyst');
+    expect(registry.render({kind:'global-agent'},'analyst',{vocabularySnippet:'types'})).toContain('Saivage Analyst');
   });
   it('projects exactly configured graphs and the same effective leaf tool selection used by execution',()=>{
     const config=source();config.providers={test:{models:['gpt-5.6']}};
@@ -368,7 +368,7 @@ describe('named-agent card-type workflow compilation',()=>{
       for(const prompt of workflow.processPrompts.values())expect(prompt.text).not.toMatch(/\{\{[^}]+\}\}/u);
       expect(workflow.processPrompts.get('stopped-recovery' as never)?.text).toBe(stopped);
       for(const state of workflow.states.values())if(state.kind==='node'){
-        const rendered=renderCompiledPrompt({kind:'workflow-agent',cardType},state.agent.name,state.selectedAgentPrompt.compiled,{cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType,contractDescription:'GENERATED CONTRACT',toolList:'tools'});
+        const rendered=renderCompiledPrompt({kind:'workflow-agent',cardType},state.agent.name,state.selectedAgentPrompt.compiled,{contractDescription:'GENERATED CONTRACT'});
         expect(rendered.match(/GENERATED CONTRACT/gu)).toHaveLength(1);
         expect(rendered).not.toMatch(/\{\{[^}]+\}\}/u);
       }
@@ -378,11 +378,11 @@ describe('named-agent card-type workflow compilation',()=>{
     const goal=compiled.cardTypes.get('goal')!;
     const plan=goal.states.get('node:plan')!;const review=goal.states.get('node:review')!;
     if(plan.kind!=='node'||review.kind!=='node')throw new Error('missing goal nodes');
-    const variables={cardId:'card-a',cardTitle:'Title',cardBrief:'Brief',cardType:'goal',contractDescription:'contract',toolList:'tools'};
+    const variables={contractDescription:'contract'};
     expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},plan.agent.name,plan.selectedAgentPrompt.compiled,variables)).not.toContain('canonical project card');
     expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},review.agent.name,review.selectedAgentPrompt.compiled,variables)).not.toContain('project/root tree');
     const executor=compiled.cardTypes.get('doc')!.states.get('node:execute')!;if(executor.kind!=='node')throw new Error('missing executor');
-    const executorText=renderCompiledPrompt({kind:'workflow-agent',cardType:'doc'},executor.agent.name,executor.selectedAgentPrompt.compiled,{...variables,cardType:'doc'});
+    const executorText=renderCompiledPrompt({kind:'workflow-agent',cardType:'doc'},executor.agent.name,executor.selectedAgentPrompt.compiled,variables);
     expect(executorText).not.toContain('code card');
     expect(executorText).toContain('Reference cards durably as `[[card:<id>]]` in operator-facing Markdown.');
     expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'goal'},review.agent.name,review.selectedAgentPrompt.compiled,variables)).toContain('Reference cards durably as `[[card:<id>]]`; do not rely on friendly display paths.');

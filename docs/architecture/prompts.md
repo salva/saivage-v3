@@ -47,17 +47,17 @@ The production compiler in `src/utils/prompt-api.ts` parses literals, value plac
 
 The closed `PromptHost` variants select both artifact scope and placeholder policy, so callers cannot pair a card name with a contradictory policy. Their value sets are:
 
-- global agent: `toolList`, `vocabularySnippet`, `projectContext`
-- workflow agent: `cardId`, `cardTitle`, `cardBrief`, `cardType`, `contractDescription`, `toolList`
+- global agent: `vocabularySnippet`
+- workflow agent: `contractDescription`
 - process: `cardType`
 
-Unknown or host-inapplicable placeholders fail startup. Every effective workflow-agent system prompt contains `{{contractDescription}}` exactly once after fragment expansion and passes obsolete fixed-result-directive validation. The Analyst and process hosts reject that value.
+Unknown or host-inapplicable placeholders fail startup. Every effective workflow-agent system prompt contains `{{contractDescription}}` exactly once after fragment expansion and passes obsolete fixed-result-directive validation. The Analyst and process hosts reject that value. Old `toolList`, `projectContext`, `cardId`, `cardTitle`, and `cardBrief` placeholders do not exist: tools, project orientation, and card data are typed dynamic context, never rendered prompt variables.
 
 ## Compiled artifacts and runtime use
 
 `compileProjectWorkflows()` owns exact root/scope selection and fragment reads. It compiles each selected agent template once. Process templates render raw `cardType` eagerly and are stored as final frozen non-empty text. Source edits after compilation cannot affect the artifact.
 
-`PromptTemplateRegistry` stores global Analyst and card-type workflow entries structurally separately and substitutes runtime variables into already-compiled agent tokens without re-tokenization. The Analyst supplies tools, the selected compiled card-type vocabulary, and exact-or-throw project context. Card agents supply card identity/brief/type, generated node contract, and tools. Node execution reads already-rendered process strings by ID directly from the exact compiled workflow's `processPrompts` map; transition ordering and message placement are unchanged.
+`PromptTemplateRegistry` stores global Analyst and card-type workflow entries structurally separately and substitutes runtime variables into already-compiled agent tokens without re-tokenization. The rendered agent instruction is the singular static instruction prefix of the prepared invocation: provider tool-definition bytes and terminal names complete the immutable prefix, and everything else reaches the model as typed dynamic context blocks. The Analyst supplies the selected compiled card-type vocabulary through `vocabularySnippet`; its bounded project orientation is a typed activation-local context block, not prompt content. Card agents supply only the generated node contract through `contractDescription`; card identity/brief/type arrive as typed dynamic blocks. Specialized process prompts remain startup-compiled **dynamic process context**: node-entry, transition, correction, and recovery text is appended and projected at its existing semantic position and never enters the immutable prefix. Node execution reads already-rendered process strings by ID directly from the exact compiled workflow's `processPrompts` map; transition ordering and message placement are unchanged. Participant discovery for preparation and reserve validation traverses every node in every selected compiled graph, including specialized nodes, rather than deriving participation from default role names, standard graphs, or this prompt-file inventory.
 
 Specialized planning remains process guidance layered after the unchanged shared Planner system prompt: it describes the exact notification/activation/metadata limits and Analyst-only `reopen_card` escalation without granting Planner another tool. Specialized architecture likewise uses the unchanged shared Reviewer system prompt, whose current target is `review.md`. Node prompts distinguish component and system scope; generated transition context places accepted summary and immutable versioned `review.md` URLs before edge and destination prompts, allowing each Reviewer node to start a clean cycle of the same record without a specialized agent template.
 

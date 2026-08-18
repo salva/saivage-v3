@@ -10,7 +10,6 @@ import type { ConversationLLMActor } from './llm-actor.js';
 import type { PreparedLlmInvocationInput } from './llm-invocation.js';
 import { readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
-import { formatPromptToolList } from '../../utils/prompt-api.js';
 import { cardBootstrapForPrompt } from '../records/card-bootstrap.js';
 import { appendActivationMarker, appendUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { stabilizeAgentSession } from './conversation-recovery.js';
@@ -281,10 +280,7 @@ export class AgentNodeExecution {
 
   private prepareNodeInvocation(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition, binding: import('../card-process/card-process-config.js').BoundAgentContract): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const cardBrief = cardBootstrapForPrompt(this.deps.store, input.card);
-    const systemPrompt = this.deps.promptTemplates.render({kind:'workflow-agent',cardType:input.card.type}, node.agent.name, {
-      cardId: input.card.id, cardTitle: input.card.title, cardBrief, contractDescription,
-      toolList: formatPromptToolList(surfaceToolDefinitions(surface)), cardType: input.card.type,
-    });
+    const systemPrompt = this.deps.promptTemplates.render({kind:'workflow-agent',cardType:input.card.type}, node.agent.name, { contractDescription });
     const tools = [...surfaceToolDefinitions(surface), terminalToolDefinition];
     const compiledToolContracts = [...surfaceToolContracts(surface), compileInvocationToolContract(terminalToolDefinition, EMIT_RESULT_POLICY_TEMPLATE)];
     const preparedCompaction = prepareCompaction(this.deps.compactionConfig, systemPrompt, tools, binding.contract.model.maxTokens);

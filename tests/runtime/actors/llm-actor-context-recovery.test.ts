@@ -15,6 +15,7 @@ import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js'
 import { readConversation } from '../../../src/persistence/conversation-file.js';
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
+import { internalCompactionSummarySessionId } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
@@ -32,8 +33,9 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
   it('publishes summary and triggering attempts once under separate identities and rejects with the fieldless ownership marker', async () => {
     const fixture = actorFixture();
     const summaryFailure = providerFailure('summary-input', 'server_transient');
+    const summarySessionId = internalCompactionSummarySessionId(fixture.input.sessionId);
     fixture.compact.mockImplementation(async ({ summarizerProvider }) => {
-      summarizerProvider.projectProviderExchanges('agent:compaction-summarizer:global', 'summary-input', summaryFailure.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: null });
+      summarizerProvider.projectProviderExchanges(summarySessionId, 'summary-input', summaryFailure.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: null });
       throw summaryFailure;
     });
 
@@ -49,7 +51,7 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
     expect(rejection).not.toHaveProperty('failure_phase');
     expect(rejection).not.toHaveProperty('candidate');
     expect(fixture.summaryProjection).toHaveBeenCalledTimes(1);
-    expect(fixture.summaryProjection).toHaveBeenCalledWith('agent:compaction-summarizer:global', 'summary-input', expect.any(Array), { assistantOutputIds: [], terminalConversationOutputId: null });
+    expect(fixture.summaryProjection).toHaveBeenCalledWith(summarySessionId, 'summary-input', expect.any(Array), { assistantOutputIds: [], terminalConversationOutputId: null });
     expect(fixture.plannerProjection).toHaveBeenCalledTimes(1);
     expect(fixture.plannerProjection).toHaveBeenCalledWith(fixture.input.sessionId, fixture.input.inputId, expect.arrayContaining([expect.objectContaining({ source_input_id: fixture.input.inputId, attempt_index: 0 })]), { assistantOutputIds: [], terminalConversationOutputId: null });
     const conversation = readConversation(fixture.root, fixture.input.sessionId);
