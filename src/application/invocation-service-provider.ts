@@ -1,6 +1,7 @@
 import type { InvocationRequest, InvocationService } from '../agents/invocation-service.js';
 import {
   AdmittedProviderTurnFailure,
+  AdmissionIntegrityError,
   LocalExactAdmissionError,
   projectAdmissionDiagnostics,
 } from '../agents/invocation-admission.js';
@@ -21,10 +22,15 @@ export function createInvocationServiceProvider(invocationService: InvocationSer
   };
 }
 
-export async function executeAdmittedTurn(service: InvocationService, input: LlmInvocationInput, signal: AbortSignal): Promise<ProviderTurnCompletion> {
+export async function executeAdmittedTurn(service: InvocationService, input: LlmInvocationInput, signal: AbortSignal, expectedRequestSha256?: string): Promise<ProviderTurnCompletion> {
   const admission = service.preparePrimaryRequestAdmission(invocationRequest(input, signal));
   if (admission.kind !== 'admitted')
     throw new LocalExactAdmissionError({ localCompactionAttempted: false, diagnostics: projectAdmissionDiagnostics(admission.candidates) });
+  if (expectedRequestSha256 !== undefined) {
+    const admitted = admission.candidates.filter((verdict) => verdict.kind === 'admitted');
+    if (admitted.length !== 1 || admitted[0]!.plan.request.requestHash !== expectedRequestSha256)
+      throw new AdmissionIntegrityError('Summary request bytes changed between measured admission and provider send.');
+  }
   try {
     return await service.executeAdmittedWithRecovery(admission, signal);
   } catch (error) {

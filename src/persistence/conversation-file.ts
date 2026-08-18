@@ -174,15 +174,36 @@ export function appendConversationBatch(conversations: ConversationFileContext, 
 }
 
 export interface ConversationCompactionPublication {
+  readonly identity: CompactionSuccessorIdentity;
   readonly history: CompactedHistory;
   readonly cutoffSourceIndex: number;
   readonly cutoffMessageId: string;
   readonly continuation: ConversationContinuation;
 }
 
-export function publishCompactedConversationSegment(conversations: ConversationFileContext, sessionId: ConversationSessionId, compaction: ConversationCompactionPublication, temporary?: PublicationTemporaryIdFactory): void {
+export type CompactionSuccessorIdentity = Readonly<{
+  readonly genesisId: string;
+  readonly segmentVersion: number;
+  readonly entryId: string;
+  readonly timestamp: string;
+  readonly filename: string;
+}>;
+
+export interface CompactionPublicationIo {
+  readonly createImmutableVersionFile: typeof createImmutableVersionFile;
+  readonly replaceFile: typeof replaceFile;
+}
+
+export interface CompactionPublicationOptions {
+  readonly temporary?: PublicationTemporaryIdFactory;
+  readonly io?: CompactionPublicationIo;
+}
+
+export function publishCompactedConversationSegment(conversations: ConversationFileContext, sessionId: ConversationSessionId, compaction: ConversationCompactionPublication, options: CompactionPublicationOptions = {}): ValidatedConversation {
+  const io = options.io ?? { createImmutableVersionFile, replaceFile };
   const target = location(conversations.projectRoot, sessionId); const current = readSegment(conversations.projectRoot, sessionId); if (!current) throw new Error(`Conversation '${sessionId}' has no source segment to compact.`);
   if (current.entry.version !== current.index.current_version || current.entry.filename !== current.index.current_filename) throw new Error('Conversation compaction source is not the current index head.');
+  if (current.entry.version + 1 !== compaction.identity.segmentVersion) throw new Error('Compaction successor identity does not extend the still-current conversation head.');
   const sourceRows = current.conversation.sourceRows; if (sourceRows[compaction.cutoffSourceIndex]?.id !== compaction.cutoffMessageId) throw new Error('Conversation compaction cutoff does not identify the source segment.');
   const coveredRows = sourceRows.slice(0, compaction.cutoffSourceIndex + 1);
   const { inherited: currentInherited, compacted: currentCompacted } = validationSeeds(current.genesis);
@@ -194,14 +215,16 @@ export function publishCompactedConversationSegment(conversations: ConversationF
   } else if (currentInherited && current.conversation.rounds.some((round) => round.state === 'open' && round.activation.source === 'compacted_genesis' && round.activation.marker_id === currentInherited.markerId && round.activation.input_id === currentInherited.inputId)) {
     throw new Error('A between-rounds cutoff cannot leave an inherited open activation with no retained row.');
   }
-  const version = current.entry.version + 1; const entryId = randomUUID(); const timestamp = new Date().toISOString(); const filename = versionFilename(version, randomUUID(), 'jsonl');
+  const version = compaction.identity.segmentVersion; const entryId = compaction.identity.entryId; const timestamp = compaction.identity.timestamp; const filename = compaction.identity.filename;
   const retainedHash = canonicalValueSha256(rows); const sourceHash = conversationSha256(current.bytes); const payloadHash = canonicalValueSha256(compaction.history); const continuationHash = canonicalValueSha256(compaction.continuation);
-  const genesis = { format_version: 1, kind: 'compacted_segment_genesis', id: randomUUID(), entry_id: entryId, session_id: sessionId, segment_version: version, timestamp, source: { version: current.entry.version, filename: current.entry.filename, sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId }, compaction: compaction.history, continuation: compaction.continuation, retained_rows: { first_message_id: rows[0]?.id ?? null, last_message_id: rows.at(-1)?.id ?? null, row_count: rows.length, sha256: retainedHash } } as const;
+  const genesis = { format_version: 1, kind: 'compacted_segment_genesis', id: compaction.identity.genesisId, entry_id: entryId, session_id: sessionId, segment_version: version, timestamp, source: { version: current.entry.version, filename: current.entry.filename, sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId }, compaction: compaction.history, continuation: compaction.continuation, retained_rows: { first_message_id: rows[0]?.id ?? null, last_message_id: rows.at(-1)?.id ?? null, row_count: rows.length, sha256: retainedHash } } as const;
   const entry = { entry_id: entryId, version, filename, created_at: timestamp, genesis: { kind: 'compacted', source_version: current.entry.version, source_filename: current.entry.filename, source_sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId, compaction_payload_sha256: payloadHash, continuation_sha256: continuationHash, retained_rows_sha256: retainedHash } } as const;
   const next = conversationVersionIndexSchema.parse({ ...current.index, versions: [...current.index.versions, entry], current_version: version, current_filename: filename });
-  validateConversation(sessionId, rows, inherited, { id: genesis.id, timestamp, history: compaction.history, sourceVersion: current.entry.version });
-  createImmutableVersionFile(target.versionPath(filename), segmentEnvelope([genesis, ...rows])); publishIndex(target.indexPath, next, temporary);
+  const successor = validateConversation(sessionId, rows, inherited, { id: compaction.identity.genesisId, timestamp, history: compaction.history, sourceVersion: current.entry.version });
+  io.createImmutableVersionFile(target.versionPath(filename), segmentEnvelope([genesis, ...rows]));
+  io.replaceFile(target.indexPath, serializeStrictJson(next), options.temporary);
   conversations.changes?.conversationChanged({ session_id: sessionId, segment_version: version, visible_message_id: visibleMessageId(rows) });
+  return successor;
 }
 
 const conversationTruncationIo: ConversationTruncationIo = { open: openSync, ftruncate: ftruncateSync, fsync: fsyncSync, close: closeSync };

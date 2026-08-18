@@ -19,31 +19,36 @@ import {
 } from '../../src/schemas/index.js';
 import type { ValidatedConversation } from '../../src/contracts/conversation-validation.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
+import { SUMMARY_REDUCTION_INSTRUCTION } from '../../src/runtime/actors/compaction/summary-materializer.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
-const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
-const BIG = 'x'.repeat(1400);
-const MERGE_MARKER = 'pointer sections.\n\n';
+const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
+const BIG = 'x'.repeat(12_000);
 
 type SummaryCall = { systemPrompt: string; contents: string[] };
 
 function recordingSummarizer(calls: SummaryCall[]) {
   return {
     candidate: CANDIDATE,
+    serializeSummaryRequest: deterministicSummarySerialization,
     completeTurn: async (input: PreparedLlmInvocationInput) => {
       calls.push({ systemPrompt: input.systemPrompt, contents: input.providerConversation.messages.map((row) => row.content) });
-      if (input.providerConversation.messages.length === 0) {
-        const markerIndex = input.systemPrompt.indexOf(MERGE_MARKER);
-        const merged = markerIndex >= 0 ? input.systemPrompt.slice(markerIndex + MERGE_MARKER.length) : input.systemPrompt;
-        return { result: { kind: 'message' as const, content: `merge[${merged}]` }, provider_exchanges: [] };
+      const previews = input.providerConversation.messages.map((row) => row.content.split('\n').slice(1).join('\n').slice(0, 120)).join('|');
+      if (input.systemPrompt === SUMMARY_REDUCTION_INSTRUCTION) {
+        return { result: { kind: 'message' as const, content: `merge[${previews}]` }, provider_exchanges: [] };
       }
-      return { result: { kind: 'message' as const, content: `round[${input.providerConversation.messages.map((row) => row.content.slice(0, 80)).join('|')}]` }, provider_exchanges: [] };
+      return { result: { kind: 'message' as const, content: `round[${previews}]` }, provider_exchanges: [] };
     },
     projectProviderExchanges: jest.fn(),
   };
+}
+
+function reductionCalls(calls: readonly SummaryCall[]): SummaryCall[] {
+  return calls.filter((call) => call.systemPrompt === SUMMARY_REDUCTION_INSTRUCTION);
 }
 
 function invocation(conversation: ValidatedConversation): PreparedLlmInvocationInput {
@@ -212,6 +217,7 @@ describe('accumulated compaction history generations', () => {
       const conversation = readConversation(root, SESSION);
       const failing = {
         candidate: CANDIDATE,
+        serializeSummaryRequest: deterministicSummarySerialization,
         completeTurn: async () => { throw new Error('summary provider failed'); },
         projectProviderExchanges: jest.fn(),
       };
@@ -229,7 +235,7 @@ describe('accumulated compaction history generations', () => {
     initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), recoveryNotice(1)]);
-      appendConversationBatch({ projectRoot: root }, [activation(2), ...summarizerOnlyBundle('00000000-0000-4000-8000-000000000002', 'call-2', 'BUNDLE-TWO'.concat('-two'.repeat(200))), refusalMarker(2)]);
+      appendConversationBatch({ projectRoot: root }, [activation(2), ...summarizerOnlyBundle('00000000-0000-4000-8000-000000000002', 'call-2', 'BUNDLE-TWO'.concat('-two'.repeat(4000))), refusalMarker(2)]);
       appendConversationBatch({ projectRoot: root }, [activation(3), text('t3', BIG)]);
 
       const generationCalls: SummaryCall[][] = [];
@@ -253,7 +259,7 @@ describe('accumulated compaction history generations', () => {
       expect(summarizer1[0]).toMatchObject({ kind: 'inherited_summary', content: history1.summaryText });
       expect(JSON.stringify(summarizer1)).not.toContain('RAW-REFUSAL');
 
-      const bundleFiveBody = 'BUNDLE-FIVE'.concat('-five'.repeat(200));
+      const bundleFiveBody = 'BUNDLE-FIVE'.concat('-five'.repeat(4000));
       appendConversationBatch({ projectRoot: root }, [activation(4), text('t4', BIG), text('eo-4', 'EVIDENCE-ROW-FOUR', 'evidence_only'), activation(5), ...summarizerOnlyBundle('00000000-0000-4000-8000-000000000005', 'call-5', bundleFiveBody), activation(6), text('t6', BIG)]);
       const preSecond = providerConversationProjection(readConversation(root, SESSION)).messages;
       expect(preSecond.some((row) => row.content.includes(bundleFiveBody))).toBe(true);
@@ -269,10 +275,10 @@ describe('accumulated compaction history generations', () => {
       expect(history2.requiredModelFacts).toEqual(history1.requiredModelFacts);
       expect(history2.dispositionCommitment.evidenceOnly).toBeGreaterThanOrEqual(1);
       expect(history2.dispositionCommitment.count).toBeGreaterThan(history1.dispositionCommitment.count);
-      const mergeInputs2 = generationCalls[1]!.filter((call) => call.contents.length === 0);
+      const mergeInputs2 = reductionCalls(generationCalls[1]!);
       expect(mergeInputs2.length).toBeGreaterThan(0);
-      expect(mergeInputs2.some((call) => call.systemPrompt.includes(history1.summaryText))).toBe(true);
-      expect(mergeInputs2.some((call) => call.systemPrompt.includes('superseded'))).toBe(false);
+      expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes(history1.summaryText)))).toBe(true);
+      expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes('superseded_')))).toBe(false);
       expect(gen2.rows.map((row) => row.id)).toEqual(['activation-6', 't6']);
       const projected2 = providerConversationProjection(gen2.conversation).messages;
       expect(projected2.some((row) => row.content.includes(bundleFiveBody))).toBe(false);
@@ -286,9 +292,9 @@ describe('accumulated compaction history generations', () => {
       const gen3 = readCurrentConversationSegment(root, SESSION)!;
       const history3 = gen3.conversation.effectiveCompactedHistory!;
       expect(history3.requiredModelFacts).toEqual(history1.requiredModelFacts);
-      const mergeInputs3 = generationCalls[2]!.filter((call) => call.contents.length === 0);
-      expect(mergeInputs3.some((call) => call.systemPrompt.includes(history2.summaryText))).toBe(true);
-      expect(mergeInputs3.some((call) => call.systemPrompt.includes('superseded'))).toBe(false);
+      const mergeInputs3 = reductionCalls(generationCalls[2]!);
+      expect(mergeInputs3.some((call) => call.contents.some((content) => content.includes(history2.summaryText)))).toBe(true);
+      expect(mergeInputs3.some((call) => call.contents.some((content) => content.includes('superseded_')))).toBe(false);
       const projected3 = providerConversationProjection(gen3.conversation).messages;
       expect(projected3.some((row) => row.content.includes(bundleFiveBody))).toBe(false);
       expect(projected3.filter((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);
@@ -320,8 +326,8 @@ describe('accumulated compaction history generations', () => {
       const marker2 = facts2.latestContentPolicyRefusal!.markerId;
       expect(marker2).not.toBe(marker1);
       expect(facts2.latestRecovery).toBeNull();
-      const mergeInputs2 = calls2.filter((call) => call.contents.length === 0);
-      expect(mergeInputs2.some((call) => call.systemPrompt.includes(`superseded refusal marker ${marker1}`))).toBe(true);
+      const mergeInputs2 = reductionCalls(calls2);
+      expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes(`superseded_refusal_notice source=${marker1}`)))).toBe(true);
       const projected = providerConversationProjection(gen2.conversation).messages;
       expect(projected.filter((row) => row.content === contentPolicyRefusalProjectionText(SESSION, marker2))).toHaveLength(1);
       expect(projected.some((row) => row.content === contentPolicyRefusalProjectionText(SESSION, marker1))).toBe(false);

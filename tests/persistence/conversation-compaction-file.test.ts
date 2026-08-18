@@ -10,11 +10,12 @@ import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-in
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
-const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
+const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
 
 describe('conversation compaction file persistence', () => {
   it('publishes one immutable successor and retains the predecessor as explicit history', async () => {
@@ -22,7 +23,7 @@ describe('conversation compaction file persistence', () => {
     try {
       for (let ordinal = 1; ordinal <= 7; ordinal++) appendConversationBatch({ projectRoot: root }, round(ordinal));
       const current = readCurrentConversationSegment(root, SESSION)!;
-      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(providerConversationProjection(current.conversation).messages), summarizerProvider: { candidate: CANDIDATE, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() }, signal: new AbortController().signal });
+      const result = await compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(providerConversationProjection(current.conversation).messages), summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() }, signal: new AbortController().signal });
       expect(result.kind).toBe('compacted');
       expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1, 2]);
       expect(readCurrentConversationSegment(root, SESSION)!.genesis.kind).toBe('compacted_segment_genesis');

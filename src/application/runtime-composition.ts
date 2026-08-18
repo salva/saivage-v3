@@ -29,8 +29,12 @@ import {
   shouldCompact,
   type AutonomousCompactionPolicy,
 } from '../runtime/actors/compaction/compactor.js';
-import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
+import type { SummarizerProviderPort, SummaryRequestSerialization } from '../runtime/actors/compaction/summarizer.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
+import { buildCandidateRequest } from '../agents/candidate-request.js';
+import { selectLlmProtocolAdapter } from '../agents/llm-protocol-adapter.js';
+import { buildLlmOptions } from '../agents/llm-options-factory.js';
+import type { LlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 import type { ConversationSessionId, GlobalConversationSessionId } from '../schemas/index.js';
 import type { ToolContext } from '../tools/analyst-tool-types.js';
@@ -93,9 +97,37 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     candidateAvailability,
     freshness: services.freshness,
   });
+  const summarizerSerializeRequest = (input: LlmInvocationInput): SummaryRequestSerialization => {
+    const maxTokens = input.modelParams.maxTokens;
+    if (maxTokens === undefined) throw new Error('Summary request serialization requires an explicit completion token request.');
+    const candidate = registry.assertCandidate(config.compaction.summarizer_candidate);
+    const capabilities = registry.getEffectiveCapabilities(candidate);
+    const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
+    const plan = buildCandidateRequest({
+      candidate,
+      capabilities,
+      adapter,
+      systemPrompt: input.systemPrompt,
+      providerConversation: input.providerConversation,
+      options: buildLlmOptions(
+        input.agentName,
+        input.tools,
+        input.terminalToolNames,
+        { temperature: input.modelParams.temperature, max_tokens: maxTokens },
+        undefined,
+        input.inputId,
+      ),
+    });
+    return {
+      serializedRequest: plan.request.serializedBody,
+      requestSha256: plan.request.requestHash,
+      estimatedInputTokens: plan.request.estimatedWireInputTokens,
+    };
+  };
   const summarizerProvider: SummarizerProviderPort = {
     candidate:summarizerCandidate,
-    completeTurn: (input, signal) => executeAdmittedTurn(invocationService, input, signal),
+    serializeSummaryRequest: summarizerSerializeRequest,
+    completeTurn: (input, admitted, signal) => executeAdmittedTurn(invocationService, input, signal, admitted.requestSha256),
     projectProviderExchanges: (sessionId, sourceInputId, attempts, context) =>
       invocationService.projectProviderExchanges(
         sessionId,

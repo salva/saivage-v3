@@ -76,7 +76,7 @@ if (mode === 'llm-conversation') {
     provider: scriptedAdmissionProvider(async () => { throw new PublicationOutcomeUnknownError(); }),
     conversations: { projectRoot: root },
     compactor: { shouldCompact: () => false, compact: async () => { throw new Error('not reached'); } },
-    summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
+    summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},serializeSummaryRequest: () => { throw new Error('not reached'); },completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
   });
   const policy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' as const };
   const preparedCompaction = prepareCompaction(policy, 'system', []);

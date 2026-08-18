@@ -96,6 +96,7 @@ export function scriptedAdmissionProvider<S extends LlmInvocationInput>(script: 
 export const testCompactor: CompactorPort = { shouldCompact, compact };
 export const unusedSummarizerProvider: SummarizerProviderPort = {
   candidate:{provider:'test',account:null,model:'test-model'},
+  serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); },
   completeTurn: () => Promise.reject(new Error('Unexpected summarizer call in test.')),
   projectProviderExchanges: () => { throw new Error('Unexpected summarizer exchange projection in test.'); },
 };

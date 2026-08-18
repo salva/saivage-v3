@@ -221,7 +221,7 @@ function actorFixture(plannerPublicationFailure?: Error) {
     provider,
     conversations: { projectRoot: root },
     compactor: { shouldCompact: () => false, compact },
-    summarizerProvider: { candidate: CANDIDATE, completeTurn: jest.fn(async () => { throw new Error('unexpected summary provider call'); }), projectProviderExchanges: summaryProjection },
+    summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: () => { throw new Error('unexpected summary provider serialization'); }, completeTurn: jest.fn(async () => { throw new Error('unexpected summary provider call'); }), projectProviderExchanges: summaryProjection },
     fatalPort: { publicationOutcomeUnknown: publicationOutcomeUnknown as unknown as (error: PublicationOutcomeUnknownError) => never },
   });
   return { root, input, actor, compact, prepare, execute, prepareRecovery, resume, pinnedPreflight, plannerProjection, summaryProjection, publicationOutcomeUnknown, capturedSuspension };

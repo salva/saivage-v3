@@ -115,7 +115,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     try {
       const compact = jest.fn<CompactorPort['compact']>();
       const providerCall = jest.fn(async (_input: LlmInvocationInput, _signal: AbortSignal) => new Promise<never>(() => undefined));
-      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
+      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn: (input, _admitted, signal) => providerCall(input, signal), projectProviderExchanges: jest.fn() } });
       const malformed = { ...input(), providerConversation: { sourceSessionId: 'agent:reviewer:project' as const, messages: [] } };
 
       await expect(actor.turn(malformed, undefined, terminalHandoff)).rejects.toThrow(/does not match provider conversation source session/);
@@ -133,7 +133,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     try {
       const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'agent:reviewer:project', messages: [] }, compactionMessage: agentMessageSchema.parse({ id: 'compaction', session_id: 'agent:reviewer:project', role: 'system', kind: 'text', content: 'x', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }, round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' }), estimatedProviderMessageTokens: 1 }));
       const providerCall = jest.fn(async (_input: LlmInvocationInput, _signal: AbortSignal) => new Promise<never>(() => undefined));
-      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},completeTurn: providerCall, projectProviderExchanges: jest.fn() } });
+      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn: (input, _admitted, signal) => providerCall(input, signal), projectProviderExchanges: jest.fn() } });
       await expect(actor.turn(input(), undefined, terminalHandoff)).rejects.toThrow(/Compaction changed provider conversation source session/);
       expect(providerCall).not.toHaveBeenCalled();
       expect(readConversation(root, 'agent:planner:project').physicalRows).toEqual([]);
@@ -149,5 +149,5 @@ function input(): PreparedLlmInvocationInput {
 }
 
 function summarizer(completeTurn: (...args: never[]) => Promise<ProviderTurnCompletion>) {
-  return { candidate:{provider:'test',account:null,model:'test-model'},completeTurn, projectProviderExchanges: jest.fn() };
+  return { candidate:{provider:'test',account:null,model:'test-model'},serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn, projectProviderExchanges: jest.fn() };
 }

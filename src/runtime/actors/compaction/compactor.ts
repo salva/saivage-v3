@@ -1,12 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import { canonicalValueSha256, type ConversationContinuation } from '../../../persistence/canonical-conversation-artifacts.js';
-import { publishCompactedConversationSegment, readCurrentConversationSegment, type ConversationFileContext,
+import {
+  publishCompactedConversationSegment,
+  readCurrentConversationSegment,
+  type CompactionPublicationOptions,
+  type CompactionSuccessorIdentity,
+  type ConversationFileContext,
 } from '../../../persistence/conversation-file.js';
-import { canonicalJson, compactedHistorySchema, coveredSourceGroupsSha256, accumulatedSummarySha256, foldDispositionCommitment, type AgentMessage, type CompactedHistory,
+import { compactedHistorySchema, coveredSourceGroupsSha256, accumulatedSummarySha256, foldDispositionCommitment, type AgentMessage, type CompactedHistory,
 } from '../../../schemas/index.js';
 import {
   deriveRequiredModelFacts,
-  isSafeValidatedSourcePrefix,
   selectAtomicCoveredSourceGroups,
   validateCompactedHistorySuccessor,
   validateConversation,
@@ -19,18 +23,15 @@ import type { ProviderConversationProjection, ToolDefinition,
 } from '../../../agents/llm-contracts.js';
 import type { PreparedCompaction, PreparedLlmInvocationInput } from '../llm-invocation.js';
 import { providerConversationProjection } from '../conversation-session.js';
-import { MODEL_RECOVERY_NOTICE_TEXT, contentPolicyRefusalProjectionText } from '../../../schemas/index.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type SlidingBandPartitions, type SnapPolicy,
 } from './bands.js';
-import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound,
+import { classifyConversationRounds, estimateMessageTokens,
 } from './round-classifier.js';
-import {
-  buildSummarizerRoundInput,
-  summarizeMerge, summarizeRound, SummaryResultValidationError, type MergeSummaryInput, type SummarizerProviderPort,
-} from './summarizer.js';
-
-const EMPTY_ROUND_SUMMARY = 'This round contained no provider-visible conversation content.';
-const EMPTY_COVERAGE_SUMMARY = 'These rounds contained no provider-visible conversation content.';
+import { LocalExactAdmissionError } from '../../../agents/invocation-admission.js';
+import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
+import { materializeAccumulatedSummary } from './summary-materializer.js';
+import type { SummarizerProviderPort } from './summarizer.js';
+import { versionFilename } from '../../../persistence/version-index.js';
 
 export type AutonomousCompactionPolicy = {
   input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
@@ -125,7 +126,6 @@ export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-// local_exact_admission maximal safe-prefix reduction/smallest-projection selection lands with the Unit 8 compactor rework; it currently shares the authoritative smaller-than-rejected path.
 export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
 export type CompactionResult =
   | {
@@ -159,6 +159,7 @@ export type CompactArgs = {
   input: PreparedLlmInvocationInput;
   summarizerProvider: SummarizerProviderPort;
   signal: AbortSignal;
+  publication?: CompactionPublicationOptions;
 };
 type Candidate = {
   history: CompactedHistory;
@@ -166,6 +167,7 @@ type Candidate = {
   cutoffMessageId: string;
   providerConversation: ProviderConversationProjection;
   estimatedProviderMessageTokens: number;
+  composedProviderConversationBytes: number;
 };
 
 export async function compact(args: CompactArgs): Promise<CompactionResult> {
@@ -176,12 +178,14 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const rejectedEstimatedProviderMessageTokens = estimateProviderConversationTokens(
     args.input.providerConversation,
   );
+  const rejectedComposedProviderConversationBytes = composedProviderConversationBytes(args.input.providerConversation);
   if (!segment) {
     if (args.strategy === 'preventive')
       throw new Error(`Conversation '${sessionId}' has no current segment to compact.`);
     return { kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens, smallestCandidateEstimatedProviderMessageTokens: null };
   }
   const conversation = segment.conversation;
+  assertFreshCompactionProjection(args.input, conversation);
   const sourceRows = conversation.sourceRows;
   const sourceGenesis: CompactedGenesisSeed | null = segment.genesis.kind === 'compacted_segment_genesis'
     ? { id: segment.genesis.id, timestamp: segment.genesis.timestamp, history: segment.genesis.compaction, sourceVersion: segment.genesis.source.version }
@@ -189,7 +193,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const sourceVersion = segment.entry.version;
   const inheritedHistory = sourceGenesis?.history ?? null;
   const classified = classifyConversationRounds(conversation);
-  const constructionArgs: ConstructionArgs = { ...args, conversation, sourceGenesis, sourceVersion, rawSummaryCache: new Map() };
+  const successorIdentity = allocateSuccessorIdentity(segment.entry.version);
   let smallestCandidateEstimatedProviderMessageTokens: number | null = null;
   const computedNormal = computeSlidingCompactionBands(classified.rounds, {
     tail_budget_tokens: budget.normalTailBudget,
@@ -203,7 +207,6 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   });
   assertEscalatedSuffixSubsets(computedNormal, computedEscalated);
 
-  const candidateGenesis = { id: randomUUID(), timestamp: new Date().toISOString() } as const;
   const accepted = (estimated: number): boolean =>
     args.strategy === 'preventive'
       ? estimated <= budget.triggerMessageThreshold
@@ -211,13 +214,13 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
 
   const candidateFor = async (coveredRows: readonly AgentMessage[]): Promise<Candidate | null> => {
     if (coveredRows.length === 0) return null;
-    const summaryText = await constructAccumulatedSummary(constructionArgs, inheritedHistory, coveredRows, classified);
+    const summaryText = await constructAccumulatedSummary(args, inheritedHistory, coveredRows, conversation);
     args.signal.throwIfAborted();
     const successor = buildSuccessorHistory({ conversation, sessionId, sourceVersion, sourceGenesis, coveredRows, summaryText });
     validateCompactedHistorySuccessor({ source: conversation, sourceGenesis, sourceVersion, successor, coveredRows });
     const cutoffSourceIndex = coveredRows.length - 1;
     const tail = sourceRows.slice(coveredRows.length);
-    const seed: CompactedGenesisSeed = { id: candidateGenesis.id, timestamp: candidateGenesis.timestamp, history: successor, sourceVersion };
+    const seed: CompactedGenesisSeed = { id: successorIdentity.genesisId, timestamp: successorIdentity.timestamp, history: successor, sourceVersion };
     const { inherited } = successorContinuation(conversation, coveredRows);
     const prospective = validateConversation(sessionId, tail, inherited, seed);
     const providerConversation = providerConversationProjection(prospective);
@@ -232,31 +235,43 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       cutoffMessageId: coveredRows[cutoffSourceIndex]!.id,
       providerConversation,
       estimatedProviderMessageTokens,
+      composedProviderConversationBytes: composedProviderConversationBytes(providerConversation),
     };
   };
 
-  const coverWholeClosedRounds = async (partition: SlidingBandPartitions): Promise<Candidate | null> => {
-    const coveredRows = [...partition.merge_rounds, ...partition.summary_rounds].flatMap(rawRoundRows);
-    if (coveredRows.length === 0) return null;
-    const candidate = await candidateFor(coveredRows);
-    return candidate && accepted(candidate.estimatedProviderMessageTokens) ? candidate : null;
-  };
-  const coverWithFallback = async (partition: SlidingBandPartitions): Promise<Candidate | null> => {
-    const whole = await coverWholeClosedRounds(partition);
-    if (whole) return whole;
-    return extendThroughBoundaryRound(constructionArgs, partition, candidateFor, accepted);
+  const partitionBaseRows = (partition: SlidingBandPartitions): readonly AgentMessage[] => [
+    ...classified.preamble.map((row) => row.message),
+    ...partition.merge_rounds.flatMap(rawRoundRows),
+    ...partition.summary_rounds.flatMap(rawRoundRows),
+  ];
+
+  const evaluatePartition = async (partition: SlidingBandPartitions, mode: 'bounded' | 'all'): Promise<Candidate[]> => {
+    const baseRows = partitionBaseRows(partition);
+    const base = await candidateFor(baseRows);
+    if (mode === 'bounded' && base && accepted(base.estimatedProviderMessageTokens)) return [base];
+    const evaluated: Candidate[] = base ? [base] : [];
+    for (const cutoff of safeFallbackCutoffs(conversation, baseRows.length)) {
+      args.signal.throwIfAborted();
+      const candidate = await candidateFor(conversation.sourceRows.slice(0, cutoff));
+      if (candidate) evaluated.push(candidate);
+    }
+    if (mode === 'bounded') {
+      const acceptedCandidates = evaluated.filter((entry) => accepted(entry.estimatedProviderMessageTokens));
+      return acceptedCandidates.length > 0 ? [acceptedCandidates[acceptedCandidates.length - 1]!] : [];
+    }
+    return evaluated;
   };
 
   let candidate: Candidate | null = null;
   if (args.strategy === 'preventive') {
-    candidate = await coverWithFallback(computedNormal);
-    if (!candidate) candidate = await coverWithFallback(computedEscalated);
+    candidate = (await evaluatePartition(computedNormal, 'bounded')).at(-1) ?? null;
+    if (!candidate) candidate = (await evaluatePartition(computedEscalated, 'bounded')).at(-1) ?? null;
     if (!candidate)
       throw new Error(
         'Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.',
       );
-  } else {
-    candidate = await coverWithFallback(computedEscalated);
+  } else if (args.strategy === 'authoritative_context_recovery') {
+    candidate = (await evaluatePartition(computedEscalated, 'bounded')).at(-1) ?? null;
     if (!candidate) {
       return {
         kind: 'no_smaller_projection',
@@ -264,23 +279,97 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
         smallestCandidateEstimatedProviderMessageTokens,
       };
     }
+  } else {
+    const evaluated = await evaluatePartition(computedEscalated, 'all');
+    const selected = evaluated
+      .filter((entry) => entry.composedProviderConversationBytes < rejectedComposedProviderConversationBytes)
+      .reduce<Candidate | null>(
+        (best, entry) =>
+          best === null ||
+          entry.composedProviderConversationBytes < best.composedProviderConversationBytes ||
+          (entry.composedProviderConversationBytes === best.composedProviderConversationBytes && entry.cutoffSourceIndex > best.cutoffSourceIndex)
+            ? entry
+            : best,
+        null,
+      );
+    if (!selected) {
+      return {
+        kind: 'no_smaller_projection',
+        rejectedEstimatedProviderMessageTokens,
+        smallestCandidateEstimatedProviderMessageTokens,
+      };
+    }
+    candidate = selected;
   }
   args.signal.throwIfAborted();
+  let published: ValidatedConversation;
   try {
-    publishCompactedConversationSegment(args.conversations, sessionId, {
+    published = publishCompactedConversationSegment(args.conversations, sessionId, {
+      identity: successorIdentity,
       history: candidate.history,
       cutoffSourceIndex: candidate.cutoffSourceIndex,
       cutoffMessageId: candidate.cutoffMessageId,
       continuation: successorContinuation(conversation, sourceRows.slice(0, candidate.cutoffSourceIndex + 1)).continuation,
-    });
+    }, args.publication);
   } catch (error) {
+    throwIfPublicationOutcomeUnknown(error);
     throw new CompactionAppendError(error);
   }
+  const providerConversation = providerConversationProjection(published);
   return {
     kind: 'compacted',
-    providerConversation: candidate.providerConversation,
-    estimatedProviderMessageTokens: candidate.estimatedProviderMessageTokens,
+    providerConversation,
+    estimatedProviderMessageTokens: estimateProviderConversationTokens(providerConversation),
   };
+}
+
+function allocateSuccessorIdentity(sourceVersion: number): CompactionSuccessorIdentity {
+  const segmentVersion = sourceVersion + 1;
+  return {
+    genesisId: randomUUID(),
+    segmentVersion,
+    entryId: randomUUID(),
+    timestamp: new Date().toISOString(),
+    filename: versionFilename(segmentVersion, randomUUID(), 'jsonl'),
+  };
+}
+
+function safeFallbackCutoffs(conversation: ValidatedConversation, baseCount: number): number[] {
+  const ordinals = new Map(conversation.sourceRows.map((row, index) => [row.id, index] as const));
+  const safeEnds = new Set(conversation.safeSourcePrefixEnds);
+  const cutoffs: number[] = [];
+  for (const round of conversation.rounds) {
+    const roundStart = ordinals.get(round.rows[0]!.id);
+    if (roundStart === undefined) throw new Error(`Compaction round '${round.label}' does not identify a source row.`);
+    const roundEnd = roundStart + round.rows.length;
+    if (roundEnd <= baseCount) continue;
+    if (round.state === 'open') {
+      for (const safeEnd of conversation.safeSourcePrefixEnds)
+        if (safeEnd > Math.max(roundStart, baseCount) && safeEnd <= roundEnd) cutoffs.push(safeEnd);
+    } else if (safeEnds.has(roundEnd)) {
+      cutoffs.push(roundEnd);
+    }
+  }
+  return cutoffs;
+}
+
+function assertFreshCompactionProjection(input: PreparedLlmInvocationInput, conversation: ValidatedConversation): void {
+  const fresh = providerConversationProjection(conversation);
+  if (providerConversationFingerprint(fresh) !== providerConversationFingerprint(input.providerConversation))
+    throw new Error(
+      `Compaction rejected provider projection is stale: it is not the exact effective projection of the freshly read conversation '${conversation.sourceSessionId}'.`,
+    );
+}
+
+function providerConversationFingerprint(projection: ProviderConversationProjection): string {
+  return JSON.stringify([
+    projection.sourceSessionId,
+    projection.messages.map((row) => [row.id, row.role, row.kind, row.content, row.tool ?? null, row.tool_call_id ?? null]),
+  ]);
+}
+
+function composedProviderConversationBytes(projection: ProviderConversationProjection): number {
+  return Buffer.byteLength(JSON.stringify(projection.messages.map((row) => [row.id, row.role, row.kind, row.content])), 'utf8');
 }
 
 function buildSuccessorHistory(args: {
@@ -313,138 +402,26 @@ function buildSuccessorHistory(args: {
   });
 }
 
-type ConstructionArgs = CompactArgs & {
-  conversation: ValidatedConversation;
-  sourceGenesis: CompactedGenesisSeed | null;
-  sourceVersion: number;
-  rawSummaryCache: Map<string, string>;
-};
-
 async function constructAccumulatedSummary(
-  args: ConstructionArgs,
-  inheritedHistory: CompactedHistory | null,
-  coveredRows: readonly AgentMessage[],
-  classified: ClassifiedConversation,
-): Promise<string> {
-  const coveredIds = new Set(coveredRows.map((row) => row.id));
-  const coveredRounds = classified.rounds.filter((round) => round.rows.some((row) => coveredIds.has(row.message.id)));
-  const mergeInputs: MergeSummaryInput[] = [];
-  if (inheritedHistory) mergeInputs.push({ round_id: 'prior accumulated history', summary_text: inheritedHistory.summaryText });
-  appendSupersededSlotSummaries(mergeInputs, inheritedHistory, coveredRows, args.conversation);
-  let addedContent = false;
-  for (const round of coveredRounds) {
-    args.signal.throwIfAborted();
-    const rows = rawRoundRows(round);
-    const fullyCovered = rows.every((row) => coveredIds.has(row.id));
-    const selected = fullyCovered ? rows : rows.filter((row) => coveredIds.has(row.id));
-    if (selected.length === 0) continue;
-    mergeInputs.push({
-      round_id: round.round_id,
-      summary_text: await summarizeRoundForCompaction(args, round, selected),
-    });
-    addedContent = true;
-    args.signal.throwIfAborted();
-  }
-  if (!addedContent && mergeInputs.length === 0) return EMPTY_COVERAGE_SUMMARY;
-  if (!addedContent) throw new Error('Compaction found no newly covered conversation content.');
-  if (mergeInputs.length === 1) return mergeInputs[0]!.summary_text;
-  return mergeSummaryGroups(args, mergeInputs);
-}
-
-function appendSupersededSlotSummaries(
-  mergeInputs: MergeSummaryInput[],
+  args: CompactArgs,
   inheritedHistory: CompactedHistory | null,
   coveredRows: readonly AgentMessage[],
   conversation: ValidatedConversation,
-): void {
-  if (!inheritedHistory) return;
-  const facts = inheritedHistory.requiredModelFacts;
-  if (facts.latestRecovery && coveredRows.some((row) => row.kind === 'model_recovered'))
-    mergeInputs.push({
-      round_id: `superseded recovery notice ${facts.latestRecovery.sourceMessageId}`,
-      summary_text: `An earlier runtime interruption of activation ${facts.latestRecovery.activationInputId} was recovered before this history; its recovery notice read exactly: ${MODEL_RECOVERY_NOTICE_TEXT}`,
-    });
-  if (facts.latestContentPolicyRefusal && coveredRows.some((row) => row.kind === 'content_policy_refusal'))
-    mergeInputs.push({
-      round_id: `superseded refusal marker ${facts.latestContentPolicyRefusal.markerId}`,
-      summary_text: `An earlier activation ${facts.latestContentPolicyRefusal.activationInputId} ended after repeated provider content-policy refusal; its replanning notice read exactly: ${contentPolicyRefusalProjectionText(conversation.sourceSessionId, facts.latestContentPolicyRefusal.markerId)}`,
-    });
-}
-
-async function extendThroughBoundaryRound(
-  args: ConstructionArgs,
-  partition: SlidingBandPartitions,
-  candidateFor: (coveredRows: readonly AgentMessage[]) => Promise<Candidate | null>,
-  accepted: (estimated: number) => boolean,
-): Promise<Candidate | null> {
-  const base = [...partition.merge_rounds, ...partition.summary_rounds].flatMap(rawRoundRows);
-  const boundary = args.conversation.rounds.find((round) => round.rows.some((row) => row.id === args.conversation.sourceRows[base.length]?.id));
-  if (!boundary) return null;
-  let furthest: Candidate | null = null;
-  for (let length = 1; length <= boundary.rows.length; length++) {
-    const prefix = boundary.rows.slice(0, length).map((row) => row);
-    if (!isSafeValidatedPrefix(args.conversation, prefix)) continue;
-    const candidate = await candidateFor([...base, ...prefix]);
-    if (candidate && accepted(candidate.estimatedProviderMessageTokens)) furthest = candidate;
-  }
-  return furthest;
-}
-
-async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]): Promise<string> {
-  const groupSize = 20;
-  let current = inputs;
-  while (current.length > groupSize) {
-    const next: MergeSummaryInput[] = [];
-    for (let index = 0; index < current.length; index += groupSize) {
-      const group = current.slice(index, index + groupSize);
-      next.push({
-        round_id: group.map((entry) => entry.round_id).join(','),
-        summary_text: await summarizeMergeForCompaction(args, group),
-      });
-      args.signal.throwIfAborted();
-    }
-    current = next;
-  }
-  return summarizeMergeForCompaction(args, current);
-}
-
-async function summarizeRoundForCompaction(
-  args: ConstructionArgs,
-  round: ClassifiedRound,
-  rows: readonly AgentMessage[],
 ): Promise<string> {
-  const input = buildSummarizerRoundInput(args.conversation, round.round_id, rows);
-  if (input.providerConversation.messages.length === 0) return EMPTY_ROUND_SUMMARY;
-  const cacheKey = rawSummaryCacheKey(rows);
-  const cached = args.rawSummaryCache.get(cacheKey);
-  if (cached !== undefined) return cached;
-  args.signal.throwIfAborted();
-  const summary = await constructSummary(() =>
-    summarizeRound({ input, summarizerProvider: args.summarizerProvider, signal: args.signal }));
-  args.signal.throwIfAborted();
-  args.rawSummaryCache.set(cacheKey, summary);
-  return summary;
-}
-
-async function summarizeMergeForCompaction(
-  args: CompactArgs,
-  entries: MergeSummaryInput[],
-): Promise<string> {
-  args.signal.throwIfAborted();
-  const summary = await constructSummary(() =>
-    summarizeMerge({ entries, summarizerProvider: args.summarizerProvider, signal: args.signal }));
-  args.signal.throwIfAborted();
-  return summary;
-}
-
-async function constructSummary<T>(
-  construct: () => Promise<T>,
-): Promise<T> {
   try {
-    return await construct();
+    return await materializeAccumulatedSummary({
+      conversation,
+      inheritedHistory,
+      coveredRows,
+      summarizerProvider: args.summarizerProvider,
+      budget: {
+        inputBudgetTokens: args.input.preparedCompaction.inputBudgetTokens,
+        completionReserveTokens: args.input.preparedCompaction.reservedCompletionTokens,
+      },
+      signal: args.signal,
+    });
   } catch (error) {
-    if (error instanceof SummaryResultValidationError)
-      throw new CompactionSummaryConstructionError(error);
+    if (error instanceof LocalExactAdmissionError) throw new CompactionSummaryConstructionError(error);
     throw error;
   }
 }
@@ -478,12 +455,8 @@ function coveredSegmentKinds(round: SourceRound, coveredIds: ReadonlySet<string>
   return kinds;
 }
 
-function rawRoundRows(round: ClassifiedRound): AgentMessage[] {
+function rawRoundRows(round: { rows: readonly { message: AgentMessage }[] }): AgentMessage[] {
   return round.rows.map((row) => row.message);
-}
-
-function rawSummaryCacheKey(rows: readonly AgentMessage[]): string {
-  return JSON.stringify(rows.map((row) => row.id));
 }
 
 function estimateTextTokens(text: string): number {
@@ -492,12 +465,4 @@ function estimateTextTokens(text: string): number {
 
 function estimateProviderConversationTokens(projection: ProviderConversationProjection): number {
   return projection.messages.reduce((sum, row) => sum + estimateMessageTokens(row), 0);
-}
-
-function isSafeValidatedPrefix(conversation: ValidatedConversation, prefix: readonly AgentMessage[]): boolean {
-  try {
-    return isSafeValidatedSourcePrefix(conversation, prefix);
-  } catch {
-    return false;
-  }
 }
