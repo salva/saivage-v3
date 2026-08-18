@@ -9,7 +9,7 @@ import { testApplicationFatalPort } from '../helpers/test-application-fatal-port
 import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import { defineTool, type InvocationSurface } from '../../src/tools/invocation.js';
+import { defineTool, executedProviderResult, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolExecutionResult } from '../../src/tools/invocation.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
@@ -24,13 +24,14 @@ function toolCall(argumentsJson: string): ProviderTurnCompletion {
   };
 }
 
-function analyst(argumentsJson: string, executor: (args: { value: string }, signal: AbortSignal, context?: LlmToolInvocationContext) => Promise<{ success: true; data: unknown }>) {
+function analyst(argumentsJson: string, executor: (args: { value: string }, signal: AbortSignal, context?: LlmToolInvocationContext) => Promise<ToolExecutionResult<'none'>>) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-tool-invocation-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
   const definition = defineTool({
     name: 'demo',
     description: 'Demo tool.',
+    resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: z.object({ value: z.string() }).strict(),
     executor,
   });
@@ -68,7 +69,7 @@ describe('Analyst parsed tool invocation', () => {
     const blocked = new Promise<void>((resolve) => { release = resolve; });
     const executor = jest.fn(async () => {
       await blocked;
-      return { success: true as const, data: 'done' };
+      return executedProviderResult('none', { success: true as const, data: 'done' });
     });
     const test = analyst('{"value":"ok"}', executor);
 
@@ -88,7 +89,7 @@ describe('Analyst parsed tool invocation', () => {
   });
 
   it('does not classify ordinary synchronous input rejection as busy', async () => {
-    const test = analyst('{"value":"ok"}', jest.fn(async () => ({ success: true as const, data: 'unused' })));
+    const test = analyst('{"value":"ok"}', jest.fn(async () => executedProviderResult('none', { success: true as const, data: 'unused' })));
     const rejected = test.session.submit({ userContent: '   ' });
     await expect(rejected).rejects.toThrow('must not be empty');
     await expect(rejected).rejects.not.toBeInstanceOf(AnalystTurnBusyError);
@@ -98,7 +99,7 @@ describe('Analyst parsed tool invocation', () => {
     { raw: '{', violation: 'tool_args_invalid_json' },
     { raw: '[]', violation: 'tool_args_not_object' },
   ])('keeps $violation in the Analyst protocol-violation branch', async ({ raw, violation }) => {
-    const executor = jest.fn(async () => ({ success: true as const, data: 'unused' }));
+    const executor = jest.fn(async () => executedProviderResult('none', { success: true as const, data: 'unused' }));
     const test = analyst(raw, executor);
 
     const response = await test.session.submit({ userContent: 'test malformed arguments' });
@@ -113,7 +114,7 @@ describe('Analyst parsed tool invocation', () => {
     let receivedContext: LlmToolInvocationContext | undefined;
     const executor = jest.fn(async (args: { value: string }, _signal: AbortSignal, context?: LlmToolInvocationContext) => {
       receivedContext = context;
-      return { success: true as const, data: args };
+      return executedProviderResult('none', { success: true as const, data: args });
     });
     const test = analyst('{"value":"ok"}', executor);
 
@@ -141,7 +142,7 @@ describe('Analyst parsed tool invocation', () => {
   });
 
   it('keeps valid-object schema rejection at the invocation boundary', async () => {
-    const executor = jest.fn(async () => ({ success: true as const, data: 'unused' }));
+    const executor = jest.fn(async () => executedProviderResult('none', { success: true as const, data: 'unused' }));
     const test = analyst('{"value":1}', executor);
 
     const response = await test.session.submit({ userContent: 'test schema rejection' });

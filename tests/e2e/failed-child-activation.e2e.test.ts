@@ -328,7 +328,7 @@ describe('failed child activation lifecycle E2E', () => {
     expect(cards.readCurrentRecord(child.id, 'status.md').artifact.accepted?.content).toBe('Accepted output.');
     expect(cards.readCurrentRecord(child.id, 'status.md').artifact.state).toBe('closed');
     const terminalRows = readConversation(projectRoot, `agent:executor:${child.id}`).physicalRows.filter((row) => row.tool_call_id === 'accepted');
-    expect(terminalRows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool_result', content: JSON.stringify({ success: true, data: { accepted: true } }) })]));
+    expect(terminalRows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool_result', content: '{"data":{"accepted":true},"success":true}' })]));
     expect((supervisor as unknown as RuntimeOwnership).activationOwners.has(child.id)).toBe(false);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');
   });

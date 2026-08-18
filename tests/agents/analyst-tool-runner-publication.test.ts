@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
+import { executedProviderResult } from '../../src/tools/invocation.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
@@ -25,7 +26,7 @@ describe('audited Analyst mutation publication ordering', () => {
   it('settles the mutation before preparing and appending its one audit row', async () => {
     const projectRoot = root(); const trace: string[] = [];
     const result = await runAuditedAnalystTool(context(projectRoot), {}, spec(() => { trace.push('mutation'); return { kind: 'result', success: true }; }));
-    expect(result).toEqual({ success: true });
+    expect(result).toEqual(executedProviderResult('none', { success: true }));
     expect(trace).toEqual(['mutation']);
     expect(readAppLogEntries(projectRoot, 'control_action')).toHaveLength(1);
   });

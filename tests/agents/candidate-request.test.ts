@@ -39,9 +39,9 @@ describe('candidate request admission artifact', () => {
   it('keeps Responses-private output transport-private while admission counts its exact serialized bytes', () => {
     const sourceInputId = '00000000-0000-4000-8000-000000000001';
     const privateContent = 'opaque-provider-private-payload';
-    const common = { session_id: 'agent:planner:project' as const, round_id: 'r-assistant-00000000000000000000000000000000', message_index: 1, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' };
+    const common = { context_policy: { kind: 'structural', behavior: 'responses_private' } as const, session_id: 'agent:planner:project' as const, round_id: 'r-assistant-00000000000000000000000000000000', message_index: 1, block_index: 0, timestamp: '2026-07-17T00:00:00.000Z' };
     const privateRow: AgentMessage = { ...common, id: 'private', role: 'system', kind: 'provider_private', content: JSON.stringify({ transport: 'openai-responses', source_input_id: sourceInputId, projection_message_id: 'visible', provider: 'openai', model: 'gpt-5.6', output: [{ type: 'message', content: [{ type: 'output_text', text: privateContent }] }] }) };
-    const visible: AgentMessage = { ...common, id: 'visible', role: 'assistant', kind: 'text', content: 'visible summary', provider_projection: { kind: 'openai_responses', source_input_id: sourceInputId, private_message_id: 'private', projection_kind: 'assistant_message' } };
+    const visible: AgentMessage = { ...common, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }, id: 'visible', role: 'assistant', kind: 'text', content: 'visible summary', provider_projection: { kind: 'openai_responses', source_input_id: sourceInputId, private_message_id: 'private', projection_kind: 'assistant_message' } };
     const providerConversation = { sourceSessionId: 'agent:planner:project', messages: [privateRow, visible] } satisfies ProviderConversationProjection;
 
     const responses = buildCandidateRequest({ ...base, providerConversation, capabilities: capabilities('openai-responses'), adapter: selectLlmProtocolAdapter('openai-responses') }).request;

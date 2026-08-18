@@ -6,7 +6,7 @@ import {
   loggedToolResultIdentity,
 } from '../../schemas/message-identity.js';
 import { appendRecoveryNotice, isExactRecoveryNotice } from './conversation-session.js';
-import { appendProviderVisibleSyntheticFailedToolResult } from './llm-delivery-log.js';
+import { appendProviderVisibleSyntheticFailedToolResult, type InvocationResultPolicy } from './llm-delivery-log.js';
 import { readConversation, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
 import {
@@ -130,6 +130,7 @@ export function stabilizeAgentSession(args: {
       toolName: unmatched.toolName,
       error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.',
       data: { outcome_unknown: true },
+      resultPolicy: callRowResultPolicy(unmatched.message),
     });
   }
   appendRecoveryNotice(args.conversations, args.sessionId, marker.inputId, 'ordinary_interruption');
@@ -182,6 +183,12 @@ function validateCallSettlementPairs(
   if (!call.message.tool || !call.message.tool_call_id) throw new Error(`Unmatched tool call '${call.message.id}' is malformed.`);
   return { sourceInputId: call.sourceInputId, toolCallId: call.toolCallId, toolName: call.message.tool, message: call.message,
   };
+}
+
+function callRowResultPolicy(call: AgentMessage): InvocationResultPolicy {
+  if (call.kind !== 'tool_call' || call.context_policy.kind !== 'tool_call')
+    throw new Error(`Unmatched tool call '${call.id}' is missing its tool_call context policy.`);
+  return Object.freeze({ resultPolicyTemplate: call.context_policy.template, resultPolicyTemplateBytes: call.context_policy.template_bytes, resultPolicyTemplateSha256: call.context_policy.template_sha256 });
 }
 
 function parseResultPayload(message: AgentMessage): { success?: unknown; data?: unknown } {

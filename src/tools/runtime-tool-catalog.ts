@@ -1,10 +1,11 @@
 import type { CardService } from '../cards/card-service.js';
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
-import type { AgentName, CardNotification, CardTypeName } from '../schemas/index.js';
+import type { AgentName, CardNotification, CardTypeName, ToolResultPolicyTemplate } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import { getAnalystControlToolBinders } from './analyst-tool-registry.js';
 import type { ToolContext } from './analyst-tool-types.js';
+import { compileInvocationToolContract, type CompiledInvocationToolContract } from '../runtime/actors/context/context-blocks.js';
 import { cardVersionToolBinders, type CardVersionProviderContext } from './card-version-provider.js';
 import { cardInspectionToolBinders, type CardInspectionProviderContext } from './card-inspection-provider.js';
 import { mcpToolBinders, type McpProviderContext } from './mcp-provider.js';
@@ -21,6 +22,7 @@ import {
 } from './workspace-provider.js';
 import {
   type InvocationSurface,
+  llmToolDefinition,
   type ToolBinder,
   type ToolDefinition,
   type ToolProvider,
@@ -80,6 +82,7 @@ export type CompiledToolReference = Readonly<{
   name: string;
   providerGroupId: string;
   description: string;
+  resultPolicyTemplate: ToolResultPolicyTemplate;
 }>;
 
 const card = (runtime: RuntimeToolBindingContext): CardToolBindingContext => {
@@ -143,7 +146,7 @@ const runtimeToolCatalog = (): ReadonlyMap<string, CatalogEntry> => catalog ??= 
 export function resolveRuntimeTool(scope: RuntimeToolScope, name: string): CompiledToolReference {
   const entry = runtimeToolCatalog().get(`${scope}\u0000${name}`);
   if (!entry) throw new Error(`unknown tool '${name}' for ${scope} session scope`);
-  return Object.freeze({ scope, name, providerGroupId: entry.group.key, description: entry.binder.description });
+  return Object.freeze({ scope, name, providerGroupId: entry.group.key, description: entry.binder.description, resultPolicyTemplate: entry.binder.resultPolicyTemplate });
 }
 
 export function effectiveCardNodeToolReferences(
@@ -153,6 +156,10 @@ export function effectiveCardNodeToolReferences(
   return Object.freeze(childCreationTypes.size === 0
     ? references.filter((reference) => reference.name !== 'create_card')
     : [...references]);
+}
+
+export function surfaceToolContracts(surface: InvocationSurface): readonly CompiledInvocationToolContract[] {
+  return Array.from(surface.tools.values(), (definition) => compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate));
 }
 
 export class BoundAgentToolSet {

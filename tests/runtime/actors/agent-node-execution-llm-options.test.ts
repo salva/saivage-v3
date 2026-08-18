@@ -6,6 +6,7 @@ import { z } from 'zod';
 
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+import { OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/llm-contracts.js';
 import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 
@@ -25,6 +26,7 @@ describe('AgentNodeExecution LLM options', () => {
     initializeConversation(projectRoot, sessionId);
     appendConversationBatch({ projectRoot }, [{
       id: 'activation', session_id: sessionId, role: 'system', kind: 'activity',
+      context_policy: { kind: 'structural', behavior: 'activation_boundary' },
       content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000001', timestamp: '2026-07-23T00:00:00.000Z' }),
       round_id: 'r-pre-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-23T00:00:00.000Z',
     }]);
@@ -53,7 +55,7 @@ describe('AgentNodeExecution LLM options', () => {
       },
     } as never, {} as never) as unknown as LlmInputBuilder;
 
-    const operationalTool = { name: 'lookup', description: 'Lookup', inputSchema: z.object({ query: z.string() }).strict(), executor: async () => ({ success: true as const }) };
+    const operationalTool = { name: 'lookup', description: 'Lookup', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({ query: z.string() }).strict(), executor: async () => ({ success: true as const }) };
     const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'Emit result', parameters: { type: 'object' } } };
     const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
     const prepared = runner.buildLlmInput(

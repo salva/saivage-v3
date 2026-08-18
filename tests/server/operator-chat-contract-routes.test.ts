@@ -11,6 +11,7 @@ import { ContractRuntime } from '../../src/server/contract-runtime.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { buildChatOperatorContractHandlers } from '../../src/server/routes/operator-chat-handlers.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-session.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
@@ -274,6 +275,7 @@ describe('operator chat route request contracts', () => {
         kind: 'tool_call',
         tool: invocation.tool,
         tool_call_id: toolCallId,
+        context_policy: toolRowPolicies({ content: '' }).call,
         content: JSON.stringify({
           role: 'assistant',
           tool_calls: [
@@ -296,6 +298,7 @@ describe('operator chat route request contracts', () => {
         kind: 'tool_result',
         tool: invocation.tool,
         tool_call_id: toolCallId,
+        context_policy: toolRowPolicies({ content: JSON.stringify(invocation.result) }).result,
         content: JSON.stringify(invocation.result),
         round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
         message_index: 4,
@@ -531,6 +534,7 @@ describe('operator chat route request contracts', () => {
         kind: 'tool_call',
         tool: 'webfetch',
         tool_call_id: 'call-1',
+        context_policy: toolRowPolicies({ content: '' }).call,
         content: JSON.stringify({
           role: 'assistant',
           tool_calls: [

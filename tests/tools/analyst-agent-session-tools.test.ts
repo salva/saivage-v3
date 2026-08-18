@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { AgentOperatorReadModelService } from '../../src/application/read-models/agent-operator-read-model.js';
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
+import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import {
   ListAgentSessionsToolResultSchema,
   ReadAgentSessionToolResultSchema,
@@ -44,6 +45,7 @@ function rows(): AgentMessage[] {
       session_id: 'agent:planner:project',
       role: 'system',
       kind: 'activity',
+      context_policy: ACTIVITY_ROW_POLICY,
       content: JSON.stringify({
         event: 'activation_open',
         agent_name: 'planner',
@@ -61,6 +63,7 @@ function rows(): AgentMessage[] {
       session_id: 'agent:planner:project',
       role: 'user',
       kind: 'text',
+      context_policy: TEXT_ROW_POLICY,
       content: 'first',
       round_id: `r-user-${sourceInputId.replaceAll('-', '')}`,
       message_index: 1,
@@ -74,6 +77,7 @@ function rows(): AgentMessage[] {
       kind: 'tool_call',
       tool: 'webfetch',
       tool_call_id: 'call-1',
+      context_policy: toolRowPolicies({ content: '' }).call,
       content: JSON.stringify({
         role: 'assistant',
         tool_calls: [
@@ -150,6 +154,7 @@ describe('Analyst agent-session tools', () => {
       kind: 'tool_result',
       tool: 'webfetch',
       tool_call_id: 'call-1',
+      context_policy: toolRowPolicies({ content: '{"success":false,"error":"failed token=synthetic-result-secret"}' }).result,
       content: '{"success":false,"error":"failed token=synthetic-result-secret"}',
       round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
       message_index: 2,
@@ -198,6 +203,7 @@ describe('Analyst agent-session tools', () => {
       kind: 'tool_result',
       tool: 'webfetch',
       tool_call_id: 'call-1',
+      context_policy: toolRowPolicies({ content: '{"success":false,"error":"settled"}' }).result,
       content: '{"success":false,"error":"settled"}',
       round_id: `r-assistant-${sourceInputId.replaceAll('-', '')}`,
       message_index: 2,

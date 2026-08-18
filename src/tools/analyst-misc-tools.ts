@@ -4,7 +4,7 @@ import { AgentOperatorReadModelService } from '../application/read-models/index.
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailureFromError } from './analyst-tool-helpers.js';
-import { defineToolBinder, type ToolBinder } from './invocation.js';
+import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
 import {
   reconfigureParamsSchema,
   type ReconfigureParams,
@@ -77,7 +77,7 @@ export async function queue_notification(
   ctx: ToolContext,
   params: { card_id: string; kind: string; body: string },
   signal?: AbortSignal,
-): Promise<ToolResult> {
+): Promise<ToolExecutionResult<'none'>> {
   return runAuditedAnalystTool(
     ctx,
     params,
@@ -113,7 +113,7 @@ export async function reconfigure(
   ctx: ToolContext,
   params: ReconfigureParams,
   signal?: AbortSignal,
-): Promise<ToolResult> {
+): Promise<ToolExecutionResult<'none'>> {
   const actionName = `reconfigure.${params.action}`;
   return runAuditedAnalystTool(
     ctx,
@@ -227,19 +227,22 @@ export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = O
       name: 'queue_notification',
       description:
         'Queue operator context on a notification-capable card for its planner or executor.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => queueNotificationInputSchema,
       executor: (ctx, args, signal) => queue_notification(ctx, args, signal),
     }),
     defineToolBinder({
       name: 'show_config',
       description: 'Show the current project configuration with secrets redacted.',
+      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
       inputSchema: () => emptyInput,
-      executor: (ctx, args) => show_config(ctx, args),
+      executor: (ctx, args) => executeToolAction('observational_query', () => show_config(ctx, args)),
     }),
     defineToolBinder({
       name: 'reconfigure',
       description:
         'Replace one named-agent model route, model failover chain, or server host/port in the next-start configuration. Every successful mutation requires restart.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => reconfigureParamsSchema,
       executor: (ctx, args, signal) => reconfigure(ctx, args, signal),
     }),
@@ -247,20 +250,23 @@ export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = O
       name: 'mcp_reconcile',
       description:
         'Retry MCP runtime convergence from the already persisted configuration without writing configuration again.',
+      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => emptyInput,
-      executor: (ctx, args) => mcp_reconcile(ctx, args),
+      executor: (ctx, args) => executeToolAction('none', () => mcp_reconcile(ctx, args)),
     }),
     defineToolBinder({
       name: 'list_agent_sessions',
       description: 'List authoritative durable global and active-card agent session summaries.',
+      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
       inputSchema: () => emptyInput,
-      executor: (ctx, args) => list_agent_sessions(ctx, args),
+      executor: (ctx, args) => executeToolAction('observational_query', () => list_agent_sessions(ctx, args)),
     }),
     defineToolBinder({
       name: 'read_agent_session',
       description:
         'Read a canonical agent session summary and its most recent persisted conversation entries.',
+      resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
       inputSchema: () => readAgentSessionInputSchema,
-      executor: (ctx, args) => read_agent_session(ctx, args),
+      executor: (ctx, args) => executeToolAction('observational_query', () => read_agent_session(ctx, args)),
     }),
 ]);

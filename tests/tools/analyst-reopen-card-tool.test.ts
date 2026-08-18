@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
+import { executedProviderResult } from '../../src/tools/invocation.js';
 import { getAnalystControlToolBinders } from '../../src/tools/analyst-tool-registry.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 
@@ -34,7 +35,7 @@ describe('Analyst reopen_card tool', () => {
     expect(test.tool.inputSchema.safeParse({ cardId: 'card-a' }).success).toBe(true);
     expect(test.tool.inputSchema.safeParse({ cardId: 'card-a', reason: 'legacy' }).success).toBe(false);
 
-    await expect(test.tool.executor({ cardId: 'card-a' }, new AbortController().signal)).resolves.toEqual({ success: true, data });
+    await expect(test.tool.executor({ cardId: 'card-a' }, new AbortController().signal)).resolves.toEqual(executedProviderResult('none', { success: true, data }));
     expect(test.assertInterventionReady).toHaveBeenCalledTimes(1);
     expect(test.reopen).toHaveBeenCalledWith('card-a');
     expect(readAppLogEntries(test.projectRoot, 'control_action')).toEqual([
@@ -44,7 +45,7 @@ describe('Analyst reopen_card tool', () => {
 
   it('settles a wrong-state application denial without widening the lifecycle check', async () => {
     const test = harness({ kind: 'denied', reason: "card 'card-a' is running" });
-    await expect(test.tool.executor({ cardId: 'card-a' }, new AbortController().signal)).resolves.toMatchObject({ success: false, data: { action: 'card.reopen', reason: "card 'card-a' is running" } });
+    await expect(test.tool.executor({ cardId: 'card-a' }, new AbortController().signal)).resolves.toMatchObject({ providerResult: { success: false, data: { action: 'card.reopen', reason: "card 'card-a' is running" } }, evidence: { kind: 'none' } });
     expect(test.assertInterventionReady).toHaveBeenCalledTimes(1);
     expect(test.reopen).toHaveBeenCalledTimes(1);
     expect(readAppLogEntries(test.projectRoot, 'control_action')).toEqual([

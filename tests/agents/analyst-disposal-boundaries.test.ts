@@ -9,7 +9,8 @@ import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import type { InvocationJoinOutcome } from '../../src/runtime/actors/invocation-lifecycle.js';
 import type { RestartPort } from '../../src/boot/restart-port.js';
 import { readConversation, type ConversationFileContext } from '../../src/persistence/conversation-file.js';
-import { defineTool, type InvocationSurface, type ToolResult } from '../../src/tools/invocation.js';
+import { defineTool, executedNoneSettlement, executedProviderResult, OPERATIONAL_RESULT_POLICY_TEMPLATE, settlementProviderResult, type InvocationSurface, type ToolResult } from '../../src/tools/invocation.js';
+import { canonicalJson } from '../../src/schemas/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
@@ -150,10 +151,11 @@ function createFixture(options: {
     ? defineTool({
         name: options.toolName,
         description: 'Test Analyst tool.',
+        resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: z.object({}).strict(),
         executor: async () => {
           options.beforeToolReturns?.();
-          return suppliedResult;
+          return executedProviderResult('none', suppliedResult);
         },
       })
     : null;
@@ -265,6 +267,7 @@ function sequence(projectRoot: string): Array<[unknown, unknown, unknown]> {
 }
 
 function expectToolSequence(projectRoot: string, toolName: string, result: ToolResult, userContent: string): void {
+  const settlement = executedNoneSettlement(result);
   const rows = readConversation(projectRoot, sessionId).sourceRows;
   expect(rows.map((row) => [row.role, row.kind, row.kind === 'activity' ? (JSON.parse(row.content) as { event: string }).event : undefined])).toEqual([
     ['system', 'activity', 'activation_open'],
@@ -285,7 +288,7 @@ function expectToolSequence(projectRoot: string, toolName: string, result: ToolR
     kind: 'tool_result',
     tool: toolName,
     tool_call_id: 'call-1',
-    content: JSON.stringify(result),
+    content: canonicalJson(settlementProviderResult(settlement)),
   });
   expect(rows.some((row) => row.content.includes('Cancelled:'))).toBe(false);
 }

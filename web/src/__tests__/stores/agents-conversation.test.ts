@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import type { AgentConversationEntry, AgentSession } from '../../api/types';
+import { DURABLE_PRIMARY_CONTENT_POLICY } from '../../api/contracts';
 import { useAgentStore } from '../../stores/agents';
 
 vi.mock('../../api/client', async (importOriginal) => ({
@@ -54,6 +55,7 @@ const entry = {
   role: 'assistant',
   kind: 'text',
   content: 'hello',
+  context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
   round_id: 'r-assistant-00000000000000000000000000000001',
   message_index: 0,
   block_index: 0,
@@ -211,7 +213,7 @@ describe('useAgentStore singular agent resource ownership', () => {
   });
 
   it('appends cursor deltas without reordering or pair expansion', async () => {
-    const result = { ...entry, id: 'm2', kind: 'tool_result' as const, role: 'tool' as const };
+    const result = { ...entry, id: 'm2', kind: 'tool_result' as const, role: 'tool' as const, context_policy: { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } as const };
     vi.mocked(getAgentConversation)
       .mockResolvedValueOnce(conversation([entry], 'm1'))
       .mockResolvedValueOnce(conversation([result], 'm2'));

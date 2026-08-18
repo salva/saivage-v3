@@ -145,7 +145,7 @@ export const smokeServerAvailability = {
 } as const;
 
 function stampedText(sessionId: string, id: string, content: string) {
-  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
+  return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
 }
 
 export type OperatorRestOptions = {
@@ -354,6 +354,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         role: 'assistant' as const,
         kind: 'text' as const,
         content: `Synthetic analyst response to: ${visiblePrompt}`,
+        context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } as const,
         round_id: 'r-assistant-00000000000000000000000000000002',
         message_index: 1,
         block_index: 0,

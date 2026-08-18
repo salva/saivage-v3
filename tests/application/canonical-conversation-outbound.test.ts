@@ -6,6 +6,7 @@ import type {
   ToolInvocationProjector,
 } from '../../src/contracts/tool-invocation-projection.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
+import { TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 
 const timestamp = '2026-07-22T10:00:00.000Z';
 const source = '11111111-1111-4111-8111-111111111111';
@@ -114,7 +115,7 @@ describe('canonical conversation outbound row projection', () => {
     ).toThrow('embedded identity');
     expect(() =>
       projectCanonicalConversationRow({ ...result(), content: '{' }, identityProjector),
-    ).toThrow('malformed content');
+    ).toThrow(/tool_result/);
     const changingProjector: ToolInvocationProjector = (input) =>
       ({
         ...input,
@@ -141,6 +142,7 @@ function call(
     kind: 'tool_call',
     tool,
     tool_call_id: toolCallId,
+    context_policy: toolRowPolicies({ content: '' }).call,
     content: JSON.stringify({
       role: 'assistant',
       tool_calls: [
@@ -170,6 +172,11 @@ function result(): AgentMessage {
     kind: 'tool_result',
     tool: 'webfetch',
     tool_call_id: 'call-a',
+    context_policy: toolRowPolicies({ content: JSON.stringify({
+      success: false,
+      error: 'failed tok_secret',
+      data: { historical_wrapper: ['unchanged'] },
+    }) }).result,
     content: JSON.stringify({
       success: false,
       error: 'failed tok_secret',
@@ -188,6 +195,7 @@ function ordinary(): AgentMessage {
     session_id: sessionId,
     role: 'assistant',
     kind: 'text',
+    context_policy: TEXT_ROW_POLICY,
     content: 'message tok_secret',
     round_id: `r-assistant-${source.replaceAll('-', '')}`,
     message_index: 0,

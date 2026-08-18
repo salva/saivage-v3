@@ -15,7 +15,7 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner, type ProcessOutputIo } from '../../src/runtime/process-runner.js';
 import { replaceFile, type ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
-import { defineTool, invokeToolForLlm, type InvocationSurface } from '../../src/tools/invocation.js';
+import { defineTool, executedProviderResult, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
@@ -53,7 +53,7 @@ if (mode === 'base-actor-task') {
   class FatalActor extends BaseActor {
     constructor() { const definition=compileActorDefinition({ initial: 'run', states: { run: {} } });super(definition.initial,definition.states); }
     protected onStateEntered(_context: ActorLifecycleContext): void {
-      this.runTask(async () => invokeToolForLlm({ agentName: 'planner', providers: [], tools: new Map([['publish', { name: 'publish', description: 'publication owner', inputSchema: z.object({}), executor: async () => { throw new PublicationOutcomeUnknownError(); } }]]) }, 'publish', {}, {} as never), { onDone() {}, onFailed() { process.stdout.write('failed-task'); } });
+      this.runTask(async () => invokeToolForLlm({ agentName: 'planner', providers: [], tools: new Map([['publish', { name: 'publish', description: 'publication owner', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}), executor: async (): Promise<never> => { throw new PublicationOutcomeUnknownError(); } }]]) }, 'publish', {}, {} as never), { onDone() {}, onFailed() { process.stdout.write('failed-task'); } });
     }
     protected onTransition(_context: ActorTransitionContext): void {}
     protected onActorMainFailure(): void { process.stdout.write('main-failed'); }
@@ -78,7 +78,7 @@ if (mode === 'llm-conversation') {
     summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
   });
   const policy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' as const };
-  void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction: prepareCompaction(policy, 'system', []), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
+  void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction: prepareCompaction(policy, 'system', []), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
 }
 
 if (mode === 'process-chunk') {
@@ -147,10 +147,11 @@ if (mode === 'analyst-project-context') {
   const tool = defineTool({
     name: 'forbidden_tool',
     description: 'Must not run after failed project-context construction.',
+    resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
     inputSchema: z.object({}).strict(),
     executor: async () => {
       mark('tool');
-      return { success: true, data: null };
+      return executedProviderResult('none', { success: true, data: null });
     },
   });
   const surface: InvocationSurface = {

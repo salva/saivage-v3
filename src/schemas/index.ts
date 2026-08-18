@@ -6,6 +6,26 @@ export {
   toPublicCardActorState,
 } from './actor-vocabulary.js';
 export { canonicalJson, contextCompactionAppliedPolicySchema, contextCompactionContentSchema, contextCompactionSummaryGroupSchema, contextCompactionSummaryRoundSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
+export {
+  contextAudienceSchema,
+  contextEvidenceSchema,
+  contextReplacementSchema,
+  DURABLE_PRIMARY_CONTENT_POLICY,
+  rowContextPolicySchema,
+  settledToolEvidenceSchema,
+  STRUCTURAL_ROW_POLICY,
+  sha256HexSchema,
+  toolResultPolicyTemplateSchema,
+  toolSettlementOriginSchema,
+  type ContextAudience,
+  type ContextEvidence,
+  type ContextReplacement,
+  type RowContextPolicy,
+  type SettledToolEvidence,
+  type StructuralRowBehavior,
+  type ToolResultPolicyTemplate,
+  type ToolSettlementOrigin,
+} from './context-policy.js';
 export { CONTENT_POLICY_RETRY_TEXT, contentPolicyRefusalContentSchema, parseCanonicalContentPolicyRefusal, type ContentPolicyRefusalContent } from './content-policy.js';
 export {
   ConversationSessionIdSchema,

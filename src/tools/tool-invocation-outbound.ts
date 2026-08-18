@@ -166,6 +166,10 @@ function projectOpaqueResult(value: unknown): ReturnType<typeof ToolInvocationRe
   });
 }
 
+export function projectSettledToolResultForConversation(value: unknown): ReturnType<typeof ToolInvocationResultSchema.parse> {
+  return projectOpaqueResult(value);
+}
+
 function copyWithText(input: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
   const output = structuredClone(input);
   for (const key of keys) if (typeof input[key] === 'string') output[key] = redactTextForOutbound(input[key] as string);

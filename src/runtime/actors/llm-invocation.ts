@@ -2,6 +2,7 @@ import type { AgentName, ConversationSessionId } from '../../schemas/index.js';
 import type { ProviderConversationProjection, ToolDefinition } from '../../agents/llm-contracts.js';
 import type { CapabilityRequest } from '../../agents/provider-capabilities.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
+import type { CompiledInvocationToolContract } from './context/context-blocks.js';
 
 export type PreparedCompaction = {
   readonly inputBudgetTokens: number;
@@ -38,6 +39,7 @@ interface LlmInvocationInputBase {
   /** Current provider-eligible rows from one source-identified validated canonical conversation. */
   providerConversation: ProviderConversationProjection;
   tools: ToolDefinition[];
+  compiledToolContracts: readonly CompiledInvocationToolContract[];
   terminalToolNames: string[];
   capabilityRequest: CapabilityRequest;
   episodeContext: Record<string, unknown>;

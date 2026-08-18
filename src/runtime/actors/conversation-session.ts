@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { agentMessageSchema, conversationSessionIdentity, CONTENT_POLICY_RETRY_TEXT, type AgentMessage, type MessageRole, type ConversationSessionId,
+import { agentMessageSchema, conversationSessionIdentity, CONTENT_POLICY_RETRY_TEXT, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
   type CardConversationSessionId,
 } from '../../schemas/index.js';
 import { renderContextCompactionPayload, type ValidatedConversation } from '../../contracts/conversation-validation.js';
@@ -8,7 +8,6 @@ import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper
 import { appendConversationBatch, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
-import type { SummarizerProviderRow } from './compaction/result-dropping.js';
 
 export type UserContextMessageCategory =
   | 'notification' | 'reviewer_descendant' | 'process_transition' | 'process_node' | 'continuation_hook';
@@ -62,6 +61,7 @@ export function buildUserContextMessage(
     role: 'user',
     kind: 'text',
     content,
+    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: deterministicRoundId('user', seed),
     message_index: 1,
     block_index: 0,
@@ -82,6 +82,7 @@ export function appendActivationMarker(
     role: 'system',
     kind: 'activity',
     content: JSON.stringify({ ...payload, timestamp }),
+    context_policy: STRUCTURAL_ROW_POLICY.activation_boundary,
     round_id: generateRoundId('pre'),
     message_index: 0,
     block_index: 0,
@@ -125,6 +126,7 @@ export function buildAnalystActivationMarker(
     session_id: sessionId,
     role: 'system',
     kind: 'activity',
+    context_policy: STRUCTURAL_ROW_POLICY.activation_boundary,
     content: JSON.stringify({
       event: 'activation_open',
       agent_name: conversationSessionIdentity(sessionId).agentName,
@@ -149,6 +151,7 @@ export function appendRecoveryNotice(
     session_id: sessionId,
     role: 'system',
     kind: 'model_recovered',
+    context_policy: STRUCTURAL_ROW_POLICY.model_recovery_notice,
     content:
       'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.',
     round_id: deterministicRoundId('pre', inputId),
@@ -191,6 +194,7 @@ export function buildContextTextMessage(
     role,
     kind: 'text',
     content,
+    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: deterministicRoundId(role === 'system' ? 'pre' : 'user', seed),
     message_index: role === 'system' ? 0 : 1,
     block_index: 0,
@@ -221,7 +225,7 @@ export function providerConversationProjection(
 function projectGenesisCompactedConversation(conversation: ValidatedConversation): AgentMessage[] {
   const genesis = conversation.compactedGenesis!;
   const retained = conversation.sourceRows.slice(0, genesis.retainedStaticRowCount).flatMap(projectProviderConversationMessage);
-  const synthetic = agentMessageSchema.parse({ id: `${genesis.id}:rendered`, session_id: conversation.sourceSessionId, role: 'system', kind: 'text', content: renderContextCompactionPayload(genesis.payload), round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: genesis.timestamp });
+  const synthetic = agentMessageSchema.parse({ id: `${genesis.id}:rendered`, session_id: conversation.sourceSessionId, role: 'system', kind: 'text', content: renderContextCompactionPayload(genesis.payload), context_policy: DURABLE_PRIMARY_CONTENT_POLICY, round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: genesis.timestamp });
   return [...retained, synthetic, ...conversation.sourceRows.slice(genesis.retainedStaticRowCount).flatMap(projectProviderConversationMessage)];
 }
 
@@ -233,7 +237,7 @@ export type SummarizerConversationProjection = Readonly<{
 
 export function summarizerConversationProjection(
   sourceSessionId: ConversationSessionId,
-  transformedSourceRows: readonly SummarizerProviderRow[],
+  transformedSourceRows: readonly AgentMessage[],
 ): SummarizerConversationProjection {
   const messages = transformedSourceRows.flatMap(projectProviderConversationMessage);
   validateResponsesPairs(sourceSessionId, messages);
@@ -255,6 +259,7 @@ function projectCompactedConversation(
     role: 'system',
     kind: 'text',
     content: latest.renderedContext,
+    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: metadata.round_id,
     message_index: metadata.message_index,
     block_index: metadata.block_index,
@@ -300,6 +305,7 @@ function projectProviderConversationMessage(message: AgentMessage): AgentMessage
         kind: 'text',
         role: 'user',
         content: CONTENT_POLICY_RETRY_TEXT,
+        context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
       }),
     ];
   if (message.kind === 'content_policy_refusal')
@@ -309,6 +315,7 @@ function projectProviderConversationMessage(message: AgentMessage): AgentMessage
         kind: 'text',
         role: 'user',
         content: contentPolicyRefusalProjectionText(message.session_id, message.id),
+        context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
       }),
     ];
   return [message];

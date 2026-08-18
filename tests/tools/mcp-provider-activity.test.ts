@@ -1,5 +1,5 @@
 import { describe, expect, it, jest } from '@jest/globals';
-import { bindToolProvider, invokeTool, invokeToolForLlm } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeTool, invokeToolForLlm, settlementProviderResult } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { mcpToolBinders, type McpProviderContext } from '../../src/tools/mcp-provider.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';
@@ -20,7 +20,7 @@ describe('MCP activity segmentation', () => {
     };
     const manager = { invokeTool: jest.fn(async () => ({ value: 1 })), findToolCapability: jest.fn(() => null), getServerTools: jest.fn(() => undefined) };
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    await expect(invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, new AbortController().signal, context)).resolves.toEqual({ success: true, data: { value: 1 } });
+    expect(settlementProviderResult({ kind: 'executed', execution: await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, new AbortController().signal, context) })).toEqual({ success: true, data: { value: 1 } });
     expect(waits).toEqual({ external: 0, process: 0 });
   });
 
@@ -42,12 +42,12 @@ describe('MCP activity segmentation', () => {
     const invocationFailure = buildInvocationSurfaceFixture('executor', [provider({
       mcpToolInvocation: { getServerTools: () => [], findToolCapability: () => null, invokeTool: async () => { throw new Error('transport failed'); } },
     })]);
-    await expect(invokeToolForLlm(invocationFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ success: false, error: 'transport failed' });
+    await expect(invokeToolForLlm(invocationFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ kind: 'executed', execution: { providerResult: { success: false, error: 'transport failed' }, evidence: { kind: 'none' } } });
 
     const reviewerFailure = buildInvocationSurfaceFixture('reviewer', [provider({
       mcpToolInvocation: { getServerTools: () => [], findToolCapability: () => null, invokeTool: async () => 'unused' },
     })]);
-    await expect(invokeToolForLlm(reviewerFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ success: true, data:'unused' });
+    expect(settlementProviderResult(await invokeToolForLlm(reviewerFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: 'unused' });
 
     const reviewerDestructive = buildInvocationSurfaceFixture('reviewer', [provider({
       mcpToolInvocation: {
@@ -56,7 +56,7 @@ describe('MCP activity segmentation', () => {
         invokeTool: async () => 'unused',
       },
     })]);
-    await expect(invokeToolForLlm(reviewerDestructive, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ success: true, data:'unused' });
+    expect(settlementProviderResult(await invokeToolForLlm(reviewerDestructive, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: 'unused' });
 
     const reviewerWritable = buildInvocationSurfaceFixture('reviewer', [provider({
       mcpToolInvocation: {
@@ -65,6 +65,6 @@ describe('MCP activity segmentation', () => {
         invokeTool: async () => 'unused',
       },
     })]);
-    await expect(invokeToolForLlm(reviewerWritable, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' }))).resolves.toEqual({ success: true, data:'unused' });
+    expect(settlementProviderResult(await invokeToolForLlm(reviewerWritable, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: 'unused' });
   });
 });

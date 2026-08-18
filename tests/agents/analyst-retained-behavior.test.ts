@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { buildWorkspaceContextNote } from '../../src/agents/analyst-handler.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE, runAuditedAnalystTool } from '../../src/agents/analyst-tool-runner.js';
+import { executedProviderResult } from '../../src/tools/invocation.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
 import { reorder_child } from '../../src/tools/analyst-card-tools.js';
 
@@ -39,7 +40,7 @@ describe('audited Analyst mutation settlement', () => {
   it('runs a supported destructive mutation once and preserves its audit classification', async () => {
     const test = harness();
     const mutate = jest.fn(() => ({ kind: 'returned' as const, success: true as const }));
-    await expect(runAuditedAnalystTool(test.context, {}, { ...test.spec(mutate), safety_class: 'destructive' })).resolves.toEqual({ success: true });
+    await expect(runAuditedAnalystTool(test.context, {}, { ...test.spec(mutate), safety_class: 'destructive' })).resolves.toEqual(executedProviderResult('none', { success: true }));
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(listControlActions(test.root)).toHaveLength(1);
     expect(listControlActions(test.root)[0]).toMatchObject({ actor: 'analyst', surface: 'web-chat', safety_class: 'destructive', outcome: 'ok' });
@@ -48,14 +49,14 @@ describe('audited Analyst mutation settlement', () => {
   it('audits application denial after preparation exactly once', async () => {
     const test = harness();
     const result = await runAuditedAnalystTool(test.context, {}, test.spec(() => ({ kind: 'denied', reason: 'status changed' }), { prepare: async () => ({ current: true }) }));
-    expect(result).toMatchObject({ success: false, error: expect.stringContaining('status changed') });
+    expect(result.providerResult).toMatchObject({ success: false, error: expect.stringContaining('status changed') });
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'denied' });
   });
 
   it('projects and audits a returned failure', async () => {
     const test = harness();
     const result = await runAuditedAnalystTool(test.context, {}, test.spec(() => ({ kind: 'returned', success: false, error: 'owner rejected' })));
-    expect(result).toEqual({ success: false, error: 'owner rejected' });
+    expect(result).toEqual(executedProviderResult('none', { success: false, error: 'owner rejected' }));
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'error', error: 'owner rejected' });
   });
 
@@ -92,7 +93,7 @@ describe('audited Analyst mutation settlement', () => {
 
   it('audits returned success once', async () => {
     const test = harness();
-    await expect(runAuditedAnalystTool(test.context, {}, test.spec(() => ({ kind: 'returned', success: true, data: { ok: true } })))).resolves.toEqual({ success: true, data: { ok: true } });
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(() => ({ kind: 'returned', success: true, data: { ok: true } })))).resolves.toEqual(executedProviderResult('none', { success: true, data: { ok: true } }));
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'ok' });
   });
 
@@ -110,7 +111,7 @@ describe('audited Analyst mutation settlement', () => {
     const reorder = jest.fn(() => ({ kind: 'returned' as const, success: true as const, data: { parent_id: 'project', changed: 0 } }));
     (test.context as { analystMutations: unknown }).analystMutations = { cards: { reorder } };
 
-    await expect(reorder_child(test.context, { parentId: 'project', orderedChildIds: [] })).resolves.toEqual({ success: true, data: { parent_id: 'project', changed: 0 } });
+    await expect(reorder_child(test.context, { parentId: 'project', orderedChildIds: [] })).resolves.toEqual(executedProviderResult('none', { success: true, data: { parent_id: 'project', changed: 0 } }));
     expect(reorder).toHaveBeenCalledTimes(1);
     expect(reorder).toHaveBeenCalledWith('project', []);
     expect(listControlActions(test.root)).toHaveLength(1);
@@ -121,7 +122,7 @@ describe('audited Analyst mutation settlement', () => {
     const test = harness();
     const controller = new AbortController();
     const mutate = jest.fn(async () => { controller.abort(new Error('operation owner disposed after commit')); return { kind: 'returned' as const, success: true as const }; });
-    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate), controller.signal)).resolves.toEqual({ success: true });
+    await expect(runAuditedAnalystTool(test.context, {}, test.spec(mutate), controller.signal)).resolves.toEqual(executedProviderResult('none', { success: true }));
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(listControlActions(test.root)).toHaveLength(1);
     expect(listControlActions(test.root)[0]).toMatchObject({ outcome: 'ok' });

@@ -2,7 +2,8 @@ import { describe, expect, it, jest } from '@jest/globals';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { bindToolProvider, invokeTool, surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { bindToolProvider, surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
@@ -40,10 +41,10 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     expect(JSON.stringify(surfaceToolDefinitions(bound.global))).toBe(JSON.stringify(surfaceToolDefinitions(bound.card)));
     for(const surface of [bound.global,bound.card]){
       read.mockClear();
-      await expect(invokeTool(surface,'list_cards',{type:'custom-leaf'})).resolves.toMatchObject({success:true,data:[expect.objectContaining({type:'custom-leaf'})]});
-      await expect(invokeTool(surface,'list_cards',{type:['project','custom-leaf']})).resolves.toMatchObject({success:true});
+      await expect(invokeTestTool(surface,'list_cards',{type:'custom-leaf'})).resolves.toMatchObject({success:true,data:[expect.objectContaining({type:'custom-leaf'})]});
+      await expect(invokeTestTool(surface,'list_cards',{type:['project','custom-leaf']})).resolves.toMatchObject({success:true});
       read.mockClear();
-      await expect(invokeTool(surface,'list_cards',{type:'unconfigured'})).resolves.toMatchObject({success:false});
+      await expect(invokeTestTool(surface,'list_cards',{type:'unconfigured'})).rejects.toThrow(/unconfigured/);
       expect(read).not.toHaveBeenCalled();
     }
   });
@@ -66,11 +67,11 @@ describe('configuration-bound card-type tool vocabulary',()=>{
       const base={type:'project',title:'root',bootstrap_content:'root'};
       for(const parent of [undefined,null,'project']){
         const input=parent===undefined?base:{...base,parent};
-        await expect(create_card(context,input)).resolves.toMatchObject({success:false,error:expect.stringContaining('Root project card already exists')});
+        await expect(create_card(context,input)).resolves.toMatchObject({providerResult:{success:false,error:expect.stringContaining('Root project card already exists')},evidence:{kind:'none'}});
       }
       expect(create).toHaveBeenCalledTimes(3);
       create.mockClear();
-      await expect(create_card(context,{type:'unconfigured',title:'unknown',bootstrap_content:'unknown'})).resolves.toMatchObject({success:false,error:expect.stringContaining("received 'unconfigured'")});
+      await expect(create_card(context,{type:'unconfigured',title:'unknown',bootstrap_content:'unknown'})).resolves.toMatchObject({providerResult:{success:false,error:expect.stringContaining("received 'unconfigured'")},evidence:{kind:'none'}});
       expect(create).not.toHaveBeenCalled();
     }finally{rmSync(projectRoot,{recursive:true,force:true});}
   });
@@ -82,10 +83,10 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     const surface=buildInvocationSurfaceFixture('planner',[provider]);
     const schema=surface.tools.get('create_card')!.inputSchema;
     expect(schema.safeParse({type:'wire-unknown',title:'x',bootstrap_content:'x'}).success).toBe(true);
-    await expect(invokeTool(surface,'create_card',{type:'wire-unknown',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:'create_card.type must be one of: custom-leaf, other.'});
-    await expect(invokeTool(surface,'create_card',{type:'project',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:'create_card cannot create project cards.'});
-    await expect(invokeTool(surface,'create_card',{type:'other',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:"Child type 'other' is not permitted for this node."});
-    await expect(invokeTool(surface,'create_card',{type:'custom-leaf',title:'x',bootstrap_content:'x'})).resolves.toMatchObject({success:true,data:{card:{type:'custom-leaf'}}});
+    await expect(invokeTestTool(surface,'create_card',{type:'wire-unknown',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:'create_card.type must be one of: custom-leaf, other.'});
+    await expect(invokeTestTool(surface,'create_card',{type:'project',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:'create_card cannot create project cards.'});
+    await expect(invokeTestTool(surface,'create_card',{type:'other',title:'x',bootstrap_content:'x'})).resolves.toEqual({success:false,error:"Child type 'other' is not permitted for this node."});
+    await expect(invokeTestTool(surface,'create_card',{type:'custom-leaf',title:'x',bootstrap_content:'x'})).resolves.toMatchObject({success:true,data:{card:{type:'custom-leaf'}}});
     expect(store.create).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,7 +5,8 @@ import { join } from 'node:path';
 
 import { CardService } from '../helpers/canonical-project.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider } from '../../src/tools/invocation.js';
+import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
@@ -19,7 +20,7 @@ describe('card inspection authored-record summaries', () => {
     initProjectTree(root);
     const cards = new CardService(root);
     const normalSurface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards,cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
-    const result = await invokeTool(normalSurface, 'get_card', { id: 'project' });
+    const result = await invokeTestTool(normalSurface, 'get_card', { id: 'project' });
     expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ records_by_filename: expect.objectContaining({ 'status.md': expect.objectContaining({ state: 'absent', head_version: null }), 'review.md': expect.objectContaining({ state: 'absent', head_version: null }) }) }) }));
     const data = result.data as { records: Array<{ name: string }>; records_by_filename: Record<string, unknown> };
     expect(data.records.map(({ name }) => name)).toEqual(['brief.md', 'status.md', 'review.md']);
@@ -29,6 +30,6 @@ describe('card inspection authored-record summaries', () => {
     cards.readCurrentRecord = (() => { throw hostile; }) as CardService['readCurrentRecord'];
     const surface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards,cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
 
-    await expect(invokeTool(surface, 'get_card', { id: 'project' })).rejects.toBe(hostile);
+    await expect(invokeTestTool(surface, 'get_card', { id: 'project' })).rejects.toBe(hostile);
   });
 });

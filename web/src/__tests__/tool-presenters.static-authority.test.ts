@@ -155,8 +155,8 @@ describe('static tool presenter authority', () => {
   });
 
   it('exposes wrapped canonical webfetch stash URLs as Files links', () => {
-    const call = { id: 'c', session_id: 'agent:analyst:global', role: 'assistant', kind: 'tool_call', content: callEnvelope('webfetch', { url: 'https://example.com' }), round_id: 'assistant:1', message_index: 0, block_index: 0, timestamp: '2026-07-21T00:00:00Z', tool: 'webfetch', tool_call_id: 'c' } as ToolPair['call'];
-    const result = { ...call, id: 'r', role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }) } as ToolPair['result'];
+    const call = { id: 'c', session_id: 'agent:analyst:global', role: 'assistant', kind: 'tool_call', content: callEnvelope('webfetch', { url: 'https://example.com' }), context_policy: { kind: 'tool_call', template: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' }, template_bytes: '{}', template_sha256: '0'.repeat(64) }, round_id: 'assistant:1', message_index: 0, block_index: 0, timestamp: '2026-07-21T00:00:00Z', tool: 'webfetch', tool_call_id: 'c' } as ToolPair['call'];
+    const result = { ...call, id: 'r', role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }), context_policy: { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } } as ToolPair['result'];
     const display = buildToolDisplay({ call, result, status: 'ok' });
     expect(display.links).toContainEqual({ kind: 'file', root: 'output', path: '.saivage/work/tmp/stash/webfetch.txt', label: 'work:///tmp/stash/webfetch.txt' });
   });

@@ -115,6 +115,8 @@ interface CanonicalToolCallCheckpoint {
   readonly toolName: string;
   readonly sourceInputId: string;
   readonly toolCallId: string;
+  readonly templateSha256: string;
+  readonly evidenceMode: 'none' | 'observational_query' | 'canonical_locator';
   readonly sourceOrdinal: number;
   readonly physicalOrdinal: number;
   resultOrdinal: number | null;
@@ -250,7 +252,7 @@ export function reduceCanonicalConversationRow(
     lineEnd: checkpoint.lineEnd,
     rowOrdinal: checkpoint.rowOrdinal,
   });
-  validateToolOrdering(state, source, callIdentity, resultIdentity);
+  validateToolOrdering(state, source, row, callIdentity, resultIdentity);
   state.sources.push(source);
   state.sourceOrdinals.set(source.id, ordinal);
   return state;
@@ -486,10 +488,13 @@ function materializeValidatedConversation(
 function validateToolOrdering(
   state: CanonicalConversationValidationState,
   source: CanonicalConversationSourceCheckpoint,
+  row: AgentMessage,
   callIdentity: ReturnType<typeof loggedToolCallIdentity>,
   resultIdentity: ReturnType<typeof loggedToolResultIdentity>,
 ): void {
   if (callIdentity) {
+    if (row.context_policy.kind !== 'tool_call')
+      throw new Error(`Tool call '${row.id}' is missing its tool_call context policy.`);
     const key = toolKey(callIdentity);
     if (state.toolCalls.has(key))
       throw new Error('Conversation contains a duplicate tool call identity.');
@@ -498,6 +503,8 @@ function validateToolOrdering(
       toolName: source.toolName!,
       sourceInputId: callIdentity.source_input_id,
       toolCallId: callIdentity.tool_call_id,
+      templateSha256: row.context_policy.template_sha256,
+      evidenceMode: row.context_policy.template.evidenceMode,
       sourceOrdinal: state.sources.length,
       physicalOrdinal: source.rowOrdinal,
       resultOrdinal: null,
@@ -505,6 +512,8 @@ function validateToolOrdering(
     return;
   }
   if (resultIdentity) {
+    if (row.context_policy.kind !== 'tool_result')
+      throw new Error(`Tool result '${row.id}' is missing its tool_result context policy.`);
     const key = toolKey(resultIdentity);
     if (state.toolResults.has(key))
       throw new Error('Conversation contains a duplicate tool result identity.');
@@ -513,9 +522,28 @@ function validateToolOrdering(
       throw new Error(
         'Conversation tool result has no matching earlier call with the same identity and tool name.',
       );
+    const policy = row.context_policy;
+    if (policy.call_policy_sha256 !== call.templateSha256)
+      throw new Error(`Tool result '${row.id}' does not commit to its call's policy template hash.`);
+    const result = parseToolResultContent(row);
+    if (result.success) {
+      const expected = call.evidenceMode;
+      if (policy.evidence.kind !== expected)
+        throw new Error(`Successful tool result '${row.id}' must carry exactly its call's declared '${expected}' evidence.`);
+    } else if (policy.evidence.kind !== 'none') {
+      throw new Error(`Failed tool result '${row.id}' must carry none evidence.`);
+    }
     const resultOrdinal = state.sources.length;
     state.toolResults.set(key, resultOrdinal);
     call.resultOrdinal = resultOrdinal;
+  }
+}
+
+function parseToolResultContent(row: AgentMessage): { success: boolean } {
+  try {
+    return { success: ToolInvocationResultSchema.parse(JSON.parse(row.content)).success === true };
+  } catch (error) {
+    throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);
   }
 }
 

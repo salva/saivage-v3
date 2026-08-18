@@ -2,6 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 
 import { validateConversation } from '../../../src/contracts/conversation-validation.js';
 import { agentMessageSchema, type AgentMessage, type ConversationSessionId } from '../../../src/schemas/index.js';
+import { ACTIVITY_ROW_POLICY, toolRowPolicies } from '../../helpers/row-policy-fixtures.js';
 import { buildSummarizerRoundInput, summarizeRound } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { SummaryResultValidationError } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
@@ -9,7 +10,7 @@ import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
 
 describe('compaction summarizer projection boundary', () => {
-  it('projects recoverable result bodies only after durable validation and reaches the provider without durable revalidation', async () => {
+  it('delivers every settled result body unchanged to the summarizer and reaches the provider without durable revalidation', async () => {
     const sessionId: ConversationSessionId = 'agent:planner:project';
     const sourceInputId = '11111111-1111-4111-8111-111111111111';
     const rows = durableRound(sessionId, sourceInputId);
@@ -17,8 +18,8 @@ describe('compaction summarizer projection boundary', () => {
     const input = buildSummarizerRoundInput(conversation, 'activation', rows);
     const projectedResult = input.providerConversation.messages.find((row) => row.kind === 'tool_result')!;
 
-    expect(JSON.parse(projectedResult.content)).toMatchObject({ success: true, recovered_from: { tool: 'read', args: { path: 'large.txt' } } });
-    expect(() => validateConversation(sessionId, input.providerConversation.messages)).toThrow(/malformed content/);
+    expect(JSON.parse(projectedResult.content)).toMatchObject({ success: true, data: { content: 'x'.repeat(10_000) } });
+    expect(() => validateConversation(sessionId, input.providerConversation.messages)).not.toThrow();
 
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }));
     await expect(summarizeRound({
@@ -58,10 +59,12 @@ describe('compaction summarizer projection boundary', () => {
 function durableRound(sessionId: ConversationSessionId, sourceInputId: string): AgentMessage[] {
   const timestamp = '2026-08-09T00:00:00.000Z';
   const common = { session_id: sessionId, timestamp, round_id: `r-user-${'0'.repeat(32)}` };
+  const settled = JSON.stringify({ success: true, data: { content: 'x'.repeat(10_000) } });
+  const policies = toolRowPolicies({ content: settled });
   return [
-    agentMessageSchema.parse({ ...common, id: 'activation', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: sourceInputId, timestamp }), message_index: 0, block_index: 0 }),
-    agentMessageSchema.parse({ ...common, id: `${sourceInputId}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'large.txt' }) } }] }), message_index: 1, block_index: 0 }),
-    agentMessageSchema.parse({ ...common, id: `${sourceInputId}:tool-result:call-1`, role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ success: true, data: { content: 'x'.repeat(10_000) } }), message_index: 2, block_index: 0 }),
+    agentMessageSchema.parse({ ...common, context_policy: ACTIVITY_ROW_POLICY, id: 'activation', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: sourceInputId, timestamp }), message_index: 0, block_index: 0 }),
+    agentMessageSchema.parse({ ...common, context_policy: policies.call, id: `${sourceInputId}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', tool: 'read', tool_call_id: 'call-1', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: JSON.stringify({ path: 'large.txt' }) } }] }), message_index: 1, block_index: 0 }),
+    agentMessageSchema.parse({ ...common, context_policy: policies.result, id: `${sourceInputId}:tool-result:call-1`, role: 'tool', kind: 'tool_result', tool: 'read', tool_call_id: 'call-1', content: settled, message_index: 2, block_index: 0 }),
   ];
 }
 

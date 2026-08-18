@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider } from '../../src/tools/invocation.js';
+import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { skillToolBinders } from '../../src/tools/skill-provider.js';
 
@@ -31,7 +32,7 @@ describe('SkillProvider', () => {
     writeCatalog(skillsDir);
     const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('skill', skillToolBinders, { projectRoot: root, agentName: 'executor' })]);
 
-    expect(await invokeTool(surface, 'skill', {})).toEqual({
+    expect(await invokeTestTool(surface, 'skill', {})).toEqual({
       success: true,
       data: { skills: [{ name: 'shared' }, { name: 'executor-skill' }, { name: 'broken' }] },
     });
@@ -41,7 +42,7 @@ describe('SkillProvider', () => {
     writeCatalog(skillsDir);
     const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('skill', skillToolBinders, { projectRoot: root, agentName: 'executor' })]);
 
-    expect(await invokeTool(surface, 'skill', { name: 'executor-skill' })).toEqual({
+    expect(await invokeTestTool(surface, 'skill', { name: 'executor-skill' })).toEqual({
       success: true,
       data: { skill_name: 'executor-skill', skill_content: '# Executor Skill\n' },
     });
@@ -51,15 +52,15 @@ describe('SkillProvider', () => {
     writeCatalog(skillsDir);
     const surface = buildInvocationSurfaceFixture('executor', [bindToolProvider('skill', skillToolBinders, { projectRoot: root, agentName: 'executor' })]);
 
-    expect(await invokeTool(surface, 'skill', { name: 'missing' })).toEqual({
+    expect(await invokeTestTool(surface, 'skill', { name: 'missing' })).toEqual({
       success: false,
       error: "Skill 'missing' is unavailable for agent 'executor'.",
     });
-    expect(await invokeTool(surface, 'skill', { name: 'reviewer-skill' })).toEqual({
+    expect(await invokeTestTool(surface, 'skill', { name: 'reviewer-skill' })).toEqual({
       success: false,
       error: "Skill 'reviewer-skill' is unavailable for agent 'executor'.",
     });
-    expect(await invokeTool(surface, 'skill', { name: 'broken' })).toEqual({
+    expect(await invokeTestTool(surface, 'skill', { name: 'broken' })).toEqual({
       success: false,
       error: expect.stringMatching(/Failed to read skill 'broken' file at .*missing\.md: ENOENT/),
     });

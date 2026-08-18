@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { ToolContext } from './analyst-tool-types.js';
-import { defineToolBinder, type ToolBinder, type ToolResult } from './invocation.js';
+import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolResult } from './invocation.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersionsInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { CardDiffResponseSchema, CardHistoryEntryResponseSchema, CardHistoryListResponseSchema } from '../contracts/index.js';
@@ -12,9 +12,9 @@ export interface CardVersionProviderContext {
 }
 
 export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'list_card_versions', description: 'List committed card versions without opening version content.', inputSchema: () => listCardVersionsInputSchema, executor: async (ctx, args) => listCardVersions(ctx, args) }),
-  defineToolBinder({ name: 'get_card_version', description: 'Read one exact committed card version.', inputSchema: () => getCardVersionInputSchema, executor: async (ctx, args) => getCardVersion(ctx, args) }),
-  defineToolBinder({ name: 'diff_card_versions', description: 'Get a field-level diff between two card versions.', inputSchema: () => diffCardVersionsInputSchema, executor: async (ctx, args) => diffCardVersions(ctx, args) }),
+  defineToolBinder({ name: 'list_card_versions', description: 'List committed card versions without opening version content.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => listCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => listCardVersions(ctx, args)) }),
+  defineToolBinder({ name: 'get_card_version', description: 'Read one exact committed card version.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardVersionInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => getCardVersion(ctx, args)) }),
+  defineToolBinder({ name: 'diff_card_versions', description: 'Get a field-level diff between two card versions.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => diffCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => diffCardVersions(ctx, args)) }),
 ]);
 
 async function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof listCardVersionsInputSchema>): Promise<ToolResult> {

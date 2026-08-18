@@ -29,7 +29,7 @@ describe('application startup generated-state admission', () => {
     const root = projectRoot(); const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
     publishInitialProjectRuntime(root, workflows);
     const timestamp = '2026-08-14T00:00:00.000Z';
-    appendConversationBatch({ projectRoot: root }, [agentMessageSchema.parse({ id: 'activation', session_id: 'agent:analyst:global', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: '00000000-0000-4000-8000-000000000001', timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
+    appendConversationBatch({ projectRoot: root }, [agentMessageSchema.parse({ id: 'activation', context_policy: { kind: 'structural', behavior: 'activation_boundary' }, session_id: 'agent:analyst:global', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: '00000000-0000-4000-8000-000000000001', timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
     const segment = readCurrentConversationSegment(root, 'agent:analyst:global')!;
     const conversationPath = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename); appendFileSync(conversationPath, 'unterminated');
     const conversationBytes = readFileSync(conversationPath); const globalIndexBytes = readFileSync(globalAgentConversationVersionIndexFile(root, 'analyst'));
@@ -81,7 +81,7 @@ describe('application startup generated-state admission', () => {
     const optionalIndex = cardRecordVersionIndexFile(root, 'project', testRecordDefinition('status.md', 'project'));
     rmSync(optionalIndex);
     const timestamp = '2026-08-14T00:00:00.000Z';
-    appendConversationBatch({ projectRoot: root }, [agentMessageSchema.parse({ id: 'set-change', session_id: 'agent:analyst:global', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: '00000000-0000-4000-8000-000000000002', timestamp }), round_id: `r-pre-${'1'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
+    appendConversationBatch({ projectRoot: root }, [agentMessageSchema.parse({ id: 'set-change', context_policy: { kind: 'structural', behavior: 'activation_boundary' }, session_id: 'agent:analyst:global', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: '00000000-0000-4000-8000-000000000002', timestamp }), round_id: `r-pre-${'1'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
     const segment = readCurrentConversationSegment(root, 'agent:analyst:global')!;
     const conversationPath = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
     appendFileSync(conversationPath, 'unterminated');

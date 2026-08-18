@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult } from '../../src/runtime/actors/llm-delivery-log.js';
+import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult, selectInvocationResultPolicy } from '../../src/runtime/actors/llm-delivery-log.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { CanonicalLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 
@@ -45,16 +45,16 @@ describe('runtime ledger contract deletions', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const inputId = '00000000-0000-4000-8000-000000000001';
-    const invocation: CanonicalLlmInvocationInput = { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: '', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], terminalToolNames: [], modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [{ provider: 'test', account: null, model: 'test-model' }] }, episodeContext: {} };
-    appendLlmTurnToolCallBatch({ projectRoot }, invocation, { id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } });
+    const invocation: CanonicalLlmInvocationInput = { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: '', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [{ provider: 'test', account: null, model: 'test-model' }] }, episodeContext: {} };
+    appendLlmTurnToolCallBatch({ projectRoot }, invocation, { id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }, selectInvocationResultPolicy(invocation, 'read'));
 
-    const settlement = appendToolResult({ projectRoot }, { session_id: 'agent:planner:project', source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', result: { success: true } });
-    expect(settlement).toMatchObject({ source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', result: { success: true } });
-    expect('message' in settlement).toBe(false);
+    const settled = appendToolResult({ projectRoot }, { session_id: 'agent:planner:project', source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', resultPolicy: selectInvocationResultPolicy(invocation, 'read'), settlement: { kind: 'executed', execution: { providerResult: { success: true }, evidence: { kind: 'none' } } } });
+    expect(settled).toMatchObject({ providerResult: { success: true }, settlementOrigin: 'executed', callPolicySha256: selectInvocationResultPolicy(invocation, 'read').resultPolicyTemplateSha256 });
+    expect(settled.evidence).toEqual({ kind: 'none' });
 
     const secondInputId = '00000000-0000-4000-8000-000000000002';
-    appendLlmTurnToolCallBatch({ projectRoot }, { ...invocation, inputId: secondInputId }, { id: 'call-2', type: 'function', function: { name: 'write', arguments: '{}' } });
-    expect(appendProviderVisibleSyntheticFailedToolResult({ projectRoot }, { sessionId: 'agent:planner:project', sourceInputId: secondInputId, toolCallId: 'call-2', toolName: 'write', error: 'interrupted' })).toBeUndefined();
+    appendLlmTurnToolCallBatch({ projectRoot }, { ...invocation, inputId: secondInputId }, { id: 'call-2', type: 'function', function: { name: 'write', arguments: '{}' } }, selectInvocationResultPolicy(invocation, 'write'));
+    expect(appendProviderVisibleSyntheticFailedToolResult({ projectRoot }, { sessionId: 'agent:planner:project', sourceInputId: secondInputId, toolCallId: 'call-2', toolName: 'write', error: 'interrupted', resultPolicy: selectInvocationResultPolicy(invocation, 'write') })).toBeUndefined();
 
     const delivery = await import('../../src/runtime/actors/llm-delivery-log.js');
     expect('appendLlmTurnMessage' in delivery).toBe(false);

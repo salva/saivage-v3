@@ -8,7 +8,7 @@ export {
   CardDiffRowSchema,
 } from '@saivage/contracts/operator-api';
 
-export { parseConversationSessionId } from '@saivage/schemas';
+export { DURABLE_PRIMARY_CONTENT_POLICY, parseConversationSessionId } from '@saivage/schemas';
 export type { ConversationSessionId } from '@saivage/schemas';
 
 export type {

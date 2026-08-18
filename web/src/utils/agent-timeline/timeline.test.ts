@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentConversationEntry } from '../../api/types';
+import { DURABLE_PRIMARY_CONTENT_POLICY } from '../../api/contracts';
 import { entriesToTimeline } from './timeline';
 
 function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEntry {
@@ -9,6 +10,7 @@ function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEnt
     role: 'assistant',
     kind: 'text',
     content: '',
+    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: 'r-assistant-0000000000000000000000000000000a',
     message_index: 0,
     block_index: 0,

@@ -13,7 +13,6 @@ import {
   type SummarizerConversationProjection,
 } from '../conversation-session.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
-import { buildSummarizerProviderRows } from './result-dropping.js';
 
 export interface SummarizerProviderPort {
   readonly candidate: Candidate;
@@ -52,14 +51,13 @@ export function buildSummarizerRoundInput(
   ) {
     throw new Error(`Summarizer source rows are not the canonical prefix of round '${roundId}'.`);
   }
-  const transformed = buildSummarizerProviderRows(canonicalPrefix);
   return Object.freeze({
     sourceSessionId: conversation.sourceSessionId,
     roundId,
     durableSourceRows: Object.freeze(selectedIds),
     providerConversation: summarizerConversationProjection(
       conversation.sourceSessionId,
-      transformed,
+      canonicalPrefix,
     ),
   });
 }
@@ -142,6 +140,7 @@ function buildSummaryInput(
     systemPrompt,
     providerConversation,
     tools: [],
+    compiledToolContracts: [],
     terminalToolNames: [],
     modelParams: { temperature: 0, maxTokens: 2000 },
     capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },

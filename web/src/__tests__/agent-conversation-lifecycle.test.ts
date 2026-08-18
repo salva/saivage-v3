@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DURABLE_PRIMARY_CONTENT_POLICY } from '../api/contracts';
 import { flushPromises, mount } from '@vue/test-utils';
 import { createPinia, setActivePinia } from 'pinia';
 import { createMemoryHistory, createRouter } from 'vue-router';
@@ -52,6 +53,7 @@ function textEntry(id: string, messageIndex: number): AgentConversationEntry {
     role: 'assistant',
     kind: 'text',
     content: `message ${id}`,
+    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: `r-assistant-0000000000000000000000000000000${messageIndex}`,
     message_index: messageIndex,
     block_index: 0,

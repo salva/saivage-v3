@@ -1,4 +1,6 @@
 import { z } from 'zod';
+
+import { sha256Hex } from './sha256.js';
 import {
   agentEventKindValues,
   eventKindValues,
@@ -18,12 +20,16 @@ import { agentNameSchema } from './agent-name.js';
 import { cardTypeNameSchema } from './card-type-name.js';
 import { ConversationSessionIdSchema } from './conversation-session-id.js';
 import { CONTENT_POLICY_RETRY_TEXT, parseCanonicalContentPolicyRefusal } from './content-policy.js';
+import { canonicalJson } from './context-compaction.js';
+import { rowContextPolicySchema, type StructuralRowBehavior } from './context-policy.js';
 export { nonRootCardIdSchema } from './card-id.js';
 export { cardIdSchema };
 export { roundIdGrammar, assertRoundId, type RoundKind } from './round-id.js';
+export * from './context-policy.js';
 
 
 function enumFromCatalog(values: readonly string[]) { return z.enum(values as unknown as [string, ...string[]]); }
+
 
 export const cardTypeSchema = cardTypeNameSchema;
 export const cardStatusSchema = z.enum(cardStatusValues);
@@ -74,7 +80,46 @@ export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool'])
 export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'model_issue', 'model_repair', 'content_policy_retry', 'content_policy_refusal', 'model_recovered', 'provider_private']);
 export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment']), entity_id: z.string().min(1), label: z.string().optional() }).strict();
 const providerProjectionSchema = z.object({ kind: z.literal('openai_responses'), source_input_id: z.string().uuid(), private_message_id: z.string().min(1), projection_kind: z.enum(['assistant_message', 'assistant_tool_call']) }).strict();
-export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: ConversationSessionIdSchema, role: messageRoleSchema, kind: messageKindSchema, content: z.string(), round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional(), provider_projection: providerProjectionSchema.optional() }).strict().superRefine((message, ctx) => {
+export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: ConversationSessionIdSchema, role: messageRoleSchema, kind: messageKindSchema, content: z.string(), context_policy: rowContextPolicySchema, round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional(), provider_projection: providerProjectionSchema.optional() }).strict().superRefine((message, ctx) => {
+  const policyIssue = (message: string, path: readonly (string | number)[] = ['context_policy']): void => ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: [...path] });
+  const structuralBehavior: StructuralRowBehavior | undefined = message.context_policy.kind === 'structural' ? message.context_policy.behavior : undefined;
+  switch (message.kind) {
+    case 'text': case 'model_repair': case 'content_policy_retry':
+      if (message.context_policy.kind !== 'content') policyIssue(`'${message.kind}' rows require content policy.`);
+      break;
+    case 'activity':
+      if (structuralBehavior !== 'activation_boundary') policyIssue("'activity' rows require structural activation_boundary policy.");
+      break;
+    case 'model_issue':
+      if (structuralBehavior !== 'provider_failure') policyIssue("'model_issue' rows require structural provider_failure policy.");
+      break;
+    case 'content_policy_refusal':
+      if (structuralBehavior !== 'content_policy_refusal') policyIssue("'content_policy_refusal' rows require structural content_policy_refusal policy.");
+      break;
+    case 'model_recovered':
+      if (structuralBehavior !== 'model_recovery_notice') policyIssue("'model_recovered' rows require structural model_recovery_notice policy.");
+      break;
+    case 'provider_private':
+      if (structuralBehavior !== 'responses_private') policyIssue("'provider_private' rows require structural responses_private policy.");
+      break;
+    case 'tool_call': {
+      if (message.context_policy.kind !== 'tool_call') { policyIssue("'tool_call' rows require tool_call policy."); break; }
+      const bytes = canonicalJson(message.context_policy.template);
+      if (bytes !== message.context_policy.template_bytes) policyIssue('tool_call policy template bytes are not the canonical serialization of the template.', ['context_policy', 'template_bytes']);
+      if (sha256Hex(bytes) !== message.context_policy.template_sha256) policyIssue('tool_call policy template sha256 does not commit to the template bytes.', ['context_policy', 'template_sha256']);
+      break;
+    }
+    case 'tool_result': {
+      if (message.context_policy.kind !== 'tool_result') { policyIssue("'tool_result' rows require tool_result policy."); break; }
+      if (sha256Hex(message.content) !== message.context_policy.result_content_sha256) policyIssue('tool_result policy result hash does not commit to the exact settled content bytes.', ['context_policy', 'result_content_sha256']);
+      let success: boolean;
+      try { success = (JSON.parse(message.content) as { success?: unknown }).success === true; } catch { success = false; policyIssue('tool_result content must be the exact settled strict ToolResult bytes.', ['content']); break; }
+      if (!success && message.context_policy.evidence.kind !== 'none') policyIssue('A failed tool_result must carry none evidence.', ['context_policy', 'evidence']);
+      if (message.context_policy.settlement_origin !== 'executed' && success) policyIssue('A synthetic tool_result must be a failed provider result.', ['context_policy', 'settlement_origin']);
+      if (message.context_policy.settlement_origin !== 'executed' && message.context_policy.evidence.kind !== 'none') policyIssue('A synthetic tool_result must carry none evidence.', ['context_policy', 'evidence']);
+      break;
+    }
+  }
   if (message.kind === 'content_policy_retry') {
     if (message.role !== 'user' || message.content !== CONTENT_POLICY_RETRY_TEXT) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'content_policy_retry rows require the exact code-owned user message.', path: ['content'] });
     if (message.tool !== undefined || message.tool_call_id !== undefined || message.links !== undefined || message.provider_projection !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'content_policy_retry rows forbid tool, link, and provider metadata.' });

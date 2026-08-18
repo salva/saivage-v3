@@ -20,6 +20,7 @@ const MESSAGES: AgentMessage[] = [
     id: 'm1',
     session_id: 'agent:analyst:global',
     role: 'user',
+    context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } },
     kind: 'text',
     content: 'hi',
     round_id: 'r1',

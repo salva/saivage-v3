@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { DURABLE_PRIMARY_CONTENT_POLICY } from '../../api/contracts';
 import { nextTick, ref, type Ref } from 'vue';
 import { useAgentTimeline } from '../../composables/useAgentTimeline';
 import type { AgentConversationEntry } from '../../api/types';
@@ -14,6 +15,7 @@ function textEntry(id: string, round_id = assistantRound): AgentConversationEntr
     role: round_id.startsWith('r-user-') ? 'user' : 'assistant',
     kind: 'text',
     content: `message ${id}`,
+    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
     round_id,
     message_index: Number(id.replace(/\D/g, '') || 0),
     block_index: 0,

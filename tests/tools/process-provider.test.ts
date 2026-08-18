@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider } from '../../src/tools/invocation.js';
+import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { cleanupProcessProvider, processToolBinders, type ProcessProviderContext } from '../../src/tools/process-provider.js';
 import { cleanupTestProcessRunners, createTestProcessRunner, type TestProcessRunnerComposition } from '../helpers/test-process-runner.js';
@@ -71,22 +72,22 @@ describe('process provider', () => {
       waits: { waitProcess, waitExternal: async <T>(_promise: Promise<T>) => { throw new Error('unexpected external wait'); } },
     };
 
-    const foreground = await invokeTool(surface, 'run_command', { command: 'sleep 0.05', timeout_ms: 1000 }, new AbortController().signal, context);
+    const foreground = await invokeTestTool(surface, 'run_command', { command: 'sleep 0.05', timeout_ms: 1000 }, new AbortController().signal, context);
     expect(foreground.success).toBe(true);
     expect(waitProcessCalls).toHaveLength(1);
 
     waitProcessCalls.length = 0;
-    const background = await invokeTool(surface, 'run_command', { command: 'sleep 0.1', wait: false }, new AbortController().signal, context);
+    const background = await invokeTestTool(surface, 'run_command', { command: 'sleep 0.1', wait: false }, new AbortController().signal, context);
     if (!background.success) throw new Error(background.error);
     const processId = (background.data as { process_id: string }).process_id;
-    await invokeTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
+    await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
     expect(waitProcessCalls).toHaveLength(0);
-    await invokeTool(surface, 'wait_process', { process_id: processId, timeout_ms: 1000 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
+    await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 1000 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
     expect(waitProcessCalls).toHaveLength(1);
 
     waitProcessCalls.length = 0;
-    await invokeTool(surface, 'wait_process', { process_id: processId, timeout_ms: 1000 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
-    await invokeTool(surface, 'kill_process', { process_id: processId }, new AbortController().signal, { ...context, toolName: 'kill_process' });
+    await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 1000 }, new AbortController().signal, { ...context, toolName: 'wait_process' });
+    await invokeTestTool(surface, 'kill_process', { process_id: processId }, new AbortController().signal, { ...context, toolName: 'kill_process' });
     expect(waitProcessCalls).toHaveLength(0);
   }));
 
@@ -94,7 +95,7 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
-    const result = await invokeTool(surface, 'run_command', { command: 'printf hello', timeout_ms: 1000 });
+    const result = await invokeTestTool(surface, 'run_command', { command: 'printf hello', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
     if (result.success) {
@@ -111,7 +112,7 @@ describe('process provider', () => {
     const processes = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processes)]);
 
-    const result = await invokeTool(surface, 'run_command', {
+    const result = await invokeTestTool(surface, 'run_command', {
       command: `printf '%s\\n%s\\n' "$SAIVAGE_CARD_WORK_ROOT" "$PWD"; test -d "$SAIVAGE_CARD_WORK_ROOT"`,
       timeout_ms: 1000,
     });
@@ -128,7 +129,7 @@ describe('process provider', () => {
     const processes = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processes)]);
 
-    const result = await invokeTool(surface, 'run_command', {
+    const result = await invokeTestTool(surface, 'run_command', {
       command: `printf '%s\\n%s\\n' "\${SAIVAGE_CARD_WORK_ROOT+set}" "$PWD"`,
       timeout_ms: 1000,
     });
@@ -144,10 +145,7 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
-    const result = await invokeTool(surface, 'run_command', { command: 'printf never', inactivity_timeout_ms: 1000 });
-
-    expect(result.success).toBe(false);
-    if (!result.success) expect(result.error).toContain('Unrecognized key');
+    await expect(invokeTestTool(surface, 'run_command', { command: 'printf never', inactivity_timeout_ms: 1000 })).rejects.toThrow(/inactivity_timeout_ms/);
     expect(processRunner.processRunner.list()).toEqual([]);
   }));
 
@@ -164,7 +162,7 @@ describe('process provider', () => {
     ] as const;
 
     for (const [cwd, expected] of cases) {
-      const result = await invokeTool(surface, 'run_command', { command: 'exit 0', cwd, timeout_ms: 1000 });
+      const result = await invokeTestTool(surface, 'run_command', { command: 'exit 0', cwd, timeout_ms: 1000 });
       expect(result.success).toBe(true);
       if (result.success) {
         const processId = (result.data as { process_id: string }).process_id;
@@ -189,7 +187,7 @@ describe('process provider', () => {
     ] as const;
 
     for (const [cwd, message] of cases) {
-      const result = await invokeTool(surface, 'run_command', { command: 'exit 0', cwd });
+      const result = await invokeTestTool(surface, 'run_command', { command: 'exit 0', cwd });
       expect(result.success).toBe(false);
       if (!result.success) expect(result.error).toContain(message);
       expect(processRunner.processRunner.list()).toEqual([]);
@@ -200,7 +198,7 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
-    const result = await invokeTool(surface, 'run_command', { command: 'set -o pipefail; [[ value == v* ]]', timeout_ms: 1000 });
+    const result = await invokeTestTool(surface, 'run_command', { command: 'set -o pipefail; [[ value == v* ]]', timeout_ms: 1000 });
 
     expect(result).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ status: 'exited', exit_code: 0 }) }));
   }));
@@ -208,12 +206,12 @@ describe('process provider', () => {
   it('starts and inspects background commands', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
-    const started = await invokeTool(surface, 'run_command', { command: 'sleep 1 && printf done', wait: false });
+    const started = await invokeTestTool(surface, 'run_command', { command: 'sleep 1 && printf done', wait: false });
     expect(started.success).toBe(true);
     if (!started.success) return;
     const processId = (started.data as { process_id: string }).process_id;
 
-    const inspected = await invokeTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 });
+    const inspected = await invokeTestTool(surface, 'wait_process', { process_id: processId, timeout_ms: 0 });
 
     expect(inspected.success).toBe(true);
     if (inspected.success) {
@@ -227,7 +225,7 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const controller = new AbortController();
-    const pending = invokeTool(surface, 'run_command', { command: `exec ${process.execPath} -e 'process.stdout.write("before"); setInterval(() => {}, 1000)'`, timeout_ms: 10_000 }, controller.signal);
+    const pending = invokeTestTool(surface, 'run_command', { command: `exec ${process.execPath} -e 'process.stdout.write("before"); setInterval(() => {}, 1000)'`, timeout_ms: 10_000 }, controller.signal);
     setTimeout(() => controller.abort(new Error('stop')), 50);
 
     const result = await pending;
@@ -243,23 +241,23 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const owner = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const stranger = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
-    const started = await invokeTool(owner, 'run_command', { command: 'sleep 1', wait: false });
+    const started = await invokeTestTool(owner, 'run_command', { command: 'sleep 1', wait: false });
     expect(started.success).toBe(true);
     if (!started.success) return;
     const processId = (started.data as { process_id: string }).process_id;
 
-    const denied = await invokeTool(stranger, 'kill_process', { process_id: processId });
+    const denied = await invokeTestTool(stranger, 'kill_process', { process_id: processId });
 
     expect(denied.success).toBe(false);
     if (!denied.success) expect(denied.error).toContain('not bound');
-    await invokeTool(owner, 'kill_process', { process_id: processId });
+    await invokeTestTool(owner, 'kill_process', { process_id: processId });
   }));
 
   it('records Analyst command provenance as operator-owned session work', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processRunner)]);
 
-    const result = await invokeTool(surface, 'run_command', { command: 'printf analyst', timeout_ms: 1000 });
+    const result = await invokeTestTool(surface, 'run_command', { command: 'printf analyst', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -276,7 +274,7 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
-    const result = await invokeTool(surface, 'run_command', { command: 'printf executor', timeout_ms: 1000 });
+    const result = await invokeTestTool(surface, 'run_command', { command: 'printf executor', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
     if (!result.success) return;
@@ -293,7 +291,7 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
 
-    const result = await invokeTool(surface, 'run_command', { command: 'printf gated', timeout_ms: 1000 });
+    const result = await invokeTestTool(surface, 'run_command', { command: 'printf gated', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
     expect(processRunner.processRunner.list()).toHaveLength(1);
@@ -303,7 +301,7 @@ describe('process provider', () => {
     const processRunner = createTestProcessRunner(root);
     const surface = buildInvocationSurfaceFixture('analyst', [analystProvider(root, processRunner)]);
 
-    const result = await invokeTool(surface, 'run_command', { command: 'printf operator', timeout_ms: 1000 });
+    const result = await invokeTestTool(surface, 'run_command', { command: 'printf operator', timeout_ms: 1000 });
 
     expect(result.success).toBe(true);
     expect(processRunner.processRunner.list()).toHaveLength(1);

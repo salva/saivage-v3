@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+const CALL_POLICY = { kind: 'tool_call', template: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' }, template_bytes: '{}', template_sha256: '0'.repeat(64) } as const;
+const RESULT_POLICY = { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } as const;
 import { buildToolDisplay, friendlyAction, groupToolPairs, isKnownTool, isToolGroup } from '../utils/tool-friendly';
 import type { ToolPair } from '../utils/agent-timeline';
 import type { AgentConversationEntry } from '../api/types';
@@ -14,6 +16,7 @@ function entry(id: string, kind: AgentConversationEntry['kind'], content: string
     role: kind === 'tool_result' ? 'tool' : 'assistant',
     kind,
     content,
+    context_policy: kind === 'tool_result' ? RESULT_POLICY : CALL_POLICY,
     round_id: 'r',
     message_index: 0,
     block_index: 0,

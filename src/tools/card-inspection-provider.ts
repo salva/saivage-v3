@@ -1,6 +1,6 @@
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import { type CardRecord, type CardStatus, type CardTypeName } from '../schemas/index.js';
-import { defineToolBinder, type ToolBinder, type ToolResult } from './invocation.js';
+import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolResult } from './invocation.js';
 import { computeCardLogicalPath, orderedCardsForTree, toCardView } from '../application/read-models/card-view.js';
 import { AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
 import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
@@ -24,9 +24,9 @@ export interface CardInspectionProviderContext {
 }
 
 export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProviderContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'list_cards', description: 'List and filter cards in the project.', inputSchema: (ctx) => createListCardsInputSchema(ctx.cardTypeVocabulary), executor: async (ctx, args) => listCards(ctx.store, args) }),
-  defineToolBinder({ name: 'get_card', description: 'Get full details of a single card.', inputSchema: () => getCardInputSchema, executor: async (ctx, args) => getCard(ctx, args.id) }),
-  defineToolBinder({ name: 'get_tree', description: 'Show the card tree.', inputSchema: () => getTreeInputSchema, executor: async (ctx, args) => getTree(ctx.store, args.rootId ?? PROJECT_CARD_ID) }),
+  defineToolBinder({ name: 'list_cards', description: 'List and filter cards in the project.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: (ctx) => createListCardsInputSchema(ctx.cardTypeVocabulary), executor: (ctx, args) => executeToolAction('observational_query', async () => listCards(ctx.store, args)) }),
+  defineToolBinder({ name: 'get_card', description: 'Get full details of a single card.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getCard(ctx, args.id)) }),
+  defineToolBinder({ name: 'get_tree', description: 'Show the card tree.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getTreeInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getTree(ctx.store, args.rootId ?? PROJECT_CARD_ID)) }),
 ]);
 
 function listCards(store: CardInspectionStore, params: ListCardsInput): ToolResult {

@@ -1,4 +1,6 @@
 import { mount } from '@vue/test-utils';
+const CALL_POLICY = { kind: 'tool_call', template: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' }, template_bytes: '{}', template_sha256: '0'.repeat(64) } as const;
+const RESULT_POLICY = { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } as const;
 import { describe, expect, it } from 'vitest';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
@@ -22,6 +24,7 @@ function toolEntry(id: string, name: string, args: Record<string, unknown>, inde
   return {
     id, session_id: 'agent:analyst:global', role: 'assistant', kind: 'tool_call',
     content: JSON.stringify({ role: 'assistant', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }),
+    context_policy: CALL_POLICY,
     round_id: ROUND_ID, message_index: index, block_index: 0, timestamp: `2026-07-21T00:00:0${index}Z`, tool: name, tool_call_id: id,
   } as AgentConversationEntry;
 }
@@ -29,6 +32,7 @@ function toolEntry(id: string, name: string, args: Record<string, unknown>, inde
 function resultEntry(id: string, callId: string, name: string, envelope: unknown, index: number): AgentConversationEntry {
   return {
     id, session_id: 'agent:analyst:global', role: 'tool', kind: 'tool_result', content: JSON.stringify(envelope),
+    context_policy: RESULT_POLICY,
     round_id: 'r-user-fedcba9876543210fedcba9876543210', message_index: index, block_index: 0,
     timestamp: `2026-07-21T00:00:0${index}Z`, tool: name, tool_call_id: callId,
   } as AgentConversationEntry;

@@ -18,6 +18,7 @@ const entries = Array.from({ length: 60 }, (_, index) => ({
     'This synthetic analyst message intentionally spans multiple lines.',
     'It gives the real browser enough transcript content to require the inner panel scroller.',
   ].join('\n'),
+  context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } as const,
   round_id: roundId,
   message_index: index,
   block_index: 0,

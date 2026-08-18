@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { bindToolProvider, invokeToolForLlm } from '../../src/tools/invocation.js';
+import { bindToolProvider, invokeToolForLlm, settlementProviderResult } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { plannerControlToolBinders, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';
 import { ChildInvocationLease } from '../../src/runtime/actors/child-invocation-wait.js';
@@ -20,6 +20,8 @@ const bindPlannerControl = (context: PlannerControlProviderContext) => bindToolP
 
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
+function settleToolForLlm(surface: Parameters<typeof invokeToolForLlm>[0], name: string, args: unknown, context: Parameters<typeof invokeToolForLlm>[3], signal?: AbortSignal) { return invokeToolForLlm(surface, name, args, context, signal).then(settlementProviderResult); }
+
 describe('planner control provider ownership delegation', () => {
   function harness() {
     const store = {
@@ -35,7 +37,7 @@ describe('planner control provider ownership delegation', () => {
   it('reserves the exact child lease and delegates activation without card I/O or callbacks', async () => {
     const test = harness();
     const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolCallId: 'activate', toolName: 'activate_card' });
-    await expect(invokeToolForLlm(test.surface, 'activate_card', { card_id: CHILD }, context)).resolves.toMatchObject({ success: true, data: { card_id: CHILD, outcome: 'done' } });
+    await expect(settleToolForLlm(test.surface, 'activate_card', { card_id: CHILD }, context)).resolves.toMatchObject({ success: true, data: { card_id: CHILD, outcome: 'done' } });
     expect(test.activateChild).toHaveBeenCalledWith({ childCardId: CHILD, invocation: expect.any(ChildInvocationLease) });
     expect(test.store.read).toHaveBeenCalledWith(CHILD);
   });
@@ -45,14 +47,14 @@ describe('planner control provider ownership delegation', () => {
     const base = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'activate_card' });
     const reserve = jest.fn(base.childInvocation.reserveChild);
     const context = { ...base, childInvocation: { ...base.childInvocation, reserveChild: reserve } };
-    await expect(invokeToolForLlm(test.surface, 'activate_card', { card_id: 'card-b' }, context)).resolves.toMatchObject({ success: false });
+    await expect(settleToolForLlm(test.surface, 'activate_card', { card_id: 'card-b' }, context)).resolves.toMatchObject({ success: false });
     expect(reserve).not.toHaveBeenCalled(); expect(test.activateChild).not.toHaveBeenCalled(); expect(test.store.read).not.toHaveBeenCalled();
   });
 
   it('delegates cancellation owner-first with no target/status/list/dependency read', async () => {
     const test = harness();
     const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'cancel_card' });
-    await expect(invokeToolForLlm(test.surface, 'cancel_card', { card_id: CHILD, reason: 'obsolete' }, context)).resolves.toMatchObject({ success: true });
+    await expect(settleToolForLlm(test.surface, 'cancel_card', { card_id: CHILD, reason: 'obsolete' }, context)).resolves.toMatchObject({ success: true });
     expect(test.cancelChild).toHaveBeenCalledWith({ childCardId: CHILD, reason: 'obsolete' });
     expect(test.store.read).not.toHaveBeenCalled();
   });
@@ -61,7 +63,7 @@ describe('planner control provider ownership delegation', () => {
     const test = harness();
     jest.mocked(test.store.reorderChildren).mockReturnValue({ ok: true, changed: 0 });
     const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'reorder_child' });
-    await expect(invokeToolForLlm(test.surface, 'reorder_child', { orderedChildIds: [] }, context)).resolves.toEqual({ success: true, data: { parent_id: PARENT, changed: 0 } });
+    await expect(settleToolForLlm(test.surface, 'reorder_child', { orderedChildIds: [] }, context)).resolves.toEqual({ success: true, data: { parent_id: PARENT, changed: 0 } });
     expect(test.store.reorderChildren).toHaveBeenCalledTimes(1);
     expect(test.store.reorderChildren).toHaveBeenCalledWith(PARENT, []);
     expect(test.store.read).not.toHaveBeenCalled();
@@ -72,7 +74,7 @@ describe('planner control provider ownership delegation', () => {
     const test = harness(); const interruption = new RuntimeStoppedInterruption(); test.activateChild.mockRejectedValueOnce(interruption as never);
     const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'activate_card' });
     const controller = new AbortController(); controller.abort(interruption);
-    await expect(invokeToolForLlm(test.surface, 'activate_card', { card_id: CHILD }, context, controller.signal)).rejects.toBe(interruption);
+    await expect(settleToolForLlm(test.surface, 'activate_card', { card_id: CHILD }, context, controller.signal)).rejects.toBe(interruption);
   });
 
   function editHarness(status: CardStatus) {
@@ -99,7 +101,7 @@ describe('planner control provider ownership delegation', () => {
   }
 
   function invokeEdit(surface: ReturnType<typeof buildInvocationSurfaceFixture>, args: Record<string, unknown>) {
-    return invokeToolForLlm(surface, 'edit_card', args, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'edit_card' }));
+    return settleToolForLlm(surface, 'edit_card', args, testLlmToolInvocationContext({ sessionId: 'agent:planner:project', toolName: 'edit_card' }));
   }
 
   it.each(['blocked', 'failed'] as const)('keeps an equal-value %s child unchanged without adding a version', async (status) => {

@@ -3,6 +3,7 @@ import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../stores/analystChat';
 import { useFeedbackStore } from '../stores/feedback';
 import type { AgentConversationEntry, AgentConversationResponse } from '../api/types';
+import { DURABLE_PRIMARY_CONTENT_POLICY } from '../api/contracts';
 import { OperatorApiError } from '../api/client';
 
 const analystSessionId = 'agent:analyst:global' as const;
@@ -29,6 +30,7 @@ function entry(overrides: Partial<AgentConversationEntry>): AgentConversationEnt
     role: 'user',
     kind: 'text',
     content: 'message',
+    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
     round_id: 'r-user-00000000000000000000000000000001',
     message_index: 0,
     block_index: 0,

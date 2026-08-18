@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { cardVersionToolBinders } from '../../src/tools/card-version-provider.js';
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { bindToolProvider } from '../../src/tools/invocation.js';
+import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { cardVersionIndexFile, cardVersionFile } from '../../src/persistence/layout.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
@@ -20,9 +21,9 @@ describe('card version provider', () => {
     cards.editCard(child.id, { title: 'After' }, 'planner');
     const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('card-version', cardVersionToolBinders, { store: cards })]);
 
-    await expect(invokeTool(surface, 'list_card_versions', { card_id: child.id })).resolves.toMatchObject({ success: true, data: { card_id: child.id, total: 2, versions: [{ version: 1, content_availability: 'unchecked' }, { version: 2, content_availability: 'unchecked' }] } });
-    await expect(invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2 })).resolves.toMatchObject({ success: true, data: { card_id: child.id, version: 2, artifact: { kind: 'card-version', card: { title: 'After' } } } });
-    await expect(invokeTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 2 })).resolves.toMatchObject({ success: true, data: { card_id: child.id, from: 1, to: 2, diff: expect.arrayContaining([expect.objectContaining({ field: 'title', before: 'Before', after: 'After' })]) } });
+    await expect(invokeTestTool(surface, 'list_card_versions', { card_id: child.id })).resolves.toMatchObject({ success: true, data: { card_id: child.id, total: 2, versions: [{ version: 1, content_availability: 'unchecked' }, { version: 2, content_availability: 'unchecked' }] } });
+    await expect(invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 2 })).resolves.toMatchObject({ success: true, data: { card_id: child.id, version: 2, artifact: { kind: 'card-version', card: { title: 'After' } } } });
+    await expect(invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 2 })).resolves.toMatchObject({ success: true, data: { card_id: child.id, from: 1, to: 2, diff: expect.arrayContaining([expect.objectContaining({ field: 'title', before: 'Before', after: 'After' })]) } });
   });
 
   it('keeps list metadata available when selected historical content is missing', async () => {
@@ -33,7 +34,7 @@ describe('card version provider', () => {
     rmSync(cardVersionFile(root, child.id, index.versions[0]!.filename));
     const surface = buildInvocationSurfaceFixture('planner', [bindToolProvider('card-version', cardVersionToolBinders, { store: cards })]);
 
-    await expect(invokeTool(surface, 'list_card_versions', { card_id: child.id })).resolves.toMatchObject({ success: true, data: { total: 1 } });
-    await expect(invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1 })).resolves.toEqual({ success: false, error: 'Historical card version content unavailable.', data: { code: 'historical_version_content_unavailable', resource: 'card', owner_id: child.id, version: 1, reason: 'missing' } });
+    await expect(invokeTestTool(surface, 'list_card_versions', { card_id: child.id })).resolves.toMatchObject({ success: true, data: { total: 1 } });
+    await expect(invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 1 })).resolves.toEqual({ success: false, error: 'Historical card version content unavailable.', data: { code: 'historical_version_content_unavailable', resource: 'card', owner_id: child.id, version: 1, reason: 'missing' } });
   });
 });

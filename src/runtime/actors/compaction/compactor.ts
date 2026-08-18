@@ -20,7 +20,6 @@ import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type Slidi
 } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound,
 } from './round-classifier.js';
-import { recoverableEvidenceDescriptors } from './result-dropping.js';
 import {
   buildSummarizerRoundInput,
   summarizeMerge, summarizeRound, SummaryResultValidationError, type MergeSummaryInput, type SummarizerProviderPort,
@@ -398,7 +397,7 @@ async function buildCandidate(
       ),
       content_hash: hashConversationRows(mergedRows),
       summary_text: summaryText,
-      evidence: recoverableEvidenceDescriptors(mergedRows),
+      evidence: [],
     };
   }
   const individual: ContextCompactionContent['summaries'] = [];
@@ -462,7 +461,7 @@ async function fallbackFromScratch(
       rounds: [buildCoveredRound(args.conversation, prefix, false)],
       content_hash: hashConversationRows(prefix),
       summary_text: await summarizeRoundForCompaction(args, boundaryRound.round_id, prefix, false),
-      evidence: recoverableEvidenceDescriptors(prefix),
+      evidence: [],
     };
     args.signal.throwIfAborted();
     const retainedStatic = preamble
@@ -516,7 +515,7 @@ async function applyHardFallback(
       rounds: [buildCoveredRound(args.conversation, prefix, complete)],
       content_hash: hashConversationRows(prefix),
       summary_text: summaryText,
-      evidence: recoverableEvidenceDescriptors(prefix),
+      evidence: [],
     };
     const summaries = replacesPartial
       ? [...base.payload.summaries.slice(0, -1), group]
@@ -564,7 +563,7 @@ async function summarizeRawRound(
     rounds: [buildCoveredRound(args.conversation, rows, true)],
     content_hash: hashConversationRows(rows),
     summary_text: summaryText,
-    evidence: recoverableEvidenceDescriptors(rows),
+    evidence: [],
   };
 }
 

@@ -1,6 +1,7 @@
 import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
 import type { ControlActionAuditEntry } from '../schemas/index.js';
 import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
+import { executedProviderResult, type ToolExecutionResult } from '../tools/invocation.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
 import type { AnalystMutationOutcome } from '../application/analyst-mutation-services.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
@@ -40,7 +41,7 @@ function paramsSummary(params: unknown): string {
   return stableStringify(safe);
 }
 
-export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>, signal?: AbortSignal): Promise<ToolResult> {
+export async function runAuditedAnalystTool<P extends object, Prepared = undefined>(ctx: ToolContext, params: P, spec: MutatingSpec<P, Prepared>, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {
   let settled = false;
   const settle = (entry: { outcome: 'denied' | 'error' | 'ok'; outcome_summary: string; error?: string }): void => {
     if (settled) throw new Error(`Analyst control action '${spec.action}' was settled more than once.`);
@@ -67,7 +68,7 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       const admission = spec.admitBeforePrepare(params, readContext);
       if (!admission.ok) {
         settle({ outcome: admission.audit_outcome, outcome_summary: admission.result.error, ...(admission.audit_outcome === 'error' ? { error: admission.result.error } : {}) });
-        return admission.result;
+        return executedProviderResult('none', admission.result);
       }
       prepared = await spec.prepare!(params, readContext);
       signal?.throwIfAborted(); ctx.interventionReadiness.assertInterventionReady();
@@ -100,7 +101,7 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
     settle({ outcome: 'error', outcome_summary: summary, error: summary });
     throw error;
   }
-  return result;
+  return executedProviderResult('none', result);
 }
 
 export function ANALYST_UNSUPPORTED_ACTION_TEMPLATE(capabilityClass?: string, toolNames?: string[]): string {

@@ -152,6 +152,7 @@ function publishMarker(projectRoot: string, sessionId: ConversationSessionId): v
         session_id: sessionId,
         role: 'system',
         kind: 'activity',
+        context_policy: { kind: 'structural', behavior: 'activation_boundary' },
         content: JSON.stringify({
           agent_name: identity.agentName,
           ...(identity.cardId === null ? {} : { card_id: identity.cardId }),

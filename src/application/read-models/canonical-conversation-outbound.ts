@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { parseToolCallMessageForModel } from '../../contracts/persisted-tool-call.js';
 import {
   ToolInvocationResultSchema,
@@ -107,7 +109,9 @@ function projectResultRow(
   };
   const projected = projectInvocation({ shape: 'result-row', identity, result });
   assertProjectedResult(projected, identity);
-  return agentMessageSchema.parse({ ...row, content: JSON.stringify(projected.result) });
+  const content = JSON.stringify(projected.result);
+  if (row.context_policy.kind !== 'tool_result') throw new Error(`Tool result '${row.id}' is missing its tool_result context policy.`);
+  return agentMessageSchema.parse({ ...row, content, context_policy: { ...row.context_policy, result_content_sha256: createHash('sha256').update(content, 'utf8').digest('hex') } });
 }
 
 function assertProjectedCall(
