@@ -10,7 +10,6 @@ import { AuthoredRecordNotFoundError } from '../../persistence/authored-record-f
 import type { RecordProjection } from '../../persistence/authored-record-files.js';
 import { cardArtifactSchema, type CardArtifact } from '../../persistence/canonical-card-artifacts.js';
 import { projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from './card-outbound.js';
-import { historicalUnavailableStatus } from './historical-unavailable-status.js';
 
 const CARDS_ROOT = '.saivage/cards';
 const MAX_FILE_SIZE_BYTES = 1_048_576;
@@ -173,10 +172,6 @@ export class CanonicalCardFilesReadModel {
       const historical = this.cards().readCardVersion(parsed.cardId, parsed.version);
       if (historical.kind === 'card-not-found') return { statusCode: 404, body: { error: 'File not found', path } };
       if (historical.kind === 'version-not-found') return { statusCode: 404, body: { error: 'workspace_historical_version_not_found', path, historical: { error: 'historical_version_not_found', resource: 'card', owner_id: parsed.cardId, version: parsed.version } } };
-      if (historical.kind === 'historical-unavailable') {
-        const body = { error: 'workspace_historical_version_unavailable' as const, path, historical: { error: 'historical_version_content_unavailable' as const, resource: 'card' as const, owner_id: parsed.cardId, version: parsed.version, reason: historical.reason } };
-        return { statusCode: historicalUnavailableStatus(historical.reason), body };
-      }
       return cardContent(path, historical.value);
     }
     const result = this.cards().getCanonicalCardFileContent(parsed.cardId, 'card', MAX_FILE_SIZE_BYTES);

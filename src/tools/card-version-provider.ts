@@ -30,7 +30,7 @@ export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderCont
   defineToolBinder({ name: 'list_card_versions', description: 'List the committed card version catalog as a byte-bounded paged collection.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => listCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => listCardVersions(ctx, args)) }),
   defineToolBinder({ name: 'get_card_version', description: 'Read exactly one committed immutable card version section.', resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => getCardVersion(ctx, args)) }),
   defineToolBinder({ name: 'diff_card_versions', description: 'Compare two exact committed card versions through a byte-sliced canonical JSON diff.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => diffCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => diffCardVersions(ctx, args)) }),
-  defineToolBinder({ name: 'read_record_version', description: 'Read exactly one immutable authored-record artifact by exact version.', resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => readRecordVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => readRecordVersion(ctx, args)) }),
+  defineToolBinder({ name: 'read_record_version', description: 'Read exactly one immutable authored-record version row by exact version.', resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => readRecordVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => readRecordVersion(ctx, args)) }),
 ]);
 
 function failure(error: string, data?: unknown): ToolResult {
@@ -75,7 +75,6 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
   const result = ctx.store.readCardVersion(params.card_id, params.version);
   if (result.kind === 'card-not-found') return Promise.resolve({ result: failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }), locator: '', sha256: '' });
   if (result.kind === 'version-not-found') return Promise.resolve({ result: failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: params.version }), locator: '', sha256: '' });
-  if (result.kind === 'historical-unavailable') return Promise.resolve({ result: failure('Historical card version content unavailable.', { code: 'historical_version_content_unavailable', resource: 'card', owner_id: params.card_id, version: params.version, reason: result.reason }), locator: '', sha256: '' });
   const value = result.value;
   const card = value.kind === 'card-version' ? value.card : value.final_card;
   const identity = artifactIdentity(value);
@@ -146,7 +145,6 @@ function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
   if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
   if (result.kind === 'invalid-pivots') return Promise.resolve(failure('Invalid card version pivots.', { code: 'invalid_card_version_pivots', card_id: params.card_id, from_version: result.from, to_version: result.to }));
   if (result.kind === 'version-not-found') return Promise.resolve(failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: result.version, side: result.side }));
-  if (result.kind === 'historical-unavailable') return Promise.resolve(failure('Historical card diff side unavailable.', { code: 'historical_diff_side_unavailable', resource: 'card', owner_id: params.card_id, version: result.version, side: result.side, reason: result.reason }));
   const identityOf = (version: number): { entry_id: string; artifact_sha256: string } | null => {
     const side = ctx.store.readCardVersion(params.card_id, version);
     return side.kind === 'found' ? { entry_id: side.value.entry_id, artifact_sha256: observationSha256(cardArtifactProjection(side.value)) } : null;

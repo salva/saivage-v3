@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { stringify } from 'yaml';
 
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
@@ -16,9 +16,8 @@ const TOKEN = 'disposable-e2e-token';
 const roots: string[] = [];
 const apps = new Set<App>();
 
-function readCurrentArtifact(indexPath: string): string {
-  const index = JSON.parse(readFileSync(indexPath, 'utf8')) as { current_filename: string };
-  return readFileSync(join(dirname(indexPath), 'versions', index.current_filename), 'utf8');
+function readCurrentArtifact(streamPath: string): string {
+  return readFileSync(streamPath, 'utf8').trimEnd().split('\n').at(-1)!;
 }
 
 type ChatMessage = { role: string; content: string; tool_call_id?: string };
@@ -281,7 +280,7 @@ describe('disposable production-composition smoke', () => {
 
     try {
       expect(runCli(root, 'init')).toContain('Project initialized');
-      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card', 'index.json'))).toContain('"id":"project"');
+      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toContain('"id":"project"');
       writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(testConfig(providerPort, appPort)));
       writeCustomPrompts(root);
 
@@ -360,8 +359,8 @@ describe('disposable production-composition smoke', () => {
       expect(runCli(root, 'init')).toContain('Project already initialized');
       const resetConfig = readFileSync(join(root, '.saivage', 'saivage.yaml'), 'utf8');
       expect(resetConfig).toContain('model_route: executor');
-      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card', 'index.json'))).toContain('"status":"backlog"');
-      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'records', 'brief.md', 'index.json'))).toContain('runtime:bootstrap');
+      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toContain('"status":"backlog"');
+      expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'record-brief.jsonl'))).toContain('runtime:bootstrap');
     } finally {
       if (app) await stop(app);
       await new Promise<void>((resolve) => provider.close(() => resolve()));

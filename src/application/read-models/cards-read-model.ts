@@ -25,7 +25,6 @@ import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } fr
 import type { CanonicalReadInstrumentation } from '../../persistence/growing-file.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
 import { projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from './card-outbound.js';
-import { historicalUnavailableStatus } from './historical-unavailable-status.js';
 
 function projectLifecycle(lifecycle: CardLifecycleState): CardLifecycleState {
   switch (lifecycle.status) {
@@ -133,8 +132,8 @@ export class CardsReadModelService {
   }
 
   private requireRecordDefinition(id: string, name: string): Extract<OperatorApiHandlerResult<'cards.records.history.list'>, { statusCode: 404 }> | null { const active = this.store.getCardDetail(id); if (active.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } }; try { this.store.recordReader.definition(id, name); return null; } catch (error) { if (error instanceof AuthoredRecordDefinitionNotFoundError) return { statusCode: 404, body: { error: 'Card record definition not found', cardId: id, name } }; throw error; } }
-  private recordHistoryFailure(id: string, name: string, version: number, error: unknown): OperatorApiHandlerResult<'cards.records.versions.get'> { const imported = error as { name?: string; reason?: 'missing' | 'corrupt' | 'io_error' }; if (error instanceof AuthoredRecordNotFoundError) return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${id}/${name}`, version } }; if (imported.name === 'AuthoredRecordHistoricalUnavailableError' && imported.reason) return { statusCode: historicalUnavailableStatus(imported.reason), body: { error: 'historical_version_content_unavailable', resource: 'authored_record', owner_id: `${id}/${name}`, version, reason: imported.reason } }; throw error; }
-  private recordDiffFailure(id: string, name: string, version: number, side: 'from' | 'to', error: unknown): OperatorApiHandlerResult<'cards.records.diff'> { const imported = error as { name?: string; reason?: 'missing' | 'corrupt' | 'io_error' }; if (error instanceof AuthoredRecordNotFoundError) return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${id}/${name}`, version } }; if (imported.name === 'AuthoredRecordHistoricalUnavailableError' && imported.reason) return { statusCode: historicalUnavailableStatus(imported.reason), body: { error: 'historical_diff_side_unavailable', resource: 'authored_record', owner_id: `${id}/${name}`, version, side, reason: imported.reason } }; throw error; }
+  private recordHistoryFailure(id: string, name: string, version: number, error: unknown): OperatorApiHandlerResult<'cards.records.versions.get'> { if (error instanceof AuthoredRecordNotFoundError) return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${id}/${name}`, version } }; throw error; }
+  private recordDiffFailure(id: string, name: string, version: number, side: 'from' | 'to', error: unknown): OperatorApiHandlerResult<'cards.records.diff'> { if (error instanceof AuthoredRecordNotFoundError) return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${id}/${name}`, version } }; throw error; }
 
   listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {
     const result = this.store.listCardVersions(id);
@@ -148,7 +147,6 @@ export class CardsReadModelService {
     const result = this.store.readCardVersion(id, version);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     if (result.kind === 'version-not-found') return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version } };
-    if (result.kind === 'historical-unavailable') return { statusCode: historicalUnavailableStatus(result.reason), body: { error: 'historical_version_content_unavailable', resource: 'card', owner_id: id, version, reason: result.reason } };
     const value = result.value; const artifact = value.kind === 'card-version' ? { kind: value.kind, card: projectCardRecordForOutbound(value.card), change: projectCardVersionChangeForOutbound(value.change) } : { kind: value.kind, final_card: projectCardRecordForOutbound(value.final_card), change: projectCardVersionChangeForOutbound(value.change)! };
     return { body: CardHistoryEntryResponseSchema.parse({ card_id: id, version, entry_id: value.entry_id, published_at: value.committed_at, artifact }) };
   }
@@ -163,7 +161,6 @@ export class CardsReadModelService {
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     if (result.kind === 'invalid-pivots') return { statusCode: 400, body: { error: 'Invalid diff pivots', from: result.from, to: result.to } };
     if (result.kind === 'version-not-found') return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version: result.version } };
-    if (result.kind === 'historical-unavailable') return { statusCode: historicalUnavailableStatus(result.reason), body: { error: 'historical_diff_side_unavailable', resource: 'card', owner_id: id, version: result.version, side: result.side, reason: result.reason } };
     const diff = redactForOutbound({ source: 'card-diff', value: result.diff });
     return { body: CardDiffResponseSchema.parse({ diff, from: result.from, to: result.to, card_id: id }) };
   }

@@ -1,52 +1,81 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, fsyncSync, mkdtempSync, mkdirSync, openSync, readFileSync, rmSync, symlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AuthoredRecordNotFoundError, RecordPriorHeadInvariantError, classifyCurrentAuthoredRecord, initializeDynamicAuthoredRecord } from '../../src/persistence/authored-record-files.js';
-import { cardRecordRoot,cardRecordsRoot,cardRecordVersionFile, cardRecordVersionIndexFile,cardRecordVersionsRoot, cardVersionIndexFile } from '../../src/persistence/layout.js';
+import { AuthoredRecordNotFoundError, classifyCurrentAuthoredRecord, initializeAuthoredRecord, openAuthoredRecord, readCurrentAuthoredRecord, readHistoricalAuthoredRecord } from '../../src/persistence/authored-record-files.js';
+import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
+import { authoredRecordVersionArtifactSchema, type AuthoredRecordVersionArtifact } from '../../src/persistence/canonical-record-artifacts.js';
+import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
 import type { RecordDefinition } from '../../src/records/record-definition.js';
+import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function setup() {
-  const root = mkdtempSync(join(tmpdir(), 'saivage-record-version-'));
+  const root = mkdtempSync(join(tmpdir(), 'saivage-record-stream-'));
   roots.push(root);
   initProjectTree(root);
   const cards = new CardService(root);
   const card = cards.create({ type: 'code', parent: 'project', title: 'card', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-  return { cards, card };
+  return { cards, card, root };
 }
 
-describe('authored record version files', () => {
-  it('classifies a dynamic exact child only beneath a proven real records root and publishes its empty namespace once',()=>{
-    const {cards,card}=setup();const definition:RecordDefinition={filename:'notes.md',format:'markdown',schema:'authored-record.v1',bootstrap:false,declared:false};const reads:string[]=[];
-    expect(classifyCurrentAuthoredRecord(cards.projectRoot,card.id,definition,{onRead:(path)=>reads.push(path)})).toEqual({kind:'unclaimed'});
-    expect(reads).toContain(cardRecordsRoot(cards.projectRoot,card.id));expect(reads).toContain(cardRecordRoot(cards.projectRoot,card.id,definition));
-    initializeDynamicAuthoredRecord(cards.projectRoot,card.id,definition);
-    expect(classifyCurrentAuthoredRecord(cards.projectRoot,card.id,definition)).toEqual({kind:'empty'});
-    expect(()=>initializeDynamicAuthoredRecord(cards.projectRoot,card.id,definition)).toThrow(expect.objectContaining({code:'EEXIST'}));
+function statusDefinition(overrides: Partial<RecordDefinition> = {}): RecordDefinition { return { filename: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false, declared: true, ...overrides }; }
+function streamPath(root: string, cardId: string, filename: string): string { return cardRecordStreamFile(root, cardId, { filename: filename as never }); }
+function recordRows(root: string, cardId: string, definition: RecordDefinition): AuthoredRecordVersionArtifact[] { return readStrictCanonicalGrowingFile(cardRecordStreamFile(root, cardId, definition), authoredRecordVersionArtifactSchema); }
+
+describe('authored record exact streams', () => {
+  it('publishes the bootstrap record as one nonempty first envelope and creates no optional or dynamic stream', () => {
+    const { cards, card, root } = setup();
+    expect(existsSync(streamPath(root, card.id, 'brief.md'))).toBe(true);
+    const firstEnvelope = readFileSync(streamPath(root, card.id, 'brief.md'), 'utf8').trimEnd().split('\n');
+    expect(firstEnvelope).toHaveLength(1);
+    const brief = readCurrentAuthoredRecord(root, card.id, statusDefinition({ filename: 'brief.md', schema: 'card-brief.v1', bootstrap: true }));
+    expect(brief).toMatchObject({ headVersion: 1, artifact: { state: 'closed', accepted: { writer_agent: 'runtime:bootstrap', content: 'brief' } } });
+    expect(existsSync(streamPath(root, card.id, 'status.md'))).toBe(false);
+    expect(existsSync(streamPath(root, card.id, 'review.md'))).toBe(false);
+    expect(cards.readCurrentRecordOrNull(card.id, 'status.md')).toBeNull();
   });
 
-  it('fails closed for missing, non-directory, symlink, and claimed-indexless exact authority',()=>{
-    const definition:RecordDefinition={filename:'notes.md',format:'markdown',schema:'authored-record.v1',bootstrap:false,declared:false};
-    const missing=setup();rmSync(cardRecordsRoot(missing.cards.projectRoot,missing.card.id),{recursive:true});expect(()=>classifyCurrentAuthoredRecord(missing.cards.projectRoot,missing.card.id,definition)).toThrow(expect.objectContaining({code:'ENOENT'}));
-    const fileRoot=setup();rmSync(cardRecordsRoot(fileRoot.cards.projectRoot,fileRoot.card.id),{recursive:true});writeFileSync(cardRecordsRoot(fileRoot.cards.projectRoot,fileRoot.card.id),'not a directory');expect(()=>classifyCurrentAuthoredRecord(fileRoot.cards.projectRoot,fileRoot.card.id,definition)).toThrow(/not a real directory/);
-    const linked=setup();const root=cardRecordsRoot(linked.cards.projectRoot,linked.card.id);rmSync(root,{recursive:true});mkdirSync(`${root}-target`);symlinkSync(`${root}-target`,root);expect(()=>classifyCurrentAuthoredRecord(linked.cards.projectRoot,linked.card.id,definition)).toThrow(/not a real directory/);
-    const claimed=setup();mkdirSync(cardRecordRoot(claimed.cards.projectRoot,claimed.card.id,definition));mkdirSync(cardRecordVersionsRoot(claimed.cards.projectRoot,claimed.card.id,definition));expect(()=>classifyCurrentAuthoredRecord(claimed.cards.projectRoot,claimed.card.id,definition)).toThrow(expect.objectContaining({code:'ENOENT'}));
+  it('classifies a missing declared stream as empty and a missing undeclared stream as unclaimed without creating files', () => {
+    const { card, root } = setup();
+    const declared = statusDefinition();
+    const dynamic = statusDefinition({ filename: 'notes.md', schema: 'authored-record.v1', declared: false });
+    expect(classifyCurrentAuthoredRecord(root, card.id, declared)).toEqual({ kind: 'empty' });
+    expect(classifyCurrentAuthoredRecord(root, card.id, dynamic)).toEqual({ kind: 'unclaimed' });
+    expect(existsSync(streamPath(root, card.id, 'status.md'))).toBe(false);
+    expect(existsSync(streamPath(root, card.id, 'notes.md'))).toBe(false);
   });
-  it('publishes immutable open, edit, close, discard, and reopen versions with singular URLs', () => {
-    const { cards, card } = setup();
-    const opened = cards.openRecord(card.id, 'status.md', null);
+
+  it('publishes dynamic first publication directly with no empty file', () => {
+    const { card, root } = setup();
+    const dynamic = statusDefinition({ filename: 'notes.md', schema: 'authored-record.v1', declared: false });
+    const opened = openAuthoredRecord(root, card.id, dynamic);
+    const path = streamPath(root, card.id, 'notes.md');
+    expect(opened).toMatchObject({ headVersion: 1, artifact: { state: 'open' } });
+    expect(existsSync(path)).toBe(true);
+    expect(readFileSync(path).byteLength).toBeGreaterThan(0);
+    expect(readFileSync(path).at(-1)).toBe(0x0a);
+    expect(classifyCurrentAuthoredRecord(root, card.id, dynamic)).toMatchObject({ kind: 'present', projection: { headVersion: 1 } });
+  });
+
+  it('publishes one envelope per open, edit, close, discard, and reopen mutation with contiguous versions and singular URLs', () => {
+    const { cards, card, root } = setup();
+    const definition = cards.recordReader.definition(card.id, 'status.md');
+    const path = streamPath(root, card.id, 'status.md');
+    const opened = cards.openRecord(card.id, 'status.md');
     expect(opened).toMatchObject({ headVersion: 1, currentUrl: `record:///status.md?card=${encodeURIComponent(card.id)}`, versionUrl: `record:///status.md?card=${encodeURIComponent(card.id)}&v=1`, artifact: { state: 'open' } });
+    expect(readFileSync(path, 'utf8').trimEnd().split('\n')).toHaveLength(1);
 
-    const edited = cards.editRecord(card.id, 'status.md', opened.headVersion, 'closed content');
+    const edited = cards.editRecord(card.id, 'status.md', 'closed content');
     const earlierCardVersion = cards.read(card.id)!.version_seq;
-    const advanced = cards.editCard(card.id, { title: 'advanced before close' });
+    const advanced = cards.editCard(card.id, { title: 'advanced before close' }, 'planner');
     expect(advanced.version_seq).toBe(earlierCardVersion + 1);
-    const closed = cards.closeRecord(card.id, 'status.md', edited.headVersion, 'executor');
+    const closed = cards.closeRecord(card.id, 'status.md', 'executor');
     expect(closed.headVersion).toBe(3);
     expect(closed.artifact.accepted?.content).toBe('closed content');
     expect(closed.artifact.accepted?.card_version_seq).toBe(advanced.version_seq);
@@ -54,38 +83,26 @@ describe('authored record version files', () => {
     expect(cards.readHistoricalRecord(card.id, 'status.md', 1).artifact.state).toBe('open');
     expect(cards.readCurrentRecord(card.id, 'status.md').artifact).toEqual(closed.artifact);
 
-    const reopened = cards.openRecord(card.id, 'status.md', closed.headVersion);
+    const reopened = cards.openRecord(card.id, 'status.md');
     expect(reopened.artifact.accepted).toEqual(closed.artifact.accepted);
-    const discarded = cards.discardRecord(card.id, 'status.md', reopened.headVersion, 'not needed');
+    const discarded = cards.discardRecord(card.id, 'status.md', 'not needed');
     expect(discarded).toMatchObject({ headVersion: 5, artifact: { state: 'discarded', accepted: closed.artifact.accepted } });
-    expect(cards.openRecord(card.id, 'status.md', discarded.headVersion).headVersion).toBe(6);
+    expect(cards.openRecord(card.id, 'status.md').headVersion).toBe(6);
 
-    const index = JSON.parse(readFileSync(cardRecordVersionIndexFile(cards.projectRoot, card.id, cards.recordReader.definition(card.id, 'status.md')), 'utf8')) as { versions: Array<{ filename: string }> };
-    expect(index.versions).toHaveLength(6);
-    expect(new Set(index.versions.map((entry) => entry.filename)).size).toBe(6);
-    expect(index.versions.every((entry, offset) => entry.filename.startsWith(`${offset + 1}-`) && entry.filename.endsWith('.json'))).toBe(true);
+    const rows = recordRows(root, card.id, definition);
+    expect(rows.map(({ version }) => version)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(rows.map(({ state }) => state)).toEqual(['open', 'open', 'closed', 'open', 'discarded', 'open']);
+    expect(readFileSync(path, 'utf8').trimEnd().split('\n')).toHaveLength(6);
   });
 
-  it('requires the exact expected head and does not publish on mismatch', () => {
-    const { cards, card } = setup();
-    const opened = cards.openRecord(card.id, 'status.md', null);
-    expect(() => cards.editRecord(card.id, 'status.md', opened.headVersion + 1, 'content')).toThrow(RecordPriorHeadInvariantError);
-    expect(cards.readCurrentRecord(card.id, 'status.md').headVersion).toBe(opened.headVersion);
-    expect(() => cards.openRecord(card.id, 'status.md', null)).toThrow(RecordPriorHeadInvariantError);
-  });
-
-  it('rejects a stale close from the valid index before opening its malformed indexed head artifact', () => {
-    const { cards, card } = setup();
-    const definition = cards.recordReader.definition(card.id, 'status.md');
-    const opened = cards.openRecord(card.id, 'status.md', null);
-    const edited = cards.editRecord(card.id, 'status.md', opened.headVersion, 'content');
-    const indexPath = cardRecordVersionIndexFile(cards.projectRoot, card.id, definition);
-    const indexBytes = readFileSync(indexPath);
-    const index = JSON.parse(indexBytes.toString('utf8')) as { current_filename: string };
-    writeFileSync(cardRecordVersionFile(cards.projectRoot, card.id, definition, index.current_filename), 'complete malformed artifact\n');
-
-    expect(() => cards.closeRecord(card.id, 'status.md', edited.headVersion - 1, 'executor')).toThrow(RecordPriorHeadInvariantError);
-    expect(readFileSync(indexPath)).toEqual(indexBytes);
+  it('treats opening an already-open record as a no-op that appends nothing', () => {
+    const { cards, card, root } = setup();
+    cards.openRecord(card.id, 'status.md');
+    const path = streamPath(root, card.id, 'status.md');
+    const before = readFileSync(path);
+    const reopened = cards.openRecord(card.id, 'status.md');
+    expect(reopened.headVersion).toBe(1);
+    expect(readFileSync(path)).toEqual(before);
   });
 
   it('uses typed absence only for unknown cards, empty current records, and unlisted history', () => {
@@ -97,42 +114,73 @@ describe('authored record version files', () => {
     expect(() => cards.recordReader.current(card.id, 'status.md')).toThrow(AuthoredRecordNotFoundError);
   });
 
-  it('preserves malformed canonical and I/O failures instead of classifying them as absence', () => {
-    const malformed = setup();
-    writeFileSync(cardRecordVersionIndexFile(malformed.cards.projectRoot, malformed.card.id, malformed.cards.recordReader.definition(malformed.card.id, 'status.md')), 'complete malformed record\n');
-    expect(() => malformed.cards.readCurrentRecord(malformed.card.id, 'status.md')).toThrow(/malformed/);
-
-    const malformedCard = setup();
-    writeFileSync(cardVersionIndexFile(malformedCard.cards.projectRoot, malformedCard.card.id), 'complete malformed card\n');
-    expect(() => malformedCard.cards.readCurrentRecord(malformedCard.card.id, 'status.md')).toThrow(/malformed/);
-
-    const missingBrief = setup();
-    rmSync(cardRecordVersionIndexFile(missingBrief.cards.projectRoot, missingBrief.card.id, missingBrief.cards.recordReader.definition(missingBrief.card.id, 'brief.md')));
-    expect(() => missingBrief.cards.readCurrentRecord(missingBrief.card.id, 'brief.md')).toThrow(expect.objectContaining({ code: 'ENOENT' }));
-
-    const ioFailure = setup();
-    const indexPath = cardRecordVersionIndexFile(ioFailure.cards.projectRoot, ioFailure.card.id, ioFailure.cards.recordReader.definition(ioFailure.card.id, 'status.md'));
-    rmSync(indexPath);
-    mkdirSync(indexPath);
-    expect(() => ioFailure.cards.readCurrentRecord(ioFailure.card.id, 'status.md')).toThrow(expect.objectContaining({ code: expect.stringMatching(/EISDIR|EACCES/) }));
+  it.each(['malformed', 'empty', 'nonstream'] as const)('fails fast on a %s record stream without mutation', (fault) => {
+    const { cards, card, root } = setup();
+    cards.openRecord(card.id, 'status.md');
+    const path = streamPath(root, card.id, 'status.md');
+    if (fault === 'malformed') writeFileSync(path, 'complete malformed record\n');
+    else if (fault === 'empty') writeFileSync(path, '');
+    else writeFileSync(path, `${JSON.stringify({ hello: 'world' })}\n`);
+    const before = readFileSync(path);
+    expect(() => cards.readCurrentRecord(card.id, 'status.md')).toThrow();
+    expect(() => cards.editRecord(card.id, 'status.md', 'content')).toThrow();
+    expect(() => cards.readHistoricalRecord(card.id, 'status.md', 1)).toThrow();
+    expect(readFileSync(path)).toEqual(before);
   });
 
-  it.each(['missing', 'malformed', 'mismatched'] as const)('rejects a %s indexed current artifact without changing its index', (fault) => {
-    const { cards, card } = setup();
-    const definition = cards.recordReader.definition(card.id, 'status.md');
-    cards.openRecord(card.id, 'status.md', null);
-    const indexPath = cardRecordVersionIndexFile(cards.projectRoot, card.id, definition);
-    const indexBytes = readFileSync(indexPath);
-    const index = JSON.parse(indexBytes.toString('utf8')) as { current_filename: string };
-    const artifactPath = cardRecordVersionFile(cards.projectRoot, card.id, definition, index.current_filename);
-    if (fault === 'missing') unlinkSync(artifactPath);
-    else if (fault === 'malformed') writeFileSync(artifactPath, 'complete malformed artifact\n');
-    else {
-      const artifact = JSON.parse(readFileSync(artifactPath, 'utf8')) as { card_id: string };
-      writeFileSync(artifactPath, `${JSON.stringify({ ...artifact, card_id: 'card-z' })}\n`);
-    }
+  it('fails closed for non-file and symlink stream paths', () => {
+    const definition = statusDefinition({ filename: 'notes.md', declared: false });
+    const dirStream = setup(); mkdirSync(streamPath(dirStream.root, dirStream.card.id, 'notes.md')); expect(() => classifyCurrentAuthoredRecord(dirStream.root, dirStream.card.id, definition)).toThrow();
+    const linked = setup(); const target = streamPath(linked.root, linked.card.id, 'notes.md'); mkdirSync(`${target}-dir`); symlinkSync(`${target}-dir`, target); expect(() => classifyCurrentAuthoredRecord(linked.root, linked.card.id, definition)).toThrow();
+  });
 
-    expect(() => cards.readCurrentRecord(card.id, 'status.md')).toThrow();
-    expect(readFileSync(indexPath)).toEqual(indexBytes);
+  it('rejects streams that violate the fold contract', () => {
+    const { card, root } = setup();
+    const definition = statusDefinition({ filename: 'brief2.md', schema: 'card-brief.v1', bootstrap: true, declared: true });
+    expect(() => openAuthoredRecord(root, card.id, definition)).toThrow(/bootstrap/);
+    const bootstrap = initializeAuthoredRecord(root, card.id, definition, 'bootstrap content');
+    expect(bootstrap?.headVersion).toBe(1);
+    expect(() => readHistoricalAuthoredRecord(root, card.id, definition, 2)).toThrow(AuthoredRecordNotFoundError);
+
+    const wrongIdentity = statusDefinition({ filename: 'status.md' });
+    writeFileSync(streamPath(root, card.id, 'status.md'), '');
+    expect(() => classifyCurrentAuthoredRecord(root, card.id, wrongIdentity)).toThrow(/empty/);
+  });
+
+  it('maps configured bootstrap and dynamic card.md records onto record-card.jsonl and never touches card authority', () => {
+    const { cards, card, root } = setup();
+    const configuredCardMd = statusDefinition({ filename: 'card.md', schema: 'card-doc.v1', bootstrap: true });
+    const bootstrap = initializeAuthoredRecord(root, card.id, configuredCardMd, 'card.md bootstrap');
+    expect(bootstrap?.versionUrl).toBe(`record:///card.md?card=${encodeURIComponent(card.id)}&v=1`);
+    expect(existsSync(streamPath(root, card.id, 'card.md'))).toBe(true);
+    expect(streamPath(root, card.id, 'card.md')).not.toBe(cardStreamFile(root, card.id));
+
+    const other = cards.create({ type: 'code', parent: 'project', title: 'other', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const dynamicCardMd = statusDefinition({ filename: 'card.md', declared: false });
+    expect(classifyCurrentAuthoredRecord(root, other.id, dynamicCardMd)).toEqual({ kind: 'unclaimed' });
+    const otherCardAuthority = cardStreamFile(root, other.id);
+    const before = readFileSync(otherCardAuthority);
+    const opened = openAuthoredRecord(root, other.id, dynamicCardMd);
+    expect(opened).toMatchObject({ headVersion: 1, artifact: { state: 'open', accepted: null } });
+    expect(existsSync(streamPath(root, other.id, 'card.md'))).toBe(true);
+    expect(readFileSync(otherCardAuthority)).toEqual(before);
+  });
+
+  it('propagates append outcome-unknown without reread, retry, or stream change', () => {
+    const { card, root } = setup();
+    const definition = statusDefinition({ filename: 'status.md', declared: true });
+    const cardsWithIo = new CardService(root, undefined, {
+      open: openSync,
+      stat: fstatSync,
+      write: (() => { const failure = new Error('simulated append failure') as NodeJS.ErrnoException; failure.code = 'EIO'; throw failure; }) as typeof writeSync,
+      fsync: fsyncSync,
+      close: closeSync,
+    } satisfies GrowingFileIo);
+    cardsWithIo.openRecord(card.id, 'status.md');
+    const path = streamPath(root, card.id, 'status.md');
+    const before = readFileSync(path);
+    expect(() => cardsWithIo.editRecord(card.id, 'status.md', 'content')).toThrow(PublicationOutcomeUnknownError);
+    expect(readFileSync(path)).toEqual(before);
+    expect(recordRows(root, card.id, definition)).toHaveLength(1);
   });
 });

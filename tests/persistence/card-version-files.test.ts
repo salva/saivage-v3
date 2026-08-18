@@ -1,44 +1,50 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { cardVersionIndexSchema } from '../../src/persistence/canonical-card-artifacts.js';
-import { cardVersionFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
+import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
+import { cardArtifactSchema, type CardArtifact } from '../../src/persistence/canonical-card-artifacts.js';
+import { cardStreamFile } from '../../src/persistence/layout.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
-import { readCurrentCardArtifact } from '../../src/persistence/card-files.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
+import { readCanonicalLinkedCardHistoryTree, readCard, readCardVersion, listCardVersions } from '../../src/persistence/card-files.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
+import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
 function fixture() {
-  const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-')); roots.push(root); initProjectTree(root);
+  const root = mkdtempSync(join(tmpdir(), 'saivage-card-stream-')); roots.push(root); initProjectTree(root);
   return { root, cards: new CardService(root) };
 }
 
-function index(root: string, cardId: string) {
-  return cardVersionIndexSchema.parse(JSON.parse(readFileSync(cardVersionIndexFile(root, cardId), 'utf8')));
+function streamRows(root: string, cardId: string): CardArtifact[] { return readStrictCanonicalGrowingFile(cardStreamFile(root, cardId), cardArtifactSchema); }
+function envelopeCount(root: string, cardId: string): number { return readFileSync(cardStreamFile(root, cardId), 'utf8').trimEnd().split('\n').length; }
+
+function childInput(cardId: string, title: string) {
+  return { type: 'code' as const, parent: cardId, title, bootstrap_content: 'brief', tags: [] as string[], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, depends_on: [] as string[], related: [] as string[] };
 }
 
-describe('card version files', () => {
+describe('card exact stream', () => {
   it.each(['blocked', 'failed'] as const)('retains strict changed-status then metadata-update history for a real %s correction', (status) => {
     const { root, cards } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create(childInput('project', 'before'));
     cards.setStatus(child.id, 'running');
     if (status === 'blocked') cards.commitActivationOutcome(child.id, { status, summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');
     else cards.commitActivationOutcome(child.id, { status, summary: 'failed', result: runtimeFailure('failed') }, '2026-08-15T00:00:00.000Z');
 
-    const beforeNoOp = index(root, child.id);
+    const beforeNoOp = readFileSync(cardStreamFile(root, child.id));
     expect(cards.editCard(child.id, { title: 'before' }, 'planner')).toMatchObject({ title: 'before', lifecycle: { status } });
-    expect(index(root, child.id)).toEqual(beforeNoOp);
+    expect(readFileSync(cardStreamFile(root, child.id))).toEqual(beforeNoOp);
 
     cards.editCard(child.id, { title: 'after' }, 'planner');
-    const catalog = index(root, child.id);
-    const statusVersion = catalog.versions.at(-2)!.version;
-    const updateVersion = catalog.versions.at(-1)!.version;
+    const rows = streamRows(root, child.id);
+    const statusVersion = rows.at(-2)!.version;
+    const updateVersion = rows.at(-1)!.version;
     expect(cards.readCardVersion(child.id, statusVersion)).toMatchObject({
       kind: 'found',
       value: {
@@ -57,74 +63,90 @@ describe('card version files', () => {
     });
   });
 
-  it('publishes immutable N+UUID artifacts and a cumulative authoritative index', () => {
+  it('publishes one nonempty first envelope and exactly one envelope per mutation with contiguous row versions', () => {
     const { root, cards } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    cards.editCard(child.id, { title: 'after' }, 'planner');
+    const child = cards.create(childInput('project', 'before'));
+    const path = cardStreamFile(root, child.id);
+    const initial = readFileSync(path);
+    expect(initial.length).toBeGreaterThan(0);
+    expect(initial.at(-1)).toBe(0x0a);
+    expect(envelopeCount(root, child.id)).toBe(1);
+    expect(streamRows(root, child.id).map(({ version, kind }) => ({ version, kind }))).toEqual([{ version: 1, kind: 'card-version' }]);
 
-    const catalog = index(root, child.id);
-    expect(catalog.versions.map(({ version }) => version)).toEqual([1, 2]);
-    expect(catalog.current_version).toBe(2);
-    expect(catalog.current_filename).toBe(catalog.versions[1]!.filename);
-    expect(catalog.versions.every(({ filename, version }) => filename.startsWith(`${version}-`) && filename.endsWith('.json'))).toBe(true);
+    cards.editCard(child.id, { title: 'after' }, 'planner');
+    expect(envelopeCount(root, child.id)).toBe(2);
+    const rows = streamRows(root, child.id);
+    expect(rows.map(({ version }) => version)).toEqual([1, 2]);
+    expect(readFileSync(path).subarray(0, initial.byteLength)).toEqual(initial);
+    expect(listCardVersions(root, child.id)).toMatchObject({ kind: 'found', value: [{ version: 1, artifact_kind: 'card-version' }, { version: 2, artifact_kind: 'card-version' }] });
     expect(cards.read(child.id)?.title).toBe('after');
   });
 
-  it('lists metadata without opening historical content and returns a typed local selected failure', () => {
+  it('selects current, history, and diff from one strict complete fold', () => {
     const { root, cards } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create(childInput('project', 'before'));
     cards.editCard(child.id, { title: 'after' }, 'planner');
-    const catalog = index(root, child.id);
-    unlinkSync(cardVersionFile(root, child.id, catalog.versions[0]!.filename));
-
-    const reads: string[] = [];
-    expect(cards.listCardVersions(child.id, { onRead: (path) => reads.push(path) })).toMatchObject({ kind: 'found', value: [{ version: 1 }, { version: 2 }] });
-    expect(reads).not.toContain(cardVersionFile(root, child.id, catalog.versions[1]!.filename));
-    expect(cards.readCardVersion(child.id, 1)).toEqual({ kind: 'historical-unavailable', version: 1, reason: 'missing' });
-    expect(cards.read(child.id)?.title).toBe('after');
+    const head = readStrictCanonicalGrowingFile(cardStreamFile(root, child.id), cardArtifactSchema).at(-1)!;
+    expect(cards.readCardVersion(child.id, 1)).toMatchObject({ kind: 'found', value: { card: { title: 'before' } } });
+    expect(cards.readCardVersion(child.id, 2)).toMatchObject({ kind: 'found', value: { card: { title: 'after' }, entry_id: head.entry_id } });
+    expect(cards.readCardVersion(child.id, 3)).toEqual({ kind: 'version-not-found', version: 3 });
+    const diff = cards.diffCardVersions(child.id, { fromVersion: 1, toVersion: 2 });
+    expect(diff.kind).toBe('found');
+    if (diff.kind === 'found') expect(diff.diff.find((entry) => entry.field === 'title')).toMatchObject({ before: 'before', after: 'after' });
   });
 
-  it('publishes deletion as the final indexed version and keeps the parent link', () => {
+  it('publishes deletion as the terminal row, keeps the parent link, and keeps tombstoned history readable', () => {
     const { root, cards } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'delete', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create(childInput('project', 'delete'));
     cards.deleteSubtrees([child.id], () => true, 'analyst');
-    const catalog = index(root, child.id);
-    expect(catalog.versions.map(({ artifact_kind }) => artifact_kind)).toEqual(['card-version', 'card-tombstone']);
+    const rows = streamRows(root, child.id);
+    expect(rows.map(({ kind }) => kind)).toEqual(['card-version', 'card-tombstone']);
     expect(cards.read(child.id)).toBeNull();
     expect(cards.read('project')?.children).toContain(child.id);
+    expect(cards.readCardVersion(child.id, 1)).toMatchObject({ kind: 'found', value: { kind: 'card-version' } });
     expect(cards.readCardVersion(child.id, 2)).toMatchObject({ kind: 'found', value: { kind: 'card-tombstone', prior_card_version: 1 } });
+    expect(() => cards.editCard(child.id, { title: 'x' }, 'planner')).toThrow();
+    const tree = readCanonicalLinkedCardHistoryTree(root);
+    expect(tree.map(({ current }) => current.id)).toEqual(['project', child.id]);
+    expect(tree.at(-1)!.tombstone).toMatchObject({ kind: 'card-tombstone' });
   });
 
-  it('derives content-policy history from index metadata without opening old card versions', () => {
+  it.each(['malformed', 'empty', 'empty-rows', 'unterminated'] as const)('fails fast on a %s card stream without fallback or mutation', (fault) => {
     const { root, cards } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'blocked', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const child = cards.create(childInput('project', 'before'));
+    const path = cardStreamFile(root, child.id);
+    if (fault === 'malformed') writeFileSync(path, '{complete malformed envelope}\n');
+    else if (fault === 'empty') writeFileSync(path, '');
+    else if (fault === 'empty-rows') writeFileSync(path, `${JSON.stringify({ version: 1, type: 'rows', rows: [] })}\n`);
+    else writeFileSync(path, readFileSync(path).subarray(0, -1));
+    expect(() => readCard(root, child.id)).toThrow();
+    expect(() => cards.editCard(child.id, { title: 'after' }, 'planner')).toThrow();
+    if (fault !== 'malformed') expect(() => streamRows(root, child.id)).toThrow();
+    expect(() => cards.readCardVersion(child.id, 1)).toThrow();
+  });
+
+  it('propagates append outcome-unknown without reread, retry, or stream change', () => {
+    const { root, cards } = fixture();
+    const child = cards.create(childInput('project', 'before'));
+    const cardsWithIo = new CardService(root, undefined, {
+      open: openSync,
+      stat: fstatSync,
+      write: (() => { const failure = new Error('simulated append failure') as NodeJS.ErrnoException; failure.code = 'EIO'; throw failure; }) as typeof writeSync,
+      fsync: fsyncSync,
+      close: closeSync,
+    } satisfies GrowingFileIo);
+    const path = cardStreamFile(root, child.id);
+    const before = readFileSync(path);
+    expect(() => cardsWithIo.editCard(child.id, { title: 'after' }, 'planner')).toThrow(PublicationOutcomeUnknownError);
+    expect(readFileSync(path)).toEqual(before);
+  });
+
+  it('derives content-policy history by folding row changes', () => {
+    const { root, cards } = fixture();
+    const child = cards.create(childInput('project', 'blocked'));
     cards.setStatus(child.id, 'running');
     const settledAt = '2026-08-12T00:00:00.000Z';
     cards.commitActivationOutcome(child.id, { status: 'blocked', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, result: { kind: 'content-policy-refusal', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: `agent:executor:${child.id}`, marker_id: 'marker', evidence_url: '/evidence' } }, settledAt);
-    const catalog = index(root, child.id);
-    unlinkSync(cardVersionFile(root, child.id, catalog.versions[0]!.filename));
-    unlinkSync(cardVersionFile(root, child.id, catalog.versions[1]!.filename));
-    const reads: string[] = [];
-    expect(buildContentPolicyReadModel(root, { onRead: (path) => reads.push(path) })).toMatchObject({ refusal_high_water: 1, latest: { card_id: child.id, blocked_at: settledAt } });
-    expect(reads).not.toContain(cardVersionFile(root, child.id, catalog.versions[0]!.filename));
-    expect(reads).not.toContain(cardVersionFile(root, child.id, catalog.versions[1]!.filename));
-  });
-
-  it.each(['malformed', 'missing', 'mismatched'] as const)('rejects a %s indexed current head without changing the index or opening its predecessor', (fault) => {
-    const { root, cards } = fixture();
-    const child = cards.create({ type: 'code', parent: 'project', title: 'before', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    cards.editCard(child.id, { title: 'after' }, 'planner');
-    const indexPath = cardVersionIndexFile(root, child.id); const indexBytes = readFileSync(indexPath);
-    const catalog = index(root, child.id); const predecessor = cardVersionFile(root, child.id, catalog.versions[0]!.filename); const head = cardVersionFile(root, child.id, catalog.versions[1]!.filename);
-    if (fault === 'malformed') writeFileSync(head, '{malformed}\n');
-    else if (fault === 'missing') unlinkSync(head);
-    else {
-      const artifact = JSON.parse(readFileSync(head, 'utf8')) as { entry_id: string };
-      writeFileSync(head, `${JSON.stringify({ ...artifact, entry_id: '00000000-0000-4000-8000-000000000001' })}\n`);
-    }
-    const operations: string[] = [];
-    expect(() => readCurrentCardArtifact(root, child.id, { onRead(path) { operations.push(path); } })).toThrow();
-    expect(readFileSync(indexPath)).toEqual(indexBytes);
-    expect(operations).not.toContain(predecessor);
+    expect(buildContentPolicyReadModel(root, { onRead: () => undefined })).toMatchObject({ refusal_high_water: 1, latest: { card_id: child.id, blocked_at: settledAt } });
   });
 });

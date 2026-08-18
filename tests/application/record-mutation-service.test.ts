@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { mutateRecord } from '../../src/application/record-mutation-service.js';
-import { cardRecordRoot } from '../../src/persistence/layout.js';
+import { cardRecordStreamFile } from '../../src/persistence/layout.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -36,11 +36,11 @@ describe('card-agent record mutation', () => {
     const { root, cards } = setup();
     const deniedName = 'status-notes.md';
     expect(mutateRecord(cards, { path: `record:///${deniedName}?card=project`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'] })).toMatchObject({ success: false, data: { code: 'record_mutation_denied', reason: 'writer_not_authorized' } });
-    expect(existsSync(cardRecordRoot(root, 'project', dynamicDefinition(deniedName)))).toBe(false);
+    expect(existsSync(cardRecordStreamFile(root, 'project', dynamicDefinition(deniedName)))).toBe(false);
 
     const historicalName = 'review-history.md';
     expect(() => mutateRecord(cards, { path: `record:///${historicalName}?card=project&v=1`, operation: 'write', content: 'no', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['write'] })).toThrow('Historical record URLs cannot be mutated.');
-    expect(existsSync(cardRecordRoot(root, 'project', dynamicDefinition(historicalName)))).toBe(false);
+    expect(existsSync(cardRecordStreamFile(root, 'project', dynamicDefinition(historicalName)))).toBe(false);
   });
 
   it('exposes crash-left open content, conflicts with Analyst mutation, and lets a later authorized activation reuse and close it', () => {
@@ -52,7 +52,7 @@ describe('card-agent record mutation', () => {
     const resumed=mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'resumed',surface:'card_agent',agentName:'planner',cardId:'project',requiredTools:['edit']});
     expect(resumed).toMatchObject({success:true,data:{state:'open'}});
     if(!resumed.success)throw new Error('Expected resumed mutation success.');
-    const closed=cards.closeRecord('project','brief.md',resumed.data.head_version,'planner');
+    const closed=cards.closeRecord('project','brief.md','planner');
     expect(closed.artifact).toMatchObject({state:'closed',accepted:{content:'resumed draft',writer_agent:'planner'}});
   });
 });

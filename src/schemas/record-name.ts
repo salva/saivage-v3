@@ -8,5 +8,5 @@ export function parseRecordName(value: unknown): RecordName {
 }
 
 export function recordStreamFilename(name: RecordName): string {
-  return `${name.slice(0, -'.md'.length)}.jsonl`;
+  return `record-${name.slice(0, -'.md'.length)}.jsonl`;
 }

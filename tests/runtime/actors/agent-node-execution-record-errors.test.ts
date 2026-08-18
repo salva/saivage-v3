@@ -29,7 +29,7 @@ describe('AgentNodeExecution authored-record absence handling', () => {
 
   it('closes updated requirements in declaration order and retains close returns without rereading',()=>{
     const trace:string[]=[];
-    const store={readCurrentRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string,version:number)=>{trace.push(name);const sourceVersion=version+1;return{headVersion:sourceVersion,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:sourceVersion}}};})};
+    const store={readCurrentRecord:jest.fn(),closeRecord:jest.fn((_card:string,name:string)=>{trace.push(name);const sourceVersion=({['alpha.md']:1,['beta.md']:2})[name]!+1;return{headVersion:sourceVersion,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:sourceVersion}}};})};
     const runner=new AgentNodeExecution({cardId:'project',store} as never,{} as never) as unknown as RecordMethods;
     const requirements=['alpha.md','beta.md'].map((name)=>({mode:'continue',gate:'updated',definition:{name}}));
     const agent={name:'worker',recordWrites:requirements.map(({definition})=>({source:definition.name,matcher:new RegExp(`^${definition.name.replace('.', '\\.')}$`)}))};
@@ -83,24 +83,24 @@ describe('AgentNodeExecution authored-record absence handling', () => {
     ]});
     expect(classifyCurrentRecord).toHaveBeenCalledTimes(1);
     expect(classifyCurrentRecord).toHaveBeenCalledWith('project','clean.md');
-    expect(discardRecord).toHaveBeenCalledWith('project','clean.md',2,'clean_node_entry');
-    expect(openRecord).toHaveBeenCalledWith('project','clean.md',3);
+    expect(discardRecord).toHaveBeenCalledWith('project','clean.md','clean_node_entry');
+    expect(openRecord).toHaveBeenCalledWith('project','clean.md');
     expect(runner.captureRecordHead('clean.md')).toBe(4);
   });
 
   it('closes a tool-less continue-exists resumed draft under glob-authorized accepting provenance', () => {
-    const closeRecord=jest.fn((_card:string,name:string,head:number,writer:string)=>({headVersion:head+1,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:head+1,writer_agent:writer}}}));
+    const closeRecord=jest.fn((_card:string,name:string,writer:string)=>({headVersion:8,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:8,writer_agent:writer}}}));
     const runner=new AgentNodeExecution({cardId:'project',store:{closeRecord}} as never,{} as never) as unknown as RecordMethods;
     const requirement={mode:'continue',gate:'exists',definition:{name:'resume.md'}};
     const node={agent:{name:'worker',tools:[],recordWrites:[{source:'resume.md',matcher:/^resume\.md$/u}]},requirements:[requirement]};
     const candidate={headVersion:7,currentUrl:'record:///resume.md?card=project',artifact:{state:'open',draft:{content:'resumed'}}};
     expect(runner.closeAcceptedRecords(node,new Map([['resume.md',candidate]]),new Set())).toEqual([{name:'resume.md',url:'record:///resume.md?card=project&v=8',version:8}]);
-    expect(closeRecord).toHaveBeenCalledWith('project','resume.md',7,'worker');
+    expect(closeRecord).toHaveBeenCalledWith('project','resume.md','worker');
   });
 
   it('closes required records first and free records in sorted order, stopping at the first free failure', () => {
     const trace:string[]=[];
-    const closeRecord=jest.fn((_card:string,name:string,head:number)=>{trace.push(name);if(name==='free-b.md')throw new Error('FREE_CLOSE_FAILED');return{headVersion:head+1,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:head+1}}};});
+    const nextHead=new Map([['required.md',3],['free-a.md',5],['free-b.md',6],['free-c.md',7]]);const closeRecord=jest.fn((_card:string,name:string)=>{trace.push(name);if(name==='free-b.md')throw new Error('FREE_CLOSE_FAILED');const headVersion=nextHead.get(name)!;return{headVersion,currentUrl:`record:///${name}?card=project`,artifact:{accepted:{source_version:headVersion}}};});
     const open=(name:string,head:number)=>({headVersion:head,currentUrl:`record:///${name}?card=project`,artifact:{state:'open',draft:{content:name}}});
     const values=new Map([['free-a.md',open('free-a.md',4)],['free-b.md',open('free-b.md',5)],['free-c.md',open('free-c.md',6)]]);
     const store={closeRecord,readCurrentRecord:jest.fn((_card:string,name:string)=>values.get(name))};

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -7,7 +7,7 @@ import { startApp, type App } from '../../src/boot/app.js';
 import { publishInitialProjectRuntime } from '../../src/boot/project-runtime-bootstrap.js';
 import { CardService } from '../../src/cards/card-service.js';
 import { appendConversationBatch, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { appLogFile, cardRecordVersionIndexFile, globalAgentConversationVersionFile, globalAgentConversationVersionIndexFile, runtimeProcessLockFile, saivageCardsRoot } from '../../src/persistence/layout.js';
+import { appLogFile, cardRecordStreamFile, globalAgentConversationVersionFile, globalAgentConversationVersionIndexFile, runtimeProcessLockFile, saivageCardsRoot } from '../../src/persistence/layout.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { replaceConfigYaml } from '../../src/config/config-file.js';
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
@@ -37,7 +37,7 @@ describe('application startup generated-state admission', () => {
 
     await expect(start(root, false)).rejects.toThrow(/Required project card authority is missing/);
     expect(existsSync(appLogFile(root))).toBe(false);
-    expect(existsSync(cardRecordVersionIndexFile(root, 'project', testRecordDefinition('status.md', 'project')))).toBe(false);
+    expect(existsSync(cardRecordStreamFile(root, 'project', testRecordDefinition('status.md', 'project')))).toBe(false);
     expect(readFileSync(globalAgentConversationVersionIndexFile(root, 'analyst'))).toEqual(globalIndexBytes);
     expect(readFileSync(conversationPath)).toEqual(conversationBytes);
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
@@ -47,7 +47,7 @@ describe('application startup generated-state admission', () => {
     const root = projectRoot();
     const app = await start(root, true); apps.push(app);
     expect(existsSync(saivageCardsRoot(root))).toBe(true);
-    expect(existsSync(cardRecordVersionIndexFile(root, 'project', testRecordDefinition('status.md', 'project')))).toBe(true);
+    expect(existsSync(cardRecordStreamFile(root, 'project', testRecordDefinition('brief.md', 'project')))).toBe(true);
     expect(app.server.fastify.server.address()).not.toBeNull();
     apps.pop(); await app.stop();
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
@@ -63,9 +63,9 @@ describe('application startup generated-state admission', () => {
     expect(app.environment.workflows.cardTypes.get('architecture')!.states.get('node:system-review')).toMatchObject({kind:'node',nodeId:'system-review'});
   });
 
-  it('fails startup on a missing declared optional index without recreating it',async()=>{
-    const root=projectRoot();publishInitialProjectRuntime(root,compileProjectWorkflows(TEST_SAIVAGE_CONFIG));const index=cardRecordVersionIndexFile(root,'project',testRecordDefinition('status.md','project'));rmSync(index);
-    await expect(start(root,false)).rejects.toThrow(expect.objectContaining({code:'ENOENT'}));expect(existsSync(index)).toBe(false);expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
+  it('fails startup on a present empty declared optional stream without changing it',async()=>{
+    const root=projectRoot();publishInitialProjectRuntime(root,compileProjectWorkflows(TEST_SAIVAGE_CONFIG));const stream=cardRecordStreamFile(root,'project',testRecordDefinition('status.md','project'));writeFileSync(stream,'');
+    await expect(start(root,false)).rejects.toThrow();expect(readFileSync(stream)).toEqual(Buffer.alloc(0));expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });
 
   it('rejects retained explicit-family authority after selecting standard before optional effects and releases the lifecycle lock', async () => {
@@ -78,9 +78,7 @@ describe('application startup generated-state admission', () => {
     expect(() => initializeAndValidateCurrentGeneratedState(root, explicitWorkflows)).not.toThrow();
 
     replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), selectedStandardConfig());
-    const optionalIndex = cardRecordVersionIndexFile(root, 'project', testRecordDefinition('status.md', 'project'));
-    rmSync(optionalIndex);
-    const timestamp = '2026-08-14T00:00:00.000Z';
+        const timestamp = '2026-08-14T00:00:00.000Z';
     appendConversationBatch({ projectRoot: root }, [agentMessageSchema.parse({ id: 'set-change', context_policy: { kind: 'structural', behavior: 'activation_boundary' }, session_id: 'agent:analyst:global', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: '00000000-0000-4000-8000-000000000002', timestamp }), round_id: `r-pre-${'1'.repeat(32)}`, message_index: 0, block_index: 0, timestamp })]);
     const segment = readCurrentConversationSegment(root, 'agent:analyst:global')!;
     const conversationPath = globalAgentConversationVersionFile(root, 'analyst', segment.entry.filename);
@@ -89,7 +87,7 @@ describe('application startup generated-state admission', () => {
 
     await expect(start(root, false)).rejects.toThrow(/No compiled workflow exists for card type 'fixture-leaf'/);
     expect(existsSync(appLogFile(root))).toBe(false);
-    expect(existsSync(optionalIndex)).toBe(false);
+    expect(existsSync(cardRecordStreamFile(root, 'project', testRecordDefinition('status.md', 'project')))).toBe(false);
     expect(readFileSync(conversationPath)).toEqual(conversationBytes);
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });

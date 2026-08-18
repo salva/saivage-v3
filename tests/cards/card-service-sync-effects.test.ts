@@ -10,6 +10,7 @@ import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { SyncHub } from '../../src/server/sync-hub.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 
 const context = { actor: 'analyst' as const, surface: 'runtime' as const, reason: 'sync effects' };
@@ -91,14 +92,14 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const child = cards.create(input());
     flush(); clear();
 
-    const draft = cards.openRecord(child.id, 'status.md', null);
-    const working = cards.editRecord(child.id, 'status.md', draft.headVersion, 'working');
-    cards.discardRecord(child.id, 'status.md', working.headVersion, 'not ready');
+    const draft = cards.openRecord(child.id, 'status.md');
+    const working = cards.editRecord(child.id, 'status.md', 'working');
+    cards.discardRecord(child.id, 'status.md', 'not ready');
     expect(flush()).toEqual([]);
 
-    const next = cards.openRecord(child.id, 'status.md', 3);
-    const edited = cards.editRecord(child.id, 'status.md', next.headVersion, 'closed');
-    cards.closeRecord(child.id, 'status.md', edited.headVersion, 'executor');
+    const next = cards.openRecord(child.id, 'status.md');
+    const edited = cards.editRecord(child.id, 'status.md', 'closed');
+    cards.closeRecord(child.id, 'status.md', 'executor');
     expect(flush()).toEqual([{ t: 'invalidate', resource: 'cards', scope: 'record', card_id: child.id, record_name: 'status.md' }]);
   });
 
@@ -121,7 +122,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     ]);
   });
 
-  it('emits no hint for no-op and reported write failure', () => {
+  it('emits no hint for no-op and outcome-unknown append failure', () => {
     const child = cards.create(input());
     flush(); clear();
     cards.editCard(child.id, {});
@@ -136,7 +137,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
       close: closeSync,
     };
     const failingCards = new CardService(root, hub, failingIo);
-    expect(() => failingCards.editCard(child.id, { title: 'version publication failed' })).toThrow(failure);
+    expect(() => failingCards.editCard(child.id, { title: 'version publication failed' })).toThrow(PublicationOutcomeUnknownError);
     expect(flush()).toEqual([]);
   });
 
@@ -212,7 +213,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     let caught: unknown;
     try { service.editCard(child.id, { title: 'uncertain metadata' }, 'planner'); }
     catch (error) { caught = error; }
-    expect(caught).toBe(failure);
+    expect(caught).toBeInstanceOf(PublicationOutcomeUnknownError);
     expect(events).toEqual([
       'business:read', 'business:setStatus', 'business:read',
       'publication:1:open', 'publication:1:write',
@@ -223,8 +224,8 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
   it('emits no record hint when close reports an outcome-unknown append failure', () => {
     const child = cards.create(input());
-    const draft = cards.openRecord(child.id, 'status.md', null);
-    const edited = cards.editRecord(child.id, 'status.md', draft.headVersion, 'review');
+    const draft = cards.openRecord(child.id, 'status.md');
+    const edited = cards.editRecord(child.id, 'status.md', 'review');
     flush(); clear();
 
     const failure = new Error('injected record close failure');
@@ -237,13 +238,13 @@ describe('CardService scoped mutation-to-frame effects', () => {
     };
     const failingCards = new CardService(root, hub, failingIo);
 
-    expect(() => failingCards.closeRecord(child.id, 'status.md', edited.headVersion, 'executor')).toThrow(failure);
+    expect(() => failingCards.closeRecord(child.id, 'status.md', 'executor')).toThrow(PublicationOutcomeUnknownError);
     expect(flush()).toEqual([]);
   });
 
   it('fails fast without effects when immutable card or record version creation fails', () => {
     const child = cards.create(input());
-    const draft = cards.openRecord(child.id, 'status.md', null);
+    const draft = cards.openRecord(child.id, 'status.md');
     flush(); clear();
     const missingIo: GrowingFileIo = {
       open() { throw Object.assign(new Error('missing'), { code: 'ENOENT' }); },
@@ -252,7 +253,7 @@ describe('CardService scoped mutation-to-frame effects', () => {
     const missingCards = new CardService(root, hub, missingIo);
     expect(() => missingCards.editCard(child.id, { title: 'not published' })).toThrow('missing');
     expect(flush()).toEqual([]);
-    expect(() => missingCards.editRecord(child.id, 'status.md', draft.headVersion, 'not published')).toThrow('missing');
+    expect(() => missingCards.editRecord(child.id, 'status.md', 'not published')).toThrow('missing');
     expect(flush()).toEqual([]);
   });
 });

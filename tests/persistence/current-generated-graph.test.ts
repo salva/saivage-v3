@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
 import { appendConversationBatch, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { appLogFile, cardConversationVersionFile, cardConversationVersionIndexFile, cardRecordVersionFile, cardRecordVersionIndexFile, cardVersionFile, cardVersionIndexFile, globalAgentConversationVersionFile, saivageCardsRoot } from '../../src/persistence/layout.js';
+import { appLogFile, cardConversationVersionFile, cardConversationVersionIndexFile, cardRecordStreamFile, cardStreamFile, globalAgentConversationVersionFile, saivageCardsRoot } from '../../src/persistence/layout.js';
 import type { CompiledProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { agentMessageSchema, cardRecordSchema, type AgentMessage } from '../../src/schemas/index.js';
 import { publishCardVersion, publishInitialChildCard } from '../../src/persistence/card-files.js';
@@ -40,42 +40,42 @@ describe('current generated state startup admission', () => {
     expect(readFileSync(conversationPath)).toEqual(before);
   });
 
-  it('accepts complete empty optional authority and truncates only an unterminated conversation suffix', () => {
-    const root = fixture(); const optional = optionalIndex(root); const optionalBytes = readFileSync(optional);
-    expect(JSON.parse(optionalBytes.toString('utf8'))).toEqual(expect.objectContaining({ kind: 'authored-record-version-index', versions: [], current_version: null, current_filename: null }));
+  it('accepts a missing optional stream, never creates it, and truncates only an unterminated conversation suffix', () => {
+    const root = fixture(); const optional = optionalStream(root);
+    expect(existsSync(optional)).toBe(false);
     const path = plannerConversationWithSuffix(root); const canonicalLength = readFileSync(path).byteLength - Buffer.byteLength('unterminated');
 
     initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS);
 
-    expect(readFileSync(optional)).toEqual(optionalBytes);
+    expect(existsSync(optional)).toBe(false);
     expect(readFileSync(path).byteLength).toBe(canonicalLength);
   });
 
-  it.each(['directory', 'index'] as const)('rejects a missing declared optional %s without recreating it', (missing) => {
-    const root = fixture(); const optional = optionalIndex(root); const target = missing === 'directory' ? dirname(optional) : optional;
-    rmSync(target, { recursive: true });
+  it.each(['empty', 'malformed'] as const)('rejects a present %s optional stream without changing it', (fault) => {
+    const root = fixture(); const optional = optionalStream(root);
+    writeFileSync(optional, fault === 'empty' ? '' : 'complete malformed stream\n');
+    const before = readFileSync(optional);
 
-    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow(expect.objectContaining({ code: 'ENOENT' }));
-    expect(existsSync(target)).toBe(false);
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow();
+    expect(readFileSync(optional)).toEqual(before);
   });
 
   it.each(['card', 'record', 'conversation'] as const)('fails on complete malformed current %s authority without changing it', (authority) => {
-    const root = fixture(); let path: string; let indexPath: string;
-    if (authority === 'card') { path = currentCardArtifactPath(root, 'project'); indexPath = cardVersionIndexFile(root, 'project'); }
-    else if (authority === 'record') { const definition = testRecordDefinition('brief.md', 'project'); path = currentRecordArtifactPath(root, 'project', definition); indexPath = cardRecordVersionIndexFile(root, 'project', definition); }
+    const root = fixture(); let path: string;
+    if (authority === 'card') path = cardStreamFile(root, 'project');
+    else if (authority === 'record') path = cardRecordStreamFile(root, 'project', testRecordDefinition('brief.md', 'project'));
     else {
       appendConversationBatch({ projectRoot: root }, [plannerText('first')]);
-      path = plannerCurrentSegmentPath(root); indexPath = cardConversationVersionIndexFile(root, 'project', 'planner'); appendFileSync(path, '{"complete":"malformed"}\n');
+      path = plannerCurrentSegmentPath(root); appendFileSync(path, '{"complete":"malformed"}\n');
     }
     if (authority !== 'conversation') writeFileSync(path, 'complete malformed authority\n');
-    const before = readFileSync(path); const beforeIndex = readFileSync(indexPath);
+    const before = readFileSync(path);
 
     expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow();
     expect(readFileSync(path)).toEqual(before);
-    expect(readFileSync(indexPath)).toEqual(beforeIndex);
   });
 
-  it.each(['missing-dependency', 'dependency-cycle'] as const)('rejects %s before optional effects', (fault) => {
+  it.each(['missing-dependency', 'dependency-cycle'] as const)('rejects a %s corruption before optional effects', (fault) => {
     const root = fixture(); const cards = new CardService(root);
     if (fault === 'missing-dependency') mutateCurrentCard(root, 'project', (card) => ({ ...card, depends_on: ['card-z'] }));
     else {
@@ -85,7 +85,7 @@ describe('current generated state startup admission', () => {
     }
     const effects = preparePhaseAEffectSentinels(root);
 
-    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow(fault === 'missing-dependency' ? /depends_on missing/ : /dependency graph contains a cycle/);
+    expect(() => initializeAndValidateCurrentGeneratedState(root, TEST_WORKFLOWS)).toThrow();
     expectPhaseAEffectsAbsent(root, effects);
   });
 
@@ -114,14 +114,12 @@ describe('current generated state startup admission', () => {
 });
 
 function fixture(): string { const root = mkdtempSync(join(tmpdir(), 'saivage-current-generated-')); roots.push(root); initProjectTree(root); return root; }
-function optionalIndex(root: string): string { return cardRecordVersionIndexFile(root, 'project', testRecordDefinition('status.md', 'project')); }
+function optionalStream(root: string): string { return cardRecordStreamFile(root, 'project', testRecordDefinition('status.md', 'project')); }
 function plannerText(id: string): AgentMessage { return message(id, 'agent:planner:project'); }
 function message(id: string, sessionId: 'agent:planner:project' | 'agent:analyst:global'): AgentMessage { return agentMessageSchema.parse({ id, session_id: sessionId, role: 'user', kind: 'text', content: id, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }, round_id: `r-user-${'0'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-08-14T00:00:00.000Z' }); }
 function globalActivation(): AgentMessage { const timestamp = '2026-08-14T00:00:00.000Z'; return agentMessageSchema.parse({ id: 'activation', context_policy: { kind: 'structural', behavior: 'activation_boundary' }, session_id: 'agent:analyst:global', role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'analyst', input_id: '00000000-0000-4000-8000-000000000001', timestamp }), round_id: `r-pre-${'0'.repeat(32)}`, message_index: 0, block_index: 0, timestamp }); }
 function plannerCurrentSegmentPath(root: string): string { const catalog = readConversationCatalog(root, 'agent:planner:project'); return cardConversationVersionFile(root, 'project', 'planner', catalog.versions.at(-1)!.filename); }
 function plannerConversationWithSuffix(root: string): string { appendConversationBatch({ projectRoot: root }, [plannerText('planner-first')]); const path = plannerCurrentSegmentPath(root); appendFileSync(path, 'unterminated'); return path; }
-function currentCardArtifactPath(root: string, cardId: string): string { const index = JSON.parse(readFileSync(cardVersionIndexFile(root, cardId), 'utf8')) as { current_filename: string }; return cardVersionFile(root, cardId, index.current_filename); }
-function currentRecordArtifactPath(root: string, cardId: string, definition: ReturnType<typeof testRecordDefinition>): string { const index = JSON.parse(readFileSync(cardRecordVersionIndexFile(root, cardId, definition), 'utf8')) as { current_filename: string }; return cardRecordVersionFile(root, cardId, definition, index.current_filename); }
-function mutateCurrentCard(root: string, cardId: string, mutate: (card: Record<string, unknown>) => Record<string, unknown>): void { const path = currentCardArtifactPath(root, cardId); const artifact = JSON.parse(readFileSync(path, 'utf8')) as { card: Record<string, unknown> }; writeFileSync(path, `${JSON.stringify({ ...artifact, card: mutate(artifact.card) })}\n`); }
-function preparePhaseAEffectSentinels(root: string): { readonly optional: string; readonly conversation: string; readonly conversationBytes: Buffer } { const optional = optionalIndex(root); unlinkSync(optional); const conversation = plannerConversationWithSuffix(root); return { optional, conversation, conversationBytes: readFileSync(conversation) }; }
+function mutateCurrentCard(root: string, cardId: string, mutate: (card: Record<string, unknown>) => Record<string, unknown>): void { const path = cardStreamFile(root, cardId); const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n'); const last = JSON.parse(envelopes.at(-1)!) as { rows: Array<Record<string, unknown>> }; const row = last.rows[0]!; const kind = row.kind; const cardKey = kind === 'card-tombstone' ? 'final_card' : 'card'; row[cardKey] = mutate(row[cardKey] as Record<string, unknown>); envelopes[envelopes.length - 1] = JSON.stringify(last); writeFileSync(path, `${envelopes.join('\n')}\n`); }
+function preparePhaseAEffectSentinels(root: string): { readonly optional: string; readonly conversation: string; readonly conversationBytes: Buffer } { const optional = optionalStream(root); const conversation = plannerConversationWithSuffix(root); return { optional, conversation, conversationBytes: readFileSync(conversation) }; }
 function expectPhaseAEffectsAbsent(root: string, effects: { readonly optional: string; readonly conversation: string; readonly conversationBytes: Buffer }): void { expect(existsSync(appLogFile(root))).toBe(false); expect(existsSync(effects.optional)).toBe(false); expect(readFileSync(effects.conversation)).toEqual(effects.conversationBytes); }

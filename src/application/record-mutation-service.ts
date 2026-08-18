@@ -19,7 +19,7 @@ export interface RecordMutationRequest {
   onRecordWritten?: (name: string) => void;
 }
 
-type Admission = { parsed: ReturnType<typeof parseRecordUrl>; current: RecordProjection | null; initializeDynamic: boolean };
+type Admission = { parsed: ReturnType<typeof parseRecordUrl>; current: RecordProjection | null };
 
 function failure(value: RecordMutationFailure): RecordMutationFailure { return RecordMutationFailureSchema.parse(value); }
 function denied(parsed: ReturnType<typeof parseRecordUrl>, operation: 'write' | 'edit', reason: z.infer<typeof reasonSchema>): RecordMutationFailure {
@@ -45,7 +45,7 @@ export function admitRecordMutation(store: CardService, request: RecordMutationR
   catch { return failure({ success: false, error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'authored_record', owner_id: `${parsed.cardId}/${parsed.name}`, operation: request.operation, restart_required: true } }); }
   const current = classification.kind === 'present' ? classification.projection : null;
   if (request.surface === 'analyst' && current?.artifact.state === 'open') return failure({ success: false, error: 'Record already has an open workflow draft.', data: { code: 'record_open_conflict', card_id: parsed.cardId, name: parsed.name as never, current_head: current.headVersion, operation: request.operation } });
-  return { parsed, current, initializeDynamic: classification.kind === 'unclaimed' };
+  return { parsed, current };
 }
 
 export function preflightAnalystRecordWrite(store: CardService, request: Omit<RecordMutationRequest, 'content' | 'oldString' | 'newString' | 'replaceAll'>): AnalystPreNetworkAdmission {
@@ -56,7 +56,7 @@ export function preflightAnalystRecordWrite(store: CardService, request: Omit<Re
 
 export function mutateRecord(store: CardService, request: RecordMutationRequest, propagate?: () => { ok: true } | { ok: false; partial: true; error: string }): RecordMutationResult {
   const admitted = admitRecordMutation(store, request); if ('success' in admitted) return admitted;
-  const { parsed, current, initializeDynamic } = admitted; const currentHead = current?.headVersion ?? null; const effective = current ? effectiveRecordContent(current.artifact) : null;
+  const { parsed, current } = admitted; const currentHead = current?.headVersion ?? null; const effective = current ? effectiveRecordContent(current.artifact) : null;
   let nextContent: string;
   if (request.operation === 'edit') {
     if (!effective) return failure({ success: false, error: 'Record has no content to edit.', data: { code: 'record_content_absent', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead } });
@@ -67,12 +67,11 @@ export function mutateRecord(store: CardService, request: RecordMutationRequest,
   } else nextContent = request.content!;
   if (isEmptyRecordContent(nextContent)) return failure({ success: false, error: 'Record content must not be empty.', data: { code: 'record_result_content_empty', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead, operation: request.operation } });
   if (effective?.content === nextContent) return failure({ success: false, error: 'Record content is unchanged.', data: { code: 'record_content_unchanged', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead!, operation: request.operation } });
-  if (initializeDynamic) store.initializeDynamicRecord(parsed.cardId, parsed.name);
   let open: RecordProjection;
   if (current?.artifact.state === 'open') open = current;
-  else open = store.openRecord(parsed.cardId, parsed.name, currentHead);
-  const edited = store.editRecord(parsed.cardId, parsed.name, open.headVersion, nextContent);
-  const result = request.surface === 'analyst' ? store.closeRecord(parsed.cardId, parsed.name, edited.headVersion, request.agentName) : edited;
+  else open = store.openRecord(parsed.cardId, parsed.name);
+  const edited = store.editRecord(parsed.cardId, parsed.name, nextContent);
+  const result = request.surface === 'analyst' ? store.closeRecord(parsed.cardId, parsed.name, request.agentName) : edited;
   const success: RecordMutationSuccess = { success: true, data: { card_id: parsed.cardId, name: parsed.name as never, state: request.surface === 'analyst' ? 'closed' : 'open', head_version: result.headVersion, head_entry_id: result.artifact.entry_id, current_url: result.currentUrl, version_url: result.versionUrl, bytes: Buffer.byteLength(nextContent), written: true, surface: request.surface, ...(request.surface === 'analyst' ? { propagation: propagate ? propagate() : { ok: true as const } } : {}) } };
   const validated = RecordMutationSuccessSchema.parse(success);
   if (request.surface === 'card_agent') request.onRecordWritten?.(parsed.name);

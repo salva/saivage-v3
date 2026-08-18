@@ -67,7 +67,7 @@ function harness(failure: FailureMode) {
     readCurrentRecord: jest.fn(() => { events.push('read-record'); return { headVersion: 1, currentUrl: 'record:///status.md?card=project', artifact: { state: 'open', accepted: { content: 'brief' }, draft: { content: 'draft' } } }; }),
     readCurrentRecordOrNull: jest.fn(() => null),
     classifyCurrentRecord: jest.fn(() => { events.push('classify-record'); return { kind: 'unclaimed' }; }),
-    initializeDynamicRecord: jest.fn(() => { events.push('initialize-record'); }),
+
     discardRecord: jest.fn(() => { events.push('discard-record'); }),
     openRecord: jest.fn(() => { events.push('open-record'); }),
     listChildren: () => [],
@@ -104,7 +104,6 @@ describe('AgentNodeExecution static preparation', () => {
 
     expect(readConversation(test.projectRoot, test.sessionId).sourceRows).toEqual([]);
     expect(test.store.classifyCurrentRecord).not.toHaveBeenCalled();
-    expect(test.store.initializeDynamicRecord).not.toHaveBeenCalled();
     expect(test.store.discardRecord).not.toHaveBeenCalled();
     expect(test.store.openRecord).not.toHaveBeenCalled();
     expect(test.removeNotifications).not.toHaveBeenCalled();
@@ -133,7 +132,7 @@ describe('AgentNodeExecution static preparation', () => {
 
     await expect(test.run()).rejects.toThrow('turn sentinel');
 
-    expect(test.events).toEqual(['read-record', 'classify-record', 'initialize-record', 'open-record', 'turn', 'cleanup']);
+    expect(test.events).toEqual(['read-record', 'classify-record', 'open-record', 'turn', 'cleanup']);
     expect(readConversation(test.projectRoot, test.sessionId).sourceRows.length).toBeGreaterThan(0);
     expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'failed' }]);
   });

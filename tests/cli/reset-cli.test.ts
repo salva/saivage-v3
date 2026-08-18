@@ -80,12 +80,12 @@ describe('CLI reset generated-root boundary', () => {
 
     for (const marker of markers) expect(existsSync(marker)).toBe(false);
     expect(readCard(root, 'project')).toMatchObject({ id: 'project', type: 'project', lifecycle: { status: 'backlog' }, version_seq: 1 });
-    const cardRoot = join(root, '.saivage', 'cards', 'project', 'card');
-    const rootIndexText = readFileSync(join(cardRoot, 'index.json'), 'utf8');
-    const rootIndex = JSON.parse(rootIndexText) as { current_filename: string; versions: unknown[] };
-    const rootArtifactText = readFileSync(join(cardRoot, 'versions', rootIndex.current_filename), 'utf8');
-    const rootArtifact = JSON.parse(rootArtifactText);
-    expect(rootIndex.versions).toHaveLength(1);
+    const streamPath = join(root, '.saivage', 'cards', 'project', 'card.jsonl');
+    const streamText = readFileSync(streamPath, 'utf8');
+    expect(streamText.trimEnd().split('\n')).toHaveLength(1);
+    const envelope = JSON.parse(streamText) as { version: number; type: string; rows: unknown[] };
+    expect(envelope).toEqual({ version: 1, type: 'rows', rows: [envelope.rows[0]] });
+    const rootArtifact = envelope.rows[0] as { kind: string; card_id: string; version: number; change: unknown; card: Record<string, unknown> };
     expect(rootArtifact).toMatchObject({ kind: 'card-version', format_version: 1, card_id: 'project', version: 1, change: null });
     expect(Object.keys(rootArtifact.card)).toEqual([
       'id', 'type', 'children', 'title', 'lifecycle', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at',
@@ -93,8 +93,7 @@ describe('CLI reset generated-root boundary', () => {
       'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications',
     ]);
     expect(rootArtifact.card.lifecycle).toEqual({ status: 'backlog', result: null, error: null, completed_at: null });
-    expect(rootIndexText).toBe(`${JSON.stringify(rootIndex)}\n`);
-    expect(rootArtifactText).toBe(`${JSON.stringify(rootArtifact)}\n`);
+    expect(streamText).toBe(`${JSON.stringify(envelope)}\n`);
     for (const [path, bytes] of preserved) expect(readFileSync(join(root, path), 'utf8')).toBe(bytes);
     expect(existsSync(join(root, '.saivage', 'locks', 'runtime.lock'))).toBe(false);
     expect(existsSync(join(root, '.saivage', 'agents', 'conversations'))).toBe(true);

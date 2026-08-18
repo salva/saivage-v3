@@ -6,11 +6,10 @@ import { hasParentPathSegment, isReadBlocked, isRedacted, resolveContainedProjec
 import { redactForOutbound, redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
-import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordHistoricalUnavailableError, AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
+import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
 import { cardIdSchema } from '../../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
-import { historicalUnavailableStatus } from './historical-unavailable-status.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
@@ -326,10 +325,6 @@ export class WorkspaceFileReadModelService {
         if (error instanceof AuthoredRecordNotFoundError) return request.version === null
           ? { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } }
           : { statusCode: 404, body: { error: 'workspace_historical_version_not_found', path: requestedPath, historical: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${request.cardId}/${request.filename}`, version: request.version } } };
-        if (error instanceof AuthoredRecordHistoricalUnavailableError) {
-          const body = { error: 'workspace_historical_version_unavailable' as const, path: requestedPath, historical: { error: 'historical_version_content_unavailable' as const, resource: 'authored_record' as const, owner_id: `${request.cardId}/${request.filename}`, version: error.version, reason: error.reason } };
-          return { statusCode: historicalUnavailableStatus(error.reason), body };
-        }
         throw error;
       }
     }

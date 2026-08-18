@@ -19,7 +19,7 @@ export const TEST_RUNTIME_WORKFLOWS=bindRuntimeWorkflows(compileProjectWorkflows
 export function initProjectTree(projectRoot: string): { projectRoot: string } {
   mkdirSync(projectRoot, { recursive: true });
   if (readProjectIdentity(projectRoot) === null) createProjectIdentity(projectRoot, projectRoot.split('/').at(-1) || 'saivage-project');
-  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card', 'index.json'))) {
+  if (!existsSync(join(projectRoot, '.saivage', 'cards', 'project', 'card.jsonl'))) {
     publishInitialProjectRuntime(projectRoot, TEST_WORKFLOWS);
   }
   for (const relative of ['skills', 'config/prompts', 'agents/conversations', 'instructions', 'work/cards', 'work/processes', 'work/tmp/stash']) mkdirSync(join(projectRoot, '.saivage', relative), { recursive: true });
@@ -38,11 +38,11 @@ export class CardService extends ProductionCardService {
   }
   override editCard(id: string,changes:Parameters<ProductionCardService['editCard']>[1],agentName:Parameters<ProductionCardService['editCard']>[2]='planner'){return super.editCard(id,changes,agentName);}
   override deleteSubtrees(ids:readonly string[],allowed:Parameters<ProductionCardService['deleteSubtrees']>[1],agentName:Parameters<ProductionCardService['deleteSubtrees']>[2]='analyst'){return super.deleteSubtrees(ids,allowed,agentName);}
-  override closeRecord(cardId:string,filename:string,version:number,agentName?:Parameters<ProductionCardService['closeRecord']>[3]){
+  override closeRecord(cardId:string,filename:string,agentName?:Parameters<ProductionCardService['closeRecord']>[2]){
     const type=this.read(cardId)!.type;const fallback=type==='code'||type==='test'||type==='doc'||type==='data'||type==='research'||type==='ops'||type==='architecture'?'executor':filename==='review.md'?'reviewer':'planner';
-    return super.closeRecord(cardId,filename,version,agentName??fallback);
+    return super.closeRecord(cardId,filename,agentName??fallback);
   }
-  override discardRecord(cardId:string,filename:string,version:number,reason='test discard'){return super.discardRecord(cardId,filename,version,reason);}
+  override discardRecord(cardId:string,filename:string,reason='test discard'){return super.discardRecord(cardId,filename,reason);}
 }
 
 export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService, notifyCard: (...args: any[]) => any): AnalystMutationServices {

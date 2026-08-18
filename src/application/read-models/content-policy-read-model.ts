@@ -6,8 +6,8 @@ export function buildContentPolicyReadModel(
   projectRoot: string,
   instrumentation?: CanonicalReadInstrumentation,
 ): ContentPolicyRuntimeResponse {
-  const refusals = readCanonicalLinkedCardHistoryTree(projectRoot, instrumentation).flatMap(({ versions }) =>
-    versions.flatMap(({ change, version }) => {
+  const refusals = readCanonicalLinkedCardHistoryTree(projectRoot, instrumentation).flatMap(({ rows }) =>
+    rows.flatMap(({ change, version }) => {
       const policy = change?.terminal_summary?.content_policy;
       if (!policy) return [];
       return [{

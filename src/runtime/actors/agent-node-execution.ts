@@ -324,11 +324,9 @@ export class AgentNodeExecution {
       if (requirement.mode === 'continue') continue;
       const name = requirement.definition.name;
       const classification = this.deps.store.classifyCurrentRecord(this.deps.cardId, name);
-      if (classification.kind === 'unclaimed') this.deps.store.initializeDynamicRecord(this.deps.cardId, name);
       const current = classification.kind === 'present' ? classification.projection : null;
-      const discarded = current?.artifact.state === 'open' ? this.deps.store.discardRecord(this.deps.cardId, name, current.headVersion, 'clean_node_entry') : null;
-      const priorHead = discarded?.headVersion ?? current?.headVersion ?? null;
-      this.deps.store.openRecord(this.deps.cardId, name, priorHead);
+      if (current?.artifact.state === 'open') this.deps.store.discardRecord(this.deps.cardId, name, 'clean_node_entry');
+      this.deps.store.openRecord(this.deps.cardId, name);
     }
   }
   private captureRecordHead(filename: string): number | null { return this.deps.store.readCurrentRecordOrNull(this.deps.cardId, filename)?.headVersion ?? null; }
@@ -358,18 +356,18 @@ export class AgentNodeExecution {
         accepted.push({name:filename,url:`${candidate.currentUrl}&v=${snapshot.source_version}`,version:snapshot.source_version});continue;
       }
       if(!candidate.artifact.draft||candidate.artifact.draft.content.trim().length===0)throw new Error(`Accepted open candidate '${this.deps.cardId}/${filename}' is empty.`);
-      const closed=this.deps.store.closeRecord(this.deps.cardId,filename,candidate.headVersion,node.agent.name);const snapshot=closed.artifact.accepted!;
+      const closed=this.deps.store.closeRecord(this.deps.cardId,filename,node.agent.name);const snapshot=closed.artifact.accepted!;
       accepted.push({name:filename,url:`${closed.currentUrl}&v=${snapshot.source_version}`,version:snapshot.source_version});
     }
     for(const filename of [...writtenRecords].filter((name)=>!requiredNames.has(name)).sort()){
       if(!agentCanWriteRecord(node.agent, filename as never))throw new Error(`Compiled node agent '${node.agent.name}' cannot accept record '${filename}'.`);
       const current=this.deps.store.readCurrentRecord(this.deps.cardId,filename);
       if(current.artifact.state!=='open'||!current.artifact.draft||current.artifact.draft.content.trim().length===0)throw new Error(`Written record '${this.deps.cardId}/${filename}' is not a non-empty open draft.`);
-      this.deps.store.closeRecord(this.deps.cardId,filename,current.headVersion,node.agent.name);
+      this.deps.store.closeRecord(this.deps.cardId,filename,node.agent.name);
     }
     return accepted;
   }
-  private discardWrittenRecords(writtenRecords: Set<string>, reason: string): void { const names=[...writtenRecords].sort();writtenRecords.clear();for(const filename of names){const current=this.deps.store.readCurrentRecord(this.deps.cardId,filename);if(current.artifact.state==='open')this.deps.store.discardRecord(this.deps.cardId,filename,current.headVersion,reason);} }
+  private discardWrittenRecords(writtenRecords: Set<string>, reason: string): void { const names=[...writtenRecords].sort();writtenRecords.clear();for(const filename of names){const current=this.deps.store.readCurrentRecord(this.deps.cardId,filename);if(current.artifact.state==='open')this.deps.store.discardRecord(this.deps.cardId,filename,reason);} }
   private directChildren(cardId: string): CardRecord[] { return this.deps.store.listChildren(cardId).map((id) => this.deps.store.read(id)).filter((card): card is CardRecord => card !== null); }
   private descendants(cardId: string): CardRecord[] { return this.directChildren(cardId).flatMap((child) => [child, ...this.descendants(child.id)]); }
   private captureReviewerPair(cardId: string,records:readonly string[]): ReviewerContextPair { const snapshot = this.captureReviewerSnapshot(cardId,records); return { exactContext: this.reviewerContext(cardId, snapshot), snapshot }; }

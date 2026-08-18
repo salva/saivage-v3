@@ -8,8 +8,7 @@ import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonic
 import { cardRecordSchema, type CardRecord } from '../../src/schemas/index.js';
 import { cardVersionChangeSchema } from '../../src/schemas/card-version-change.js';
 import { publishCardVersion, publishInitialChildCard } from '../../src/persistence/card-files.js';
-import { cardVersionFile, cardVersionIndexFile } from '../../src/persistence/layout.js';
-import { cardVersionIndexSchema } from '../../src/persistence/canonical-card-artifacts.js';
+import { cardStreamFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -39,8 +38,10 @@ function publishLinked(root: string, parent: CardRecord, dependsOn: string[]): {
 }
 
 function corruptCurrent(root: string, id: string): void {
-  const index = cardVersionIndexSchema.parse(JSON.parse(readFileSync(cardVersionIndexFile(root, id), 'utf8')));
-  writeFileSync(cardVersionFile(root, id, index.current_filename!), '{bad json}\n');
+  const path = cardStreamFile(root, id);
+  const envelopes = readFileSync(path, 'utf8').trimEnd().split('\n');
+  envelopes[envelopes.length - 1] = '{bad json}';
+  writeFileSync(path, `${envelopes.join('\n')}\n`);
 }
 
 describe('CardService scoped relationship reads', () => {

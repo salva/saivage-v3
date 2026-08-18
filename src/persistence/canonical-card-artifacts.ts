@@ -4,37 +4,9 @@ import { summarizeChangedFields } from '../cards/lifecycle.js';
 import { cardIdSchema, cardRecordSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, type CardRecord } from '../schemas/index.js';
 import { cardVersionChangeSchema } from '../schemas/card-version-change.js';
 import type { CardVersionChange } from '../schemas/card-version-change.js';
-import { jsonVersionFilenameSchema, uuidV4Schema, validateHeadFields } from './version-index.js';
+import { uuidV4Schema } from './version-index.js';
 
 export { cardVersionChangeSchema } from '../schemas/card-version-change.js';
-
-export const cardVersionEntrySchema = z.object({
-  entry_id: uuidV4Schema,
-  version: positiveSafeIntegerSchema,
-  filename: jsonVersionFilenameSchema,
-  artifact_kind: z.enum(['card-version', 'card-tombstone']),
-  committed_at: z.string().datetime(),
-  change: cardVersionChangeSchema.nullable(),
-}).strict().superRefine((entry, ctx) => {
-  if ((entry.version === 1) !== (entry.change === null)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Only card version 1 has a null change.', path: ['change'] });
-  if (entry.change && (entry.change.entry_id !== entry.entry_id || entry.change.resulting_version !== entry.version)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Entry and change identity must agree.', path: ['change'] });
-  if ((entry.artifact_kind === 'card-tombstone') !== (entry.change?.kind === 'delete')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A tombstone entry requires exactly a delete change.', path: ['artifact_kind'] });
-});
-
-export const cardVersionIndexSchema = z.object({
-  format_version: z.literal(1),
-  kind: z.literal('card-version-index'),
-  card_id: cardIdSchema,
-  versions: z.array(cardVersionEntrySchema),
-  current_version: positiveSafeIntegerSchema.nullable(),
-  current_filename: jsonVersionFilenameSchema.nullable(),
-}).strict().superRefine((index, ctx) => {
-  validateHeadFields(index, ctx);
-  const tombstones = index.versions.filter((entry) => entry.artifact_kind === 'card-tombstone');
-  if (tombstones.length > 1 || (tombstones.length === 1 && index.versions.at(-1) !== tombstones[0])) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A card tombstone may occur only once as the terminal entry.', path: ['versions'] });
-  if (index.card_id === 'project' && tombstones.length > 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'The project card cannot be tombstoned.', path: ['versions'] });
-  for (const [position, entry] of index.versions.entries()) if (entry.change && entry.change.card_id !== index.card_id) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Entry change card identity must equal index card identity.', path: ['versions', position, 'change', 'card_id'] });
-});
 
 export const cardVersionArtifactSchema = z.object({
   format_version: z.literal(1),
@@ -69,18 +41,62 @@ export const cardTombstoneArtifactSchema = z.object({
 export const cardArtifactSchema = z.union([cardVersionArtifactSchema, cardTombstoneArtifactSchema]);
 
 export type { CardVersionChange } from '../schemas/card-version-change.js';
-export type CardVersionEntry = z.infer<typeof cardVersionEntrySchema>;
-export type CardVersionIndex = z.infer<typeof cardVersionIndexSchema>;
 export type CardVersionArtifact = z.infer<typeof cardVersionArtifactSchema>;
 export type CardTombstoneArtifact = z.infer<typeof cardTombstoneArtifactSchema>;
 export type CardArtifact = z.infer<typeof cardArtifactSchema>;
 
+export interface CardVersionListEntry {
+  readonly entry_id: string;
+  readonly version: number;
+  readonly artifact_kind: 'card-version' | 'card-tombstone';
+  readonly committed_at: string;
+  readonly change: CardVersionChange | null;
+}
+
+export interface CardStreamFold {
+  readonly rows: readonly CardArtifact[];
+  readonly head: CardArtifact;
+  readonly current: { readonly card: CardRecord; readonly committed_at: string };
+  readonly tombstone: CardTombstoneArtifact | null;
+}
+
+export function cardVersionListEntry(row: CardArtifact): CardVersionListEntry {
+  return Object.freeze({ entry_id: row.entry_id, version: row.version, artifact_kind: row.kind, committed_at: row.committed_at, change: row.change });
+}
+
 function same(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right); }
-function fail(path: string, message: string): never { throw new Error(`Card version '${path}' ${message}.`); }
-function requireSame(path: string, left: unknown, right: unknown, message: string): void { if (!same(left, right)) fail(path, message); }
+function fail(path: string, message: string): never { throw new Error(`Card stream '${path}' ${message}.`); }
 
 const BUSINESS_FIELDS = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const satisfies ReadonlyArray<keyof CardRecord>;
 function actualDelta(prior: CardRecord, next: CardRecord): string[] { return BUSINESS_FIELDS.filter((field) => !same(prior[field], next[field])); }
+function requireSame(path: string, left: unknown, right: unknown, message: string): void { if (!same(left, right)) fail(path, message); }
+function rowCard(row: CardArtifact): CardRecord { return row.kind === 'card-version' ? row.card : row.final_card; }
+
+export function validateCardStream(rows: readonly CardArtifact[], path: string, cardId: string): CardStreamFold {
+  if (rows.length === 0) fail(path, 'must contain at least one row.');
+  for (const [index, row] of rows.entries()) {
+    if (row.card_id !== cardId) fail(path, `row ${index + 1} has the wrong card identity.`);
+    if (row.version !== index + 1) fail(path, 'must have contiguous ascending versions.');
+    if (index > 0 && rows[index - 1]!.kind === 'card-tombstone') fail(path, 'must not continue past a tombstone row.');
+  }
+  const first = rows[0]!;
+  if (first.kind !== 'card-version') fail(path, 'must begin with the initial card version.');
+  validateInitialCard(first.card, path);
+  for (const [index, row] of rows.entries()) {
+    if (index === 0) continue;
+    const prior = rows[index - 1]!;
+    if (row.kind === 'card-tombstone') {
+      if (cardId === 'project') fail(path, 'cannot tombstone the project card.');
+      if (!same(rowCard(prior), row.final_card)) fail(path, 'tombstone final card must equal the prior current card.');
+      continue;
+    }
+    validateCardTransition(rowCard(prior), row.card, row.change!, path);
+  }
+  const head = rows.at(-1)!;
+  const tombstone = head.kind === 'card-tombstone' ? head : null;
+  return Object.freeze({ rows: Object.freeze([...rows]), head, current: { card: rowCard(head), committed_at: head.committed_at }, tombstone });
+}
+
 function requireChange(path: string, change: CardVersionChange, fields: string[], reason: string, summary = summarizeChangedFields(fields)): void {
   requireSame(path, change.changed_fields, fields, 'has the wrong changed fields');
   if (change.change_reason !== reason || change.change_summary !== summary) fail(path, 'has invalid reason or summary');

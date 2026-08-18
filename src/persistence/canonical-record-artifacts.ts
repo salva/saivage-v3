@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
 import { agentNameSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema, type AgentName, type RecordName } from '../schemas/index.js';
-import { jsonVersionFilenameSchema, uuidV4Schema, validateHeadFields } from './version-index.js';
+import { uuidV4Schema } from './version-index.js';
 
 const nonEmptyStringSchema = z.string().min(1);
 const nonNegativeSafeIntegerSchema = z.number().int().safe().nonnegative();
@@ -34,39 +34,6 @@ export const openRecordDraftSchema = z.object(openRecordDraftShape).strict().sup
 });
 export const discardedRecordStateSchema = z.object({ discarded_at: z.string().datetime(), reason: nonEmptyStringSchema }).strict();
 
-const { content: _acceptedContent, ...acceptedMetadataShape } = acceptedRecordSnapshotShape;
-const { content: _draftContent, ...draftMetadataBaseShape } = openRecordDraftShape;
-const acceptedMetadataSchema = z.object(acceptedMetadataShape).strict();
-const draftMetadataSchema = z.object({ ...draftMetadataBaseShape, size_bytes: nonNegativeSafeIntegerSchema }).strict();
-
-export const recordVersionEntrySchema = z.object({
-  entry_id: uuidV4Schema,
-  version: positiveSafeIntegerSchema,
-  filename: jsonVersionFilenameSchema,
-  state: z.enum(['open', 'closed', 'discarded']),
-  published_at: z.string().datetime(),
-  accepted: acceptedMetadataSchema.nullable(),
-  draft: draftMetadataSchema.nullable(),
-  discarded: discardedRecordStateSchema.nullable(),
-}).strict().superRefine((entry, ctx) => refineRecordState(entry, ctx));
-
-export const authoredRecordVersionIndexSchema = z.object({
-  format_version: z.literal(1), kind: z.literal('authored-record-version-index'), card_id: cardIdSchema,
-  record_name: recordNameSchema, record_format: z.literal('markdown'), schema: nonEmptyStringSchema,
-  versions: z.array(recordVersionEntrySchema), current_version: positiveSafeIntegerSchema.nullable(), current_filename: jsonVersionFilenameSchema.nullable(),
-}).strict().superRefine((index, ctx) => {
-  validateHeadFields(index, ctx);
-  for (const [position, entry] of index.versions.entries()) {
-    if (entry.state === 'closed') {
-      if (!entry.accepted || entry.accepted.source_version !== entry.version || entry.accepted.source_entry_id !== entry.entry_id || entry.accepted.committed_at !== entry.published_at) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Closed entry accepted source must identify itself.', path: ['versions', position, 'accepted'] });
-    }
-    if (entry.accepted) {
-      const source = index.versions[entry.accepted.source_version - 1];
-      if (!source || source.state !== 'closed' || source.entry_id !== entry.accepted.source_entry_id || !source.accepted || source.accepted.source_version !== source.version || source.accepted.source_entry_id !== source.entry_id || !sameAcceptedMetadata(source.accepted, entry.accepted)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted baseline must match its closed source entry.', path: ['versions', position, 'accepted'] });
-    }
-  }
-});
-
 export const authoredRecordVersionArtifactSchema = z.object({
   format_version: z.literal(1), kind: z.literal('authored-record-version'), entry_id: uuidV4Schema,
   card_id: cardIdSchema, record_name: recordNameSchema, record_format: z.literal('markdown'), schema: nonEmptyStringSchema,
@@ -83,27 +50,53 @@ function refineRecordState(value: { state: 'open' | 'closed' | 'discarded'; acce
   else if (value.draft !== null || value.discarded === null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Discarded state requires discarded metadata and forbids draft.' });
 }
 
-function sameAcceptedMetadata(left: z.infer<typeof acceptedMetadataSchema>, right: z.infer<typeof acceptedMetadataSchema>): boolean { return JSON.stringify(left) === JSON.stringify(right); }
+function same(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right); }
+function fail(path: string, message: string): never { throw new Error(`Authored-record stream '${path}' ${message}.`); }
 
 export type AcceptedRecordSnapshot = z.infer<typeof acceptedRecordSnapshotSchema>;
 export type OpenRecordDraft = z.infer<typeof openRecordDraftSchema>;
 export type DiscardedRecordState = z.infer<typeof discardedRecordStateSchema>;
-export type RecordVersionEntry = z.infer<typeof recordVersionEntrySchema>;
-export type AuthoredRecordVersionIndex = z.infer<typeof authoredRecordVersionIndexSchema>;
 export type AuthoredRecordVersionArtifact = z.infer<typeof authoredRecordVersionArtifactSchema>;
 export type RecordArtifactDefinition = Readonly<{ filename: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
 
-export function recordEntryFromArtifact(artifact: AuthoredRecordVersionArtifact, filename: string): RecordVersionEntry {
-  return recordVersionEntrySchema.parse({
-    entry_id: artifact.entry_id, version: artifact.version, filename, state: artifact.state, published_at: artifact.published_at,
-    accepted: artifact.accepted && { source_version: artifact.accepted.source_version, source_entry_id: artifact.accepted.source_entry_id, committed_at: artifact.accepted.committed_at, writer_agent: artifact.accepted.writer_agent, card_version_seq: artifact.accepted.card_version_seq, content_sha256: artifact.accepted.content_sha256, size_bytes: artifact.accepted.size_bytes },
-    draft: artifact.draft && { opened_at: artifact.draft.opened_at, updated_at: artifact.draft.updated_at, content_sha256: artifact.draft.content_sha256, size_bytes: Buffer.byteLength(artifact.draft.content, 'utf8') },
-    discarded: artifact.discarded,
-  });
+export interface RecordStreamFold {
+  readonly rows: readonly AuthoredRecordVersionArtifact[];
+  readonly head: AuthoredRecordVersionArtifact;
 }
 
-export function validateRecordArtifactIdentity(artifact: AuthoredRecordVersionArtifact, index: AuthoredRecordVersionIndex, entry: RecordVersionEntry, definition: RecordArtifactDefinition): void {
-  if (artifact.card_id !== index.card_id || artifact.record_name !== index.record_name || artifact.record_name !== definition.filename || artifact.record_format !== index.record_format || artifact.record_format !== definition.format || artifact.schema !== index.schema || artifact.schema !== definition.schema || artifact.entry_id !== entry.entry_id || artifact.version !== entry.version || artifact.published_at !== entry.published_at || artifact.state !== entry.state || JSON.stringify(recordEntryFromArtifact(artifact, entry.filename)) !== JSON.stringify(entry)) throw new Error('Authored-record artifact does not match its index entry and configured definition.');
+export function validateRecordStream(rows: readonly AuthoredRecordVersionArtifact[], path: string, cardId: string, definition: RecordArtifactDefinition): RecordStreamFold {
+  if (rows.length === 0) fail(path, 'must contain at least one row.');
+  for (const [index, row] of rows.entries()) {
+    if (row.card_id !== cardId || row.record_name !== definition.filename || row.record_format !== definition.format || row.schema !== definition.schema) fail(path, `row ${index + 1} does not match the exact record identity.`);
+    if (row.version !== index + 1) fail(path, 'must have contiguous ascending versions.');
+  }
+  const first = rows[0]!;
+  if (definition.bootstrap) {
+    if (first.state !== 'closed' || first.accepted?.writer_agent !== 'runtime:bootstrap') fail(path, 'must begin with the runtime:bootstrap closed version.');
+  } else if (first.state !== 'open' || first.accepted !== null || first.draft?.content !== '' || first.draft.opened_at !== first.published_at || first.draft.updated_at !== first.published_at) fail(path, 'must begin with the exact open-empty version.');
+  for (const [index, row] of rows.entries()) {
+    if (index === 0) continue;
+    const prior = rows[index - 1]!;
+    if (row.state === 'open') {
+      if (prior.state === 'open') {
+        if (!prior.draft || !row.draft || row.draft.opened_at !== prior.draft.opened_at) fail(path, 'has an open edit that does not continue the prior draft session.');
+      } else if (prior.state === 'closed' || prior.state === 'discarded') {
+        if (!row.draft || row.draft.content !== '' || row.draft.opened_at !== row.published_at || row.draft.updated_at !== row.published_at) fail(path, 'has a fresh open that is not the exact open-empty version.');
+      } else fail(path, 'has an unreachable prior state.');
+      if (!same(prior.accepted, row.accepted)) fail(path, 'has an open version that changes the carried accepted baseline.');
+    } else if (row.state === 'closed') {
+      if (prior.state !== 'open' || !prior.draft || !row.accepted || row.accepted.content !== prior.draft.content || row.accepted.content_sha256 !== prior.draft.content_sha256) fail(path, 'has a close that does not accept the prior open draft content.');
+    } else {
+      if (prior.state !== 'open') fail(path, 'has a discard without a prior open draft.');
+      if (!same(prior.accepted, row.accepted)) fail(path, 'has a discard that changes the carried accepted baseline.');
+    }
+  }
+  for (const row of rows) {
+    if (row.state === 'closed' || !row.accepted) continue;
+    const source = rows[row.accepted.source_version - 1];
+    if (!source || source.state !== 'closed' || source.entry_id !== row.accepted.source_entry_id || !source.accepted || !same(source.accepted, row.accepted)) fail(path, `version ${row.version} carries an accepted baseline that does not match its closed source version.`);
+  }
+  return Object.freeze({ rows: Object.freeze([...rows]), head: rows.at(-1)! });
 }
 
 export function effectiveRecordContent(artifact: AuthoredRecordVersionArtifact): { content: string; source: 'draft' | 'accepted'; modifiedAt: string; writer: AgentName | 'runtime:bootstrap' | null; version: number } | null {

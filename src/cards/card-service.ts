@@ -16,7 +16,6 @@ import {
   readHistoricalAuthoredRecord,
   editOpenAuthoredRecord,
   classifyCurrentAuthoredRecord,
-  initializeDynamicAuthoredRecord,
   type CurrentAuthoredRecordClassification,
   type RecordProjection,
 } from '../persistence/authored-record-files.js';
@@ -29,7 +28,6 @@ import {
   publishCardVersion,
   publishInitialChildCard,
   readCard,
-  readCardArtifacts,
   readCanonicalCard,
   readCanonicalCardHierarchy,
   readCanonicalCardFileContent,
@@ -49,7 +47,7 @@ import {
   type CanonicalCardFileSlot,
   type CanonicalCardFilesMetadataProjection,
 } from '../persistence/card-files.js';
-import { cardVersionChangeSchema, type CardArtifact, type CardVersionChange, type CardVersionEntry } from '../persistence/canonical-card-artifacts.js';
+import { cardVersionChangeSchema, type CardArtifact, type CardVersionChange, type CardVersionListEntry } from '../persistence/canonical-card-artifacts.js';
 import type { CanonicalReadInstrumentation, GrowingFileIo } from '../persistence/growing-file.js';
 import { NO_FRESHNESS_EFFECTS, type FreshnessEffects } from '../application/freshness-effects.js';
 import type { LiveSyncCardRecordName } from '../contracts/index.js';
@@ -82,15 +80,14 @@ export type CardActivationAdmissionProjection = {
 };
 
 export interface CardDiffEntry { field: string; before: unknown; after: unknown }
-export type CardVersionListResult = CardTargetRead<readonly CardVersionEntry[]>;
+export type CardVersionListResult = CardTargetRead<readonly CardVersionListEntry[]>;
 export type { CanonicalCardFileContentRead, CanonicalCardFileSlot };
 export type CardVersionContentResult = ReturnType<typeof readCardVersion>;
 export type CardVersionDiffResult =
   | { readonly kind: 'found'; readonly from: number; readonly to: number; readonly diff: CardDiffEntry[] }
   | { readonly kind: 'card-not-found' }
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
-  | { readonly kind: 'version-not-found'; readonly version: number; readonly side: 'from' | 'to' }
-  | { readonly kind: 'historical-unavailable'; readonly version: number; readonly side: 'from' | 'to'; readonly reason: 'missing' | 'corrupt' | 'io_error' };
+  | { readonly kind: 'version-not-found'; readonly version: number; readonly side: 'from' | 'to' };
 
 export type { CardEditPatch, NewChildCardInput, RecordProjection, SetStatusTarget };
 type TerminalActivationOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
@@ -140,7 +137,7 @@ export class CardService {
   }
   private recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap,declared:true}));}
 
-  get recordReader() { return { current: (cardId: string, filename: string) => this.readCurrentRecord(cardId, filename),currentOrNull:(cardId:string,filename:string)=>this.readCurrentRecordOrNull(cardId,filename), historical: (cardId: string, filename: string, version: number) => this.readHistoricalRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId), cardArtifacts: (cardId: string) => readCardArtifacts(this.projectRoot, cardId) }; }
+  get recordReader() { return { current: (cardId: string, filename: string) => this.readCurrentRecord(cardId, filename),currentOrNull:(cardId:string,filename:string)=>this.readCurrentRecordOrNull(cardId,filename), historical: (cardId: string, filename: string, version: number) => this.readHistoricalRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId) }; }
 
   private buildFullIndex(): CardIndex {
     const state = new CardIndex();
@@ -193,17 +190,16 @@ export class CardService {
   readCurrentRecord(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection { const current = readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); if (!current) throw new AuthoredRecordNotFoundError(); return current; }
   readCurrentRecordOrNull(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection | null { return readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); }
   classifyCurrentRecord(cardId:string,filename:string,instrumentation?:CanonicalReadInstrumentation):CurrentAuthoredRecordClassification{return classifyCurrentAuthoredRecord(this.projectRoot,cardId,this.recordDefinition(cardId,filename),instrumentation);}
-  initializeDynamicRecord(cardId:string,filename:string):void{initializeDynamicAuthoredRecord(this.projectRoot,cardId,this.recordDefinition(cardId,filename));}
   readHistoricalRecord(cardId: string, filename: string, version: number, instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readHistoricalAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, instrumentation); }
   listRecordVersions(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation) { return listAuthoredRecordVersions(this.projectRoot, cardId, this.recordDefinition(cardId, filename), instrumentation); }
-  openRecord(cardId: string, filename: string, priorHead: number | null): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), priorHead, this.cardAppendIo); }
-  editRecord(cardId: string, filename: string, priorHead: number, content: string): RecordProjection { return editOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), priorHead, content, this.cardAppendIo); }
-  closeRecord(cardId: string, filename: string, priorHead: number, agentName: AgentName): RecordProjection {
-    const closed = closeOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), priorHead, agentName, this.cardAppendIo);
+  openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), this.cardAppendIo); }
+  editRecord(cardId: string, filename: string, content: string): RecordProjection { return editOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), content, this.cardAppendIo); }
+  closeRecord(cardId: string, filename: string, agentName: AgentName): RecordProjection {
+    const closed = closeOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), agentName, this.cardAppendIo);
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name: filename as never });
     return closed;
   }
-  discardRecord(cardId: string, filename: string, priorHead: number, reason: string): RecordProjection { return discardOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), priorHead, reason, this.cardAppendIo); }
+  discardRecord(cardId: string, filename: string, reason: string): RecordProjection { return discardOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), reason, this.cardAppendIo); }
 
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
     return clone(readCardDetail(this.projectRoot, id, instrumentation));
@@ -237,7 +233,7 @@ export class CardService {
     const listed = listCardVersions(this.projectRoot, id, instrumentation); if (listed.kind === 'card-not-found') return listed;
     const to = typeof pivots.toVersion === 'number' ? pivots.toVersion : listed.value.at(-1)?.version ?? 0; const from = pivots.fromVersion;
     if (from > to) return { kind: 'invalid-pivots', from, to };
-    const readSide = (version: number, side: 'from' | 'to') => { const result = readCardVersion(this.projectRoot, id, version, instrumentation); if (result.kind === 'version-not-found') return { kind: 'version-not-found' as const, version, side }; if (result.kind === 'historical-unavailable') return { ...result, side }; return result; };
+    const readSide = (version: number, side: 'from' | 'to') => { const result = readCardVersion(this.projectRoot, id, version, instrumentation); return result.kind === 'version-not-found' ? { kind: 'version-not-found' as const, version, side } : result; };
     const fromResult = readSide(from, 'from'); if (fromResult.kind !== 'found') return fromResult;
     const toResult = pivots.toVersion === undefined || pivots.toVersion === 'current'
       ? readCurrentCardArtifact(this.projectRoot, id, instrumentation)

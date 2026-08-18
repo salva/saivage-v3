@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { cardVersionToolBinders } from '../../src/tools/card-version-provider.js';
 import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
-import { cardVersionIndexFile, cardVersionFile } from '../../src/persistence/layout.js';
+import { cardStreamFile, cardRecordStreamFile } from '../../src/persistence/layout.js';
+import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
+import { cardArtifactSchema } from '../../src/persistence/canonical-card-artifacts.js';
+import { authoredRecordVersionArtifactSchema } from '../../src/persistence/canonical-record-artifacts.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { canonicalJson } from '../../src/schemas/index.js';
@@ -20,11 +23,15 @@ function surfaceFor(cards: CardService) {
   return buildInvocationSurfaceFixture('planner', [bindToolProvider('card-version', cardVersionToolBinders, { store: cards })]);
 }
 
+function childInput(title: string, tags: string[] = []) {
+  return { type: 'code' as const, parent: 'project', title, bootstrap_content: 'Brief', tags, priority: 0, urgency: 'normal' as const, created_by: 'planner' as const, depends_on: [] as string[], related: [] as string[] };
+}
+
 describe('card version provider', () => {
-  it('lists index metadata paged by byte budget and reads and diffs exact resulting versions', async () => {
+  it('lists stream row metadata paged by byte budget and reads and diffs exact resulting versions', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-tool-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Before', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create(childInput('Before'));
     cards.editCard(child.id, { title: 'After' }, 'planner');
     const surface = surfaceFor(cards);
 
@@ -34,6 +41,8 @@ describe('card version provider', () => {
     expect(listData.versions.items.map((entry) => entry.version)).toEqual([1, 2]);
     expect(listData.observation_sha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(envelopeBytes(listed.data)).toBeLessThanOrEqual(32768);
+    const streamEntryIds = readStrictCanonicalGrowingFile(cardStreamFile(root, child.id), cardArtifactSchema).map((row) => row.entry_id);
+    expect(listData.versions.items.map((entry) => entry.entry_id)).toEqual(streamEntryIds);
 
     const version = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' });
     expect(version.evidence).toMatchObject({ kind: 'canonical_locator', locator: `card:///${child.id}?v=2#entry=${(listData.versions.items[1]!.entry_id)}`, sha256: expect.any(String) });
@@ -54,7 +63,7 @@ describe('card version provider', () => {
   it('rejects the removed current pivot and missing exact pivots', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-pivots-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Card', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create(childInput('Card'));
     const surface = surfaceFor(cards);
 
     await expect(invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 'current' })).rejects.toThrow();
@@ -67,7 +76,7 @@ describe('card version provider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-diff-slice-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const title = 'Ünïcödé ' + 'ß'.repeat(1200);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Before', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create(childInput('Before'));
     cards.editCard(child.id, { title }, 'planner');
     const surface = surfaceFor(cards);
 
@@ -86,39 +95,44 @@ describe('card version provider', () => {
     expect(parsed.find((entry) => entry.field === 'title')).toMatchObject({ before: 'Before', after: title });
   });
 
-  it('keeps list metadata available when selected historical content is missing', async () => {
+  it('fails a malformed card stream and returns not-found only for an absent numeric row', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-tool-missing-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Card', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    const index = JSON.parse(readFileSync(cardVersionIndexFile(root, child.id), 'utf8') as string) as { versions: Array<{ filename: string }> };
-    rmSync(cardVersionFile(root, child.id, index.versions[0]!.filename));
+    const child = cards.create(childInput('Card'));
+    writeFileSync(cardStreamFile(root, child.id), 'complete malformed stream\n');
     const surface = surfaceFor(cards);
 
-    await expect(invokeTestTool(surface, 'list_card_versions', { card_id: child.id })).resolves.toMatchObject({ success: true, data: { versions: { total: 1 } } });
-    await expect(invokeTestTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'summary' })).resolves.toEqual({ success: false, error: 'Historical card version content unavailable.', data: { code: 'historical_version_content_unavailable', resource: 'card', owner_id: child.id, version: 1, reason: 'missing' } });
+    await expect(invokeTestTool(surface, 'list_card_versions', { card_id: child.id })).rejects.toThrow();
+    await expect(invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'summary' })).rejects.toThrow();
+    const fresh = mkdtempSync(join(tmpdir(), 'saivage-card-version-tool-absent-')); roots.push(fresh); initProjectTree(fresh);
+    const freshCards = new CardService(fresh);
+    const freshChild = freshCards.create(childInput('Card'));
+    const freshSurface = surfaceFor(freshCards);
+    await expect(invokeTestTool(freshSurface, 'get_card_version', { card_id: freshChild.id, version: 9, section: 'summary' })).resolves.toEqual({ success: false, error: 'Card version not found.', data: { code: 'card_version_not_found', card_id: freshChild.id, version: 9 } });
   });
 
-  it('reads exact record artifact versions with state-dependent content and a stable locator', async () => {
+  it('reads exact record version rows with state-dependent content and a stable locator', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-record-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Card', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    cards.openRecord(child.id, 'status.md', null);
-    cards.editRecord(child.id, 'status.md', 1, 'draft content');
-    cards.closeRecord(child.id, 'status.md', 2, 'planner');
-    cards.openRecord(child.id, 'status.md', 3);
-    cards.editRecord(child.id, 'status.md', 4, 'second draft');
+    const child = cards.create(childInput('Card'));
+    cards.openRecord(child.id, 'status.md');
+    cards.editRecord(child.id, 'status.md', 'draft content');
+    cards.closeRecord(child.id, 'status.md', 'planner');
+    cards.openRecord(child.id, 'status.md');
+    cards.editRecord(child.id, 'status.md', 'second draft');
     const surface = surfaceFor(cards);
 
     const openHead = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 5 });
     const openHeadResult = openHead.providerResult as { success: boolean; data: { state: string; content_source: string; content: { content: string }; entry_id: string; version_url: string } };
     expect(openHead.evidence).toMatchObject({ kind: 'canonical_locator' });
     expect((openHead.evidence as { locator: string }).locator).toBe(`${openHeadResult.data.version_url}#entry=${openHeadResult.data.entry_id}`);
+    expect(openHeadResult.data.version_url).toBe(`record:///status.md?card=${encodeURIComponent(child.id)}&v=5`);
     expect(openHeadResult.data.state).toBe('open');
     expect(openHeadResult.data.content_source).toBe('draft');
     expect(openHeadResult.data.content.content).toBe('second draft');
 
-    const closed = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 3 });
-    const closedResult = closed.providerResult as { success: boolean; data: { state: string; content_source: string; content: { content: string } } };
+    const closed = await invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 3 });
+    const closedResult = closed as { success: boolean; data: { state: string; content_source: string; content: { content: string } } };
     expect(closedResult.data.state).toBe('closed');
     expect(closedResult.data.content_source).toBe('accepted');
     expect(closedResult.data.content.content).toBe('draft content');
@@ -130,39 +144,70 @@ describe('card version provider', () => {
   it('returns the discarded baseline or an empty terminal slice without following accepted source identity', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-discarded-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Card', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    cards.openRecord(child.id, 'status.md', null);
-    cards.editRecord(child.id, 'status.md', 1, 'baseline');
-    cards.closeRecord(child.id, 'status.md', 2, 'planner');
-    cards.openRecord(child.id, 'status.md', 3);
-    cards.discardRecord(child.id, 'status.md', 4, 'wrong direction');
+    const child = cards.create(childInput('Card'));
+    cards.openRecord(child.id, 'status.md');
+    cards.editRecord(child.id, 'status.md', 'baseline');
+    cards.closeRecord(child.id, 'status.md', 'planner');
+    cards.openRecord(child.id, 'status.md');
+    cards.editRecord(child.id, 'status.md', 'wrong direction draft');
+    cards.discardRecord(child.id, 'status.md', 'wrong direction');
     const surface = surfaceFor(cards);
 
-    const discardedWithBaseline = await invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 5 });
-    expect(discardedWithBaseline).toMatchObject({ success: true, data: { version: 5, state: 'discarded', content_source: 'accepted' } });
-    const baseline = discardedWithBaseline.data as { content: { content: string }; content_sha256: string | null; total_bytes: number };
-    expect(baseline.content.content).toBe('baseline');
+    const streamPath = cardRecordStreamFile(root, child.id, { filename: 'status.md' });
+    const rows = readStrictCanonicalGrowingFile(streamPath, authoredRecordVersionArtifactSchema);
+    expect(rows).toHaveLength(6);
+    const closedRow = rows[2]!;
+    const discardedRow = rows[5]!;
+    expect(discardedRow.accepted?.source_version).toBe(3);
+    expect(discardedRow.entry_id).not.toBe(closedRow.entry_id);
+
+    const discardedWithBaseline = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 6 });
+    const discardedResult = discardedWithBaseline.providerResult as { success: boolean; data: { version: number; entry_id: string; state: string; content_source: string; content: { content: string }; content_sha256: string | null; total_bytes: number } };
+    expect(discardedResult.data).toMatchObject({ version: 6, entry_id: discardedRow.entry_id, state: 'discarded', content_source: 'accepted', content_sha256: closedRow.accepted!.content_sha256 });
+    expect(discardedResult.data.content.content).toBe('baseline');
+    expect(discardedWithBaseline.evidence).toMatchObject({ kind: 'canonical_locator', locator: `record:///status.md?card=${encodeURIComponent(child.id)}&v=6#entry=${discardedRow.entry_id}`, sha256: closedRow.accepted!.content_sha256 });
+
+    const paged = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 6, byte_offset: 4, response_bytes: 512 });
+    expect((paged.evidence as { locator: string }).locator).toBe((discardedWithBaseline.evidence as { locator: string }).locator);
+    expect((paged.evidence as { sha256: string }).sha256).toBe((discardedWithBaseline.evidence as { sha256: string }).sha256);
 
     const other = mkdtempSync(join(tmpdir(), 'saivage-card-version-discarded-none-')); roots.push(other); initProjectTree(other);
     const otherCards = new CardService(other);
-    const otherChild = otherCards.create({ type: 'code', parent: 'project', title: 'Card', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
-    otherCards.openRecord(otherChild.id, 'status.md', null);
-    otherCards.discardRecord(otherChild.id, 'status.md', 1, 'nothing');
+    const otherChild = otherCards.create(childInput('Card'));
+    otherCards.openRecord(otherChild.id, 'status.md');
+    otherCards.discardRecord(otherChild.id, 'status.md', 'nothing');
     const noneResult = await invokeTestTool(surfaceFor(otherCards), 'read_record_version', { card_id: otherChild.id, record_name: 'status.md', version: 2 });
     expect(noneResult).toMatchObject({ success: true, data: { state: 'discarded', content_source: 'none', content_sha256: null, total_bytes: 0 } });
     expect((noneResult.data as { content: { content: string } }).content.content).toBe('');
   });
 
-  it('pins an immutable card version across pages and sections', async () => {
+  it('fails a malformed record stream and never probes card authority for card.md rows', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-record-md-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create(childInput('Card'));
+    const surface = surfaceFor(cards);
+
+    const mdPath = cardRecordStreamFile(root, child.id, { filename: 'card.md' });
+    expect(mdPath.endsWith('/record-card.jsonl')).toBe(true);
+    expect(mdPath).not.toBe(cardStreamFile(root, child.id));
+    const reads: string[] = [];
+    await expect(invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'card.md', version: 1 })).resolves.toMatchObject({ success: false, error: 'Record version not found.' });
+    writeFileSync(mdPath, 'complete malformed record stream\n');
+    await expect(invokeTestTool(surface, 'read_record_version', { card_id: child.id, record_name: 'card.md', version: 1 })).rejects.toThrow();
+    expect(reads).toEqual([]);
+  });
+
+  it('pins an immutable card version row across pages and sections', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-pin-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const tags = Array.from({ length: 900 }, (_, index) => `tag-${index}`);
-    const child = cards.create({ type: 'code', parent: 'project', title: 'Card', bootstrap_content: 'Brief', tags, priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const child = cards.create(childInput('Card', tags));
     const surface = surfaceFor(cards);
 
     const first = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'tags', response_bytes: 2048 });
-    const firstData = (first.providerResult as { data: { artifact_sha256: string; content: { total: number; returned: number; next: unknown; items: string[] } } }).data;
+    const firstData = (first.providerResult as { data: { artifact_sha256: string; entry_id: string; content: { total: number; returned: number; next: unknown; items: string[] } } }).data;
     expect(first.evidence).toMatchObject({ kind: 'canonical_locator' });
+    expect((first.evidence as { locator: string }).locator).toBe(`card:///${child.id}?v=1#entry=${firstData.entry_id}`);
     expect(firstData.content.total).toBe(900);
     expect(firstData.content.returned).toBeLessThan(900);
     expect(firstData.content.items.every((tag) => tag.startsWith('tag-'))).toBe(true);
@@ -173,5 +218,10 @@ describe('card version provider', () => {
     expect(secondData.content.items[0]).toBe(`tag-${firstData.content.returned}`);
     expect(secondData.artifact_sha256).toBe(firstData.artifact_sha256);
     expect((second.evidence as { sha256: string }).sha256).toBe((first.evidence as { sha256: string }).sha256);
+    expect((second.evidence as { locator: string }).locator).toBe((first.evidence as { locator: string }).locator);
+
+    const summary = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'summary' });
+    expect((summary.evidence as { locator: string }).locator).toBe((first.evidence as { locator: string }).locator);
+    expect((summary.evidence as { sha256: string }).sha256).toBe((first.evidence as { sha256: string }).sha256);
   });
 });

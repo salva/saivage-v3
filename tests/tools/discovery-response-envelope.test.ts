@@ -101,9 +101,9 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
     const child = cards.create({ type: 'goal', parent: 'project', title: 'Record host', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    cards.openRecord(child.id, 'status.md', null);
+    cards.openRecord(child.id, 'status.md');
     const content = Array.from({ length: 3000 }, (_, index) => `${UNICODE} line ${index}`).join('\n');
-    cards.editRecord(child.id, 'status.md', 1, content);
+    cards.editRecord(child.id, 'status.md', content);
     const surface = analystSurface(cards, projectRoot);
 
     const recordRead = await invokeTestTool(surface, 'read', { path: `record:///status.md?card=${encodeURIComponent(child.id)}`, response_bytes: 900, position: { kind: 'text', byte_offset: 0 } });

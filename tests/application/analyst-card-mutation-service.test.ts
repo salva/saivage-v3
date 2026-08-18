@@ -296,7 +296,7 @@ describe('Analyst record publication', () => {
       const cards = new CardService(root);
       const target = cards.create({ type: 'code', parent: 'project', title: 'Target', bootstrap_content: 'Original', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
-      const open = cards.openRecord(target.id, 'brief.md', 1);
+      const open = cards.openRecord(target.id, 'brief.md');
       expect(service.write(`record:///brief.md?card=${target.id}`, 'New')).toMatchObject({ success: false, data: { code: 'record_open_conflict', current_head: open.headVersion } });
       expect(cards.readCurrentRecord(target.id, 'brief.md').headVersion).toBe(open.headVersion);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -326,9 +326,9 @@ describe('other Analyst mutation facets', () => {
       initProjectTree(root);
       const cards = new CardService(root);
       const card = cards.create({ type: 'code', parent: 'project', title: 'Fresh brief', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-      const open = cards.openRecord(card.id, 'brief.md', 1);
-      const edited = cards.editRecord(card.id, 'brief.md', open.headVersion, '# Goal\nFresh current\n# Instructions\nFresh current\n# Acceptance Criteria\nFresh current');
-      const closed = cards.closeRecord(card.id, 'brief.md', edited.headVersion, 'analyst');
+      const open = cards.openRecord(card.id, 'brief.md');
+      const edited = cards.editRecord(card.id, 'brief.md', '# Goal\nFresh current\n# Instructions\nFresh current\n# Acceptance Criteria\nFresh current');
+      const closed = cards.closeRecord(card.id, 'brief.md', 'analyst');
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
       expect(service.edit(`record:///brief.md?card=${card.id}`, 'Fresh current', 'Newest', true)).toMatchObject({ kind: 'returned', success: true });
       expect(cards.readCurrentRecord(card.id, 'brief.md').artifact.accepted?.content).toContain('Newest');
