@@ -27,7 +27,6 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
   const emittedFunctionCalls = new Map<string, { sourceInputId: string; callId: string }>();
   const settled = new Set<string>();
   for (const message of providerConversation.messages) {
-    if (message.kind === 'activity' || message.kind === 'model_issue' || message.kind === 'model_recovered') continue;
     if (message.kind === 'provider_private') continue;
     if (message.provider_projection?.kind === 'openai_responses') {
       const row = privateByProjection.get(message.id);

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
 import { stabilizeAgentSession } from '../../src/runtime/actors/conversation-recovery.js';
-import { type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
+import { type AgentMessage, type ConversationSessionId, MODEL_RECOVERY_NOTICE_TEXT } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY as TEXT_ROW_POLICY_FIXTURE, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
@@ -70,11 +70,11 @@ describe('stable same-session recovery', () => {
     stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
     const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
     const generic = providerConversation.messages;
-    const notice = generic.find((row) => row.kind === 'model_recovered')!;
+    const notice = generic.find((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)!;
     const failed = generic.find((row) => row.kind === 'tool_result')!;
     expect(failed.id).toBe(`${source}:tool-result:call-1`);
     expect(JSON.parse(failed.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
-    expect(generic).toContainEqual(expect.objectContaining({ kind: 'model_recovered', role: 'system' }));
+    expect(generic).toContainEqual(expect.objectContaining({ role: 'system', kind: 'text', content: MODEL_RECOVERY_NOTICE_TEXT }));
 
     expect(codexMessages(generic)).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function_call', call_id: 'call-1' }),

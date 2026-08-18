@@ -95,7 +95,7 @@ export function buildOpenAIResponsesRequest(
   capabilities?: Pick<EffectiveProviderCapabilities, 'responsesReasoning'>,
 ): OpenAIResponsesRequest {
   const systemContext = providerConversation.messages
-    .filter((m) => m.role === 'system' && (m.kind === 'model_recovered' || m.kind === 'text'))
+    .filter((m) => m.role === 'system' && m.kind === 'text')
     .map((m) => m.content);
   const body: OpenAIResponsesRequest = {
     model: candidate.model,

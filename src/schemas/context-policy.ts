@@ -67,6 +67,8 @@ export type ToolSettlementOrigin = z.infer<typeof toolSettlementOriginSchema>;
 export type RowContextPolicy = z.infer<typeof rowContextPolicySchema>;
 export type StructuralRowBehavior = Extract<RowContextPolicy, { kind: 'structural' }>['behavior'];
 
+export const MODEL_RECOVERY_NOTICE_TEXT = 'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.';
+
 export const DURABLE_PRIMARY_CONTENT_POLICY: Extract<RowContextPolicy, { kind: 'content' }> = Object.freeze({
   kind: 'content',
   storage: 'durable',

@@ -12,12 +12,12 @@ import {
   type SuspendedAdmittedExecution,
 } from '../../agents/invocation-admission.js';
 import { LlmRequestError, type LlmTransportFailure } from '../../contracts/llm-failure.js';
-import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, conversationSessionIdentity, parseConversationSessionId, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
+import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, contentPolicyEvidenceUrl, conversationSessionIdentity, parseConversationSessionId, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';
 import { buildContentPolicyRefusalMessage, buildContentPolicyRetryMessage } from './content-policy-messages.js';
 import type { CardId } from '../../schemas/card-id.js';
 import type { CanonicalLlmInvocationInput, LlmInvocationInput, PreparedLlmInvocationInput } from './llm-invocation.js';
 import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, appendLlmTurnToolCallBatch, appendModelRepairMessage, appendToolResult, selectInvocationResultPolicy, type InvocationResultPolicy, type SettledToolResultFacts } from './llm-delivery-log.js';
-import { buildUserContextMessage, contentPolicyEvidenceUrl, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
+import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { ToolSettlementInput } from '../../tools/invocation.js';
 import { RuntimeGate } from '../runtime-gate.js';

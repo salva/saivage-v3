@@ -70,7 +70,7 @@ export type SettledToolBundlePolicy = Readonly<{
   evidence: ContextEvidence;
 }>;
 
-export function settledToolBundlePolicy(call: AgentMessage, result: AgentMessage, callArguments: unknown): SettledToolBundlePolicy {
+export function settledToolBundlePolicy(call: AgentMessage, result: AgentMessage): SettledToolBundlePolicy {
   if (call.kind !== 'tool_call' || call.context_policy.kind !== 'tool_call') throw new Error(`Tool call '${call.id}' is missing its tool_call context policy.`);
   if (result.kind !== 'tool_result' || result.context_policy.kind !== 'tool_result') throw new Error(`Tool result '${result.id}' is missing its tool_result context policy.`);
   if (result.tool !== call.tool) throw new Error(`Tool result '${result.id}' does not name its call's tool.`);
@@ -79,24 +79,31 @@ export function settledToolBundlePolicy(call: AgentMessage, result: AgentMessage
   const replacement: ContextReplacement = template.replacement.kind === 'retain'
     ? { kind: 'retain' }
     : { kind: 'latest_snapshot', key: template.replacement.key, contentSha256: result.context_policy.result_content_sha256 };
-  const evidence = deriveBundleEvidence(template, result.context_policy.evidence, call, callArguments);
+  const settled = result.context_policy.evidence;
+  const evidence: ContextEvidence = resultSettledSuccessfully(result)
+    ? deriveSuccessfulBundleEvidence(template, settled, result, call)
+    : { kind: 'none' };
   return Object.freeze({ storage: 'durable', replacement, settledAudience: template.settledAudience, evidence });
 }
 
-function deriveBundleEvidence(template: ToolResultPolicyTemplate, settled: SettledToolEvidence, call: AgentMessage, callArguments: unknown): ContextEvidence {
+function deriveSuccessfulBundleEvidence(template: ToolResultPolicyTemplate, settled: SettledToolEvidence, result: AgentMessage, call: AgentMessage): ContextEvidence {
   switch (template.evidenceMode) {
     case 'none':
       return { kind: 'none' };
     case 'observational_query':
-      if (settled.kind !== 'observational_query') throw new Error(`Tool call '${call.id}' requires observational settled evidence.`);
-      return { kind: 'observational_query', tool: call.tool!, arguments: callArguments, observed_sha256: settled.observedSha256 };
+      if (settled.kind !== 'observational_query') throw new Error(`Tool result '${result.id}' requires observational settled evidence.`);
+      return { kind: 'observational_query', tool: call.tool!, arguments: toolCallRowArguments(call), observed_sha256: settled.observedSha256 };
     case 'canonical_locator':
-      if (settled.kind !== 'canonical_locator') throw new Error(`Tool call '${call.id}' requires canonical-locator settled evidence.`);
+      if (settled.kind !== 'canonical_locator') throw new Error(`Tool result '${result.id}' requires canonical-locator settled evidence.`);
       return { kind: 'canonical_locator', locator: settled.locator, sha256: settled.sha256 };
   }
 }
 
-export function toolCallRowArguments(call: AgentMessage): unknown {
+function resultSettledSuccessfully(result: AgentMessage): boolean {
+  return (JSON.parse(result.content) as { success?: unknown }).success === true;
+}
+
+function toolCallRowArguments(call: AgentMessage): unknown {
   if (call.kind !== 'tool_call') throw new Error(`Row '${call.id}' is not a tool call.`);
   const embedded = parseToolCallMessageForModel(JSON.parse(call.content));
   try {

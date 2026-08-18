@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { agentMessageSchema, conversationSessionIdentity, CONTENT_POLICY_RETRY_TEXT, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
+import { agentMessageSchema, conversationSessionIdentity, DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
   type CardConversationSessionId,
 } from '../../schemas/index.js';
 import { renderContextCompactionPayload, type ValidatedConversation } from '../../contracts/conversation-validation.js';
 import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
-import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
+import { composeContextProjection, providerConversationFromComposedContext } from './context/composition-projector.js';
+import { classifyConversationRowPolicy } from './context/row-policy.js';
 import { appendConversationBatch, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
@@ -13,18 +14,6 @@ export type UserContextMessageCategory =
   | 'notification' | 'reviewer_descendant' | 'process_transition' | 'process_node' | 'continuation_hook';
 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
-
-export function contentPolicyEvidenceUrl(sessionId: ConversationSessionId, markerId: string,
-): string {
-  return `/agents/${encodeURIComponent(sessionId)}?entry=${encodeURIComponent(markerId)}`;
-}
-
-export function contentPolicyRefusalProjectionText(
-  sessionId: ConversationSessionId,
-  markerId: string,
-): string {
-  return `A prior activation ended after repeated provider content-policy refusal. Reassess the task decomposition and use only assistance the provider can give within its safety requirements. Operator evidence: ${contentPolicyEvidenceUrl(sessionId, markerId)}.`;
-}
 
 export function appendUserContextMessage(
   conversations: ConversationFileContext,
@@ -152,8 +141,7 @@ export function appendRecoveryNotice(
     role: 'system',
     kind: 'model_recovered',
     context_policy: STRUCTURAL_ROW_POLICY.model_recovery_notice,
-    content:
-      'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.',
+    content: MODEL_RECOVERY_NOTICE_TEXT,
     round_id: deterministicRoundId('pre', inputId),
     message_index: 0,
     block_index: 1,
@@ -173,8 +161,7 @@ export function isExactRecoveryNotice(
     message.session_id === sessionId &&
     message.role === 'system' &&
     message.kind === 'model_recovered' &&
-    message.content ===
-      'The previous runtime activation was interrupted. External or domain effects may or may not have happened. Inspect current card, record, and tool facts before repeating work.' &&
+    message.content === MODEL_RECOVERY_NOTICE_TEXT &&
     message.round_id === deterministicRoundId('pre', inputId) &&
     message.message_index === 0 &&
     message.block_index === 1
@@ -205,55 +192,27 @@ export function buildContextTextMessage(
 export function providerConversationProjection(
   conversation: ValidatedConversation,
 ): ProviderConversationProjection {
+  return providerConversationFromComposedContext(composeContextProjection({
+    sourceSessionId: conversation.sourceSessionId,
+    effectiveHistory: null,
+    dynamicBlocks: [],
+    uncoveredRows: effectiveSourceRows(conversation),
+  }));
+}
+
+function effectiveSourceRows(conversation: ValidatedConversation): readonly AgentMessage[] {
   const latest = conversation.latestCompaction;
-  const messages = conversation.compactedGenesis
-    ? projectGenesisCompactedConversation(conversation)
-    : !latest
-    ? conversation.sourceRows.flatMap(projectProviderConversationMessage)
-    : projectCompactedConversation(conversation, latest);
-  const wrongSession = messages.find(
-    (message) => message.session_id !== conversation.sourceSessionId,
-  );
-  if (wrongSession)
-    throw new Error(
-      `Projected conversation row '${wrongSession.id}' belongs to session '${wrongSession.session_id}', not source session '${conversation.sourceSessionId}'.`,
-    );
-  validateResponsesPairs(conversation.sourceSessionId, messages);
-  return { sourceSessionId: conversation.sourceSessionId, messages };
-}
-
-function projectGenesisCompactedConversation(conversation: ValidatedConversation): AgentMessage[] {
-  const genesis = conversation.compactedGenesis!;
-  const retained = conversation.sourceRows.slice(0, genesis.retainedStaticRowCount).flatMap(projectProviderConversationMessage);
-  const synthetic = agentMessageSchema.parse({ id: `${genesis.id}:rendered`, session_id: conversation.sourceSessionId, role: 'system', kind: 'text', content: renderContextCompactionPayload(genesis.payload), context_policy: DURABLE_PRIMARY_CONTENT_POLICY, round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: genesis.timestamp });
-  return [...retained, synthetic, ...conversation.sourceRows.slice(genesis.retainedStaticRowCount).flatMap(projectProviderConversationMessage)];
-}
-
-export type SummarizerConversationProjection = Readonly<{
-  kind: 'summarizer_projection';
-  sourceSessionId: ConversationSessionId;
-  messages: AgentMessage[];
-}>;
-
-export function summarizerConversationProjection(
-  sourceSessionId: ConversationSessionId,
-  transformedSourceRows: readonly AgentMessage[],
-): SummarizerConversationProjection {
-  const messages = transformedSourceRows.flatMap(projectProviderConversationMessage);
-  validateResponsesPairs(sourceSessionId, messages);
-  return Object.freeze({ kind: 'summarizer_projection', sourceSessionId, messages });
-}
-
-function projectCompactedConversation(
-  conversation: ValidatedConversation,
-  latest: NonNullable<ValidatedConversation['latestCompaction']>,
-): AgentMessage[] {
+  if (conversation.compactedGenesis) {
+    const genesis = conversation.compactedGenesis;
+    const rendered = agentMessageSchema.parse({ id: `${genesis.id}:rendered`, session_id: conversation.sourceSessionId, role: 'system', kind: 'text', content: renderContextCompactionPayload(genesis.payload), context_policy: DURABLE_PRIMARY_CONTENT_POLICY, round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: genesis.timestamp });
+    return [...conversation.sourceRows.slice(0, genesis.retainedStaticRowCount), rendered, ...conversation.sourceRows.slice(genesis.retainedStaticRowCount)];
+  }
+  if (!latest) return conversation.sourceRows;
   const retainedIds = new Set(latest.payload.retained_static_message_ids);
   const retained = conversation.sourceRows
-    .filter((message, index) => index <= latest.cutoffSourceIndex && retainedIds.has(message.id))
-    .flatMap(projectProviderConversationMessage);
+    .filter((message, index) => index <= latest.cutoffSourceIndex && retainedIds.has(message.id));
   const metadata = latest.metadataRow;
-  const synthetic = agentMessageSchema.parse({
+  const rendered = agentMessageSchema.parse({
     id: `${metadata.id}:rendered`,
     session_id: metadata.session_id,
     role: 'system',
@@ -267,56 +226,37 @@ function projectCompactedConversation(
   });
   const coveredMarkers = conversation.sourceRows
     .slice(0, latest.cutoffSourceIndex + 1)
-    .filter((message) => message.kind === 'content_policy_refusal')
-    .flatMap(projectProviderConversationMessage);
+    .filter((message) => message.kind === 'content_policy_refusal');
   return [
     ...retained,
-    synthetic,
+    rendered,
     ...coveredMarkers,
-    ...conversation.sourceRows
-      .slice(latest.cutoffSourceIndex + 1)
-      .flatMap(projectProviderConversationMessage),
+    ...conversation.sourceRows.slice(latest.cutoffSourceIndex + 1),
   ];
 }
 
-export function isProviderConversationMessage(message: AgentMessage): boolean {
-  return (
-    message.kind === 'text' ||
-    message.kind === 'tool_call' ||
-    message.kind === 'tool_result' ||
-    message.kind === 'model_repair' ||
-    message.kind === 'model_recovered' ||
-    message.kind === 'provider_private' ||
-    message.kind === 'content_policy_retry' ||
-    message.kind === 'content_policy_refusal'
-  );
+export type SummarizerConversationProjection = Readonly<{
+  kind: 'summarizer_projection';
+  sourceSessionId: ConversationSessionId;
+  messages: AgentMessage[];
+}>;
+
+export function summarizerConversationProjection(
+  sourceSessionId: ConversationSessionId,
+  transformedSourceRows: readonly AgentMessage[],
+): SummarizerConversationProjection {
+  return Object.freeze({
+    kind: 'summarizer_projection',
+    sourceSessionId,
+    messages: providerConversationFromComposedContext(composeContextProjection({
+      sourceSessionId,
+      effectiveHistory: null,
+      dynamicBlocks: [],
+      uncoveredRows: transformedSourceRows,
+    })).messages,
+  });
 }
 
 export function isConversationBudgetVisible(message: AgentMessage): boolean {
-  return isProviderConversationMessage(message) && message.kind !== 'provider_private';
-}
-
-function projectProviderConversationMessage(message: AgentMessage): AgentMessage[] {
-  if (!isProviderConversationMessage(message)) return [];
-  if (message.kind === 'content_policy_retry')
-    return [
-      agentMessageSchema.parse({
-        ...message,
-        kind: 'text',
-        role: 'user',
-        content: CONTENT_POLICY_RETRY_TEXT,
-        context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
-      }),
-    ];
-  if (message.kind === 'content_policy_refusal')
-    return [
-      agentMessageSchema.parse({
-        ...message,
-        kind: 'text',
-        role: 'user',
-        content: contentPolicyRefusalProjectionText(message.session_id, message.id),
-        context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
-      }),
-    ];
-  return [message];
+  return classifyConversationRowPolicy(message).projection.primaryVisible;
 }

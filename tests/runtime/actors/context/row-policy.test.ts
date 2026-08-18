@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 
 import { canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, STRUCTURAL_ROW_POLICY, type AgentMessage, type ConversationSessionId, type RowContextPolicy, type ToolResultPolicyTemplate } from '../../../../src/schemas/index.js';
-import { classifyConversationRowPolicy, settledToolBundlePolicy, toolCallRowArguments } from '../../../../src/runtime/actors/context/row-policy.js';
+import { classifyConversationRowPolicy, settledToolBundlePolicy } from '../../../../src/runtime/actors/context/row-policy.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
@@ -67,10 +67,6 @@ describe('conversation row policy classification', () => {
     const structural = { ...missing, context_policy: STRUCTURAL_ROW_POLICY.activation_boundary };
     expect(() => classifyConversationRowPolicy(structural as never)).toThrow(/missing its content policy/);
   });
-
-  it('parses call arguments from the embedded provider call content', () => {
-    expect(toolCallRowArguments(callRow())).toEqual({ id: 'card-a' });
-  });
 });
 
 describe('settled tool bundle policy derivation', () => {
@@ -85,12 +81,27 @@ describe('settled tool bundle policy derivation', () => {
       call_policy_sha256: call.context_policy.kind === 'tool_call' ? call.context_policy.template_sha256 : '',
       evidence: { kind: 'observational_query', observedSha256: observedSha },
     });
-    expect(settledToolBundlePolicy(call, result, { id: 'card-a' })).toEqual({
+    expect(settledToolBundlePolicy(call, result)).toEqual({
       storage: 'durable',
       replacement: { kind: 'retain' },
       settledAudience: 'summarizer_only',
       evidence: { kind: 'observational_query', tool: 'get_card', arguments: { id: 'card-a' }, observed_sha256: observedSha },
     });
+  });
+
+  it('derives none evidence for failed or rejected settlements without parsing arguments', () => {
+    const malformed = callRow(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE);
+    const embedded = JSON.parse(malformed.content) as { tool_calls: Array<{ function: { arguments: string } }> };
+    embedded.tool_calls[0]!.function.arguments = '{';
+    const malformedCall = { ...malformed, content: JSON.stringify(embedded) };
+    const failed = resultRow({ success: false, error: 'agent protocol violation' }, {
+      kind: 'tool_result',
+      settlement_origin: 'rejected_before_execution',
+      result_content_sha256: '0'.repeat(64),
+      call_policy_sha256: malformedCall.context_policy.kind === 'tool_call' ? malformedCall.context_policy.template_sha256 : '',
+      evidence: { kind: 'none' },
+    });
+    expect(settledToolBundlePolicy(malformedCall, failed)).toMatchObject({ evidence: { kind: 'none' } });
   });
 
   it('keeps mutation bundles primary-visible with none evidence', () => {
@@ -102,7 +113,7 @@ describe('settled tool bundle policy derivation', () => {
       call_policy_sha256: call.context_policy.kind === 'tool_call' ? call.context_policy.template_sha256 : '',
       evidence: { kind: 'none' },
     });
-    const policy = settledToolBundlePolicy({ ...call, tool: 'write' }, { ...result, tool: 'write' }, {});
+    const policy = settledToolBundlePolicy({ ...call, tool: 'write' }, { ...result, tool: 'write' });
     expect(policy.settledAudience).toBe('primary_and_summarizer');
     expect(policy.evidence).toEqual({ kind: 'none' });
   });
@@ -110,8 +121,8 @@ describe('settled tool bundle policy derivation', () => {
   it('rejects result/call commitment mismatches and evidence-kind disagreements', () => {
     const call = callRow(OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE);
     const baseEvidence: RowContextPolicy = { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: observedSha, call_policy_sha256: call.context_policy.kind === 'tool_call' ? call.context_policy.template_sha256 : '', evidence: { kind: 'observational_query', observedSha256: observedSha } };
-    expect(() => settledToolBundlePolicy(call, resultRow({ success: true }, { ...baseEvidence, call_policy_sha256: '0'.repeat(64) }), {})).toThrow(/does not commit to its call's policy template hash/);
-    expect(() => settledToolBundlePolicy(call, resultRow({ success: true }, { ...baseEvidence, evidence: { kind: 'none' } }), {})).toThrow(/requires observational settled evidence/);
-    expect(() => settledToolBundlePolicy(call, { ...resultRow({ success: true }, { ...baseEvidence, evidence: { kind: 'observational_query', observedSha256: observedSha } }), tool: 'read' }, {})).toThrow(/does not name its call's tool/);
+    expect(() => settledToolBundlePolicy(call, resultRow({ success: true }, { ...baseEvidence, call_policy_sha256: '0'.repeat(64) }))).toThrow(/does not commit to its call's policy template hash/);
+    expect(() => settledToolBundlePolicy(call, resultRow({ success: true }, { ...baseEvidence, evidence: { kind: 'none' } }))).toThrow(/requires observational settled evidence/);
+    expect(() => settledToolBundlePolicy(call, { ...resultRow({ success: true }, { ...baseEvidence, evidence: { kind: 'observational_query', observedSha256: observedSha } }), tool: 'read' })).toThrow(/does not name its call's tool/);
   });
 });

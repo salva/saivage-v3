@@ -1,9 +1,10 @@
-import { CONTENT_POLICY_RETRY_TEXT, type AgentMessage } from '../../../schemas/index.js';
+import type { AgentMessage } from '../../../schemas/index.js';
 import type {
   SourceRound,
   ValidatedConversation,
 } from '../../../contracts/conversation-validation.js';
 import { isConversationBudgetVisible } from '../conversation-session.js';
+import { projectedCanonicalRowContent } from '../context/composition-projector.js';
 
 export type SubRoundKind = 'repair';
 
@@ -46,9 +47,7 @@ export function classifyConversationRounds(
 
 export function estimateMessageTokens(message: AgentMessage): number {
   if (!isConversationBudgetVisible(message)) return 0;
-  const content = message.kind === 'content_policy_refusal'
-    ? 'A prior activation ended after repeated provider content-policy refusal. Reassess the task decomposition and use only assistance the provider can give within its safety requirements. Operator evidence: /agents/session?entry=marker.'
-    : message.kind === 'content_policy_retry' ? CONTENT_POLICY_RETRY_TEXT : message.content;
+  const content = projectedCanonicalRowContent(message);
   const structural = [message.role, message.kind, message.tool, message.tool_call_id, message.round_id,
   ].filter(Boolean).join(' ');
   return Math.max(1, Math.ceil((content.length + structural.length) / 4));

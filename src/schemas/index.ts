@@ -11,6 +11,7 @@ export {
   contextEvidenceSchema,
   contextReplacementSchema,
   DURABLE_PRIMARY_CONTENT_POLICY,
+  MODEL_RECOVERY_NOTICE_TEXT,
   rowContextPolicySchema,
   settledToolEvidenceSchema,
   STRUCTURAL_ROW_POLICY,
@@ -26,7 +27,7 @@ export {
   type ToolResultPolicyTemplate,
   type ToolSettlementOrigin,
 } from './context-policy.js';
-export { CONTENT_POLICY_RETRY_TEXT, contentPolicyRefusalContentSchema, parseCanonicalContentPolicyRefusal, type ContentPolicyRefusalContent } from './content-policy.js';
+export { CONTENT_POLICY_RETRY_TEXT, contentPolicyEvidenceUrl, contentPolicyRefusalContentSchema, contentPolicyRefusalProjectionText, parseCanonicalContentPolicyRefusal, type ContentPolicyRefusalContent } from './content-policy.js';
 export {
   ConversationSessionIdSchema,
   parseConversationSessionId,

@@ -12,6 +12,7 @@ import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtim
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
+import { MODEL_RECOVERY_NOTICE_TEXT } from '../../src/schemas/index.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
@@ -89,7 +90,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     await waitUntil(() => inputs.length === 3);
     expect(inputs[2]!.sessionId).toBe('agent:planner:project');
     expect(inputs[2]!.inputId).not.toBe(inputs[1]!.inputId);
-    expect(inputs[2]!.providerConversation.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'system', kind: 'model_recovered' })]));
+    expect(inputs[2]!.providerConversation.messages).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'system', kind: 'text', content: MODEL_RECOVERY_NOTICE_TEXT })]));
     expect(readConversation(projectRoot, 'agent:planner:project').physicalRows.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
     expect(cards.read(child.id)?.lifecycle.status).toBe('stopped');
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
