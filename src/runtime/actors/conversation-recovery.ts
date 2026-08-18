@@ -85,29 +85,47 @@ export function stabilizeAgentSession(args: {
     if (state !== 'empty' && state !== 'settled_terminal') throw new Error(`Non-clean role session '${args.sessionId}' has no activation marker.`);
     return { disposition: 'clean', messages };
   }
-  const latestActivationIndex = sourceRows.findIndex((row) => row.id === latestRound.rows[0]?.id);
-  if (latestActivationIndex < 0) throw new Error(`Activation '${latestRound.label}' has no retained source rows.`);
+  const latestActivationIndex = latestRound.rows.length === 0 ? -1 : sourceRows.findIndex((row) => row.id === latestRound.rows[0]!.id);
+  if (latestRound.rows.length > 0 && latestActivationIndex < 0) throw new Error(`Activation '${latestRound.label}' has no retained source rows.`);
   const marker = latestRound.activation.source === 'compacted_genesis' ? { inputId: latestRound.activation.input_id } : requireAssociatedActivationMarker(latestRound.activation.message, args.sessionId);
-  const activationRows = sourceRows.slice(latestActivationIndex);
-  const final = activationRows.at(-1)!;
+  const activationRows = latestActivationIndex < 0 ? [] : sourceRows.slice(latestActivationIndex);
+  const coveredFacts = conversation.effectiveRequiredModelFacts;
+  const coveredRefusal = coveredFacts.latestContentPolicyRefusal?.activationInputId === marker.inputId
+    ? coveredFacts.latestContentPolicyRefusal : null;
+  const coveredRecovery = coveredFacts.latestRecovery?.activationInputId === marker.inputId
+    ? coveredFacts.latestRecovery : null;
+  const final = activationRows.at(-1) ?? null;
   const refusalMarkers = activationRows.filter((message) => message.kind === 'content_policy_refusal',
   );
+  const activationPhysicalIndex = latestActivationIndex < 0 ? null : physicalIndexForSource(messages, sourceRows[latestActivationIndex]!);
   if (refusalMarkers.length > 0) {
-    if (refusalMarkers.length !== 1 || final.kind !== 'content_policy_refusal') throw new Error(`Activation '${marker.inputId}' has rows after or colliding with its terminal content-policy refusal marker.`,
+    if (refusalMarkers.length !== 1 || final?.kind !== 'content_policy_refusal') throw new Error(`Activation '${marker.inputId}' has rows after or colliding with its terminal content-policy refusal marker.`,
       );
     validateCallSettlementPairs(
-      conversation, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false,
+      conversation, activationPhysicalIndex, false,
     );
     return { disposition: 'clean', messages };
   }
-  const exactFinalRecovery = isExactRecoveryNotice(final, args.sessionId, marker.inputId);
+  if (coveredRefusal) {
+    validateCallSettlementPairs(
+      conversation, activationPhysicalIndex, false,
+    );
+    return { disposition: 'clean', messages };
+  }
+  const exactFinalRecovery = final !== null && isExactRecoveryNotice(final, args.sessionId, marker.inputId);
   const recoveryRows = activationRows.filter((message) => message.kind === 'model_recovered');
   if (recoveryRows.length > 0 && !exactFinalRecovery) throw new Error(`Interrupted activation '${marker.inputId}' has a recovery notice that is not its final exact canonical source row.`,
     );
   if (exactFinalRecovery) {
     if (recoveryRows.length !== 1) throw new Error(`Interrupted activation '${marker.inputId}' has colliding recovery notices.`);
     validateCallSettlementPairs(
-      conversation, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false,
+      conversation, activationPhysicalIndex, false,
+    );
+    return { disposition: 'clean', messages };
+  }
+  if (coveredRecovery) {
+    validateCallSettlementPairs(
+      conversation, activationPhysicalIndex, false,
     );
     return { disposition: 'clean', messages };
   }
@@ -116,12 +134,11 @@ export function stabilizeAgentSession(args: {
   );
   if (state === 'settled_terminal') {
     validateCallSettlementPairs(
-      conversation, physicalIndexForSource(messages, sourceRows[latestActivationIndex]!), false,
+      conversation, activationPhysicalIndex, false,
     );
     return { disposition: 'clean', messages };
   }
-  const latestPhysicalIndex = physicalIndexForSource(messages, sourceRows[latestActivationIndex]!);
-  const unmatched = validateCallSettlementPairs(conversation, latestPhysicalIndex, true);
+  const unmatched = validateCallSettlementPairs(conversation, activationPhysicalIndex, true);
   if (unmatched) {
     appendProviderVisibleSyntheticFailedToolResult(args.conversations, {
       sessionId: args.sessionId,

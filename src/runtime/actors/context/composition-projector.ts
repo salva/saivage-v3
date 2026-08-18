@@ -24,13 +24,15 @@ export type EffectiveRequiredModelFacts = Readonly<{
 
 export type EffectiveCompactedHistoryFacts = Readonly<{
   summaryText: string;
+  historyMessageId: string;
+  historyTimestamp: string;
   requiredModelFacts: EffectiveRequiredModelFacts;
 }>;
 
 export type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice' | 'retry_notice';
 
 export type PrimaryContextEntry =
-  | Readonly<{ origin: 'history_summary'; content: string }>
+  | Readonly<{ origin: 'history_summary'; content: string; messageId: string; timestamp: string }>
   | Readonly<{ origin: 'dynamic'; block: ContextBlock }>
   | Readonly<{ origin: 'canonical'; row: AgentMessage; semantic: ProjectedCanonicalSemantic }>;
 
@@ -70,12 +72,12 @@ export function composeContextProjection(args: {
   const dynamic = selectVerifiedLatestDynamicBlocks(args.dynamicBlocks);
   validateResponsesPairs(args.sourceSessionId, [...args.uncoveredRows]);
   const settledBundles = groupSettledToolBundles(args.uncoveredRows);
-  const selection = selectRepeatedEventOccurrences(args.uncoveredRows, args.effectiveHistory);
+  const selection = selectRepeatedEventOccurrences(args.uncoveredRows, args.effectiveHistory?.requiredModelFacts ?? null);
 
   const primary: PrimaryContextEntry[] = [];
   const summarizer: SummarizerContextItem[] = [];
   if (args.effectiveHistory) {
-    primary.push({ origin: 'history_summary', content: args.effectiveHistory.summaryText });
+    primary.push({ origin: 'history_summary', content: args.effectiveHistory.summaryText, messageId: args.effectiveHistory.historyMessageId, timestamp: args.effectiveHistory.historyTimestamp });
     summarizer.push({ kind: 'inherited_summary', content: args.effectiveHistory.summaryText });
   }
   if (selection.recovery?.kind === 'inherited_slot') {
@@ -142,6 +144,8 @@ export function composeContextProjection(args: {
 
 export function providerConversationFromComposedContext(composed: ComposedContextProjection): ProviderConversationProjection {
   const messages = composed.primary.map((entry) => {
+    if (entry.origin === 'history_summary')
+      return agentMessageSchema.parse({ id: entry.messageId, session_id: composed.sourceSessionId, role: 'system', kind: 'text', content: entry.content, context_policy: DURABLE_PRIMARY_CONTENT_POLICY, round_id: deterministicRoundId('pre', entry.messageId), message_index: 0, block_index: 0, timestamp: entry.timestamp });
     if (entry.origin !== 'canonical') throw new Error(`Composed primary entry of origin '${entry.origin}' has no provider conversation row representation.`);
     return entry.row;
   });
@@ -153,6 +157,18 @@ export function projectedCanonicalRowContent(row: AgentMessage): string {
   if (row.kind === 'content_policy_retry') return CONTENT_POLICY_RETRY_TEXT;
   if (row.kind === 'model_recovered') return MODEL_RECOVERY_NOTICE_TEXT;
   return row.content;
+}
+
+export function currentCoveredRequiredFactRows(args: {
+  sourceSessionId: ConversationSessionId;
+  requiredModelFacts: EffectiveRequiredModelFacts;
+  uncoveredRows: readonly AgentMessage[];
+}): readonly AgentMessage[] {
+  const selection = selectRepeatedEventOccurrences(args.uncoveredRows, args.requiredModelFacts);
+  const rows: AgentMessage[] = [];
+  if (selection.recovery?.kind === 'inherited_slot') rows.push(recoveryNoticeFromInheritedSlot(args.sourceSessionId, args.requiredModelFacts.latestRecovery!));
+  if (selection.refusal?.kind === 'inherited_slot') rows.push(refusalNoticeFromInheritedSlot(args.sourceSessionId, args.requiredModelFacts.latestContentPolicyRefusal!));
+  return Object.freeze(rows);
 }
 
 function selectVerifiedLatestDynamicBlocks(blocks: readonly ContextBlock[]): readonly ContextBlock[] {
@@ -191,8 +207,7 @@ function groupSettledToolBundles(rows: readonly AgentMessage[]): Map<string, Set
   return settled;
 }
 
-function selectRepeatedEventOccurrences(rows: readonly AgentMessage[], effectiveHistory: EffectiveCompactedHistoryFacts | null): RepeatedEventSelection {
-  const facts = effectiveHistory?.requiredModelFacts ?? null;
+function selectRepeatedEventOccurrences(rows: readonly AgentMessage[], facts: EffectiveRequiredModelFacts | null): RepeatedEventSelection {
   let recovery: RepeatedEventSelection['recovery'] = facts?.latestRecovery ? { kind: 'inherited_slot' } : null;
   let refusal: RepeatedEventSelection['refusal'] = facts?.latestContentPolicyRefusal ? { kind: 'inherited_slot' } : null;
   for (const row of rows) {
@@ -218,7 +233,7 @@ function syntheticProjectionRow(row: AgentMessage, role: 'system' | 'user', cont
   return agentMessageSchema.parse({ ...row, role, kind: 'text', content, context_policy: DURABLE_PRIMARY_CONTENT_POLICY });
 }
 
-function recoveryNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestRecovery']>): AgentMessage {
+export function recoveryNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestRecovery']>): AgentMessage {
   if (slot.sourceMessageId !== `${slot.activationInputId}:model-recovered`) throw new Error(`Inherited recovery fact '${slot.sourceMessageId}' does not match its activation identity.`);
   return agentMessageSchema.parse({
     id: slot.sourceMessageId,
@@ -234,7 +249,7 @@ function recoveryNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId,
   });
 }
 
-function refusalNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestContentPolicyRefusal']>): AgentMessage {
+export function refusalNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestContentPolicyRefusal']>): AgentMessage {
   return agentMessageSchema.parse({
     id: slot.markerId,
     session_id: sourceSessionId,

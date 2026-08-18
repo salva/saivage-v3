@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
-import { agentMessageSchema, canonicalJson, contextCompactionContentSchema, ConversationSessionIdSchema, positiveSafeIntegerSchema } from '../schemas/index.js';
+import { agentMessageSchema, canonicalJson, compactedHistorySchema, ConversationSessionIdSchema, positiveSafeIntegerSchema } from '../schemas/index.js';
 import { jsonlVersionFilenameSchema, uuidV4Schema, validateHeadFields } from './version-index.js';
 
 const sha256Schema = z.string().regex(/^[0-9a-f]{64}$/);
@@ -25,9 +25,14 @@ export const conversationVersionIndexSchema = z.object({ format_version: z.liter
 });
 const genesisBase = { format_version: z.literal(1), id: uuidV4Schema, entry_id: uuidV4Schema, session_id: ConversationSessionIdSchema, segment_version: positiveSafeIntegerSchema, timestamp: z.string().datetime() } as const;
 export const ordinaryConversationGenesisSchema = z.object({ kind: z.literal('ordinary_segment_genesis'), ...genesisBase }).strict();
-export const compactedConversationGenesisSchema = z.object({ kind: z.literal('compacted_segment_genesis'), ...genesisBase, source: z.object({ version: positiveSafeIntegerSchema, filename: jsonlVersionFilenameSchema, sha256: sha256Schema, covered_through_message_id: z.string().min(1) }).strict(), compaction: contextCompactionContentSchema, continuation: conversationContinuationSchema, retained_rows: z.object({ first_message_id: z.string().min(1).nullable(), last_message_id: z.string().min(1).nullable(), row_count: nonNegativeSafeIntegerSchema, static_row_count: nonNegativeSafeIntegerSchema, tail_row_count: nonNegativeSafeIntegerSchema, tail_first_message_id: z.string().min(1).nullable(), sha256: sha256Schema }).strict() }).strict().superRefine((genesis, ctx) => {
+export const compactedConversationGenesisSchema = z.object({ kind: z.literal('compacted_segment_genesis'), ...genesisBase, source: z.object({ version: positiveSafeIntegerSchema, filename: jsonlVersionFilenameSchema, sha256: sha256Schema, covered_through_message_id: z.string().min(1) }).strict(), compaction: compactedHistorySchema, continuation: conversationContinuationSchema, retained_rows: z.object({ first_message_id: z.string().min(1).nullable(), last_message_id: z.string().min(1).nullable(), row_count: nonNegativeSafeIntegerSchema, sha256: sha256Schema }).strict() }).strict().superRefine((genesis, ctx) => {
   const retained = genesis.retained_rows;
-  if (retained.row_count !== retained.static_row_count + retained.tail_row_count || (retained.row_count === 0) !== (retained.first_message_id === null && retained.last_message_id === null) || (retained.tail_row_count === 0) !== (retained.tail_first_message_id === null)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['retained_rows'], message: 'Retained row partition metadata is inconsistent.' });
+  if ((retained.row_count === 0) !== (retained.first_message_id === null && retained.last_message_id === null))
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['retained_rows'], message: 'Retained tail-row metadata is inconsistent.' });
+  if (genesis.compaction.coverageCommitment.coveredThroughMessageId !== genesis.source.covered_through_message_id)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['compaction', 'coverageCommitment', 'coveredThroughMessageId'], message: 'Compacted history coverage cutoff must match the genesis source cutoff.' });
+  if (genesis.compaction.coverageCommitment.sourceVersion !== genesis.source.version)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['compaction', 'coverageCommitment', 'sourceVersion'], message: 'Compacted history coverage source version must match the genesis source version.' });
 });
 export const conversationSegmentGenesisSchema = z.union([ordinaryConversationGenesisSchema, compactedConversationGenesisSchema]);
 export const conversationSegmentRowSchema = z.union([conversationSegmentGenesisSchema, agentMessageSchema]);

@@ -54,7 +54,7 @@ describe('ConversationLLMActor last-chance summary publication ownership', () =>
     expect(fixture.plannerProjection).toHaveBeenCalledWith(fixture.input.sessionId, fixture.input.inputId, expect.arrayContaining([expect.objectContaining({ source_input_id: fixture.input.inputId, attempt_index: 0 })]), { assistantOutputIds: [], terminalConversationOutputId: null });
     const conversation = readConversation(fixture.root, fixture.input.sessionId);
     expect(conversation.sourceRows.some((row) => row.kind === 'model_issue')).toBe(false);
-    expect(conversation.compactions).toHaveLength(0);
+    expect(conversation.effectiveCompactedHistory).toBeNull();
   });
 
   it.each([

@@ -1,21 +1,25 @@
 import { randomUUID } from 'node:crypto';
-import { publishCompactedConversationSegment, readConversation, type ConversationFileContext,
+import { canonicalValueSha256, type ConversationContinuation } from '../../../persistence/canonical-conversation-artifacts.js';
+import { publishCompactedConversationSegment, readCurrentConversationSegment, type ConversationFileContext,
 } from '../../../persistence/conversation-file.js';
-import { canonicalJson, contextCompactionContentSchema, type AgentMessage, type ContextCompactionContent,
+import { canonicalJson, compactedHistorySchema, coveredSourceGroupsSha256, accumulatedSummarySha256, foldDispositionCommitment, type AgentMessage, type CompactedHistory,
 } from '../../../schemas/index.js';
-import { hashConversationRows,
+import {
+  deriveRequiredModelFacts,
   isSafeValidatedSourcePrefix,
-  validateProspectiveContextCompaction,
+  selectAtomicCoveredSourceGroups,
+  validateCompactedHistorySuccessor,
   validateConversation,
-  validatedSourceSegmentsForPrefix,
-  type ValidatedContextCompaction,
+  type CompactedGenesisSeed,
+  type InheritedConversationActivation,
+  type SourceRound,
   type ValidatedConversation,
 } from '../../../contracts/conversation-validation.js';
-import { generateRoundId } from '../../../schemas/round-id-server.js';
 import type { ProviderConversationProjection, ToolDefinition,
 } from '../../../agents/llm-contracts.js';
 import type { PreparedCompaction, PreparedLlmInvocationInput } from '../llm-invocation.js';
 import { providerConversationProjection } from '../conversation-session.js';
+import { MODEL_RECOVERY_NOTICE_TEXT, contentPolicyRefusalProjectionText } from '../../../schemas/index.js';
 import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type SlidingBandPartitions, type SnapPolicy,
 } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens, type ClassifiedConversation, type ClassifiedRound,
@@ -25,8 +29,8 @@ import {
   summarizeMerge, summarizeRound, SummaryResultValidationError, type MergeSummaryInput, type SummarizerProviderPort,
 } from './summarizer.js';
 
-const EMPTY_INDIVIDUAL_SUMMARY = 'This round contained no provider-visible conversation content.';
-const EMPTY_MERGED_SUMMARY = 'These rounds contained no provider-visible conversation content.';
+const EMPTY_ROUND_SUMMARY = 'This round contained no provider-visible conversation content.';
+const EMPTY_COVERAGE_SUMMARY = 'These rounds contained no provider-visible conversation content.';
 
 export type AutonomousCompactionPolicy = {
   input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
@@ -109,7 +113,7 @@ export function estimateCanonicalStaticTokens(
   systemPrompt: string,
   tools: readonly ToolDefinition[],
 ): number {
-  return estimateTextTokens(systemPrompt) + estimateTextTokens(canonicalJson(tools));
+  return estimateTextTokens(systemPrompt) + estimateTextTokens(JSON.stringify(tools));
 }
 
 export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
@@ -121,7 +125,7 @@ export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-// local_exact_admission maximal safe-prefix reduction/smallest-projection selection lands with the Unit 7 compactor rework; it currently shares the authoritative smaller-than-rejected path.
+// local_exact_admission maximal safe-prefix reduction/smallest-projection selection lands with the Unit 8 compactor rework; it currently shares the authoritative smaller-than-rejected path.
 export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
 export type CompactionResult =
   | {
@@ -156,32 +160,36 @@ export type CompactArgs = {
   summarizerProvider: SummarizerProviderPort;
   signal: AbortSignal;
 };
-type ConstructionArgs = CompactArgs & {
-  conversation: ValidatedConversation;
-  rawSummaryCache: Map<string, string>;
-};
 type Candidate = {
-  payload: ContextCompactionContent;
-  compaction: ValidatedContextCompaction;
-  metadata: import('../../../contracts/conversation-validation.js').ContextCompactionMetadata;
+  history: CompactedHistory;
+  cutoffSourceIndex: number;
+  cutoffMessageId: string;
   providerConversation: ProviderConversationProjection;
   estimatedProviderMessageTokens: number;
 };
-type CandidateFit = { candidate: Candidate; accepted: boolean };
-type CandidateFitFactory = (payload: ContextCompactionContent) => CandidateFit;
 
 export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const projectRoot = args.conversations.projectRoot;
   const sessionId = args.input.sessionId;
   const budget = args.input.preparedCompaction;
-  const conversation = readConversation(projectRoot, sessionId);
-  const sourceRows = conversation.sourceRows;
-  const latest = conversation.latestCompaction;
-  const classified = classifyConversationRounds(conversation);
-  const constructionArgs: ConstructionArgs = { ...args, conversation, rawSummaryCache: new Map() };
+  const segment = readCurrentConversationSegment(projectRoot, sessionId);
   const rejectedEstimatedProviderMessageTokens = estimateProviderConversationTokens(
     args.input.providerConversation,
   );
+  if (!segment) {
+    if (args.strategy === 'preventive')
+      throw new Error(`Conversation '${sessionId}' has no current segment to compact.`);
+    return { kind: 'no_smaller_projection', rejectedEstimatedProviderMessageTokens, smallestCandidateEstimatedProviderMessageTokens: null };
+  }
+  const conversation = segment.conversation;
+  const sourceRows = conversation.sourceRows;
+  const sourceGenesis: CompactedGenesisSeed | null = segment.genesis.kind === 'compacted_segment_genesis'
+    ? { id: segment.genesis.id, timestamp: segment.genesis.timestamp, history: segment.genesis.compaction, sourceVersion: segment.genesis.source.version }
+    : null;
+  const sourceVersion = segment.entry.version;
+  const inheritedHistory = sourceGenesis?.history ?? null;
+  const classified = classifyConversationRounds(conversation);
+  const constructionArgs: ConstructionArgs = { ...args, conversation, sourceGenesis, sourceVersion, rawSummaryCache: new Map() };
   let smallestCandidateEstimatedProviderMessageTokens: number | null = null;
   const computedNormal = computeSlidingCompactionBands(classified.rounds, {
     tail_budget_tokens: budget.normalTailBudget,
@@ -193,129 +201,62 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     middle_budget_tokens: budget.escalatedMiddleBudget,
     snap: budget.snap,
   });
-  const normal = normalizeInvisibleSummaryPrefix(constructionArgs, computedNormal);
-  const escalated = normalizeInvisibleSummaryPrefix(constructionArgs, computedEscalated);
-  assertEscalatedSuffixSubsets(normal, escalated);
+  assertEscalatedSuffixSubsets(computedNormal, computedEscalated);
 
-  const metadataIdentity = {
-    id: `${sessionId}:compaction:${randomUUID()}`,
-    session_id: sessionId,
-    round_id: generateRoundId('compacted'),
-    timestamp: new Date().toISOString(),
-  };
-  const candidateFitFor: CandidateFitFactory = (payload) => {
-    const parsed = contextCompactionContentSchema.parse(payload);
-    const metadata = Object.freeze({
-      ...metadataIdentity,
-      role: 'system',
-      kind: 'context_compaction',
-      content: canonicalJson(parsed),
-      message_index: 0,
-      block_index: 0,
-    });
-    const prospective = validateProspectiveContextCompaction(conversation, metadata);
-    const compaction = prospective.latestCompaction;
-    if (!compaction || compaction.metadataRow.id !== metadata.id)
-      throw new Error(
-        'Prospective compaction validation did not derive the candidate metadata row.',
-      );
+  const candidateGenesis = { id: randomUUID(), timestamp: new Date().toISOString() } as const;
+  const accepted = (estimated: number): boolean =>
+    args.strategy === 'preventive'
+      ? estimated <= budget.triggerMessageThreshold
+      : estimated < rejectedEstimatedProviderMessageTokens;
+
+  const candidateFor = async (coveredRows: readonly AgentMessage[]): Promise<Candidate | null> => {
+    if (coveredRows.length === 0) return null;
+    const summaryText = await constructAccumulatedSummary(constructionArgs, inheritedHistory, coveredRows, classified);
+    args.signal.throwIfAborted();
+    const successor = buildSuccessorHistory({ conversation, sessionId, sourceVersion, sourceGenesis, coveredRows, summaryText });
+    validateCompactedHistorySuccessor({ source: conversation, sourceGenesis, sourceVersion, successor, coveredRows });
+    const cutoffSourceIndex = coveredRows.length - 1;
+    const tail = sourceRows.slice(coveredRows.length);
+    const seed: CompactedGenesisSeed = { id: candidateGenesis.id, timestamp: candidateGenesis.timestamp, history: successor, sourceVersion };
+    const { inherited } = successorContinuation(conversation, coveredRows);
+    const prospective = validateConversation(sessionId, tail, inherited, seed);
     const providerConversation = providerConversationProjection(prospective);
     const estimatedProviderMessageTokens = estimateProviderConversationTokens(providerConversation);
     smallestCandidateEstimatedProviderMessageTokens =
       smallestCandidateEstimatedProviderMessageTokens === null
         ? estimatedProviderMessageTokens
         : Math.min(smallestCandidateEstimatedProviderMessageTokens, estimatedProviderMessageTokens);
-    const candidate = {
-      payload: parsed,
-      compaction,
-      metadata,
+    return {
+      history: successor,
+      cutoffSourceIndex,
+      cutoffMessageId: coveredRows[cutoffSourceIndex]!.id,
       providerConversation,
       estimatedProviderMessageTokens,
     };
-    const accepted =
-      args.strategy === 'preventive'
-        ? effectiveCompactionTokens(compaction, classified) <= budget.triggerMessageThreshold
-        : estimatedProviderMessageTokens < rejectedEstimatedProviderMessageTokens;
-    return { candidate, accepted };
+  };
+
+  const coverWholeClosedRounds = async (partition: SlidingBandPartitions): Promise<Candidate | null> => {
+    const coveredRows = [...partition.merge_rounds, ...partition.summary_rounds].flatMap(rawRoundRows);
+    if (coveredRows.length === 0) return null;
+    const candidate = await candidateFor(coveredRows);
+    return candidate && accepted(candidate.estimatedProviderMessageTokens) ? candidate : null;
+  };
+  const coverWithFallback = async (partition: SlidingBandPartitions): Promise<Candidate | null> => {
+    const whole = await coverWholeClosedRounds(partition);
+    if (whole) return whole;
+    return extendThroughBoundaryRound(constructionArgs, partition, candidateFor, accepted);
   };
 
   let candidate: Candidate | null = null;
   if (args.strategy === 'preventive') {
-    const normalFit = await buildCandidate(
-      constructionArgs,
-      classified,
-      normal,
-      budget,
-      'normal',
-      latest,
-      candidateFitFor,
-    );
-    if (normalFit?.accepted) {
-      candidate = normalFit.candidate;
-    } else {
-      const normalCoveredNoRounds =
-        normal.merge_rounds.length === 0 && normal.summary_rounds.length === 0;
-      const escalatedCoveredNoRounds =
-        escalated.merge_rounds.length === 0 && escalated.summary_rounds.length === 0;
-      const escalatedFit =
-        latest && normalFit && normalCoveredNoRounds && escalatedCoveredNoRounds
-          ? normalFit
-          : await buildCandidate(
-              constructionArgs,
-              classified,
-              escalated,
-              budget,
-              'escalated',
-              latest,
-              candidateFitFor,
-            );
-      if (escalatedFit?.accepted) {
-        candidate = escalatedFit.candidate;
-      } else if (escalatedFit) {
-        candidate =
-          (
-            await applyHardFallback(
-              constructionArgs,
-              sourceRows,
-              classified,
-              escalatedFit,
-              budget,
-              latest,
-              candidateFitFor,
-            )
-          )?.candidate ?? null;
-      }
-    }
+    candidate = await coverWithFallback(computedNormal);
+    if (!candidate) candidate = await coverWithFallback(computedEscalated);
     if (!candidate)
       throw new Error(
         'Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.',
       );
   } else {
-    const escalatedFit = await buildCandidate(
-      constructionArgs,
-      classified,
-      escalated,
-      budget,
-      'escalated',
-      latest,
-      candidateFitFor,
-    );
-    if (escalatedFit?.accepted) {
-      candidate = escalatedFit.candidate;
-    } else if (escalatedFit) {
-      candidate =
-        (
-          await applyHardFallback(
-            constructionArgs,
-            sourceRows,
-            classified,
-            escalatedFit,
-            budget,
-            latest,
-            candidateFitFor,
-          )
-        )?.candidate ?? null;
-    }
+    candidate = await coverWithFallback(computedEscalated);
     if (!candidate) {
       return {
         kind: 'no_smaller_projection',
@@ -326,14 +267,11 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   }
   args.signal.throwIfAborted();
   try {
-    const finalRound = candidate.compaction.groups.at(-1)!.rounds.at(-1)!;
-    const finalSegment = finalRound.segments.at(-1)!;
     publishCompactedConversationSegment(args.conversations, sessionId, {
-      payload: candidate.payload,
-      cutoffSourceIndex: candidate.compaction.cutoffSourceIndex,
-      cutoffMessageId: candidate.compaction.cutoffMessageId,
-      finalCoveredRoundComplete: finalRound.complete,
-      finalCoveredSegmentKind: finalSegment.kind,
+      history: candidate.history,
+      cutoffSourceIndex: candidate.cutoffSourceIndex,
+      cutoffMessageId: candidate.cutoffMessageId,
+      continuation: successorContinuation(conversation, sourceRows.slice(0, candidate.cutoffSourceIndex + 1)).continuation,
     });
   } catch (error) {
     throw new CompactionAppendError(error);
@@ -345,82 +283,111 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   };
 }
 
-async function buildCandidate(
+function buildSuccessorHistory(args: {
+  conversation: ValidatedConversation;
+  sessionId: string;
+  sourceVersion: number;
+  sourceGenesis: CompactedGenesisSeed | null;
+  coveredRows: readonly AgentMessage[];
+  summaryText: string;
+}): CompactedHistory {
+  const selection = selectAtomicCoveredSourceGroups(args.conversation, args.coveredRows);
+  return compactedHistorySchema.parse({
+    summaryText: args.summaryText,
+    source: args.sourceGenesis
+      ? { kind: 'prior_genesis_plus_current_rows', priorGenesisId: args.sourceGenesis.id, priorHistoryHash: canonicalValueSha256(args.sourceGenesis.history), groups: selection.groups }
+      : { kind: 'current_rows', groups: selection.groups },
+    dispositionCommitment: foldDispositionCommitment(args.sourceGenesis?.history.dispositionCommitment ?? null, selection.dispositions),
+    coverageCommitment: {
+      sourceSessionId: args.sessionId,
+      sourceVersion: args.sourceVersion,
+      coveredThroughMessageId: args.coveredRows.at(-1)!.id,
+      coveredSourceGroupsSha256: coveredSourceGroupsSha256(selection.groups),
+      accumulatedSummarySha256: accumulatedSummarySha256(args.summaryText),
+    },
+    requiredModelFacts: deriveRequiredModelFacts({
+      inherited: args.sourceGenesis?.history.requiredModelFacts ?? { latestRecovery: null, latestContentPolicyRefusal: null },
+      coveredRows: args.coveredRows,
+      source: args.conversation,
+    }),
+  });
+}
+
+type ConstructionArgs = CompactArgs & {
+  conversation: ValidatedConversation;
+  sourceGenesis: CompactedGenesisSeed | null;
+  sourceVersion: number;
+  rawSummaryCache: Map<string, string>;
+};
+
+async function constructAccumulatedSummary(
   args: ConstructionArgs,
+  inheritedHistory: CompactedHistory | null,
+  coveredRows: readonly AgentMessage[],
   classified: ClassifiedConversation,
+): Promise<string> {
+  const coveredIds = new Set(coveredRows.map((row) => row.id));
+  const coveredRounds = classified.rounds.filter((round) => round.rows.some((row) => coveredIds.has(row.message.id)));
+  const mergeInputs: MergeSummaryInput[] = [];
+  if (inheritedHistory) mergeInputs.push({ round_id: 'prior accumulated history', summary_text: inheritedHistory.summaryText });
+  appendSupersededSlotSummaries(mergeInputs, inheritedHistory, coveredRows, args.conversation);
+  let addedContent = false;
+  for (const round of coveredRounds) {
+    args.signal.throwIfAborted();
+    const rows = rawRoundRows(round);
+    const fullyCovered = rows.every((row) => coveredIds.has(row.id));
+    const selected = fullyCovered ? rows : rows.filter((row) => coveredIds.has(row.id));
+    if (selected.length === 0) continue;
+    mergeInputs.push({
+      round_id: round.round_id,
+      summary_text: await summarizeRoundForCompaction(args, round, selected),
+    });
+    addedContent = true;
+    args.signal.throwIfAborted();
+  }
+  if (!addedContent && mergeInputs.length === 0) return EMPTY_COVERAGE_SUMMARY;
+  if (!addedContent) throw new Error('Compaction found no newly covered conversation content.');
+  if (mergeInputs.length === 1) return mergeInputs[0]!.summary_text;
+  return mergeSummaryGroups(args, mergeInputs);
+}
+
+function appendSupersededSlotSummaries(
+  mergeInputs: MergeSummaryInput[],
+  inheritedHistory: CompactedHistory | null,
+  coveredRows: readonly AgentMessage[],
+  conversation: ValidatedConversation,
+): void {
+  if (!inheritedHistory) return;
+  const facts = inheritedHistory.requiredModelFacts;
+  if (facts.latestRecovery && coveredRows.some((row) => row.kind === 'model_recovered'))
+    mergeInputs.push({
+      round_id: `superseded recovery notice ${facts.latestRecovery.sourceMessageId}`,
+      summary_text: `An earlier runtime interruption of activation ${facts.latestRecovery.activationInputId} was recovered before this history; its recovery notice read exactly: ${MODEL_RECOVERY_NOTICE_TEXT}`,
+    });
+  if (facts.latestContentPolicyRefusal && coveredRows.some((row) => row.kind === 'content_policy_refusal'))
+    mergeInputs.push({
+      round_id: `superseded refusal marker ${facts.latestContentPolicyRefusal.markerId}`,
+      summary_text: `An earlier activation ${facts.latestContentPolicyRefusal.activationInputId} ended after repeated provider content-policy refusal; its replanning notice read exactly: ${contentPolicyRefusalProjectionText(conversation.sourceSessionId, facts.latestContentPolicyRefusal.markerId)}`,
+    });
+}
+
+async function extendThroughBoundaryRound(
+  args: ConstructionArgs,
   partition: SlidingBandPartitions,
-  budget: PreparedCompaction,
-  band: 'normal' | 'escalated',
-  latest: ValidatedContextCompaction | null,
-  candidateFitFor: CandidateFitFactory,
-): Promise<CandidateFit | null> {
-  const preamble = classified.preamble.map((row) => row.message);
-  const mergedRounds = partition.merge_rounds;
-  let mergedHistory: ContextCompactionContent['summaries'][number] | null = null;
-  if (mergedRounds.length > 0) {
-    const mergedRows = mergedRounds.flatMap(rawRoundRows);
-    let summaryText: string;
-    if (mergedRounds.every((round) => !roundHasProviderVisibleContent(args, round))) {
-      summaryText = EMPTY_MERGED_SUMMARY;
-    } else {
-      const mergeInputs: MergeSummaryInput[] = [];
-      const prior = latest?.groups[0]?.payload.kind === 'merged' ? latest.groups[0] : null;
-      const priorIds = prior?.sourceRows.map((row) => row.id) ?? [];
-      const newIds = mergedRows.map((row) => row.id);
-      let firstNewRound = 0;
-      if (
-        prior &&
-        isExactPrefix(priorIds, newIds) &&
-        hashConversationRows(mergedRows.slice(0, priorIds.length)) === prior.payload.content_hash
-      ) {
-        mergeInputs.push({
-          round_id: prior.rounds.map((round) => round.label).join(','),
-          summary_text: prior.payload.summary_text,
-        });
-        firstNewRound = prior.rounds.length;
-      }
-      for (const round of mergedRounds.slice(firstNewRound)) {
-        args.signal.throwIfAborted();
-        mergeInputs.push({
-          round_id: round.round_id,
-          summary_text: (await summarizeRawRound(args, round)).summary_text,
-        });
-        args.signal.throwIfAborted();
-      }
-      summaryText = await mergeSummaryGroups(args, mergeInputs);
-    }
-    args.signal.throwIfAborted();
-    mergedHistory = {
-      kind: 'merged',
-      rounds: mergedRounds.map((round) =>
-        buildCoveredRound(args.conversation, rawRoundRows(round), true),
-      ),
-      content_hash: hashConversationRows(mergedRows),
-      summary_text: summaryText,
-      evidence: [],
-    };
+  candidateFor: (coveredRows: readonly AgentMessage[]) => Promise<Candidate | null>,
+  accepted: (estimated: number) => boolean,
+): Promise<Candidate | null> {
+  const base = [...partition.merge_rounds, ...partition.summary_rounds].flatMap(rawRoundRows);
+  const boundary = args.conversation.rounds.find((round) => round.rows.some((row) => row.id === args.conversation.sourceRows[base.length]?.id));
+  if (!boundary) return null;
+  let furthest: Candidate | null = null;
+  for (let length = 1; length <= boundary.rows.length; length++) {
+    const prefix = boundary.rows.slice(0, length).map((row) => row);
+    if (!isSafeValidatedPrefix(args.conversation, prefix)) continue;
+    const candidate = await candidateFor([...base, ...prefix]);
+    if (candidate && accepted(candidate.estimatedProviderMessageTokens)) furthest = candidate;
   }
-  const individual: ContextCompactionContent['summaries'] = [];
-  for (const round of partition.summary_rounds) {
-    args.signal.throwIfAborted();
-    individual.push(await summarizeRawRound(args, round));
-    args.signal.throwIfAborted();
-  }
-  const coveredRounds = [...mergedRounds, ...partition.summary_rounds];
-  if (coveredRounds.length === 0) {
-    if (latest) return candidateFitFor(latest.payload);
-    return fallbackFromScratch(args, classified, preamble, budget, band, candidateFitFor);
-  }
-  return candidateFitFor(
-    payloadFor(
-      preamble,
-      mergedHistory,
-      individual,
-      budget,
-      band === 'normal' ? 'normal' : 'escalated',
-      band,
-    ),
-  );
+  return furthest;
 }
 
 async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]): Promise<string> {
@@ -441,141 +408,14 @@ async function mergeSummaryGroups(args: CompactArgs, inputs: MergeSummaryInput[]
   return summarizeMergeForCompaction(args, current);
 }
 
-async function fallbackFromScratch(
-  args: ConstructionArgs,
-  classified: ClassifiedConversation,
-  preamble: AgentMessage[],
-  budget: PreparedCompaction,
-  band: 'normal' | 'escalated',
-  candidateFitFor: CandidateFitFactory,
-): Promise<CandidateFit | null> {
-  const boundaryRound = classified.rounds[0];
-  if (!boundaryRound) return null;
-  const boundaryRows = rawRoundRows(boundaryRound);
-  for (let length = 1; length < boundaryRows.length; length++) {
-    const prefix = boundaryRows.slice(0, length);
-    if (!isSafeValidatedSourcePrefix(args.conversation, prefix)) continue;
-    const last = prefix[prefix.length - 1]!;
-    const partial: ContextCompactionContent['summaries'][number] = {
-      kind: 'individual',
-      rounds: [buildCoveredRound(args.conversation, prefix, false)],
-      content_hash: hashConversationRows(prefix),
-      summary_text: await summarizeRoundForCompaction(args, boundaryRound.round_id, prefix, false),
-      evidence: [],
-    };
-    args.signal.throwIfAborted();
-    const retainedStatic = preamble
-      .filter((row) => row.role === 'system' && row.kind !== 'activity')
-      .map((row) => row.id);
-    const modeBand = band;
-    const payload = contextCompactionContentSchema.parse({
-      boundary: fallbackBoundary(last),
-      retained_static_message_ids: retainedStatic,
-      summaries: [partial],
-      applied_policy: appliedPolicy(budget, 'hard_limit_fallback', modeBand),
-    });
-    const fit = candidateFitFor(payload);
-    if (fit.accepted) return fit;
-  }
-  return null;
-}
-
-async function applyHardFallback(
-  args: ConstructionArgs,
-  sourceRows: readonly AgentMessage[],
-  classified: ClassifiedConversation,
-  baseFit: CandidateFit,
-  budget: PreparedCompaction,
-  latest: ValidatedContextCompaction | null,
-  candidateFitFor: CandidateFitFactory,
-): Promise<CandidateFit | null> {
-  const base = baseFit.candidate;
-  const start = base.compaction.cutoffSourceIndex + 1;
-  if (start <= 0) throw new Error('Hard fallback base cutoff is not an immutable source row.');
-  const boundaryRound =
-    classified.rounds.find((round) =>
-      rawRoundRows(round).some((row) => row.id === sourceRows[start]?.id),
-    ) ?? null;
-  if (!boundaryRound) return null;
-  const boundaryRows = rawRoundRows(boundaryRound);
-  const roundStart = sourceRows.findIndex((row) => row.id === boundaryRows[0]!.id);
-  const replacesPartial = !base.compaction.groups.at(-1)!.rounds.at(-1)!.complete;
-  const coveredInRound = replacesPartial ? start - roundStart : 0;
-  for (let length = coveredInRound + 1; length <= boundaryRows.length; length++) {
-    const prefix = boundaryRows.slice(0, length);
-    if (!isSafeValidatedSourcePrefix(args.conversation, prefix)) continue;
-    const cutoffSourceIndex = roundStart + length - 1;
-    if (latest && cutoffSourceIndex <= latest.cutoffSourceIndex) continue;
-    const last = prefix[prefix.length - 1]!;
-    const complete = length === boundaryRows.length;
-    const summaryText = await summarizeRoundForCompaction(args, boundaryRound.round_id, prefix, complete);
-    args.signal.throwIfAborted();
-    const group: ContextCompactionContent['summaries'][number] = {
-      kind: 'individual',
-      rounds: [buildCoveredRound(args.conversation, prefix, complete)],
-      content_hash: hashConversationRows(prefix),
-      summary_text: summaryText,
-      evidence: [],
-    };
-    const summaries = replacesPartial
-      ? [...base.payload.summaries.slice(0, -1), group]
-      : [...base.payload.summaries, group];
-    const payload = contextCompactionContentSchema.parse({
-      ...base.payload,
-      boundary: complete ? 'round' : fallbackBoundary(last),
-      summaries,
-      applied_policy: { ...base.payload.applied_policy, mode: 'hard_limit_fallback' as const },
-    });
-    const fit = candidateFitFor(payload);
-    if (fit.accepted) return fit;
-  }
-  return null;
-}
-
-function payloadFor(
-  preamble: AgentMessage[],
-  merged: ContextCompactionContent['summaries'][number] | null,
-  individual: ContextCompactionContent['summaries'],
-  budget: PreparedCompaction,
-  mode: 'normal' | 'escalated',
-  band: 'normal' | 'escalated',
-): ContextCompactionContent {
-  const retainedStatic = preamble
-    .filter((row) => row.role === 'system' && row.kind !== 'activity')
-    .map((row) => row.id);
-  return contextCompactionContentSchema.parse({
-    boundary: 'round',
-    retained_static_message_ids: retainedStatic,
-    summaries: [...(merged ? [merged] : []), ...individual],
-    applied_policy: appliedPolicy(budget, mode, band),
-  });
-}
-
-async function summarizeRawRound(
-  args: ConstructionArgs,
-  round: ClassifiedRound,
-): Promise<ContextCompactionContent['summaries'][number]> {
-  const rows = rawRoundRows(round);
-  const summaryText = await summarizeRoundForCompaction(args, round.round_id, rows, true);
-  args.signal.throwIfAborted();
-  return {
-    kind: 'individual',
-    rounds: [buildCoveredRound(args.conversation, rows, true)],
-    content_hash: hashConversationRows(rows),
-    summary_text: summaryText,
-    evidence: [],
-  };
-}
-
 async function summarizeRoundForCompaction(
   args: ConstructionArgs,
-  roundId: string,
-  rows: AgentMessage[],
-  complete: boolean,
+  round: ClassifiedRound,
+  rows: readonly AgentMessage[],
 ): Promise<string> {
-  const input = buildSummarizerRoundInput(args.conversation, roundId, rows);
-  if (input.providerConversation.messages.length === 0) return EMPTY_INDIVIDUAL_SUMMARY;
-  const cacheKey = rawSummaryCacheKey(rows, complete);
+  const input = buildSummarizerRoundInput(args.conversation, round.round_id, rows);
+  if (input.providerConversation.messages.length === 0) return EMPTY_ROUND_SUMMARY;
+  const cacheKey = rawSummaryCacheKey(rows);
   const cached = args.rawSummaryCache.get(cacheKey);
   if (cached !== undefined) return cached;
   args.signal.throwIfAborted();
@@ -609,127 +449,55 @@ async function constructSummary<T>(
   }
 }
 
-function buildCoveredRound(
+function successorContinuation(
   conversation: ValidatedConversation,
-  rows: AgentMessage[],
-  complete: boolean,
-): ContextCompactionContent['summaries'][number]['rounds'][number] {
+  coveredRows: readonly AgentMessage[],
+): { inherited: InheritedConversationActivation | undefined; continuation: ConversationContinuation } {
+  const cutoffId = coveredRows.at(-1)!.id;
+  const round = conversation.rounds.find((candidate) => candidate.rows.some((row) => row.id === cutoffId));
+  if (!round) throw new Error('Compaction cutoff does not identify a validated canonical round.');
+  const coveredIds = new Set(coveredRows.map((row) => row.id));
+  const fullyCovered = round.rows.every((row) => coveredIds.has(row.id));
+  if (fullyCovered && round.state === 'closed')
+    return { inherited: undefined, continuation: { kind: 'between_rounds' } };
+  const activation = round.activation.source === 'row'
+    ? { marker_id: round.activation.message.id, input_id: JSON.parse(round.activation.message.content).input_id as string }
+    : { marker_id: round.activation.marker_id, input_id: round.activation.input_id };
+  const activeSegmentKind = coveredSegmentKinds(round, coveredIds).at(-1) ?? 'initial';
   return {
-    complete,
-    segments: validatedSourceSegmentsForPrefix(conversation, rows).map((segment) => ({
-      kind: segment.kind,
-      source_message_ids: segment.rows.map((row) => row.id),
-    })),
+    inherited: { markerId: activation.marker_id, inputId: activation.input_id, activeSegmentKind, startOrdinal: 0 },
+    continuation: { kind: 'inherited_open_round', activation, active_segment_kind: activeSegmentKind },
   };
 }
 
-function appliedPolicy(
-  budget: PreparedCompaction,
-  mode: ContextCompactionContent['applied_policy']['mode'],
-  band: 'normal' | 'escalated',
-): ContextCompactionContent['applied_policy'] {
-  return {
-    mode,
-    band,
-    input_budget_tokens: budget.inputBudgetTokens,
-    canonical_estimated_static_tokens: budget.estimatedStaticTokens,
-    trigger_fraction: budget.triggerFraction,
-    completion_reserve_fraction: budget.completionReserveFraction,
-    merge_line_fraction:
-      band === 'normal' ? budget.normalMergeLineFraction : budget.escalatedMergeLineFraction,
-    summary_line_fraction:
-      band === 'normal' ? budget.normalSummaryLineFraction : budget.escalatedSummaryLineFraction,
-    snap: budget.snap,
-  };
-}
-
-function effectiveCompactionTokens(
-  compaction: ValidatedContextCompaction,
-  classified: ClassifiedConversation,
-): number {
-  const retained = new Set(compaction.payload.retained_static_message_ids);
-  const rows = [...classified.preamble, ...classified.rounds.flatMap((round) => round.rows)];
-  return (
-    estimateTextTokens(compaction.renderedContext) +
-    rows.reduce(
-      (sum, row, index) =>
-        sum +
-        (retained.has(row.message.id) || index > compaction.cutoffSourceIndex
-          ? row.estimated_tokens
-          : 0),
-      0,
-    )
-  );
-}
-function fallbackBoundary(row: AgentMessage): 'repair' | 'exchange' | 'message' {
-  return row.kind === 'tool_result' && failedResult(row)
-    ? 'repair'
-    : row.kind === 'tool_result'
-      ? 'exchange'
-      : 'message';
-}
-function failedResult(row: AgentMessage): boolean {
-  try {
-    return JSON.parse(row.content).success === false;
-  } catch {
-    return false;
+function coveredSegmentKinds(round: SourceRound, coveredIds: ReadonlySet<string>): ('initial' | 'repair')[] {
+  const kinds: ('initial' | 'repair')[] = [];
+  for (const segment of round.segments) {
+    if (segment.rows.some((row) => coveredIds.has(row.id))) kinds.push(segment.kind);
   }
+  return kinds;
 }
+
 function rawRoundRows(round: ClassifiedRound): AgentMessage[] {
   return round.rows.map((row) => row.message);
 }
-function roundHasProviderVisibleContent(args: ConstructionArgs, round: ClassifiedRound): boolean {
-  return buildSummarizerRoundInput(
-    args.conversation,
-    round.round_id,
-    rawRoundRows(round),
-  ).providerConversation.messages.length > 0;
+
+function rawSummaryCacheKey(rows: readonly AgentMessage[]): string {
+  return JSON.stringify(rows.map((row) => row.id));
 }
-function normalizeInvisibleSummaryPrefix(
-  args: ConstructionArgs,
-  partition: SlidingBandPartitions,
-): SlidingBandPartitions {
-  let lastInvisible = -1;
-  for (let index = 0; index < partition.summary_rounds.length; index++) {
-    if (!roundHasProviderVisibleContent(args, partition.summary_rounds[index]!))
-      lastInvisible = index;
-  }
-  if (lastInvisible < 0) return partition;
-  const before = partitionRoundIds(partition);
-  const normalized: SlidingBandPartitions = {
-    merge_rounds: [
-      ...partition.merge_rounds,
-      ...partition.summary_rounds.slice(0, lastInvisible + 1),
-    ],
-    summary_rounds: partition.summary_rounds.slice(lastInvisible + 1),
-    tail_rounds: partition.tail_rounds,
-    open_round: partition.open_round,
-  };
-  if (JSON.stringify(partitionRoundIds(normalized)) !== JSON.stringify(before))
-    throw new Error('Invisible compaction-prefix normalization changed source round identity or order.');
-  return normalized;
-}
-function partitionRoundIds(partition: SlidingBandPartitions): string[] {
-  return [
-    ...partition.merge_rounds,
-    ...partition.summary_rounds,
-    ...partition.tail_rounds,
-    ...(partition.open_round ? [partition.open_round] : []),
-  ].map((round) => round.round_id);
-}
-function rawSummaryCacheKey(rows: AgentMessage[], complete: boolean): string {
-  return JSON.stringify({
-    source_row_ids: rows.map((row) => row.id),
-    content_hash: hashConversationRows(rows),
-    complete,
-  });
-}
+
 function estimateTextTokens(text: string): number {
   return Math.ceil(Buffer.byteLength(text, 'utf8') / 4);
 }
+
 function estimateProviderConversationTokens(projection: ProviderConversationProjection): number {
   return projection.messages.reduce((sum, row) => sum + estimateMessageTokens(row), 0);
 }
-function isExactPrefix(prefix: string[], values: string[]): boolean {
-  return prefix.length <= values.length && prefix.every((value, index) => values[index] === value);
+
+function isSafeValidatedPrefix(conversation: ValidatedConversation, prefix: readonly AgentMessage[]): boolean {
+  try {
+    return isSafeValidatedSourcePrefix(conversation, prefix);
+  } catch {
+    return false;
+  }
 }

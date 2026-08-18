@@ -3,8 +3,9 @@ import { closeSync, constants, fsyncSync, ftruncateSync, lstatSync, mkdirSync, o
 
 import type { FreshnessEffects } from '../application/freshness-effects.js';
 import { projectCanonicalConversationRow } from '../application/read-models/canonical-conversation-outbound.js';
-import { validateConversation, type ValidatedConversation } from '../contracts/conversation-validation.js';
-import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, type ConversationSessionId } from '../schemas/index.js';
+import { validateCompactedHistorySuccessor, validateConversation, type CompactedGenesisSeed, type ValidatedConversation } from '../contracts/conversation-validation.js';
+import { currentCoveredRequiredFactRows } from '../runtime/actors/context/composition-projector.js';
+import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, type CompactedHistory, type ConversationSessionId, type RequiredModelFactSlots } from '../schemas/index.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
 import { PublicationOutcomeUnknownError, throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import {
@@ -12,6 +13,7 @@ import {
   conversationVersionIndexSchema,
   canonicalValueSha256,
   conversationSha256,
+  type ConversationContinuation,
   type ConversationSegmentGenesis,
   type ConversationVersionEntry,
   type ConversationVersionIndex,
@@ -35,15 +37,15 @@ export interface ConversationFileContext { readonly projectRoot: string; readonl
 export interface ConversationAppendOptions { readonly publicationTemporaryId?: PublicationTemporaryIdFactory; readonly io?: GrowingFileIo }
 interface ConversationTruncationIo { open(path: string, flags: number): number; ftruncate(fd: number, length: number): void; fsync(fd: number): void; close(fd: number): void }
 export interface FoldedConversation { readonly sessionId: ConversationSessionId; readonly entries: readonly AgentMessage[]; readonly cursor: string | null; readonly totalEntries: number; readonly segmentVersion: number; readonly segmentContext: ConversationSegmentContext }
-export type ConversationSegmentContext = null | { readonly kind: 'compacted'; readonly source_version: number; readonly covered_through_message_id: string; readonly boundary: import('../schemas/index.js').ContextCompactionContent['boundary']; readonly summaries: import('../schemas/index.js').ContextCompactionContent['summaries']; readonly applied_policy: import('../schemas/index.js').ContextCompactionContent['applied_policy']; readonly continuation: import('./canonical-conversation-artifacts.js').ConversationContinuation };
+export type ConversationSegmentContext = null | { readonly kind: 'compacted'; readonly source_version: number; readonly covered_through_message_id: string; readonly summary_text: string; readonly source_kind: 'current_rows' | 'prior_genesis_plus_current_rows'; readonly prior_genesis_id: string | null; readonly prior_history_hash: string | null; readonly covered_group_count: number; readonly dispositions: CompactedHistory['dispositionCommitment']; readonly coverage: CompactedHistory['coverageCommitment']; readonly required_model_facts: RequiredModelFactSlots; readonly continuation: ConversationContinuation };
 export interface ConversationCatalog { readonly sessionId: ConversationSessionId; readonly createdAt: string; readonly versions: readonly ConversationVersionEntry[]; readonly currentVersion: number | null }
 export interface ConversationSegment { readonly index: ConversationVersionIndex; readonly entry: ConversationVersionEntry; readonly genesis: ConversationSegmentGenesis; readonly rows: readonly AgentMessage[]; readonly bytes: Buffer; readonly conversation: ValidatedConversation }
 export class ConversationSegmentChangedError extends Error { constructor(readonly requestedVersion: number, readonly currentVersion: number) { super('Conversation segment changed.'); } }
 export class ConversationHistoricalVersionNotFoundError extends Error {}
 export class ConversationHistoricalVersionUnavailableError extends Error { constructor(readonly version: number, readonly reason: 'missing'|'corrupt'|'io_error') { super('Historical conversation segment unavailable.'); } }
-function validationSeeds(genesis: ConversationSegmentGenesis): { inherited: import('../contracts/conversation-validation.js').InheritedConversationActivation | undefined; compacted: import('../contracts/conversation-validation.js').ConversationCompactedGenesisSeed | undefined } {
-  const inherited = genesis.kind === 'compacted_segment_genesis' && genesis.continuation.kind === 'inherited_open_round' ? { markerId: genesis.continuation.activation.marker_id, inputId: genesis.continuation.activation.input_id, activeSegmentKind: genesis.continuation.active_segment_kind, startOrdinal: genesis.retained_rows.static_row_count } : undefined;
-  const compacted = genesis.kind === 'compacted_segment_genesis' ? { id: genesis.id, timestamp: genesis.timestamp, payload: genesis.compaction, retainedStaticRowCount: genesis.retained_rows.static_row_count } : undefined;
+function validationSeeds(genesis: ConversationSegmentGenesis): { inherited: import('../contracts/conversation-validation.js').InheritedConversationActivation | undefined; compacted: CompactedGenesisSeed | undefined } {
+  const inherited = genesis.kind === 'compacted_segment_genesis' && genesis.continuation.kind === 'inherited_open_round' ? { markerId: genesis.continuation.activation.marker_id, inputId: genesis.continuation.activation.input_id, activeSegmentKind: genesis.continuation.active_segment_kind, startOrdinal: 0 } : undefined;
+  const compacted = genesis.kind === 'compacted_segment_genesis' ? { id: genesis.id, timestamp: genesis.timestamp, history: genesis.compaction, sourceVersion: genesis.source.version } : undefined;
   return { inherited, compacted };
 }
 
@@ -101,10 +103,9 @@ function validateLoadedSegment(index: ConversationVersionIndex, entry: Conversat
   const { genesis, rows } = parsed;
   if (genesis.entry_id !== entry.entry_id || genesis.session_id !== sessionId || genesis.segment_version !== entry.version || genesis.kind === 'ordinary_segment_genesis' !== (entry.genesis.kind === 'ordinary')) throw new Error(`Conversation segment '${entry.filename}' does not match its index entry.`);
   if (genesis.kind === 'compacted_segment_genesis') {
-    const initialRows = rows.slice(0, genesis.retained_rows.row_count);
-    if (entry.genesis.kind !== 'compacted' || genesis.source.version !== entry.genesis.source_version || genesis.source.filename !== entry.genesis.source_filename || genesis.source.sha256 !== entry.genesis.source_sha256 || genesis.source.covered_through_message_id !== entry.genesis.covered_through_message_id || canonicalValueSha256(genesis.compaction) !== entry.genesis.compaction_payload_sha256 || canonicalValueSha256(genesis.continuation) !== entry.genesis.continuation_sha256 || canonicalValueSha256(initialRows) !== entry.genesis.retained_rows_sha256 || genesis.retained_rows.sha256 !== entry.genesis.retained_rows_sha256) throw new Error(`Compacted conversation segment '${entry.filename}' does not match its index genesis commitment.`);
-    const staticRows = initialRows.slice(0, genesis.retained_rows.static_row_count); const tailRows = initialRows.slice(genesis.retained_rows.static_row_count);
-    if (rows.length < genesis.retained_rows.row_count || initialRows[0]?.id !== (genesis.retained_rows.first_message_id ?? undefined) || initialRows.at(-1)?.id !== (genesis.retained_rows.last_message_id ?? undefined) || tailRows.length !== genesis.retained_rows.tail_row_count || tailRows[0]?.id !== (genesis.retained_rows.tail_first_message_id ?? undefined) || staticRows.map((row) => row.id).join('\0') !== genesis.compaction.retained_static_message_ids.join('\0')) throw new Error(`Compacted conversation segment '${entry.filename}' retained-row metadata is invalid.`);
+    const tailRows = rows.slice(0, genesis.retained_rows.row_count);
+    if (entry.genesis.kind !== 'compacted' || genesis.source.version !== entry.genesis.source_version || genesis.source.filename !== entry.genesis.source_filename || genesis.source.sha256 !== entry.genesis.source_sha256 || genesis.source.covered_through_message_id !== entry.genesis.covered_through_message_id || genesis.compaction.coverageCommitment.coveredThroughMessageId !== entry.genesis.covered_through_message_id || canonicalValueSha256(genesis.compaction) !== entry.genesis.compaction_payload_sha256 || canonicalValueSha256(genesis.continuation) !== entry.genesis.continuation_sha256 || canonicalValueSha256(tailRows) !== entry.genesis.retained_rows_sha256 || genesis.retained_rows.sha256 !== entry.genesis.retained_rows_sha256) throw new Error(`Compacted conversation segment '${entry.filename}' does not match its index genesis commitment.`);
+    if (rows.length < genesis.retained_rows.row_count || tailRows[0]?.id !== (genesis.retained_rows.first_message_id ?? undefined) || tailRows.at(-1)?.id !== (genesis.retained_rows.last_message_id ?? undefined)) throw new Error(`Compacted conversation segment '${entry.filename}' retained-row metadata is invalid.`);
   }
   try {
     const { inherited, compacted } = validationSeeds(genesis);
@@ -126,7 +127,8 @@ export function readConversation(projectRoot: string, sessionId: ConversationSes
 export function foldConversation(projectRoot: string, sessionId: ConversationSessionId, options: { segmentVersion?: number; since?: string; lastN?: number } = {}): FoldedConversation {
   const segment = readSegment(projectRoot, sessionId); if (!segment) throw new ConversationHistoricalVersionNotFoundError();
   if (options.segmentVersion !== undefined && options.segmentVersion !== segment.entry.version) throw new ConversationSegmentChangedError(options.segmentVersion, segment.entry.version);
-  const rows = segment.rows; const selected: AgentMessage[] = []; let cursorFound = options.since === undefined; let cursor: string | null = options.since ?? null; let totalEntries = 0;
+  const coveredFacts = coveredRequiredFactRows(segment);
+  const rows = [...coveredFacts, ...segment.rows]; const selected: AgentMessage[] = []; let cursorFound = options.since === undefined; let cursor: string | null = options.since ?? null; let totalEntries = 0;
   for (const row of rows) {
     if (options.since !== undefined && !cursorFound) { if (row.id === options.since) cursorFound = true; continue; }
     if (row.kind === 'provider_private') continue;
@@ -137,7 +139,15 @@ export function foldConversation(projectRoot: string, sessionId: ConversationSes
   if (!cursorFound) throw new ConversationCursorNotFoundError(options.since!);
   return Object.freeze({ sessionId, entries: Object.freeze(selected), cursor, totalEntries, segmentVersion: segment.entry.version, segmentContext: segmentContext(segment.genesis) });
 }
-export function segmentContext(genesis: ConversationSegmentGenesis): ConversationSegmentContext { return genesis.kind === 'ordinary_segment_genesis' ? null : Object.freeze({ kind: 'compacted', source_version: genesis.source.version, covered_through_message_id: genesis.source.covered_through_message_id, boundary: genesis.compaction.boundary, summaries: genesis.compaction.summaries, applied_policy: genesis.compaction.applied_policy, continuation: genesis.continuation }); }
+function coveredRequiredFactRows(segment: ConversationSegment): readonly AgentMessage[] {
+  if (segment.genesis.kind !== 'compacted_segment_genesis') return [];
+  return currentCoveredRequiredFactRows({
+    sourceSessionId: segment.conversation.sourceSessionId,
+    requiredModelFacts: segment.conversation.effectiveRequiredModelFacts,
+    uncoveredRows: segment.conversation.sourceRows,
+  });
+}
+export function segmentContext(genesis: ConversationSegmentGenesis): ConversationSegmentContext { return genesis.kind === 'ordinary_segment_genesis' ? null : Object.freeze({ kind: 'compacted', source_version: genesis.source.version, covered_through_message_id: genesis.source.covered_through_message_id, summary_text: genesis.compaction.summaryText, source_kind: genesis.compaction.source.kind, prior_genesis_id: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorGenesisId : null, prior_history_hash: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorHistoryHash : null, covered_group_count: genesis.compaction.source.groups.length, dispositions: genesis.compaction.dispositionCommitment, coverage: genesis.compaction.coverageCommitment, required_model_facts: genesis.compaction.requiredModelFacts, continuation: genesis.continuation }); }
 export class ConversationCursorNotFoundError extends Error { constructor(readonly cursor: string) { super(`Conversation cursor '${cursor}' was not found.`); } }
 function stripProviderProjection(row: AgentMessage): AgentMessage { const result = { ...row }; delete result.provider_projection; return agentMessageSchema.parse(result); }
 function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] { if (!messages.length) throw new Error('Conversation append requires at least one message.'); const parsed = messages.map((message) => agentMessageSchema.parse(message)); const sessionId = parsed[0]!.session_id; if (parsed.some((message) => message.session_id !== sessionId)) throw new Error('Conversation append requires one session.'); if (new Set(parsed.map((message) => message.id)).size !== parsed.length) throw new Error('Conversation append contains duplicate message ids.'); return parsed; }
@@ -164,33 +174,32 @@ export function appendConversationBatch(conversations: ConversationFileContext, 
 }
 
 export interface ConversationCompactionPublication {
-  readonly payload: import('../schemas/index.js').ContextCompactionContent;
+  readonly history: CompactedHistory;
   readonly cutoffSourceIndex: number;
   readonly cutoffMessageId: string;
-  readonly finalCoveredRoundComplete: boolean;
-  readonly finalCoveredSegmentKind: 'initial' | 'repair';
+  readonly continuation: ConversationContinuation;
 }
 
 export function publishCompactedConversationSegment(conversations: ConversationFileContext, sessionId: ConversationSessionId, compaction: ConversationCompactionPublication, temporary?: PublicationTemporaryIdFactory): void {
   const target = location(conversations.projectRoot, sessionId); const current = readSegment(conversations.projectRoot, sessionId); if (!current) throw new Error(`Conversation '${sessionId}' has no source segment to compact.`);
   if (current.entry.version !== current.index.current_version || current.entry.filename !== current.index.current_filename) throw new Error('Conversation compaction source is not the current index head.');
   const sourceRows = current.conversation.sourceRows; if (sourceRows[compaction.cutoffSourceIndex]?.id !== compaction.cutoffMessageId) throw new Error('Conversation compaction cutoff does not identify the source segment.');
-  const retainedIds = new Set(compaction.payload.retained_static_message_ids); const retainedStatic = sourceRows.slice(0, compaction.cutoffSourceIndex + 1).filter((row) => retainedIds.has(row.id));
-  if (retainedStatic.length !== retainedIds.size) throw new Error('Conversation compaction retained-static identities do not resolve exactly once.');
-  const tail = sourceRows.slice(compaction.cutoffSourceIndex + 1); const rows = [...retainedStatic, ...tail];
-  let continuation: import('./canonical-conversation-artifacts.js').ConversationContinuation = { kind: 'between_rounds' };
-  if (!compaction.finalCoveredRoundComplete) {
-    const round = current.conversation.rounds.find((candidate) => candidate.rows.some((row) => row.id === compaction.cutoffMessageId)); if (!round || tail.length === 0) throw new Error('Partial compaction cutoff must retain the continuation of its source round.');
-    const activation = round.activation.source === 'row' ? { marker_id: round.activation.message.id, input_id: JSON.parse(round.activation.message.content).input_id as string } : { marker_id: round.activation.marker_id, input_id: round.activation.input_id };
-    continuation = { kind: 'inherited_open_round', activation, active_segment_kind: compaction.finalCoveredSegmentKind };
+  const coveredRows = sourceRows.slice(0, compaction.cutoffSourceIndex + 1);
+  const { inherited: currentInherited, compacted: currentCompacted } = validationSeeds(current.genesis);
+  validateCompactedHistorySuccessor({ source: current.conversation, sourceGenesis: currentCompacted ?? null, sourceVersion: current.entry.version, successor: compaction.history, coveredRows });
+  const tail = sourceRows.slice(compaction.cutoffSourceIndex + 1); const rows = tail;
+  let inherited: import('../contracts/conversation-validation.js').InheritedConversationActivation | undefined;
+  if (compaction.continuation.kind === 'inherited_open_round') {
+    inherited = { markerId: compaction.continuation.activation.marker_id, inputId: compaction.continuation.activation.input_id, activeSegmentKind: compaction.continuation.active_segment_kind, startOrdinal: 0 };
+  } else if (currentInherited && current.conversation.rounds.some((round) => round.state === 'open' && round.activation.source === 'compacted_genesis' && round.activation.marker_id === currentInherited.markerId && round.activation.input_id === currentInherited.inputId)) {
+    throw new Error('A between-rounds cutoff cannot leave an inherited open activation with no retained row.');
   }
   const version = current.entry.version + 1; const entryId = randomUUID(); const timestamp = new Date().toISOString(); const filename = versionFilename(version, randomUUID(), 'jsonl');
-  const retainedHash = canonicalValueSha256(rows); const sourceHash = conversationSha256(current.bytes); const payloadHash = canonicalValueSha256(compaction.payload); const continuationHash = canonicalValueSha256(continuation);
-  const genesis = { format_version: 1, kind: 'compacted_segment_genesis', id: randomUUID(), entry_id: entryId, session_id: sessionId, segment_version: version, timestamp, source: { version: current.entry.version, filename: current.entry.filename, sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId }, compaction: compaction.payload, continuation, retained_rows: { first_message_id: rows[0]?.id ?? null, last_message_id: rows.at(-1)?.id ?? null, row_count: rows.length, static_row_count: retainedStatic.length, tail_row_count: tail.length, tail_first_message_id: tail[0]?.id ?? null, sha256: retainedHash } } as const;
+  const retainedHash = canonicalValueSha256(rows); const sourceHash = conversationSha256(current.bytes); const payloadHash = canonicalValueSha256(compaction.history); const continuationHash = canonicalValueSha256(compaction.continuation);
+  const genesis = { format_version: 1, kind: 'compacted_segment_genesis', id: randomUUID(), entry_id: entryId, session_id: sessionId, segment_version: version, timestamp, source: { version: current.entry.version, filename: current.entry.filename, sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId }, compaction: compaction.history, continuation: compaction.continuation, retained_rows: { first_message_id: rows[0]?.id ?? null, last_message_id: rows.at(-1)?.id ?? null, row_count: rows.length, sha256: retainedHash } } as const;
   const entry = { entry_id: entryId, version, filename, created_at: timestamp, genesis: { kind: 'compacted', source_version: current.entry.version, source_filename: current.entry.filename, source_sha256: sourceHash, covered_through_message_id: compaction.cutoffMessageId, compaction_payload_sha256: payloadHash, continuation_sha256: continuationHash, retained_rows_sha256: retainedHash } } as const;
   const next = conversationVersionIndexSchema.parse({ ...current.index, versions: [...current.index.versions, entry], current_version: version, current_filename: filename });
-  const inherited = continuation.kind === 'inherited_open_round' ? { markerId: continuation.activation.marker_id, inputId: continuation.activation.input_id, activeSegmentKind: continuation.active_segment_kind, startOrdinal: retainedStatic.length } : undefined;
-  validateConversation(sessionId, rows, inherited, { id: genesis.id, timestamp, payload: compaction.payload, retainedStaticRowCount: retainedStatic.length });
+  validateConversation(sessionId, rows, inherited, { id: genesis.id, timestamp, history: compaction.history, sourceVersion: current.entry.version });
   createImmutableVersionFile(target.versionPath(filename), segmentEnvelope([genesis, ...rows])); publishIndex(target.indexPath, next, temporary);
   conversations.changes?.conversationChanged({ session_id: sessionId, segment_version: version, visible_message_id: visibleMessageId(rows) });
 }

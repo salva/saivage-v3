@@ -5,7 +5,23 @@ export {
   publicCardActorStates,
   toPublicCardActorState,
 } from './actor-vocabulary.js';
-export { canonicalJson, contextCompactionAppliedPolicySchema, contextCompactionContentSchema, contextCompactionSummaryGroupSchema, contextCompactionSummaryRoundSchema, parseCanonicalContextCompaction, type ContextCompactionContent } from './context-compaction.js';
+export {
+  accumulatedSummarySha256,
+  canonicalJson,
+  compactedHistorySchema,
+  coveredSourceGroupSchema,
+  coveredSourceGroupsSha256,
+  foldDispositionCommitment,
+  parseCanonicalCompactedHistory,
+  requiredModelFactSlotsSchema,
+  type CompactedHistory,
+  type CoveredDisposition,
+  type CoveredSourceGroup,
+  type DispositionCommitment,
+  type RequiredModelFactRecoverySlot,
+  type RequiredModelFactRefusalSlot,
+  type RequiredModelFactSlots,
+} from './context-compaction.js';
 export {
   contextAudienceSchema,
   contextEvidenceSchema,

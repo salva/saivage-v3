@@ -61,6 +61,9 @@ function dynamicBlock(id: string, overrides: Partial<Omit<ContextBlock, 'id'>> =
   return { id, role: 'user', content: `content:${id}`, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, canonicalSource: null, ...overrides };
 }
 
+const historyFacts = (partial: Omit<EffectiveCompactedHistoryFacts, 'historyMessageId' | 'historyTimestamp'>): EffectiveCompactedHistoryFacts =>
+  ({ historyMessageId: 'genesis-1:compacted-history', historyTimestamp: '2026-08-17T00:00:00.000Z', ...partial });
+
 const compose = (uncoveredRows: readonly AgentMessage[], args: { effectiveHistory?: EffectiveCompactedHistoryFacts | null; dynamicBlocks?: readonly ContextBlock[] } = {}): ComposedContextProjection =>
   composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: args.effectiveHistory ?? null, dynamicBlocks: args.dynamicBlocks ?? [], uncoveredRows });
 
@@ -131,13 +134,13 @@ describe('bounded repeated-event rule', () => {
   it('projects only the newest uncovered recovery and refusal, each exactly once, without mutating genesis', () => {
     const refusalA = refusalRow(INPUT_A);
     const refusalB = refusalRow(INPUT_B);
-    const effectiveHistory: EffectiveCompactedHistoryFacts = {
+    const effectiveHistory: EffectiveCompactedHistoryFacts = historyFacts({
       summaryText: 'prior prose',
       requiredModelFacts: {
         latestRecovery: { sourceMessageId: `${INPUT_A}:model-recovered`, activationInputId: INPUT_A },
         latestContentPolicyRefusal: { markerId: refusalA.id, activationInputId: INPUT_A },
       },
-    };
+    });
     const composed = compose([recoveryRow(INPUT_A), recoveryRow(INPUT_B), refusalA, refusalB], { effectiveHistory });
     const rows = canonicalRows(composed);
     expect(rows.filter((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);
@@ -149,16 +152,16 @@ describe('bounded repeated-event rule', () => {
     expect(composed.summarizer.filter((item) => item.kind === 'message' && item.semantic === 'recovery_notice')).toHaveLength(1);
     expect(composed.summarizer.filter((item) => item.kind === 'message' && item.semantic === 'refusal_notice')).toHaveLength(1);
     expect(composed.summarizer[0]).toEqual({ kind: 'inherited_summary', content: 'prior prose' });
-    expect(composed.primary[0]).toEqual({ origin: 'history_summary', content: 'prior prose' });
+    expect(composed.primary[0]).toMatchObject({ origin: 'history_summary', content: 'prior prose', messageId: 'genesis-1:compacted-history' });
   });
 
   it('synthesizes the exact notices from inherited slots when no newer uncovered occurrence exists', () => {
     const recovery = { sourceMessageId: `${INPUT_A}:model-recovered`, activationInputId: INPUT_A };
     const markerId = refusalRow(INPUT_A).id;
-    const effectiveHistory: EffectiveCompactedHistoryFacts = {
+    const effectiveHistory: EffectiveCompactedHistoryFacts = historyFacts({
       summaryText: 'accumulated',
       requiredModelFacts: { latestRecovery: recovery, latestContentPolicyRefusal: { markerId, activationInputId: INPUT_A } },
-    };
+    });
     const composed = compose([], { effectiveHistory });
     const rows = canonicalRows(composed);
     expect(rows).toHaveLength(2);
@@ -169,7 +172,7 @@ describe('bounded repeated-event rule', () => {
   });
 
   it('rejects an inherited recovery slot that does not match its activation identity', () => {
-    const effectiveHistory: EffectiveCompactedHistoryFacts = { summaryText: 'x', requiredModelFacts: { latestRecovery: { sourceMessageId: 'not-the-identity', activationInputId: INPUT_A }, latestContentPolicyRefusal: null } };
+    const effectiveHistory: EffectiveCompactedHistoryFacts = historyFacts({ summaryText: 'x', requiredModelFacts: { latestRecovery: { sourceMessageId: 'not-the-identity', activationInputId: INPUT_A }, latestContentPolicyRefusal: null } });
     expect(() => compose([], { effectiveHistory })).toThrow(/does not match its activation identity/);
   });
 

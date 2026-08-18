@@ -5,12 +5,15 @@ export type SnapPolicy = 'keep_straddler_verbatim' | 'compact_straddler';
 export type SlidingBandConfig = { tail_budget_tokens: number; middle_budget_tokens: number; snap: SnapPolicy };
 export type SlidingBandPartitions = { merge_rounds: ClassifiedRound[]; summary_rounds: ClassifiedRound[]; tail_rounds: ClassifiedRound[]; open_round: ClassifiedRound | null };
 
-/** Partitions completed rounds backward from the newest round. The latest round is always open/verbatim. */
+/** Partitions closed rounds backward from the newest closed round. Only the explicit open round and closed rounds above the budgets stay verbatim. */
 export function computeSlidingCompactionBands(rounds: readonly ClassifiedRound[], config: SlidingBandConfig): SlidingBandPartitions {
   if (!Number.isInteger(config.tail_budget_tokens) || config.tail_budget_tokens < 0) throw new Error('Compaction tail budget must be a nonnegative integer.');
   if (!Number.isInteger(config.middle_budget_tokens) || config.middle_budget_tokens < 0) throw new Error('Compaction middle budget must be a nonnegative integer.');
-  const openRound = rounds.length === 0 ? null : rounds[rounds.length - 1]!;
-  const completed = openRound ? rounds.slice(0, -1) : [];
+  const openRounds = rounds.filter((round) => round.state === 'open');
+  if (openRounds.length > 1) throw new Error('Conversation validation admits at most one logically open round.');
+  const openRound = openRounds[0] ?? null;
+  if (openRound && rounds.indexOf(openRound) !== rounds.length - 1) throw new Error('The logically open round must be the newest round.');
+  const completed = rounds.filter((round) => round.state === 'closed');
   let cursor = completed.length - 1;
   const tailNewestFirst: ClassifiedRound[] = [];
   let used = 0;

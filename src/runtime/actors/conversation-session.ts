@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { agentMessageSchema, conversationSessionIdentity, DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, STRUCTURAL_ROW_POLICY, type AgentMessage, type MessageRole, type ConversationSessionId,
   type CardConversationSessionId,
 } from '../../schemas/index.js';
-import { renderContextCompactionPayload, type ValidatedConversation } from '../../contracts/conversation-validation.js';
+import type { ValidatedConversation } from '../../contracts/conversation-validation.js';
 import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
 import { composeContextProjection, providerConversationFromComposedContext } from './context/composition-projector.js';
 import { classifyConversationRowPolicy } from './context/row-policy.js';
@@ -192,47 +192,21 @@ export function buildContextTextMessage(
 export function providerConversationProjection(
   conversation: ValidatedConversation,
 ): ProviderConversationProjection {
+  const genesis = conversation.compactedGenesis;
+  const history = conversation.effectiveCompactedHistory;
   return providerConversationFromComposedContext(composeContextProjection({
     sourceSessionId: conversation.sourceSessionId,
-    effectiveHistory: null,
+    effectiveHistory: genesis && history
+      ? {
+          summaryText: history.summaryText,
+          historyMessageId: `${genesis.id}:compacted-history`,
+          historyTimestamp: genesis.timestamp,
+          requiredModelFacts: history.requiredModelFacts,
+        }
+      : null,
     dynamicBlocks: [],
-    uncoveredRows: effectiveSourceRows(conversation),
+    uncoveredRows: conversation.sourceRows,
   }));
-}
-
-function effectiveSourceRows(conversation: ValidatedConversation): readonly AgentMessage[] {
-  const latest = conversation.latestCompaction;
-  if (conversation.compactedGenesis) {
-    const genesis = conversation.compactedGenesis;
-    const rendered = agentMessageSchema.parse({ id: `${genesis.id}:rendered`, session_id: conversation.sourceSessionId, role: 'system', kind: 'text', content: renderContextCompactionPayload(genesis.payload), context_policy: DURABLE_PRIMARY_CONTENT_POLICY, round_id: generateRoundId('compacted'), message_index: 0, block_index: 0, timestamp: genesis.timestamp });
-    return [...conversation.sourceRows.slice(0, genesis.retainedStaticRowCount), rendered, ...conversation.sourceRows.slice(genesis.retainedStaticRowCount)];
-  }
-  if (!latest) return conversation.sourceRows;
-  const retainedIds = new Set(latest.payload.retained_static_message_ids);
-  const retained = conversation.sourceRows
-    .filter((message, index) => index <= latest.cutoffSourceIndex && retainedIds.has(message.id));
-  const metadata = latest.metadataRow;
-  const rendered = agentMessageSchema.parse({
-    id: `${metadata.id}:rendered`,
-    session_id: metadata.session_id,
-    role: 'system',
-    kind: 'text',
-    content: latest.renderedContext,
-    context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
-    round_id: metadata.round_id,
-    message_index: metadata.message_index,
-    block_index: metadata.block_index,
-    timestamp: metadata.timestamp,
-  });
-  const coveredMarkers = conversation.sourceRows
-    .slice(0, latest.cutoffSourceIndex + 1)
-    .filter((message) => message.kind === 'content_policy_refusal');
-  return [
-    ...retained,
-    rendered,
-    ...coveredMarkers,
-    ...conversation.sourceRows.slice(latest.cutoffSourceIndex + 1),
-  ];
 }
 
 export type SummarizerConversationProjection = Readonly<{

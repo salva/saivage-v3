@@ -1,59 +1,50 @@
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
-const jsonValueSchema: z.ZodType<unknown> = z.lazy(() => z.union([
-  z.null(), z.boolean(), z.number(), z.string(), z.array(jsonValueSchema), z.record(z.string(), jsonValueSchema),
-]));
+const sha256HexPattern = /^[0-9a-f]{64}$/;
+const positiveSafeInteger = z.number().int().safe().positive();
+const nonNegativeSafeInteger = z.number().int().safe().nonnegative();
+const sha256HexString = z.string().regex(sha256HexPattern);
+const canonicalUuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
-const evidenceSchema = z.discriminatedUnion('flavor', [
-  z.object({ flavor: z.literal('stash'), url: z.string(), label: z.string(), bytes: z.number().int().nonnegative().optional() }).strict(),
-  z.object({ flavor: z.literal('process_stdout'), url: z.string(), label: z.string(), bytes: z.number().int().nonnegative().optional() }).strict(),
-  z.object({ flavor: z.literal('process_stderr'), url: z.string(), label: z.string(), bytes: z.number().int().nonnegative().optional() }).strict(),
-  z.object({ flavor: z.literal('source_recallable'), tool: z.string(), args: jsonValueSchema, label: z.string() }).strict(),
-]);
+export const coveredSourceGroupSchema = z.object({ message_ids: z.array(z.string().min(1)).min(1), content_sha256: sha256HexString }).strict();
 
-export const contextCompactionSummaryRoundSchema = z.object({
-  complete: z.boolean(),
-  segments: z.array(z.object({
-    kind: z.enum(['initial', 'repair']),
-    source_message_ids: z.array(z.string().min(1)).min(1),
-  }).strict()).min(1),
-}).strict();
-
-export const contextCompactionSummaryGroupSchema = z.object({
-  kind: z.enum(['merged', 'individual']),
-  rounds: z.array(contextCompactionSummaryRoundSchema).min(1),
-  content_hash: z.string().regex(/^[0-9a-f]{64}$/),
-  summary_text: z.string().min(1),
-  evidence: z.array(evidenceSchema),
-}).strict();
-
-export const contextCompactionAppliedPolicySchema = z.object({
-  mode: z.enum(['normal', 'escalated', 'hard_limit_fallback']), band: z.enum(['normal', 'escalated']),
-  input_budget_tokens: z.number().int().positive(), canonical_estimated_static_tokens: z.number().int().nonnegative(),
-  trigger_fraction: z.number(), completion_reserve_fraction: z.number(), merge_line_fraction: z.number(), summary_line_fraction: z.number(),
-  snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']),
-}).strict();
-
-export const contextCompactionContentSchema = z.object({
-  boundary: z.enum(['round', 'repair', 'exchange', 'message']),
-  retained_static_message_ids: z.array(z.string().min(1)),
-  summaries: z.array(contextCompactionSummaryGroupSchema).min(1),
-  applied_policy: contextCompactionAppliedPolicySchema,
-}).strict().superRefine((payload, ctx) => {
-  const mergedIndexes = payload.summaries.flatMap((group, index) => group.kind === 'merged' ? [index] : []);
-  if (mergedIndexes.length > 1 || mergedIndexes.some((index) => index !== 0)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'A merged summary group may occur only once and first.', path: ['summaries'] });
-  const sourceIds = payload.summaries.flatMap((group) => group.rounds.flatMap((round) => round.segments.flatMap((segment) => segment.source_message_ids)));
-  if (new Set(sourceIds).size !== sourceIds.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Compaction source message ids must be globally unique.', path: ['summaries'] });
-  payload.summaries.forEach((group, groupIndex) => {
-    if (group.kind === 'individual' && group.rounds.length !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'An individual summary group must contain exactly one round.', path: ['summaries', groupIndex, 'rounds'] });
-    group.rounds.forEach((round, roundIndex) => {
-      if (group.kind === 'merged' && !round.complete) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Merged summary rounds must be complete.', path: ['summaries', groupIndex, 'rounds', roundIndex, 'complete'] });
-      if (!round.complete && (payload.applied_policy.mode !== 'hard_limit_fallback' || group.kind !== 'individual' || groupIndex !== payload.summaries.length - 1)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Only the final individual group in hard fallback may contain a partial round.', path: ['summaries', groupIndex, 'rounds', roundIndex, 'complete'] });
-    });
-  });
+export const requiredModelFactSlotsSchema = z.object({
+  latestRecovery: z.object({ sourceMessageId: z.string().min(1), activationInputId: canonicalUuidSchema }).strict().nullable(),
+  latestContentPolicyRefusal: z.object({ markerId: canonicalUuidSchema, activationInputId: canonicalUuidSchema }).strict().nullable(),
+}).strict().superRefine((facts, ctx) => {
+  if (facts.latestRecovery && facts.latestRecovery.sourceMessageId !== `${facts.latestRecovery.activationInputId}:model-recovered`)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['latestRecovery', 'sourceMessageId'], message: 'Recovery sourceMessageId must equal the activation-derived recovery identity.' });
 });
 
-export type ContextCompactionContent = z.infer<typeof contextCompactionContentSchema>;
+export const compactedHistorySchema = z.object({
+  summaryText: z.string().min(1),
+  source: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('current_rows'), groups: z.array(coveredSourceGroupSchema) }).strict(),
+    z.object({ kind: z.literal('prior_genesis_plus_current_rows'), priorGenesisId: canonicalUuidSchema, priorHistoryHash: sha256HexString, groups: z.array(coveredSourceGroupSchema) }).strict(),
+  ]),
+  dispositionCommitment: z.object({ sha256: sha256HexString, count: positiveSafeInteger, summarized: nonNegativeSafeInteger, evidenceOnly: nonNegativeSafeInteger, superseded: nonNegativeSafeInteger }).strict(),
+  coverageCommitment: z.object({ sourceSessionId: z.string().min(1), sourceVersion: positiveSafeInteger, coveredThroughMessageId: z.string().min(1), coveredSourceGroupsSha256: sha256HexString, accumulatedSummarySha256: sha256HexString }).strict(),
+  requiredModelFacts: requiredModelFactSlotsSchema,
+}).strict().superRefine((history, ctx) => {
+  if (history.source.groups.length === 0) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['source', 'groups'], message: 'Compacted history must name at least one covered source group.' });
+  const dispositions = history.dispositionCommitment;
+  if (dispositions.count !== dispositions.summarized + dispositions.evidenceOnly + dispositions.superseded)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['dispositionCommitment'], message: 'Disposition count must equal the sum of its kinds.' });
+  if (coveredSourceGroupsSha256(history.source.groups) !== history.coverageCommitment.coveredSourceGroupsSha256)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverageCommitment', 'coveredSourceGroupsSha256'], message: 'Coverage commitment does not commit to the named covered source groups.' });
+  if (accumulatedSummarySha256(history.summaryText) !== history.coverageCommitment.accumulatedSummarySha256)
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['coverageCommitment', 'accumulatedSummarySha256'], message: 'Coverage commitment does not commit to the exact accumulated summary bytes.' });
+});
+
+export type CoveredSourceGroup = z.infer<typeof coveredSourceGroupSchema>;
+export type RequiredModelFactSlots = z.infer<typeof requiredModelFactSlotsSchema>;
+export type RequiredModelFactRecoverySlot = NonNullable<RequiredModelFactSlots['latestRecovery']>;
+export type RequiredModelFactRefusalSlot = NonNullable<RequiredModelFactSlots['latestContentPolicyRefusal']>;
+export type CompactedHistory = z.infer<typeof compactedHistorySchema>;
+export type DispositionCommitment = CompactedHistory['dispositionCommitment'];
+
+export type CoveredDisposition = 'summarized' | 'evidence_only' | 'superseded';
 
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortJson(value));
@@ -67,8 +58,33 @@ function sortJson(value: unknown): unknown {
   return value;
 }
 
-export function parseCanonicalContextCompaction(content: string): ContextCompactionContent {
-  const parsed = contextCompactionContentSchema.parse(JSON.parse(content));
-  if (content !== canonicalJson(parsed)) throw new Error('context_compaction content must be canonical JSON.');
+function sha256(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex');
+}
+
+export function coveredSourceGroupsSha256(groups: readonly CoveredSourceGroup[]): string {
+  return sha256(canonicalJson(groups.map((group) => ({ content_sha256: group.content_sha256, message_ids: group.message_ids }))));
+}
+
+export function accumulatedSummarySha256(summaryText: string): string {
+  return sha256(summaryText);
+}
+
+export function foldDispositionCommitment(prior: DispositionCommitment | null, dispositions: readonly { id: string; disposition: CoveredDisposition }[]): DispositionCommitment {
+  const summarized = dispositions.filter((entry) => entry.disposition === 'summarized').length;
+  const evidenceOnly = dispositions.filter((entry) => entry.disposition === 'evidence_only').length;
+  const superseded = dispositions.filter((entry) => entry.disposition === 'superseded').length;
+  return {
+    sha256: sha256(canonicalJson({ prior: prior?.sha256 ?? null, dispositions })),
+    count: (prior?.count ?? 0) + dispositions.length,
+    summarized: (prior?.summarized ?? 0) + summarized,
+    evidenceOnly: (prior?.evidenceOnly ?? 0) + evidenceOnly,
+    superseded: (prior?.superseded ?? 0) + superseded,
+  };
+}
+
+export function parseCanonicalCompactedHistory(content: string): CompactedHistory {
+  const parsed = compactedHistorySchema.parse(JSON.parse(content));
+  if (content !== canonicalJson(parsed)) throw new Error('Compacted history must be canonical JSON.');
   return parsed;
 }
