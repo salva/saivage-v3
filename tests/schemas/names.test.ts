@@ -11,7 +11,7 @@ describe('workflow identity names', () => {
 
   it('accepts only exact safe Markdown record filenames', () => {
     const name = parseRecordName('research-findings.md');
-    expect(recordStreamFilename(name)).toBe('research-findings.jsonl');
+    expect(recordStreamFilename(name)).toBe('record-research-findings.jsonl');
     for (const value of ['', 'brief', 'brief.json', 'Brief.md', '../brief.md', 'nested/brief.md', 'brief.md/other', 'a'.repeat(65) + '.md']) expect(() => parseRecordName(value)).toThrow();
   });
 });

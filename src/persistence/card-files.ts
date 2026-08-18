@@ -25,7 +25,7 @@ import {
   type CardVersionChange,
   type CardVersionListEntry,
 } from './canonical-card-artifacts.js';
-import { appendEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalGrowingFileSnapshot, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
+import { appendEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
 import { cardChildrenRoot, cardConversationsRoot, cardNamespace, cardStreamFile, globalAgentConversationsRoot, saivageAgentsRoot, saivageCardsRoot, saivageRoot } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
@@ -114,19 +114,13 @@ export function readCard(projectRoot: string, cardId: string, instrumentation?: 
 export function readCardDetail(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> { const target = proveActiveCardPath(projectRoot, cardId, instrumentation); return target ? { kind: 'found', value: target.current.card } : { kind: 'card-not-found' }; }
 
 export interface LinkedChildrenProjection { readonly parent: CardRecord; readonly activeChildren: CardRecord[] }
-export interface CanonicalCardProjection { readonly card: CardRecord; readonly snapshot: CanonicalGrowingFileSnapshot<CardArtifact> }
+export interface CanonicalCardProjection { readonly card: CardRecord; readonly artifact: CardArtifact }
 export interface CanonicalLinkedChildrenProjection { readonly parent: CanonicalCardProjection; readonly activeChildren: CanonicalCardProjection[] }
 export type CanonicalCardFileSlot = 'card' | RecordName;
-export interface CanonicalCardFileMetadata { readonly slot: CanonicalCardFileSlot; readonly size: number; readonly modifiedAt: string }
-export interface CanonicalCardFilesMetadataProjection { readonly card: CanonicalCardProjection; readonly files: readonly CanonicalCardFileMetadata[] }
-export type CanonicalCardFileContentRead = CardTargetRead<{ readonly card: CardRecord; readonly slot: CanonicalCardFileSlot; readonly snapshot: CanonicalGrowingFileSnapshot<unknown> }> | { readonly kind: 'slot-not-found' } | { readonly kind: 'too-large'; readonly size: number };
+export interface CanonicalCardRecordFileMetadata { readonly slot: RecordName; readonly size: number; readonly modifiedAt: string }
+export interface CanonicalCardFilesMetadataProjection { readonly card: CanonicalCardProjection; readonly recordFiles: readonly CanonicalCardRecordFileMetadata[] }
 
-function selectedArtifactSnapshot(artifact: CardArtifact): CanonicalGrowingFileSnapshot<CardArtifact> {
-  const bytes = Buffer.from(`${JSON.stringify(artifact)}\n`);
-  return Object.freeze({ bytes, rows: Object.freeze([artifact]), size: bytes.byteLength, modifiedAt: artifact.committed_at });
-}
-
-function canonicalProjection(fold: CardStreamFold): CanonicalCardProjection { return { card: fold.current.card, snapshot: selectedArtifactSnapshot(fold.head) }; }
+function canonicalProjection(fold: CardStreamFold): CanonicalCardProjection { return { card: fold.current.card, artifact: fold.head }; }
 function readCanonicalChildrenOfReached(realProjectRoot: string, parentId: string, parent: CardStreamFold, instrumentation?: CanonicalReadInstrumentation): CardStreamFold[] {
   const active: CardStreamFold[] = [];
   for (const id of parent.current.card.children) {
@@ -149,24 +143,14 @@ export function readCanonicalCardHierarchy(projectRoot: string, parentId: string
 
 export function readCanonicalCardFilesMetadata(projectRoot: string, cardId: string, definitions: readonly RecordDefinition[]): CardTargetRead<CanonicalCardFilesMetadataProjection> {
   const reached = proveActiveCardPathWithRoot(projectRoot, cardId); if (!reached) return { kind: 'card-not-found' };
-  const cardSnapshot = selectedArtifactSnapshot(reached.target.head);
-  const files: CanonicalCardFileMetadata[] = [{ slot: 'card', size: cardSnapshot.size, modifiedAt: cardSnapshot.modifiedAt }];
+  const recordFiles: CanonicalCardRecordFileMetadata[] = [];
   for (const definition of definitions) {
     const record = readCurrentAuthoredRecord(reached.realProjectRoot, cardId, definition); if (!record) continue;
     const effective = record.artifact.state === 'open' ? record.artifact.draft : record.artifact.accepted;
     if (!effective) continue;
-    files.push({ slot: definition.filename, size: Buffer.byteLength(effective.content), modifiedAt: record.artifact.state === 'open' ? record.artifact.draft!.updated_at : record.artifact.accepted!.committed_at });
+    recordFiles.push({ slot: definition.filename, size: Buffer.byteLength(effective.content), modifiedAt: record.artifact.state === 'open' ? record.artifact.draft!.updated_at : record.artifact.accepted!.committed_at });
   }
-  return { kind: 'found', value: { card: canonicalProjection(reached.target), files } };
-}
-export function readCanonicalCardFileContent(projectRoot: string, cardId: string, slot: CanonicalCardFileSlot, maximumBytes: number, definitions: readonly RecordDefinition[]): CanonicalCardFileContentRead {
-  const reached = proveActiveCardPathWithRoot(projectRoot, cardId); if (!reached) return { kind: 'card-not-found' };
-  if (slot === 'card') { const snapshot = selectedArtifactSnapshot(reached.target.head); return snapshot.size > maximumBytes ? { kind: 'too-large', size: snapshot.size } : { kind: 'found', value: { card: reached.target.current.card, slot, snapshot } }; }
-  const definition = definitions.find((value) => value.filename === slot); if (!definition) return { kind: 'slot-not-found' };
-  const record = readCurrentAuthoredRecord(reached.realProjectRoot, cardId, definition); if (!record) return { kind: 'slot-not-found' };
-  const effective = record.artifact.state === 'open' ? record.artifact.draft : record.artifact.accepted; if (!effective) return { kind: 'slot-not-found' };
-  const bytes = Buffer.from(effective.content); if (bytes.byteLength > maximumBytes) return { kind: 'too-large', size: bytes.byteLength };
-  return { kind: 'found', value: { card: reached.target.current.card, slot, snapshot: Object.freeze({ bytes, rows: Object.freeze([record.artifact]), size: bytes.byteLength, modifiedAt: record.artifact.state === 'open' ? record.artifact.draft!.updated_at : record.artifact.accepted!.committed_at }) } };
+  return { kind: 'found', value: { card: canonicalProjection(reached.target), recordFiles } };
 }
 
 export function readCardHierarchy(projectRoot: string, parentId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<LinkedChildrenProjection> { const result = readCanonicalCardHierarchy(projectRoot, parentId, instrumentation); return result.kind === 'card-not-found' ? result : { kind: 'found', value: { parent: result.value.parent.card, activeChildren: result.value.activeChildren.map(({ card }) => card) } }; }

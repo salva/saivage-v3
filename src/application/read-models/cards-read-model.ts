@@ -111,7 +111,7 @@ export class CardsReadModelService {
 
   listRecordHistory(id: string, name: string): OperatorApiHandlerResult<'cards.records.history.list'> {
     const unavailable = this.requireRecordDefinition(id, name); if (unavailable) return unavailable;
-    const catalog = this.store.listRecordVersions(id, name); const versions = catalog.versions.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.published_at, content_availability: 'unchecked' as const, state: entry.state, accepted_source_version: entry.accepted?.source_version ?? null, draft_present: entry.draft !== null, discarded_at: entry.discarded?.discarded_at ?? null }));
+    const catalog = this.store.listRecordVersions(id, name); const versions = catalog.versions.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.published_at, state: entry.state, accepted_source_version: entry.accepted?.source_version ?? null, draft_present: entry.draft !== null, discarded_at: entry.discarded?.discarded_at ?? null }));
     return { body: { card_id: id, name, versions, total: versions.length } };
   }
 
@@ -138,7 +138,7 @@ export class CardsReadModelService {
   listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {
     const result = this.store.listCardVersions(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const versions = result.value.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.committed_at, content_availability: 'unchecked' as const, artifact_kind: entry.artifact_kind, change: projectCardVersionChangeForOutbound(entry.change) }));
+    const versions = result.value.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.committed_at, artifact_kind: entry.artifact_kind, change: projectCardVersionChangeForOutbound(entry.change) }));
     return { body: CardHistoryListResponseSchema.parse({ card_id: id, versions, total: versions.length }) };
   }
 

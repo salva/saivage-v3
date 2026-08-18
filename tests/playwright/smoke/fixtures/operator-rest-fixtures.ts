@@ -40,7 +40,7 @@ const terminalHistory = {
   change_summary: 'lifecycle, status_text, status_text_updated_at updated',
   terminal_summary: { status: 'done' as const, result_kind: 'workflow-result' as const, summary: 'synthetic result', content_policy: null },
 };
-const historyList = parseOperatorResponse('cards.history.list', 200, { card_id: smokeCardId, versions: [{ entry_id: terminalHistory.entry_id, version: 2, published_at: now, content_availability: 'unchecked', artifact_kind: 'card-version', change: terminalHistory }], total: 1 });
+const historyList = parseOperatorResponse('cards.history.list', 200, { card_id: smokeCardId, versions: [{ entry_id: terminalHistory.entry_id, version: 2, published_at: now, artifact_kind: 'card-version', change: terminalHistory }], total: 1 });
 const historyEntry = parseOperatorResponse('cards.history.get', 200, { card_id: smokeCardId, version: 2, entry_id: terminalHistory.entry_id, published_at: now, artifact: { kind: 'card-version', card: priorCard, change: terminalHistory } });
 const historyDiff = parseOperatorResponse('cards.diff', 200, { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: rawCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
 

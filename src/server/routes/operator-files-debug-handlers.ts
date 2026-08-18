@@ -18,7 +18,6 @@ export function buildFilesDebugOperatorContractHandlers(options: OperatorProject
       getCanonicalCard: (cardId: string) => cards.getCanonicalCard(cardId),
       getCanonicalCardChildren: (cardId: string) => cards.getCanonicalCardChildren(cardId),
       getCanonicalCardFilesMetadata: (cardId: string) => cards.getCanonicalCardFilesMetadata(cardId),
-      getCanonicalCardFileContent: (cardId, slot, maximumBytes) => cards.getCanonicalCardFileContent(cardId, slot, maximumBytes),
       readCardVersion: (cardId, version) => cards.readCardVersion(cardId, version),
     };
   }, options.configAuthority);

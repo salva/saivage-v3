@@ -47,7 +47,6 @@ const records = () => ({
   getCanonicalCard: () => ({ kind: 'card-not-found' as const }),
   getCanonicalCardChildren: () => ({ kind: 'card-not-found' as const }),
   getCanonicalCardFilesMetadata: () => ({ kind: 'card-not-found' as const }),
-  getCanonicalCardFileContent: () => ({ kind: 'card-not-found' as const }),
   readCardVersion: () => ({ kind: 'card-not-found' as const }),
 });
 

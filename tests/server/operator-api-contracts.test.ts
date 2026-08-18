@@ -527,7 +527,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('uses resulting-version metadata and rejects embedded prior-snapshot history rows', () => {
-    const version = { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: '2026-01-01T00:00:00.000Z', content_availability: 'unchecked', artifact_kind: 'card-version', change: null };
+    const version = { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: '2026-01-01T00:00:00.000Z', artifact_kind: 'card-version', change: null };
     expect((parseOperatorResponse('cards.history.list', 200, { card_id: 'project', versions: [version], total: 1 }) as any).versions[0]).toEqual(version);
     expect(() => parseOperatorResponse('cards.history.list', 200, { history: [{ ...version, version_seq: 1, snapshot: canonicalCard }], total: 1 })).toThrow();
   });

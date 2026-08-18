@@ -10,7 +10,7 @@ import { listCardHistory, getCardHistoryEntry, getCardDiff, OperatorApiError } f
 const CARD = 'card-a';
 const snapshot = rawCard(CARD, { title: 'before', version_seq: 2 });
 const change = { entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update' as const, card_id: CARD, resulting_version: 2, changed_at: '2026-01-01T00:00:01.000Z', changed_by_actor: 'planner' as const, changed_by_surface: 'runtime' as const, changed_fields: ['title'], change_summary: 'title updated', change_reason: 'planner edit_card', terminal_summary: null };
-const header = { entry_id: change.entry_id, version: 2, published_at: change.changed_at, content_availability: 'unchecked' as const, artifact_kind: 'card-version' as const, change };
+const header = { entry_id: change.entry_id, version: 2, published_at: change.changed_at, artifact_kind: 'card-version' as const, change };
 describe('CardHistoryPanel', () => {
   let pinia: ReturnType<typeof createPinia>;
   beforeEach(() => { vi.clearAllMocks(); pinia = createPinia(); setActivePinia(pinia); useCardStore().selectedDetail = { cardId: CARD, card: cardView(CARD, { title: 'after', version_seq: 3 }) }; });

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { appLogEntrySchema, type AppLogEntry } from '../../src/contracts/app-log.js';
-import { appendAppLogEntry, readAppLogEntries } from '../../src/persistence/app-log.js';
+import { appendAppLogEntry, initializeAppLog, readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile } from '../../src/persistence/layout.js';
 import { serializeGrowingEnvelope } from '../../src/persistence/growing-file.js';
 import { createEventLog } from '../../src/observability/event-logger.js';
@@ -18,6 +18,38 @@ function event(id: string, timestamp = '2026-07-20T00:00:00.000Z'): Extract<AppL
 function append(projectRoot: string, entry: Extract<AppLogEntry, { type: 'event' }>): AppLogEntry {
   return appendAppLogEntry(projectRoot, 'event', () => entry);
 }
+
+describe('strict app-log startup admission', () => {
+  it('treats exact missing as absent', () => {
+    const projectRoot = root();
+    expect(() => initializeAppLog(projectRoot)).not.toThrow();
+    expect(existsSync(appLogFile(projectRoot))).toBe(false);
+  });
+
+  it('fails on a present zero-byte app log without changing it', () => {
+    const projectRoot = root();
+    mkdirSync(join(projectRoot, '.saivage'), { recursive: true });
+    mkdirSync(join(projectRoot, '.saivage', 'logs'), { recursive: true });
+    const path = appLogFile(projectRoot);
+    writeFileSync(path, '');
+    expect(() => initializeAppLog(projectRoot)).toThrow();
+    expect(readFileSync(path)).toEqual(Buffer.alloc(0));
+  });
+
+  it('fails on a present complete malformed app log', () => {
+    const projectRoot = root();
+    mkdirSync(join(projectRoot, '.saivage', 'logs'), { recursive: true });
+    const path = appLogFile(projectRoot);
+    writeFileSync(path, '{complete malformed}\n');
+    expect(() => initializeAppLog(projectRoot)).toThrow();
+  });
+
+  it('accepts a present valid app log', () => {
+    const projectRoot = root();
+    append(projectRoot, event('first'));
+    expect(() => initializeAppLog(projectRoot)).not.toThrow();
+  });
+});
 
 describe('strict app-log publication', () => {
   it('accepts exactly the three {type,data} lanes and rejects old outer fields and removed lanes', () => {

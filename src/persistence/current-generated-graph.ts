@@ -31,7 +31,9 @@ function admitCurrentCards(projectRoot: string, workflows: CompiledProjectWorkfl
   validateParsedCards({ cards: activeCards });
 
   const byId = new Map(projection.map((entry) => [entry.current.id, entry] as const));
-  return projection.map((entry) => {
+  const admitted: AdmittedCard[] = [];
+  for (const entry of projection) {
+    if (entry.tombstone !== null) continue;
     const workflow = workflows.cardTypes.get(entry.current.type);
     if (!workflow) throw new Error(`No compiled workflow exists for card type '${entry.current.type}'.`);
     const parentId = cardParentId(entry.current.id);
@@ -42,8 +44,9 @@ function admitCurrentCards(projectRoot: string, workflows: CompiledProjectWorkfl
       if (!parentWorkflow) throw new Error(`No compiled workflow exists for card type '${parent.current.type}'.`);
       if (!parentWorkflow.permittedChildTypes.has(entry.current.type)) throw new Error(`Card '${entry.current.id}' violates compiled parent/type admission.`);
     }
-    return Object.freeze({ projection: entry, workflow });
-  });
+    admitted.push(Object.freeze({ projection: entry, workflow }));
+  }
+  return admitted;
 }
 
 export function initializeAndValidateCurrentGeneratedState(projectRoot: string, workflows: CompiledProjectWorkflows): void {
@@ -61,7 +64,6 @@ export function initializeAndValidateCurrentGeneratedState(projectRoot: string, 
       initializeMissingConversation(projectRoot, sessionId);
       truncateCurrentConversationUnterminatedSuffix(projectRoot, sessionId);
     }
-    if (projection.tombstone !== null) continue;
     for (const definition of definitions(workflow)) {
       const current = readCurrentAuthoredRecord(projectRoot, card.id, definition);
       if (definition.bootstrap && !current?.artifact.accepted) throw new Error(`Card '${card.id}' required bootstrap record '${definition.filename}' is unavailable.`);

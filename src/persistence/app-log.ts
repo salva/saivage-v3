@@ -39,7 +39,7 @@ export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): 
 export function initializeAppLog(projectRoot: string): void {
   const path = appLogFile(projectRoot);
   try { validateAppLogEntries(path, readStrictCanonicalGrowingFile(path, appLogEntrySchema)); }
-  catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT' || (error instanceof Error && error.message === `Growing file '${path}' is empty.`)) return; throw error; }
+  catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
 }
 
 export function appendAppLogEntry<T extends AppLogEntryType>(

@@ -84,7 +84,7 @@ async function install(page: Page): Promise<Fixture> {
         changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card',
         changed_fields: ['title'], change_summary: 'title updated', terminal_summary: null,
       };
-      return json(route, parseOperatorResponse('cards.history.list', 200, { card_id: targetId, versions: [{ entry_id: change.entry_id, version: 2, published_at: now, content_availability: 'unchecked', artifact_kind: 'card-version', change }], total: 1 }));
+      return json(route, parseOperatorResponse('cards.history.list', 200, { card_id: targetId, versions: [{ entry_id: change.entry_id, version: 2, published_at: now, artifact_kind: 'card-version', change }], total: 1 }));
     }
     if (url.pathname === `/api/cards/${targetId}/history/2`) {
       const { operator_summary: _operatorSummary, allowedActions: _allowedActions, ...snapshot } = targetPrior;

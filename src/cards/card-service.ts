@@ -30,7 +30,6 @@ import {
   readCard,
   readCanonicalCard,
   readCanonicalCardHierarchy,
-  readCanonicalCardFileContent,
   readCanonicalCardFilesMetadata,
   readCardDetail,
   readCardHierarchy,
@@ -43,7 +42,6 @@ import {
   type CardTargetRead,
   type CanonicalCardProjection,
   type CanonicalLinkedChildrenProjection,
-  type CanonicalCardFileContentRead,
   type CanonicalCardFileSlot,
   type CanonicalCardFilesMetadataProjection,
 } from '../persistence/card-files.js';
@@ -81,7 +79,7 @@ export type CardActivationAdmissionProjection = {
 
 export interface CardDiffEntry { field: string; before: unknown; after: unknown }
 export type CardVersionListResult = CardTargetRead<readonly CardVersionListEntry[]>;
-export type { CanonicalCardFileContentRead, CanonicalCardFileSlot };
+export type { CanonicalCardFileSlot };
 export type CardVersionContentResult = ReturnType<typeof readCardVersion>;
 export type CardVersionDiffResult =
   | { readonly kind: 'found'; readonly from: number; readonly to: number; readonly diff: CardDiffEntry[] }
@@ -213,10 +211,6 @@ export class CardService {
   getCanonicalCardFilesMetadata(id: string): CardTargetRead<CanonicalCardFilesMetadataProjection> {
     if(!this.read(id))return {kind:'card-not-found'};
     return readCanonicalCardFilesMetadata(this.projectRoot, id,this.recordDefinitions(id));
-  }
-  getCanonicalCardFileContent(id: string, slot: CanonicalCardFileSlot, maximumBytes: number): CanonicalCardFileContentRead {
-    if(!this.read(id))return {kind:'card-not-found'};
-    return readCanonicalCardFileContent(this.projectRoot, id, slot, maximumBytes,this.recordDefinitions(id));
   }
   getCardChildren(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<{ parent: CardRecord; activeChildren: CardRecord[] }> {
     return clone(readCardHierarchy(this.projectRoot, id, instrumentation));

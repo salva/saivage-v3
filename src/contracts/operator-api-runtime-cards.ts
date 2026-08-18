@@ -34,8 +34,6 @@ export const CardHistoryEntryNotFoundErrorSchema = z.object({ error: z.literal('
 export const CardDiffSourceNotFoundErrorSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.literal('card'), owner_id: cardIdSchema, version: positiveSafeIntegerSchema }).strict();
 export const CardHistoryEntryNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, CardHistoryEntryNotFoundErrorSchema]);
 export const CardDiffNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, CardDiffSourceNotFoundErrorSchema]);
-export const CardHistoricalVersionUnavailableSchema = z.object({ error: z.literal('historical_version_content_unavailable'), resource: z.literal('card'), owner_id: cardIdSchema, version: positiveSafeIntegerSchema, reason: z.enum(['missing', 'corrupt', 'io_error']) }).strict();
-export const CardHistoricalDiffSideUnavailableSchema = z.object({ error: z.literal('historical_diff_side_unavailable'), resource: z.literal('card'), owner_id: cardIdSchema, version: positiveSafeIntegerSchema, side: z.enum(['from', 'to']), reason: z.enum(['missing', 'corrupt', 'io_error']) }).strict();
 
 export const CardIdParamsSchema = z.object({ id: cardIdSchema }).strict();
 export const CardRecordNameParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema }).strict();
@@ -98,7 +96,7 @@ export const CardRecordContentResponseSchema = z.object({ card_id: cardIdSchema,
 export const canonicalPositiveSafeIntegerStringSchema = z.string().regex(/^[1-9][0-9]*$/).superRefine((raw, ctx) => {
   if (!positiveSafeIntegerSchema.safeParse(Number(raw)).success) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Expected a canonical positive safe integer.' });
 }).transform(Number);
-const RecordHistoryVersionSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), content_availability: z.literal('unchecked'), state: z.enum(['open', 'closed', 'discarded']), accepted_source_version: positiveSafeIntegerSchema.nullable(), draft_present: z.boolean(), discarded_at: z.string().datetime().nullable() }).strict();
+const RecordHistoryVersionSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), state: z.enum(['open', 'closed', 'discarded']), accepted_source_version: positiveSafeIntegerSchema.nullable(), draft_present: z.boolean(), discarded_at: z.string().datetime().nullable() }).strict();
 export const RecordHistoryListResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, versions: z.array(RecordHistoryVersionSchema), total: z.number().int().nonnegative() }).strict();
 export const RecordVersionContentResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, version: positiveSafeIntegerSchema, entry_id: z.string().uuid(), published_at: z.string().datetime(), artifact: z.object({ state: z.enum(['open', 'closed', 'discarded']), published_at: z.string().datetime(), accepted: RecordAcceptedWireSchema.nullable(), draft: RecordDraftWireSchema.nullable(), discarded: z.object({ discarded_at: z.string().datetime(), reason: z.string() }).strict().nullable() }).strict() }).strict();
 export const RecordDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema]).optional(), view: z.enum(['effective', 'accepted', 'draft']).optional() }).strict();
@@ -106,15 +104,13 @@ const RecordDiffHunkSchema = z.object({ old_start: z.number().int().nonnegative(
 export const RecordDiffResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, view: z.enum(['effective', 'accepted', 'draft']), hunks: z.array(RecordDiffHunkSchema) }).strict();
 export const RecordDiffViewUnavailableSchema = z.object({ error: z.literal('record_diff_view_unavailable'), card_id: cardIdSchema, name: recordNameSchema, side: z.enum(['from', 'to']), view: z.enum(['effective', 'accepted', 'draft']) }).strict();
 export const RecordHistoricalVersionNotFoundSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.literal('authored_record'), owner_id: z.string().min(1), version: positiveSafeIntegerSchema }).strict();
-export const RecordHistoricalVersionUnavailableSchema = z.object({ error: z.literal('historical_version_content_unavailable'), resource: z.literal('authored_record'), owner_id: z.string().min(1), version: positiveSafeIntegerSchema, reason: z.enum(['missing', 'corrupt', 'io_error']) }).strict();
-export const RecordHistoricalDiffSideUnavailableSchema = z.object({ error: z.literal('historical_diff_side_unavailable'), resource: z.literal('authored_record'), owner_id: z.string().min(1), version: positiveSafeIntegerSchema, side: z.enum(['from', 'to']), reason: z.enum(['missing', 'corrupt', 'io_error']) }).strict();
 
 export const CardHistoryParamsSchema = z.object({ id: cardIdSchema }).strict();
 export const CardRecordVersionParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema, version: canonicalPositiveSafeIntegerStringSchema }).strict();
 export const CardHistoryEntryParamsSchema = z.object({ id: cardIdSchema, version: canonicalPositiveSafeIntegerStringSchema }).strict();
 const diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema]);
 export const CardDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() }).strict();
-const cardVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), content_availability: z.literal('unchecked'), artifact_kind: z.enum(['card-version', 'card-tombstone']), change: cardVersionChangeSchema.nullable() }).strict();
+const cardVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), artifact_kind: z.enum(['card-version', 'card-tombstone']), change: cardVersionChangeSchema.nullable() }).strict();
 export const CardHistoryListResponseSchema = z.object({ card_id: cardIdSchema, versions: z.array(cardVersionMetadataSchema), total: z.number().int().nonnegative() }).strict();
 const cardVersionArtifactWireSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('card-version'), card: cardRecordSchema, change: cardVersionChangeSchema.nullable() }).strict(),
@@ -289,13 +285,13 @@ export const runtimeCardsOperatorApiContracts = {
   'cards.records.versions.get': {
     operationId: 'cards.records.versions.get', method: 'GET', path: '/api/cards/:id/records/:name/versions/:version', params: CardRecordVersionParamsSchema,
     success: RecordVersionContentResponseSchema,
-    response: { 200: RecordVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, RecordHistoricalVersionNotFoundSchema, RecordHistoricalVersionUnavailableSchema]), 409: RecordHistoricalVersionUnavailableSchema, 500: UnexpectedInternalServerErrorSchema, 503: RecordHistoricalVersionUnavailableSchema },
+    response: { 200: RecordVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, RecordHistoricalVersionNotFoundSchema]), 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'RecordVersionContentResponse',
   },
   'cards.records.diff': {
     operationId: 'cards.records.diff', method: 'GET', path: '/api/cards/:id/records/:name/diff', params: CardRecordNameParamsSchema, query: RecordDiffQuerySchema,
     success: RecordDiffResponseSchema,
-    response: { 200: RecordDiffResponseSchema, 400: z.union([ValidationErrorSchema, RecordDiffViewUnavailableSchema]), 401: UnauthorizedErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, RecordHistoricalVersionNotFoundSchema, RecordHistoricalDiffSideUnavailableSchema]), 409: RecordHistoricalDiffSideUnavailableSchema, 500: UnexpectedInternalServerErrorSchema, 503: RecordHistoricalDiffSideUnavailableSchema },
+    response: { 200: RecordDiffResponseSchema, 400: z.union([ValidationErrorSchema, RecordDiffViewUnavailableSchema]), 401: UnauthorizedErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, RecordHistoricalVersionNotFoundSchema]), 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'RecordDiffResponse',
   },
 
@@ -316,7 +312,7 @@ export const runtimeCardsOperatorApiContracts = {
     path: '/api/cards/:id/history/:version',
     params: CardHistoryEntryParamsSchema,
     success: CardHistoryEntryResponseSchema,
-    response: { 200: CardHistoryEntryResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([CardHistoryEntryNotFoundUnionSchema, CardHistoricalVersionUnavailableSchema]), 409: CardHistoricalVersionUnavailableSchema, 500: UnexpectedInternalServerErrorSchema, 503: CardHistoricalVersionUnavailableSchema },
+    response: { 200: CardHistoryEntryResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: CardHistoryEntryNotFoundUnionSchema, 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
     successSchemaName: 'CardHistoryEntryResponse',
@@ -328,7 +324,7 @@ export const runtimeCardsOperatorApiContracts = {
     params: CardHistoryParamsSchema,
     query: CardDiffQuerySchema,
     success: CardDiffResponseSchema,
-    response: { 200: CardDiffResponseSchema, 400: CardDiffBadRequestSchema, 401: UnauthorizedErrorSchema, 404: z.union([CardDiffNotFoundUnionSchema, CardHistoricalDiffSideUnavailableSchema]), 409: CardHistoricalDiffSideUnavailableSchema, 500: UnexpectedInternalServerErrorSchema, 503: CardHistoricalDiffSideUnavailableSchema },
+    response: { 200: CardDiffResponseSchema, 400: CardDiffBadRequestSchema, 401: UnauthorizedErrorSchema, 404: CardDiffNotFoundUnionSchema, 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
     successSchemaName: 'CardDiffResponse',
