@@ -280,7 +280,7 @@ describe('WebProvider', () => {
       expect(result.data).not.toHaveProperty('stash_path');
       expect(result.data).not.toHaveProperty('url');
       const read = await invokeTestTool(surface, 'read', { path: (result.data as { stash_url: string }).stash_url });
-      expect(read).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ content: '0123456789abcdef' }) }));
+      expect(read).toEqual(expect.objectContaining({ success: true, data: expect.objectContaining({ content: expect.objectContaining({ content: '0123456789abcdef' }) }) }));
     } finally {
       fetchSpy.mockRestore();
       rmSync(root, { recursive: true, force: true });

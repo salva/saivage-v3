@@ -1,10 +1,30 @@
 import { z } from 'zod';
 
-import { cardIdSchema, cardStatusValues, ConversationSessionIdSchema, eventKindValues, positiveSafeIntegerSchema, urgencyValues, type CardStatus, type CardTypeName } from '../schemas/index.js';
+import { cardIdSchema, cardStatusValues, ConversationSessionIdSchema, eventKindValues, positiveSafeIntegerSchema, recordNameSchema, urgencyValues, type CardStatus, type CardTypeName } from '../schemas/index.js';
 import { workspaceNavigationTargetSchema } from './workspace-navigation.js';
 
 export const EVENT_QUERY_MAX_LIMIT = 1000;
 export const emptyToolInputSchema = z.object({}).strict();
+
+export const DISCOVERY_RESPONSE_MAX_BYTES = 32768;
+export const DISCOVERY_RESPONSE_MIN_BYTES = 512;
+export const responseBytesSchema = z.number().int().min(DISCOVERY_RESPONSE_MIN_BYTES).max(DISCOVERY_RESPONSE_MAX_BYTES)
+  .describe(`Exact UTF-8 byte budget for the complete canonical provider-visible ToolResult envelope; minimum ${DISCOVERY_RESPONSE_MIN_BYTES}, maximum ${DISCOVERY_RESPONSE_MAX_BYTES}.`);
+export const discoveryCollectionPositionSchema = z.object({
+  item_index: z.number().int().min(0).describe('Zero-based canonical-order item index from the previously emitted next position; omit for the first page.'),
+  item_byte_offset: z.number().int().min(0).describe('Byte offset into the item when continuing an oversized item slice; zero for whole items.'),
+}).strict().describe('Stateless continuation position for a byte-packed collection page.');
+export const discoveryBytePositionSchema = z.object({
+  byte_offset: z.number().int().min(0).describe('UTF-8 byte offset from the previously emitted next_offset_bytes; omit or zero for the first slice.'),
+}).strict().describe('Stateless continuation position for a text or JSON byte slice.');
+export const discoveryReadPositionSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('collection'), item_index: z.number().int().min(0), item_byte_offset: z.number().int().min(0) }).strict(),
+  z.object({ kind: z.literal('text'), byte_offset: z.number().int().min(0) }).strict(),
+]);
+export const cardSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'notifications', 'children', 'records'])
+  .describe('Exactly one current-card section per call.');
+export const cardVersionSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'notifications', 'children'])
+  .describe('Exactly one card-artifact-owned section per call.');
 
 const cardTypeEnum = (cardTypeVocabulary: readonly CardTypeName[]) => z.enum(cardTypeVocabulary as [CardTypeName, ...CardTypeName[]]);
 
@@ -39,20 +59,63 @@ export interface ListCardsInput {
   type?: CardTypeName | CardTypeName[];
   parent?: string;
   tag?: string;
+  position?: z.infer<typeof discoveryCollectionPositionSchema>;
+  response_bytes?: number;
 }
 export const createListCardsInputSchema = (cardTypeVocabulary: readonly CardTypeName[]): z.ZodType<ListCardsInput> => z.object({
   status: z.union([z.enum(cardStatusValues), z.array(z.enum(cardStatusValues))]).optional(),
   type: z.union([cardTypeEnum(cardTypeVocabulary), z.array(cardTypeEnum(cardTypeVocabulary))]).optional(),
   parent: z.string().optional(),
   tag: z.string().optional(),
+  position: discoveryCollectionPositionSchema.optional(),
+  response_bytes: responseBytesSchema.optional(),
 }).strict();
-export const getCardInputSchema = z.object({ id: z.string() }).strict();
-export const getTreeInputSchema = z.object({ rootId: z.string().optional() }).strict();
-export const listCardVersionsInputSchema = z.object({ card_id: cardIdSchema }).strict();
-export const getCardVersionInputSchema = z.object({ card_id: cardIdSchema, version: positiveSafeIntegerSchema }).strict();
-export const diffCardVersionsInputSchema = z.object({ card_id: cardIdSchema, from_version: positiveSafeIntegerSchema, to_version: z.union([positiveSafeIntegerSchema, z.literal('current')]).optional() }).strict();
+export const getCardInputSchema = z.object({
+  id: z.string().describe('The exact card id.'),
+  section: cardSectionSchema,
+  position: discoveryCollectionPositionSchema.optional(),
+  response_bytes: responseBytesSchema.optional(),
+}).strict();
+export const getTreeInputSchema = z.object({
+  rootId: z.string().describe('The exact card id whose subtree is observed.'),
+  depth: z.number().int().min(1).max(12).default(3).describe('Maximum observed subtree depth below the root.'),
+  position: discoveryCollectionPositionSchema.optional(),
+  response_bytes: responseBytesSchema.optional(),
+}).strict();
+export const listCardVersionsInputSchema = z.object({
+  card_id: cardIdSchema,
+  position: discoveryCollectionPositionSchema.optional(),
+  response_bytes: responseBytesSchema.optional(),
+}).strict();
+export const getCardVersionInputSchema = z.object({
+  card_id: cardIdSchema,
+  version: positiveSafeIntegerSchema,
+  section: cardVersionSectionSchema,
+  position: discoveryCollectionPositionSchema.optional(),
+  response_bytes: responseBytesSchema.optional(),
+}).strict();
+export const diffCardVersionsInputSchema = z.object({
+  card_id: cardIdSchema,
+  from_version: positiveSafeIntegerSchema,
+  to_version: positiveSafeIntegerSchema.describe('Exact committed target version; there is no current pivot.'),
+  byte_offset: z.number().int().min(0).optional(),
+  response_bytes: responseBytesSchema.optional(),
+}).strict();
+export const readRecordVersionInputSchema = z.object({
+  card_id: cardIdSchema,
+  record_name: recordNameSchema.describe('The exact record name.'),
+  version: positiveSafeIntegerSchema.describe('The exact AuthoredRecordVersionArtifact.version; accepted source_version is never an alias.'),
+  byte_offset: z.number().int().min(0).optional(),
+  response_bytes: responseBytesSchema.optional(),
+}).strict();
 
-export const readWorkspaceInputSchema = z.object({ path: z.string(), offset: z.number().int().optional(), limit: z.number().int().optional(), read_mode: z.enum(['auto', 'text']).optional(), metadata_only: z.boolean().optional() }).strict();
+export const readWorkspaceInputSchema = z.object({
+  path: z.string(),
+  position: discoveryReadPositionSchema.optional(),
+  read_mode: z.enum(['auto', 'text']).optional(),
+  metadata_only: z.boolean().optional(),
+  response_bytes: responseBytesSchema.optional(),
+}).strict();
 export const writeWorkspaceInputSchema = z.object({ path: z.string(), content: z.string() }).strict();
 export const globWorkspaceInputSchema = z.object({ directory: z.string(), pattern: z.string(), max_results: z.number().int().optional() }).strict();
 export const grepWorkspaceInputSchema = z.object({ pattern: z.string(), path: z.string().optional(), include: z.string().optional(), max_results: z.number().int().optional() }).strict();

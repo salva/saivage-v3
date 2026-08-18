@@ -1,6 +1,7 @@
 import { applyProjectPatch, editProject, globProject, grepProject, readProject, WorkspaceToolInputError, writeProject } from './project-file-tools.js';
 import { applyPatchInputSchema, editWorkspaceInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema, readWorkspaceInputSchema, writeWorkspaceInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolResult } from './invocation.js';
+import { boundedToolError } from './response-packer.js';
 import type { AgentName } from '../schemas/index.js';
 import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
@@ -20,7 +21,7 @@ export interface WorkspaceProviderContext {
 }
 
 function failureFromError(err: unknown): ToolResult {
-  return { success: false, error: err instanceof Error ? err.message : String(err) };
+  return { success: false, error: boundedToolError(err instanceof Error ? err.message : String(err)) };
 }
 
 function isExpectedWorkspaceFailure(err: unknown): boolean {
@@ -39,7 +40,7 @@ async function runWorkspaceTool(action: () => Promise<unknown>): Promise<ToolRes
   }
 }
 
-const readDescription = 'Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs. Use work:/// to page through runtime process output and stash files. Text reads return at most 2000 lines, 2000 characters per line, and about 256KB total inline content; files larger than about 10MB are not read inline. Set metadata_only to inspect file size/mtime or visible directory entry counts without reading content.';
+const readDescription = 'Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs with one exact byte-bounded response envelope. Text files and record documents return UTF-8 TextSlice pages at a stateless {byte_offset} position; directories and record:/// listings return byte-packed collection pages at a stateless {item_index,item_byte_offset} position; pass the emitted next position to continue. work:/// content is redacted before slicing. metadata_only returns bounded scalars plus the sliced path text. Files larger than about 10MB are refused rather than read inline.';
 const grepDescription = 'Stream-search text files, including files too large for inline read, with a JavaScript regular expression under project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Search retains at most 2000 characters per line and reports content truncation when an overlong suffix was not searched. grep record:///<cardId> searches effective current configured records and returns record URLs as path. work:/// content is redacted before return.';
 const analystWorkspace = (ctx: AnalystToolContext): WorkspaceProviderContext => ({ projectRoot: ctx.projectRoot, agentName:ctx.actor,filesystemWrite:true,store: ctx.store, notifyCard: ctx.runtime.notifyCard });
 

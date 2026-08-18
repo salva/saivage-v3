@@ -44,7 +44,6 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
   const session = new AnalystSession({
     cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
     fatalPort: testApplicationFatalPort,
-    projectRoot,
     sessionId: 'agent:analyst:global',
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest,
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
@@ -56,6 +55,7 @@ function analyst(argumentsJson: string, executor: (args: { value: string }, sign
     compactor: { shouldCompact: () => false, compact: () => Promise.reject(new Error('Unexpected compaction.')) },
     summarizerProvider: unusedSummarizerProvider,
     cardStore: new CardService(projectRoot),
+    runtimeCurrent: () => ({ status: 'stopped' as const, currentCardId: null }),
     runtimeProjectionChanged() {},
     createInvocationSurface: () => surface,
     shutdownProcesses: async () => {},

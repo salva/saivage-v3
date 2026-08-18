@@ -98,7 +98,7 @@ describe('entriesToTimeline tool pairing', () => {
       round_id: 'r-user-00000000000000000000000000000004',
       message_index: 2,
       timestamp: '2026-05-30T00:00:04Z',
-      content: JSON.stringify({ success: true, data: { content: '', total_lines: 0 } }),
+      content: JSON.stringify({ success: true, data: { total_bytes: 0, content: { content: '', utf8_bytes: 0, offset_bytes: 0, next_offset_bytes: 0 } } }),
     });
 
     const timeline = entriesToTimeline([before, call, afterCall, result]);

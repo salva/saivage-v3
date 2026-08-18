@@ -82,10 +82,10 @@ describe('workspace VFS and project-file security', () => {
     const secret = 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890';
     writeFileSync(join(root, '.saivage', 'work', 'processes', 'run.log'), `token=${secret}`);
     writeFileSync(join(root, 'example.txt'), `documentation=${secret}`);
-    const work = await readProject({ projectRoot: root }, { path: 'work:///processes/run.log' }) as { content: string };
-    const project = await readProject({ projectRoot: root }, { path: 'example.txt' }) as { content: string };
-    expect(work.content).not.toContain(secret);
-    expect(work.content).toContain('[REDACTED]');
-    expect(project.content).toContain(secret);
+    const work = await readProject({ projectRoot: root }, { path: 'work:///processes/run.log' }) as { content: { content: string } };
+    const project = await readProject({ projectRoot: root }, { path: 'example.txt' }) as { content: { content: string } };
+    expect(work.content.content).not.toContain(secret);
+    expect(work.content.content).toContain('[REDACTED]');
+    expect(project.content.content).toContain(secret);
   });
 });

@@ -58,6 +58,12 @@ export const OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate
   settledAudience: 'summarizer_only',
   evidenceMode: 'observational_query',
 });
+export const CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate & { evidenceMode: 'canonical_locator' } = Object.freeze({
+  storage: 'durable',
+  replacement: Object.freeze({ kind: 'retain' }),
+  settledAudience: 'summarizer_only',
+  evidenceMode: 'canonical_locator',
+});
 export const MCP_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate & { evidenceMode: 'none' } = OPERATIONAL_RESULT_POLICY_TEMPLATE;
 export const EMIT_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate & { evidenceMode: 'none' } = OPERATIONAL_RESULT_POLICY_TEMPLATE;
 export const UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate & { evidenceMode: 'none' } = OPERATIONAL_RESULT_POLICY_TEMPLATE;
@@ -70,6 +76,12 @@ export function executedProviderResult<M extends 'none' | 'observational_query'>
 
 export function executeToolAction<M extends 'none' | 'observational_query'>(mode: M, action: () => Promise<ToolResult>): Promise<ToolExecutionResult<M>> {
   return action().then((result) => executedProviderResult(mode, result));
+}
+
+export function executeCanonicalLocatorToolAction(action: () => Promise<{ result: ToolResult; locator: string; sha256: string }>): Promise<ToolExecutionResult<'canonical_locator'>> {
+  return action().then((outcome) => outcome.result.success
+    ? { providerResult: outcome.result, evidence: { kind: 'canonical_locator', locator: outcome.locator, sha256: outcome.sha256 } }
+    : { providerResult: outcome.result, evidence: { kind: 'none' } });
 }
 
 export interface ToolDefinition<Args = unknown, M extends ToolEvidenceMode = ToolEvidenceMode> {
@@ -175,6 +187,7 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
   } catch (error) {
     throwIfPublicationOutcomeUnknown(error);
     if (error instanceof McpToolInvocationNotInstalledError) throw error;
+    if (error instanceof ToolArgumentValidationError) return syntheticToolSettlement('rejected_before_execution', error.message);
     if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
     if (signal?.aborted) throw error;
     return syntheticToolSettlement('execution_failed', error instanceof Error ? error.message : String(error));

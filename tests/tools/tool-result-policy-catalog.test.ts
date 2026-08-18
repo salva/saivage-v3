@@ -3,15 +3,16 @@ import { describe, expect, it } from '@jest/globals';
 
 import { buildRuntimeToolCatalog, resolveRuntimeTool, surfaceToolContracts } from '../../src/tools/runtime-tool-catalog.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
-import { bindToolProvider, EMIT_RESULT_POLICY_TEMPLATE, llmToolDefinition, MCP_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { bindToolProvider, CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, EMIT_RESULT_POLICY_TEMPLATE, llmToolDefinition, MCP_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { DEFAULT_AGENTS } from '../../src/agents/default-workflow-config.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 
 const OBSERVATIONAL_READERS = new Set([
   'get_card', 'list_cards', 'get_tree', 'read', 'glob', 'grep', 'skill', 'get_status', 'show_config',
   'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session',
-  'list_card_versions', 'get_card_version', 'diff_card_versions',
+  'list_card_versions', 'diff_card_versions',
 ]);
+const CANONICAL_READERS = new Set(['get_card_version', 'read_record_version']);
 
 const templateFor = (name: string) => {
   const card = (() => { try { return resolveRuntimeTool('card', name).resultPolicyTemplate; } catch { return null; } })();
@@ -33,8 +34,15 @@ describe('runtime tool result policy catalog', () => {
   });
 
   it('classifies read/list/get/search surfaces as observational summarizer_only results', () => {
-    for (const name of ['get_card', 'list_cards', 'get_tree', 'read', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions']) {
+    for (const name of ['get_card', 'list_cards', 'get_tree', 'read', 'glob', 'grep', 'list_card_versions', 'diff_card_versions']) {
       expect(templateFor(name)).toEqual({ storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'summarizer_only', evidenceMode: 'observational_query' });
+    }
+  });
+
+  it('classifies the dedicated immutable card and record version readers as canonical locator summarizer_only results', () => {
+    for (const name of CANONICAL_READERS) {
+      expect(templateFor(name)).toEqual(CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE);
+      expect(templateFor(name)).toEqual({ storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'summarizer_only', evidenceMode: 'canonical_locator' });
     }
   });
 
@@ -65,9 +73,10 @@ describe('runtime tool result policy catalog', () => {
     for (const name of allNames) {
       const template = templateFor(name);
       if (name === 'mcp_tool_call') continue;
-      expect(template.settledAudience === 'primary_and_summarizer' || OBSERVATIONAL_READERS.has(name)).toBe(true);
-      expect(template.evidenceMode === 'none' || template.evidenceMode === 'observational_query').toBe(true);
+      expect(template.settledAudience === 'primary_and_summarizer' || OBSERVATIONAL_READERS.has(name) || CANONICAL_READERS.has(name)).toBe(true);
+      expect(template.evidenceMode === 'none' || template.evidenceMode === 'observational_query' || template.evidenceMode === 'canonical_locator').toBe(true);
       expect(template.evidenceMode === 'observational_query').toBe(OBSERVATIONAL_READERS.has(name) && template.settledAudience !== 'primary_and_summarizer');
+      expect(template.evidenceMode === 'canonical_locator').toBe(CANONICAL_READERS.has(name));
     }
     const provider = bindToolProvider('card-inspection', cardInspectionToolBinders, { store: { read: () => null, list: () => [], listChildren: () => [] } as never, cardTypeVocabulary: ['project'] });
     for (const definition of provider.tools) {

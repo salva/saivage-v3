@@ -13,21 +13,33 @@ import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { replaceFile } from '../persistence/replace-file.js';
 import { mutateRecord } from '../application/record-mutation-service.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
+import { ToolArgumentValidationError } from './invocation.js';
+import {
+  DISCOVERY_RESPONSE_MAX_BYTES,
+  packCollectionData,
+  packTextSliceData,
+  utf8ByteLength,
+  type CollectionPage,
+  type CollectionPosition,
+  type TextSlice,
+} from './response-packer.js';
 
 const { spawnSync } = childProcess;
 
-const DEFAULT_READ_LIMIT = 2000;
 const DEFAULT_SEARCH_LIMIT = 200;
 const MAX_SEARCH_LIMIT = 1000;
 export const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
-export const MAX_READ_OUTPUT_BYTES = 256 * 1024;
-export const MAX_READ_LINE_CHARS = 2000;
 export const READ_HEAD_SAMPLE_BYTES = 4096;
+export const MAX_GREP_LINE_CHARS = 2000;
 const GREP_HEAD_SAMPLE_BYTES = 1024;
 const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
 export type WorkspaceContext = { projectRoot: string; cardId?: string; agentName?: AgentName; filesystemWrite?:boolean;store?: CardService; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; onRecordWritten?: (name: string) => void };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
+type ReadPosition =
+  | { kind: 'collection'; item_index: number; item_byte_offset: number }
+  | { kind: 'text'; byte_offset: number };
+type ReadProjectParams = { path: string; position?: ReadPosition; read_mode?: 'auto' | 'text'; metadata_only?: boolean; response_bytes?: number };
 
 export class WorkspaceToolInputError extends Error {
   constructor(message: string) {
@@ -55,29 +67,6 @@ function readFileHead(absolutePath: string, maxBytes: number): Buffer {
   } finally {
     closeSync(fd);
   }
-}
-
-function truncateUtf8(content: string, maxBytes: number): { content: string; truncated: boolean } {
-  let bytes = 0;
-  let end = 0;
-  for (const char of content) {
-    const nextBytes = Buffer.byteLength(char, 'utf8');
-    if (bytes + nextBytes > maxBytes) return { content: content.slice(0, end), truncated: true };
-    bytes += nextBytes;
-    end += char.length;
-  }
-  return { content, truncated: false };
-}
-
-function truncateChars(content: string, maxChars: number): { content: string; truncated: boolean } {
-  let chars = 0;
-  let end = 0;
-  for (const char of content) {
-    if (chars === maxChars) return { content: content.slice(0, end), truncated: true };
-    chars += 1;
-    end += char.length;
-  }
-  return { content, truncated: false };
 }
 
 function assertReadable(projectRoot: string, path: string, label = 'read path'): { absolutePath: string; relativePath: string } {
@@ -206,73 +195,126 @@ function patchPaths(patch: string): string[] {
   return [...paths];
 }
 
-export async function readProject(ctx: WorkspaceContext, params: { path: string; offset?: number; limit?: number; read_mode?: 'auto' | 'text'; metadata_only?: boolean }): Promise<unknown> {
+export async function readProject(ctx: WorkspaceContext, params: ReadProjectParams): Promise<unknown> {
+  const cap = params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES;
+  const collectionPosition = (): CollectionPosition => {
+    if (params.position === undefined) return { item_index: 0, item_byte_offset: 0 };
+    if (params.position.kind !== 'collection') throw new ToolArgumentValidationError(`Path kind requires a collection position, got '${params.position.kind}'.`);
+    return { item_index: params.position.item_index, item_byte_offset: params.position.item_byte_offset };
+  };
+  const textOffset = (): number => {
+    if (params.position === undefined) return 0;
+    if (params.position.kind !== 'text') throw new ToolArgumentValidationError(`Path kind requires a text position, got '${params.position.kind}'.`);
+    return params.position.byte_offset;
+  };
   const { resolved, scoped } = resolveReadPath(ctx, params.path);
+
   if (resolved.kind === 'record' && resolved.recordKind === 'directory') {
     const listing = await listScopedPath(vfsCtx(ctx), params.path);
     if (listing.kind !== 'records') throw new Error('Record directory listing did not return records.');
-    const offset = parseNonNegativeInt(params.offset, 0);
-    const limit = parseNonNegativeInt(params.limit, DEFAULT_READ_LIMIT, DEFAULT_READ_LIMIT);
-    if (params.metadata_only === true) return { path: `record:///${resolved.cardId}`, metadata_only: true, is_directory: true, entries_count: listing.records.length };
-    return { path: `record:///${resolved.cardId}`, records: listing.records.slice(offset, offset + limit), offset, limit, total_records: listing.records.length, truncated: offset + limit < listing.records.length };
+    if (params.metadata_only === true) {
+      const { data } = packTextSliceData({
+        text: `record:///${resolved.cardId}`,
+        byteOffset: textOffset(),
+        cap,
+        render: (slice: TextSlice) => ({ metadata_only: true, is_directory: true, entries_count: listing.records.length, path: slice }),
+      });
+      return data;
+    }
+    const items = listing.records.map((record) => ({ name: record.name, format: record.format, state: record.state, head_version: record.head_version, version_url: record.version_url }));
+    const { data } = packCollectionData({
+      cap,
+      total: items.length,
+      position: collectionPosition(),
+      item: (index) => items[index]!,
+      render: (page: CollectionPage) => ({ path: `record:///${resolved.cardId}`, is_directory: true, total_entries: items.length, records: page }),
+    });
+    return data;
   }
+
   if (resolved.kind === 'record') {
-    const lines = resolved.content.length===0?[]:resolved.content.split(/\r?\n/);
-    const offset = parseNonNegativeInt(params.offset, 0);
-    const limit = parseNonNegativeInt(params.limit, DEFAULT_READ_LIMIT, DEFAULT_READ_LIMIT);
-    const content = lines.slice(offset, offset + limit).join('\n');
-    return { path: resolved.recordUrl, record_url: resolved.recordUrl,card_id:resolved.cardId,name:resolved.filename,format:resolved.format,schema:resolved.schema,state:resolved.state,head_version:resolved.headVersion,version_url:resolved.versionUrl, ...(params.metadata_only ? { metadata_only: true, is_directory: false } : { content, offset, limit, total_lines: lines.length, truncated: offset + limit < lines.length }), size: resolved.size, mtime: resolved.committedAt };
+    const base = {
+      record_url: resolved.recordUrl,
+      card_id: resolved.cardId,
+      name: resolved.filename,
+      format: resolved.format,
+      state: resolved.state,
+      head_version: resolved.headVersion,
+      version: resolved.version,
+      version_url: resolved.versionUrl,
+      committed_at: resolved.committedAt,
+      total_bytes: resolved.size,
+    };
+    const offset = textOffset();
+    if (params.metadata_only === true) {
+      const { data } = packTextSliceData({
+        text: resolved.recordUrl,
+        byteOffset: offset,
+        cap,
+        render: (slice: TextSlice) => ({ ...base, metadata_only: true, is_directory: false, path: slice }),
+      });
+      return data;
+    }
+    const { data } = packTextSliceData({
+      text: resolved.content,
+      byteOffset: offset,
+      cap,
+      render: (slice: TextSlice) => ({ ...base, path: resolved.recordUrl, content: slice }),
+    });
+    return data;
   }
+
   const { absolutePath, relativePath } = resolved;
   const st = statSync(absolutePath);
   const baseRecord = { path: displayPathForResolved(ctx.projectRoot, resolved) };
+
   if (params.metadata_only === true) {
+    if (!st.isDirectory() && !st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
+    let entriesCount: number | undefined;
     if (st.isDirectory()) {
       const entries = await directoryEntriesForRead(ctx, params.path, resolved, scoped);
-      return { ...baseRecord, metadata_only: true, is_directory: true, size: st.size, mtime: st.mtime.toISOString(), entries_count: entries.length };
+      entriesCount = entries.length;
     }
-    if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
-    return { ...baseRecord, metadata_only: true, is_directory: false, size: st.size, mtime: st.mtime.toISOString() };
+    const scalars = { metadata_only: true as const, is_directory: st.isDirectory() as boolean, size: st.size, mtime: st.mtime.toISOString() };
+    const { data } = packTextSliceData({
+      text: baseRecord.path,
+      byteOffset: textOffset(),
+      cap,
+      render: (slice: TextSlice) => ({ ...scalars, ...(entriesCount !== undefined ? { entries_count: entriesCount } : {}), path: slice }),
+    });
+    return data;
   }
-  const offset = parseNonNegativeInt(params.offset, 0);
-  const limit = parseNonNegativeInt(params.limit, DEFAULT_READ_LIMIT, DEFAULT_READ_LIMIT);
+
   if (st.isDirectory()) {
     const entries = await directoryEntriesForRead(ctx, params.path, resolved, scoped);
-    return { ...baseRecord, entries: entries.slice(offset, offset + limit), offset, limit, total_entries: entries.length, truncated: offset + limit < entries.length };
+    const items = entries.map((entry) => ({ name: entry.name, type: entry.type }));
+    const { data } = packCollectionData({
+      cap,
+      total: items.length,
+      position: collectionPosition(),
+      item: (index) => items[index]!,
+      render: (page: CollectionPage) => ({ ...baseRecord, is_directory: true, total_entries: items.length, entries: page }),
+    });
+    return data;
   }
+
   if (!st.isFile()) throw toolInputError(`Unsupported file type: ${relativePath}`);
+  const offset = textOffset();
   if (st.size > MAX_READ_FILE_BYTES) {
     const sample = readFileHead(absolutePath, READ_HEAD_SAMPLE_BYTES);
     if (isBinarySample(sample)) throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
-    return { ...baseRecord, content: null, offset, limit, total_lines: null, truncated: true, too_large: true, size: st.size, max_bytes: MAX_READ_FILE_BYTES, bytes: 0, message: `File is larger than ${MAX_READ_FILE_BYTES} bytes and was not read inline. Use metadata_only to inspect file metadata, or grep/glob to find narrower text targets before reading.` };
+    return { ...baseRecord, content: null, total_bytes: st.size, too_large: true, max_bytes: MAX_READ_FILE_BYTES, message: `File is larger than ${MAX_READ_FILE_BYTES} bytes and was not read inline. Use metadata_only to inspect file metadata, or grep/glob to find narrower text targets before reading.` };
   }
   const buffer = readFileSync(absolutePath);
   if (isBinarySample(buffer.subarray(0, Math.min(buffer.length, READ_HEAD_SAMPLE_BYTES)))) throw toolInputError(`Cannot read binary file as text: ${relativePath}`);
-  const lines = buffer.toString('utf8').split(/\r?\n/);
-  let linesTruncated = false;
-  const window = lines.slice(offset, offset + limit).map((line) => {
-    const cappedLine = truncateChars(line, MAX_READ_LINE_CHARS);
-    if (cappedLine.truncated) linesTruncated = true;
-    return cappedLine.content;
+  const content = resolved.kind === 'work' ? redactTextForOutbound(buffer.toString('utf8')) : buffer.toString('utf8');
+  const { data } = packTextSliceData({
+    text: content,
+    byteOffset: offset,
+    cap,
+    render: (slice: TextSlice) => ({ ...baseRecord, size: st.size, mtime: st.mtime.toISOString(), total_bytes: utf8ByteLength(content), content: slice }),
   });
-  const capped = truncateUtf8(window.join('\n'), MAX_READ_OUTPUT_BYTES);
-  const redactedContent = resolved.kind === 'work' ? redactTextForOutbound(capped.content) : capped.content;
-  const returned = truncateUtf8(redactedContent, MAX_READ_OUTPUT_BYTES);
-  const contentTruncated = capped.truncated || returned.truncated;
-  const truncated = offset + limit < lines.length || linesTruncated || contentTruncated;
-  const content = returned.content;
-  return {
-    ...baseRecord,
-    content,
-    offset,
-    limit,
-    total_lines: lines.length,
-    truncated,
-    size: st.size,
-    bytes: Buffer.byteLength(content, 'utf8'),
-    ...(linesTruncated ? { lines_truncated: true } : {}),
-    ...(contentTruncated ? { content_truncated: true, max_bytes: MAX_READ_OUTPUT_BYTES } : {}),
-  };
+  return data;
 }
 
 export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
@@ -352,7 +394,7 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
     pattern: params.pattern,
     matches,
     truncated: matches.length >= limit || contentTruncated,
-    ...(contentTruncated ? { content_truncated: true, max_line_chars: MAX_READ_LINE_CHARS } : {}),
+    ...(contentTruncated ? { content_truncated: true, max_line_chars: MAX_GREP_LINE_CHARS } : {}),
   });
 
   if (limit === 0) return result();
@@ -395,7 +437,7 @@ function scanRecordText(content: string, displayPath: string, regex: RegExp, inc
   if (include) { include.lastIndex = 0; if (!include.test(displayPath)) return { stop: false, contentTruncated: false }; }
   let contentTruncated = false;
   for (const [index, rawLine] of content.split(/\r?\n/).entries()) {
-    const line = rawLine.slice(0, MAX_READ_LINE_CHARS);
+    const line = rawLine.slice(0, MAX_GREP_LINE_CHARS);
     contentTruncated ||= line.length !== rawLine.length;
     regex.lastIndex = 0;
     if (regex.test(line)) matches.push({ path: displayPath, line: index + 1, preview: line.slice(0, 500) });
@@ -423,7 +465,7 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
   let stop = false;
 
   const append = (char: string) => {
-    if (lineChars < MAX_READ_LINE_CHARS) {
+    if (lineChars < MAX_GREP_LINE_CHARS) {
       linePrefix += char;
       lineChars += 1;
     } else {

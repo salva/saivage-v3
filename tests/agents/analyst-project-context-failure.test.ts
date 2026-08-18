@@ -6,11 +6,11 @@ import { z } from 'zod';
 
 import { AnalystSession } from '../../src/agents/analyst-handler.js';
 import type { CardService } from '../../src/cards/card-api.js';
+import { CardService as CompiledCardService, initProjectTree } from '../helpers/canonical-project.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
 import { defineTool, executedProviderResult, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
-import { initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
@@ -52,7 +52,6 @@ describe('Analyst project-context failure', () => {
     };
     const session = new AnalystSession({
       cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
-      projectRoot,
       sessionId: 'agent:analyst:global',
       agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
@@ -67,6 +66,7 @@ describe('Analyst project-context failure', () => {
       },
       summarizerProvider: unusedSummarizerProvider,
       cardStore,
+      runtimeCurrent: () => { throw new Error('runtime observation must not run'); },
       runtimeProjectionChanged() {},
       createInvocationSurface: () => surface,
       shutdownProcesses: async () => {},
@@ -95,7 +95,7 @@ describe('Analyst project-context failure', () => {
     roots.push(projectRoot);
     initProjectTree(projectRoot);
 
-    const cardStore = { list: jest.fn(() => []) } as unknown as CardService;
+    const cardStore = new CompiledCardService(projectRoot);
     const render = jest.fn(() => 'x'.repeat(8_000));
     const completeTurn = jest.fn(async () => {
       throw new Error('provider must not run');
@@ -115,7 +115,6 @@ describe('Analyst project-context failure', () => {
     };
     const session = new AnalystSession({
       cardTypeVocabulary: ['project'],
-      projectRoot,
       sessionId: 'agent:analyst:global',
       agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 100 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
@@ -130,6 +129,7 @@ describe('Analyst project-context failure', () => {
       },
       summarizerProvider: unusedSummarizerProvider,
       cardStore,
+      runtimeCurrent: () => ({ status: 'stopped' as const, currentCardId: null }),
       runtimeProjectionChanged() {},
       createInvocationSurface: () => surface,
       shutdownProcesses: async () => {},

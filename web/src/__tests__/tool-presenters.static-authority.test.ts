@@ -13,8 +13,8 @@ const CURRENT_TOOL_CALL_FIXTURES = {
   create_card: { type: 'code', title: 'Build', brief: 'Do it' },
   delete_card: { ids: ['card-a'] }, diff_card_versions: { card_id: 'card-a', from_version: 1, to_version: 2 },
   edit: { path: 'a.ts', old_string: 'a', new_string: 'b' }, edit_card: { card_id: 'card-a', title: 'New' },
-  emit_result: { outcome: 'done', summary: 'complete' }, get_card: { id: 'card-a' },
-  get_card_version: { card_id: 'card-a', version: 2 }, get_status: {}, get_tree: { rootId: 'card-a' },
+  emit_result: { outcome: 'done', summary: 'complete' }, get_card: { id: 'card-a', section: 'summary' },
+  get_card_version: { card_id: 'card-a', version: 2, section: 'summary' }, get_status: {}, get_tree: { rootId: 'card-a', depth: 2 },
   glob: { directory: '.', pattern: '**/*.ts' }, grep: { pattern: 'needle', path: 'src' }, kill_process: { process_id: 'proc-a' },
   list_agent_sessions: {}, list_card_versions: { card_id: 'card-a' }, list_cards: { status: ['backlog'], type: 'code', parent: 'project', tag: 'ui' },
   list_processes_tool: { status: 'running', cardId: 'card-a' }, mcp_reconcile: {},
@@ -22,6 +22,7 @@ const CURRENT_TOOL_CALL_FIXTURES = {
   navigate_workspace: { target: { kind: 'card', id: 'card-a', refinement: 'history' } }, pause_runtime: {},
   queue_notification: { card_id: 'card-a', kind: 'progress', body: 'Working' }, read: { path: 'README.md' },
   read_agent_session: { session_id: 'agent:executor:card-a', last_n: 5 }, read_control_actions: { limit: 10, since: '2026-07-21T00:00:00Z' },
+  read_record_version: { card_id: 'card-a', record_name: 'status.md', version: 3 },
   read_runtime_errors: { limit: 10 }, read_runtime_events: { limit: 10, kind: 'card' }, reconfigure: { action: 'set_agent_model_route', agent: 'executor', model_route: 'executor' },
   reorder_child: { orderedChildIds: ['card-a', 'card-b'] }, reopen_card: { cardId: 'card-a' }, restart_server: {}, resume_runtime: {},
   run_command: { command: 'npm test', cwd: '.', wait: true }, show_config: {}, skill: { name: 'review' }, start_project: {}, stop_project: {},
@@ -33,7 +34,7 @@ const EXPECTED_NAMES = [
   'activate_card', 'apply_patch', 'cancel_card', 'create_card', 'delete_card', 'diff_card_versions', 'edit', 'edit_card', 'emit_result',
   'get_card', 'get_card_version', 'get_status', 'get_tree', 'glob', 'grep', 'kill_process', 'list_agent_sessions',
   'list_card_versions', 'list_cards', 'list_processes_tool', 'mcp_reconcile', 'mcp_tool_call', 'navigate_back', 'navigate_workspace',
-  'pause_runtime', 'queue_notification', 'read', 'read_agent_session', 'read_control_actions', 'read_runtime_errors', 'read_runtime_events',
+  'pause_runtime', 'queue_notification', 'read', 'read_agent_session', 'read_control_actions', 'read_record_version', 'read_runtime_errors', 'read_runtime_events',
   'reconfigure', 'reopen_card', 'reorder_child', 'restart_server', 'resume_runtime', 'run_command', 'show_config', 'skill', 'start_project', 'stop_project',
   'wait_process', 'webfetch', 'websearch', 'write',
 ].sort();
@@ -54,9 +55,9 @@ const ANALYST_CARD_VIEW = {
 };
 
 describe('static tool presenter authority', () => {
-  it('contains exactly the 45 current tools with owned action and call rendering', () => {
+  it('contains exactly the 46 current tools with owned action and call rendering', () => {
     expect(Object.keys(TOOL_PRESENTERS).sort()).toEqual(EXPECTED_NAMES);
-    expect(EXPECTED_NAMES).toHaveLength(45);
+    expect(EXPECTED_NAMES).toHaveLength(46);
     for (const [name, descriptor] of Object.entries(TOOL_PRESENTERS)) {
       expect(descriptor.action.length).toBeGreaterThan(0);
       expect(Object.hasOwn(descriptor, 'call')).toBe(true);
@@ -89,7 +90,10 @@ describe('static tool presenter authority', () => {
   });
 
   it('parses only wrapped success data and supports optional data', () => {
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { content: 'a\nb', total_lines: 2 } }), { tool: 'read' }).headline)).toBe('2 lines');
+    const textSlice = { content: 'a\nb', utf8_bytes: 3, offset_bytes: 0, next_offset_bytes: 3 };
+    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { total_bytes: 65536, content: textSlice } }), { tool: 'read' }).headline)).toBe('64.0 kB');
+    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { entries: { total: 40, position: { item_index: 0, item_byte_offset: 0 }, returned: 12, next: { item_index: 12, item_byte_offset: 0 }, items: [] } } }), { tool: 'read' }).headline)).toBe('12 of 40 entries');
+    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { cards: { total: 9, position: { item_index: 0, item_byte_offset: 0 }, returned: 3, next: null, items: [] } } }), { tool: 'list_cards' }).headline)).toBe('3 of 9 cards');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true }), { tool: 'read' }).headline)).toBe('read completed');
     const unwrapped = presentToolResult(JSON.stringify({ stash_url: 'work:///tmp/stash/old.txt' }), { tool: 'webfetch' });
     expect(unwrapped.headline).toEqual([{ kind: 'text', text: 'result unavailable' }]);
@@ -147,7 +151,7 @@ describe('static tool presenter authority', () => {
     expect(inlineText(reopened.headline)).toContain('card-a');
     expect(inlineText(reopened.detail ?? [])).toBe('changed');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card: { ...PLANNER_COMPACT_CARD, id: 'card-e', title: 'Edited' } } }), { tool: 'edit_card' }).headline)).toContain('card-e');
-    const getCard = presentToolResult(JSON.stringify({ success: true, data: { ...ANALYST_CARD_VIEW, children: [], records: [], records_by_filename: {} } }), { tool: 'get_card' });
+    const getCard = presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-a', version_seq: 1, section: 'summary', card: { id: 'card-a', type: 'code', status: 'backlog', title: 'Analyst' } } }), { tool: 'get_card' });
     expect(inlineText(getCard.headline)).toBe('Analyst');
     expect(inlineText(getCard.detail ?? [])).toBe('code · backlog');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'x', result: null } }), { tool: 'activate_card' }).headline)).toBe('blocked');

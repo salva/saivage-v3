@@ -21,7 +21,8 @@ import { invokeToolForLlm, settlementProviderResult, surfaceToolDefinitions, syn
 } from '../tools/invocation.js';
 import { surfaceToolContracts } from '../tools/runtime-tool-catalog.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
-import { formatPromptToolList, type PromptTemplateRegistry } from '../utils/prompt-api.js';
+import { type PromptTemplateRegistry } from '../utils/prompt-api.js';
+import { buildAnalystOrientationSnapshot, type AnalystOrientationCard, type AnalystOrientationSnapshot } from '../application/read-models/analyst-orientation.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome,
@@ -29,13 +30,14 @@ import { ActivationOperationTracker, type InvocationJoinOutcome,
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import { prepareCompaction, type AutonomousCompactionPolicy,
 } from '../runtime/actors/compaction/compactor.js';
-import { buildPreparedInvocationContext, contextContentSha256, type ContextBlock } from '../runtime/actors/context/context-blocks.js';
+import { buildPreparedInvocationContext, type ContextBlock } from '../runtime/actors/context/context-blocks.js';
 import type { SummarizerProviderPort } from '../runtime/actors/compaction/summarizer.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 import type { CanonicalLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
 import { randomUUID } from 'node:crypto';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 import { cardParentId } from '../schemas/card-id.js';
+import type { RuntimeStatus } from '../schemas/index.js';
 
 
 export interface WorkspaceContext {
@@ -136,7 +138,6 @@ export class AnalystTurnBusyError extends Error {
 }
 
 export class AnalystSession {
-  readonly #projectRoot: string;
   readonly #sessionId: GlobalConversationSessionId;
   readonly #agentName: import('../schemas/index.js').AgentName;
   readonly #modelParams: Readonly<{ temperature: number; maxTokens: number }>;
@@ -148,6 +149,7 @@ export class AnalystSession {
   readonly #conversations: ConversationFileContext;
   readonly #compactionPolicy: AutonomousCompactionPolicy;
   readonly #cardStore: CardService;
+  readonly #runtimeCurrent: () => Readonly<{ status: RuntimeStatus; currentCardId: string | null }>;
   readonly #runtimeProjectionChanged: () => void;
   readonly #createInvocationSurface: () => InvocationSurface;
   readonly #shutdownProcesses: () => Promise<void>;
@@ -158,7 +160,6 @@ export class AnalystSession {
   readonly #retiredOperationTrackers = new Set<ActivationOperationTracker>();
 
   constructor(input: {
-    projectRoot: string;
     sessionId: GlobalConversationSessionId;
     agentName: import('../schemas/index.js').AgentName;
     modelParams: Readonly<{ temperature: number; maxTokens: number }>;
@@ -173,13 +174,13 @@ export class AnalystSession {
     compactor: CompactorPort;
     summarizerProvider: SummarizerProviderPort;
     cardStore: CardService;
+    runtimeCurrent(): Readonly<{ status: RuntimeStatus; currentCardId: string | null }>;
     runtimeProjectionChanged(): void;
     createInvocationSurface(): InvocationSurface;
     shutdownProcesses(): Promise<void>;
     fatalPort: ApplicationFatalPort;
     cardTypeVocabulary: readonly CardTypeName[];
   }) {
-    this.#projectRoot = input.projectRoot;
     this.#sessionId = input.sessionId;
     this.#agentName = input.agentName;
     this.#modelParams = input.modelParams;
@@ -191,6 +192,7 @@ export class AnalystSession {
     this.#conversations = input.conversations;
     this.#compactionPolicy = input.compactionPolicy;
     this.#cardStore = input.cardStore;
+    this.#runtimeCurrent = input.runtimeCurrent;
     this.#runtimeProjectionChanged = input.runtimeProjectionChanged;
     this.#createInvocationSurface = input.createInvocationSurface;
     this.#shutdownProcesses = input.shutdownProcesses;
@@ -398,11 +400,9 @@ export class AnalystSession {
   ): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const tools = surfaceToolDefinitions(surface);
     const compiledToolContracts = surfaceToolContracts(surface);
-    const projectContext = this.buildProjectContext();
+    const orientation = buildAnalystOrientationSnapshot(this.orientationCards(), this.#runtimeCurrent());
     const systemPrompt = this.#promptTemplates.render({kind:'global-agent'}, this.#agentName, {
-      toolList: formatPromptToolList(tools),
       vocabularySnippet: formatVocabularySnippet(this.#cardTypeVocabulary),
-      projectContext,
     });
     const preparedCompaction = prepareCompaction(
       this.#compactionPolicy,
@@ -425,7 +425,7 @@ export class AnalystSession {
         instructionText: systemPrompt,
         terminalToolNames: [],
         compiledTools: compiledToolContracts,
-        dynamicBlocks: [this.projectTreeBlock(projectContext)],
+        dynamicBlocks: [this.projectTreeBlock(orientation)],
         preparedCompaction,
       }),
       capabilityRequest: this.#capabilityRequest,
@@ -434,13 +434,25 @@ export class AnalystSession {
     };
   }
 
-  private projectTreeBlock(projectContext: string): ContextBlock {
+  private orientationCards(): readonly AnalystOrientationCard[] {
+    return this.#cardStore.list().map((card) => ({
+      id: card.id,
+      parent: cardParentId(card.id),
+      type: card.type,
+      status: card.lifecycle.status,
+      title: card.title,
+      version_seq: card.version_seq,
+      children: card.children,
+    }));
+  }
+
+  private projectTreeBlock(orientation: AnalystOrientationSnapshot): ContextBlock {
     return Object.freeze({
       id: 'analyst.project_tree',
       role: 'system',
-      content: projectContext,
+      content: orientation.content,
       storage: 'activation_local',
-      replacement: Object.freeze({ kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: contextContentSha256(projectContext) }),
+      replacement: Object.freeze({ kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: orientation.contentSha256 }),
       audience: 'primary_and_summarizer',
       evidence: Object.freeze({ kind: 'none' }),
       canonicalSource: null,
@@ -471,27 +483,6 @@ export class AnalystSession {
       restart: acknowledgement,
       toolInvocations: operation.toolInvocations.length > 0 ? operation.toolInvocations : undefined,
     };
-  }
-
-  private buildProjectContext(): string {
-    return JSON.stringify(
-      {
-        projectRoot: this.#projectRoot,
-        cards: this.#cardStore
-          .list()
-          .map((card) => ({
-            id: card.id,
-            type: card.type,
-            parent: cardParentId(card.id),
-            status: card.lifecycle.status,
-            title: card.title,
-            priority: card.priority,
-            tags: card.tags,
-          })),
-      },
-      null,
-      2,
-    );
   }
 
   #deliverPublicationFatal(error: unknown): void {

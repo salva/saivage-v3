@@ -10,12 +10,37 @@ import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { contextContentSha256 } from '../../src/runtime/actors/context/context-blocks.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
+import { ANALYST_ORIENTATION_MAX_BYTES } from '../../src/application/read-models/analyst-orientation.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
+const runtimeCurrent = () => ({ status: 'stopped' as const, currentCardId: null });
+
+function buildSession(projectRoot: string, cardStore: CardServiceType, completeTurn: ReturnType<typeof jest.fn>, render: ReturnType<typeof jest.fn>, surface: InvocationSurface = { agentName: 'analyst', tools: new Map(), providers: [] }): AnalystSession {
+  return new AnalystSession({
+    cardTypeVocabulary: ['project', 'goal'],
+    sessionId: 'agent:analyst:global',
+    agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
+    candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+    promptTemplates: { render },
+    restartServerAvailable: false,
+    provider: scriptedAdmissionProvider(completeTurn),
+    conversations: { projectRoot },
+    compactionPolicy: testCompactionPolicy,
+    compactor: { shouldCompact: () => false, compact: async () => { throw new Error('compaction must not run'); } },
+    summarizerProvider: unusedSummarizerProvider,
+    cardStore,
+    runtimeCurrent,
+    runtimeProjectionChanged() {},
+    createInvocationSurface: () => surface,
+    shutdownProcesses: async () => {},
+    fatalPort: testApplicationFatalPort,
+  });
+}
+
 describe('Analyst project context', () => {
-  it('derives parent values from one validated list without per-card parent reads', async () => {
+  it('derives the bounded orientation snapshot from one validated list without per-card parent reads', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-project-context-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
@@ -25,40 +50,25 @@ describe('Analyst project context', () => {
     const list = jest.fn(() => listed);
     const getParent = jest.fn(() => { throw new Error('parent lookup must not run'); });
     const cardStore = { list, getParent } as unknown as CardServiceType;
-    let projectContext = '';
-    const render = jest.fn((_host: {kind:string}, _agent: string, variables: Record<string, string>) => {
-      projectContext = variables.projectContext!;
-      return 'rendered prompt';
+    const providerInputs: unknown[] = [];
+    const completeTurn = jest.fn(async (input: unknown) => {
+      providerInputs.push(input);
+      return { result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] };
     });
-    const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
-    const surface: InvocationSurface = { agentName: 'analyst', tools: new Map(), providers: [] };
-    const session = new AnalystSession({
-      cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
-      projectRoot,
-      sessionId: 'agent:analyst:global',
-      agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
-      candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
-      promptTemplates: { render },
-      restartServerAvailable: false,
-      provider: scriptedAdmissionProvider(completeTurn),
-      conversations: { projectRoot },
-      compactionPolicy: testCompactionPolicy,
-      compactor: { shouldCompact: () => false, compact: async () => { throw new Error('compaction must not run'); } },
-      summarizerProvider: unusedSummarizerProvider,
-      cardStore,
-      runtimeProjectionChanged() {},
-      createInvocationSurface: () => surface,
-      shutdownProcesses: async () => {},
-      fatalPort: testApplicationFatalPort,
-    });
+    const render = jest.fn(() => 'rendered prompt');
 
-    await expect(session.submit({ userContent: 'inspect cards' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    await expect(buildSession(projectRoot, cardStore, completeTurn, render).submit({ userContent: 'inspect cards' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
 
     expect(list).toHaveBeenCalledTimes(1);
     expect(getParent).not.toHaveBeenCalled();
-    const context = JSON.parse(projectContext) as { cards: Array<{ id: string; parent: string | null }> };
-    expect(context.cards.find((card) => card.id === 'project')?.parent).toBeNull();
-    expect(context.cards.find((card) => card.id === child.id)?.parent).toBe('project');
+    const input = providerInputs[0] as { preparedContext: { dynamicBlocks: ReadonlyArray<{ id: string; content: string }> } };
+    const tree = input.preparedContext.dynamicBlocks[0]!;
+    expect(tree.id).toBe('analyst.project_tree');
+    expect(Buffer.byteLength(tree.content, 'utf8')).toBeLessThanOrEqual(ANALYST_ORIENTATION_MAX_BYTES);
+    const snapshot = JSON.parse(tree.content) as { root: { id: string; children?: Array<{ id: string }> }; active_path: string[] };
+    expect(snapshot.root.id).toBe('project');
+    expect(snapshot.root.children?.map((node) => node.id)).toEqual([child.id]);
+    expect(snapshot.active_path).toEqual([]);
   });
 
   it('freezes the prepared invocation context with the project-tree dynamic block before ingress', async () => {
@@ -67,38 +77,14 @@ describe('Analyst project context', () => {
     initProjectTree(projectRoot);
     const persisted = new CardService(projectRoot);
     persisted.create({ type: 'goal', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
-    let projectContext = '';
-    const render = jest.fn((_host: {kind:string}, _agent: string, variables: Record<string, string>) => {
-      projectContext = variables.projectContext!;
-      return 'rendered prompt';
-    });
+    const render = jest.fn(() => 'rendered prompt');
     const providerInputs: unknown[] = [];
     const completeTurn = jest.fn(async (input: unknown) => {
       providerInputs.push(input);
       return { result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] };
     });
-    const surface: InvocationSurface = { agentName: 'analyst', tools: new Map(), providers: [] };
-    const session = new AnalystSession({
-      cardTypeVocabulary: ['project','goal'],
-      projectRoot,
-      sessionId: 'agent:analyst:global',
-      agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
-      candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
-      promptTemplates: { render },
-      restartServerAvailable: false,
-      provider: scriptedAdmissionProvider(completeTurn),
-      conversations: { projectRoot },
-      compactionPolicy: testCompactionPolicy,
-      compactor: { shouldCompact: () => false, compact: async () => { throw new Error('compaction must not run'); } },
-      summarizerProvider: unusedSummarizerProvider,
-      cardStore: persisted,
-      runtimeProjectionChanged() {},
-      createInvocationSurface: () => surface,
-      shutdownProcesses: async () => {},
-      fatalPort: testApplicationFatalPort,
-    });
 
-    await expect(session.submit({ userContent: 'inspect cards' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
+    await expect(buildSession(projectRoot, persisted, completeTurn, render).submit({ userContent: 'inspect cards' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
 
     const input = providerInputs[0] as { systemPrompt: string; preparedContext: { prefix: { instructionText: string; terminalToolNames: readonly string[]; immutablePrefixSha256: string }; dynamicBlocks: ReadonlyArray<{ id: string; content: string; storage: string; replacement: { kind: string; key: string; contentSha256: string } }>; preparedCompaction: unknown; internalToolContractSha256: string } };
     expect(input.systemPrompt).toBe('rendered prompt');
@@ -109,7 +95,6 @@ describe('Analyst project context', () => {
     expect(input.preparedContext.dynamicBlocks).toHaveLength(1);
     const tree = input.preparedContext.dynamicBlocks[0]!;
     expect(tree.id).toBe('analyst.project_tree');
-    expect(tree.content).toBe(projectContext);
     expect(tree.storage).toBe('activation_local');
     expect(tree.replacement.kind).toBe('latest_snapshot');
     expect(tree.replacement.key).toBe('analyst.project_tree');

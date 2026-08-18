@@ -41,7 +41,7 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     expect(JSON.stringify(surfaceToolDefinitions(bound.global))).toBe(JSON.stringify(surfaceToolDefinitions(bound.card)));
     for(const surface of [bound.global,bound.card]){
       read.mockClear();
-      await expect(invokeTestTool(surface,'list_cards',{type:'custom-leaf'})).resolves.toMatchObject({success:true,data:[expect.objectContaining({type:'custom-leaf'})]});
+      await expect(invokeTestTool(surface,'list_cards',{type:'custom-leaf'})).resolves.toMatchObject({success:true,data:{cards:{items:[expect.objectContaining({type:'custom-leaf'})]}}});
       await expect(invokeTestTool(surface,'list_cards',{type:['project','custom-leaf']})).resolves.toMatchObject({success:true});
       read.mockClear();
       await expect(invokeTestTool(surface,'list_cards',{type:'unconfigured'})).rejects.toThrow(/unconfigured/);

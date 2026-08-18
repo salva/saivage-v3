@@ -63,7 +63,7 @@ const entries = [
     kind: 'tool_result',
     tool: 'read',
     tool_call_id: 'call-1',
-    content: JSON.stringify({ success: true, data: { content: 'docs', total_lines: 1 } }),
+    content: JSON.stringify({ success: true, data: { total_bytes: 4, content: { content: 'docs', utf8_bytes: 4, offset_bytes: 0, next_offset_bytes: 4 } } }),
     round_id: 'r-assistant-00000000000000000000000000000001',
     message_index: 2,
     block_index: 0,

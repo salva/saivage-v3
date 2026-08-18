@@ -8,7 +8,7 @@ import {
   killProcessInputSchema, listCardVersionsInputSchema, listProcessesInputSchema,
   navigateWorkspaceInputSchema, plannerCancelCardInputSchema, plannerEditCardInputSchema,
   plannerQueueNotificationInputSchema, plannerReorderChildInputSchema, queueNotificationInputSchema,
-  readAgentSessionInputSchema, readControlActionsInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema,
+  readAgentSessionInputSchema, readControlActionsInputSchema, readRecordVersionInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema,
   readWorkspaceInputSchema, runCommandInputSchema, skillInputSchema, waitProcessInputSchema, websearchInputSchema,
   writeWorkspaceInputSchema,
 } from '../contracts/builtin-tool-inputs.js';
@@ -32,7 +32,7 @@ export const KNOWN_TOOL_INVOCATION_NAMES = [
   'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure',
   'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool',
   'list_agent_sessions', 'read_agent_session', 'list_cards', 'get_card', 'get_tree',
-  'list_card_versions', 'get_card_version', 'diff_card_versions',
+  'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version',
   'read', 'write', 'edit', 'glob', 'grep', 'apply_patch',
   'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call',
   'edit_card', 'activate_card', TERMINAL_RESULT_TOOL_NAME,
@@ -145,7 +145,7 @@ function projectValidArguments(toolName: KnownToolInvocationName, value: unknown
     case 'show_config': case 'read_runtime_events': case 'read_runtime_errors': case 'read_control_actions':
     case 'list_processes_tool': case 'list_agent_sessions': case 'read_agent_session': case 'list_cards':
     case 'get_card': case 'get_tree': case 'list_card_versions': case 'get_card_version': case 'diff_card_versions':
-    case 'read': case 'wait_process': case 'kill_process': case 'skill': case 'activate_card':
+    case 'read_record_version': case 'read': case 'wait_process': case 'kill_process': case 'skill': case 'activate_card':
       return structuredClone(value);
   }
 }
@@ -200,6 +200,7 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
     case 'list_card_versions': return listCardVersionsInputSchema;
     case 'get_card_version': return getCardVersionInputSchema;
     case 'diff_card_versions': return diffCardVersionsInputSchema;
+    case 'read_record_version': return readRecordVersionInputSchema;
     case 'read': return readWorkspaceInputSchema;
     case 'write': return writeWorkspaceInputSchema;
     case 'edit': return editWorkspaceInputSchema;

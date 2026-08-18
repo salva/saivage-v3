@@ -154,16 +154,16 @@ describe('production-composed Analyst provider-exchange recording', () => {
       const response = await app.analystRuntime.submit({ userContent: 'List the project cards.' });
 
       expect(fetch).toHaveBeenCalledTimes(2);
-      expect(response.toolInvocations).toEqual([
-        expect.objectContaining({
+      expect(response.toolInvocations).toMatchObject([
+        {
           tool: 'list_cards',
           params: {},
           toolCallId: 'list-project',
           result: {
             success: true,
-            data: [expect.objectContaining({ id: 'project' })],
+            data: { cards: { items: [{ id: 'project' }] } },
           },
-        }),
+        },
       ]);
 
       const conversation = readConversation(projectRoot, app.analystSessionId);
@@ -182,8 +182,8 @@ describe('production-composed Analyst provider-exchange recording', () => {
       expect(expectedOrder.every((index) => index >= 0)).toBe(true);
       expect(expectedOrder).toEqual([...expectedOrder].sort((left, right) => left - right));
 
-      const toolResult = JSON.parse(rows[firstToolResult]!.content) as { success: boolean; data: Array<{ id: string }> };
-      expect(toolResult).toMatchObject({ success: true, data: [expect.objectContaining({ id: 'project' })] });
+      const toolResult = JSON.parse(rows[firstToolResult]!.content) as { success: boolean; data: { cards: { items: Array<{ id: string }> } } };
+      expect(toolResult).toMatchObject({ success: true, data: { cards: { items: [expect.objectContaining({ id: 'project' })] } } });
 
       const appLog = readAppLogEntries(projectRoot);
       expect(appLog).toContainEqual(expect.objectContaining({ type: 'event', data: expect.objectContaining({ id: 'seed-current-app-log-event' }) }));

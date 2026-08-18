@@ -178,7 +178,6 @@ function createFixture(options: {
   const session = new AnalystSession({
     cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
     fatalPort: testApplicationFatalPort,
-    projectRoot,
     sessionId,
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
@@ -191,6 +190,7 @@ function createFixture(options: {
     compactor: { shouldCompact: () => false, compact: () => Promise.reject(new Error('Unexpected compaction.')) },
     summarizerProvider: unusedSummarizerProvider,
     cardStore: new CardService(projectRoot),
+    runtimeCurrent: () => ({ status: 'stopped' as const, currentCardId: null }),
     runtimeProjectionChanged() {},
     createInvocationSurface: () => surface,
     shutdownProcesses,

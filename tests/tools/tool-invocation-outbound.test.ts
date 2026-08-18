@@ -37,11 +37,12 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   read_control_actions: { limit: 1, since: '2026-07-22T10:00:00.000Z' },
   list_processes_tool: { status: 'running', cardId: 'card-a' },
   list_agent_sessions: {}, read_agent_session: { sessionId: 'agent:planner:project', lastN: 1 },
-  list_cards: { tag: OUTBOUND_IDENTITY }, get_card: { id: 'card-a' }, get_tree: { rootId: 'card-a' },
+  list_cards: { tag: OUTBOUND_IDENTITY }, get_card: { id: 'card-a', section: 'summary' }, get_tree: { rootId: 'card-a', depth: 2 },
   list_card_versions: { card_id: 'card-a' },
-  get_card_version: { card_id: 'card-a', version: 1 },
+  get_card_version: { card_id: 'card-a', version: 1, section: 'summary' },
   diff_card_versions: { card_id: 'card-a', from_version: 1, to_version: 2 },
-  read: { path: 'project:///tok_primary', offset: 0, limit: 1 },
+  read_record_version: { card_id: 'card-a', record_name: 'status.md', version: 1, byte_offset: 0 },
+  read: { path: 'project:///tok_primary', position: { kind: 'text', byte_offset: 0 } },
   write: { path: 'project:///tok_primary', content: marker },
   edit: { path: 'project:///tok_primary', old_string: marker, new_string: marker, replace_all: false },
   glob: { directory: 'project:///', pattern: marker, max_results: 1 },
@@ -68,8 +69,8 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
 
 describe('projectToolInvocation exhaustive identity switch', () => {
   it('contains the exact 45-name baseline and every name reaches complete, call-row, and result-row', () => {
-    expect(KNOWN_TOOL_INVOCATION_NAMES).toHaveLength(45);
-    expect(new Set(KNOWN_TOOL_INVOCATION_NAMES).size).toBe(45);
+    expect(KNOWN_TOOL_INVOCATION_NAMES).toHaveLength(46);
+    expect(new Set(KNOWN_TOOL_INVOCATION_NAMES).size).toBe(46);
     expect(Object.keys(validArguments).sort()).toEqual([...KNOWN_TOOL_INVOCATION_NAMES].sort());
 
     for (const toolName of KNOWN_TOOL_INVOCATION_NAMES) {

@@ -163,7 +163,6 @@ if (mode === 'analyst-project-context') {
   };
   const session = new AnalystSession({
     cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
-    projectRoot: root,
     sessionId: 'agent:analyst:global',
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
@@ -175,6 +174,7 @@ if (mode === 'analyst-project-context') {
     compactor: { shouldCompact: () => false, compact: async () => { throw new Error('Compaction must not run.'); } },
     summarizerProvider: unusedSummarizerProvider,
     cardStore,
+    runtimeCurrent: () => { throw new Error('runtime observation must not run'); },
     runtimeProjectionChanged() {},
     createInvocationSurface: () => surface,
     shutdownProcesses: async () => {},

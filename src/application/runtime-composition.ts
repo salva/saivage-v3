@@ -202,7 +202,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         );
     };
     return new AnalystSession({
-      projectRoot,
       sessionId: analystSessionId,
       agentName: analystBinding.contract.name,
       modelParams: analystBinding.contract.model,
@@ -217,6 +216,10 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       compactor,
       summarizerProvider,
       cardStore,
+      runtimeCurrent: () => {
+        const state = runtimeApi.getRuntimeState();
+        return state === null ? { status: 'stopped' as const, currentCardId: null } : { status: state.status, currentCardId: state.current_card_id };
+      },
       runtimeProjectionChanged: () => services.freshness.agentMembershipChanged({ scope: 'global-session', sessionId: analystSessionId }),
       createInvocationSurface,
       shutdownProcesses,
