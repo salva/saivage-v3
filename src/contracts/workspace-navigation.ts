@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const workspaceNavigationTargetSchema = z.object({
-  kind: z.enum(['card', 'transcript', 'process', 'process_list', 'agent_session_list', 'config']),
+  kind: z.enum(['card', 'transcript', 'process', 'process_list', 'agent_session_list']),
   id: z.string().optional().describe('Optional target id.'),
   refinement: z.string().optional().describe('Optional view refinement.'),
 }).strict();

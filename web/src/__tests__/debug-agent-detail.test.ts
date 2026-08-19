@@ -113,7 +113,6 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     expect(wrapper.text()).toContain('No LLM exchange recorded');
     wrapper.unmount();
     expect(clear).toHaveBeenCalledOnce();
-    expect(store.llmExchangeSessionId).toBeNull();
   });
 
   it('contains no prop/list synchronization watcher', () => {

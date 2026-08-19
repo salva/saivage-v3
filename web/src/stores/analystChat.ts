@@ -2,7 +2,6 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import type {
   AgentConversationEntry,
-  AnalystSession,
   DetailErrorState,
   RestartChatAcknowledgement,
 } from '../api/types';
@@ -10,7 +9,6 @@ import {
   OperatorApiError,
   getChatEntries,
   getAgentConversation,
-  getAgentSession,
   isOperatorApiError,
   sendChatMessage,
 } from '../api/client';
@@ -80,7 +78,6 @@ function authoritativeContainsPending(
 export const useAnalystChat = defineStore('analyst-chat', () => {
   let messagesRequestSeq = 0;
   let messagesAbort: AbortController | null = null;
-  const detailSession = ref<AnalystSession | null>(null);
   const activeSessionId = ref<ConversationSessionId | null>(null);
   const authoritativeMessages = ref<AgentConversationEntry[]>([]);
   const pendingMessages = ref<PendingMessage[]>([]);
@@ -95,8 +92,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const sendError = ref<DetailErrorState | null>(null);
   const restartAcknowledgement = ref<RestartChatAcknowledgement | null>(null);
   let cursor: { segment_version: number; message_id: string | null } | null = null;
-
-  const activeSession = computed(() => detailSession.value);
 
   function setDraft(value: string): void {
     draft.value = value;
@@ -129,15 +124,11 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         return;
       }
       const sessionId = activeSessionId.value;
-      const [detail, response] = await Promise.all([
-        getAgentSession(sessionId, abort.signal),
-        getAgentConversation(sessionId, abort.signal, cursor?.message_id ? { segmentVersion: cursor.segment_version, messageId: cursor.message_id } : undefined),
-      ]);
+      const response = await getAgentConversation(sessionId, abort.signal, cursor?.message_id ? { segmentVersion: cursor.segment_version, messageId: cursor.message_id } : undefined);
       if (requestSeq !== messagesRequestSeq) return;
       const reconciled = pendingMessages.value.filter(
         (pending) => !authoritativeContainsPending(response.entries, pending.entry),
       );
-      detailSession.value = detail.session;
       authoritativeMessages.value =
         cursor === null || cursor.segment_version !== response.segment_version
           ? [...response.entries]
@@ -153,7 +144,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         await fetchMessages();
         return;
       }
-      detailSession.value = null;
       authoritativeMessages.value = [];
       cursor = null;
       messagesError.value = buildErrorState(err, 'Failed to load analyst chat messages.');
@@ -164,12 +154,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
         messagesAbort = null;
       }
     }
-  }
-
-  function createNewChat(): string {
-    if (!activeSessionId.value) throw new Error('Analyst session identity is not loaded.');
-    messagesError.value = null;
-    return activeSessionId.value;
   }
 
   async function sendMessage(): Promise<void> {
@@ -271,8 +255,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   return {
     activeSessionId,
-    activeSession,
-    detailSession,
     messages,
     draft,
     messagesLoading,
@@ -282,7 +264,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     restartAcknowledgement,
     setDraft,
     fetchMessages,
-    createNewChat,
     sendMessage,
     ingestWsEvent,
     ingestRestartAcknowledgement,

@@ -24,6 +24,6 @@ describe('workspace navigation contract', () => {
 
   it('rejects extra intent and nested target properties', () => {
     expect(() => workspaceNavigationIntentSchema.parse({ intent: 'navigate_back', target: { kind: 'card' } })).toThrow();
-    expect(() => workspaceNavigationTargetSchema.parse({ kind: 'config', extra: true })).toThrow();
+    expect(() => workspaceNavigationTargetSchema.parse({ kind: 'card', extra: true })).toThrow();
   });
 });

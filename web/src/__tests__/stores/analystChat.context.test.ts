@@ -116,7 +116,7 @@ describe('analyst chat workspace context', () => {
 
   it.each([
     ['navigate_workspace', { intent: 'navigate_back' }],
-    ['navigate_back', { intent: 'navigate_workspace', target: { kind: 'config' } }],
+    ['navigate_back', { intent: 'navigate_workspace', target: { kind: 'process_list' } }],
   ] as const)('rejects cross-wired %s results before applying them', async (tool, data) => {
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       toolInvocations: [{ tool, params: {}, result: { success: true, data } }],

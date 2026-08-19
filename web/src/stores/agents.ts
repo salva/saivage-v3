@@ -55,7 +55,6 @@ export const useAgentStore = defineStore('agents', () => {
   let conversationCursor: { segment_version: number; message_id: string | null } | null = null;
   let activeConversationToken: ConversationSelectionToken | null = null;
   const conversationIds = new WeakMap<object, ConversationSessionId>();
-  const llmExchangeSessionId = ref<ConversationSessionId | null>(null);
   const currentLlmExchange = ref<ProviderExchangePayload | null>(null);
   const llmExchangeLoaded = ref(false);
   const llmExchangeLoading = ref(false);
@@ -309,7 +308,6 @@ export const useAgentStore = defineStore('agents', () => {
     const token = Object.freeze({}) as LlmExchangeSelectionToken;
     exchangeIds.set(token, id);
     activeExchangeToken = token;
-    llmExchangeSessionId.value = id;
     currentLlmExchange.value = null;
     llmExchangeLoaded.value = false;
     llmExchangeError.value = null;
@@ -360,7 +358,6 @@ export const useAgentStore = defineStore('agents', () => {
     ++exchangeGeneration;
     exchangeController?.abort();
     activeExchangeToken = null;
-    llmExchangeSessionId.value = null;
     currentLlmExchange.value = null;
     llmExchangeLoaded.value = false;
   }
@@ -399,7 +396,6 @@ export const useAgentStore = defineStore('agents', () => {
     fetchConversationVersions,
     selectConversationVersion,
     clearConversationSelection,
-    llmExchangeSessionId,
     currentLlmExchange,
     llmExchangeLoaded,
     llmExchangeLoading,

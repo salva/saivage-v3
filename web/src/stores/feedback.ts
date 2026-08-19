@@ -32,9 +32,5 @@ export const useFeedbackStore = defineStore('feedback', () => {
     toasts.value = toasts.value.filter((toast) => toast.id !== id);
   }
 
-  function clear(): void {
-    toasts.value = [];
-  }
-
-  return { toasts, notify, notifyError, dismiss, clear };
+  return { toasts, notify, notifyError, dismiss };
 });

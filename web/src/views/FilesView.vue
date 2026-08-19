@@ -49,16 +49,6 @@
       </div>
     </Panel>
 
-    <section v-if="cardChildren.length > 0" class="card-children-listing" data-testid="files-view-card-children">
-      <h3 class="panel-title">Current Card Children</h3>
-      <ul data-testid="files-card-children-list">
-        <li v-for="child in cardChildren" :key="child.id" data-testid="files-card-children-item">
-          <span class="title">{{ child.title }}</span>
-          <span class="status">{{ child.status }}</span>
-        </li>
-      </ul>
-    </section>
-
     <div v-if="viewedFilePath" class="file-viewer" data-testid="files-viewer">
       <PanelHeader class="viewer-header" :title="viewedFilePath">
         <template #actions><button class="btn viewer-close-btn" @click="fileStore.clearViewedFile()">X</button></template>
@@ -83,7 +73,6 @@ import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useFileStore } from '../stores/files';
 import { useSyncStore } from '../stores/sync';
-import { useCardStore } from '../stores/cards';
 import { formatRecentTimestamp, timestampTitle } from '../utils/timestamp';
 import { formatJson } from '../utils/format-json';
 import CodeBlock from '../components/content/CodeBlock.vue';
@@ -94,7 +83,7 @@ import PanelHeader from '../components/ui/PanelHeader.vue';
 import SelectableRow from '../components/ui/SelectableRow.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import ViewState from '../components/ui/ViewState.vue';
-import type { CardHierarchyRecord, FileEntry } from '../api/types';
+import type { FileEntry } from '../api/types';
 import type { Tone } from '../utils/status';
 
 type FileRoot = 'meta' | 'output';
@@ -103,7 +92,6 @@ const route = useRoute();
 const router = useRouter();
 const fileStore = useFileStore();
 const liveSyncStore = useSyncStore();
-const cardsStore = useCardStore();
 const {
   metaFiles, metaLoading, metaBreadcrumbs,
   outputFiles, outputLoading, outputBreadcrumbs,
@@ -113,11 +101,6 @@ const {
   isStale, unauthorized,
 } = storeToRefs(fileStore);
 
-const activeCardId = computed<string | null>(() => cardsStore.selectedDetail?.cardId ?? null);
-const cardChildren = computed<readonly CardHierarchyRecord[]>(() => {
-  const id = activeCardId.value;
-  return id ? cardsStore.loadedChildrenFor(id) ?? [] : [];
-});
 const activeRoot = computed<FileRoot>(() => route.query.root === 'output' ? 'output' : 'meta');
 const activeRootPath = computed(() => activeRoot.value === 'meta' ? '.saivage' : '.saivage/work');
 const activeRootLabel = computed(() => activeRoot.value === 'meta' ? 'Metadata' : 'Output');
@@ -289,7 +272,6 @@ watch(() => [route.query.root, route.query.path], async () => {
 .file-browser :deep(.ui-panel-header) { padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); margin-bottom:0; }
 .file-browser :deep(.ui-panel-header__meta) { margin-top:2px; }
 .panel-header { display:flex; align-items:center; gap:12px; padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
-.panel-title { font-size:12px; font-weight:600; color:var(--text); margin:0; }
 .root-label { font-size:10px; padding:2px 4px; }
 .root-switcher { display:flex; align-items:center; gap:6px; margin-left:auto; }
 .root-switcher .pill, .crumb-button { cursor:pointer; padding:3px 8px; font-family:inherit; }
@@ -304,10 +286,6 @@ watch(() => [route.query.root, route.query.path], async () => {
 .entry-name { font-size:12px; color:var(--text); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .entry-size { font-size:10px; color:var(--border-strong); font-family:'SF Mono',monospace; }
 .entry-modified { font-size:10px; color:var(--border-strong); }
-.card-children-listing { border-top:1px solid var(--border); padding:12px; background:var(--bg); }
-.card-children-listing ul { margin:8px 0 0; padding-left:18px; }
-.card-children-listing li { color:var(--text); font-size:12px; margin:4px 0; }
-.card-children-listing .status { color:var(--text-muted); margin-left:8px; }
 .file-viewer { border-top:1px solid var(--border); max-height:40%; overflow:hidden; display:flex; flex-direction:column; }
 .viewer-header { padding:6px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; margin-bottom:0; }
 .viewer-header :deep(.ui-panel-header__title) { font-size:11px; color:var(--accent-2); font-family:'SF Mono',monospace; }

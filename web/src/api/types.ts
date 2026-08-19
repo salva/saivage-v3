@@ -108,7 +108,6 @@ export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'ses
   sessions: AgentSession[];
 };
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'>;
-export type AnalystSession = AgentSessionSummary;
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugErrorsResponse = OperatorApiSuccess<'debug.errors'>;

@@ -62,7 +62,6 @@ describe('runtime store S06 read-only projection', () => {
 
     expect(store.statusLabel).toBe('unknown');
     expect(store.loaded).toBe(false);
-    expect(store.serverAvailability).toBeNull();
     expect(typeof store.fetchState).toBe('function');
     expect(typeof store.refetch).toBe('function');
 
@@ -71,9 +70,7 @@ describe('runtime store S06 read-only projection', () => {
     expect(store.status).toBe('stopped');
     expect(store.statusLabel).toBe('stopped');
     expect(store.runtimeDetail).toBe('No live runtime.');
-    expect(store.serverAvailability).toEqual(serverAvailability);
     expect(store.lastFetchedAt).not.toBeNull();
-    expect(store.projectRoot).toBe('/fixture');
     expect(store).not.toHaveProperty('cardIndex');
   });
 
@@ -128,7 +125,6 @@ describe('runtime store S06 read-only projection', () => {
     obsolete.resolve({ projectRoot: '/obsolete', projectId: 'obsolete', runtime: null, serverAvailability });
     await first;
 
-    expect(store.projectRoot).toBe('/current');
     expect(store.projectId).toBe('current');
     expect(store.loaded).toBe(true);
   });

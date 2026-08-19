@@ -6,7 +6,7 @@ import type { WorkspaceNavigationIntent, WorkspaceNavigationTarget } from '../ap
 
 const BACK_STACK_LIMIT = 16;
 
-export type WorkspaceView = 'dashboard' | 'cards' | 'agents' | 'files' | 'debug' | 'config' | null;
+export type WorkspaceView = 'dashboard' | 'cards' | 'agents' | 'files' | 'debug' | null;
 
 export interface WorkspaceContext {
   view: WorkspaceView;
@@ -66,8 +66,6 @@ function snapshotFromRoute(route: RouteLocationNormalizedLoaded): WorkspaceConte
       return { view: 'files', entityId: typeof route.query.path === 'string' ? route.query.path : null, refinement };
     case 'debug':
       return { view: 'debug', entityId: typeof route.query.process === 'string' ? route.query.process : null, refinement };
-    case 'config':
-      return { view: 'config', entityId: null, refinement };
     default:
       return emptyContext();
   }
@@ -94,7 +92,6 @@ function routeForSnapshot(snapshot: WorkspaceContext): RouteLocationRaw {
       ? { name: 'debug', query: { ...(query ?? {}), tab: 'processes', process: snapshot.entityId } }
       : { name: 'debug', query };
   }
-  if (snapshot.view === 'config') return { name: 'config', query };
   return { name: 'dashboard', query };
 }
 
@@ -113,8 +110,6 @@ function routeForTarget(target: WorkspaceNavigationTarget): RouteLocationRaw | n
       return { name: 'debug', query: { ...(refinementStringToQuery(target.refinement) ?? {}), tab: 'processes' } };
     case 'agent_session_list':
       return { name: 'agents', query: refinementStringToQuery(target.refinement) };
-    case 'config':
-      return { name: 'config', query: refinementStringToQuery(target.refinement) };
   }
 }
 

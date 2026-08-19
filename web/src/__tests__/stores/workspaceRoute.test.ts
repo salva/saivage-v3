@@ -67,7 +67,6 @@ describe('workspaceRoute store', () => {
       { target: { kind: 'process', id: 'pid-1' }, expected: { name: 'debug', query: { tab: 'processes', process: 'pid-1' } } },
       { target: { kind: 'process_list' }, expected: { name: 'debug', query: { tab: 'processes' } } },
       { target: { kind: 'agent_session_list' }, expected: { name: 'agents', query: undefined } },
-      { target: { kind: 'config' }, expected: { name: 'config', query: undefined } },
     ];
     for (const row of rows) {
       store.apply({ intent: 'navigate_workspace', target: row.target });

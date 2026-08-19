@@ -10,7 +10,6 @@ const analystSessionId = 'agent:analyst:global' as const;
 
 const apiMocks = vi.hoisted(() => ({
   getChatEntries: vi.fn(),
-  getAgentSession: vi.fn(),
   getAgentConversation: vi.fn(),
   sendChatMessage: vi.fn(),
 }));
@@ -18,7 +17,6 @@ const apiMocks = vi.hoisted(() => ({
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   getChatEntries: apiMocks.getChatEntries,
-  getAgentSession: apiMocks.getAgentSession,
   getAgentConversation: apiMocks.getAgentConversation,
   sendChatMessage: apiMocks.sendChatMessage,
 }));
@@ -60,34 +58,15 @@ describe('analyst chat store', () => {
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
     apiMocks.getChatEntries.mockReset();
-    apiMocks.getAgentSession.mockReset();
     apiMocks.getAgentConversation.mockReset();
     apiMocks.sendChatMessage.mockReset();
     apiMocks.getChatEntries.mockResolvedValue({ session_id: analystSessionId });
-    apiMocks.getAgentSession.mockResolvedValue({
-      session: {
-        id: analystSessionId,
-        agent_name: 'analyst',
-        session_scope: 'global',
-        card_id: null,
-        started_at: '2025-01-01T00:00:00Z',
-        status: 'active', activity: 'busy',
-      },
-    });
     apiMocks.getAgentConversation.mockResolvedValue(chat());
     apiMocks.sendChatMessage.mockResolvedValue({
       toolInvocations: [],
       restart: null,
     });
     useAnalystChat().activeSessionId = analystSessionId;
-  });
-
-  it('createNewChat resolves to the canonical analyst session', async () => {
-    const store = useAnalystChat();
-    const sessionId = store.createNewChat();
-    expect(sessionId).toBe(analystSessionId);
-    expect(store.activeSessionId).toBe(analystSessionId);
-    expect(store.messagesError).toBeNull();
   });
 
   it('does not refresh transcript from analyst tool activity frames', async () => {
@@ -116,27 +95,13 @@ describe('analyst chat store', () => {
     expect(store.activeSessionId).toBe(analystSessionId);
   });
 
-  it('retains the exact durable Analyst summary from the detail resource', async () => {
-    const store = useAnalystChat();
-    await store.fetchMessages();
-    expect(store.activeSession).toEqual({
-      id: analystSessionId,
-      agent_name: 'analyst',
-      session_scope: 'global',
-      card_id: null,
-      started_at: '2025-01-01T00:00:00Z',
-      status: 'active', activity: 'busy',
-    });
-  });
-
-  it('keeps sending as transport-only state without fabricating detail activity', async () => {
+  it('keeps sending as transport-only state', async () => {
     const pending = deferred<any>();
     apiMocks.sendChatMessage.mockReturnValueOnce(pending.promise);
     const store = useAnalystChat();
     store.setDraft('question');
     const send = store.sendMessage();
     expect(store.sending).toBe(true);
-    expect(store.activeSession).toBeNull();
     pending.resolve({ toolInvocations: [], restart: null });
     await send;
   });

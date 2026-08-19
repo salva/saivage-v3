@@ -35,7 +35,6 @@ function nowIso(): string {
 
 export const useRuntimeStore = defineStore('runtime', () => {
   const runtime = ref<RuntimeState | null>(null);
-  const projectRoot = ref<string | null>(null);
   const projectId = ref<string | null>(null);
   const serverAvailability = ref<ServerAvailability | null>(null);
   const loaded = ref(false);
@@ -50,13 +49,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   let requestController: AbortController | null = null;
 
   const status = computed<RuntimeStatus | null>(() => loaded.value ? runtime.value?.status ?? 'stopped' : null);
-  const isRunning = computed(() => status.value === 'running');
   const currentCardId = computed(() => selectCurrentCardId(runtime.value));
-  const commandDisabledReason = computed(() => {
-    if (!loaded.value || loading.value) return 'Runtime state is still loading.';
-    if (unauthorized.value) return 'Runtime commands require a valid API token.';
-    return null;
-  });
   const statusLabel = computed<string>(() => selectRuntimeStatusLabel({ loaded: loaded.value, runtime: runtime.value }));
 
   const runtimeModeLabel = computed(() => selectRuntimeModeLabel({ statusLabel: statusLabel.value }));
@@ -84,7 +77,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
       const [response, liveStatus] = await Promise.all([getRuntimeState(requestController.signal), getRuntimeStatus(requestController.signal)]);
       if (epoch !== requestEpoch) return;
       runtime.value = response.runtime;
-      projectRoot.value = response.projectRoot;
       projectId.value = response.projectId;
       serverAvailability.value = response.serverAvailability;
       restartServerAvailable.value = liveStatus.restart_server_available;
@@ -98,7 +90,6 @@ export const useRuntimeStore = defineStore('runtime', () => {
       if (initial) error.value = msg; else refreshError.value = msg;
       unauthorized.value = err instanceof OperatorApiError && err.isUnauthorized;
       if (unauthorized.value && initial) {
-        projectRoot.value = null;
         projectId.value = null;
       }
       log.error('fetchState', msg);
@@ -120,9 +111,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
 
   return {
     runtime: readonly(runtime),
-    projectRoot: readonly(projectRoot),
     projectId: readonly(projectId),
-    serverAvailability: readonly(serverAvailability),
     loaded: readonly(loaded),
     restartServerAvailable: readonly(restartServerAvailable),
     loading: readonly(loading),
@@ -132,13 +121,10 @@ export const useRuntimeStore = defineStore('runtime', () => {
     lastFetchedAt: readonly(lastFetchedAt),
     unauthorized: readonly(unauthorized),
     status,
-    isRunning,
     currentCardId,
     statusLabel,
     runtimeModeLabel,
-    availabilityDetail,
     runtimeDetail,
-    commandDisabledReason,
     fetchState,
     refetch,
     stopProject,
