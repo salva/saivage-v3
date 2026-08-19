@@ -1,6 +1,20 @@
 #!/usr/bin/env node
+//
+// Compiled per-template prompt-composition smoke.
+//
+// EXECUTION IS DEFERRED TO THE OWNER-AUTHORIZED BUILD WINDOW: this smoke imports
+// compiled modules and packaged prompt trees from `dist/`, which is written by
+// `npm run build` and is live-executed by bind-mounted services (see
+// docs/working/2026-08-19-init-templates/design-plan.md §7.4). It is invoked by
+// the build chain and `npm run test:compiled-prompt-composition` only.
+//
+// Per registered template, the compiled registry's module-relative prompt root
+// must resolve inside its own packaged tree under
+// dist/src/config/system-templates/<name>/prompts/, that tree must equal the
+// source tree file-for-file and byte-for-byte, and compiling the template's
+// behavior must resolve no artifact outside its own root.
 
-import { existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -8,21 +22,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const distRoot = join(repositoryRoot, 'dist');
 const compiledRoot = join(distRoot, 'src');
-const copiedPrompts = join(distRoot, 'prompts');
-const impossibleSourceRelativePrompts = join(compiledRoot, 'prompts');
 
-if (!existsSync(copiedPrompts) || !statSync(copiedPrompts).isDirectory()) {
-  throw new Error(`Compiled prompt smoke requires copied prompt defaults at ${copiedPrompts}`);
-}
-if (existsSync(impossibleSourceRelativePrompts)) {
-  throw new Error(`Compiled prompt smoke requires the source-relative prompt root to be absent: ${impossibleSourceRelativePrompts}`);
-}
 const walk = (root, current = root) => readdirSync(current, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? walk(root, join(current, entry.name)) : [join(current, entry.name).slice(root.length + 1)]).sort();
-const standardExpected = [...['analyst','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`), ...['correct-execution-result','correct-plan-result','correct-review-result','execute','plan','plan-to-review','recover','review','review-to-plan','stopped-recovery'].map((id)=>`process/_shared/${id}.md`)].sort();
-const specializedExpected=[...['specialized-plan','specialized-review','specialized-recover','specialized-plan-to-review','specialized-review-to-plan'].map((id)=>`process/_shared/${id}.md`),...['code-red','code-green','code-refactor','code-red-to-green','code-to-refactor','code-green-retry','code-regression-to-green'].map((id)=>`process/code/${id}.md`),...['test-diagnose','test-add-coverage','test-repair','test-verify','test-to-add-coverage','test-to-repair','test-to-verify','test-repair-retry'].map((id)=>`process/test/${id}.md`),...['research-explore','research-assess','research-report','research-to-assess','research-continue-exploration','research-supported-to-report','research-refuted-to-report','research-inconclusive-to-report'].map((id)=>`process/research/${id}.md`),...['data-schema','data-validate','data-implement','data-to-validate','data-to-implement','data-revise-schema','data-implementation-retry'].map((id)=>`process/data/${id}.md`),...['architecture-draft','architecture-component-review','architecture-system-review','architecture-to-component-review','architecture-to-system-review','architecture-component-revision','architecture-system-revision'].map((id)=>`process/architecture/${id}.md`)];
-const expected=[...standardExpected,...specializedExpected].sort();
-if (JSON.stringify(walk(copiedPrompts)) !== JSON.stringify(expected)) throw new Error('Compiled prompt smoke requires the exact registered standard-plus-specialized prompt union.');
-if (existsSync(join(copiedPrompts, 'fragments'))) throw new Error('Compiled prompt smoke requires no bundled fragments subtree.');
 
 function compiledModule(relativePath) {
   return pathToFileURL(join(compiledRoot, relativePath)).href;
@@ -30,7 +31,7 @@ function compiledModule(relativePath) {
 
 const [
   { saivageConfigSchema },
-  { DEFAULT_SAIVAGE_CONFIG },
+  { DEFAULT_SAIVAGE_CONFIG, SYSTEM_TEMPLATES, resolveSystemTemplate },
   { compileProjectWorkflows, bindRuntimeWorkflows },
   { ProviderRegistry },
   { ModelRouter },
@@ -44,10 +45,9 @@ const [
   { renderCompiledPrompt },
   { createApplicationFatalPort },
   { globalAgentSessionId },
-  { BUNDLED_CARD_TYPE_SETS, resolveCardTypeSelection },
 ] = await Promise.all([
   import(compiledModule('schemas/saivage-config.js')),
-  import(compiledModule('agents/default-workflow-config.js')),
+  import(compiledModule('config/system-templates/registry.js')),
   import(compiledModule('runtime/card-process/card-process-config.js')),
   import(compiledModule('agents/provider.js')),
   import(compiledModule('agents/model-router.js')),
@@ -61,14 +61,38 @@ const [
   import(compiledModule('utils/prompt-api.js')),
   import(compiledModule('contracts/index.js')),
   import(compiledModule('schemas/conversation-session-id.js')),
-  import(compiledModule('config/card-type-sets/registry.js')),
 ]);
 
+for (const template of SYSTEM_TEMPLATES) {
+  const packagedRoot = join(distRoot, 'src', 'config', 'system-templates', template.name, 'prompts');
+  if (resolve(template.promptRoot) !== resolve(packagedRoot)) {
+    throw new Error(`Template '${template.name}' must resolve its prompt root at its own packaged tree: ${template.promptRoot}`);
+  }
+  if (!existsSync(packagedRoot) || !statSync(packagedRoot).isDirectory()) {
+    throw new Error(`Compiled prompt smoke requires the packaged prompt tree for '${template.name}' at ${packagedRoot}`);
+  }
+  const sourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', template.name, 'prompts');
+  const packagedFiles = walk(packagedRoot);
+  if (JSON.stringify(packagedFiles) !== JSON.stringify(walk(sourceRoot))) throw new Error(`Packaged prompt tree for '${template.name}' must equal its source tree file-for-file.`);
+  for (const file of packagedFiles) {
+    if (readFileSync(join(packagedRoot, file), 'utf8') !== readFileSync(join(sourceRoot, file), 'utf8')) throw new Error(`Packaged prompt artifact differs from source for '${template.name}': ${file}`);
+  }
+}
+
 const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-compiled-prompt-composition-'));
+const observeInside = (templateName, packagedRoot) => (artifact) => {
+  const packaged = resolve(packagedRoot);
+  const artifactPath = resolve(artifact.path);
+  if (artifactPath !== packaged && !artifactPath.startsWith(`${packaged}${process.platform === 'win32' ? '\\' : '/'}`)) {
+    throw new Error(`Template '${templateName}' resolved an artifact outside its own packaged root: ${artifact.path}`);
+  }
+};
 let application;
 
 try {
-  const config = saivageConfigSchema.parse({
+  const classic = resolveSystemTemplate('classic');
+  const classicTyped = resolveSystemTemplate('classic-typed');
+  const baseConfig = saivageConfigSchema.parse({
     ...structuredClone(DEFAULT_SAIVAGE_CONFIG),
     models: {
       ...structuredClone(DEFAULT_SAIVAGE_CONFIG.models),
@@ -81,35 +105,43 @@ try {
       summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
     },
   });
-  const {card_types:_cardTypes,...globals}=config;
-  const compileSet=(name)=>compileProjectWorkflows(saivageConfigSchema.parse(resolveCardTypeSelection(saivageConfigSchema.parse({...globals,card_type_set:name}),BUNDLED_CARD_TYPE_SETS)), { projectRoot });
-  const standardWorkflows=compileSet('standard');
-  const structuralWorkflows = compileSet('specialized');
-  const explicitStandard=compileProjectWorkflows(config,{projectRoot});
-  const standardRender=(workflows)=>[...workflows.cardTypes].flatMap(([cardType,workflow])=>[...workflow.states.values()].filter((state)=>state.kind==='node').map((state)=>renderCompiledPrompt(cardType,state.agent.name,state.selectedAgentPrompt.compiled,{contractDescription:'contract'})));
-  if(JSON.stringify(standardRender(standardWorkflows))!==JSON.stringify(standardRender(explicitStandard)))throw new Error('Selected standard rendered prompt baseline changed.');
-  const analystText = renderCompiledPrompt('global', structuralWorkflows.analyst.name, structuralWorkflows.analystPrompt.compiled, { vocabularySnippet: 'vocabulary' });
+  const { card_types: _defaultCardTypes, ...globals } = structuredClone(baseConfig);
+  const classicTestConfig = saivageConfigSchema.parse({ ...structuredClone(globals), card_types: structuredClone(classic.config.card_types) });
+  const typedTestConfig = saivageConfigSchema.parse({ ...structuredClone(globals), card_types: structuredClone(classicTyped.config.card_types) });
+  const classicWorkflows = compileProjectWorkflows(classicTestConfig, { projectRoot, artifactObserver: observeInside('classic', classic.promptRoot) });
+  const typedWorkflows = compileProjectWorkflows(typedTestConfig, { defaultPromptRoot: classicTyped.promptRoot, projectRoot, artifactObserver: observeInside('classic-typed', classicTyped.promptRoot) });
+  const derivedDefaultWorkflows = compileProjectWorkflows(structuredClone(DEFAULT_SAIVAGE_CONFIG), { projectRoot, artifactObserver: observeInside('classic', classic.promptRoot) });
+  const renderAgentPrompts = (workflows) => [...workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states.values()].filter((state) => state.kind === 'node').map((state) => renderCompiledPrompt(cardType, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: 'contract' })));
+  if (JSON.stringify(renderAgentPrompts(classicWorkflows)) !== JSON.stringify(renderAgentPrompts(derivedDefaultWorkflows))) throw new Error('Derived default rendered prompt baseline changed.');
+  const analystText = renderCompiledPrompt('global', typedWorkflows.analyst.name, typedWorkflows.analystPrompt.compiled, { vocabularySnippet: 'vocabulary' });
   if (analystText.includes('{{')) throw new Error('Unresolved Analyst template syntax.');
-  for (const [cardType, workflow] of structuralWorkflows.cardTypes) for (const prompt of workflow.processPrompts.values()) {
+  for (const [cardType, workflow] of typedWorkflows.cardTypes) for (const prompt of workflow.processPrompts.values()) {
     if (prompt.text.includes('{{')) throw new Error(`Unresolved process template syntax for ${cardType}/${prompt.reference}`);
     if ((prompt.reference === 'execute' || prompt.reference === 'plan') && !prompt.text.includes(cardType)) throw new Error(`Missing eager cardType rendering for ${cardType}/${prompt.reference}`);
   }
-  for (const [cardType, workflow] of structuralWorkflows.cardTypes) for (const state of workflow.states.values()) if (state.kind === 'node') {
+  for (const [cardType, workflow] of typedWorkflows.cardTypes) for (const state of workflow.states.values()) if (state.kind === 'node') {
     const text = renderCompiledPrompt(cardType, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: 'contract' });
     if (text.includes('{{')) throw new Error(`Unresolved agent template syntax for ${cardType}/${state.agent.name}`);
   }
-  const plan=structuralWorkflows.cardTypes.get('goal').states.get('node:plan');
-  const standardPlan=standardWorkflows.cardTypes.get('goal').states.get('node:plan');
-  if(plan.kind!=='node'||standardPlan.kind!=='node')throw new Error('Missing planning nodes.');
-  const planText=structuralWorkflows.cardTypes.get('goal').processPrompts.get(plan.promptId).text;
-  for(const required of ['Inspect all direct children','BACKLOG, CHANGED, BLOCKED, or STOPPED','`title`, `tags`, `priority`, `urgency`, or `related`','Planner has no `reopen_card` tool','reopen_card({cardId:"<id>"})','stopped or settled paused','independently reviewable or parallelizable'])if(!planText.includes(required))throw new Error(`Specialized Planner composition lacks '${required}'.`);
-  const standardPlanText=standardWorkflows.cardTypes.get('goal').processPrompts.get(standardPlan.promptId).text;
-  if(standardPlanText.includes('Planner has no `reopen_card` tool')||standardPlanText.includes('reopen_card({cardId:"<id>"})'))throw new Error('Specialized planning guidance leaked into standard.');
-  const architecture=structuralWorkflows.cardTypes.get('architecture');
-  for(const nodeId of ['component-review','system-review']){const node=architecture.states.get(`node:${nodeId}`);if(node.kind!=='node')throw new Error(`Missing ${nodeId}.`);const agent=renderCompiledPrompt('architecture',node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'});if(node.selectedAgentPrompt.source!=='bundled-shared'||!agent.includes('record:///review.md?card=<card-id>')||!architecture.processPrompts.get(node.promptId).text.includes('record:///review.md?card=<card-id>'))throw new Error(`${nodeId} does not compose the shared Reviewer with current review.md.`);}
-  for(const prompt of architecture.processPrompts.values())if(prompt.reference.includes('revision')||prompt.reference==='architecture-to-system-review'){if(!prompt.text.includes('versioned `review.md` URL'))throw new Error(`${prompt.reference} lacks immutable transition evidence guidance.`);}
-  const providerRegistry = new ProviderRegistry(config);
-  const workflows = bindRuntimeWorkflows(structuralWorkflows, new ModelRouter(providerRegistry));
+  const plan = typedWorkflows.cardTypes.get('goal').states.get('node:plan');
+  const classicPlan = classicWorkflows.cardTypes.get('goal').states.get('node:plan');
+  if (plan.kind !== 'node' || classicPlan.kind !== 'node') throw new Error('Missing planning nodes.');
+  const planText = typedWorkflows.cardTypes.get('goal').processPrompts.get(plan.promptId).text;
+  for (const required of ['Inspect all direct children', 'BACKLOG, CHANGED, BLOCKED, or STOPPED', '`title`, `tags`, `priority`, `urgency`, or `related`', 'Planner has no `reopen_card` tool', 'reopen_card({cardId:"<id>"})', 'stopped or settled paused', 'independently reviewable or parallelizable']) if (!planText.includes(required)) throw new Error(`Typed Planner composition lacks '${required}'.`);
+  const classicPlanText = classicWorkflows.cardTypes.get('goal').processPrompts.get(classicPlan.promptId).text;
+  if (classicPlanText.includes('Planner has no `reopen_card` tool') || classicPlanText.includes('reopen_card({cardId:"<id>"})')) throw new Error('Typed planning guidance leaked into the classic template.');
+  const architecture = typedWorkflows.cardTypes.get('architecture');
+  for (const nodeId of ['component-review', 'system-review']) {
+    const node = architecture.states.get(`node:${nodeId}`);
+    if (node.kind !== 'node') throw new Error(`Missing ${nodeId}.`);
+    const agent = renderCompiledPrompt('architecture', node.agent.name, node.selectedAgentPrompt.compiled, { contractDescription: 'contract' });
+    if (node.selectedAgentPrompt.source !== 'bundled-shared' || !agent.includes('record:///review.md?card=<card-id>') || !architecture.processPrompts.get(node.promptId).text.includes('record:///review.md?card=<card-id>')) throw new Error(`${nodeId} does not compose the shared Reviewer with current review.md.`);
+  }
+  for (const prompt of architecture.processPrompts.values()) if (prompt.reference.includes('revision') || prompt.reference === 'architecture-to-system-review') {
+    if (!prompt.text.includes('versioned `review.md` URL')) throw new Error(`${prompt.reference} lacks immutable transition evidence guidance.`);
+  }
+  const providerRegistry = new ProviderRegistry(typedTestConfig);
+  const workflows = bindRuntimeWorkflows(typedWorkflows, new ModelRouter(providerRegistry));
   const configAuthority = createResolvedConfigAuthority({
     path: join(projectRoot, '.saivage', 'saivage.yaml'),
     interpolationEnvironment: process.env,
@@ -128,7 +160,7 @@ try {
   application = createRuntimeApplication({
     projectRoot,
     processIdentity: { pid: process.pid, startedAt: new Date().toISOString() },
-    config,
+    config: typedTestConfig,
     configAuthority,
     eventLogger: createEventLog(projectRoot, NO_FRESHNESS_EFFECTS.timelineChanged),
     workflows,
@@ -158,4 +190,4 @@ try {
   }
 }
 
-console.log('Compiled production composition loaded agent and process prompts from dist/prompts.');
+console.log(`Compiled production composition loaded per-template packaged prompts for ${SYSTEM_TEMPLATES.map((template) => template.name).join(' and ')}.`);

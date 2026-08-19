@@ -12,12 +12,16 @@ export const SYSTEM_TEMPLATES: readonly SystemTemplateDefinition[] = Object.free
 
 export const DEFAULT_SYSTEM_TEMPLATE = 'classic' satisfies SystemTemplateName;
 
-const seenNames = new Set<SystemTemplateName>();
-for (const template of SYSTEM_TEMPLATES) {
-  if (template.name.length === 0 || seenNames.has(template.name)) throw new Error(`Duplicate or empty system template '${template.name}'.`);
-  seenNames.add(template.name);
-  saivageConfigSchema.parse(template.config);
+export function validateSystemTemplates(templates: readonly SystemTemplateDefinition[]): void {
+  const seenNames = new Set<SystemTemplateName>();
+  for (const template of templates) {
+    if (template.name.length === 0 || seenNames.has(template.name)) throw new Error(`Duplicate or empty system template '${template.name}'.`);
+    seenNames.add(template.name);
+    saivageConfigSchema.parse(template.config);
+  }
 }
+
+validateSystemTemplates(SYSTEM_TEMPLATES);
 
 export function resolveSystemTemplate(name: string): SystemTemplateDefinition {
   const template = SYSTEM_TEMPLATES.find((candidate) => candidate.name === name);
