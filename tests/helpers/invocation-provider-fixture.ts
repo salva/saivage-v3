@@ -1,5 +1,5 @@
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 

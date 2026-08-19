@@ -1,6 +1,6 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { DEFAULT_SYSTEM_TEMPLATE, resolveSystemTemplate } from '../../config/system-templates/registry.js';
 import type { AgentName } from '../../schemas/agent-name.js';
 import { parseRecordName, type RecordName } from '../../schemas/record-name.js';
 import type { CardTypeSource, SaivageConfig } from '../../schemas/saivage-config.js';
@@ -63,8 +63,8 @@ class ImmutableMap<K, V> implements ReadonlyMap<K, V> { readonly #values: Map<K,
 class ImmutableSet<T> implements ReadonlySet<T> { readonly #values:Set<T>; constructor(values:Iterable<T>){this.#values=new Set(values);Object.freeze(this);} get size(){return this.#values.size;} has(value:T){return this.#values.has(value);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:T,value2:T,set:ReadonlySet<T>)=>void,thisArg?:unknown){for(const value of this.#values)callbackfn.call(thisArg,value,value,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableSet';} }
 const immutableMap=<K,V>(entries:Iterable<readonly [K,V]>):ReadonlyMap<K,V>=>new ImmutableMap(entries);
 const immutableSet=<T>(values:Iterable<T>):ReadonlySet<T>=>new ImmutableSet(values);
-function bundledPromptRoot():string{const moduleDir=dirname(fileURLToPath(import.meta.url));const source=join(moduleDir,'..','..','prompts');return existsSync(source)?source:join(moduleDir,'..','..','..','prompts');}
-function promptRoots(options:WorkflowCompileOptions):PromptRoots{return{defaultRoot:options.defaultPromptRoot??bundledPromptRoot(),overrideRoot:options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined,artifactObserver:options.artifactObserver,agentCache:new Map()};}
+function defaultSystemTemplatePromptRoot():string{return resolveSystemTemplate(DEFAULT_SYSTEM_TEMPLATE).promptRoot;}
+function promptRoots(options:WorkflowCompileOptions):PromptRoots{return{defaultRoot:options.defaultPromptRoot??defaultSystemTemplatePromptRoot(),overrideRoot:options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined,artifactObserver:options.artifactObserver,agentCache:new Map()};}
 function readUtf8(path:string):string{const text=new TextDecoder('utf-8',{fatal:true}).decode(readFileSync(path));if(text.trim().length===0)throw new Error(`Prompt artifact '${path}' must contain non-whitespace UTF-8 text.`);return text;}
 function readOptional(path:string):string|null{try{return readUtf8(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}}
 type PromptPurpose='agents'|'process'|'fragments';

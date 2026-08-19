@@ -5,7 +5,7 @@ import { describe, expect, it } from '@jest/globals';
 import { buildRuntimeToolCatalog, resolveRuntimeTool, surfaceToolContracts } from '../../src/tools/runtime-tool-catalog.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
 import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, EMIT_RESULT_POLICY_TEMPLATE, llmToolDefinition, MCP_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
-import { DEFAULT_AGENTS } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 
 const OBSERVATIONAL_READERS = new Set([
@@ -70,7 +70,7 @@ describe('runtime tool result policy catalog', () => {
   });
 
   it('keeps every surface in the default inventories classified and provider definitions policy-free', () => {
-    const allNames = new Set<string>(Object.values(DEFAULT_AGENTS).flatMap((agent) => agent.tools));
+    const allNames = new Set<string>(Object.values(DEFAULT_SAIVAGE_CONFIG.agents).flatMap((agent) => agent.tools));
     for (const name of allNames) {
       const template = templateFor(name);
       if (name === 'mcp_tool_call') continue;

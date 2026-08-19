@@ -1,5 +1,5 @@
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 
 export const TEST_SAIVAGE_CONFIG = effectiveSaivageConfigSchema.parse({
   ...structuredClone(DEFAULT_SAIVAGE_CONFIG),

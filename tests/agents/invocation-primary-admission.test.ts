@@ -14,7 +14,7 @@ import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
 import { NO_FRESHNESS_EFFECTS } from '../../src/application/freshness-effects.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { chatSuccess, invocationProviderRegistry, serverUnavailable } from '../helpers/invocation-provider-fixture.js';
 
 const A: Candidate = { provider: 'cand-a', account: null, model: 'model-a' };

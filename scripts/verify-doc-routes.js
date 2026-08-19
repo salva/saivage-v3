@@ -248,33 +248,36 @@ function stringArray(node, context) {
   });
 }
 
+const AGENTS_SOURCE = 'src/config/system-templates/classic/template.ts';
+const AGENTS_CONSTANT = 'CLASSIC_AGENTS';
+
 function extractImplementedAgentTools(projectRoot) {
-  const source = sourceAst(projectRoot, 'src/agents/default-workflow-config.ts');
-  const initial = requiredInitializer(constInitializers(source.ast), 'DEFAULT_AGENTS', source.ast.fileName);
+  const source = sourceAst(projectRoot, AGENTS_SOURCE);
+  const initial = requiredInitializer(constInitializers(source.ast), AGENTS_CONSTANT, source.ast.fileName);
   if (!ts.isCallExpression(initial) || !ts.isPropertyAccessExpression(initial.expression)
     || !ts.isIdentifier(initial.expression.expression) || initial.expression.expression.text !== 'Object'
     || initial.expression.name.text !== 'freeze' || initial.arguments.length !== 1) {
-    throw new Error('DEFAULT_AGENTS must be one Object.freeze call');
+    throw new Error(`${AGENTS_CONSTANT} must be one Object.freeze call`);
   }
   const catalog = unwrapExpression(initial.arguments[0]);
-  if (!ts.isObjectLiteralExpression(catalog)) throw new Error('DEFAULT_AGENTS must freeze an object literal');
+  if (!ts.isObjectLiteralExpression(catalog)) throw new Error(`${AGENTS_CONSTANT} must freeze an object literal`);
   const result = new Map();
   for (const property of catalog.properties) {
-    if (!ts.isPropertyAssignment(property)) throw new Error('DEFAULT_AGENTS contains an unsupported member');
+    if (!ts.isPropertyAssignment(property)) throw new Error(`${AGENTS_CONSTANT} contains an unsupported member`);
     const agentName = propertyName(property.name);
     const frozenAgent = unwrapExpression(property.initializer);
-    if (!ts.isCallExpression(frozenAgent) || frozenAgent.arguments.length !== 1) throw new Error(`DEFAULT_AGENTS.${agentName} must be frozen`);
+    if (!ts.isCallExpression(frozenAgent) || frozenAgent.arguments.length !== 1) throw new Error(`${AGENTS_CONSTANT}.${agentName} must be frozen`);
     const agent = unwrapExpression(frozenAgent.arguments[0]);
-    if (!ts.isObjectLiteralExpression(agent)) throw new Error(`DEFAULT_AGENTS.${agentName} must be an object literal`);
+    if (!ts.isObjectLiteralExpression(agent)) throw new Error(`${AGENTS_CONSTANT}.${agentName} must be an object literal`);
     const toolsProperty = agent.properties.find((member) => ts.isPropertyAssignment(member) && propertyName(member.name) === 'tools');
-    if (!toolsProperty || !ts.isPropertyAssignment(toolsProperty)) throw new Error(`DEFAULT_AGENTS.${agentName} has no tools`);
+    if (!toolsProperty || !ts.isPropertyAssignment(toolsProperty)) throw new Error(`${AGENTS_CONSTANT}.${agentName} has no tools`);
     const frozenTools = unwrapExpression(toolsProperty.initializer);
-    if (!ts.isCallExpression(frozenTools) || frozenTools.arguments.length !== 1) throw new Error(`DEFAULT_AGENTS.${agentName}.tools must be frozen`);
-    const names = stringArray(frozenTools.arguments[0], `DEFAULT_AGENTS.${agentName}.tools`);
-    if (new Set(names).size !== names.length) throw new Error(`DEFAULT_AGENTS.${agentName}.tools contains duplicates`);
+    if (!ts.isCallExpression(frozenTools) || frozenTools.arguments.length !== 1) throw new Error(`${AGENTS_CONSTANT}.${agentName}.tools must be frozen`);
+    const names = stringArray(frozenTools.arguments[0], `${AGENTS_CONSTANT}.${agentName}.tools`);
+    if (new Set(names).size !== names.length) throw new Error(`${AGENTS_CONSTANT}.${agentName}.tools contains duplicates`);
     result.set(agentName, uniqueSorted(names));
   }
-  if (result.size === 0) throw new Error('DEFAULT_AGENTS must not be empty');
+  if (result.size === 0) throw new Error(`${AGENTS_CONSTANT} must not be empty`);
   return result;
 }
 

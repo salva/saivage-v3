@@ -9,7 +9,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { compileProjectWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
-import { EXPECTED_SPECIALIZED_CARD_TYPES, specializedConfig } from '../../fixtures/card-type-sets/specialized.js';
+import { specializedCardTypes, specializedConfig } from '../../helpers/specialized-config.js';
+import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 
 describe('compiled Debug graph projection', () => {
@@ -70,12 +71,13 @@ describe('compiled Debug graph projection', () => {
   });
 
   it('projects every specialized entry, node, requirement, edge, export, and promotion exactly',()=>{
+    const expected=specializedCardTypes();
     const selected=specializedConfig();selected.models=structuredClone(TEST_SAIVAGE_CONFIG.models);selected.providers=structuredClone(TEST_SAIVAGE_CONFIG.providers);
     const config=effectiveSaivageConfigSchema.parse(selected);
-    const bound=bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(new ProviderRegistry(config)));
+    const bound=bindRuntimeWorkflows(compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot}),new ModelRouter(new ProviderRegistry(config)));
     const projected=projectCompiledGraphs(bound);
-    expect(projected.graphs.map(({card_type})=>card_type)).toEqual(Object.keys(EXPECTED_SPECIALIZED_CARD_TYPES));
-    for(const [cardType,source] of Object.entries(EXPECTED_SPECIALIZED_CARD_TYPES)){
+    expect(projected.graphs.map(({card_type})=>card_type)).toEqual(Object.keys(expected));
+    for(const [cardType,source] of Object.entries(expected)){
       const graph=projected.graphs.find((candidate)=>candidate.card_type===cardType)!;
       expect(graph.permitted_child_types).toEqual(source.permitted_child_types);
       expect(graph.records).toEqual(Object.entries(source.records).map(([name,record])=>({name,...record})));
@@ -90,8 +92,8 @@ describe('compiled Debug graph projection', () => {
     }
   });
 
-  it('keeps selected standard projection byte-identical to the explicit historical default',()=>{
+  it('keeps omitted-default projection byte-identical to the explicit historical default',()=>{
     const explicit=bindRuntimeWorkflows(compileProjectWorkflows(TEST_SAIVAGE_CONFIG),new ModelRouter(new ProviderRegistry(TEST_SAIVAGE_CONFIG)));
-    const root=mkdtempSync(join(tmpdir(),'saivage-selected-standard-'));try{const globals=structuredClone(TEST_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;const selected=createTestConfigAuthority(root,{config:{...globals,card_type_set:'standard'}}).loadEffective();const selectedBound=bindRuntimeWorkflows(selected.workflows,new ModelRouter(new ProviderRegistry(selected.config)));expect(projectCompiledGraphs(selectedBound)).toEqual(projectCompiledGraphs(explicit));}finally{rmSync(root,{recursive:true,force:true});}
+    const root=mkdtempSync(join(tmpdir(),'saivage-selected-standard-'));try{const globals=structuredClone(TEST_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;const omitted=createTestConfigAuthority(root,{config:globals}).loadEffective();const omittedBound=bindRuntimeWorkflows(omitted.workflows,new ModelRouter(new ProviderRegistry(omitted.config)));expect(projectCompiledGraphs(omittedBound)).toEqual(projectCompiledGraphs(explicit));}finally{rmSync(root,{recursive:true,force:true});}
   });
 });

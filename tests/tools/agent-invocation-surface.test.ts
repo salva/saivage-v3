@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DEFAULT_AGENTS, DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, buildRuntimeToolCatalog, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { cleanupInvocationSurface, surfaceToolDefinitions } from '../../src/tools/invocation.js';
@@ -25,7 +25,7 @@ describe('named-agent inventories and composition', () => {
     const workflows = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never);
     expect([...workflows.agents.keys()]).toEqual(['analyst', 'planner', 'reviewer', 'executor']);
     for (const [name, tools] of Object.entries(expected)) {
-      expect(DEFAULT_AGENTS[name as keyof typeof DEFAULT_AGENTS].tools).toEqual(tools);
+      expect(DEFAULT_SAIVAGE_CONFIG.agents[name as keyof typeof DEFAULT_SAIVAGE_CONFIG.agents]!.tools).toEqual(tools);
       expect(workflows.agents.get(name as never)?.tools.map((tool)=>tool.name)).toEqual(tools);
     }
   });

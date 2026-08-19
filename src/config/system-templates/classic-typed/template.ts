@@ -1,5 +1,20 @@
-import type { CardTypeName, CardTypesSource } from '../../../schemas/index.js';
-import type { CardTypeSetDefinition } from '../registry.js';
+import { fileURLToPath } from 'node:url';
+import type { CardTypeName } from '../../../schemas/card-type-name.js';
+import type { CardTypesSource, SaivageConfigSource } from '../../../schemas/saivage-config.js';
+
+const AGENTS = Object.freeze({
+  analyst: Object.freeze({ prompt: 'analyst', tools: Object.freeze(['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'analyst', skills: true, session: 'global', can_create_children: true, record_writes: Object.freeze(['brief.md']) }),
+  planner: Object.freeze({ prompt: 'planner', tools: Object.freeze(['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch']), model_route: 'planner', skills: false, session: 'card', can_create_children: true, record_writes: Object.freeze(['brief.md', 'status.md']) }),
+  reviewer: Object.freeze({ prompt: 'reviewer', tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill']), model_route: 'reviewer', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['review.md', 'review-*.md']) }),
+  executor: Object.freeze({ prompt: 'executor', tools: Object.freeze(['read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill', 'mcp_tool_call']), model_route: 'executor', skills: true, session: 'card', can_create_children: false, record_writes: Object.freeze(['status.md']) }),
+});
+
+const MODEL_ROUTES = Object.freeze({
+  analyst: Object.freeze({ candidates: Object.freeze(['gpt-5.6']), temperature: 0.7, max_tokens: 4096 }),
+  planner: Object.freeze({ profile: 'planning', temperature: 0.7, max_tokens: 4096 }),
+  reviewer: Object.freeze({ profile: 'review', temperature: 0.2, max_tokens: 4096 }),
+  executor: Object.freeze({ candidates: Object.freeze(['gpt-5.6']), temperature: 0.3, max_tokens: 8192 }),
+});
 
 type CardTypeSource = CardTypesSource[CardTypeName];
 type ProcessEdge = CardTypeSource['workflow']['nodes'][string]['edges'][string];
@@ -309,7 +324,6 @@ const cardTypes: CardTypesSource = deepFreeze({
   ops: simpleExecutionCardType(),
 });
 
-export const SPECIALIZED_CARD_TYPE_SET: CardTypeSetDefinition = Object.freeze({
-  name: 'specialized',
-  cardTypes,
-});
+const config: SaivageConfigSource = deepFreeze({agents:structuredClone(AGENTS) as unknown as SaivageConfigSource['agents'],analyst_agent:'analyst',models:{routes:structuredClone(MODEL_ROUTES) as unknown as SaivageConfigSource['models']['routes'],profiles:{planning:{preferred:['gpt-5.6'],allowed:[]},review:{preferred:['gpt-5.6'],allowed:[]}},equivalents:[],failover:{}},providers:{},server:{host:'0.0.0.0',port:8080},compaction:{enabled:true,input_budget_tokens:32768,trigger_fraction:0.75,completion_reserve_fraction:0.25,merge_line_fraction:0.3,summary_line_fraction:0.5,escalate_merge_line_fraction:0.4,escalate_summary_line_fraction:0.6,snap:'keep_straddler_verbatim',summarizer_candidate:{provider:'openai',account:null,model:'gpt-5.6'}},card_types:cardTypes});
+
+export const CLASSIC_TYPED_TEMPLATE = Object.freeze({ name: 'classic-typed', config, promptRoot: fileURLToPath(new URL('./prompts/', import.meta.url)) });

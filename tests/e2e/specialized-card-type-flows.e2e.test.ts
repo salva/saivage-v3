@@ -16,7 +16,8 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../../src/utils/prompt-api.js';
-import { specializedConfig } from '../fixtures/card-type-sets/specialized.js';
+import { specializedConfig } from '../helpers/specialized-config.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
@@ -29,7 +30,7 @@ async function waitUntil(predicate:()=>boolean){for(let attempt=0;attempt<1000;a
 function harness(type:'code'|'architecture',provider:(input:LlmInvocationInput)=>Promise<ProviderTurnCompletion>){
   const root=mkdtempSync(join(tmpdir(),`specialized-${type}-flow-`));roots.push(root);createProjectIdentity(root,`Specialized ${type}`);
   const config=specializedConfig();config.models=structuredClone(TEST_SAIVAGE_CONFIG.models);config.providers=structuredClone(TEST_SAIVAGE_CONFIG.providers);config.compaction=structuredClone(TEST_SAIVAGE_CONFIG.compaction);
-  const structural=compileProjectWorkflows(config);const workflows=bindRuntimeWorkflows(structural,new ModelRouter(new ProviderRegistry(config)));publishInitialProjectRuntime(root,structural);
+  const structural=compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot});const workflows=bindRuntimeWorkflows(structural,new ModelRouter(new ProviderRegistry(config)));publishInitialProjectRuntime(root,structural);
   const cards=new CardService(root,structural);const child=cards.create({type,parent:'project',title:`${type} flow`,bootstrap_content:`Exercise ${type}.`,tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
   const registry=new ManagedProcessGroupRegistry();const runtimeProcessRootScope=registry.createContainerScope(registry.rootScope,'runtime-cards');
   const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider:scriptedAdmissionProvider(jest.fn(async(input:LlmInvocationInput)=>provider(input))),conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner:new ProcessRunner(root,registry,testApplicationFatalPort),runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from '@jest/globals';
-import { appendFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -16,6 +16,8 @@ import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.j
 import { agentMessageSchema } from '../../src/schemas/index.js';
 import { testRecordDefinition } from '../helpers/record-definitions.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
+import { specializedCardTypes } from '../helpers/specialized-config.js';
+import { resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 
 const roots: string[] = [];
 const apps: App[] = [];
@@ -53,8 +55,8 @@ describe('application startup generated-state admission', () => {
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });
 
-  it('boots a newly published runtime with the selected specialized compiled authority',async()=>{
-    const root=projectRoot();replaceConfigYaml(join(root,'.saivage','saivage.yaml'),selectedSpecializedConfig());
+  it('boots a newly published runtime with the explicit specialized compiled authority',async()=>{
+    const root=projectRoot();replaceConfigYaml(join(root,'.saivage','saivage.yaml'),selectedSpecializedConfig());cpSync(resolveSystemTemplate('classic-typed').promptRoot,join(root,'.saivage','config','prompts'),{recursive:true});
     const app=await start(root,true);apps.push(app);
     expect(app.environment.config.card_types.test!.workflow.nodes).toHaveProperty('add-coverage');
     expect(app.environment.config.card_types.architecture!.workflow.nodes).toHaveProperty('component-review');
@@ -102,5 +104,5 @@ function explicitFixtureFamilyConfig() {
   config.card_types['fixture-leaf'] = structuredClone(config.card_types.code!);
   return effectiveSaivageConfigSchema.parse(config);
 }
-function selectedStandardConfig(): Record<string, unknown> { const config = structuredClone(TEST_SAIVAGE_CONFIG) as unknown as Record<string, unknown>; delete config['card_types']; config['card_type_set'] = 'standard'; return config; }
-function selectedSpecializedConfig(): Record<string, unknown> { const config = structuredClone(TEST_SAIVAGE_CONFIG) as unknown as Record<string, unknown>; delete config['card_types']; config['card_type_set'] = 'specialized'; return config; }
+function selectedStandardConfig(): Record<string, unknown> { const config = structuredClone(TEST_SAIVAGE_CONFIG) as unknown as Record<string, unknown>; delete config['card_types']; return config; }
+function selectedSpecializedConfig(): Record<string, unknown> { const config = structuredClone(TEST_SAIVAGE_CONFIG) as unknown as Record<string, unknown>; config['card_types'] = specializedCardTypes(); return config; }

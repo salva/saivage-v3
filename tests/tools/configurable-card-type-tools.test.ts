@@ -1,6 +1,6 @@
 import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
 import { surfaceToolDefinitions } from '../../src/tools/invocation.js';

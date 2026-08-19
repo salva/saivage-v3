@@ -1,9 +1,8 @@
 import { describe, expect, it } from '@jest/globals';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG, resolveSystemTemplate } from '../../src/config/system-templates/registry.js';
 import { cardTypeNameSchema } from '../../src/schemas/index.js';
-import { cardTypeSetNameSchema, effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema } from '../../src/schemas/saivage-config.js';
+import { effectiveSaivageConfigSchema, outboundEffectiveSaivageConfigSchema, saivageConfigSchema, systemTemplateNameSchema } from '../../src/schemas/saivage-config.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
-import { specializedDefinition } from '../fixtures/card-type-sets/specialized.js';
 
 function projectOnly() {
   const config:SaivageConfig=effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));
@@ -14,22 +13,21 @@ function projectOnly() {
 }
 
 describe('configuration-owned card types',()=>{
-  it('accepts exactly one source selection form while effective contracts require a complete map',()=>{
+  it('rejects the deleted card_type_set selector while effective contracts require a complete map',()=>{
     const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;
     delete globals.card_types;
     expect(saivageConfigSchema.parse(globals)).not.toHaveProperty('card_types');
-    expect(saivageConfigSchema.parse({...globals,card_type_set:'standard'}).card_type_set).toBe('standard');
-    expect(saivageConfigSchema.parse({...globals,card_type_set:'specialized'}).card_type_set).toBe('specialized');
-    expect(saivageConfigSchema.safeParse({...globals,card_type_set:'standard',card_types:DEFAULT_SAIVAGE_CONFIG.card_types}).error?.issues[0]).toMatchObject({path:[],message:expect.stringContaining('mutually exclusive')});
-    expect(cardTypeSetNameSchema.safeParse('Standard').success).toBe(false);
-    expect(saivageConfigSchema.safeParse({...globals,card_type_set:'Standard'}).error?.issues[0]?.path).toEqual(['card_type_set']);
+    expect(saivageConfigSchema.safeParse({...globals,card_type_set:'standard'}).success).toBe(false);
+    expect(saivageConfigSchema.safeParse({...globals,card_type_set:'standard',card_types:structuredClone(DEFAULT_SAIVAGE_CONFIG.card_types)}).success).toBe(false);
+    expect(systemTemplateNameSchema.safeParse('Standard').success).toBe(false);
     expect(effectiveSaivageConfigSchema.safeParse({...globals,card_type_set:'standard'}).success).toBe(false);
     expect(outboundEffectiveSaivageConfigSchema.safeParse({...globals,card_type_set:'standard'}).success).toBe(false);
   });
 
   it('parses the complete specialized identifier inventory while node keys remain compiler-strict',()=>{
-    expect(saivageConfigSchema.parse({ ...structuredClone(DEFAULT_SAIVAGE_CONFIG), card_types: structuredClone(specializedDefinition().cardTypes) }).card_types).toEqual(specializedDefinition().cardTypes);
-    for(const id of ['specialized','project','goal','architecture','code','test','doc','data','research','ops','add-coverage','component-review','system-review'])expect(cardTypeSetNameSchema.safeParse(id).success).toBe(true);
+    const typedCardTypes=resolveSystemTemplate('classic-typed').config.card_types;
+    expect(saivageConfigSchema.parse({ ...structuredClone(DEFAULT_SAIVAGE_CONFIG), card_types: structuredClone(typedCardTypes) }).card_types).toEqual(typedCardTypes);
+    for(const id of ['specialized','project','goal','architecture','code','test','doc','data','research','ops','add-coverage','component-review','system-review'])expect(systemTemplateNameSchema.safeParse(id).success).toBe(true);
     for(const id of ['complete_direct','revision_required','ready_for_component_review'])expect(/^[a-z][a-z0-9_-]{0,63}$/u.test(id)).toBe(true);
   });
 

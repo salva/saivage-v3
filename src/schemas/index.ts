@@ -182,12 +182,12 @@ export { cardIdSegments, MAX_CARD_DEPTH } from './card-id.js';
 export { cardVersionChangeSchema, type CardVersionChange } from './card-version-change.js';
 export {
   cardTypesSchema,
-  cardTypeSetNameSchema,
+  systemTemplateNameSchema,
   effectiveSaivageConfigSchema,
   outboundEffectiveSaivageConfigSchema,
   saivageConfigSchema,
   type CardTypesSource,
-  type CardTypeSetName,
+  type SystemTemplateName,
   type OutboundEffectiveSaivageConfig,
   type SaivageConfig,
   type SaivageConfigSource,

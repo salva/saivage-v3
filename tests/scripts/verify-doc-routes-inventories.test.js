@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { verifyAgentToolDocs, verifyConfigDocs } from '../../scripts/verify-doc-routes.js';
 
-const AGENTS = 'src/agents/default-workflow-config.ts';
+const AGENTS = 'src/config/system-templates/classic/template.ts';
 const CONFIG = 'src/schemas/saivage-config.ts';
 const DOC = 'docs/architecture/system-architecture.md';
 
@@ -68,7 +68,7 @@ describe('source-derived named-agent tool inventory', () => {
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('duplicate-agent');
     });
     withFixture([AGENTS, DOC], (root) => {
-      replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', "| `supervisor` | `` | `src/agents/default-workflow-config.ts:1` |\n<!-- saivage:agent-tools:end -->");
+      replaceChecked(root, DOC, '<!-- saivage:agent-tools:end -->', "| `supervisor` | `` | `src/config/system-templates/classic/template.ts:1` |\n<!-- saivage:agent-tools:end -->");
       expect(failureTypes(verifyAgentToolDocs({ projectRoot: root }))).toContain('unexpected-agent');
     });
     withFixture([AGENTS, DOC], (root) => {

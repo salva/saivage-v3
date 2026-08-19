@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname,join } from 'node:path';
 import * as YAML from 'yaml';
 import { run } from '../../src/cli.js';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { createResolvedConfigAuthority } from '../../src/config/resolved-config-authority.js';
 import { createProjectIdentity,readProjectIdentity } from '../../src/persistence/project-identity.js';
 import { readCard } from '../../src/persistence/card-files.js';
@@ -15,7 +15,7 @@ function write(path:string,content:string){mkdirSync(dirname(path),{recursive:tr
 async function command(projectRoot:string,name:string,...args:string[]){process.chdir(projectRoot);await run(['node','saivage',name,...args]);}
 
 describe('offline workflow compilation and publication',()=>{
-  it('init publishes concise defaults only when absent and validates before identity/card publication',async()=>{const projectRoot=root();jest.spyOn(console,'log').mockImplementation(()=>{});await command(projectRoot,'init');const configPath=join(projectRoot,'.saivage','saivage.yaml');const bytes=readFileSync(configPath);const source=YAML.parse(bytes.toString()) as Record<string,unknown>;expect(source.card_type_set).toBe('standard');expect(source).not.toHaveProperty('card_types');const effective=createResolvedConfigAuthority({path:configPath,interpolationEnvironment:{},projectRoot}).loadEffective();expect(effective.config).toEqual(DEFAULT_SAIVAGE_CONFIG);expect(readCard(projectRoot,'project')).toMatchObject({id:'project',type:'project'});await command(projectRoot,'init');expect(readFileSync(configPath)).toEqual(bytes);
+  it('init publishes the complete template defaults only when absent and validates before identity/card publication',async()=>{const projectRoot=root();jest.spyOn(console,'log').mockImplementation(()=>{});await command(projectRoot,'init');const configPath=join(projectRoot,'.saivage','saivage.yaml');const bytes=readFileSync(configPath);const source=YAML.parse(bytes.toString()) as Record<string,unknown>;expect(source).not.toHaveProperty('card_type_set');expect(source.card_types).toBeDefined();expect(JSON.parse(readFileSync(join(projectRoot,'.saivage','config','template.json'),'utf8'))).toEqual({template:'classic',saivage_version:'0.1.0'});const effective=createResolvedConfigAuthority({path:configPath,interpolationEnvironment:{},projectRoot}).loadEffective();expect(effective.config).toEqual(DEFAULT_SAIVAGE_CONFIG);expect(readCard(projectRoot,'project')).toMatchObject({id:'project',type:'project'});await command(projectRoot,'init');expect(readFileSync(configPath)).toEqual(bytes);
     const invalidRoot=root();write(join(invalidRoot,'.saivage','saivage.yaml'),YAML.stringify({...structuredClone(DEFAULT_SAIVAGE_CONFIG),unknown_old_contract:true}));await expect(command(invalidRoot,'init')).rejects.toThrow(/Configuration validation failed/);expect(readProjectIdentity(invalidRoot)).toBeNull();expect(existsSync(join(invalidRoot,'.saivage','cards'))).toBe(false);
   });
 

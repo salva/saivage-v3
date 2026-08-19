@@ -3,7 +3,7 @@ import { mkdirSync,mkdtempSync,rmSync,writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { DEFAULT_AGENTS,DEFAULT_SAIVAGE_CONFIG } from '../../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG,resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
 import { effectiveSaivageConfigSchema,saivageConfigSchema,type SaivageConfig } from '../../../src/schemas/saivage-config.js';
 import type { CardStatus } from '../../../src/schemas/index.js';
@@ -11,35 +11,33 @@ import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
 import { createPromptTemplateRegistry, renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
 import { projectCompiledGraphs } from '../../../src/runtime/card-process/compiled-graphs-projection.js';
-import { BUNDLED_CARD_TYPE_SETS, resolveCardTypeSelection } from '../../../src/config/card-type-sets/registry.js';
-import { EXPECTED_SPECIALIZED_CARD_TYPES, specializedConfig, specializedDefinition } from '../../fixtures/card-type-sets/specialized.js';
+import { specializedCardTypes, specializedConfig } from '../../helpers/specialized-config.js';
 
 function source():SaivageConfig{return effectiveSaivageConfigSchema.parse(structuredClone(DEFAULT_SAIVAGE_CONFIG));}
 function failure(change:(value:SaivageConfig)=>void,message:RegExp):void{const value=source();change(value);expect(()=>compileProjectWorkflows(value)).toThrow(message);}
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
 describe('named-agent card-type workflow compilation',()=>{
-  it('compiles omitted, selected standard, and explicit standard sources identically',()=>{
-    const globals=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;
-    const compile=(input:unknown)=>compileProjectWorkflows(effectiveSaivageConfigSchema.parse(resolveCardTypeSelection(saivageConfigSchema.parse(input),BUNDLED_CARD_TYPE_SETS)));
-    const omitted=compile(globals);const selected=compile({...globals,card_type_set:'standard'});const explicit=compile(DEFAULT_SAIVAGE_CONFIG);
-    expect(selected).toEqual(omitted);expect(explicit).toEqual(omitted);
+  it('compiles the classic template source and the derived default identically',()=>{
+    const fromTemplate=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic').config)));
+    const derived=compileProjectWorkflows(source());
+    expect(fromTemplate).toEqual(derived);
   });
   it('compiles the exact complete specialized set with only defined roles and compiler-owned runtime edges',()=>{
-    expect(specializedDefinition().cardTypes).toEqual(EXPECTED_SPECIALIZED_CARD_TYPES);
+    const expected=specializedCardTypes();
     const config=specializedConfig();
-    const compiled=compileProjectWorkflows(config);
-    expect([...compiled.cardTypes.keys()]).toEqual(Object.keys(EXPECTED_SPECIALIZED_CARD_TYPES));
+    const compiled=compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot});
+    expect([...compiled.cardTypes.keys()]).toEqual(Object.keys(expected));
     const roles=new Set<string>();
-    for(const [cardType,expected] of Object.entries(EXPECTED_SPECIALIZED_CARD_TYPES)){
+    for(const [cardType,expectedCardType] of Object.entries(expected)){
       const workflow=compiled.cardTypes.get(cardType as never)!;
-      expect([...workflow.permittedChildTypes]).toEqual(expected.permitted_child_types);
-      expect([...workflow.records.values()].map(({name,format,schema,bootstrap})=>({name,format,schema,bootstrap}))).toEqual(Object.entries(expected.records).map(([name,record])=>({name,...record})));
-      for(const [entry,expectedEntry] of Object.entries(expected.workflow.entries)){
+      expect([...workflow.permittedChildTypes]).toEqual(expectedCardType.permitted_child_types);
+      expect([...workflow.records.values()].map(({name,format,schema,bootstrap})=>({name,format,schema,bootstrap}))).toEqual(Object.entries(expectedCardType.records).map(([name,record])=>({name,...record})));
+      for(const [entry,expectedEntry] of Object.entries(expectedCardType.workflow.entries)){
         const route=workflow.states.get(`entry:${entry}`)!.on.get('entry:route')!;
         expect(route).toMatchObject({targetStateId:`node:${expectedEntry.node}`,reenter:false,semantic:{kind:'entry-route',promptId:expectedEntry.prompt??null}});
       }
-      for(const [nodeId,expectedNode] of Object.entries(expected.workflow.nodes)){
+      for(const [nodeId,expectedNode] of Object.entries(expectedCardType.workflow.nodes)){
         const state=workflow.states.get(`node:${nodeId}`)!;if(state.kind!=='node')throw new Error(`missing ${cardType}/${nodeId}`);
         roles.add(state.agent.name);
         expect({agent:state.agent.name,prompt:state.promptId,correction:state.correctionPromptId,requirements:state.requirements.map(({definition,mode,gate})=>[definition.name,mode,gate]),descendant:state.descendantContext&&{records:state.descendantContext.records.map(({name})=>name),require_unchanged_until_accept:state.descendantContext.requireUnchangedUntilAccept}}).toEqual({agent:expectedNode.agent,prompt:expectedNode.prompt,correction:expectedNode.correction_prompt,requirements:Object.entries(expectedNode.records).map(([name,{mode,gate}])=>[name,mode,gate]),descendant:expectedNode.descendant_context?{records:expectedNode.descendant_context.records,require_unchanged_until_accept:expectedNode.descendant_context.require_unchanged_until_accept}:null});
@@ -55,7 +53,7 @@ describe('named-agent card-type workflow compilation',()=>{
       }
     }
     expect(roles).toEqual(new Set(['planner','reviewer','executor']));
-    const sources=Object.values(EXPECTED_SPECIALIZED_CARD_TYPES);const nodes=sources.flatMap(({workflow})=>Object.keys(workflow.nodes));const references=sources.flatMap(({workflow})=>[...Object.values(workflow.entries).flatMap(({node,prompt})=>[node,...(prompt?[prompt]:[])]),...Object.values(workflow.nodes).flatMap((node)=>[node.prompt,node.correction_prompt,...Object.values(node.edges).flatMap(({target,prompt})=>[...('node'in target?[target.node]:[]),...('terminal'in target&&target.promote!=='current'?[target.promote.latest_node]:[]),...(prompt?[prompt]:[])])])]);const outcomes=sources.flatMap(({workflow})=>Object.values(workflow.nodes).flatMap(({edges})=>Object.keys(edges)));
+    const sources=Object.values(expected);const nodes=sources.flatMap(({workflow})=>Object.keys(workflow.nodes));const references=sources.flatMap(({workflow})=>[...Object.values(workflow.entries).flatMap(({node,prompt})=>[node,...(prompt?[prompt]:[])]),...Object.values(workflow.nodes).flatMap((node)=>[node.prompt,node.correction_prompt,...Object.values(node.edges).flatMap(({target,prompt})=>[...('node'in target?[target.node]:[]),...('terminal'in target&&target.promote!=='current'?[target.promote.latest_node]:[]),...(prompt?[prompt]:[])])])]);const outcomes=sources.flatMap(({workflow})=>Object.values(workflow.nodes).flatMap(({edges})=>Object.keys(edges)));
     expect([...new Set(nodes)]).toEqual(['plan','review','recover','draft','component-review','system-review','red','green','refactor','diagnose','add-coverage','repair','verify','execute','schema','validate','implement','explore','assess','report']);
     expect([...new Set(outcomes)]).toEqual(['complete_direct','admit_review','blocked','failed','approved','revision_required','ready_for_component_review','red_confirmed','already_green','green','still_red','done','regressed','coverage_gap','failing_test','coverage_passing','repair_needed','tests_passing','still_failing','schema_ready','valid','schema_invalid','implementation_retry','schema_revision','evidence_ready','more_exploration','supported','refuted','bounded_inconclusive','evidence_gap']);
     expect(references.every((id)=>/^[a-z][a-z0-9-]{0,63}$/u.test(id))).toBe(true);expect(outcomes.every((id)=>/^[a-z][a-z0-9_-]{0,63}$/u.test(id))).toBe(true);
@@ -66,7 +64,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const node=config.card_types.test!.workflow.nodes['add-coverage']!;
     config.card_types.test!.workflow.nodes['add_coverage']=node;
     delete config.card_types.test!.workflow.nodes['add-coverage'];
-    expect(()=>compileProjectWorkflows(config)).toThrow(/workflow\.nodes key must be a lowercase identifier/);
+    expect(()=>compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot})).toThrow(/workflow\.nodes key must be a lowercase identifier/);
   });
   it('treats a configured global card type as card-scoped for agents, fragments, processes, and registry rendering',()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'workflow-global-card-'));roots.push(projectRoot);
@@ -443,7 +441,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(defaults.agents.get('reviewer')!.recordWrites[1]!.matcher.test('review-notes-1.md')).toBe(true);
     expect(defaults.cardTypes.get('goal')!.states.get('node:review')).toMatchObject({requirements:[{mode:'clean',gate:'updated'}]});
     failure((value)=>{value.agents.executor!.record_writes.push('status.md');},/duplicate 'status.md'/);
-    expect(saivageConfigSchema.safeParse({...structuredClone(DEFAULT_SAIVAGE_CONFIG),agents:{...structuredClone(DEFAULT_AGENTS),executor:{...structuredClone(DEFAULT_AGENTS.executor),record_writes:['status?.md']}}}).success).toBe(false);
+    expect(saivageConfigSchema.safeParse({...structuredClone(DEFAULT_SAIVAGE_CONFIG),agents:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents),executor:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents.executor!),record_writes:['status?.md']}}}).success).toBe(false);
 
     for(const [mode,gate,needsWrite] of [['clean','exists',true],['clean','updated',true],['continue','updated',true],['continue','exists',false]] as const){
       const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),tools:value.agents.executor!.tools.filter((tool)=>tool!=='write'&&tool!=='edit'),record_writes:['notes.md']};const execute=value.card_types.code!.workflow.nodes.execute!;execute.agent='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges))if('terminal'in edge.target)edge.target.export_records=['notes.md'];
@@ -515,6 +513,6 @@ describe('named-agent card-type workflow compilation',()=>{
     config.agents['specialized-worker']={...structuredClone(config.agents.executor!),model_route:'specialized-worker-route'};
     config.models.routes['specialized-worker-route']={candidates:['gpt-5.6'],temperature:0.3,max_tokens:9000};
     config.card_types.architecture!.workflow.nodes.draft!.agent='specialized-worker';
-    expect(()=>compileProjectWorkflows(config)).toThrow(/agents\.specialized-worker\.model_route 'specialized-worker-route' requests max_tokens 9000/u);
+    expect(()=>compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot})).toThrow(/agents\.specialized-worker\.model_route 'specialized-worker-route' requests max_tokens 9000/u);
   });
 });

@@ -8,7 +8,7 @@ import { readCard } from '../../src/persistence/card-files.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { acquireRuntimeLifecycleLock, releaseRuntimeLifecycleLock, type RuntimeLifecycleLockHandle } from '../../src/runtime/lock.js';
 import { stringify } from 'yaml';
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 
 const generatedDescendants = [
   'cards/project/marker.bin',

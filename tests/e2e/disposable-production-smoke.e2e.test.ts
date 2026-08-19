@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stringify } from 'yaml';
 
-import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
+import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { startApp, type App } from '../../src/boot/app.js';
 import { effectiveSaivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
 
