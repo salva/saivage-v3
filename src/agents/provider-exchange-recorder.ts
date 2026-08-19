@@ -30,13 +30,7 @@ export interface ProviderExchangeRecorder {
   settledAttempts(): ProviderExchangeAttempt[];
 }
 
-export interface CreateProviderExchangeRecorderOptions {
-  sessionId: string;
-}
-
-export function createProviderExchangeRecorder(
-  _opts: CreateProviderExchangeRecorderOptions,
-): ProviderExchangeRecorder {
+export function createProviderExchangeRecorder(): ProviderExchangeRecorder {
   const attempts: ProviderExchangeAttempt[] = [];
 
   async function beginExchange(meta: BeginProviderExchangeInput): Promise<ProviderExchangeHandle> {

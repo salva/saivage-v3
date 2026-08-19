@@ -149,7 +149,7 @@ export class InvocationService {
       return admissionVerdict(candidate, capabilityRequest, capabilityHash, capabilities, plan, limits);
     });
     const bindings = executionBindings(request, capabilityRequest, capabilityHash);
-    const execution: OrdinaryAdmittedExecutionInputs = Object.freeze({ sessionId: request.sessionId, capabilityRequest, options });
+    const execution: OrdinaryAdmittedExecutionInputs = Object.freeze({ capabilityRequest, options });
     const admitted = candidates.filter((verdict): verdict is Extract<CandidateLocalAdmission, { kind: 'admitted' }> => verdict.kind === 'admitted');
     if (admitted.length > 0)
       return Object.freeze({
@@ -185,7 +185,7 @@ export class InvocationService {
     });
     const verdict = admissionVerdict(candidate, capabilityRequest, capabilityHash, capabilities, plan, limits);
     if (verdict.kind === 'admitted')
-      return Object.freeze({ kind: 'admitted', plan, candidate, capabilityRequest, sessionId: request.sessionId, inputId: request.inputId, options });
+      return Object.freeze({ kind: 'admitted', plan, candidate, capabilityRequest, inputId: request.inputId, options });
     return Object.freeze({ kind: 'rejected', candidate, verdict });
   }
 
@@ -264,7 +264,7 @@ export class InvocationService {
       mandatoryFirstIdentity: suspension.contextFailedIdentity,
       settledProviderAttempts: suspension.settledProviderAttempts,
       deadlineMs: suspension.deadlineMs,
-      execution: Object.freeze({ sessionId: request.sessionId, capabilityRequest, options }),
+      execution: Object.freeze({ capabilityRequest, options }),
     });
   }
 
@@ -291,7 +291,7 @@ export class InvocationService {
     const candidate = preflight.candidate;
     try {
       throwIfAborted(signal);
-      const completion = await this.executeAdmittedPlan(preflight.plan, { ...preflight.options, signal }, preflight.capabilityRequest, preflight.sessionId);
+      const completion = await this.executeAdmittedPlan(preflight.plan, { ...preflight.options, signal }, preflight.capabilityRequest);
       const attempts = indexProviderExchangeAttempts(preflight.inputId, 0, completion.provider_exchanges);
       try {
         throwIfAborted(signal);
@@ -367,12 +367,10 @@ export class InvocationService {
     plan: CandidateRequestPlan,
     options: LlmCompleteOptions,
     capabilityRequest: Readonly<CapabilityRequest>,
-    sessionId: string,
   ): Promise<ProviderTurnCompletion> {
     return executeLlmProviderAttempt({
       projectRoot: this.projectRoot,
       registry: this.registry,
-      sessionId,
       plan,
       options,
       capabilityRequest,
@@ -446,7 +444,7 @@ export class InvocationService {
       const plan = run.plans.get(record.routeIndex);
       if (!plan) throw new AdmittedRecoveryIntegrityError(`No admitted plan is retained for route index ${record.routeIndex}.`);
       try {
-        const result = await this.executeAdmittedPlan(plan, { ...run.execution.options, signal }, run.execution.capabilityRequest, run.execution.sessionId);
+        const result = await this.executeAdmittedPlan(plan, { ...run.execution.options, signal }, run.execution.capabilityRequest);
         run.settled.push(
           ...indexProviderExchangeAttempts(
             run.bindings.inputId,

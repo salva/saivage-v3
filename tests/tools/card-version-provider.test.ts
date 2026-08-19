@@ -1,10 +1,11 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { cardVersionToolBinders } from '../../src/tools/card-version-provider.js';
-import { bindToolProvider, invokeTool } from '../../src/tools/invocation.js';
+import { invokeTool } from '../../src/tools/invocation.js';
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { cardStreamFile, cardRecordStreamFile } from '../../src/persistence/layout.js';
 import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';

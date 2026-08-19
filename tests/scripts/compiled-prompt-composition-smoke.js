@@ -112,7 +112,6 @@ try {
   const workflows = bindRuntimeWorkflows(structuralWorkflows, new ModelRouter(providerRegistry));
   const configAuthority = createResolvedConfigAuthority({
     path: join(projectRoot, '.saivage', 'saivage.yaml'),
-    source: { kind: 'default' },
     interpolationEnvironment: process.env,
   });
   const processRegistry = new ManagedProcessGroupRegistry();

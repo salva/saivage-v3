@@ -3,18 +3,15 @@ import { z } from 'zod';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { analystCancelCardInputSchema, createAnalystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema, type AnalystCreateCardInput } from '../contracts/builtin-tool-inputs.js';
 import {
-  URGENCY_VALUES,
   emptyInput,
 } from './tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { defaultParentForCreate, getStore, normalizeParentValue, preflightEnum, toolFailureFromError } from './analyst-tool-helpers.js';
-import { defineToolBinder, executedProviderResult, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
+import { defaultParentForCreate, getStore, toolFailureFromError } from './analyst-tool-helpers.js';
+import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
 
 export async function create_card(ctx: ToolContext, params: AnalystCreateCardInput, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {
-  const typeCheck = preflightEnum(params.type, ctx.cardTypeVocabulary, 'type', 'create_card'); if (!typeCheck.ok) return executedProviderResult('none', { success: false, error: typeCheck.error });
-  const urgencyCheck = preflightEnum(params.urgency, URGENCY_VALUES, 'urgency', 'create_card'); if (!urgencyCheck.ok) return executedProviderResult('none', { success: false, error: urgencyCheck.error });
-  const parent = normalizeParentValue(params.parent) ?? defaultParentForCreate(getStore(ctx), typeCheck.value!) ?? null;
-  const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: typeCheck.value!, parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: urgencyCheck.value, depends_on: params.depends_on, related: params.related };
+  const parent = params.parent !== undefined ? params.parent : defaultParentForCreate(getStore(ctx), params.type) ?? null;
+  const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: params.type, parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: params.urgency, depends_on: params.depends_on, related: params.related };
   return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, value, mutation) => mutation.services.cards.create(value) }, signal);
 }
 

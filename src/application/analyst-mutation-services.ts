@@ -57,13 +57,13 @@ export interface AnalystMutationServices {
   recordMutations: AnalystRecordMutationService;
 }
 
-export function createAnalystMutationServices(input: { projectRoot: string; store: CardService; configAuthority: ResolvedConfigAuthority; notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
+export function createAnalystMutationServices(input: { store: CardService; configAuthority: ResolvedConfigAuthority; notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
   const notifyCard = input.notifyCard;
   return {
     cards: new AnalystCardMutationImplementation(input.store, notifyCard, input.cancelCard),
     config: new AnalystConfigMutationImplementation(input.configAuthority),
-    notifications: new AnalystNotificationMutationImplementation(input.projectRoot, input.store, notifyCard),
-    recordMutations: new AnalystRecordMutationImplementation(input.projectRoot, input.store, notifyCard),
+    notifications: new AnalystNotificationMutationImplementation(notifyCard),
+    recordMutations: new AnalystRecordMutationImplementation(input.store, notifyCard),
   };
 }
 
@@ -166,9 +166,9 @@ class AnalystConfigMutationImplementation implements AnalystConfigMutationServic
 }
 
 class AnalystNotificationMutationImplementation implements AnalystNotificationMutationService {
-  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
+  constructor(private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
   queue(cardId: string, kind: string, body: string): AnalystMutationOutcome {
-    const queued = queueNotification(cardId, kind, body, { actor: 'analyst', surface: 'web-chat' }, this.notifyCard);
+    const queued = queueNotification(cardId, kind, body, this.notifyCard);
     if (!queued.ok && queued.reason === 'terminal_card') return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
     if (!queued.ok) return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
     return success({ queued: true, card_id: cardId, notification_id: queued.notificationId });
@@ -176,7 +176,7 @@ class AnalystNotificationMutationImplementation implements AnalystNotificationMu
 }
 
 class AnalystRecordMutationImplementation implements AnalystRecordMutationService {
-  constructor(private readonly projectRoot: string, private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
+  constructor(private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
 
   admitWrite(path: string): AnalystPreNetworkAdmission {
     return preflightAnalystRecordWrite(this.store, { path, operation: 'write', surface: 'analyst', agentName: this.store.workflows.analyst.name, requiredTools: ['write', 'webfetch'] });

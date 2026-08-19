@@ -1,3 +1,4 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,7 +9,7 @@ import { listControlActions } from '../../src/persistence/control-action-audit.j
 import { restart_server } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { getAnalystControlToolBinders } from '../../src/tools/analyst-tool-registry.js';
-import { bindToolProvider } from '../../src/tools/invocation.js';
+
 
 function context(projectRoot: string, restartServerAvailable: boolean): ToolContext {
   return { projectRoot, actor: 'analyst', surface: 'web-chat', restartServerAvailable, cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] } as unknown as ToolContext;

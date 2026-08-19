@@ -160,10 +160,6 @@ export function defineToolBinder<Schema extends z.ZodTypeAny, Context = any, M e
   });
 }
 
-export function bindToolProvider<Context>(providerName: string, binders: readonly ToolBinder<Context, any>[], context: Context): ToolProvider {
-  return { providerName, tools: binders.map((binder) => binder.bind(context)) };
-}
-
 export async function invokeTool(surface: InvocationSurface, name: string, args: unknown, signal: AbortSignal = new AbortController().signal, context?: LlmToolInvocationContext): Promise<ToolExecutionResult<ToolEvidenceMode>> {
   if (signal.aborted) throw abortError(signal);
   const definition = surface.tools.get(name);

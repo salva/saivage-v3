@@ -1,24 +1,43 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { getAnalystControlToolBinders } from '../../src/tools/analyst-tool-registry.js';
-import { bindToolProvider } from '../../src/tools/invocation.js';
+import { BoundAgentToolSet } from '../../src/tools/runtime-tool-catalog.js';
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
+import { TEST_WORKFLOWS } from '../helpers/canonical-project.js';
+
+const cardTypeVocabulary = ['project','goal','architecture','code','test','doc','data','research','ops'];
+
+function bindConfiguredAnalystSurface() {
+  return new BoundAgentToolSet(TEST_WORKFLOWS.analyst.tools).bind({
+    scope: 'global',
+    agentName: 'analyst',
+    projectRoot: '/',
+    store: {} as never,
+    processRunner: {} as never,
+    processScope: {},
+    processOwnerId: 'agent:analyst:global',
+    mcpToolInvocation: {} as never,
+    analystToolContext: { restartServerAvailable: false, actor: 'analyst', surface: 'web-chat', cardTypeVocabulary, runtime: { notifyCard: () => ({ ok: false, reason: 'missing_card', cardId: 'project' }) } } as never,
+    cardTypeVocabulary,
+  } as never);
+}
 
 describe('registered Analyst card mutation catalog', () => {
-  const context={cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops']} as never;
-  it('lazily installs one stable immutable binder order after circular module initialization',()=>{
+  const context = { cardTypeVocabulary } as never;
+  it('lazily installs one stable immutable binder list after circular module initialization',()=>{
     const first=getAnalystControlToolBinders();
     expect(getAnalystControlToolBinders()).toBe(first);
     expect(Object.isFrozen(first)).toBe(true);
     expect(first.map((binder)=>binder.name)).toEqual(bindToolProvider('analyst', first, context).tools.map((tool)=>tool.name));
   });
 
+  it('binds the Analyst surface in the compiled configured tool order', () => {
+    const surface = bindConfiguredAnalystSurface();
+    expect([...surface.tools.keys()]).toEqual(TEST_WORKFLOWS.analyst.tools.map((tool) => tool.name));
+  });
+
   it('selects type only during creation and exposes no post-creation edit or update input', () => {
     const tools = bindToolProvider('analyst', getAnalystControlToolBinders(), context).tools;
-    expect(tools.map(({ name }) => name)).toEqual([
-      'create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server',
-      'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions',
-      'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card',
-    ]);
     const registered = new Map(tools.map((tool) => [tool.name, tool]));
     const mutationNames = ['create_card', 'reorder_child', 'reopen_card', 'cancel_card', 'delete_card'] as const;
 
@@ -49,7 +68,7 @@ describe('registered Analyst card mutation catalog', () => {
   });
 
   it('keeps restart_server stable across published authentication capability', () => {
-    const names = (restartServerAvailable: boolean) => bindToolProvider('analyst', getAnalystControlToolBinders(), { restartServerAvailable, actor: 'analyst', surface: 'web-chat',cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] } as never).tools.map(({ name }) => name);
+    const names = (restartServerAvailable: boolean) => bindToolProvider('analyst', getAnalystControlToolBinders(), { restartServerAvailable, actor: 'analyst', surface: 'web-chat',cardTypeVocabulary } as never).tools.map(({ name }) => name);
     expect(names(false)).toContain('restart_server');
     expect(names(true)).toContain('restart_server');
   });

@@ -93,12 +93,12 @@ const global = (runtime: RuntimeToolBindingContext): GlobalToolBindingContext =>
   if (runtime.scope !== 'global') throw new Error('Global tool group received card context.');
   return runtime;
 };
-const workspace = (runtime: CardToolBindingContext): WorkspaceProviderContext => ({ projectRoot: runtime.projectRoot, cardId: runtime.cardId, agentName: runtime.agentName, filesystemWrite: true, store: runtime.store, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten });
+const workspace = (runtime: CardToolBindingContext): WorkspaceProviderContext => ({ projectRoot: runtime.projectRoot, cardId: runtime.cardId, agentName: runtime.agentName, store: runtime.store, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten });
 const process = (runtime: RuntimeToolBindingContext): ProcessProviderContext => {
   if (!runtime.processScope || !runtime.processOwnerId) throw new Error(`Agent '${runtime.agentName}' process tools require a bound process scope.`);
   return { projectRoot: runtime.projectRoot, processRunner: runtime.processRunner, directScope: runtime.processScope, category: runtime.scope === 'global' ? 'operator_session' : 'runtime_card', ownerId: runtime.processOwnerId, ownerKind: runtime.scope === 'global' ? 'operator' : 'agent', ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) };
 };
-const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({ projectRoot: runtime.projectRoot, agentName: runtime.agentName, filesystemWrite: true, store: runtime.store, ...(runtime.scope === 'global' ? { analystToolContext: runtime.analystToolContext } : { cardId: runtime.cardId, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten }) });
+const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({ projectRoot: runtime.projectRoot, agentName: runtime.agentName, store: runtime.store, ...(runtime.scope === 'global' ? { analystToolContext: runtime.analystToolContext } : { cardId: runtime.cardId, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten }) });
 
 let defaultGroups: readonly AnyProviderGroup[] | null = null;
 function runtimeToolGroups(): readonly AnyProviderGroup[] {

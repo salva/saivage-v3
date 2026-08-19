@@ -14,7 +14,6 @@ export interface WorkspaceProviderContext {
   readonly projectRoot: string;
   readonly cardId?: string;
   readonly agentName: AgentName;
-  readonly filesystemWrite:boolean;
   readonly store?: CardService;
   readonly notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult;
   readonly onRecordWritten?: (name: string) => void;
@@ -42,7 +41,7 @@ async function runWorkspaceTool(action: () => Promise<unknown>): Promise<ToolRes
 
 const readDescription = 'Read a project:///, record:///, tmp:///, system:///, or read-only work:/// file or directory through scoped URLs with one exact byte-bounded response envelope. Text files and record documents return UTF-8 TextSlice pages at a stateless {byte_offset} position; directories and record:/// listings return byte-packed collection pages at a stateless {item_index,item_byte_offset} position; pass the emitted next position to continue. work:/// content is redacted before slicing. metadata_only returns bounded scalars plus the sliced path text. Files larger than about 10MB are refused rather than read inline.';
 const grepDescription = 'Stream-search text files, including files too large for inline read, with a JavaScript regular expression under project:///, record:///, tmp:///, read-only work:///, or system:/// paths. Search retains at most 2000 characters per line and reports content truncation when an overlong suffix was not searched. grep record:///<cardId> searches effective current configured records and returns record URLs as path. work:/// content is redacted before return.';
-const analystWorkspace = (ctx: AnalystToolContext): WorkspaceProviderContext => ({ projectRoot: ctx.projectRoot, agentName:ctx.actor,filesystemWrite:true,store: ctx.store, notifyCard: ctx.runtime.notifyCard });
+const analystWorkspace = (ctx: AnalystToolContext): WorkspaceProviderContext => ({ projectRoot: ctx.projectRoot, agentName:ctx.actor,store: ctx.store, notifyCard: ctx.runtime.notifyCard });
 
 const observational = (action: () => Promise<ToolResult>) => executeToolAction('observational_query', action);
 const operational = (action: () => Promise<ToolResult>) => executeToolAction('none', action);
@@ -65,5 +64,5 @@ export const analystWorkspaceToolBinders: readonly ToolBinder<AnalystToolContext
   defineToolBinder({ name: 'grep', description: grepDescription, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => grepWorkspaceInputSchema, executor: (ctx, args) => observational(() => runWorkspaceTool(() => grepProject(analystWorkspace(ctx), args))) }),
 ]);
 export const analystPatchToolBinders: readonly ToolBinder<AnalystToolContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'apply_patch', description: 'Apply a text-only unified diff.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => applyPatchInputSchema, executor: (ctx, args) => operational(() => runWorkspaceTool(() => applyProjectPatch({ projectRoot: ctx.projectRoot,agentName:ctx.actor,filesystemWrite:true }, args))) }),
+  defineToolBinder({ name: 'apply_patch', description: 'Apply a text-only unified diff.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => applyPatchInputSchema, executor: (ctx, args) => operational(() => runWorkspaceTool(() => applyProjectPatch({ projectRoot: ctx.projectRoot,agentName:ctx.actor }, args))) }),
 ]);

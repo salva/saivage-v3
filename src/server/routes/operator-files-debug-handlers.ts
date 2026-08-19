@@ -14,7 +14,6 @@ export function buildFilesDebugOperatorContractHandlers(options: OperatorProject
       current: cards.recordReader.current,
       historical: cards.recordReader.historical,
       definition: cards.recordReader.definition,
-      definitions: cards.recordReader.definitions,
       getCanonicalCard: (cardId: string) => cards.getCanonicalCard(cardId),
       getCanonicalCardChildren: (cardId: string) => cards.getCanonicalCardChildren(cardId),
       getCanonicalCardFilesMetadata: (cardId: string) => cards.getCanonicalCardFilesMetadata(cardId),

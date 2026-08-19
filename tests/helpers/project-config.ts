@@ -25,7 +25,6 @@ export function createTestConfigAuthority(
   writeFileSync(path, YAML.stringify(options.config ?? TEST_SAIVAGE_CONFIG), 'utf8');
   return createResolvedConfigAuthority({
     path,
-    source: { kind: 'cli', argument: '--config' },
     interpolationEnvironment: options.environment ?? {},
     projectRoot:root,
   });

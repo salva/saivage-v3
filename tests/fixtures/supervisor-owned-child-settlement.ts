@@ -13,7 +13,7 @@ const store = { read: (id: string) => id === 'project' || id === 'card-a' ? card
 const processor = {
   activate: async () => ({ status: 'done' as const, summary: 'done', result: workflowResult('DONE', 'done') }),
 } as unknown as CardProcessActor;
-const owner = new CardActivationOwner({ card: card('project'), store: store as never, processor, activationId: 'root-activation', entry: 'BACKLOG', caller: { kind: 'root' }, phase: 'prepared_root' });
+const owner = new CardActivationOwner({ card: card('project'), processor, activationId: 'root-activation', entry: 'BACKLOG', phase: 'prepared_root' });
 owner.phase = 'active';
 owner.childCardId = 'card-a';
 

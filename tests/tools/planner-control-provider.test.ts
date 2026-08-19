@@ -1,9 +1,10 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { bindToolProvider, invokeToolForLlm, settlementProviderResult } from '../../src/tools/invocation.js';
+import { invokeToolForLlm, settlementProviderResult } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { plannerControlToolBinders, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';
 import { ChildInvocationLease } from '../../src/runtime/actors/child-invocation-wait.js';

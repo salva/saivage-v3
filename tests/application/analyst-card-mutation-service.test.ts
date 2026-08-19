@@ -25,7 +25,7 @@ function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): Card
 
 function services(store: CardService, notifyCard: (...args: any[]) => any = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }))) {
   if (!('workflows' in store)) Object.assign(store, { workflows: TEST_WORKFLOWS });
-  return createAnalystMutationServices({ projectRoot: '/tmp/analyst-mutation-test', store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, cancelCard });
+  return createAnalystMutationServices({ store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, cancelCard });
 }
 
 describe('analyst card mutation service deletion', () => {
@@ -306,7 +306,7 @@ describe('Analyst record publication', () => {
 describe('other Analyst mutation facets', () => {
   it('calls the configuration authority exactly once through apply', () => {
     const applyChange = jest.fn(() => ({ success: true, requires_restart: true }));
-    const bundle = createAnalystMutationServices({ projectRoot: '/tmp/config-test', store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn(() => ({ ok: true as const, notificationId: 'unused' })), cancelCard: jest.fn() as never });
+    const bundle = createAnalystMutationServices({ store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn(() => ({ ok: true as const, notificationId: 'unused' })), cancelCard: jest.fn() as never });
     expect(bundle.config.apply({ kind: 'set_server_setting', key: 'host', value: '127.0.0.1' })).toMatchObject({ kind: 'returned', success: true });
     expect(applyChange).toHaveBeenCalledTimes(1);
   });

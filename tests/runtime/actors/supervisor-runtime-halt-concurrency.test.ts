@@ -107,7 +107,7 @@ function harness(withChild = false) {
     promptTemplates: createTestPromptTemplateRegistry(),
   } as never);
   const rootProcessor = processor();
-  const root = new CardActivationOwner({ card: card('project'), store: store as never, processor: rootProcessor.actor, activationId: 'root-activation', entry: 'BACKLOG', caller: { kind: 'root' }, phase: 'prepared_root' });
+  const root = new CardActivationOwner({ card: card('project'), processor: rootProcessor.actor, activationId: 'root-activation', entry: 'BACKLOG', phase: 'prepared_root' });
   root.phase = 'active';
   const internals = supervisor as unknown as SupervisorInternals;
   internals.activationOwners.set('project', root);
@@ -123,7 +123,7 @@ function harness(withChild = false) {
     void lease.activation.catch(() => undefined);
     lease.markAdmitted();
     childProcessor = processor();
-    child = new CardActivationOwner({ card: card('card-a'), store: store as never, processor: childProcessor.actor, activationId: 'child-activation', entry: 'BACKLOG', caller: { kind: 'parent', cardId: 'project', sessionId: interruptionIdentity.sessionId }, phase: 'child_admission', parentRelationship: { parentCardId: 'project', invocation: lease } });
+    child = new CardActivationOwner({ card: card('card-a'), processor: childProcessor.actor, activationId: 'child-activation', entry: 'BACKLOG', phase: 'child_admission', parentRelationship: { parentCardId: 'project', invocation: lease } });
     child.phase = 'active';
     root.childCardId = child.cardId;
     internals.activationOwners.set(child.cardId, child);

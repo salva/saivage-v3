@@ -182,7 +182,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     const createInvocationSurface = () => {
       const notifyCard = runtimeApi.notifyCard.bind(runtimeApi);
       const analystMutations = createAnalystMutationServices({
-        projectRoot,
         store: cardStore,
         configAuthority: services.configAuthority,
         notifyCard,

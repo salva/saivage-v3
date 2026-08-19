@@ -94,7 +94,6 @@ export class ProviderTurnFailure extends Error {
   readonly provider_exchanges: ProviderExchangeAttempt[];
   readonly originalFailure: unknown;
   readonly candidate: Candidate | null;
-  readonly failure?: unknown;
 
   constructor(args: {
     failure_phase: 'pre_provider' | 'provider_attempt';
@@ -114,12 +113,6 @@ export class ProviderTurnFailure extends Error {
     this.provider_exchanges = args.provider_exchanges;
     this.originalFailure = args.originalFailure;
     this.candidate = args.candidate;
-    if (
-      typeof args.originalFailure === 'object' &&
-      args.originalFailure !== null &&
-      'failure' in args.originalFailure
-    )
-      this.failure = (args.originalFailure as { failure: unknown }).failure;
     this.cause = args.originalFailure;
   }
 }

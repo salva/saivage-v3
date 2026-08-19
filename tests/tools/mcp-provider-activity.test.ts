@@ -1,5 +1,6 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
-import { bindToolProvider, invokeTool, invokeToolForLlm, settlementProviderResult } from '../../src/tools/invocation.js';
+import { invokeTool, invokeToolForLlm, settlementProviderResult } from '../../src/tools/invocation.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { mcpToolBinders, type McpProviderContext } from '../../src/tools/mcp-provider.js';
 import type { LlmToolInvocationContext } from '../../src/runtime/actors/executing-llm-snapshot.js';

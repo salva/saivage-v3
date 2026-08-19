@@ -1,3 +1,4 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -5,7 +6,7 @@ import { join } from 'node:path';
 
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
-import { bindToolProvider } from '../../src/tools/invocation.js';
+
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 

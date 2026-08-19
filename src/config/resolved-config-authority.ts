@@ -11,11 +11,6 @@ import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { BUNDLED_CARD_TYPE_SETS } from './card-type-sets/registry.js';
 import { resolveCardTypeSelection } from './card-type-sets/registry.js';
 
-export type ConfigSelectionSource =
-  | { readonly kind: 'cli'; readonly argument: '--config' }
-  | { readonly kind: 'environment'; readonly variable: 'SAIVAGE_CONFIG' }
-  | { readonly kind: 'default' };
-
 export type ConfigMutation =
   | { readonly kind: 'set_agent_model_route'; readonly agent: string; readonly modelRoute: string }
   | { readonly kind: 'set_model_failover'; readonly forModel: string; readonly orderedFailoverModels: readonly string[] }
@@ -31,7 +26,6 @@ type RawConfig = Record<string, unknown>;
 
 export interface ResolvedConfigAuthority {
   readonly path: string;
-  readonly source: ConfigSelectionSource;
   readDocument(): ConfigDocument;
   validateDocument(document: ConfigDocument): { config: SaivageConfig; workflows:CompiledProjectWorkflows;warnings: readonly string[] };
   loadEffective(): { config: SaivageConfig;workflows:CompiledProjectWorkflows; warnings: readonly string[] };
@@ -54,13 +48,11 @@ function fieldPath(path: readonly PropertyKey[]): string {
 
 class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
   readonly path: string;
-  readonly source: ConfigSelectionSource;
   readonly #interpolationEnvironment: EnvironmentSource;
   readonly #compileOptions: WorkflowCompileOptions;
 
-  constructor(path: string, source: ConfigSelectionSource, interpolationEnvironment: EnvironmentSource, compileOptions:WorkflowCompileOptions) {
+  constructor(path: string, interpolationEnvironment: EnvironmentSource, compileOptions:WorkflowCompileOptions) {
     this.path = path;
-    this.source = Object.freeze(source);
     this.#interpolationEnvironment = Object.freeze({ ...interpolationEnvironment });
     this.#compileOptions=Object.freeze({...compileOptions});
     Object.freeze(this);
@@ -135,9 +127,8 @@ class ResolvedConfigAuthorityImpl implements ResolvedConfigAuthority {
 
 export function createResolvedConfigAuthority(input: {
   path: string;
-  source: ConfigSelectionSource;
   interpolationEnvironment: EnvironmentSource;
   projectRoot?:string;
 }): ResolvedConfigAuthority {
-  return new ResolvedConfigAuthorityImpl(input.path, input.source, input.interpolationEnvironment,input.projectRoot?{projectRoot:input.projectRoot}:{});
+  return new ResolvedConfigAuthorityImpl(input.path, input.interpolationEnvironment,input.projectRoot?{projectRoot:input.projectRoot}:{});
 }

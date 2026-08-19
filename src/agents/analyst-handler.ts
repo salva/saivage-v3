@@ -1,7 +1,5 @@
 import { type CardTypeName, type GlobalConversationSessionId } from '../schemas/index.js';
 import {
-  ANALYST_NO_MODEL_REPLY,
-  AnalystOfflineError,
   formatVocabularySnippet,
 } from './analyst-prompt.js';
 import { ANALYST_UNSUPPORTED_ACTION_TEMPLATE } from './analyst-tool-runner.js';
@@ -460,13 +458,8 @@ export class AnalystSession {
   }
 
   private errorMessage(err: unknown): string {
-    const noHealthyMessage = `No healthy candidates available for role 'analyst'.`;
     const error = typeof err === 'string' ? err : err instanceof Error ? err.message : String(err);
-    return err instanceof AnalystOfflineError
-      ? err.message
-      : error === noHealthyMessage
-        ? ANALYST_NO_MODEL_REPLY
-        : `Analyst LLM unavailable: ${error}`;
+    return `Analyst LLM unavailable: ${error}`;
   }
 
   private response(

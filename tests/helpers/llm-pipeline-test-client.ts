@@ -9,7 +9,7 @@ import type { ProviderRegistry } from '../../src/agents/provider.js';
 export class LlmPipelineTestClient {
   constructor(private readonly config: { baseUrl: string; apiKey?: string; openAICodexAccountId?: string; registry?: ProviderRegistry; capabilities?: EffectiveProviderCapabilities }) {}
 
-  async complete(candidate: Candidate, systemPrompt: string, providerConversation: ProviderConversationProjection, sessionId: string, options: LlmCompleteOptions): Promise<ProviderTurnCompletion> {
+  async complete(candidate: Candidate, systemPrompt: string, providerConversation: ProviderConversationProjection, options: LlmCompleteOptions): Promise<ProviderTurnCompletion> {
     const configured = this.config.capabilities ?? this.config.registry?.getEffectiveCapabilities(candidate) ?? builtInCapabilitiesForProvider(candidate.provider);
     const capabilities: EffectiveProviderCapabilities = configured;
     const adapter = selectLlmProtocolAdapter(capabilities.transportProtocol);
@@ -17,6 +17,6 @@ export class LlmPipelineTestClient {
     const implicitAccount = { name: '_implicit', models: [candidate.model], apiKey: undefined, baseUrl: undefined, authProfile: undefined };
     const provider = { name: candidate.provider, models: [candidate.model], apiKey: this.config.apiKey, baseUrl: this.config.baseUrl, authProfile: undefined, implicitAccount, getAllAccounts: () => [] };
     const registry = { get: () => provider, getEffectiveCapabilities: () => capabilities } as unknown as ProviderRegistry;
-    return executeLlmProviderAttempt({ projectRoot: process.cwd(), registry, sessionId, plan, options, capabilityRequest: capabilityRequestForTools(options.tools) });
+    return executeLlmProviderAttempt({ projectRoot: process.cwd(), registry, plan, options, capabilityRequest: capabilityRequestForTools(options.tools) });
   }
 }

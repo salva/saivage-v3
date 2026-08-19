@@ -43,7 +43,7 @@ describe('content-policy route passes', () => {
     const svc = service(availability);
     const admission = svc.preparePrimaryRequestAdmission(request({ kind: 'ordinary', candidateChain: [first, second] }));
     if (admission.kind !== 'admitted') throw new Error(`Expected admitted route pass, got ${admission.kind}.`);
-    await expect(svc.executeAdmittedWithRecovery(admission)).rejects.toMatchObject({ failure_phase: 'provider_attempt', failure: { kind: 'content_policy' }, candidate: first });
+    await expect(svc.executeAdmittedWithRecovery(admission)).rejects.toMatchObject({ failure_phase: 'provider_attempt', originalFailure: { failure: { kind: 'content_policy' } }, candidate: first });
     expect(calls).toEqual(['first.example.test']);
     expect(isAvailable).toHaveBeenCalled();
     expect(markFailed).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ describe('content-policy route passes', () => {
     const svc = service(availability);
     const preflight = svc.preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
     if (preflight.kind !== 'admitted') throw new Error('Expected admitted pinned preflight.');
-    await expect(svc.executePinnedContentPolicyRequest(preflight)).rejects.toMatchObject({ failure_phase: 'provider_attempt', failure: { kind: 'content_policy' }, candidate: first, provider_exchanges: [{ attempt_index: 0 }] });
+    await expect(svc.executePinnedContentPolicyRequest(preflight)).rejects.toMatchObject({ failure_phase: 'provider_attempt', originalFailure: { failure: { kind: 'content_policy' } }, candidate: first, provider_exchanges: [{ attempt_index: 0 }] });
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(reads).not.toHaveBeenCalled();
     expect(writes).not.toHaveBeenCalled();

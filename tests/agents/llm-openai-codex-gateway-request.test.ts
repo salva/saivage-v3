@@ -135,10 +135,10 @@ describe('OpenAI Codex adapter and runner context failure evidence', () => {
     const gateway = new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: makeCodexJwt('account') });
 
     let failure: unknown;
-    try { await gateway.complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, 'agent:analyst:global', options); }
+    try { await gateway.complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, options); }
     catch (error) { failure = error; }
     expect(failure).toMatchObject({
-        failure: { kind: 'input_context_exhausted', status: 200 },
+        originalFailure: { failure: { kind: 'input_context_exhausted', status: 200 } },
         provider_exchanges: [{ status: 'error', response_status: 200, request_params: { endpoint: 'https://example.test/codex/responses', method: 'POST', stream: true, offered_tools_count: 0 }, error: { status: 200 } }],
       });
     expect(failure).toBeInstanceOf(ProviderTurnFailure);
@@ -153,9 +153,9 @@ describe('OpenAI Codex adapter and runner context failure evidence', () => {
     const options = opts();
     const gateway = new LlmPipelineTestClient({ baseUrl: 'https://example.test', apiKey: makeCodexJwt('account') });
 
-    await expect(gateway.complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, 'agent:analyst:global', options))
+    await expect(gateway.complete(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, options))
       .rejects.toMatchObject({
-        failure: { kind: 'input_context_exhausted', status: 400 },
+        originalFailure: { failure: { kind: 'input_context_exhausted', status: 400 } },
         provider_exchanges: [{ status: 'error', response_status: 400, error: { status: 400 } }],
       });
   });

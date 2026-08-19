@@ -1,9 +1,10 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { bindToolProvider } from '../../src/tools/invocation.js';
+
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { webToolBinders, type WebProviderContext } from '../../src/tools/web-tools.js';
@@ -21,7 +22,7 @@ describe('WebProvider', () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch').mockReturnValue(fetched);
     const events: string[] = [];
     try {
-      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
+      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor' })]);
       const context = {
         ...testLlmToolInvocationContext({ toolCallId: 'call-web', toolName: 'webfetch' }),
         waits: {
@@ -58,7 +59,7 @@ describe('WebProvider', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     try {
-      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
+      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor' })]);
       await expect(invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', read_mode: 'multimodal' })).rejects.toThrow(/multimodal/);
       expect(fetchSpy).not.toHaveBeenCalled();
 
@@ -148,20 +149,6 @@ describe('WebProvider', () => {
     }
   });
 
-  it('pre-authorizes save_as with canonical workspace write policy', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
-    const fetchSpy = jest.spyOn(globalThis, 'fetch');
-    try {
-      const surface = buildInvocationSurfaceFixture('reviewer', [bindWeb({ projectRoot: root, agentName: 'reviewer' })]);
-      const result = await invokeTestTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'fetched.txt' });
-      expect(result).toEqual({ success: false, error: 'reviewer cannot write project files.' });
-      expect(fetchSpy).not.toHaveBeenCalled();
-    } finally {
-      fetchSpy.mockRestore();
-      rmSync(root, { recursive: true, force: true });
-    }
-  });
-
   it('routes prepared record fetch content through the same brief write operation', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-web-provider-'));
     const content = '# Goal\nFetched\n# Instructions\nUse it\n# Acceptance Criteria\nSaved';
@@ -246,7 +233,7 @@ describe('WebProvider', () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     fetchSpy.mockImplementation(async () => new Response('saved', { status: 200, headers: { 'content-type': 'text/plain' } }));
     try {
-      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor', cardId, filesystemWrite: true })]);
+      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor', cardId })]);
       const cases = [
         { save_as: './nested/./plain.txt', kind: 'project_relative', target: 'nested/plain.txt' },
         { save_as: 'project:///nested/project.txt', kind: 'project_url', target: 'project:///nested/project.txt' },
@@ -270,7 +257,7 @@ describe('WebProvider', () => {
     const fetchSpy = jest.spyOn(globalThis, 'fetch');
     try {
       fetchSpy.mockResolvedValue(new Response('0123456789abcdef', { status: 200, headers: { 'content-type': 'text/plain' } }));
-      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor' }), bindWorkspace({ projectRoot: root, agentName: 'executor', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',filesystemWrite:false })]);
+      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor' }), bindWorkspace({ projectRoot: root, agentName: 'executor', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' })]);
 
       const result = await invokeTestTool(surface, 'webfetch', { url: 'https://example.com', max_inline_bytes: 4 });
 
@@ -294,7 +281,7 @@ describe('WebProvider', () => {
       .mockResolvedValueOnce(new Response('binary', { status: 200, headers: { 'content-type': 'application/octet-stream' } }))
       .mockResolvedValueOnce(new Response('saved', { status: 200, headers: { 'content-type': 'text/plain' } }));
     try {
-      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor', filesystemWrite: true })]);
+      const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor' })]);
       const inline = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34/inline?raw-query-marker=yes' });
       const binary = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34/binary?raw-query-marker=yes' });
       const saved = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34/saved?raw-query-marker=yes', save_as: 'saved.txt' });

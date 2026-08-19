@@ -76,7 +76,6 @@ describe('OpenAI Responses request shape', () => {
       CANDIDATE,
       'sys',
       { sourceSessionId: 'agent:analyst:global', messages: [MSG] },
-      'agent:analyst:global',
       { inputId: 'input-json', temperature: 0.2, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 1234 },
     );
 

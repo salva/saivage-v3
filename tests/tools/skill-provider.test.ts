@@ -1,9 +1,10 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it } from '@jest/globals';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
-import { bindToolProvider } from '../../src/tools/invocation.js';
+
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { skillToolBinders } from '../../src/tools/skill-provider.js';

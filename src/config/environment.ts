@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { parseArgs } from 'node:util';
 import type { EnvironmentSource } from './env-interpolation.js';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
-import { createResolvedConfigAuthority, type ConfigSelectionSource, type ResolvedConfigAuthority } from './resolved-config-authority.js';
+import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from './resolved-config-authority.js';
 import { realpathSync } from 'node:fs';
 import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 
@@ -162,13 +162,8 @@ function parseLogLevel(raw: string | undefined): LogLevel | undefined {
 export async function loadEnvironment(argv: readonly string[], env: EnvironmentSource): Promise<Environment> {
   const cli = parseCli(argv);
   const projectRoot = realpathSync(resolve(cli.projectRoot ?? env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd()));
-  const source: ConfigSelectionSource = cli.config !== undefined
-    ? { kind: 'cli', argument: '--config' }
-    : env['SAIVAGE_CONFIG'] !== undefined
-      ? { kind: 'environment', variable: 'SAIVAGE_CONFIG' }
-      : { kind: 'default' };
   const configPath = resolve(cli.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`);
-  const configAuthority = createResolvedConfigAuthority({ path: configPath, source, interpolationEnvironment: env,projectRoot });
+  const configAuthority = createResolvedConfigAuthority({ path: configPath, interpolationEnvironment: env,projectRoot });
   let config: SaivageConfig;
   let workflows:CompiledProjectWorkflows;
   let warnings: readonly string[];

@@ -1,15 +1,15 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/agents/default-workflow-config.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { bindToolProvider, surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { getAnalystControlToolBinders } from '../../src/tools/analyst-tool-registry.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
-import { create_card } from '../../src/tools/analyst-card-tools.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -64,14 +64,15 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     try{
       const create=jest.fn(()=>({kind:'denied' as const,reason:'Root project card already exists'}));
       const context={projectRoot,actor:'analyst',surface:'web-chat',cardTypeVocabulary:['project','custom-leaf'],store:{} as never,interventionReadiness:{assertInterventionReady(){}},analystMutations:{cards:{create}}} as unknown as ToolContext;
-      const base={type:'project',title:'root',bootstrap_content:'root'};
+      const surface=buildInvocationSurfaceFixture('analyst',[bindToolProvider('analyst',[getAnalystControlToolBinders().find((candidate)=>candidate.name==='create_card')!],context)]);
+      const base={title:'root',bootstrap_content:'root'};
       for(const parent of [undefined,null,'project']){
-        const input=parent===undefined?base:{...base,parent};
-        await expect(create_card(context,input)).resolves.toMatchObject({providerResult:{success:false,error:expect.stringContaining('Root project card already exists')},evidence:{kind:'none'}});
+        const input=parent===undefined?{...base,type:'project'}:{...base,type:'project',parent};
+        await expect(invokeTestTool(surface,'create_card',input)).resolves.toMatchObject({success:false,error:expect.stringContaining('Root project card already exists')});
       }
       expect(create).toHaveBeenCalledTimes(3);
       create.mockClear();
-      await expect(create_card(context,{type:'unconfigured',title:'unknown',bootstrap_content:'unknown'})).resolves.toMatchObject({providerResult:{success:false,error:expect.stringContaining("received 'unconfigured'")},evidence:{kind:'none'}});
+      await expect(invokeTestTool(surface,'create_card',{type:'unconfigured',title:'unknown',bootstrap_content:'unknown'})).rejects.toThrow(/unconfigured/);
       expect(create).not.toHaveBeenCalled();
     }finally{rmSync(projectRoot,{recursive:true,force:true});}
   });

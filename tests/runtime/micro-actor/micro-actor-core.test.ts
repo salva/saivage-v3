@@ -1,16 +1,16 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import {
   BaseActor,
-  compileActorDefinition,
   InternalActorError,
   InvalidActorDefinitionError,
+  validateCompiledActorTable,
 } from '../../../src/runtime/micro-actor/index.js';
 import type {
-  ActorDefinition,
   ActorLifecycleContext,
   ActorTransitionContext,
-  CompiledActorDefinition,
+  CompiledActorState,
 } from '../../../src/runtime/micro-actor/index.js';
+import { compiledActorState, compiledActorTable, compiledActorTransition } from '../../helpers/compiled-actor-table.js';
 
 type TaskCallbacks<Result> = Readonly<{
   onDone(result: Result): void;
@@ -23,14 +23,14 @@ class TestActor extends BaseActor {
   readonly #mainFailed: (error: unknown) => void;
 
   constructor(
-    definition: CompiledActorDefinition,
+    table: ReturnType<typeof compiledActorTable>,
     hooks: Readonly<{
       entered?(context: ActorLifecycleContext): void;
       transitioned?(context: ActorTransitionContext): void;
       mainFailed?(error: unknown): void;
     }> = {},
   ) {
-    super(definition.initial, definition.states);
+    super(table.initial, table.states);
     this.#entered = hooks.entered ?? (() => undefined);
     this.#transitioned = hooks.transitioned ?? (() => undefined);
     this.#mainFailed = hooks.mainFailed ?? (() => undefined);
@@ -49,35 +49,31 @@ class TestActor extends BaseActor {
 
 const unexpectedFailure = (error: Error): never => { throw error; };
 
-describe('configured actor definition', () => {
-  it('compiles immutable explicit topology and rejects invalid production definitions', () => {
-    const compiled = compileActorDefinition({
-      initial: 'ready',
-      states: {
-        ready: { parked: true, on: { go: 'done', stay: { target: 'ready' }, again: { target: 'ready', reenter: true } } },
-        done: { terminal: true },
-      },
+describe('compiled actor table validation', () => {
+  it('builds compiled transitions directly and rejects invalid production tables', () => {
+    const table = compiledActorTable('ready', {
+      ready: compiledActorState({ parked: true, on: { go: compiledActorTransition('done'), stay: compiledActorTransition('ready'), again: compiledActorTransition('ready', true) } }),
+      done: compiledActorState({ terminal: true }),
     });
-    const ready = compiled.states.get('ready')!;
+    const ready = table.states.get('ready')!;
     expect(ready.on.get('go')).toEqual({ targetStateId: 'done', reenter: false });
     expect(ready.on.get('stay')).toEqual({ targetStateId: 'ready', reenter: false });
     expect(ready.on.get('again')).toEqual({ targetStateId: 'ready', reenter: true });
-    expect([compiled, compiled.states, ready, ready.on, ready.on.get('go')].every(Object.isFrozen)).toBe(true);
-    expect('set' in compiled.states).toBe(false);
-    expect('set' in ready.on).toBe(false);
+    expect(Object.isFrozen(ready.on.get('go'))).toBe(true);
+    expect(() => validateCompiledActorTable(table.initial, table.states)).not.toThrow();
 
-    const invalid: Array<readonly [ActorDefinition, string | RegExp]> = [
-      [{ initial: 'missing', states: {} }, 'at least one state'],
-      [{ initial: '', states: { '': {} } }, 'non-empty'],
-      [{ initial: 'missing', states: { ready: {} } }, 'Initial state'],
-      [{ initial: 'ready', states: { ready: { on: { go: 'missing' } } } }, 'Transition target'],
-      [{ initial: 'ready', states: { ready: { on: { '': 'ready' } } } }, 'Event name'],
-      [{ initial: 'done', states: { done: { terminal: true, on: { go: 'done' } } } }, 'cannot have transitions'],
-      [{ initial: 'done', states: { done: { terminal: true, parked: true } } }, 'both terminal and parked'],
-      [{ initial: 'ready', states: { ready: { on: { go: { target: 'done', reenter: true } } }, done: {} } }, /state "ready".*event "go".*"done"/],
+    const invalid: Array<readonly [string, ReadonlyMap<string, CompiledActorState>, string | RegExp]> = [
+      ['missing', new Map(), 'at least one state'],
+      ['', new Map([['', compiledActorState()]]), 'non-empty'],
+      ['missing', new Map([['ready', compiledActorState()]]), 'Initial state'],
+      ['ready', new Map([['ready', compiledActorState({ on: { go: compiledActorTransition('missing') } })]]), 'Transition target'],
+      ['ready', new Map([['ready', compiledActorState({ on: { '': compiledActorTransition('ready') } })]]), 'Event name'],
+      ['done', new Map([['done', compiledActorState({ terminal: true, on: { go: compiledActorTransition('done') } })]]), 'cannot have transitions'],
+      ['done', new Map([['done', compiledActorState({ terminal: true, parked: true })]]), 'both terminal and parked'],
+      ['ready', new Map([['ready', compiledActorState({ on: { go: compiledActorTransition('done', true) } })], ['done', compiledActorState()]]), /state "ready".*event "go".*"done"/],
     ];
-    for (const [definition, message] of invalid) expect(() => compileActorDefinition(definition)).toThrow(message);
-    expect(() => compileActorDefinition(invalid[0]![0])).toThrow(InvalidActorDefinitionError);
+    for (const [initial, states, message] of invalid) expect(() => validateCompiledActorTable(initial, states)).toThrow(message);
+    expect(() => validateCompiledActorTable(invalid[0]![0], invalid[0]![1])).toThrow(InvalidActorDefinitionError);
   });
 });
 
@@ -85,7 +81,7 @@ describe('configured actor lifecycle', () => {
   it('1. starts at the explicit initial state with the exact frozen sequence-free context', () => {
     const contexts: ActorLifecycleContext[] = [];
     const actor = new TestActor(
-      compileActorDefinition({ initial: 'ready', states: { ready: { terminal: true } } }),
+      compiledActorTable('ready', { ready: compiledActorState({ terminal: true }) }),
       { entered: (context) => contexts.push(context) },
     );
     actor.start();
@@ -98,7 +94,7 @@ describe('configured actor lifecycle', () => {
     const entered = jest.fn<(context: ActorLifecycleContext) => void>();
     const transitioned = jest.fn<(context: ActorTransitionContext) => void>();
     const actor = new TestActor(
-      compileActorDefinition({ initial: 'ready', states: { ready: { terminal: true } } }),
+      compiledActorTable('ready', { ready: compiledActorState({ terminal: true }) }),
       { entered, transitioned },
     );
     expect(entered).not.toHaveBeenCalled();
@@ -110,7 +106,7 @@ describe('configured actor lifecycle', () => {
 
   it('3. propagates start-entry failure synchronously after assigning state', () => {
     const actor = new TestActor(
-      compileActorDefinition({ initial: 'ready', states: { ready: { terminal: true } } }),
+      compiledActorTable('ready', { ready: compiledActorState({ terminal: true }) }),
       { entered: () => { throw new Error('start failed'); } },
     );
     expect(() => actor.start()).toThrow('start failed');
@@ -119,18 +115,18 @@ describe('configured actor lifecycle', () => {
   });
 
   it('4. rejects repeated start from terminal, parked, and halted states', async () => {
-    const terminal = new TestActor(compileActorDefinition({ initial: 'done', states: { done: { terminal: true } } }));
+    const terminal = new TestActor(compiledActorTable('done', { done: compiledActorState({ terminal: true }) }));
     terminal.start();
     expect(() => terminal.start()).toThrow(InternalActorError);
 
-    const parked = new TestActor(compileActorDefinition({ initial: 'ready', states: { ready: { parked: true } } }));
+    const parked = new TestActor(compiledActorTable('ready', { ready: compiledActorState({ parked: true }) }));
     parked.start();
     expect(() => parked.start()).toThrow(InternalActorError);
 
     let halted = false;
     let running!: TestActor;
     running = new TestActor(
-      compileActorDefinition({ initial: 'running', states: { running: {} } }),
+      compiledActorTable('running', { running: compiledActorState() }),
       { entered: () => running.task(() => Promise.resolve(), { onDone: () => { running.halt(); halted = true; }, onFailed: unexpectedFailure }) },
     );
     running.start();
@@ -143,7 +139,7 @@ describe('configured actor lifecycle', () => {
     const contexts: ActorLifecycleContext[] = [];
     let actor!: TestActor;
     actor = new TestActor(
-      compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { go: 'done' } }, done: { terminal: true } } }),
+      compiledActorTable('ready', { ready: compiledActorState({ parked: true, on: { go: compiledActorTransition('done') } }), done: compiledActorState({ terminal: true }) }),
       {
         transitioned: (context) => { log.push(`transition:${actor.state()}`); contexts.push(context); },
         entered: (context) => { if (context.source !== null) { log.push(`entry:${actor.state()}`); contexts.push(context); } },
@@ -162,7 +158,7 @@ describe('configured actor lifecycle', () => {
   it('6. invokes no hook for a non-reentering same-state edge', async () => {
     const calls: string[] = [];
     const actor = new TestActor(
-      compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { stay: 'ready' } } } }),
+      compiledActorTable('ready', { ready: compiledActorState({ parked: true, on: { stay: compiledActorTransition('ready') } }) }),
       { transitioned: () => calls.push('transition'), entered: ({ source }) => { if (source !== null) calls.push('entry'); } },
     );
     actor.start();
@@ -176,7 +172,7 @@ describe('configured actor lifecycle', () => {
     let settlement!: Promise<void>;
     let actor!: TestActor;
     actor = new TestActor(
-      compileActorDefinition({ initial: 'running', states: { running: { on: { done: 'terminal' } }, terminal: { terminal: true } } }),
+      compiledActorTable('running', { running: compiledActorState({ on: { done: compiledActorTransition('terminal') } }), terminal: compiledActorState({ terminal: true }) }),
       {
         entered: ({ target }) => {
           log.push(`entry:${target}`);
@@ -204,7 +200,7 @@ describe('configured actor lifecycle', () => {
     const log: string[] = [];
     let actor!: TestActor;
     actor = new TestActor(
-      compileActorDefinition({ initial: 'running', states: { running: { on: { failed: 'terminal' } }, terminal: { terminal: true } } }),
+      compiledActorTable('running', { running: compiledActorState({ on: { failed: compiledActorTransition('terminal') } }), terminal: compiledActorState({ terminal: true }) }),
       {
         entered: ({ target }) => {
           log.push(`entry:${target}`);
@@ -231,7 +227,7 @@ describe('configured actor lifecycle', () => {
     let entries = 0;
     let actor!: TestActor;
     actor = new TestActor(
-      compileActorDefinition({ initial: 'node', states: { node: { on: { again: { target: 'node', reenter: true } } } } }),
+      compiledActorTable('node', { node: compiledActorState({ on: { again: compiledActorTransition('node', true) } }) }),
       {
         transitioned: (context) => log.push(`transition:${context.reentered}`),
         entered: ({ target }) => {
@@ -255,7 +251,7 @@ describe('configured actor lifecycle', () => {
       const mainFailed = jest.fn<(error: unknown) => void>();
       let actor!: TestActor;
       actor = new TestActor(
-        compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { go: { target: 'ready', reenter: true } } } } }),
+        compiledActorTable('ready', { ready: compiledActorState({ parked: true, on: { go: compiledActorTransition('ready', true) } }) }),
         {
           transitioned: () => { calls.push('transition'); if (phase === 'transition') throw failure; },
           entered: ({ source }) => { if (source !== null) { calls.push('entry'); if (phase === 'entry') throw failure; } },
@@ -288,7 +284,7 @@ describe('configured actor lifecycle', () => {
       const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
       let actor!: TestActor;
       actor = new TestActor(
-        compileActorDefinition({ initial: 'running', states: { running: {} } }),
+        compiledActorTable('running', { running: compiledActorState() }),
         phase === 'task-result'
           ? { entered: () => actor.task(() => Promise.resolve(), { onDone: () => { throw primary; }, onFailed: unexpectedFailure }), mainFailed: hook }
           : { mainFailed: hook },
@@ -310,7 +306,7 @@ describe('configured actor lifecycle', () => {
     const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const hook = jest.fn<(error: unknown) => void>(() => { throw secondary; });
     const actor = new TestActor(
-      compileActorDefinition({ initial: 'ready', states: { ready: { parked: true, on: { go: 'done' } }, done: { terminal: true } } }),
+      compiledActorTable('ready', { ready: compiledActorState({ parked: true, on: { go: compiledActorTransition('done') } }), done: compiledActorState({ terminal: true }) }),
       { transitioned: () => { throw primary; }, mainFailed: hook },
     );
     actor.start(); actor.parkedEvent('go');
@@ -325,14 +321,14 @@ describe('configured actor lifecycle', () => {
   });
 
   it('13. permits halt only during callback delivery after slot clear and before an event is queued', async () => {
-    const outside = new TestActor(compileActorDefinition({ initial: 'ready', states: { ready: { parked: true } } }));
+    const outside = new TestActor(compiledActorTable('ready', { ready: compiledActorState({ parked: true }) }));
     outside.start();
     expect(() => outside.halt()).toThrow(InternalActorError);
 
     let legal = false;
     let halted!: TestActor;
     halted = new TestActor(
-      compileActorDefinition({ initial: 'running', states: { running: {} } }),
+      compiledActorTable('running', { running: compiledActorState() }),
       { entered: () => halted.task(() => Promise.resolve(), { onDone: () => { halted.halt(); legal = true; }, onFailed: unexpectedFailure }) },
     );
     halted.start();
@@ -341,7 +337,7 @@ describe('configured actor lifecycle', () => {
     let checkedQueuedEvent = false;
     let queued!: TestActor;
     queued = new TestActor(
-      compileActorDefinition({ initial: 'running', states: { running: { on: { done: 'terminal' } }, terminal: { terminal: true } } }),
+      compiledActorTable('running', { running: compiledActorState({ on: { done: compiledActorTransition('terminal') } }), terminal: compiledActorState({ terminal: true }) }),
       { entered: ({ target }) => { if (target === 'running') queued.task(() => Promise.resolve(), { onDone: () => { queued.event('done'); expect(() => queued.halt()).toThrow(InternalActorError); checkedQueuedEvent = true; }, onFailed: unexpectedFailure }); } },
     );
     queued.start();
@@ -353,10 +349,7 @@ describe('configured actor lifecycle', () => {
     const entries: string[] = [];
     let actor!: TestActor;
     actor = new TestActor(
-      compileActorDefinition({
-        initial: 'a',
-        states: { a: { on: { next: 'b' } }, b: { on: { next: 'done' } }, done: { terminal: true } },
-      }),
+      compiledActorTable('a', { a: compiledActorState({ on: { next: compiledActorTransition('b') } }), b: compiledActorState({ on: { next: compiledActorTransition('done') } }), done: compiledActorState({ terminal: true }) }),
       {
         entered: ({ target }) => {
           entries.push(target);

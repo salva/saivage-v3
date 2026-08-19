@@ -94,7 +94,7 @@ function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof
 }
 
 function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>): ToolResult {
-  const queued = queueNotification(record.card_id, record.kind, record.body, { actor: ctx.agentName, surface: 'runtime' }, ctx.notifyCard);
+  const queued = queueNotification(record.card_id, record.kind, record.body, ctx.notifyCard);
   if (!queued.ok && queued.reason === 'terminal_card') return { success: false, error: `Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status } };
   if (!queued.ok) return { success: false, error: `Card '${queued.cardId}' not found.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId } };
   return { success: true, data: { queued: true, card_id: record.card_id, notification_id: queued.notificationId } };

@@ -1,14 +1,9 @@
 import type {
-  ActorDefinition,
   ActorLifecycleContext,
   ActorStartContext,
   ActorTransitionContext,
   CompiledActorState,
   CompiledActorTransition,
-  CompiledActorDefinition,
-  CompiledStateDefinition,
-  CompiledTransitionDefinition,
-  TransitionDefinition,
 } from './types.js';
 
 export class InternalActorError extends Error {
@@ -235,29 +230,6 @@ export abstract class BaseActor {
 
 }
 
-export function compileActorDefinition(definition: ActorDefinition): CompiledActorDefinition {
-  const compiledStates: Array<readonly [string, CompiledStateDefinition]> = [];
-  for (const [stateName, stateDef] of Object.entries(definition.states)) {
-    const on = new Map<string, CompiledTransitionDefinition>();
-    for (const [eventName, transition] of Object.entries(stateDef.on ?? {})) {
-      on.set(eventName, compileTransition(transition));
-    }
-
-    compiledStates.push([stateName, Object.freeze({
-      on: immutableMap(on),
-      isTerminal: stateDef.terminal === true,
-      isParked: stateDef.parked === true,
-    })]);
-  }
-
-  const compiled = Object.freeze({
-    initial: definition.initial,
-    states: immutableMap(compiledStates),
-  });
-  validateCompiledActorTable(compiled.initial, compiled.states);
-  return compiled;
-}
-
 export function validateCompiledActorTable<Transition extends CompiledActorTransition, State extends CompiledActorState<Transition>>(
   initialStateId: string,
   states: ReadonlyMap<string, State>,
@@ -290,37 +262,3 @@ export function validateCompiledActorTable<Transition extends CompiledActorTrans
   }
 }
 
-function transitionTarget(transition: TransitionDefinition): string {
-  return typeof transition === 'string' ? transition : transition.target;
-}
-
-function compileTransition(transition: TransitionDefinition): CompiledTransitionDefinition {
-  return Object.freeze({
-    targetStateId: transitionTarget(transition),
-    reenter: typeof transition !== 'string' && transition.reenter === true,
-  });
-}
-
-class ImmutableMap<Key, Value> implements ReadonlyMap<Key, Value> {
-  readonly #map: Map<Key, Value>;
-
-  constructor(entries: Iterable<readonly [Key, Value]>) {
-    this.#map = new Map(entries);
-    Object.freeze(this);
-  }
-
-  get size(): number { return this.#map.size; }
-  get(key: Key): Value | undefined { return this.#map.get(key); }
-  has(key: Key): boolean { return this.#map.has(key); }
-  entries(): MapIterator<[Key, Value]> { return this.#map.entries(); }
-  keys(): MapIterator<Key> { return this.#map.keys(); }
-  values(): MapIterator<Value> { return this.#map.values(); }
-  forEach(callbackfn: (value: Value, key: Key, map: ReadonlyMap<Key, Value>) => void, thisArg?: unknown): void {
-    for (const [key, value] of this.#map) callbackfn.call(thisArg, value, key, this);
-  }
-  [Symbol.iterator](): MapIterator<[Key, Value]> { return this.#map[Symbol.iterator](); }
-}
-
-function immutableMap<Key, Value>(entries: Iterable<readonly [Key, Value]>): ReadonlyMap<Key, Value> {
-  return new ImmutableMap(entries);
-}

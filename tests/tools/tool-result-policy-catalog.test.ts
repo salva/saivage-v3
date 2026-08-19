@@ -1,9 +1,10 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from '@jest/globals';
 
 import { buildRuntimeToolCatalog, resolveRuntimeTool, surfaceToolContracts } from '../../src/tools/runtime-tool-catalog.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
-import { bindToolProvider, CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, EMIT_RESULT_POLICY_TEMPLATE, llmToolDefinition, MCP_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
+import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, EMIT_RESULT_POLICY_TEMPLATE, llmToolDefinition, MCP_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { DEFAULT_AGENTS } from '../../src/agents/default-workflow-config.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 

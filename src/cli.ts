@@ -20,7 +20,7 @@ import { initializeAndValidateCurrentGeneratedState } from './persistence/curren
 
 const fatalPort = createApplicationFatalPort();
 
-function loadCanonicalWorkflows(projectRoot:string){const path=join(projectRoot,'.saivage','saivage.yaml');const authority=createResolvedConfigAuthority({path,source:{kind:'default'},interpolationEnvironment:process.env,projectRoot});return authority.loadEffective().workflows;}
+function loadCanonicalWorkflows(projectRoot:string){const path=join(projectRoot,'.saivage','saivage.yaml');const authority=createResolvedConfigAuthority({path,interpolationEnvironment:process.env,projectRoot});return authority.loadEffective().workflows;}
 
 interface CliOptions { port?: string; host?: string; config?: string; 'project-root'?: string; 'create-runtime'?: boolean; }
 const USAGE = `Saivage v3 CLI

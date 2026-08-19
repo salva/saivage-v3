@@ -7,15 +7,6 @@ export function getStore(ctx: ToolContext): CardService {
   return ctx.store;
 }
 
-export function normalizeParentValue(value: unknown): string | null | undefined {
-  if (value === null) return null;
-  if (typeof value !== 'string') return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-  if (trimmed.toLowerCase() === 'null') return null;
-  return trimmed;
-}
-
 export function defaultParentForCreate(store: CardService, type: CardTypeName): string | null | undefined {
   if (type === 'project') return null;
   const requestedWorkflow = store.workflows.cardTypes.get(type);
@@ -44,25 +35,6 @@ export function toolFailure(message: string, safeData?: SafeToolData): ToolResul
 export function toolFailureFromError(err: unknown, messageOverride?: string): ToolResult {
   throwIfPublicationOutcomeUnknown(err);
   return { success: false, error: messageOverride ?? errorMessage(err) };
-}
-
-export function preflightEnum<T extends string>(
-  value: unknown,
-  allowed: readonly T[],
-  field: string,
-  toolName: string,
-): { ok: true; value: T | undefined } | { ok: false; error: string } {
-  if (value === undefined) return { ok: true, value: undefined };
-  if (typeof value !== 'string') {
-    const message = `${toolName} failed: field '${field}' must be a string. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.`;
-    return { ok: false, error: message };
-  }
-  const matched = allowed.find((candidate) => candidate === value);
-  if (matched === undefined) {
-    const message = `${toolName} failed: field '${field}' received '${value}', which is not a valid value. Allowed values: ${allowed.join(', ')}. See the '${toolName}' tool's parameter schema.`;
-    return { ok: false, error: message };
-  }
-  return { ok: true, value: matched };
 }
 
 export function isBinarySample(buf: Buffer): boolean {

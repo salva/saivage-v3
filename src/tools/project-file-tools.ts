@@ -34,7 +34,7 @@ export const MAX_GREP_LINE_CHARS = 2000;
 const GREP_HEAD_SAMPLE_BYTES = 1024;
 const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
-export type WorkspaceContext = { projectRoot: string; cardId?: string; agentName?: AgentName; filesystemWrite?:boolean;store?: CardService; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; onRecordWritten?: (name: string) => void };
+export type WorkspaceContext = { projectRoot: string; cardId?: string; agentName?: AgentName; store?: CardService; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; onRecordWritten?: (name: string) => void };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
 type ReadPosition =
   | { kind: 'collection'; item_index: number; item_byte_offset: number }
@@ -104,10 +104,6 @@ function assertNoSymlinkComponents(root: string, target: string): void {
   }
 }
 
-function canWriteWorkspaceFiles(ctx:WorkspaceContext): boolean {
-  return ctx.agentName===undefined || ctx.filesystemWrite===true;
-}
-
 function isSaivageInternalDestination(projectRoot: string, destination: string): boolean {
   const internalRoot = resolve(projectRoot, '.saivage');
   const fromInternalRoot = relative(internalRoot, resolve(destination));
@@ -133,7 +129,6 @@ function assertScopedWritable(ctx: WorkspaceContext, raw: string, resolved: VfsR
     if (resolved.recordKind === 'directory') throw toolInputError('write requires a file path, not a directory.');
     return resolved;
   }
-  if ((resolved.kind === 'project' || resolved.kind === 'system') && !canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write ${resolved.kind} files.`);
   if (resolved.kind === 'project') assertNoSymlinkComponents(ctx.projectRoot, resolved.absolutePath);
   if (resolved.absolutePath === '/' || raw.endsWith('/') || (resolved.kind !== 'system' && (resolved.relativePath === '.' || resolved.relativePath.endsWith('/')))) throw toolInputError('write requires a file path, not a directory.');
   if (resolved.kind !== 'tmp' && isSaivageInternalDestination(ctx.projectRoot, resolved.absolutePath)) throw toolInputError('Cannot modify Saivage internal state directories.');
@@ -156,7 +151,6 @@ function resolveReadPath(ctx: WorkspaceContext, raw: string): { resolved: Resolv
 function resolveWritePath(ctx: WorkspaceContext, raw: string): Exclude<ResolvedToolPath, { kind: 'record' }> {
   const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'write');
   if (resolved === null) {
-    if (!canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write project files.`);
     return { kind: 'project', ...assertWritable(ctx.projectRoot, raw), isRoot: false };
   }
   const writable = assertScopedWritable(ctx, raw, resolved);
@@ -345,12 +339,10 @@ export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: str
     return;
   }
   if (params.path.startsWith('system:///')) {
-    if (!canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write system files.`);
     resolveWritePath(ctx, params.path);
     return;
   }
   if (params.path.startsWith('work:///')) throw toolInputError('Webfetch save_as does not support work URLs.');
-  if (!canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write project files.`);
   resolveWritePath(ctx, params.path);
 }
 
@@ -556,7 +548,6 @@ export async function editProject(ctx: WorkspaceContext, params: { path: string;
 }
 
 export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: string }): Promise<unknown> {
-  if (!canWriteWorkspaceFiles(ctx)) throw toolInputError(`${ctx.agentName} cannot write project files.`);
   const affected = patchPaths(params.patch);
   if (affected.length === 0) throw toolInputError('Patch does not contain any file changes.');
   for (const path of affected) assertWritable(ctx.projectRoot, path);

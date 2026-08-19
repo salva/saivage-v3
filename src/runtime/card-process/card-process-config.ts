@@ -25,7 +25,7 @@ export type PromptArtifactSource = 'override-card'|'override-shared'|'bundled-ca
 export type PromptArtifactObservation = Readonly<{ source: PromptArtifactSource; path: string }>;
 export type CompiledAgentPrompt = Readonly<{ source:PromptArtifactSource; reference:string; path:string; compiled:CompiledPromptTemplate }>;
 export type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source:PromptArtifactSource; path:string; text:string }>;
-export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly overridePromptRoot?:string; readonly artifactObserver?:(artifact:PromptArtifactObservation)=>void }
+export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly artifactObserver?:(artifact:PromptArtifactObservation)=>void }
 type PromptRoots = Readonly<{ defaultRoot:string; overrideRoot:string|undefined; artifactObserver:((artifact:PromptArtifactObservation)=>void)|undefined; agentCache:Map<string,CompiledAgentPrompt> }>;
 
 export type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
@@ -64,7 +64,7 @@ class ImmutableSet<T> implements ReadonlySet<T> { readonly #values:Set<T>; const
 const immutableMap=<K,V>(entries:Iterable<readonly [K,V]>):ReadonlyMap<K,V>=>new ImmutableMap(entries);
 const immutableSet=<T>(values:Iterable<T>):ReadonlySet<T>=>new ImmutableSet(values);
 function bundledPromptRoot():string{const moduleDir=dirname(fileURLToPath(import.meta.url));const source=join(moduleDir,'..','..','prompts');return existsSync(source)?source:join(moduleDir,'..','..','..','prompts');}
-function promptRoots(options:WorkflowCompileOptions):PromptRoots{return{defaultRoot:options.defaultPromptRoot??bundledPromptRoot(),overrideRoot:options.overridePromptRoot??(options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined),artifactObserver:options.artifactObserver,agentCache:new Map()};}
+function promptRoots(options:WorkflowCompileOptions):PromptRoots{return{defaultRoot:options.defaultPromptRoot??bundledPromptRoot(),overrideRoot:options.projectRoot?join(options.projectRoot,'.saivage','config','prompts'):undefined,artifactObserver:options.artifactObserver,agentCache:new Map()};}
 function readUtf8(path:string):string{const text=new TextDecoder('utf-8',{fatal:true}).decode(readFileSync(path));if(text.trim().length===0)throw new Error(`Prompt artifact '${path}' must contain non-whitespace UTF-8 text.`);return text;}
 function readOptional(path:string):string|null{try{return readUtf8(path);}catch(error){if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw error;}}
 type PromptPurpose='agents'|'process'|'fragments';

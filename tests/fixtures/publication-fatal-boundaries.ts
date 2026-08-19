@@ -6,7 +6,8 @@ import { z } from 'zod';
 import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { withDirectMutationComposition } from '../../src/boot/direct-mutation-composition.js';
 import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
-import { BaseActor, compileActorDefinition, type ActorLifecycleContext, type ActorTransitionContext } from '../../src/runtime/micro-actor/index.js';
+import { BaseActor, type ActorLifecycleContext, type ActorTransitionContext } from '../../src/runtime/micro-actor/index.js';
+import { compiledActorState, compiledActorTable } from '../helpers/compiled-actor-table.js';
 import { ConversationLLMActor } from '../../src/runtime/actors/llm-actor.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
@@ -52,7 +53,7 @@ if (mode === 'websocket') {
 
 if (mode === 'base-actor-task') {
   class FatalActor extends BaseActor {
-    constructor() { const definition=compileActorDefinition({ initial: 'run', states: { run: {} } });super(definition.initial,definition.states); }
+    constructor() { const table = compiledActorTable('run', { run: compiledActorState() }); super(table.initial, table.states); }
     protected onStateEntered(_context: ActorLifecycleContext): void {
       this.runTask(async () => invokeToolForLlm({ agentName: 'planner', providers: [], tools: new Map([['publish', { name: 'publish', description: 'publication owner', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}), executor: async (): Promise<never> => { throw new PublicationOutcomeUnknownError(); } }]]) }, 'publish', {}, {} as never), { onDone() {}, onFailed() { process.stdout.write('failed-task'); } });
     }

@@ -47,7 +47,7 @@ function scriptedAdmission(): OrdinaryAdmittedExecution {
     candidates: Object.freeze([Object.freeze({ kind: 'admitted', plan, candidate: scriptedCandidate, capabilityRequest: Object.freeze({}), capabilityRequestSha256: '0'.repeat(64) })]),
     executionAuthority: authority,
     bindings: scriptedBindings(),
-    execution: Object.freeze({ sessionId: 'agent:planner:project', capabilityRequest: Object.freeze({}), options: toolsOpts() }),
+    execution: Object.freeze({ capabilityRequest: Object.freeze({}), options: toolsOpts() }),
   });
 }
 
@@ -69,7 +69,7 @@ export function scriptedPinnedAdmittedPreflight(): PinnedAdmittedContentPolicyRe
 }
 
 function scriptedPinnedPreflight(): PinnedAdmittedContentPolicyRequest {
-  return Object.freeze({ kind: 'admitted', plan: scriptedPlan(), candidate: scriptedCandidate, capabilityRequest: Object.freeze({}), sessionId: 'agent:planner:project', inputId: 'scripted', options: toolsOpts() });
+  return Object.freeze({ kind: 'admitted', plan: scriptedPlan(), candidate: scriptedCandidate, capabilityRequest: Object.freeze({}), inputId: 'scripted', options: toolsOpts() });
 }
 
 export function scriptedAdmissionProvider<S extends LlmInvocationInput>(script: (input: S, signal: AbortSignal) => Promise<ProviderTurnCompletion>): LLMProviderPort {

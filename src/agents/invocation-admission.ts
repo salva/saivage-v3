@@ -135,13 +135,12 @@ export type AdmittedExecutionBindings = Readonly<{
 }>;
 
 export type OrdinaryAdmittedExecutionInputs = Readonly<{
-  sessionId: string;
   capabilityRequest: Readonly<CapabilityRequest>;
   options: LlmCompleteOptions;
 }>;
 
 export type PinnedContentPolicyPreflight =
-  | Readonly<{ kind: 'admitted'; plan: CandidateRequestPlan; candidate: Candidate; capabilityRequest: Readonly<CapabilityRequest>; sessionId: string; inputId: string; options: LlmCompleteOptions }>
+  | Readonly<{ kind: 'admitted'; plan: CandidateRequestPlan; candidate: Candidate; capabilityRequest: Readonly<CapabilityRequest>; inputId: string; options: LlmCompleteOptions }>
   | Readonly<{
       kind: 'rejected';
       candidate: Candidate;

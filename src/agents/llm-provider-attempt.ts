@@ -17,7 +17,6 @@ import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 export async function executeLlmProviderAttempt(args: {
   projectRoot: string;
   registry: ProviderRegistry;
-  sessionId: string;
   plan: CandidateRequestPlan;
   options: LlmCompleteOptions;
   capabilityRequest: CapabilityRequest;
@@ -47,7 +46,7 @@ export async function executeLlmProviderAttempt(args: {
     options.signal,
   );
   const wire = plan.adapter.deriveWire(plan.candidate, transport, plan.request.body, options);
-  const recorder = createProviderExchangeRecorder({ sessionId: args.sessionId });
+  const recorder = createProviderExchangeRecorder();
   const handle = await recorder.beginExchange({
     transport: wire.transport,
     contract_id: options.contract_id,

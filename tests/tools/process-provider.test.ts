@@ -1,9 +1,10 @@
+import { bindToolProvider } from '../helpers/bind-tool-provider.js';
 import { describe, expect, it, jest } from '@jest/globals';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { bindToolProvider } from '../../src/tools/invocation.js';
+
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { cleanupProcessProvider, processToolBinders, type ProcessProviderContext } from '../../src/tools/process-provider.js';

@@ -29,7 +29,7 @@ export function initProjectTree(projectRoot: string): { projectRoot: string } {
 }
 
 export function testConfigAuthority(projectRoot: string, env: Readonly<Record<string, string | undefined>> = process.env): ResolvedConfigAuthority {
-  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), source: { kind: 'default' }, interpolationEnvironment: env,projectRoot });
+  return createResolvedConfigAuthority({ path: join(projectRoot, '.saivage', 'saivage.yaml'), interpolationEnvironment: env,projectRoot });
 }
 
 export class CardService extends ProductionCardService {
@@ -47,7 +47,6 @@ export class CardService extends ProductionCardService {
 
 export function testAnalystMutationServices(projectRoot: string, store: ProductionCardService, notifyCard: (...args: any[]) => any): AnalystMutationServices {
   return createAnalystMutationServices({
-    projectRoot,
     store,
     configAuthority: testConfigAuthority(projectRoot),
     notifyCard,
