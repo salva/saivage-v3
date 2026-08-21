@@ -1,5 +1,7 @@
 /** MCP protocol types and constants shared by manager and transports. */
 
+import { SAIVAGE_VERSION } from '../version.js';
+
 export interface McpToolAnnotations {
   title?: string;
   readOnlyHint?: boolean;
@@ -73,4 +75,4 @@ export const MCP_PROTOCOL_VERSION = '2025-06-18';
 export const STREAMABLE_HTTP_SSE_FRAME_LIMIT_BYTES = 64 * 1024;
 export const STREAMABLE_HTTP_SSE_BUFFER_LIMIT_BYTES = 256 * 1024;
 export const CLIENT_NAME = 'saivage-mcp-manager';
-export const CLIENT_VERSION = '0.1.0';
+export const CLIENT_VERSION = SAIVAGE_VERSION;

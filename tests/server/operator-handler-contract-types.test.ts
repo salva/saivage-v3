@@ -25,6 +25,7 @@ import { buildRuntimeCardOperatorContractHandlers } from '../../src/server/route
 import { buildMcpOperatorContractHandlers } from '../../src/server/routes/operator-mcp-handlers.js';
 import type { CardService } from '../../src/cards/card-api.js';
 import type { McpToolsReadModelProvider } from '../../src/mcp/manager-api.js';
+import { SAIVAGE_VERSION } from '../../src/version.js';
 
 declare const runtimeApplication: RuntimeApplication;
 declare const saivageConfig: SaivageConfig;
@@ -112,11 +113,11 @@ const invalidNoQuery: OperatorApiQuery<'health.liveness'> = {};
 const invalidNoBody: OperatorApiBody<'health.liveness'> = {};
 
 const implicitSuccess: OperatorApiHandlerResult<'health.liveness'> = {
-  body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' },
+  body: { status: 'ok', version: SAIVAGE_VERSION, project: 'saivage-v3' },
 };
 const explicitSuccess: OperatorApiHandlerResult<'health.liveness'> = {
   statusCode: 200,
-  body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' },
+  body: { status: 'ok', version: SAIVAGE_VERSION, project: 'saivage-v3' },
 };
 const readinessReady: OperatorApiHandlerResult<'health.readiness'> = { body: { status: 'ready', serverAvailability } };
 const nullRuntimeState: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectRoot: '/project', projectId: 'project', runtime: null, serverAvailability } };

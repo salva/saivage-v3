@@ -21,7 +21,6 @@ export interface BeginProviderExchangeInput {
   contractName: string;
   candidate: { provider: string; model: string; account?: string };
   requestParams: Record<string, unknown>;
-  terminalToolOffered: readonly string[];
   sourceInputId: string;
 }
 
@@ -45,7 +44,6 @@ export function createProviderExchangeRecorder(): ProviderExchangeRecorder {
       source_input_id: meta.sourceInputId,
       request_params: {
         ...meta.requestParams,
-        offered_tools_count: meta.terminalToolOffered.length,
       },
       started_at: startedAt,
       terminal_tool_fired: null,

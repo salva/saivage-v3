@@ -209,28 +209,6 @@ export function providerConversationProjection(
   }));
 }
 
-export type SummarizerConversationProjection = Readonly<{
-  kind: 'summarizer_projection';
-  sourceSessionId: ConversationSessionId;
-  messages: AgentMessage[];
-}>;
-
-export function summarizerConversationProjection(
-  sourceSessionId: ConversationSessionId,
-  transformedSourceRows: readonly AgentMessage[],
-): SummarizerConversationProjection {
-  return Object.freeze({
-    kind: 'summarizer_projection',
-    sourceSessionId,
-    messages: providerConversationFromComposedContext(composeContextProjection({
-      sourceSessionId,
-      effectiveHistory: null,
-      dynamicBlocks: [],
-      uncoveredRows: transformedSourceRows,
-    })).messages,
-  });
-}
-
 export function isConversationBudgetVisible(message: AgentMessage): boolean {
   return classifyConversationRowPolicy(message).projection.primaryVisible;
 }

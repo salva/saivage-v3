@@ -9,6 +9,7 @@ import type { LlmCompleteOptions } from './llm-contracts.js';
 import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js';
 import type { CapabilityRequest, CapabilityMatch, EffectiveProviderCapabilities } from './provider-capabilities.js';
 import type { InvocationRoutePass } from '../runtime/actors/llm-invocation.js';
+import { utf8SafeSlice } from '../tools/response-packer.js';
 
 export type CandidateIdentity = Candidate;
 
@@ -231,14 +232,12 @@ export type AdmissionDiagnostics = Readonly<{
 
 const PREVIEW_MAX_BYTES = 128;
 const DIAGNOSTIC_CANDIDATE_CAP = 32;
+const ELLIPSIS_BYTES = 3;
 
-export function utf8SafePreview(value: string, maxBytes = PREVIEW_MAX_BYTES): string {
-  const bytes = Buffer.from(value, 'utf8');
-  if (bytes.byteLength <= maxBytes) return value;
-  const ellipsis = Buffer.from('…', 'utf8');
-  let slice = bytes.subarray(0, Math.max(0, maxBytes - ellipsis.byteLength));
-  while (slice.length > 0 && (slice.at(-1)! & 0xc0) === 0x80) slice = slice.subarray(0, -1);
-  return Buffer.concat([slice, ellipsis]).toString('utf8');
+export function utf8TruncatingPreview(value: string, maxBytes = PREVIEW_MAX_BYTES): string {
+  if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
+  const prefix = utf8SafeSlice(value, 0, Math.max(0, maxBytes - ELLIPSIS_BYTES)).content;
+  return `${prefix}…`;
 }
 
 const verdictSummary = (candidates: readonly CandidateLocalAdmission[]): string =>
@@ -262,8 +261,8 @@ export function projectAdmissionDiagnostics(candidates: readonly CandidateLocalA
     displayed.push({
       routeIndex,
       candidateIdentitySha256: candidateIdentitySha256(verdict.candidate),
-      providerPreview: utf8SafePreview(verdict.candidate.provider),
-      modelPreview: utf8SafePreview(verdict.candidate.model),
+      providerPreview: utf8TruncatingPreview(verdict.candidate.provider),
+      modelPreview: utf8TruncatingPreview(verdict.candidate.model),
       accountPresent: verdict.candidate.account !== null,
       verdict: verdict.kind,
       ineligibleReason: verdict.kind === 'candidate_ineligible' ? verdict.reason : null,

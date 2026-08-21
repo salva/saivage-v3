@@ -7,6 +7,7 @@ import type {
   OperatorRuntimeProviderContext,
 } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
+import { SAIVAGE_VERSION } from '../../version.js';
 
 type RuntimeCardOperatorHandlerOptions = OperatorProjectContext & OperatorRuntimeProviderContext & OperatorAvailabilityContext & OperatorCardServiceContext;
 
@@ -31,7 +32,7 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
   };
 
   return defineOperatorContractHandlers({
-    'health.liveness': () => ({ body: { status: 'ok', version: '0.1.0', project: 'saivage-v3' } }),
+    'health.liveness': () => ({ body: { status: 'ok', version: SAIVAGE_VERSION, project: 'saivage-v3' } }),
     'health.readiness': () => {
       const serverAvailability = options.serverAvailabilityProvider();
       return { body: { status: 'ready', serverAvailability } };

@@ -57,7 +57,6 @@ export async function executeLlmProviderAttempt(args: {
       account: plan.candidate.account ?? undefined,
     },
     requestParams: { endpoint: wire.endpoint, method: 'POST', ...wire.requestParams },
-    terminalToolOffered: options.terminalToolOffered,
     sourceInputId: options.inputId,
   });
   let exchangeRecorded = false;

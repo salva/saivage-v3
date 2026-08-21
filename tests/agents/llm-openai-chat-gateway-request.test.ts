@@ -118,7 +118,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
 
     expect(sentBody?.stream).toBe(false);
     expect(completion.result).toMatchObject({ kind: 'tool_calls' });
-    expect(completion.provider_exchanges[0]).toMatchObject({ request_params: { stream: false, offered_tools_count: 1, method: 'POST', temperature: 0.4, max_tokens: 3456 }, terminal_tool_fired: 'emit_result' });
+    expect(completion.provider_exchanges[0]).toMatchObject({ request_params: { stream: false, offered_tools_count: 2, method: 'POST', temperature: 0.4, max_tokens: 3456 }, terminal_tool_fired: 'emit_result' });
     expect(completion.provider_exchanges[0]!.request_params).not.toHaveProperty('phase');
   });
 });
