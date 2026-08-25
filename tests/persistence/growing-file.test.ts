@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { z } from 'zod';
-import { appendEnvelope, parseGrowingFile, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
+import { appendEnvelope, prepareGrowingEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type GrowingFileIo } from '../../src/persistence/growing-file.js';
 import type { ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
@@ -197,7 +197,8 @@ describe('strict growing-file boundaries', () => {
     const path = target(); publishFirstEnvelope(path, bytes(1), () => '11111111-1111-4111-8111-111111111111');
     expect(appendEnvelope(path, bytes())).toEqual({ kind: 'appended' });
     expect(readFileSync(path, 'utf8').split('\n').filter(Boolean)).toHaveLength(2);
-    expect(() => parseGrowingFile(path, Buffer.from('{"version":2,"type":"rows","rows":[{}]}\n'), row)).toThrow(/malformed/);
+    const malformed = target(); writeFileSync(malformed, '{"version":2,"type":"rows","rows":[{}]}\n');
+    expect(() => readStrictCanonicalGrowingFile(malformed, row)).toThrow(/malformed/);
   });
 
   it('treats every existing exact path object as already published without mutating referents', () => {

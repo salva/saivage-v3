@@ -42,9 +42,6 @@ export interface ResolvedCredentialSources {
 export interface CredentialSourceResolverOptions {
   loadAuthProfiles: () => Promise<AuthProfilesFile | null>;
   usableProfileAccessToken: (profileName: string, profile: AuthProfile, abortSignal?: AbortSignal) => Promise<string | undefined>;
-  providerDefaultBaseUrls?: Record<string, string>;
-  providerAuthProfileAliases?: Record<string, string[]>;
-  defaultOpenAiBaseUrl?: string;
 }
 
 interface ProfileCredentialResult {
@@ -67,16 +64,10 @@ interface ProfileCredentialResult {
 export class CredentialSourceResolver {
   private readonly loadAuthProfiles: () => Promise<AuthProfilesFile | null>;
   private readonly usableProfileAccessToken: (profileName: string, profile: AuthProfile, abortSignal?: AbortSignal) => Promise<string | undefined>;
-  private readonly providerDefaultBaseUrls: Record<string, string>;
-  private readonly providerAuthProfileAliases: Record<string, string[]>;
-  private readonly defaultOpenAiBaseUrl: string;
 
   constructor(options: CredentialSourceResolverOptions) {
     this.loadAuthProfiles = options.loadAuthProfiles;
     this.usableProfileAccessToken = options.usableProfileAccessToken;
-    this.providerDefaultBaseUrls = options.providerDefaultBaseUrls ?? PROVIDER_DEFAULT_BASE_URLS;
-    this.providerAuthProfileAliases = options.providerAuthProfileAliases ?? PROVIDER_AUTH_PROFILE_ALIASES;
-    this.defaultOpenAiBaseUrl = options.defaultOpenAiBaseUrl ?? DEFAULT_OPENAI_BASE_URL;
   }
 
   async resolve(provider: Provider, account: Account, abortSignal?: AbortSignal): Promise<ResolvedCredentialSources> {
@@ -94,9 +85,9 @@ export class CredentialSourceResolver {
       return { baseUrl: account.baseUrl, source: 'account-base-url' };
     }
     if (provider.baseUrl) return { baseUrl: provider.baseUrl, source: 'provider-base-url' };
-    const providerDefault = this.providerDefaultBaseUrls[provider.name];
+    const providerDefault = PROVIDER_DEFAULT_BASE_URLS[provider.name];
     if (providerDefault) return { baseUrl: providerDefault, source: 'provider-default' };
-    return { baseUrl: this.defaultOpenAiBaseUrl, source: 'openai-default' };
+    return { baseUrl: DEFAULT_OPENAI_BASE_URL, source: 'openai-default' };
   }
 
   private async resolveCredential(
@@ -175,7 +166,7 @@ export class CredentialSourceResolver {
   }
 
   private aliasesForProvider(providerName: string): string[] {
-    return Array.from(new Set([providerName, ...(this.providerAuthProfileAliases[providerName] ?? [])]));
+    return Array.from(new Set([providerName, ...(PROVIDER_AUTH_PROFILE_ALIASES[providerName] ?? [])]));
   }
 
   private async loadAuthProfileStore(providerName: string, accountName: string, profileName?: string): Promise<AuthProfilesFile | null> {

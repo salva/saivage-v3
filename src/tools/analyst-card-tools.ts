@@ -6,11 +6,11 @@ import {
   emptyInput,
 } from './tool-definition.js';
 import type { ToolContext, ToolResult } from './analyst-tool-types.js';
-import { defaultParentForCreate, getStore, toolFailureFromError } from './analyst-tool-helpers.js';
+import { defaultParentForCreate, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
 
 export async function create_card(ctx: ToolContext, params: AnalystCreateCardInput, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {
-  const parent = params.parent !== undefined ? params.parent : defaultParentForCreate(getStore(ctx), params.type) ?? null;
+  const parent = params.parent !== undefined ? params.parent : defaultParentForCreate(ctx.store, params.type) ?? null;
   const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: params.type, parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: params.urgency, depends_on: params.depends_on, related: params.related };
   return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, value, mutation) => mutation.services.cards.create(value) }, signal);
 }
@@ -24,7 +24,7 @@ export async function cancel_card(ctx: ToolContext, params: { cardId: string; re
 }
 
 export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
-  try { const store = getStore(ctx); const runtimeStatus = ctx.runtime.getStatus(); const runtimeSummary = { status: runtimeStatus.status, currentCardId: runtimeStatus.currentCardId }; const allCards = store.list(); const runningProcesses = ctx.processRunner.list({ status: 'running' }); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.lifecycle.status] = (counts[card.lifecycle.status] ?? 0) + 1; return counts; }, {});
+  try { const store = ctx.store; const runtimeStatus = ctx.runtime.getStatus(); const runtimeSummary = { status: runtimeStatus.status, currentCardId: runtimeStatus.currentCardId }; const allCards = store.list(); const runningProcesses = ctx.processRunner.list({ status: 'running' }); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.lifecycle.status] = (counts[card.lifecycle.status] ?? 0) + 1; return counts; }, {});
     return { success: true, data: { runtime: runtimeStatus, runtimeSummary, runningProcesses: runningProcesses.length, statusCounts, counts: { stopped: statusCounts.stopped ?? 0, done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } } };
   } catch (err) { return toolFailureFromError(err); }
 }

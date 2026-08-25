@@ -110,7 +110,7 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
   };
 }
 
-export function estimateCanonicalStaticTokens(
+function estimateCanonicalStaticTokens(
   systemPrompt: string,
   tools: readonly ToolDefinition[],
 ): number {

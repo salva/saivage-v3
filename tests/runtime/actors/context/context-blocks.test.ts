@@ -25,7 +25,6 @@ const block = (id: string, overrides: Partial<Omit<ContextBlock, 'id'>> = {}): C
   replacement: { kind: 'retain' },
   audience: 'primary_and_summarizer',
   evidence: { kind: 'none' },
-  canonicalSource: null,
   ...overrides,
 });
 const snapshotBlock = (id: string, key: string, content: string): ContextBlock =>
@@ -95,7 +94,7 @@ describe('context contracts', () => {
   });
   it('hashes dynamic blocks canonically and order-sensitively', () => {
     const first = snapshotBlock('a', 'k', 'v1');
-    const second = block('b', { audience: 'summarizer_only', evidence: { kind: 'observational_query', tool: 'get_card', arguments: { cardId: 'card-1' }, observed_sha256: '0'.repeat(64) }, canonicalSource: { session_id: 'agent:analyst:global', source_input_id: '00000000-0000-4000-8000-000000000001', tool_call_id: 'call-1' } });
+    const second = block('b', { audience: 'summarizer_only', evidence: { kind: 'observational_query', tool: 'get_card', arguments: { cardId: 'card-1' }, observed_sha256: '0'.repeat(64) } });
     expect(dynamicBlocksSha256([first, second])).toBe(conversationSha256(canonicalJson([first, second])));
     expect(dynamicBlocksSha256([second, first])).not.toBe(dynamicBlocksSha256([first, second]));
     expect(contextContentSha256(first.content)).toBe(conversationSha256(first.content));

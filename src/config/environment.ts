@@ -16,27 +16,14 @@ export interface Environment {
   readonly configAuthority: ResolvedConfigAuthority;
   readonly config: SaivageConfig;
   readonly workflows:CompiledProjectWorkflows;
-  readonly configWarnings: readonly string[];
   readonly server: {
     readonly host: string;
     readonly port: number;
-    readonly corsOrigins: readonly string[];
     readonly logLevel: LogLevel;
   };
   readonly auth: {
     readonly apiToken?: string;
     readonly devModeAuthDisabled: boolean;
-  };
-  readonly storage: {
-    readonly rootDir: string;
-    readonly locking: { readonly mode: 'project-file' };
-  };
-  readonly providers: SaivageConfig['providers'];
-  readonly mcp: {
-    readonly servers: SaivageConfig['mcpServers'];
-  };
-  readonly observability: {
-    readonly logLevel: LogLevel;
   };
 }
 
@@ -66,32 +53,6 @@ interface CliEnvironmentOptions {
 
 const logLevelSchema = z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
 const nodeEnvSchema = z.enum(['development', 'production', 'test']);
-
-const environmentSchema = z.object({
-  nodeEnv: nodeEnvSchema,
-  projectRoot: z.string().min(1),
-  configAuthority: z.custom<ResolvedConfigAuthority>(),
-  config: z.custom<SaivageConfig>(),
-  workflows:z.custom<CompiledProjectWorkflows>(),
-  configWarnings: z.array(z.string()),
-  server: z.object({
-    host: z.string().min(1),
-    port: z.number().int().min(0).max(65535),
-    corsOrigins: z.array(z.string()),
-    logLevel: logLevelSchema,
-  }),
-  auth: z.object({
-    apiToken: z.string().min(1).optional(),
-    devModeAuthDisabled: z.boolean(),
-  }),
-  storage: z.object({
-    rootDir: z.string().min(1),
-    locking: z.object({ mode: z.literal('project-file') }),
-  }),
-  providers: z.record(z.string(), z.unknown()),
-  mcp: z.object({ servers: z.record(z.string(), z.unknown()).optional() }),
-  observability: z.object({ logLevel: logLevelSchema }),
-});
 
 function deepFreeze<T>(value: T): T {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
@@ -166,9 +127,8 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
   const configAuthority = createResolvedConfigAuthority({ path: configPath, interpolationEnvironment: env,projectRoot });
   let config: SaivageConfig;
   let workflows:CompiledProjectWorkflows;
-  let warnings: readonly string[];
   try {
-    ({ config,workflows, warnings } = configAuthority.loadEffective());
+    ({ config,workflows } = configAuthority.loadEffective());
   } catch (error) {
     const failure = error as Error & { fieldPath?: string };
     throw new EnvironmentLoadError(`Configuration validation failed: ${failure.message}`, {
@@ -182,45 +142,25 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
   const nodeEnv = parseNodeEnv(env['NODE_ENV']);
   const apiToken = env['SAIVAGE_API_TOKEN'] && env['SAIVAGE_API_TOKEN'].trim() !== '' ? env['SAIVAGE_API_TOKEN'] : undefined;
 
-  const candidate = {
+  const candidate: Environment = {
     nodeEnv,
     projectRoot,
     configAuthority,
     config,
     workflows,
-    configWarnings: warnings,
     server: {
       host: cli.host ?? env['SAIVAGE_HOST'] ?? config.server.host ?? '0.0.0.0',
       port: cliPort ?? envPort ?? config.server.port ?? 8080,
-      corsOrigins: [],
       logLevel,
     },
     auth: {
       apiToken,
       devModeAuthDisabled: apiToken === undefined,
     },
-    storage: {
-      rootDir: `${projectRoot}/.saivage`,
-      locking: { mode: 'project-file' as const },
-    },
-    providers: config.providers,
-    mcp: {
-      servers: config.mcpServers,
-    },
-    observability: {
-      logLevel,
-    },
   };
 
-  const parsed = environmentSchema.safeParse(candidate);
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    throw new EnvironmentLoadError(`Environment validation failed: ${issue?.path.join('.') ?? '<root>'}: ${issue?.message ?? 'invalid value'}`, { field: issue?.path.join('.') ?? 'environment', expected: issue?.message ?? 'schema match', received: 'invalid value', source: 'default' });
-  }
-
-  const result = parsed.data as Environment;
-  for (const [key, value] of Object.entries(result)) {
+  for (const [key, value] of Object.entries(candidate)) {
     if (key !== 'configAuthority') deepFreeze(value);
   }
-  return Object.freeze(result);
+  return Object.freeze(candidate);
 }

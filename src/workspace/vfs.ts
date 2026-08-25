@@ -6,7 +6,7 @@ import { cardIdSchema, type AgentName } from '../schemas/index.js';
 import type { RecordDefinition } from '../records/record-definition.js';
 import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
-type AuthoredRecordReader = { current(cardId: string, filename: string): RecordProjection;currentOrNull?(cardId:string,filename:string):RecordProjection|null;historical(cardId:string,filename:string,version:number):RecordProjection;definition(cardId:string,filename:string):RecordDefinition;definitions(cardId:string):readonly RecordDefinition[] };
+type AuthoredRecordReader = { currentOrNull(cardId:string,filename:string):RecordProjection|null;historical(cardId:string,filename:string,version:number):RecordProjection;definition(cardId:string,filename:string):RecordDefinition;definitions(cardId:string):readonly RecordDefinition[] };
 import { isReadBlocked, looksLikeSecretPath } from './file-access-security.js';
 import { parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, validRecordSegment, workUrlFromAbsolutePath, type ScopedPathScheme } from './scoped-path-schemes.js';
@@ -217,7 +217,7 @@ function recordSummaries(ctx: VfsContext, reader: AuthoredRecordReader, cardId: 
     });
 }
 
-function currentRecordEntry(reader: AuthoredRecordReader, cardId: string, definition: RecordDefinition): RecordProjection | null {try{return reader.currentOrNull?reader.currentOrNull(cardId,definition.filename):reader.current(cardId,definition.filename);}catch(error){throwIfPublicationOutcomeUnknown(error);if(error instanceof AuthoredRecordNotFoundError)return null;throw error;}}
+function currentRecordEntry(reader: AuthoredRecordReader, cardId: string, definition: RecordDefinition): RecordProjection | null {try{return reader.currentOrNull(cardId,definition.filename);}catch(error){throwIfPublicationOutcomeUnknown(error);if(error instanceof AuthoredRecordNotFoundError)return null;throw error;}}
 
 export async function listScopedPath(ctx: VfsContext, raw: string): Promise<VfsListing> {
   const resolved = resolveScopedPath(ctx, raw, 'search');

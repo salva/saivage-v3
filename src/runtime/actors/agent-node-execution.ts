@@ -297,7 +297,6 @@ export class AgentNodeExecution {
       replacement: { kind: 'retain' },
       audience: 'primary_and_summarizer',
       evidence: { kind: 'none' },
-      canonicalSource: null,
     };
     return [Object.freeze(block)];
   }

@@ -31,7 +31,7 @@ export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): 
   const path = appLogFile(projectRoot);
   let entries: AppLogEntry[];
   try { entries = readStrictCanonicalGrowingFile(path, appLogEntrySchema); }
-  catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []; throw error; }
   validateAppLogEntries(path, entries);
   return type === undefined ? entries : entries.filter((entry) => entry.type === type);
 }
@@ -39,7 +39,7 @@ export function readAppLogEntries(projectRoot: string, type?: AppLogEntryType): 
 export function initializeAppLog(projectRoot: string): void {
   const path = appLogFile(projectRoot);
   try { validateAppLogEntries(path, readStrictCanonicalGrowingFile(path, appLogEntrySchema)); }
-  catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
 }
 
 export function appendAppLogEntry<T extends AppLogEntryType>(

@@ -3,7 +3,7 @@ import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
 describe('RuntimeGate minimal pause frontier', () => {
   it('parks one frontier and resumes it exactly once', async () => {
-    const gate = new RuntimeGate(true);
+    const gate = new RuntimeGate();
     const parked = jest.fn();
     gate.requestPause(parked);
     const signal = new AbortController();
@@ -16,7 +16,7 @@ describe('RuntimeGate minimal pause frontier', () => {
   });
 
   it('cancellation rejects the parked frontier without Resume', async () => {
-    const gate = new RuntimeGate(true);
+    const gate = new RuntimeGate();
     gate.requestPause(() => {});
     const owner = new AbortController();
     const waiting = gate.waitUntilOpen(owner.signal);

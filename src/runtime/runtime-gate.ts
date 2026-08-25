@@ -1,12 +1,8 @@
 export class RuntimeGate {
-  #open: boolean;
+  #open = true;
   #pauseRequested = false;
   #parked: { resolve: () => void; reject: (reason: unknown) => void; signal: AbortSignal; onAbort: () => void } | null = null;
   #onParked: (() => void) | null = null;
-
-  constructor(open = true) {
-    this.#open = open;
-  }
 
   get isOpen(): boolean {
     return this.#open && !this.#pauseRequested;

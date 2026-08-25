@@ -16,7 +16,7 @@ function ctx(): ResolveScopedPathContext {
     projectRoot: '/tmp/saivage-workspace-resolver-test',
     agent: { cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentName: 'planner' },
     fail,
-    records:{current:()=>{throw new AuthoredRecordNotFoundError();},currentOrNull:()=>null,historical:()=>{throw new AuthoredRecordNotFoundError();},definition:(_cardId,filename)=>testRecordDefinition(filename)},
+    records:{currentOrNull:()=>null,historical:()=>{throw new AuthoredRecordNotFoundError();},definition:(_cardId,filename)=>testRecordDefinition(filename)},
   };
 }
 

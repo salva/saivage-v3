@@ -58,7 +58,7 @@ function resultRow(inputId: string, callId: string, tool: string, content: strin
 }
 
 function dynamicBlock(id: string, overrides: Partial<Omit<ContextBlock, 'id'>> = {}): ContextBlock {
-  return { id, role: 'user', content: `content:${id}`, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, canonicalSource: null, ...overrides };
+  return { id, role: 'user', content: `content:${id}`, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' }, ...overrides };
 }
 
 const historyFacts = (partial: Omit<EffectiveCompactedHistoryFacts, 'historyMessageId' | 'historyTimestamp'>): EffectiveCompactedHistoryFacts =>

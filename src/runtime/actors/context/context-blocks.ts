@@ -1,11 +1,9 @@
 import type { ToolDefinition } from '../../../agents/llm-contracts.js';
 import { canonicalJson } from '../../../schemas/index.js';
-import type { LoggedToolMessageIdentity } from '../../../schemas/message-identity.js';
 import { conversationSha256 } from '../../../persistence/canonical-conversation-artifacts.js';
 import type { ContextAudience, ContextEvidence, ContextReplacement, ToolResultPolicyTemplate } from '../../../schemas/index.js';
 import type { PreparedCompaction } from '../llm-invocation.js';
 
-export type CanonicalSourceIdentity = LoggedToolMessageIdentity;
 export type ContextStorage = 'durable' | 'activation_local';
 export type { ContextAudience, ContextEvidence, ContextReplacement, ToolResultPolicyTemplate } from '../../../schemas/index.js';
 
@@ -17,7 +15,6 @@ export type ContextBlock = Readonly<{
   replacement: ContextReplacement;
   audience: ContextAudience;
   evidence: ContextEvidence;
-  canonicalSource: CanonicalSourceIdentity | null;
 }>;
 
 export type ProviderToolDefinition = ToolDefinition;

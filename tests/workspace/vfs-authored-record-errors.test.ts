@@ -5,7 +5,7 @@ import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-reco
 import { testRecordDefinition, testRecordDefinitions } from '../helpers/record-definitions.js';
 
 const fail = (message: string) => new Error(message);
-const records=(read:()=>never)=>({current:read,historical:read,definition:(_cardId:string,filename:string)=>testRecordDefinition(filename),definitions:()=>testRecordDefinitions()});
+const records=(read:()=>never)=>({currentOrNull:read,historical:read,definition:(_cardId:string,filename:string)=>testRecordDefinition(filename),definitions:()=>testRecordDefinitions()});
 
 describe('VFS authored-record summaries', () => {
   it('projects only concrete absence as empty metadata and propagates strict failures', async () => {
@@ -18,7 +18,7 @@ describe('VFS authored-record summaries', () => {
   });
 
   it('resolves a valid absent current target with deterministic metadata and empty content',()=>{
-    const reader={...records(()=>{throw new AuthoredRecordNotFoundError();}),currentOrNull:()=>null,definition:()=>({filename:'notes.md' as const,format:'markdown' as const,schema:'authored-record.v1',bootstrap:false,declared:false})};
+    const reader={...records(()=>{throw new AuthoredRecordNotFoundError();}),definition:()=>({filename:'notes.md' as const,format:'markdown' as const,schema:'authored-record.v1',bootstrap:false,declared:false})};
     expect(resolveScopedPath({projectRoot:'/tmp',agent:{cardId:'project',agentName:'analyst'},fail,records:reader},'record:///notes.md?card=project','read')).toMatchObject({kind:'record',recordKind:'document',cardId:'project',filename:'notes.md',format:'markdown',schema:'authored-record.v1',state:'absent',headVersion:null,versionUrl:null,content:'',committedAt:null,size:0,currentSelection:true});
   });
 });

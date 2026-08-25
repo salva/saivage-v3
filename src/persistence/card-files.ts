@@ -9,6 +9,7 @@ import { cardAgentSessionId, cardRecordSchema, type AgentName, type CardRecord, 
 import type { RecordDefinition } from '../records/record-definition.js';
 import type { CompiledCardTypeWorkflow } from '../runtime/card-process/card-process-config.js';
 import { initializeAuthoredRecord, readCurrentAuthoredRecord } from './authored-record-files.js';
+import { effectiveRecordContent } from './canonical-record-artifacts.js';
 import { initializeConversation } from './conversation-file.js';
 import {
   cardArtifactSchema,
@@ -146,9 +147,8 @@ export function readCanonicalCardFilesMetadata(projectRoot: string, cardId: stri
   const recordFiles: CanonicalCardRecordFileMetadata[] = [];
   for (const definition of definitions) {
     const record = readCurrentAuthoredRecord(reached.realProjectRoot, cardId, definition); if (!record) continue;
-    const effective = record.artifact.state === 'open' ? record.artifact.draft : record.artifact.accepted;
-    if (!effective) continue;
-    recordFiles.push({ slot: definition.filename, size: Buffer.byteLength(effective.content), modifiedAt: record.artifact.state === 'open' ? record.artifact.draft!.updated_at : record.artifact.accepted!.committed_at });
+    const effective = effectiveRecordContent(record.artifact); if (!effective) continue;
+    recordFiles.push({ slot: definition.filename, size: Buffer.byteLength(effective.content), modifiedAt: effective.modifiedAt });
   }
   return { kind: 'found', value: { card: canonicalProjection(reached.target), recordFiles } };
 }

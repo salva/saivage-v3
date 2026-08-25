@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { summarizeChangedFields } from '../cards/lifecycle.js';
-import { cardIdSchema, cardRecordSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, type CardRecord } from '../schemas/index.js';
+import { cardIdSchema, cardRecordSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, valuesEqual, type CardRecord } from '../schemas/index.js';
 import { cardVersionChangeSchema } from '../schemas/card-version-change.js';
 import type { CardVersionChange } from '../schemas/card-version-change.js';
 import { uuidV4Schema } from './version-index.js';
@@ -64,12 +64,11 @@ export function cardVersionListEntry(row: CardArtifact): CardVersionListEntry {
   return Object.freeze({ entry_id: row.entry_id, version: row.version, artifact_kind: row.kind, committed_at: row.committed_at, change: row.change });
 }
 
-function same(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right); }
 function fail(path: string, message: string): never { throw new Error(`Card stream '${path}' ${message}.`); }
 
 const BUSINESS_FIELDS = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const satisfies ReadonlyArray<keyof CardRecord>;
-function actualDelta(prior: CardRecord, next: CardRecord): string[] { return BUSINESS_FIELDS.filter((field) => !same(prior[field], next[field])); }
-function requireSame(path: string, left: unknown, right: unknown, message: string): void { if (!same(left, right)) fail(path, message); }
+function actualDelta(prior: CardRecord, next: CardRecord): string[] { return BUSINESS_FIELDS.filter((field) => !valuesEqual(prior[field], next[field])); }
+function requireSame(path: string, left: unknown, right: unknown, message: string): void { if (!valuesEqual(left, right)) fail(path, message); }
 function rowCard(row: CardArtifact): CardRecord { return row.kind === 'card-version' ? row.card : row.final_card; }
 
 export function validateCardStream(rows: readonly CardArtifact[], path: string, cardId: string): CardStreamFold {
@@ -87,7 +86,7 @@ export function validateCardStream(rows: readonly CardArtifact[], path: string, 
     const prior = rows[index - 1]!;
     if (row.kind === 'card-tombstone') {
       if (cardId === 'project') fail(path, 'cannot tombstone the project card.');
-      if (!same(rowCard(prior), row.final_card)) fail(path, 'tombstone final card must equal the prior current card.');
+      if (!valuesEqual(rowCard(prior), row.final_card)) fail(path, 'tombstone final card must equal the prior current card.');
       continue;
     }
     validateCardTransition(rowCard(prior), row.card, row.change!, path);
@@ -123,14 +122,14 @@ function validateTerminal(path: string, prior: CardRecord, next: CardRecord, cha
   if (next.lifecycle.status === 'failed' && ((result.kind === 'workflow-result' && result.terminal !== 'FAILED') || next.lifecycle.error !== result.summary || next.lifecycle.completed_at !== change.changed_at)) fail(path, 'has invalid failed terminal relationships');
   if (next.lifecycle.status === 'blocked' && ((result.kind === 'workflow-result' && result.terminal !== 'BLOCKED') || next.lifecycle.error !== result.summary || next.lifecycle.completed_at !== null)) fail(path, 'has invalid blocked terminal relationships');
   requireSame(path, next.pending_notifications, [], 'retained terminal notifications');
-  const fields = ['lifecycle', ...(!same(prior.status_text, next.status_text) ? ['status_text'] : []), ...(!same(prior.status_text_updated_at, next.status_text_updated_at) ? ['status_text_updated_at'] : []), ...(prior.pending_notifications.length > 0 ? ['pending_notifications'] : [])];
+  const fields = ['lifecycle', ...(!valuesEqual(prior.status_text, next.status_text) ? ['status_text'] : []), ...(!valuesEqual(prior.status_text_updated_at, next.status_text_updated_at) ? ['status_text_updated_at'] : []), ...(prior.pending_notifications.length > 0 ? ['pending_notifications'] : [])];
   requireChange(path, change, fields, 'terminal lifecycle commit');
   requireSame(path, actualDelta(prior, next), fields, 'has a terminal piggyback change');
 }
 
 export function validateCardTransition(prior: CardRecord, next: CardRecord, change: CardVersionChange, path: string): void {
   if (change.card_id !== next.id || change.resulting_version !== next.version_seq || next.version_seq !== prior.version_seq + 1) fail(path, 'has inconsistent change linkage');
-  for (const field of ['id', 'type', 'created_at', 'created_by', 'depends_on'] as const) if (!same(next[field], prior[field])) fail(path, `mutates immutable field '${field}'`);
+  for (const field of ['id', 'type', 'created_at', 'created_by', 'depends_on'] as const) if (!valuesEqual(next[field], prior[field])) fail(path, `mutates immutable field '${field}'`);
   switch (change.kind) {
     case 'update': {
       if (!['backlog', 'changed', 'stopped'].includes(prior.lifecycle.status)) fail(path, 'edits a disallowed lifecycle state');
@@ -140,12 +139,12 @@ export function validateCardTransition(prior: CardRecord, next: CardRecord, chan
     }
     case 'notification_enqueue': {
       const before = prior.pending_notifications; const after = next.pending_notifications;
-      if (after.length !== before.length + 1 || !same(after.slice(0, -1), before) || before.some((item) => item.id === after.at(-1)!.id)) fail(path, 'has an invalid notification enqueue');
+      if (after.length !== before.length + 1 || !valuesEqual(after.slice(0, -1), before) || before.some((item) => item.id === after.at(-1)!.id)) fail(path, 'has an invalid notification enqueue');
       requireChange(path, change, ['pending_notifications'], 'notification enqueued', 'notification enqueued'); requireSame(path, actualDelta(prior, next), ['pending_notifications'], 'has a notification enqueue piggyback change'); break;
     }
     case 'notification_remove': {
       const survivors = next.pending_notifications; const expected = prior.pending_notifications.filter((candidate) => survivors.some((survivor) => survivor.id === candidate.id));
-      if (survivors.length >= prior.pending_notifications.length || !same(survivors, expected)) fail(path, 'has an invalid notification removal');
+      if (survivors.length >= prior.pending_notifications.length || !valuesEqual(survivors, expected)) fail(path, 'has an invalid notification removal');
       requireChange(path, change, ['pending_notifications'], 'notifications delivered', 'notifications delivered'); requireSame(path, actualDelta(prior, next), ['pending_notifications'], 'has a notification removal piggyback change'); break;
     }
     case 'status': {
@@ -158,8 +157,8 @@ export function validateCardTransition(prior: CardRecord, next: CardRecord, chan
       requireChange(path, change, fields, reason); requireSame(path, actualDelta(prior, next), fields, 'has a status piggyback change'); break;
     }
     case 'terminal': validateTerminal(path, prior, next, change); break;
-    case 'child_link': { const linked = next.children.at(-1); if (!linked || prior.children.includes(linked) || !same(next.children.slice(0, -1), prior.children)) fail(path, 'has an invalid child link'); requireChange(path, change, ['children'], 'child linked', `linked child ${linked}`); requireSame(path, actualDelta(prior, next), ['children'], 'has a child-link piggyback change'); break; }
-    case 'reorder': if (same(prior.children, next.children) || next.children.length !== prior.children.length || new Set(next.children).size !== next.children.length || prior.children.some((id) => !next.children.includes(id))) fail(path, 'has an invalid child reorder'); else { requireChange(path, change, ['children'], 'children reordered', 'children reordered'); requireSame(path, actualDelta(prior, next), ['children'], 'has a reorder piggyback change'); } break;
+    case 'child_link': { const linked = next.children.at(-1); if (!linked || prior.children.includes(linked) || !valuesEqual(next.children.slice(0, -1), prior.children)) fail(path, 'has an invalid child link'); requireChange(path, change, ['children'], 'child linked', `linked child ${linked}`); requireSame(path, actualDelta(prior, next), ['children'], 'has a child-link piggyback change'); break; }
+    case 'reorder': if (valuesEqual(prior.children, next.children) || next.children.length !== prior.children.length || new Set(next.children).size !== next.children.length || prior.children.some((id) => !next.children.includes(id))) fail(path, 'has an invalid child reorder'); else { requireChange(path, change, ['children'], 'children reordered', 'children reordered'); requireSame(path, actualDelta(prior, next), ['children'], 'has a reorder piggyback change'); } break;
     case 'delete': fail(path, 'uses delete change on an ordinary version');
   }
 }

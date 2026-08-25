@@ -1,4 +1,4 @@
-import type { AgentMessage, ContextAudience, ContextEvidence, ContextReplacement, MessageKind, SettledToolEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
+import type { AgentMessage, ContextAudience, ContextEvidence, ContextReplacement, SettledToolEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
 import { parseToolCallMessageForModel } from '../../../contracts/persisted-tool-call.js';
 
 function assertNever(value: never): never {
@@ -112,5 +112,3 @@ function toolCallRowArguments(call: AgentMessage): unknown {
     throw new Error(`Tool call '${call.id}' has malformed JSON arguments.`);
   }
 }
-
-export type ExhaustiveMessageKinds = Record<MessageKind, true>;

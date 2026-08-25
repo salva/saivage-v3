@@ -291,7 +291,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     const running = this.publish(owner, () => admission.child.lifecycle.status === 'stopped' ? this.behavior.actorStore.activateStopped(childCardId) : this.behavior.actorStore.setStatus(childCardId, 'running'));
     if (!running) return lease.activation;
     if (this.halt?.owners.includes(owner)) return lease.activation;
-    this.ownershipTransition(true, () => { this.requireOwnerAuthority(owner); owner.phase = 'active'; owner.cachedStatus = 'running'; this.currentCardId = childCardId; }, lease.identity.sessionId);
+    this.ownershipTransition(true, () => { this.requireOwnerAuthority(owner); owner.phase = 'active'; owner.cachedStatus = 'running'; this.currentCardId = childCardId; });
     if (this.halt?.owners.includes(owner)) return lease.activation;
     this.activateProcessor(owner);
     return lease.activation;
@@ -358,7 +358,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
       if (owner.terminalWinner !== 'result') throw new Error(`Card '${owner.cardId}' cannot settle result from '${owner.terminalWinner}'.`);
       owner.phase = 'settling';
       if (owner.parentRelationship?.invocation.phase() === 'admitted') owner.parentRelationship.invocation.markSettling();
-    }, owner.parentRelationship?.invocation.identity.sessionId);
+    });
     const committed = this.publish(owner, () => this.behavior.actorStore.commitActivationOutcome(owner.cardId, outcome, this.now()));
     if (!committed) return;
     if (this.halt?.owners.includes(owner)) return;
@@ -380,7 +380,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     this.ownershipTransition(true, () => {
       this.requireOwnerAuthority(owner); const parent = this.activationOwners.get(relationship.parentCardId); if (!parent || parent.childCardId !== owner.cardId) throw new Error('Parent relationship changed before child release.');
       this.activationOwners.delete(owner.cardId); parent.childCardId = null; this.currentCardId = parent.cardId; lease.markReleased();
-    }, lease.identity.sessionId);
+    });
     owner.settlement.resolve(outcome); lease.deliverOutcome(outcome);
   }
 
@@ -576,11 +576,11 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
   private runtimeState(): RuntimeState | null { if (!this.runIdentity) return null; if (!this.currentCardId) throw new Error('Active runtime has no current card.'); return { status: this.publicRuntimeStatus(), project_id: 'project', pid: this.behavior.processIdentity.pid, started_at: this.behavior.processIdentity.startedAt, current_card_id: this.currentCardId, updated_at: this.now() }; }
   private publicRuntimeStatus(): RuntimeStatus { if (this.status === 'uninitialized') throw new Error('Runtime has not been initialized.'); return this.status; }
 
-  private ownershipTransition(invalidate: boolean, mutate: () => void, conversationSessionId?: import('../../schemas/index.js').ConversationSessionId): void {
+  private ownershipTransition(invalidate: boolean, mutate: () => void): void {
     if (this.inOwnershipTransition) throw new Error('Nested ownership transition is forbidden.');
     this.inOwnershipTransition = true;
     try { mutate(); this.assertOwnershipInvariants(); } finally { this.inOwnershipTransition = false; }
-    if (invalidate) this.ownershipInvalidated(conversationSessionId);
+    if (invalidate) this.ownershipInvalidated();
   }
 
   private assertOwnershipInvariants(): void {
@@ -603,7 +603,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     if (this.halt && this.halt.owners.some((owner) => this.activationOwners.get(owner.cardId) !== owner)) throw new Error('Runtime halt owner graph is not installed.');
   }
 
-  private ownershipInvalidated(_sessionId?: import('../../schemas/index.js').ConversationSessionId): void { this.behavior.freshness.runtimeChanged(); }
+  private ownershipInvalidated(): void { this.behavior.freshness.runtimeChanged(); }
   private async cancelNonrunningSubtree(cardId: string, cancelled: string[], authority?: CardActivationOwner): Promise<void> { if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; const owner = this.activationOwners.get(cardId); if (owner) { const result = await this.cancelOwnedOrStored(cardId, 'ancestor cancelled', null); if (authority) this.requireOwnerAuthority(authority); cancelled.push(...result.cancelled_card_ids); return; } const card = this.behavior.actorStore.read(cardId); if (!card || !canCancelCardStatus(card.lifecycle.status)) return; if (card.lifecycle.status === 'running') throw new Error(`Running card '${cardId}' has no activation owner.`); for (const childId of this.behavior.actorStore.listChildren(cardId)) { await this.cancelNonrunningSubtree(childId, cancelled, authority); if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; } if (authority) this.requireOwnerAuthority(authority); else if (this.halt) throw this.halt.interruption; this.behavior.actorStore.setStatus(cardId, 'cancelled'); cancelled.push(cardId); }
 }
 

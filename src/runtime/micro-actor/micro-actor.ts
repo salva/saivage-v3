@@ -44,8 +44,6 @@ export abstract class BaseActor {
   #eventSettlementWaiters = new Set<{ sequence: number; resolve: () => void; reject: (error: unknown) => void }>();
   #task: Task | null = null;
   #actorMainRunning = false;
-  #deliveringTaskResult = false;
-  #currentTaskStateHalted = false;
   #mainLoopFailed = false;
   #mainLoopFailure: unknown;
 
@@ -120,11 +118,6 @@ export abstract class BaseActor {
     });
   }
 
-  protected haltCurrentTaskState(): void {
-    if (!this.#deliveringTaskResult || this.#nextEvent !== undefined) throw new InternalActorError('Current task state can be halted only during task-result callback delivery with no pending event');
-    this.#currentTaskStateHalted = true;
-  }
-
   #dispatchEvent(eventName: string): string {
     const currentState = this.#currentState!;
     const stateDef = this.#states.get(currentState)!;
@@ -179,12 +172,8 @@ export abstract class BaseActor {
         if (this.#task !== task) throw new InternalActorError('Actor task slot changed before callback delivery');
         this.#task = null;
 
-        this.#deliveringTaskResult = true;
-        try {
-          if (result.ok) task.onDone(result.result);
-          else task.onFailed(result.error);
-        } finally { this.#deliveringTaskResult = false; }
-        if (this.#currentTaskStateHalted) return;
+        if (result.ok) task.onDone(result.result);
+        else task.onFailed(result.error);
       }
     } catch (error) {
       this.onFatalTaskError(error);

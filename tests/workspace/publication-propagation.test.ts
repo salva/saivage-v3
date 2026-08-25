@@ -10,7 +10,7 @@ const definition = { filename: 'status.md', bootstrap: false, declared: true, fo
 describe('publication uncertainty across scoped record projections', () => {
   it('preserves the same instance before scoped-path not-found conversion', () => {
     const publication = new PublicationOutcomeUnknownError();
-    const records = { definition: () => definition, current: () => { throw publication; }, historical: () => { throw publication; } };
+    const records = { definition: () => definition, currentOrNull: () => { throw publication; }, historical: () => { throw publication; } };
     let thrown: unknown;
     try { resolveRecordReadTarget({ projectRoot: '/', records, agent: { cardId: 'project', agentName: 'planner' }, fail: (message) => new Error(message) }, 'record:///status.md?card=project'); }
     catch (error) { thrown = error; }
@@ -19,7 +19,7 @@ describe('publication uncertainty across scoped record projections', () => {
 
   it('preserves the same instance before VFS latest-record null projection', async () => {
     const publication = new PublicationOutcomeUnknownError();
-    const records = { definitions: () => [definition], definition: () => definition, current: () => { throw publication; }, historical: () => { throw publication; } };
+    const records = { definitions: () => [definition], definition: () => definition, currentOrNull: () => { throw publication; }, historical: () => { throw publication; } };
     await expect(listScopedPath({ projectRoot: '/', records, agent: { cardId: 'project', agentName: 'planner' }, fail: (message) => new Error(message) }, 'record:///project')).rejects.toBe(publication);
   });
 

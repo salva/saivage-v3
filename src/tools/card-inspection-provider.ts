@@ -1,9 +1,9 @@
-import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import type { z } from 'zod';
 import { type CardRecord, type CardStatus, type CardTypeName } from '../schemas/index.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder, type ToolResult } from './invocation.js';
 import { orderedCardsForTree } from '../application/read-models/card-view.js';
-import { AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
+import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
+import type { RecordDefinition } from '../records/record-definition.js';
 import { cardParentId } from '../schemas/card-id.js';
 import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
 import { redactTextForOutbound } from '../redaction/index.js';
@@ -23,8 +23,10 @@ import {
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
-  list?(): CardRecord[];
-  listChildren?(cardId: string): string[];
+  list(): CardRecord[];
+  listChildren(cardId: string): string[];
+  readCurrentRecord(cardId: string, filename: string): RecordProjection;
+  recordDefinitions(cardId: string): RecordDefinition[];
 }
 
 export interface CardInspectionProviderContext {
@@ -50,29 +52,8 @@ function cardNotFound(cardId: string): ToolResult {
   return failure(`Card '${utf8SafePreview(cardId, DISCOVERY_TEXT_PREVIEW_MAX_BYTES)}' not found.`);
 }
 
-function childIds(store: CardInspectionStore, cardId: string): string[] {
-  return store.listChildren?.(cardId) ?? [];
-}
-
-function linkedChildren(store: CardInspectionStore, cardId: string): string[] {
-  if (store.listChildren) return store.listChildren(cardId);
-  const card = store.read(cardId);
-  if (!card) return [];
-  const exists = new Set(orderedCardViews(store).map((entry) => entry.id));
-  return card.children.filter((id) => exists.has(id));
-}
-
 function orderedCardViews(store: CardInspectionStore): CardRecord[] {
-  if (store.list) return orderedCardsForTree(store as CardService);
-  const result: CardRecord[] = [];
-  const visit = (cardId: string): void => {
-    const card = store.read(cardId);
-    if (!card) return;
-    result.push(card);
-    for (const childId of childIds(store, cardId)) visit(childId);
-  };
-  visit(PROJECT_CARD_ID);
-  return result;
+  return orderedCardsForTree(store);
 }
 
 function listCards(store: CardInspectionStore, params: ListCardsInput): ToolResult {
@@ -87,7 +68,7 @@ function listCards(store: CardInspectionStore, params: ListCardsInput): ToolResu
   }
   if (params.parent !== undefined) {
     const parent = params.parent;
-    const siblings = parent === null ? null : linkedChildren(store, parent);
+    const siblings = parent === null ? null : store.listChildren(parent);
     cards = cards.filter((card) => (siblings === null ? cardParentId(card.id) === null : siblings.includes(card.id)));
   }
   if (params.tag) {
@@ -105,7 +86,7 @@ function listCards(store: CardInspectionStore, params: ListCardsInput): ToolResu
     position: params.position ?? { item_index: 0, item_byte_offset: 0 },
     item: (index) => {
       const card = cards[index]!;
-      return { id: card.id, type: card.type, status: card.lifecycle.status, title: titlePreview(card.title), children_count: linkedChildren(store, card.id).length };
+      return { id: card.id, type: card.type, status: card.lifecycle.status, title: titlePreview(card.title), children_count: store.listChildren(card.id).length };
     },
     render: (page: CollectionPage) => ({ observation_sha256: observation, cards: page }),
   });
@@ -118,13 +99,13 @@ function getTree(store: CardInspectionStore, rootId: string, depth: number, posi
   const nodes: Array<{ id: string; parent: string | null; depth: number; type: string; status: CardStatus; title: string; children_count: number; descendants: number; depth_omitted: boolean; version_seq: number }> = [];
   const countDescendants = (id: string): number => {
     let total = 0;
-    for (const childId of linkedChildren(store, id)) total += 1 + countDescendants(childId);
+    for (const childId of store.listChildren(id)) total += 1 + countDescendants(childId);
     return total;
   };
   const visit = (cardId: string, relativeDepth: number): number => {
     const card = store.read(cardId);
     if (!card) throw new Error(`Linked child '${cardId}' disappeared during tree observation.`);
-    const children = linkedChildren(store, cardId);
+    const children = store.listChildren(cardId);
     const expand = relativeDepth < depth;
     const node = {
       id: cardId,
@@ -205,13 +186,13 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
     created_at: notification.created_at,
     ...('source' in notification ? { source: notification.source } : {}),
   }));
-  else if (section === 'children') items = () => linkedChildren(store, cardId).map((childId) => {
+  else if (section === 'children') items = () => store.listChildren(cardId).map((childId) => {
     const child = store.read(childId);
     if (!child) throw new Error(`Linked child '${childId}' disappeared during card observation.`);
     const childProjected = projectCardRecordForOutbound(child);
     return { id: childProjected.id, type: childProjected.type, status: childProjected.lifecycle.status, title: titlePreview(child.title) };
   });
-  else items = () => recordMetadataItems(store as CardService, cardId);
+  else items = () => recordMetadataItems(store, cardId);
   const complete = items();
   const observation = observationSha256({ surface: 'get_card', card_id: card.id, version_seq: card.version_seq, section, items: complete });
   const { data } = packCollectionData({
@@ -224,9 +205,8 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
   return { success: true, data };
 }
 
-export function recordMetadataItems(store: CardService, cardId: string): Array<Record<string, unknown>> {
-  if (!store.list || !store.listChildren) throw new Error('Card record metadata requires the full card store.');
-  return store.recordReader.definitions(cardId).map((definition) => {
+export function recordMetadataItems(store: Pick<CardInspectionStore, 'readCurrentRecord' | 'recordDefinitions'>, cardId: string): Array<Record<string, unknown>> {
+  return store.recordDefinitions(cardId).map((definition) => {
     try {
       const record = store.readCurrentRecord(cardId, definition.filename);
       return { name: definition.filename, format: definition.format, state: record.artifact.state, head_version: record.headVersion, head_entry_id: record.artifact.entry_id, version_url: record.versionUrl };

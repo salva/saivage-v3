@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { canonicalJson } from '../schemas/index.js';
 import { canonicalValueSha256 } from '../persistence/canonical-conversation-artifacts.js';
 import {
@@ -11,7 +9,6 @@ export { DISCOVERY_RESPONSE_MAX_BYTES, DISCOVERY_RESPONSE_MIN_BYTES };
 
 export const DISCOVERY_FAILURE_ERROR_MAX_BYTES = 512;
 export const DISCOVERY_TEXT_PREVIEW_MAX_BYTES = 512;
-export const DISCOVERY_RECORD_PREVIEW_MAX_BYTES = 2048;
 
 export type TextSlice = Readonly<{
   content: string;
@@ -31,22 +28,6 @@ export type CollectionPage = Readonly<{
   returned: number;
   next: CollectionPosition | null;
   items: readonly unknown[];
-}>;
-
-export type ItemSlice = Readonly<{
-  content: string;
-  utf8_bytes: number;
-  offset_bytes: number;
-  next_offset_bytes: number;
-  total_bytes: number;
-}>;
-
-export type JsonSlice = Readonly<{
-  content: string;
-  utf8_bytes: number;
-  offset_bytes: number;
-  next_offset_bytes: number;
-  total_bytes: number;
 }>;
 
 export class DiscoveryBudgetTooSmallError extends Error {
@@ -84,10 +65,6 @@ export function successEnvelopeBytes(data: unknown): number {
 
 export function observationSha256(value: unknown): string {
   return canonicalValueSha256(value);
-}
-
-export function sha256OfEmptyString(): string {
-  return createHash('sha256').update('', 'utf8').digest('hex');
 }
 
 function makeTextSlice(text: string, offsetBytes: number, maxBytes: number): TextSlice {

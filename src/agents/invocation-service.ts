@@ -333,6 +333,7 @@ export class InvocationService {
     const hasOk = attempts.some((attempt) => attempt.status === 'ok');
     if (context.terminalConversationOutputId !== null && hasOk) throw new Error('A terminal conversation output id cannot be published with a successful provider attempt.');
     if (context.assistantOutputIds.length > 0 && !hasOk) throw new Error('Assistant output ids require a successful provider attempt.');
+    const parsedSessionId = ConversationSessionIdSchema.safeParse(sessionId);
     for (const attempt of attempts) {
       appendAppLogEntry(this.projectRoot, 'provider_exchange', () => {
         if (attempt.attempt_index === undefined)
@@ -358,8 +359,7 @@ export class InvocationService {
           },
         };
       });
-      const parsed = ConversationSessionIdSchema.safeParse(sessionId);
-      if (parsed.success) this.freshness.llmExchangeChanged(parsed.data);
+      if (parsedSessionId.success) this.freshness.llmExchangeChanged(parsedSessionId.data);
     }
   }
 
@@ -378,9 +378,7 @@ export class InvocationService {
   }
 
   private buildRequestOptions(request: InvocationRequest): LlmCompleteOptions {
-    const outputTokens = request.preparedCompaction !== undefined
-      ? request.preparedCompaction.requestedCompletionTokens
-      : request.modelParams.maxTokens;
+    const outputTokens = requestedCompletionTokensOf(request);
     return buildLlmOptions(
       request.agentName,
       request.tools,
@@ -612,10 +610,14 @@ function lastFailureOf(state: AdmittedCandidateAttemptState): unknown {
   return null;
 }
 
-function admissionSizeLimits(request: InvocationRequest): AdmissionSizeLimits {
-  const requestedCompletionTokens = request.preparedCompaction !== undefined
+function requestedCompletionTokensOf(request: InvocationRequest): number {
+  return request.preparedCompaction !== undefined
     ? request.preparedCompaction.requestedCompletionTokens
     : request.modelParams.maxTokens;
+}
+
+function admissionSizeLimits(request: InvocationRequest): AdmissionSizeLimits {
+  const requestedCompletionTokens = requestedCompletionTokensOf(request);
   if (request.preparedCompaction && requestedCompletionTokens > request.preparedCompaction.reservedCompletionTokens)
     throw new Error('Prepared completion request exceeds the prepared compaction output reserve.');
   return {
@@ -639,9 +641,7 @@ function admissionVerdict(
 }
 
 function executionBindings(request: InvocationRequest, capabilityRequest: Readonly<CapabilityRequest>, capabilityHash: string): AdmittedExecutionBindings {
-  const requestedCompletionTokens = request.preparedCompaction !== undefined
-    ? request.preparedCompaction.requestedCompletionTokens
-    : request.modelParams.maxTokens;
+  const requestedCompletionTokens = requestedCompletionTokensOf(request);
   return Object.freeze({
     inputId: request.inputId,
     sessionId: request.sessionId,

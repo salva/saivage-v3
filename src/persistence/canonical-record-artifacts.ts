@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 
-import { agentNameSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema, type AgentName, type RecordName } from '../schemas/index.js';
+import { agentNameSchema, cardIdSchema, positiveSafeIntegerSchema, recordNameSchema, valuesEqual, type AgentName, type RecordName } from '../schemas/index.js';
 import { uuidV4Schema } from './version-index.js';
 
 const nonEmptyStringSchema = z.string().min(1);
@@ -50,7 +50,6 @@ function refineRecordState(value: { state: 'open' | 'closed' | 'discarded'; acce
   else if (value.draft !== null || value.discarded === null) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Discarded state requires discarded metadata and forbids draft.' });
 }
 
-function same(left: unknown, right: unknown): boolean { return JSON.stringify(left) === JSON.stringify(right); }
 function fail(path: string, message: string): never { throw new Error(`Authored-record stream '${path}' ${message}.`); }
 
 export type AcceptedRecordSnapshot = z.infer<typeof acceptedRecordSnapshotSchema>;
@@ -83,18 +82,18 @@ export function validateRecordStream(rows: readonly AuthoredRecordVersionArtifac
       } else if (prior.state === 'closed' || prior.state === 'discarded') {
         if (!row.draft || row.draft.content !== '' || row.draft.opened_at !== row.published_at || row.draft.updated_at !== row.published_at) fail(path, 'has a fresh open that is not the exact open-empty version.');
       } else fail(path, 'has an unreachable prior state.');
-      if (!same(prior.accepted, row.accepted)) fail(path, 'has an open version that changes the carried accepted baseline.');
+      if (!valuesEqual(prior.accepted, row.accepted)) fail(path, 'has an open version that changes the carried accepted baseline.');
     } else if (row.state === 'closed') {
       if (prior.state !== 'open' || !prior.draft || !row.accepted || row.accepted.content !== prior.draft.content || row.accepted.content_sha256 !== prior.draft.content_sha256) fail(path, 'has a close that does not accept the prior open draft content.');
     } else {
       if (prior.state !== 'open') fail(path, 'has a discard without a prior open draft.');
-      if (!same(prior.accepted, row.accepted)) fail(path, 'has a discard that changes the carried accepted baseline.');
+      if (!valuesEqual(prior.accepted, row.accepted)) fail(path, 'has a discard that changes the carried accepted baseline.');
     }
   }
   for (const row of rows) {
     if (row.state === 'closed' || !row.accepted) continue;
     const source = rows[row.accepted.source_version - 1];
-    if (!source || source.state !== 'closed' || source.entry_id !== row.accepted.source_entry_id || !source.accepted || !same(source.accepted, row.accepted)) fail(path, `version ${row.version} carries an accepted baseline that does not match its closed source version.`);
+    if (!source || source.state !== 'closed' || source.entry_id !== row.accepted.source_entry_id || !source.accepted || !valuesEqual(source.accepted, row.accepted)) fail(path, `version ${row.version} carries an accepted baseline that does not match its closed source version.`);
   }
   return Object.freeze({ rows: Object.freeze([...rows]), head: rows.at(-1)! });
 }

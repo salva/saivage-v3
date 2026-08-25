@@ -24,7 +24,7 @@ function siblingDisplayRank(store: CardService, card: CardRecord): number {
   return index + 1;
 }
 
-export function orderedCardsForTree(store: CardService): CardRecord[] {
+export function orderedCardsForTree(store: { list(): CardRecord[]; listChildren(cardId: string): string[] }): CardRecord[] {
   const all = store.list();
   const byId = new Map(all.map((card) => [card.id, card]));
   const result: CardRecord[] = [];

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import {
   cardRecordSchema,
   positiveSafeIntegerSchema,
+  valuesEqual,
   type AgentName,
   type CardRecord,
   type CardStatus,
@@ -66,7 +67,6 @@ import {
   type SetStatusTarget,
 } from './lifecycle.js';
 import { canCreateChildInStatus } from './card-status.js';
-import { valuesEqual } from './value-equality.js';
 import type { CardNotification } from '../schemas/types.js';
 import { CardServiceInvariantError } from './errors.js';
 import { cardDepth, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
@@ -133,7 +133,7 @@ export class CardService {
     const name=parseRecordName(filename);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow exists for card type '${card.type}'.`);const definition = workflow.records.get(name)??genericRecordDefinition(name);
     return { filename: definition.name, format: definition.format, schema: definition.schema, bootstrap: definition.bootstrap,declared:definition.declared };
   }
-  private recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap,declared:true}));}
+  recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap,declared:true}));}
 
   get recordReader() { return { current: (cardId: string, filename: string) => this.readCurrentRecord(cardId, filename),currentOrNull:(cardId:string,filename:string)=>this.readCurrentRecordOrNull(cardId,filename), historical: (cardId: string, filename: string, version: number) => this.readHistoricalRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId) }; }
 

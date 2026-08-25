@@ -37,7 +37,7 @@ export interface SummarizerProviderPort {
   ): void;
 }
 
-export type SummaryRequestAdmission =
+type SummaryRequestAdmission =
   | Readonly<{
       kind: 'admitted';
       serializedRequest: string;

@@ -40,7 +40,6 @@ class TestActor extends BaseActor {
   parkedEvent(name: string): void { this.parkedSendEvent(name); }
   task<Result>(run: () => Promise<Result>, callbacks: TaskCallbacks<Result>): void { this.runTask(run, callbacks); }
   settlement(): Promise<void> { return this.awaitLifecycleSettlement(); }
-  halt(): void { this.haltCurrentTaskState(); }
 
   protected onStateEntered(context: ActorLifecycleContext): void { this.#entered(context); }
   protected onTransition(context: ActorTransitionContext): void { this.#transitioned(context); }
@@ -114,7 +113,7 @@ describe('configured actor lifecycle', () => {
     expect(() => actor.start()).toThrow(InternalActorError);
   });
 
-  it('4. rejects repeated start from terminal, parked, and halted states', async () => {
+  it('4. rejects repeated start from terminal and parked states', async () => {
     const terminal = new TestActor(compiledActorTable('done', { done: compiledActorState({ terminal: true }) }));
     terminal.start();
     expect(() => terminal.start()).toThrow(InternalActorError);
@@ -122,16 +121,6 @@ describe('configured actor lifecycle', () => {
     const parked = new TestActor(compiledActorTable('ready', { ready: compiledActorState({ parked: true }) }));
     parked.start();
     expect(() => parked.start()).toThrow(InternalActorError);
-
-    let halted = false;
-    let running!: TestActor;
-    running = new TestActor(
-      compiledActorTable('running', { running: compiledActorState() }),
-      { entered: () => running.task(() => Promise.resolve(), { onDone: () => { running.halt(); halted = true; }, onFailed: unexpectedFailure }) },
-    );
-    running.start();
-    await eventually(() => expect(halted).toBe(true));
-    expect(() => running.start()).toThrow(InternalActorError);
   });
 
   it('5. assigns a parked transition target before transition then entry with one exact frozen context', async () => {
@@ -318,31 +307,6 @@ describe('configured actor lifecycle', () => {
       ['BaseActor main-loop failure hook failed', secondary],
     ]);
     log.mockRestore();
-  });
-
-  it('13. permits halt only during callback delivery after slot clear and before an event is queued', async () => {
-    const outside = new TestActor(compiledActorTable('ready', { ready: compiledActorState({ parked: true }) }));
-    outside.start();
-    expect(() => outside.halt()).toThrow(InternalActorError);
-
-    let legal = false;
-    let halted!: TestActor;
-    halted = new TestActor(
-      compiledActorTable('running', { running: compiledActorState() }),
-      { entered: () => halted.task(() => Promise.resolve(), { onDone: () => { halted.halt(); legal = true; }, onFailed: unexpectedFailure }) },
-    );
-    halted.start();
-    await eventually(() => expect(legal).toBe(true));
-
-    let checkedQueuedEvent = false;
-    let queued!: TestActor;
-    queued = new TestActor(
-      compiledActorTable('running', { running: compiledActorState({ on: { done: compiledActorTransition('terminal') } }), terminal: compiledActorState({ terminal: true }) }),
-      { entered: ({ target }) => { if (target === 'running') queued.task(() => Promise.resolve(), { onDone: () => { queued.event('done'); expect(() => queued.halt()).toThrow(InternalActorError); checkedQueuedEvent = true; }, onFailed: unexpectedFailure }); } },
-    );
-    queued.start();
-    await eventually(() => expect(queued.state()).toBe('terminal'));
-    expect(checkedQueuedEvent).toBe(true);
   });
 
   it('14. chains configured execution because each next node entry sees a null task slot', async () => {

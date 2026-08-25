@@ -12,7 +12,6 @@ import {
 } from './canonical-record-artifacts.js';
 import { readCard } from './card-files.js';
 import { appendEnvelope, publishFirstEnvelope, readStrictCanonicalGrowingFile, serializeGrowingEnvelope, type CanonicalReadInstrumentation, type GrowingFileIo } from './growing-file.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { cardRecordStreamFile } from './layout.js';
 import type { PublicationTemporaryIdFactory } from './replace-file.js';
 
@@ -39,7 +38,7 @@ function readStreamRows(projectRoot: string, cardId: string, definition: RecordD
   const path = cardRecordStreamFile(projectRoot, cardId, definition);
   let rows: AuthoredRecordVersionArtifact[];
   try { rows = readStrictCanonicalGrowingFile(path, authoredRecordVersionArtifactSchema, instrumentation); }
-  catch (error) { throwIfPublicationOutcomeUnknown(error); if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
   validateRecordStream(rows, path, cardId, definition);
   return rows;
 }

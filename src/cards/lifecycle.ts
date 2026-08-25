@@ -1,7 +1,6 @@
-import { cardNotificationSchema, type CardNotification, type CardRecord, type CardTypeName, type CreatedBy, type Urgency } from '../schemas/index.js';
+import { cardNotificationSchema, valuesEqual, type CardNotification, type CardRecord, type CardTypeName, type CreatedBy, type Urgency } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { acceptsCardNotifications } from './card-status.js';
-import { valuesEqual } from './value-equality.js';
 
 export interface NewChildCardInput {
   type: CardTypeName;

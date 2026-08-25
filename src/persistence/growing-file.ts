@@ -41,14 +41,14 @@ export function serializeGrowingEnvelope<Row>(rows: readonly unknown[], rowSchem
   return prepareGrowingEnvelope(rows, rowSchema).bytes;
 }
 
-export function parseGrowingFile<Row>(path: string, bytes: Buffer, rowSchema: z.ZodType<Row>): Row[] {
+function parseGrowingFile<Row>(path: string, bytes: Buffer, rowSchema: z.ZodType<Row>): Row[] {
+  if (bytes.byteLength === 0) throw new Error(`Growing file '${path}' is empty.`);
+  if (bytes.at(-1) !== 0x0a) throw new Error(`Growing file '${path}' has an incomplete final envelope.`);
   let content: string;
   try { content = new TextDecoder('utf-8', { fatal: true }).decode(bytes); }
   catch (error) {
     throw new Error(`Growing file '${path}' is malformed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
-  if (content.length === 0) throw new Error(`Growing file '${path}' is empty.`);
-  if (!content.endsWith('\n')) throw new Error(`Growing file '${path}' has an incomplete final envelope.`);
   const rows: Row[] = [];
   const lines = content.split('\n');
   lines.pop();
@@ -88,10 +88,7 @@ export function readStrictCanonicalGrowingFile<Row>(path: string, rowSchema: z.Z
   const descriptor = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     if (!fstatSync(descriptor).isFile()) throw new Error(`Canonical growing file '${path}' must be a regular file.`);
-    const bytes = readAll(descriptor);
-    if (bytes.byteLength === 0) throw new Error(`Growing file '${path}' is empty.`);
-    if (bytes.at(-1) !== 0x0a) throw new Error(`Growing file '${path}' has an incomplete final envelope.`);
-    return parseGrowingFile(path, bytes, rowSchema);
+    return parseGrowingFile(path, readAll(descriptor), rowSchema);
   } finally { closeSync(descriptor); }
 }
 

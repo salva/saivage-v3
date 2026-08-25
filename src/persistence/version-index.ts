@@ -43,11 +43,3 @@ export function validateHeadFields(
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Current version and filename must equal the catalog head.' });
   }
 }
-
-export function versionHeadFieldsSchema<Entry extends z.ZodType<{ version: number; filename: string }>>(entrySchema: Entry) {
-  return z.object({
-    versions: z.array(entrySchema),
-    current_version: positiveSafeIntegerSchema.nullable(),
-    current_filename: z.string().nullable(),
-  }).strict().superRefine(validateHeadFields);
-}

@@ -3,7 +3,7 @@ import type { ClassifiedRound } from './round-classifier.js';
 export type SnapPolicy = 'keep_straddler_verbatim' | 'compact_straddler';
 
 export type SlidingBandConfig = { tail_budget_tokens: number; middle_budget_tokens: number; snap: SnapPolicy };
-export type SlidingBandPartitions = { merge_rounds: ClassifiedRound[]; summary_rounds: ClassifiedRound[]; tail_rounds: ClassifiedRound[]; open_round: ClassifiedRound | null };
+export type SlidingBandPartitions = { merge_rounds: ClassifiedRound[]; summary_rounds: ClassifiedRound[]; tail_rounds: ClassifiedRound[] };
 
 /** Partitions closed rounds backward from the newest closed round. Only the explicit open round and closed rounds above the budgets stay verbatim. */
 export function computeSlidingCompactionBands(rounds: readonly ClassifiedRound[], config: SlidingBandConfig): SlidingBandPartitions {
@@ -34,7 +34,7 @@ export function computeSlidingCompactionBands(rounds: readonly ClassifiedRound[]
     if (config.snap === 'keep_straddler_verbatim') { middleNewestFirst.push(round); cursor--; }
     break;
   }
-  return { merge_rounds: completed.slice(0, cursor + 1), summary_rounds: middleNewestFirst.reverse(), tail_rounds: tailNewestFirst.reverse(), open_round: openRound };
+  return { merge_rounds: completed.slice(0, cursor + 1), summary_rounds: middleNewestFirst.reverse(), tail_rounds: tailNewestFirst.reverse() };
 }
 
 export function assertEscalatedSuffixSubsets(normal: SlidingBandPartitions, escalated: SlidingBandPartitions): void {

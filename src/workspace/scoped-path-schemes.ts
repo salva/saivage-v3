@@ -3,7 +3,7 @@ import { relative, resolve } from 'node:path';
 import type { AgentName } from '../schemas/index.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-export type AuthoredRecordReader = { current(cardId: string, filename: string): RecordProjection;currentOrNull?(cardId:string,filename:string):RecordProjection|null; historical(cardId: string, filename: string, version: number): RecordProjection;definition(cardId:string,filename:string):RecordDefinition };
+export type AuthoredRecordReader = { currentOrNull(cardId:string,filename:string):RecordProjection|null; historical(cardId: string, filename: string, version: number): RecordProjection;definition(cardId:string,filename:string):RecordDefinition };
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/layout.js';
@@ -86,7 +86,7 @@ export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: stri
   requireAgent(ctx, 'record:///');
   let parsed:ParsedRecordUrl;try{parsed=parseRecordUrl(raw);}catch(error){throw ctx.fail(toolFacingErrorMessage(error));}
   const definition=recordDefinitionOrNotFound(ctx,parsed.cardId,parsed.name);
-  if(parsed.version===null){let projection:RecordProjection|null;try{projection=ctx.records.currentOrNull?ctx.records.currentOrNull(parsed.cardId,parsed.name):ctx.records.current(parsed.cardId,parsed.name);}catch(error){throwIfPublicationOutcomeUnknown(error);if(error instanceof AuthoredRecordNotFoundError)projection=null;else throw error;}return Object.freeze({parsed,definition,projection});}
+  if(parsed.version===null){let projection:RecordProjection|null;try{projection=ctx.records.currentOrNull(parsed.cardId,parsed.name);}catch(error){throwIfPublicationOutcomeUnknown(error);if(error instanceof AuthoredRecordNotFoundError)projection=null;else throw error;}return Object.freeze({parsed,definition,projection});}
   return Object.freeze({parsed,definition,projection:readRecordOrNotFound(ctx,()=>ctx.records!.historical(parsed.cardId,parsed.name,parsed.version!))});
 }
 

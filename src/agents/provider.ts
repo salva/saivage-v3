@@ -120,7 +120,7 @@ export class Provider {
     if (!account) throw new Error(`Cannot resolve effective capabilities for unknown account "${accountName}" on provider "${this.name}".`);
     const builtIn = builtInCapabilitiesForProvider(this.name);
     const providerLevel = mergeCapabilities(builtIn, this.capabilities);
-    const accountLevel = mergeCapabilities(providerLevel, account?.capabilities);
+    const accountLevel = mergeCapabilities(providerLevel, account.capabilities);
     return mergeCapabilities(accountLevel, this.modelCapabilities?.[model]);
   }
 

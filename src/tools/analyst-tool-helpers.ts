@@ -1,11 +1,7 @@
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import type { CardTypeName } from '../schemas/index.js';
-import type { SafeToolData, ToolContext, ToolResult } from './analyst-tool-types.js';
+import type { SafeToolData, ToolResult } from './analyst-tool-types.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-
-export function getStore(ctx: ToolContext): CardService {
-  return ctx.store;
-}
 
 export function defaultParentForCreate(store: CardService, type: CardTypeName): string | null | undefined {
   if (type === 'project') return null;

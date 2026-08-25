@@ -7,7 +7,7 @@ import { validateCompactedHistorySuccessor, validateConversation, type Compacted
 import { currentCoveredRequiredFactRows } from '../runtime/actors/context/composition-projector.js';
 import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, type CompactedHistory, type ConversationSessionId, type RequiredModelFactSlots } from '../schemas/index.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
-import { PublicationOutcomeUnknownError, throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 import {
   conversationSegmentEnvelopeSchema,
   conversationVersionIndexSchema,
@@ -156,8 +156,7 @@ function visibleMessageId(rows: readonly AgentMessage[]): string | null { return
 
 export function appendConversationBatch(conversations: ConversationFileContext, messages: readonly AgentMessage[], options: ConversationAppendOptions = {}): void {
   const parsed = validateBatch(messages); const sessionId = parsed[0]!.session_id; const target = location(conversations.projectRoot, sessionId); const index = parseIndex(target.indexPath); if (index.session_id !== sessionId) throw new Error(`Conversation index identity does not match '${sessionId}'.`);
-  let current: ConversationSegment | null;
-  try { current = readSegment(conversations.projectRoot, sessionId, undefined, index); } catch (error) { throwIfPublicationOutcomeUnknown(error); throw error; }
+  const current = readSegment(conversations.projectRoot, sessionId, undefined, index);
   const existingIds = new Set(current?.rows.map((message) => message.id) ?? []); const duplicate = parsed.find((message) => existingIds.has(message.id)); if (duplicate) throw new Error(`Conversation message '${duplicate.id}' already exists.`);
   const prospectiveSeeds = current ? validationSeeds(current.genesis) : { inherited: undefined, compacted: undefined };
   validateConversation(sessionId, [...(current?.rows ?? []), ...parsed], prospectiveSeeds.inherited, prospectiveSeeds.compacted);

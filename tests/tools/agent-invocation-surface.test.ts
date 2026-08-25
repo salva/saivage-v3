@@ -44,7 +44,8 @@ describe('named-agent inventories and composition', () => {
     const cardCancel=resolveRuntimeTool('card','cancel_card');
     expect(globalCancel.providerGroupId).not.toBe(cardCancel.providerGroupId);
     expect(globalCancel.description).not.toBe(cardCancel.description);
-    const group=(key:string)=>({key,providerName:key,scope:'card' as const,binders:[cardInspectionToolBinders[0]!],context:()=>({store:{}})});
+    const inspectionStore={read:():null=>null,list:()=>[],listChildren:()=>[],readCurrentRecord:()=>{throw new Error('unused store stub');},recordDefinitions:()=>[]};
+    const group=(key:string)=>({key,providerName:key,scope:'card' as const,binders:[cardInspectionToolBinders[0]!],context:()=>({store:inspectionStore})});
     expect(()=>buildRuntimeToolCatalog([group('one'),group('two')] as never)).toThrow("Duplicate runtime tool catalog entry 'card/list_cards'.");
     expect((buildRuntimeToolCatalog([group('one')] as never) as Map<string,unknown>).set).toBeUndefined();
   });

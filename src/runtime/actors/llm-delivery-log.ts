@@ -2,7 +2,6 @@ import { agentMessageSchema, canonicalJson, DURABLE_PRIMARY_CONTENT_POLICY, STRU
 import { deterministicRoundId } from '../../schemas/round-id-server.js';
 import { conversationSha256 } from '../../persistence/canonical-conversation-artifacts.js';
 import type { ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
-import type { CompiledInvocationToolContract } from './context/context-blocks.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
 import { projectSettledToolResultForConversation } from '../../tools/tool-invocation-outbound.js';
 import { settlementProviderResult, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, type ToolSettlementInput, type ToolResult } from '../../tools/invocation.js';
@@ -24,10 +23,6 @@ const UNSUPPORTED_INVOCATION_RESULT_POLICY: InvocationResultPolicy = Object.free
 export function selectInvocationResultPolicy(input: CanonicalLlmInvocationInput, toolName: string): InvocationResultPolicy {
   const contract = input.compiledToolContracts.find((candidate) => candidate.providerDefinition.function.name === toolName);
   return contract ?? UNSUPPORTED_INVOCATION_RESULT_POLICY;
-}
-
-export function invocationResultPolicyFromContract(contract: CompiledInvocationToolContract): InvocationResultPolicy {
-  return Object.freeze({ resultPolicyTemplate: contract.resultPolicyTemplate, resultPolicyTemplateBytes: contract.resultPolicyTemplateBytes, resultPolicyTemplateSha256: contract.resultPolicyTemplateSha256 });
 }
 
 function assertResultPolicyConsistency(resultPolicy: InvocationResultPolicy, toolName: string): void {
@@ -96,7 +91,7 @@ function appendLlmTurnMessage(conversations: ConversationFileContext, input: Can
   return message;
 }
 
-export function buildLlmTurnMessage(input: CanonicalLlmInvocationInput, content: string, timestamp = new Date().toISOString()): AgentMessage {
+export function buildLlmTurnMessage(input: CanonicalLlmInvocationInput, content: string): AgentMessage {
   return agentMessageSchema.parse({
       id: `${input.inputId}:message`,
       session_id: input.sessionId,
@@ -107,7 +102,7 @@ export function buildLlmTurnMessage(input: CanonicalLlmInvocationInput, content:
       round_id: deterministicRoundId('assistant', input.inputId),
       message_index: 1,
       block_index: 0,
-      timestamp,
+      timestamp: new Date().toISOString(),
     });
 }
 
@@ -199,7 +194,7 @@ export function appendLlmTurnToolCallBatch(conversations: ConversationFileContex
   return visible;
 }
 
-export function buildToolResultMessage(record: ToolSettlementAppendRecord, facts: SettledToolResultFacts, createdAt: string): AgentMessage {
+function buildToolResultMessage(record: ToolSettlementAppendRecord, facts: SettledToolResultFacts, createdAt: string): AgentMessage {
   return agentMessageSchema.parse({
     id: `${record.source_input_id}:tool-result:${record.tool_call_id}`,
     session_id: record.session_id,

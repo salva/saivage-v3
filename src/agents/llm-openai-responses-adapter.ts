@@ -6,8 +6,8 @@ import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { responsesInputFromProviderConversation } from './llm-openai-responses-mapper.js';
 import { parseOpenAIResponsesJson } from './llm-openai-responses-parser.js';
 import {
-  serializeToolsForResponses,
-  type WireToolDefinitionResponses,
+  serializeToolsForCodex,
+  type WireToolDefinitionCodex,
 } from './tool-definition-serializer.js';
 import type { LlmProtocolAdapter } from './llm-protocol-adapter.js';
 
@@ -19,7 +19,7 @@ interface OpenAIResponsesRequest {
   include: ['reasoning.encrypted_content'];
   stream: false;
   max_output_tokens: number;
-  tools?: readonly WireToolDefinitionResponses[];
+  tools?: readonly WireToolDefinitionCodex[];
   tool_choice?: 'auto';
   parallel_tool_calls?: false;
   reasoning?: { effort?: 'minimal' | 'low' | 'medium' | 'high' };
@@ -107,7 +107,7 @@ export function buildOpenAIResponsesRequest(
     stream: false,
   };
   if (opts.tools.length) {
-    body.tools = serializeToolsForResponses(opts.tools);
+    body.tools = serializeToolsForCodex(opts.tools);
     body.tool_choice = opts.tool_choice;
     body.parallel_tool_calls = false;
   }

@@ -453,7 +453,6 @@ export class AnalystSession {
       replacement: Object.freeze({ kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: orientation.contentSha256 }),
       audience: 'primary_and_summarizer',
       evidence: Object.freeze({ kind: 'none' }),
-      canonicalSource: null,
     });
   }
 

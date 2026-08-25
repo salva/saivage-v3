@@ -6,26 +6,15 @@ import type {
 import { isConversationBudgetVisible } from '../conversation-session.js';
 import { projectedCanonicalRowContent } from '../context/composition-projector.js';
 
-export type SubRoundKind = 'repair';
-
 export type ClassifiedMessage = {
   message: AgentMessage;
   estimated_tokens: number;
 };
 
-export type ClassifiedSubRound = {
-  id: string;
-  kind: SubRoundKind;
-  anchor_message_id: string;
-  rows: ClassifiedMessage[];
-};
-
 export type ClassifiedRound = {
   round_id: string;
   state: 'closed' | 'open';
-  activation_marker: ClassifiedMessage | null;
   rows: ClassifiedMessage[];
-  sub_rounds: ClassifiedSubRound[];
   estimated_tokens: number;
 };
 
@@ -58,25 +47,11 @@ function buildRound(
   source: SourceRound,
   byId: ReadonlyMap<string, ClassifiedMessage>,
 ): ClassifiedRound {
-  const marker = source.activation.source === 'row' ? byId.get(source.activation.message.id)! : null;
   const rows = source.rows.map((row) => byId.get(row.id)!);
-  const roundId = source.label;
   return {
-    round_id: roundId,
+    round_id: source.label,
     state: source.state,
-    activation_marker: marker,
     rows,
-    sub_rounds: source.segments
-      .filter((segment) => segment.kind === 'repair').map((segment) => {
-    const subRows = segment.rows.map((row) => byId.get(row.id)!);
-    const anchor = subRows[0]!;
-    return {
-      id: `${roundId}#${anchor.message.id}`,
-          kind: 'repair' as const,
-          anchor_message_id: anchor.message.id,
-          rows: subRows,
-        };
-      }),
     estimated_tokens: rows.reduce((sum, row) => sum + row.estimated_tokens, 0),
   };
 }
