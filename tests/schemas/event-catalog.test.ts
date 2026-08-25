@@ -1,7 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
-  buildLoggedEventSchema,
   errorEventSchema,
   eventKindValues,
   getEventSeverity,
@@ -34,7 +33,6 @@ describe('durable event catalog', () => {
     expect(eventKindValues.map(getEventSeverity)).toEqual(['error', 'error', 'info']);
     for (const event of events) {
       expect(loggedEventSchema.parse(event)).toEqual(event);
-      expect(buildLoggedEventSchema(event.kind).parse(event)).toEqual(event);
       expect(appLogEntrySchema.parse({ type: 'event', data: event })).toEqual({ type: 'event', data: event });
     }
   });
@@ -44,7 +42,7 @@ describe('durable event catalog', () => {
     expect(barrelLoggedEventSchema).toBe(loggedEventSchema);
     expect(actionableErrorEnvelopeSchema.parse({ code: 'x', message: 'm', nextAction: 'n' })).toEqual({ code: 'x', message: 'm', nextAction: 'n' });
     expect(actionableErrorEnvelopeSchema.safeParse({ code: 'x', message: 'm', nextAction: 'n', extra: true }).success).toBe(false);
-    expect(buildLoggedEventSchema('runtime_actionable_error').safeParse({ id: 'x', timestamp, kind: 'runtime_actionable_error', actionable_error: {} }).success).toBe(false);
+    expect(loggedEventSchema.safeParse({ id: 'x', timestamp, kind: 'runtime_actionable_error', actionable_error: {} }).success).toBe(false);
   });
 
   it('selects diagnostics, actionable errors, and only failed MCP invocations', () => {

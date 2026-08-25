@@ -21,6 +21,5 @@ export const authOperatorApiContracts = {
     success: WebSocketTicketResponseSchema,
     response: { 200: WebSocketTicketResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'WebSocketTicketResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

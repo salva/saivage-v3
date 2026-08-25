@@ -318,12 +318,6 @@ export const KnownStatusWsEnvelopeSchema = z.union([
   AnalystTurnAcknowledgedStatusEnvelopeSchema,
 ]);
 
-export const KnownWsContentSchema = z.union([
-  ConnectedStatusContentSchema,
-  AnalystTurnAcknowledgedStatusContentSchema,
-  AnalystActivityContentSchema,
-]);
-
 export const KnownWsEnvelopeSchema = z.union([
   KnownStatusWsEnvelopeSchema,
   AnalystActivityEnvelopeSchema,
@@ -345,17 +339,10 @@ export const KnownWsEnvelopeWithClassifiedToolActivitySchema = z.union([
   ErrorEnvelopeSchema,
 ]);
 
-export const knownWsContentEventNames = [
-  'connected',
-  'analyst_turn_acknowledged',
-  ...AnalystActivityEventNames,
-] as const;
-
 const analystActivityEventNameSet = new Set<string>(AnalystActivityEventNames);
 
 export type WsEventType = z.infer<typeof WsEventTypeSchema>;
-export type WsEnvelopeContract = z.infer<typeof WsEnvelopeSchema>;
-export type WsEnvelope = WsEnvelopeContract;
+export type WsEnvelope = z.infer<typeof WsEnvelopeSchema>;
 export type KnownWsEnvelope = z.infer<typeof KnownWsEnvelopeSchema>;
 export type KnownWsEnvelopeWithClassifiedToolActivity = z.infer<
   typeof KnownWsEnvelopeWithClassifiedToolActivitySchema
@@ -363,12 +350,10 @@ export type KnownWsEnvelopeWithClassifiedToolActivity = z.infer<
 export type ClassifiedToolInvocationActivityContent = z.infer<
   typeof ClassifiedToolInvocationActivityContentSchema
 >;
-export type KnownWsContent = z.infer<typeof KnownWsContentSchema>;
 export type KnownStatusWsEnvelope = z.infer<typeof KnownStatusWsEnvelopeSchema>;
 export type AnalystTurnAcknowledgedStatusEnvelope = z.infer<
   typeof AnalystTurnAcknowledgedStatusEnvelopeSchema
 >;
-export type KnownActivityWsEnvelope = z.infer<typeof AnalystActivityEnvelopeSchema>;
 export type InboundAnalystMessageEnvelope = z.infer<typeof InboundAnalystMessageEnvelopeSchema>;
 export type AnalystActivityContent = z.infer<typeof AnalystActivityContentSchema>;
 
@@ -376,15 +361,6 @@ function getContentEvent(content: unknown): string | null {
   if (!content || typeof content !== 'object') return null;
   const event = (content as Record<string, unknown>).event;
   return typeof event === 'string' ? event : null;
-}
-
-export function parseWsEnvelope(input: unknown): WsEnvelopeContract | null {
-  const parsed = WsEnvelopeSchema.safeParse(input);
-  return parsed.success ? parsed.data : null;
-}
-
-export function parseKnownWsContent(content: unknown): KnownWsContent {
-  return KnownWsContentSchema.parse(content);
 }
 
 export function parseKnownWsEnvelope(envelope: unknown): KnownWsEnvelope {
@@ -421,8 +397,4 @@ export function buildConnectedEnvelope(input: {
       clientCount: input.clientCount ?? 1,
     },
   });
-}
-
-export function buildInboundAnalystMessageEnvelope(text: string): InboundAnalystMessageEnvelope {
-  return InboundAnalystMessageEnvelopeSchema.parse({ type: 'message', content: { text } });
 }

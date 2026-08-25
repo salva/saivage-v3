@@ -13,15 +13,13 @@ import type { WebSocket } from 'ws';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { buildConnectedEnvelope, KnownWsEnvelopeWithClassifiedToolActivitySchema,
 } from '../contracts/index.js';
-import type { WsEnvelope, WsEventType } from '../contracts/index.js';
+import type { WsEnvelope } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { AnalystWsHandler } from './analyst-ws-handler.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
-
-export type { WsEnvelope, WsEventType };
 
 export function serializeOutboundEnvelope(event: WsEnvelope): string {
   const classified = KnownWsEnvelopeWithClassifiedToolActivitySchema.parse(event);

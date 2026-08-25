@@ -1,7 +1,7 @@
 import type { Page } from '@playwright/test';
 import {
   buildConnectedEnvelope,
-  buildInboundAnalystMessageEnvelope,
+  type InboundAnalystMessageEnvelope,
   type LiveSyncInvalidateFrame,
 } from '../../../../src/contracts/operator-events.js';
 
@@ -11,7 +11,7 @@ const connectedEnvelope = buildConnectedEnvelope({
   clientCount: 1,
 });
 const runtimeUpdateEnvelope: LiveSyncInvalidateFrame = { t: 'invalidate', resource: 'runtime' };
-const inboundAnalystFixture = buildInboundAnalystMessageEnvelope('hello analyst');
+const inboundAnalystFixture: InboundAnalystMessageEnvelope = { type: 'message', content: { text: 'hello analyst' } };
 
 export async function installOperatorWebSocketShim(page: Page, options: { autoAcknowledge?: boolean } = {}): Promise<void> {
   await page.addInitScript(({ connected, runtimeUpdate, inboundFixture, autoAcknowledge }) => {

@@ -130,10 +130,6 @@ export class AuthPolicy {
     return { ok: true, mode: 'ticket' };
   }
 
-  clearTickets(): void {
-    this.tickets.clear();
-  }
-
   private cleanupExpiredTickets(): void {
     const now = this.now();
     for (const [ticket, stored] of this.tickets.entries()) {

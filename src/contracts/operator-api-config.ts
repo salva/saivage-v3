@@ -89,7 +89,6 @@ export const configOperatorApiContracts = {
     success: ConfigGetResponseSchema,
     response: { 200: ConfigGetResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'ConfigGetResponse',
   },
   'providers.list': {
     operationId: 'providers.list',
@@ -98,7 +97,6 @@ export const configOperatorApiContracts = {
     success: ProvidersListResponseSchema,
     response: { 200: ProvidersListResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'ProvidersListResponse',
   },
   'controlActions.list': {
     operationId: 'controlActions.list',
@@ -108,6 +106,5 @@ export const configOperatorApiContracts = {
     success: ControlActionsListResponseSchema,
     response: { 200: ControlActionsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'ControlActionsListResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

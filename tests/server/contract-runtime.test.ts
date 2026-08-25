@@ -16,7 +16,7 @@ import { testApplicationFatalDelivery, testApplicationFatalPort } from '../helpe
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 const contract = {
-  operationId: 'test.response', method: 'GET', path: '/test', auth: 'public', successSchemaName: 'TestResponse',
+  operationId: 'test.response', method: 'GET', path: '/test', auth: 'public',
   success: z.object({ ok: z.literal(true) }).strict(),
   response: { 200: z.object({ ok: z.literal(true) }).strict(), 500: z.object({ error: z.string(), message: z.string().optional() }).strict() },
 } as const;

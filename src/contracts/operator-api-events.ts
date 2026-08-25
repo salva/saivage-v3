@@ -10,7 +10,6 @@ import {
 
 export const EventsQuerySchema = z.object({
   kind: z.enum(eventKindValues).optional(),
-  goal_id: z.string().optional(),
   card_id: z.string().optional(),
   selection: z.enum(['oldest_page', 'newest_tail']).optional(),
   limit: z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine((value) => Number.isSafeInteger(value) && value <= 1000).optional(),
@@ -34,6 +33,5 @@ export const eventsOperatorApiContracts = {
     success: EventsListResponseSchema,
     response: { 200: EventsListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'EventsListResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

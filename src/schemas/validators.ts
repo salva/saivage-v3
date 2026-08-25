@@ -2,15 +2,11 @@ import { z } from 'zod';
 
 import { sha256Hex } from './sha256.js';
 import {
-  agentEventKindValues,
-  eventKindValues,
-  runtimeEventKindValues,
-  analystIssueSeverityValues,
   cardActionValues,
   cardStatusValues,
   urgencyValues,
 } from './types.js';
-import { loggedEventSchema, loggedEventSchemaByKind } from './event-catalog.js';
+import { loggedEventSchema } from './event-catalog.js';
 export { actionableErrorEnvelopeSchema, actionableEnumError, createActionableErrorEnvelope } from './actionable-error.js';
 import { roundIdGrammar } from './round-id.js';
 import { cardLifecycleStateSchema } from './lifecycle.js';
@@ -26,9 +22,6 @@ export { nonRootCardIdSchema } from './card-id.js';
 export { cardIdSchema };
 export { roundIdGrammar, assertRoundId, type RoundKind } from './round-id.js';
 export * from './context-policy.js';
-
-
-function enumFromCatalog(values: readonly string[]) { return z.enum(values as unknown as [string, ...string[]]); }
 
 
 export const cardTypeSchema = cardTypeNameSchema;
@@ -49,8 +42,6 @@ function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.Refin
   if ((card.lifecycle.status === 'done' || card.lifecycle.status === 'failed' || card.lifecycle.status === 'cancelled') && card.pending_notifications.length !== 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Cards in status '${card.lifecycle.status}' require empty pending_notifications.`, path: ['pending_notifications'] });
 }
 export const cardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() => z.object(cardRecordShape).strict().superRefine(refineCardLifecycle));
-export const cardOperatorSummarySchema: z.ZodType<import('./types.js').CardOperatorSummary> = z.object({ blocked: z.boolean(), hasError: z.boolean(), error: z.string().nullable(), completedAt: z.string().nullable(), stale: z.boolean() }).strict();
-export const operatorCardSchema = z.object({ ...cardRecordShape, allowedActions: z.array(cardActionSchema), operator_summary: cardOperatorSummarySchema }).strict().superRefine(refineCardLifecycle);
 export const cardHistoryKindSchema = z.enum(['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete']);
 const historyCommonShape = { entry_id: z.string().uuid(), card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, changed_at: z.string().datetime(), change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() };
 const historyProvenance = {
@@ -72,8 +63,6 @@ const historyHeaderVariants = [
 export const cardHistoryHeaderSchema: z.ZodType<import('./types.js').CardHistoryHeader> = z.discriminatedUnion('kind', historyHeaderVariants);
 export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryEntry> = z.discriminatedUnion('kind', historyEntryVariants);
 export const controlActionAuditEntrySchema: z.ZodType<import('./types.js').ControlActionAuditEntry> = z.object({ id: z.string().min(1), actor: noteAuthorSchema, surface: controlActionSurfaceSchema, action: z.string().min(1), target_kind: z.enum(['card', 'note', 'process', 'runtime', 'config', 'session']).nullable(), target_id: z.string().nullable(), params_summary: z.string(), safety_class: z.enum(['read_only', 'low', 'high', 'destructive', 'deployment']).optional(), outcome: z.enum(['ok', 'error', 'denied']), outcome_summary: z.string(), error: z.string().optional(), created_at: z.string().datetime() }).strict();
-export const analystIssueSchema: z.ZodType<import('./types.js').AnalystIssue> = z.object({ summary: z.string().min(1), severity: z.enum(analystIssueSeverityValues).optional(), evidence_path: z.string().optional() }).strict();
-export const analystIssuesSchema = z.array(analystIssueSchema);
 export const projectConfigSchema = z.object({ id: z.literal('project'), name: z.string().min(1), context: z.string(), goals_summary: z.string(), constraints: z.array(z.string()), planner_enabled: z.boolean(), created_at: z.string().datetime(), updated_at: z.string().datetime() });
 export const processStatusSchema = z.enum(['running', 'exited', 'failed', 'killed']);
 export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
@@ -181,8 +170,4 @@ export const skillIndexSchema = z.array(skillIndexEntrySchema).superRefine((entr
 });
 
 
-export const runtimeEventKindSchema = enumFromCatalog(runtimeEventKindValues);
-export const agentEventKindSchema = enumFromCatalog(agentEventKindValues);
-export const eventKindSchema = enumFromCatalog(eventKindValues);
-
-export { loggedEventSchema, loggedEventSchemaByKind };
+export { loggedEventSchema };

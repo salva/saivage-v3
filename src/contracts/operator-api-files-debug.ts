@@ -157,7 +157,6 @@ export const filesDebugOperatorApiContracts = {
     success: WorkspaceFilesListResponseSchema,
     response: { 200: WorkspaceFilesListResponseSchema, 400: WorkspaceFilesListBadRequestSchema, 401: UnauthorizedErrorSchema, 403: WorkspaceFileErrorSchema, 404: WorkspaceFilePathErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'WorkspaceFilesListResponse',
   },
   'files.content': {
     operationId: 'files.content',
@@ -167,7 +166,6 @@ export const filesDebugOperatorApiContracts = {
     success: WorkspaceFileContentResponseSchema,
     response: { 200: WorkspaceFileContentResponseSchema, 400: WorkspaceFileContentBadRequestSchema, 401: UnauthorizedErrorSchema, 403: WorkspaceFileContentForbiddenSchema, 404: z.union([WorkspaceFilePathErrorSchema, WorkspaceHistoricalVersionNotFoundSchema]), 413: WorkspaceFileTooLargeErrorSchema, 415: WorkspaceFilePathErrorSchema, 500: UnexpectedInternalServerErrorSchema, 503: WorkspaceCurrentStateUnavailableSchema },
     ...operatorSessionContract,
-    successSchemaName: 'WorkspaceFileContentResponse',
   },
   'debug.errors': {
     operationId: 'debug.errors',
@@ -176,7 +174,6 @@ export const filesDebugOperatorApiContracts = {
     success: DebugErrorsResponseSchema,
     response: { 200: DebugErrorsResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'DebugErrorsResponse',
   },
   'debug.graphs': {
     operationId: 'debug.graphs',
@@ -185,7 +182,6 @@ export const filesDebugOperatorApiContracts = {
     success: DebugGraphsResponseSchema,
     response: { 200: DebugGraphsResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'DebugGraphsResponse',
   },
   'debug.doctor': {
     operationId: 'debug.doctor',
@@ -194,6 +190,5 @@ export const filesDebugOperatorApiContracts = {
     success: DoctorResponseSchema,
     response: { 200: DoctorResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'DoctorResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

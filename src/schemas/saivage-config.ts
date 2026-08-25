@@ -223,26 +223,8 @@ const effectiveModelsSectionSchema = z.object({
   equivalents: z.array(z.array(z.string())),
   failover: z.record(z.string(), z.array(z.string())),
 }).strict();
-const effectiveProviderAccountSchema = z.object({
-  priority: z.number().int().optional(),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
-  authProfile: z.string().optional(),
-  models: z.array(z.string()).optional(),
-  capabilities: providerCapabilitySchema.optional(),
-}).strict();
-const effectiveProviderEntrySchema = z.object({
-  priority: z.number().int().optional(),
-  models: z.array(z.string()).optional(),
-  apiKey: z.string().optional(),
-  baseUrl: z.string().optional(),
-  authProfile: z.string().optional(),
-  capabilities: providerCapabilitySchema.optional(),
-  modelCapabilities: z.record(z.string(), providerCapabilitySchema).optional(),
-  accounts: z.record(z.string(), effectiveProviderAccountSchema).optional(),
-}).strict();
-const outboundEffectiveProviderAccountSchema = effectiveProviderAccountSchema.omit({ baseUrl: true });
-const outboundEffectiveProviderEntrySchema = effectiveProviderEntrySchema
+const outboundEffectiveProviderAccountSchema = providerAccountSchema.omit({ baseUrl: true });
+const outboundEffectiveProviderEntrySchema = providerEntrySchema
   .omit({ baseUrl: true, accounts: true })
   .extend({ accounts: z.record(z.string(), outboundEffectiveProviderAccountSchema).optional() });
 const effectiveServerSectionSchema = z.object({
@@ -293,7 +275,7 @@ const effectiveSaivageConfigShape = {
   agents: z.record(agentNameSchema, agentDefinitionSchema),
   analyst_agent: agentNameSchema,
   models: effectiveModelsSectionSchema,
-  providers: z.record(z.string(), effectiveProviderEntrySchema),
+  providers: z.record(z.string(), providerEntrySchema),
   server: effectiveServerSectionSchema,
   compaction: effectiveCompactionSectionSchema,
   card_types: cardTypesSchema,
@@ -316,8 +298,8 @@ export type OutboundEffectiveSaivageConfig = z.infer<typeof outboundEffectiveSai
 export type McpServerConfig = z.infer<typeof effectiveMcpServerEntrySchema>;
 export type StdioMcpServerConfig = z.infer<typeof effectiveStdioMcpServerSchema>;
 export type StreamableHttpMcpServerConfig = z.infer<typeof effectiveStreamableHttpMcpServerSchema>;
-export type ProviderEntry = z.infer<typeof effectiveProviderEntrySchema>;
-export type ProviderAccount = z.infer<typeof effectiveProviderAccountSchema>;
+export type ProviderEntry = z.infer<typeof providerEntrySchema>;
+export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
 export type CardTypesSource = z.infer<typeof cardTypesSchema>;
 export type CardTypeSource = NonNullable<CardTypesSource[keyof CardTypesSource]>;

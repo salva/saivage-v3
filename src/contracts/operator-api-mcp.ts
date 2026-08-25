@@ -41,6 +41,5 @@ export const mcpOperatorApiContracts = {
     success: McpToolsResponseSchema,
     response: { 200: McpToolsResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'McpToolsResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

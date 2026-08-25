@@ -132,7 +132,7 @@ export const AgentConversationCursorNotFoundErrorSchema = z.object({
   error: z.literal('conversation_cursor_not_found'), session_id: ConversationSessionIdSchema, segment_version: positiveSafeIntegerSchema, since: z.string().min(1),
 }).strict();
 export const ConversationSegmentChangedErrorSchema = z.object({ error: z.literal('conversation_segment_changed'), session_id: ConversationSessionIdSchema, requested_segment_version: positiveSafeIntegerSchema, current_segment_version: positiveSafeIntegerSchema }).strict();
-export const ConversationVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), content_availability: z.literal('unchecked'), genesis_kind: z.enum(['ordinary','compacted']), source_version: positiveSafeIntegerSchema.nullable() }).strict();
+export const ConversationVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), genesis_kind: z.enum(['ordinary','compacted']), source_version: positiveSafeIntegerSchema.nullable() }).strict();
 export const ConversationVersionListResponseSchema = z.object({ session_id: ConversationSessionIdSchema, versions: z.array(ConversationVersionMetadataSchema), total: z.number().int().safe().nonnegative() }).strict().superRefine((value, ctx) => {
   if (value.total !== value.versions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['total'], message: 'Conversation version total must equal the catalog length.' });
   value.versions.forEach((entry, index) => {
@@ -174,7 +174,6 @@ export const agentOperatorApiContracts = {
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,
-    successSchemaName: 'AgentListResponse',
   },
   'agents.detail': {
     operationId: 'agents.detail',
@@ -191,10 +190,9 @@ export const agentOperatorApiContracts = {
     },
     failureIdentity: { kind: 'session', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'AgentDetailResponse',
   },
-  'agents.conversationVersions.list': { operationId: 'agents.conversationVersions.list', method: 'GET', path: '/api/agents/:id/conversation/versions', params: AgentConversationParamsSchema, success: ConversationVersionListResponseSchema, response: { 200: ConversationVersionListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: AgentSessionNotFoundErrorSchema, 503: CurrentStateUnavailableSchema, 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'ConversationVersionListResponse' },
-  'agents.conversationVersions.get': { operationId: 'agents.conversationVersions.get', method: 'GET', path: '/api/agents/:id/conversation/versions/:version', params: ConversationVersionParamsSchema, success: ConversationVersionContentResponseSchema, response: { 200: ConversationVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalNotFoundSchema, ConversationHistoricalUnavailableSchema]), 409: ConversationHistoricalUnavailableSchema, 503: z.union([CurrentStateUnavailableSchema, ConversationHistoricalUnavailableSchema]), 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'ConversationVersionContentResponse' },
+  'agents.conversationVersions.list': { operationId: 'agents.conversationVersions.list', method: 'GET', path: '/api/agents/:id/conversation/versions', params: AgentConversationParamsSchema, success: ConversationVersionListResponseSchema, response: { 200: ConversationVersionListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: AgentSessionNotFoundErrorSchema, 503: CurrentStateUnavailableSchema, 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract },
+  'agents.conversationVersions.get': { operationId: 'agents.conversationVersions.get', method: 'GET', path: '/api/agents/:id/conversation/versions/:version', params: ConversationVersionParamsSchema, success: ConversationVersionContentResponseSchema, response: { 200: ConversationVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalNotFoundSchema, ConversationHistoricalUnavailableSchema]), 409: ConversationHistoricalUnavailableSchema, 503: z.union([CurrentStateUnavailableSchema, ConversationHistoricalUnavailableSchema]), 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract },
   'agents.cardSessions': {
     operationId: 'agents.cardSessions',
     method: 'GET',
@@ -210,7 +208,6 @@ export const agentOperatorApiContracts = {
     },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'CardAgentSessionsResponse',
   },
   'agents.conversation': {
     operationId: 'agents.conversation',
@@ -230,7 +227,6 @@ export const agentOperatorApiContracts = {
     },
     failureIdentity: { kind: 'session', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'AgentConversationResponse',
   },
   'agents.llmExchange': {
     operationId: 'agents.llmExchange',
@@ -248,7 +244,6 @@ export const agentOperatorApiContracts = {
     },
     failureIdentity: { kind: 'session', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'AgentLlmExchangeResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;
 

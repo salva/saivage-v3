@@ -44,7 +44,6 @@ export type RuntimeDiagnosticEvent = z.infer<typeof runtimeDiagnosticEventSchema
 export type RuntimeActionableErrorEvent = z.infer<typeof runtimeActionableErrorEventSchema>;
 export type McpToolInvocationEvent = z.infer<typeof mcpToolInvocationEventSchema>;
 export type EventKind = LoggedEvent['kind'];
-export type BaseEvent = Pick<LoggedEvent, 'id' | 'kind' | 'timestamp'>;
 export type LoggedEventByKind = { [K in EventKind]: Extract<LoggedEvent, { kind: K }> };
 export type EventPayloadByKind = { [K in EventKind]: Omit<LoggedEventByKind[K], 'id' | 'kind' | 'timestamp'> };
 export type EventPayload<K extends EventKind> = EventPayloadByKind[K];
@@ -55,13 +54,6 @@ export const eventKindValues = [
   'runtime_actionable_error',
   'mcp_tool_invocation',
 ] as const satisfies readonly EventKind[];
-
-export const runtimeEventKindValues = [
-  'runtime_diagnostic',
-  'runtime_actionable_error',
-] as const satisfies readonly EventKind[];
-
-export const agentEventKindValues = ['mcp_tool_invocation'] as const satisfies readonly EventKind[];
 
 const eventSeverity = {
   runtime_diagnostic: 'error',
@@ -83,14 +75,4 @@ export type ErrorEvent = RuntimeDiagnosticEvent | RuntimeActionableErrorEvent | 
 
 export function isErrorEvent(event: LoggedEvent): event is ErrorEvent {
   return event.kind !== 'mcp_tool_invocation' || !event.success;
-}
-
-export const loggedEventSchemaByKind = {
-  runtime_diagnostic: runtimeDiagnosticEventSchema,
-  runtime_actionable_error: runtimeActionableErrorEventSchema,
-  mcp_tool_invocation: mcpToolInvocationEventSchema,
-} as const satisfies Record<EventKind, z.ZodTypeAny>;
-
-export function buildLoggedEventSchema<K extends EventKind>(kind: K): (typeof loggedEventSchemaByKind)[K] {
-  return loggedEventSchemaByKind[kind];
 }

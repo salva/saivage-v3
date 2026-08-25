@@ -7,7 +7,6 @@ export { EVENT_QUERY_MAX_LIMIT } from '../contracts/builtin-tool-inputs.js';
 export type EventSelection = 'oldest_page' | 'newest_tail';
 export interface EventQuery {
   kind?: EventKind;
-  goal_id?: string;
   card_id?: string;
   offset?: number;
   limit?: number;
@@ -23,7 +22,6 @@ export class EventQueryService {
     validateQuery(selection, offset, limit);
     let matching = readAppLogEntries(this.projectRoot, 'event').map((entry) => redactForOutbound({ source: 'logged-event', value: entry.data }));
     if (query.kind) matching = matching.filter((event) => event.kind === query.kind);
-    if (query.goal_id) matching = matching.filter((event) => 'goal_id' in event && event.goal_id === query.goal_id);
     if (query.card_id) matching = matching.filter((event) => 'card_id' in event && event.card_id === query.card_id);
     const total = matching.length;
     return { events: selection === 'newest_tail' ? matching.slice(-limit) : matching.slice(offset, offset + limit), total };

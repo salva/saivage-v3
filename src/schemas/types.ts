@@ -66,11 +66,8 @@ export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pi
 export interface SkillIndexEntry { name: string; file: string; target_agents: import('./agent-name.js').AgentName[]; }
 
 
-export { eventKindValues, runtimeEventKindValues, agentEventKindValues, type EventKind } from './event-catalog.js';
-export type RuntimeEventKind = import('./event-catalog.js').EventKind;
-export type AgentEventKind = import('./event-catalog.js').EventKind;
+export { eventKindValues, type EventKind } from './event-catalog.js';
 export type {
-  BaseEvent,
   ErrorEvent,
   EventPayloadByKind,
   LoggedEvent,

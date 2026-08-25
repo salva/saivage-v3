@@ -64,14 +64,10 @@ export type {
 } from './actor-vocabulary.js';
 export {
   eventKindValues,
-  runtimeEventKindValues,
-  agentEventKindValues,
   getEventSeverity,
-  buildLoggedEventSchema,
   errorEventSchema,
   isErrorEvent,
   loggedEventSchema,
-  loggedEventSchemaByKind,
 } from './event-catalog.js';
 export {
   actionableErrorEnvelopeSchema,
@@ -128,9 +124,6 @@ export type {
   RuntimeStatus,
   RuntimeState,
   SkillIndexEntry,
-  RuntimeEventKind,
-  AgentEventKind,
-  BaseEvent,
   RuntimeDiagnosticEvent,
   RuntimeActionableErrorEvent,
   McpToolInvocationEvent,
@@ -154,14 +147,10 @@ export {
   noteAuthorSchema,
   controlActionSurfaceSchema,
   cardRecordSchema,
-  cardOperatorSummarySchema,
-  operatorCardSchema,
   cardHistoryEntrySchema,
   cardHistoryHeaderSchema,
   cardHistoryKindSchema,
   controlActionAuditEntrySchema,
-  analystIssueSchema,
-  analystIssuesSchema,
   projectConfigSchema,
   processStatusSchema,
   messageRoleSchema,
@@ -173,9 +162,6 @@ export {
   skillTargetAgentSchema,
   skillIndexEntrySchema,
   skillIndexSchema,
-  runtimeEventKindSchema,
-  agentEventKindSchema,
-  eventKindSchema,
 } from './validators.js';
 export { cardIdSchema, nonRootCardIdSchema, cardNotificationSchema } from './validators.js';
 export { cardIdSegments, MAX_CARD_DEPTH } from './card-id.js';

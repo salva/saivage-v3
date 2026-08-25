@@ -6,7 +6,6 @@ import {
   LiveSyncSubscribeFrameSchema,
   LiveSyncUnsubscribeFrameSchema,
   buildConnectedEnvelope,
-  parseKnownWsContent,
   parseKnownWsEnvelope,
   parseLiveSyncClientFrame,
 } from '../../src/contracts/operator-events.js';
@@ -95,18 +94,8 @@ describe('known WebSocket parsers', () => {
     clientCount: 1,
   });
 
-  it('returns known valid content and envelopes', () => {
-    expect(parseKnownWsContent(connected.content)).toEqual(connected.content);
+  it('returns known valid envelopes', () => {
     expect(parseKnownWsEnvelope(connected)).toEqual(connected);
-  });
-
-  it.each([
-    undefined,
-    {},
-    { event: 'future_event' },
-    { event: 'card_history_appended' },
-  ])('throws for unknown, missing, or malformed known content %#', (content) => {
-    expect(() => parseKnownWsContent(content)).toThrow();
   });
 
   it.each([

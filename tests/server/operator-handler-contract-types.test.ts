@@ -120,12 +120,12 @@ const explicitSuccess: OperatorApiHandlerResult<'health.liveness'> = {
   body: { status: 'ok', version: SAIVAGE_VERSION, project: 'saivage-v3' },
 };
 const readinessReady: OperatorApiHandlerResult<'health.readiness'> = { body: { status: 'ready', serverAvailability } };
-const nullRuntimeState: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectRoot: '/project', projectId: 'project', runtime: null, serverAvailability } };
+const nullRuntimeState: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectId: 'project', runtime: null, serverAvailability } };
 const stoppedRuntimeStatus: OperatorApiHandlerResult<'runtime.status'> = { body: { runtime: 'stopped', currentCardId: null, started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime, serverAvailability } };
 // @ts-expect-error Readiness requires concrete availability.
 const readinessWithoutAvailability: OperatorApiHandlerResult<'health.readiness'> = { body: { status: 'ready' } };
 // @ts-expect-error Runtime get-state requires concrete availability even when runtime state is null.
-const stateWithoutAvailability: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectRoot: '/project', projectId: 'project', runtime: null } };
+const stateWithoutAvailability: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectId: 'project', runtime: null } };
 // @ts-expect-error Runtime status requires concrete availability even when runtime is stopped.
 const statusWithoutAvailability: OperatorApiHandlerResult<'runtime.status'> = { body: { runtime: 'stopped', currentCardId: null, started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime } };
 // @ts-expect-error 418 is not declared by the readiness operation.

@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 
-import type { GrowingFileRowCheckpoint } from '../persistence/growing-file.js';
 import {
   accumulatedSummarySha256,
   canonicalJson,
@@ -81,8 +80,6 @@ export interface CanonicalConversationSourceCheckpoint {
   readonly sourceInputId: string | null;
   readonly failedToolResult: boolean;
   readonly projectedPrivateMessageId: string | null;
-  readonly lineStart: number;
-  readonly lineEnd: number;
   readonly rowOrdinal: number;
 }
 
@@ -157,7 +154,7 @@ export function createCanonicalConversationValidationState(
 export function reduceCanonicalConversationRow(
   state: CanonicalConversationValidationState,
   row: AgentMessage,
-  checkpoint: GrowingFileRowCheckpoint,
+  rowOrdinal: number,
 ): CanonicalConversationValidationState {
   if (row.session_id !== state.sessionId)
     throw new Error(
@@ -213,9 +210,7 @@ export function reduceCanonicalConversationRow(
     sourceInputId,
     failedToolResult: toolFacts.failedResult,
     projectedPrivateMessageId: row.provider_projection?.private_message_id ?? null,
-    lineStart: checkpoint.lineStart,
-    lineEnd: checkpoint.lineEnd,
-    rowOrdinal: checkpoint.rowOrdinal,
+    rowOrdinal,
   });
   validateToolOrdering(state, source, row, callIdentity, resultIdentity);
   state.sources.push(source);
@@ -243,71 +238,11 @@ export function validateConversation(
 ): ValidatedConversation {
   if (compactedGenesis) validateSelfContainedCompactedHistory(sessionId, compactedGenesis);
   const state = createCanonicalConversationValidationState(sessionId, inheritedActivation);
-  physicalRows.forEach((row, rowOrdinal) =>
-    reduceCanonicalConversationRow(state, row, { lineStart: 0, lineEnd: 1, rowOrdinal }),
-  );
+  physicalRows.forEach((row, rowOrdinal) => reduceCanonicalConversationRow(state, row, rowOrdinal));
   if (inheritedActivation && state.sources.length === inheritedActivation.startOrdinal)
     state.rounds.push({ label: inheritedActivation.markerId, activationInputId: inheritedActivation.inputId, activationOrdinal: null, start: inheritedActivation.startOrdinal, end: inheritedActivation.startOrdinal, segments: [{ kind: inheritedActivation.activeSegmentKind, start: inheritedActivation.startOrdinal, end: inheritedActivation.startOrdinal }] });
   finishCanonicalConversationValidation(state);
   return materializeValidatedConversation(state, physicalRows, compactedGenesis ?? null);
-}
-
-export function estimateCanonicalConversationValidationBytes(
-  state: CanonicalConversationValidationState,
-): number {
-  return (
-    state.sources.reduce(
-      (total, source) =>
-        total +
-        source.id.length +
-        source.role.length +
-        source.kind.length +
-        (source.toolName?.length ?? 0) +
-        (source.toolCallId?.length ?? 0) +
-        (source.sourceInputId?.length ?? 0) +
-        (source.projectedPrivateMessageId?.length ?? 0) +
-        64,
-      0,
-    ) +
-    [...state.toolCalls.values()].reduce(
-      (total, call) => total + call.key.length + call.toolName.length + 16,
-      0,
-    ) +
-    [...state.toolResults.keys()].reduce((total, key) => total + key.length + 8, 0)
-  );
-}
-
-export function validatedSourceSegmentsForPrefix(
-  conversation: ValidatedConversation,
-  rows: readonly AgentMessage[],
-): readonly SourceSegment[] {
-  const ids = rows.map((row) => row.id);
-  const round = conversation.rounds.find(
-    (candidate) =>
-      ids.length <= candidate.rows.length &&
-      ids.every((id, index) => candidate.rows[index]!.id === id),
-  );
-  if (!round || ids.length === 0)
-    throw new Error('Source rows are not a non-empty prefix of one validated canonical round.');
-  let remaining = ids.length;
-  const segments: SourceSegment[] = [];
-  for (const segment of round.segments) {
-    if (remaining === 0) break;
-    const selected = segment.rows.slice(0, remaining);
-    if (selected.length > 0)
-      segments.push(Object.freeze({ kind: segment.kind, rows: Object.freeze(selected) }));
-    remaining -= selected.length;
-  }
-  return Object.freeze(segments);
-}
-
-export function isSafeValidatedSourcePrefix(
-  conversation: ValidatedConversation,
-  rows: readonly AgentMessage[],
-): boolean {
-  validatedSourceSegmentsForPrefix(conversation, rows);
-  const lastIndex = conversation.sourceRows.findIndex((row) => row.id === rows.at(-1)!.id);
-  return conversation.safeSourcePrefixEnds.includes(lastIndex + 1);
 }
 
 export type CoveredSourceSelection = Readonly<{

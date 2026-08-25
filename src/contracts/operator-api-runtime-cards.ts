@@ -30,10 +30,9 @@ import { runtimeStatusSchema } from '../schemas/index.js';
 export const CardNotFoundErrorSchema = z.object({ error: z.literal('Card not found'), cardId: cardIdSchema }).strict();
 export const CardRecordDefinitionNotFoundErrorSchema = z.object({ error: z.literal('Card record definition not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
 export const CardRecordNotFoundErrorSchema = z.object({ error: z.literal('Card record not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
-export const CardHistoryEntryNotFoundErrorSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.literal('card'), owner_id: cardIdSchema, version: positiveSafeIntegerSchema }).strict();
-export const CardDiffSourceNotFoundErrorSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.literal('card'), owner_id: cardIdSchema, version: positiveSafeIntegerSchema }).strict();
-export const CardHistoryEntryNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, CardHistoryEntryNotFoundErrorSchema]);
-export const CardDiffNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, CardDiffSourceNotFoundErrorSchema]);
+export const HistoricalVersionNotFoundErrorSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.literal('card'), owner_id: cardIdSchema, version: positiveSafeIntegerSchema }).strict();
+export const CardHistoryEntryNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, HistoricalVersionNotFoundErrorSchema]);
+export const CardDiffNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, HistoricalVersionNotFoundErrorSchema]);
 
 export const CardIdParamsSchema = z.object({ id: cardIdSchema }).strict();
 export const CardRecordNameParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema }).strict();
@@ -43,7 +42,6 @@ export const HealthReadinessResponseSchema = z.object({ status: z.literal('ready
 
 
 export const RuntimeGetStateResponseSchema = z.object({
-  projectRoot: z.string().min(1),
   projectId: z.string().min(1),
   runtime: runtimeStateSchema.nullable(),
   serverAvailability: ServerAvailabilitySchema,
@@ -201,8 +199,6 @@ export const runtimeCardsOperatorApiContracts = {
     success: HealthLivenessResponseSchema,
     response: { 200: HealthLivenessResponseSchema, 500: UnexpectedInternalServerErrorSchema },
     ...publicContract,
-    successSchemaName: 'HealthLivenessResponse',
-    describe: 'Cheap process liveness probe.',
   },
   'health.readiness': {
     operationId: 'health.readiness',
@@ -211,8 +207,6 @@ export const runtimeCardsOperatorApiContracts = {
     success: HealthReadinessResponseSchema,
     response: { 200: HealthReadinessResponseSchema, 500: UnexpectedInternalServerErrorSchema },
     ...publicContract,
-    successSchemaName: 'HealthReadinessResponse',
-    describe: 'Readiness probe for loaded environment and accepting server.',
   },
   'runtime.getState': {
     operationId: 'runtime.getState',
@@ -221,7 +215,6 @@ export const runtimeCardsOperatorApiContracts = {
     success: RuntimeGetStateResponseSchema,
     response: { 200: RuntimeGetStateResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'RuntimeGetStateResponse',
   },
   'runtime.contentPolicy': {
     operationId: 'runtime.contentPolicy',
@@ -230,7 +223,6 @@ export const runtimeCardsOperatorApiContracts = {
     success: ContentPolicyRuntimeResponseSchema,
     response: { 200: ContentPolicyRuntimeResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'ContentPolicyRuntimeResponse',
   },
   'cards.children': {
     operationId: 'cards.children',
@@ -241,7 +233,6 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: CardChildrenResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: CardNotFoundErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'CardChildrenResponse',
   },
   'cards.get': {
     operationId: 'cards.get',
@@ -252,7 +243,6 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: CardDetailResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: CardNotFoundErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'CardDetailResponse',
   },
   'cards.records.list': {
     operationId: 'cards.records.list',
@@ -263,7 +253,6 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: CardRecordListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: CardNotFoundErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'CardRecordListResponse',
   },
   'cards.records.get': {
     operationId: 'cards.records.get',
@@ -274,25 +263,24 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: CardRecordContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, CardRecordNotFoundErrorSchema]), 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'CardRecordContentResponse',
   },
   'cards.records.history.list': {
     operationId: 'cards.records.history.list', method: 'GET', path: '/api/cards/:id/records/:name/history', params: CardRecordNameParamsSchema,
     success: RecordHistoryListResponseSchema,
     response: { 200: RecordHistoryListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema]), 500: UnexpectedInternalServerErrorSchema },
-    failureIdentity: { kind: 'card', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'RecordHistoryListResponse',
+    failureIdentity: { kind: 'card', parameter: 'id' }, ...operatorSessionContract,
   },
   'cards.records.versions.get': {
     operationId: 'cards.records.versions.get', method: 'GET', path: '/api/cards/:id/records/:name/versions/:version', params: CardRecordVersionParamsSchema,
     success: RecordVersionContentResponseSchema,
     response: { 200: RecordVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, RecordHistoricalVersionNotFoundSchema]), 500: UnexpectedInternalServerErrorSchema },
-    failureIdentity: { kind: 'card', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'RecordVersionContentResponse',
+    failureIdentity: { kind: 'card', parameter: 'id' }, ...operatorSessionContract,
   },
   'cards.records.diff': {
     operationId: 'cards.records.diff', method: 'GET', path: '/api/cards/:id/records/:name/diff', params: CardRecordNameParamsSchema, query: RecordDiffQuerySchema,
     success: RecordDiffResponseSchema,
     response: { 200: RecordDiffResponseSchema, 400: z.union([ValidationErrorSchema, RecordDiffViewUnavailableSchema]), 401: UnauthorizedErrorSchema, 404: z.union([CardNotFoundErrorSchema, CardRecordDefinitionNotFoundErrorSchema, RecordHistoricalVersionNotFoundSchema]), 500: UnexpectedInternalServerErrorSchema },
-    failureIdentity: { kind: 'card', parameter: 'id' }, ...operatorSessionContract, successSchemaName: 'RecordDiffResponse',
+    failureIdentity: { kind: 'card', parameter: 'id' }, ...operatorSessionContract,
   },
 
   'cards.history.list': {
@@ -304,7 +292,6 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: CardHistoryListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: CardNotFoundErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'CardHistoryListResponse',
   },
   'cards.history.get': {
     operationId: 'cards.history.get',
@@ -315,7 +302,6 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: CardHistoryEntryResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: CardHistoryEntryNotFoundUnionSchema, 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'CardHistoryEntryResponse',
   },
   'cards.diff': {
     operationId: 'cards.diff',
@@ -327,7 +313,6 @@ export const runtimeCardsOperatorApiContracts = {
     response: { 200: CardDiffResponseSchema, 400: CardDiffBadRequestSchema, 401: UnauthorizedErrorSchema, 404: CardDiffNotFoundUnionSchema, 500: UnexpectedInternalServerErrorSchema },
     failureIdentity: { kind: 'card', parameter: 'id' },
     ...operatorSessionContract,
-    successSchemaName: 'CardDiffResponse',
   },
   'runtime.status': {
     operationId: 'runtime.status',
@@ -336,7 +321,6 @@ export const runtimeCardsOperatorApiContracts = {
     success: RuntimeStatusResponseSchema,
     response: { 200: RuntimeStatusResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'RuntimeStatusResponse',
   },
   'runtime.pause': {
     operationId: 'runtime.pause',
@@ -345,7 +329,6 @@ export const runtimeCardsOperatorApiContracts = {
     success: RuntimeStatusResponseSchema,
     response: { 200: RuntimeStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'RuntimeStatusResponse',
   },
   'runtime.resume': {
     operationId: 'runtime.resume',
@@ -354,7 +337,6 @@ export const runtimeCardsOperatorApiContracts = {
     success: RuntimeStatusResponseSchema,
     response: { 200: RuntimeStatusResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'RuntimeStatusResponse',
   },
   stop_project: {
     operationId: 'stop_project',
@@ -363,7 +345,6 @@ export const runtimeCardsOperatorApiContracts = {
     success: StopProjectResponseSchema,
     response: { 200: StopProjectResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'StopProjectResponse',
   },
   restart_server: {
     operationId: 'restart_server',
@@ -373,6 +354,5 @@ export const runtimeCardsOperatorApiContracts = {
     success: RestartServerResponseSchema,
     response: { 200: RestartServerResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 403: RestartUnavailableErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'RestartServerResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

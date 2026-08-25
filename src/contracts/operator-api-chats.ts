@@ -80,7 +80,6 @@ export const chatOperatorApiContracts = {
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,
-    successSchemaName: 'ChatIdentityResponse',
   },
   'chats.send': {
     operationId: 'chats.send',
@@ -96,6 +95,5 @@ export const chatOperatorApiContracts = {
       500: UnexpectedInternalServerErrorSchema,
     },
     ...operatorSessionContract,
-    successSchemaName: 'ChatSendResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;

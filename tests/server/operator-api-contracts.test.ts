@@ -1,7 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 import * as contractsModule from '../../src/contracts/index.js';
 import * as operatorApiModule from '../../src/contracts/operator-api.js';
-import { AvailabilityComponentSourceSchema, AvailabilityStateSchema, EventsQuerySchema, operatorApiContracts, operatorRouteInventory, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody, type OperatorApiResponse, type OperatorApiResponseStatus } from '../../src/contracts/operator-api.js';
+import { AvailabilityComponentSourceSchema, AvailabilityStateSchema, EventsQuerySchema, operatorApiContracts, parseOperatorResponse, UnauthorizedErrorSchema, type OperatorApiBody, type OperatorApiResponse, type OperatorApiResponseStatus } from '../../src/contracts/operator-api.js';
 import type { CardDiffRow as OperatorApiCardDiffRow } from '../../src/contracts/operator-api.js';
 import type { CardDiffRow as IndexCardDiffRow } from '../../src/contracts/index.js';
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
@@ -48,7 +48,6 @@ const validIndexRow: IndexCardDiffRow = validOperatorApiRow;
 describe('operator API runtime contract without runtime ledgers', () => {
   it('reserves public contracts for the exact health probes and authenticates every operator API route', () => {
     const contracts = Object.values(operatorApiContracts);
-    const inventoryByOperation = new Map(operatorRouteInventory().map((route) => [route.operationId, route]));
     const publicContracts = contracts.filter((contract) => contract.auth === 'public');
 
     expect(publicContracts.map(({ operationId, path }) => ({ operationId, path }))).toEqual([
@@ -59,7 +58,6 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const contract of contracts) {
       if (contract.path.startsWith('/api/')) {
         expect(contract.auth).toBe('operator-session');
-        expect(inventoryByOperation.get(contract.operationId)?.requiresAuth).toBe(true);
       }
       if (contract.auth === 'operator-session') expect(contract.response[401]).toBe(UnauthorizedErrorSchema);
     }
@@ -78,7 +76,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('registers only the exact mounted HTTP methods', () => {
-    expect(new Set(operatorRouteInventory().map(({ method }) => method))).toEqual(new Set(['GET', 'POST']));
+    expect(new Set(Object.values(operatorApiContracts).map(({ method }) => method))).toEqual(new Set(['GET', 'POST']));
   });
 
   it('parses only the exact schema declared for the operation and status', () => {
@@ -188,11 +186,11 @@ describe('operator API runtime contract without runtime ledgers', () => {
 
   it('exposes only exact chat operations and no aggregate chat contract', () => {
     expect(operatorApiContracts).not.toHaveProperty('chats.list');
-    expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
+    expect(Object.values(operatorApiContracts)).toEqual(expect.arrayContaining([
       expect.objectContaining({ operationId: 'chats.get', method: 'GET', path: '/api/chat' }),
       expect.objectContaining({ operationId: 'chats.send', method: 'POST', path: '/api/chat' }),
     ]));
-    expect(operatorRouteInventory()).not.toEqual(expect.arrayContaining([
+    expect(Object.values(operatorApiContracts)).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ method: 'GET', path: '/api/chats' }),
     ]));
     expect(operatorApiModule).not.toHaveProperty('ChatListResponseSchema');
@@ -200,8 +198,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('registers Doctor as an authenticated files/debug contract operation', () => {
-    expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ operationId: 'debug.doctor', method: 'GET', path: '/api/debug/doctor', requiresAuth: true, successSchemaName: 'DoctorResponse' }),
+    expect(Object.values(operatorApiContracts)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationId: 'debug.doctor', method: 'GET', path: '/api/debug/doctor', auth: 'operator-session' }),
     ]));
     expect(operatorApiContracts['debug.doctor'].response).toEqual({
       200: contractsModule.DoctorResponseSchema,
@@ -211,8 +209,8 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('registers the authenticated content-policy high-water operation with one strict response', () => {
-    expect(operatorRouteInventory()).toEqual(expect.arrayContaining([
-      expect.objectContaining({ operationId: 'runtime.contentPolicy', method: 'GET', path: '/api/runtime/content-policy', requiresAuth: true, successSchemaName: 'ContentPolicyRuntimeResponse' }),
+    expect(Object.values(operatorApiContracts)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ operationId: 'runtime.contentPolicy', method: 'GET', path: '/api/runtime/content-policy', auth: 'operator-session' }),
     ]));
     const body = { refusal_high_water: 1, latest: { card_id: 'card-a', session_id: 'agent:executor:card-a', marker_id: 'marker', evidence_url: '/agents/agent%3Aexecutor%3Acard-a?entry=marker', blocked_at: timestamp } };
     expect(contractsModule.ContentPolicyRuntimeResponseSchema.parse(body)).toEqual(body);
@@ -364,7 +362,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('parses runtime state/status without command/run/activation projections', () => {
-    expect(parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, serverAvailability }).runtime).toEqual(runtimeState);
+    expect(parseOperatorResponse('runtime.getState', 200, { projectId: 'test', runtime: runtimeState, serverAvailability }).runtime).toEqual(runtimeState);
     const status = parseOperatorResponse('runtime.status', 200, {
       runtime: 'running',
       currentCardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -381,10 +379,10 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('rejects removed runtime ledger fields and public schema exports are absent', () => {
-    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] }, serverAvailability })).toThrow();
-    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: runtimeState, serverAvailability, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', 200, { projectId: 'test', runtime: { ...runtimeState, runtime_commands: [], runtime_runs: [], runtime_activations: [] }, serverAvailability })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', 200, { projectId: 'test', runtime: runtimeState, serverAvailability, cardIndex: { total: 0, byStatus: {}, byType: {} } })).toThrow();
     expect(operatorApiContracts['runtime.status'].success.keyof().options).not.toEqual(expect.arrayContaining(['lastCommand', 'activeRun', 'latestRun']));
-    for (const removed of ['active_card_run', 'last_tick_at']) expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: { ...runtimeState, [removed]: null }, serverAvailability })).toThrow();
+    for (const removed of ['active_card_run', 'last_tick_at']) expect(() => parseOperatorResponse('runtime.getState', 200, { projectId: 'test', runtime: { ...runtimeState, [removed]: null }, serverAvailability })).toThrow();
     const validStatus = { runtime: 'running', currentCardId: 'project', started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'running', cards: [] }, serverAvailability };
     for (const removed of ['goalCount', 'lastTickAt']) expect(() => parseOperatorResponse('runtime.status', 200, { ...validStatus, [removed]: null })).toThrow();
     for (const removed of ['activeWork', 'diagnostics']) expect(() => parseOperatorResponse('runtime.status', 200, { ...validStatus, actorRuntime: { ...validStatus.actorRuntime, [removed]: removed === 'diagnostics' ? [] : 'none' } })).toThrow();
@@ -401,7 +399,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     for (const operationId of ['runtime.cardRuns', 'processes.get', 'mcp.status']) {
       expect(operatorApiContracts).not.toHaveProperty(operationId);
     }
-    const paths = operatorRouteInventory().map(({ path }) => path);
+    const paths = Object.values(operatorApiContracts).map(({ path }) => path);
     expect(paths).not.toEqual(expect.arrayContaining([
       '/api/runtime/card-runs',
       '/api/processes/:id',
@@ -418,7 +416,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(contractsModule).not.toHaveProperty('RuntimeSummarySchema');
 
     const stateSchema = operatorApiContracts['runtime.getState'].success;
-    expect(stateSchema.keyof().options).toEqual(['projectRoot', 'projectId', 'runtime', 'serverAvailability']);
+    expect(stateSchema.keyof().options).toEqual(['projectId', 'runtime', 'serverAvailability']);
     expect(stateSchema.shape).not.toHaveProperty('summary');
     expect(stateSchema.shape).not.toHaveProperty('runtimeSummary');
 
@@ -429,20 +427,20 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('requires concrete availability while preserving degraded, null, and stopped domain values', () => {
-    const state = { projectRoot: '/work/test', projectId: 'test', runtime: null, serverAvailability };
+    const state = { projectId: 'test', runtime: null, serverAvailability };
     const status = { runtime: 'stopped', currentCardId: null, started_at: timestamp, restart_server_available: false, pid: 123, actorRuntime: { pauseMode: 'idle', cards: [] }, serverAvailability };
     expect(parseOperatorResponse('health.readiness', 200, { status: 'ready', serverAvailability })).toEqual({ status: 'ready', serverAvailability });
     expect(parseOperatorResponse('runtime.getState', 200, state)).toEqual(state);
     expect(parseOperatorResponse('runtime.status', 200, status)).toEqual(status);
     expect(() => parseOperatorResponse('health.readiness', 200, { status: 'ready' })).toThrow();
     expect(operatorApiContracts['health.readiness'].response).not.toHaveProperty('503');
-    expect(() => parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/test', projectId: 'test', runtime: null })).toThrow();
+    expect(() => parseOperatorResponse('runtime.getState', 200, { projectId: 'test', runtime: null })).toThrow();
     expect(() => parseOperatorResponse('runtime.status', 200, { ...status, serverAvailability: undefined })).toThrow();
   });
 
   it('does not expose the removed debug state operation or response schemas', () => {
     expect(operatorApiContracts).not.toHaveProperty('debug.state');
-    expect(operatorRouteInventory()).not.toEqual(expect.arrayContaining([
+    expect(Object.values(operatorApiContracts)).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ method: 'GET', path: '/api/debug/state' }),
     ]));
     expect(operatorApiModule).not.toHaveProperty('DebugRuntimeStateSchema');
@@ -470,7 +468,7 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('keeps the operator card route inventory read-only', () => {
-    const cardRoutes = operatorRouteInventory().filter(({ path }) => path.startsWith('/api/cards'));
+    const cardRoutes = Object.values(operatorApiContracts).filter(({ path }) => path.startsWith('/api/cards'));
 
     expect(cardRoutes).toEqual([
       expect.objectContaining({ operationId: 'cards.children', method: 'GET', path: '/api/cards/:id/children' }),

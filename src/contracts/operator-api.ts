@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { type HttpMethod, type OperatorRouteContract } from './operator-api-core.js';
+import { type OperatorRouteContract } from './operator-api-core.js';
 import { authOperatorApiContracts } from './operator-api-auth.js';
 import { agentOperatorApiContracts } from './operator-api-agents.js';
 import { chatOperatorApiContracts } from './operator-api-chats.js';
@@ -159,8 +159,7 @@ export {
   CardIdParamsSchema,
   CardDiffNotFoundUnionSchema,
   CardDiffBadRequestSchema,
-  CardDiffSourceNotFoundErrorSchema,
-  CardHistoryEntryNotFoundErrorSchema,
+  HistoricalVersionNotFoundErrorSchema,
   CardHistoryEntryNotFoundUnionSchema,
   CardNotFoundErrorSchema,
   InvalidCardDiffPivotsErrorSchema,
@@ -285,20 +284,4 @@ export function parseOperatorResponse<
     throw new Error(`Operator API operation ${operationId} does not declare response status ${statusCode}.`);
   }
   return schema.parse(payload) as ParsedOperatorApiResponse<K, S>;
-}
-
-export function operatorRouteInventory(): Array<{
-  operationId: OperatorApiOperationId;
-  method: HttpMethod;
-  path: string;
-  requiresAuth: boolean;
-  successSchemaName: string;
-}> {
-  return Object.values(operatorApiContracts).map((contract) => ({
-    operationId: contract.operationId,
-    method: contract.method,
-    path: contract.path,
-    requiresAuth: contract.auth !== 'public',
-    successSchemaName: contract.successSchemaName,
-  }));
 }

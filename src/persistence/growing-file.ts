@@ -15,11 +15,7 @@ export interface CanonicalGrowingFileSnapshot<Row> {
   readonly modifiedAt: string;
 }
 export interface CanonicalReadInstrumentation { readonly onRead: (path: string) => void }
-export interface GrowingFileRowCheckpoint { readonly lineStart: number; readonly lineEnd: number; readonly rowOrdinal: number }
-export interface GrowingFileReplay<Row> {
-  readonly replayRow: (checkpoint: GrowingFileRowCheckpoint) => Row;
-  readonly replayRows: (checkpoints: readonly GrowingFileRowCheckpoint[]) => readonly Row[];
-}
+export interface GrowingFileRowCheckpoint { readonly rowOrdinal: number }
 const growingFileIo: GrowingFileIo = { open: openSync, stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync };
 const DEFAULT_READ_CHUNK_BYTES = 64 * 1024;
 

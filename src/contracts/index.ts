@@ -37,8 +37,7 @@ export {
   CardIdParamsSchema,
   CardDiffNotFoundUnionSchema,
   CardDiffBadRequestSchema,
-  CardDiffSourceNotFoundErrorSchema,
-  CardHistoryEntryNotFoundErrorSchema,
+  HistoricalVersionNotFoundErrorSchema,
   CardHistoryEntryNotFoundUnionSchema,
   CardNotFoundErrorSchema,
   InvalidCardDiffPivotsErrorSchema,
@@ -81,7 +80,6 @@ export {
   WorkspaceFilesListResponseSchema,
   operatorApiContracts,
   runtimeCardsOperatorApiContracts,
-  operatorRouteInventory,
   parseOperatorResponse,
 } from './operator-api.js';
 export * from './record-mutation.js';
@@ -103,7 +101,6 @@ export {
   parseProviderExchangePayload,
   providerExchangeErrorSchema,
   providerExchangePayloadSchema,
-  providerExchangeStatusSchema,
   providerExchangeTransportSchema,
   serializeProviderExchangePayload,
 } from './provider-exchange.js';
@@ -206,7 +203,6 @@ export {
   InboundAnalystMessageContentSchema,
   InboundAnalystMessageEnvelopeSchema,
   KnownStatusWsEnvelopeSchema,
-  KnownWsContentSchema,
   KnownWsEnvelopeSchema,
   LiveSyncClientFrameSchema,
   LiveSyncCardInvalidateFrameSchema,
@@ -222,14 +218,10 @@ export {
   WsEnvelopeSchema,
   WsEventTypeSchema,
   buildConnectedEnvelope,
-  buildInboundAnalystMessageEnvelope,
   isAnalystActivityContent,
-  knownWsContentEventNames,
   parseLiveSyncClientFrame,
-  parseKnownWsContent,
   parseKnownWsEnvelope,
   parseAnalystTurnAcknowledgedStatusContent,
-  parseWsEnvelope,
 } from './operator-events.js';
 
 export {
@@ -243,9 +235,7 @@ export type {
   AnalystActivityContent,
   AnalystTurnAcknowledgedStatusEnvelope,
   InboundAnalystMessageEnvelope,
-  KnownActivityWsEnvelope,
   KnownStatusWsEnvelope,
-  KnownWsContent,
   KnownWsEnvelope,
   KnownWsEnvelopeWithClassifiedToolActivity,
   ClassifiedToolInvocationActivityContent,
@@ -257,7 +247,6 @@ export type {
   LiveSyncInvalidateTarget,
   LiveSyncUnscopedResource,
   WsEnvelope,
-  WsEnvelopeContract,
   WsEventType,
 } from './operator-events.js';
 

@@ -47,6 +47,4 @@ export type OperatorRouteContract<
   response: Record<number, z.ZodTypeAny>;
   auth: ContractAuthClass;
   failureIdentity?: ContractFailureIdentity;
-  describe?: string;
-  successSchemaName: string;
 };

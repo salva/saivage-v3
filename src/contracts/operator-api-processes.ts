@@ -75,6 +75,5 @@ export const processesOperatorApiContracts = {
     success: ProcessListResponseSchema,
     response: { 200: ProcessListResponseSchema, 401: UnauthorizedErrorSchema, 500: UnexpectedInternalServerErrorSchema },
     ...operatorSessionContract,
-    successSchemaName: 'ProcessListResponse',
   },
 } as const satisfies Record<string, OperatorRouteContract>;
