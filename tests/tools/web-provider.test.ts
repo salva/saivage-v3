@@ -160,8 +160,8 @@ describe('WebProvider', () => {
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { recordMutations: { admitWrite, write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [bindWeb({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
-      const result = await invokeTestTool(surface, 'webfetch', { url: 'https://example.com/path?raw-query-marker=yes', save_as: mutationPath });
-      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://example.com/path?[REDACTED]', saved_as: 'record:///brief.md?card=project', write: { kind: 'record', result: { data: { current_url: 'record:///brief.md?card=project' } } } } });
+      const result = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34/path?raw-query-marker=yes', save_as: mutationPath });
+      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/path?[REDACTED]', saved_as: 'record:///brief.md?card=project', write: { kind: 'record', result: { data: { current_url: 'record:///brief.md?card=project' } } } } });
       expect(JSON.stringify(result)).not.toContain('raw-query-marker');
       expect(result).not.toHaveProperty('data.url');
       expect(write).toHaveBeenCalledTimes(1);
@@ -185,7 +185,7 @@ describe('WebProvider', () => {
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() { readinessCount += 1; events.push(`readiness-${readinessCount}`); } }, analystMutations: { recordMutations: { admitWrite, write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [bindWeb({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
-      await expect(invokeTestTool(surface, 'webfetch', { url: 'https://example.com', save_as: mutationPath })).resolves.toMatchObject({ success: true });
+      await expect(invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', save_as: mutationPath })).resolves.toMatchObject({ success: true });
       expect(events).toEqual(['readiness-1', 'preflight', 'fetch', 'readiness-2', 'mutate']);
       expect(fetchSpy).toHaveBeenCalledTimes(1);
     } finally {
@@ -202,7 +202,7 @@ describe('WebProvider', () => {
     try {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: { assertInterventionReady() {} }, analystMutations: { recordMutations: { admitWrite: () => ({ ok: false as const, result: conflict, audit_outcome: 'error' as const }), write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [bindWeb({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
-      await expect(invokeTestTool(surface, 'webfetch', { url: 'https://example.com', save_as: 'record:///brief.md?card=project' })).resolves.toEqual(conflict);
+      await expect(invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', save_as: 'record:///brief.md?card=project' })).resolves.toEqual(conflict);
       expect(fetchSpy).not.toHaveBeenCalled();
       expect(write).not.toHaveBeenCalled();
     } finally {
@@ -219,7 +219,7 @@ describe('WebProvider', () => {
     try {
       const analystToolContext={projectRoot:root,actor:'analyst',surface:'web-chat',interventionReadiness:{assertInterventionReady(){readiness+=1;events.push(`readiness-${readiness}`);if(readiness===2)throw new Error('intervention unavailable');}},analystMutations:{recordMutations:{admitWrite:()=>{events.push('preflight');return {ok:true as const};},write}}} as never;
       const surface=buildInvocationSurfaceFixture('analyst',[bindWeb({projectRoot:root,agentName:'analyst',analystToolContext})]);
-      await expect(invokeTestTool(surface,'webfetch',{url:'https://example.com',save_as:'record:///brief.md?card=project'})).rejects.toThrow('intervention unavailable');
+      await expect(invokeTestTool(surface,'webfetch',{url:'https://93.184.216.34',save_as:'record:///brief.md?card=project'})).rejects.toThrow('intervention unavailable');
       expect(events).toEqual(['readiness-1','preflight','fetch','readiness-2']);
       expect(fetchSpy).toHaveBeenCalledTimes(1);expect(write).not.toHaveBeenCalled();
     } finally {fetchSpy.mockRestore();rmSync(root,{recursive:true,force:true});}
@@ -259,7 +259,7 @@ describe('WebProvider', () => {
       fetchSpy.mockResolvedValue(new Response('0123456789abcdef', { status: 200, headers: { 'content-type': 'text/plain' } }));
       const surface = buildInvocationSurfaceFixture('executor', [bindWeb({ projectRoot: root, agentName: 'executor' }), bindWorkspace({ projectRoot: root, agentName: 'executor', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa' })]);
 
-      const result = await invokeTestTool(surface, 'webfetch', { url: 'https://example.com', max_inline_bytes: 4 });
+      const result = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34', max_inline_bytes: 4 });
 
       expect(result.success).toBe(true);
       if (!result.success) return;
