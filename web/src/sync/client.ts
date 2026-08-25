@@ -189,12 +189,12 @@ export class SyncClient {
   }
 
   private resubscribeLeases(): void {
-    for (const [key, entry] of this.leases) {
+    for (const entry of this.leases.values()) {
       entry.acknowledged = false;
       entry.lease = null;
       entry.inFlight = false;
       entry.trailingFrame = undefined;
-      this.subscribeLease(key, entry);
+      this.subscribeLease(entry);
     }
   }
 
@@ -224,7 +224,7 @@ export class SyncClient {
     entry.callbacks.add(callback);
     this.leases.set(key, entry);
     if (entry.callbacks.size === 1 && this.conn.state.value === 'connected')
-      this.subscribeLease(key, entry);
+      this.subscribeLease(entry);
     return () => {
       const current = this.leases.get(key);
       if (current !== entry) return;
@@ -237,7 +237,7 @@ export class SyncClient {
             ? { t: 'unsubscribe', resource: 'agents', lease: current.lease }
             : {
                 t: 'unsubscribe',
-                resource: current.resource as 'conversation',
+                resource: current.resource as Exclude<LeaseResource, 'agents'>,
                 id: current.id,
                 lease: current.lease,
               },
@@ -245,7 +245,6 @@ export class SyncClient {
     };
   }
   private subscribeLease(
-    _key: string,
     entry: {
       resource: LeaseResource;
       id?: string;
@@ -262,7 +261,7 @@ export class SyncClient {
         ? { t: 'subscribe', resource: 'agents', lease: entry.lease }
         : {
             t: 'subscribe',
-            resource: entry.resource as 'conversation',
+            resource: entry.resource as Exclude<LeaseResource, 'agents'>,
             id: entry.id,
             lease: entry.lease,
           },

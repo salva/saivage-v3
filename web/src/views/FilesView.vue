@@ -10,7 +10,7 @@
 
     <StatusBanner v-if="listError" class="files-status-banner" tone="danger" :message="listError" data-testid="files-list-error" />
 
-    <Panel as="section" class="file-browser" :padded="false" :aria-label="activeRootLabel" data-testid="files-canonical-panel">
+    <Panel class="file-browser" :padded="false" :aria-label="activeRootLabel" data-testid="files-canonical-panel">
       <PanelHeader :title="activeRootLabel">
         <template #meta><span class="code-inline root-label">{{ activeRootPath }}/</span></template>
         <template #actions>
@@ -271,7 +271,6 @@ watch(() => [route.query.root, route.query.path], async () => {
 .file-browser { flex:1; display:flex; flex-direction:column; overflow:hidden; border:0; border-bottom:1px solid var(--border); border-radius:0; }
 .file-browser :deep(.ui-panel-header) { padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); margin-bottom:0; }
 .file-browser :deep(.ui-panel-header__meta) { margin-top:2px; }
-.panel-header { display:flex; align-items:center; gap:12px; padding:8px 12px; background:var(--surface-1); border-bottom:1px solid var(--border); flex-shrink:0; }
 .root-label { font-size:10px; padding:2px 4px; }
 .root-switcher { display:flex; align-items:center; gap:6px; margin-left:auto; }
 .root-switcher .pill, .crumb-button { cursor:pointer; padding:3px 8px; font-family:inherit; }

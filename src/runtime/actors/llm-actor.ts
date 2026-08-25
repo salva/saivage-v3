@@ -570,7 +570,7 @@ export class ConversationLLMActor {
     const firstFailure = handoff.turnFailure;
     if (!(firstFailure.originalFailure instanceof LlmRequestError) || firstFailure.originalFailure.failure.kind !== 'input_context_exhausted')
       throw new Error(`Admitted provider turn failure for '${input.inputId}' does not carry authoritative input-context exhaustion.`);
-    const firstAttempts = strictContextFailureAttempts(firstFailure, input.inputId); signal.throwIfAborted();
+    const firstAttempts = strictFailureAttempts('Context', firstFailure, input.inputId); signal.throwIfAborted();
     let compaction: Extract<CompactionResult, { kind: 'compacted' }>;
     try {
       if (!input.preparedCompaction) throw new Error(`Context recovery for '${input.inputId}' requires prepared compaction.`);
@@ -615,7 +615,7 @@ export class ConversationLLMActor {
     }
     if (!operation.providerBoundaryEntered || operation.completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover content policy outside the provider boundary.`);
     if (!firstFailure.candidate) throw new Error(`Content-policy failure for '${input.inputId}' is missing its refusing candidate.`);
-    const firstAttempts = strictContentPolicyFailureAttempts(firstFailure, input.inputId);
+    const firstAttempts = strictFailureAttempts('Content-policy', firstFailure, input.inputId);
     signal.throwIfAborted();
     appendConversationBatch(this.conversations, [buildContentPolicyRetryMessage(input.sessionId, input.inputId)]);
     const retryInput: CanonicalLlmInvocationInput = {
@@ -650,7 +650,7 @@ export class ConversationLLMActor {
       if (!isAuthoritativeContentPolicyFailure(error)) {
         throw new ProviderTurnFailure({ failure_phase: combined.length > 0 ? 'provider_attempt' : error.failure_phase, provider_exchanges: combined, originalFailure: error.originalFailure, message: error.message, candidate: error.candidate });
       }
-      strictContentPolicyFailureAttempts(error, input.inputId);
+      strictFailureAttempts('Content-policy', error, input.inputId);
       if (!error.candidate || !sameCandidate(error.candidate, firstFailure.candidate)) throw new Error(`Pinned content-policy retry for '${input.inputId}' did not preserve the refusing candidate.`);
       operation.completionPersistenceEntered = true;
       const marker = buildContentPolicyRefusalMessage({ sessionId: input.sessionId, sourceInputId: input.inputId, candidate: firstFailure.candidate, providerResponse: error.originalFailure.failure.providerResponse });
@@ -691,17 +691,10 @@ function pinnedPreflightRejection(preflight: Extract<PinnedContentPolicyPrefligh
     return `candidate_ineligible(${verdict.reason.kind}${verdict.reason.kind === 'capability_mismatch' ? `: ${verdict.reason.reasons.join(', ')}` : ''}) for ${preflight.candidate.provider}/${preflight.candidate.account ?? '_implicit'}/${preflight.candidate.model}`;
   return `projection_too_large(estimated_input_tokens=${verdict.estimatedInputTokens}, requested_completion_tokens=${verdict.requestedCompletionTokens}, input_budget_tokens=${verdict.inputBudgetTokens ?? 'undeclared'}, context_window_tokens=${verdict.contextWindowTokens}) for ${preflight.candidate.provider}/${preflight.candidate.account ?? '_implicit'}/${preflight.candidate.model}`;
 }
-function strictContextFailureAttempts(error: ProviderTurnFailure, inputId: string): ProviderExchangeAttempt[] {
-  if (error.failure_phase !== 'provider_attempt' || error.provider_exchanges.length === 0) throw new Error(`Context failure for '${inputId}' carried no provider exchange.`);
+function strictFailureAttempts(label: 'Context' | 'Content-policy', error: ProviderTurnFailure, inputId: string): ProviderExchangeAttempt[] {
+  if (error.failure_phase !== 'provider_attempt' || error.provider_exchanges.length === 0) throw new Error(`${label} failure for '${inputId}' carried no provider exchange.`);
   return error.provider_exchanges.map((attempt, index) => {
-    if (attempt.status !== 'error' || attempt.terminal_tool_fired !== null || attempt.source_input_id !== inputId || attempt.attempt_index !== index) throw new Error(`Context failure for '${inputId}' carried contradictory provider-exchange metadata.`);
-    return attempt;
-  });
-}
-function strictContentPolicyFailureAttempts(error: AuthoritativeContentPolicyFailure, inputId: string): ProviderExchangeAttempt[] {
-  if (error.failure_phase !== 'provider_attempt' || error.provider_exchanges.length === 0) throw new Error(`Content-policy failure for '${inputId}' carried no provider exchange.`);
-  return error.provider_exchanges.map((attempt, index) => {
-    if (attempt.status !== 'error' || attempt.terminal_tool_fired !== null || attempt.source_input_id !== inputId || attempt.attempt_index !== index) throw new Error(`Content-policy failure for '${inputId}' carried contradictory provider-exchange metadata.`);
+    if (attempt.status !== 'error' || attempt.terminal_tool_fired !== null || attempt.source_input_id !== inputId || attempt.attempt_index !== index) throw new Error(`${label} failure for '${inputId}' carried contradictory provider-exchange metadata.`);
     return attempt;
   });
 }

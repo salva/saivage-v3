@@ -44,10 +44,6 @@ function buildBreadcrumbs(currentPath: string, root: string): { label: string; p
   return crumbs;
 }
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
 // ── Store ──────────────────────────────────────────────────────
 
 export const useFileStore = defineStore('files', () => {
@@ -73,7 +69,6 @@ export const useFileStore = defineStore('files', () => {
   const listError = ref<string | null>(null);
   const viewerError = ref<string | null>(null);
   const unauthorized = ref(false);
-  const lastFetchedAt = ref<string | null>(null);
   const isStale = ref(false);
   let staleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -103,7 +98,6 @@ export const useFileStore = defineStore('files', () => {
   });
 
   function markRestSnapshotCompleted(): void {
-    lastFetchedAt.value = nowIso();
     isStale.value = false;
     if (staleTimer !== undefined) clearTimeout(staleTimer);
     staleTimer = setTimeout(() => {
@@ -230,7 +224,6 @@ export const useFileStore = defineStore('files', () => {
     listError,
     viewerError,
     viewerState,
-    lastFetchedAt,
     unauthorized,
     isStale,
 

@@ -33,7 +33,7 @@
 
 <script setup lang="ts">
 import { computed, unref } from 'vue';
-import type { WsConnectionState } from '../../types/view-models';
+import type { WsConnectionState } from '../../api/types';
 import { selectSocketDetail } from '../../stores/runtime-read-model';
 
 const props = defineProps<{

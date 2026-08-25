@@ -4,7 +4,6 @@
     type="button"
     class="selectable-row"
     :class="rowClasses"
-    :disabled="disabled"
     :aria-current="selected ? 'true' : undefined"
     @click="emit('select')"
   >
@@ -15,12 +14,11 @@
     class="selectable-row"
     :class="rowClasses"
     role="button"
-    :tabindex="disabled ? -1 : 0"
-    :aria-disabled="disabled ? 'true' : undefined"
+    :tabindex="0"
     :aria-current="selected ? 'true' : undefined"
-    @click="onDivSelect"
-    @keydown.enter.prevent="onDivSelect"
-    @keydown.space.prevent="onDivSelect"
+    @click="emit('select')"
+    @keydown.enter.prevent="emit('select')"
+    @keydown.space.prevent="emit('select')"
   >
     <slot />
   </div>
@@ -28,21 +26,14 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { Tone } from '../../utils/status';
 
 const props = withDefaults(defineProps<{
   as?: 'button' | 'div';
   selected?: boolean;
-  disabled?: boolean;
-  tone?: Tone;
-}>(), { as: 'button', selected: false, disabled: false, tone: 'neutral' });
+}>(), { as: 'button', selected: false });
 
 const emit = defineEmits<{ select: [] }>();
-const rowClasses = computed(() => [`tone-${props.tone}`, { selected: props.selected, disabled: props.disabled }]);
-
-function onDivSelect(): void {
-  if (!props.disabled) emit('select');
-}
+const rowClasses = computed(() => [{ selected: props.selected }]);
 </script>
 
 <style scoped>
@@ -50,5 +41,4 @@ function onDivSelect(): void {
 .selectable-row:hover, .selectable-row:focus-visible { background:var(--surface-1); outline:none; }
 .selectable-row:focus-visible { box-shadow:inset 0 0 0 1px var(--accent-2); }
 .selectable-row.selected { background:var(--entry-user-bg); }
-.selectable-row.disabled { cursor:not-allowed; opacity:.6; }
 </style>

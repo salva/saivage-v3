@@ -1,8 +1,5 @@
 import hljs from 'highlight.js/lib/core';
 import json from 'highlight.js/lib/languages/json';
-import bash from 'highlight.js/lib/languages/bash';
-import diff from 'highlight.js/lib/languages/diff';
-import typescript from 'highlight.js/lib/languages/typescript';
 import plaintext from 'highlight.js/lib/languages/plaintext';
 
 const REGISTERED = new Set<string>();
@@ -15,9 +12,6 @@ function registerLanguage(name: string, def: (hljs: typeof import('highlight.js/
 }
 
 registerLanguage('json', json);
-registerLanguage('bash', bash);
-registerLanguage('diff', diff);
-registerLanguage('typescript', typescript);
 registerLanguage('plaintext', plaintext);
 
 const ESCAPE_RE = /[&<>"']/g;

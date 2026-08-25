@@ -78,9 +78,6 @@ function isAuthorBoundary(index: number): boolean {
   padding-top: 8px;
   border-top: 1px solid var(--surface-3);
 }
-.round-card.round-diagnostic {
-  padding-top: 8px;
-}
 .round-card.continues-author {
   padding-top: 0;
   border-top: none;

@@ -33,7 +33,7 @@ import { highlight } from '../../utils/highlight';
 
 const props = withDefaults(defineProps<{
   code: string;
-  language?: 'json' | 'bash' | 'diff' | 'typescript' | 'text';
+  language?: 'json' | 'text';
   copyable?: boolean;
   maxHeight?: string;
   wrap?: boolean;

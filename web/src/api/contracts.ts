@@ -47,7 +47,6 @@ export type {
   ProcessListResponse,
   ProcessView,
   ContentPolicyRuntimeResponse,
-  RuntimeStatusResponse,
 } from '@saivage/contracts/operator-api';
 
 export {
@@ -57,7 +56,6 @@ export {
   buildConnectedEnvelope,
   isAnalystActivityContent,
   parseAnalystTurnAcknowledgedStatusContent,
-  parseKnownWsContent,
   parseKnownWsEnvelope,
 } from '@saivage/contracts/operator-events';
 
@@ -71,7 +69,6 @@ export type {
   LiveSyncSubscribedFrame,
   LiveSyncInvalidateTarget,
   LiveSyncUnscopedResource,
-  WsEnvelope,
 } from '@saivage/contracts/operator-events';
 
 export type { ProviderExchangePayload } from '@saivage/contracts/provider-exchange';
@@ -85,16 +82,11 @@ export type {
 } from '@saivage/contracts/workspace-navigation';
 
 export type {
-  CardAction,
   CardHistoryHeader,
   CardHistoryEntry,
-  CardHistoryKind,
   CardRecord,
   CardStatus,
-  ControlActionSurface,
   EntityLink,
-  MessageKind,
-  MessageRole,
   RuntimeState,
   RuntimeStatus,
   Urgency,

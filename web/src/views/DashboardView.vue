@@ -1,6 +1,6 @@
 <template>
   <div class="dashboard-layout" data-testid="route-dashboard">
-    <Panel as="section" :padded="false" scroll class="runtime-console" aria-label="Runtime Console">
+    <Panel :padded="false" scroll class="runtime-console" aria-label="Runtime Console">
       <div class="console-header">
         <PanelHeader title="Runtime Console">
           <template #actions>
@@ -220,10 +220,6 @@ async function refreshRuntime(): Promise<void> {
 .status-key { font-size: 12px; color: var(--text-muted); padding: 2px 0; }
 .status-value { font-size: 12px; color: var(--text); text-align: right; font-family: 'SF Mono', monospace; }
 .status-value.dim { color: var(--border-strong); }
-.status-value.success { color: var(--accent); }
-.status-value.danger { color: var(--danger); }
-.status-value.clickable { color: var(--accent-2); cursor: pointer; text-decoration: underline; text-decoration-color: transparent; transition: text-decoration-color 0.15s; }
-.status-value.clickable:hover { text-decoration-color: var(--accent-2); }
 .operator-help { margin: 8px 0 0; color: var(--text-muted); font-size: 11px; line-height: 1.4; }
 .list-empty { text-align: left; font-family: inherit; }
 </style>

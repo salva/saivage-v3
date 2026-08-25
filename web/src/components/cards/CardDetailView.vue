@@ -68,7 +68,7 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { cardRouteChain, useCardStore } from '../../stores/cards';
 import { storeToRefs } from 'pinia';
-import type { DetailErrorState, CardStatus } from '../../types/view-models';
+import type { DetailErrorState, CardStatus } from '../../api/types';
 import { createLogger } from '../../utils/logger';
 import { formatRecentTimestamp, timestampTitle } from '../../utils/timestamp';
 import { labelForCardType, statusForCard } from '../../utils/status';

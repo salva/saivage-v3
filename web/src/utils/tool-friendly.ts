@@ -19,16 +19,14 @@ export function friendlyAction(name: string): string {
 }
 
 function isInteractive(part: InlinePart): boolean {
-  return part.kind === 'file' || part.kind === 'url' || part.kind === 'card';
+  return part.kind === 'file' || part.kind === 'card';
 }
 
 export function inlinePartsText(parts: readonly InlinePart[]): string {
   return parts
     .map((part) => {
       if (part.kind === 'text') return part.text;
-      if (part.kind === 'code') return part.code;
       if (part.kind === 'file') return part.label ?? part.path;
-      if (part.kind === 'url') return part.label ?? part.href;
       return part.fallbackLabel ?? part.id;
     })
     .join('')

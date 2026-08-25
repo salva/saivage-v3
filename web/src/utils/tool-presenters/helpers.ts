@@ -47,11 +47,6 @@ export function cardPart(idValue: unknown, fallbackLabel?: string): InlinePart[]
   return id ? [{ kind: 'card', id, fallbackLabel: fallbackLabel ?? `card ${id}` }] : [];
 }
 
-export function appendText(parts: InlinePart[], text: unknown): InlinePart[] {
-  const value = str(text);
-  return value ? [...parts, { kind: 'text', text: value }] : parts;
-}
-
 export function filePart(pathValue: unknown, label?: string): InlinePart | null {
   const path = str(pathValue);
   if (path.startsWith('.saivage/work/')) return { kind: 'file', root: 'output', path, label: label ?? shortPath(path) };

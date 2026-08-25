@@ -592,7 +592,7 @@
             v-else-if="doctorStatus === null && doctorChecks.length === 0"
             state="empty"
             title="No diagnostics run yet."
-            message="Click Fetch to check card/index consistency."
+            message="Click Fetch to run the doctor checks."
           />
           <template v-else>
             <div
@@ -663,7 +663,7 @@ import ViewState from '../components/ui/ViewState.vue';
 import StatusBanner from '../components/ui/StatusBanner.vue';
 import StatusBadge from '../components/ui/StatusBadge.vue';
 import { statusForRuntimeStatus } from '../utils/status';
-import type { ProcessView } from '../types/view-models';
+import type { ProcessView } from '../api/types';
 import type { DebugTimelineItem } from '../stores/debug-read-model';
 
 const debugStore = useDebugStore();

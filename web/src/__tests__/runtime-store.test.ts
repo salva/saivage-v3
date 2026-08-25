@@ -24,7 +24,6 @@ vi.mock('../api/auth', () => ({ getAuthToken: vi.fn(() => 'token') }));
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   getRuntimeState: vi.fn(async () => ({
-    projectRoot: '/fixture',
     projectId: 'fixture-project',
     runtime: null,
     serverAvailability,
@@ -36,7 +35,7 @@ vi.mock('../api/client', async (importOriginal) => ({
 describe('runtime store S06 read-only projection', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
-    vi.mocked(getRuntimeState).mockResolvedValue({ projectRoot: '/fixture', projectId: 'fixture-project', runtime: null, serverAvailability });
+    vi.mocked(getRuntimeState).mockResolvedValue({ projectId: 'fixture-project', runtime: null, serverAvailability });
     vi.mocked(getRuntimeStatus).mockResolvedValue(stoppedStatus);
     vi.mocked(stopProjectRequest).mockResolvedValue({ status: 'stopped', contained: false });
   });
@@ -117,12 +116,12 @@ describe('runtime store S06 read-only projection', () => {
     const obsolete = deferred<Awaited<ReturnType<typeof getRuntimeState>>>();
     vi.mocked(getRuntimeState)
       .mockReturnValueOnce(obsolete.promise)
-      .mockResolvedValueOnce({ projectRoot: '/current', projectId: 'current', runtime: null, serverAvailability });
+      .mockResolvedValueOnce({ projectId: 'current', runtime: null, serverAvailability });
 
     const first = store.fetchState();
     const second = store.fetchState();
     await second;
-    obsolete.resolve({ projectRoot: '/obsolete', projectId: 'obsolete', runtime: null, serverAvailability });
+    obsolete.resolve({ projectId: 'obsolete', runtime: null, serverAvailability });
     await first;
 
     expect(store.projectId).toBe('current');

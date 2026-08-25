@@ -7,7 +7,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
-import type { AgentConversationEntry } from '../../types/view-models';
+import type { AgentConversationEntry } from '../../api/types';
 
 const props = defineProps<{ entry: AgentConversationEntry }>();
 

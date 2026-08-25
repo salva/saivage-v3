@@ -7,7 +7,6 @@ import type {
   CardDiffRow,
   CardRecord,
   ChatWorkspaceContext,
-  ControlActionSurface,
   McpToolsResponse as ContractMcpToolsResponse,
   OperatorApiSuccess,
   ServerAvailability,
@@ -18,14 +17,9 @@ export type { CardDiffRow };
 export type {
   AgentConversationEntry,
   ChatWorkspaceContext,
-  CardAction,
-  CardHistoryKind,
   CardStatus,
   CardType,
-  ControlActionSurface,
   EntityLink,
-  MessageKind,
-  MessageRole,
   LiveSyncClientFrame,
   LiveSyncCardInvalidateFrame,
   LiveSyncCardInvalidateTarget,
@@ -80,7 +74,6 @@ export type WsConnectionState =
   | 'connecting'
   | 'offline'
   | 'unauthorized';
-export type { WsEnvelope } from './contracts';
 
 export type CardHierarchyRecord = CardHierarchyParent | CardHierarchyChildSummary;
 export type CardChildrenResponse = OperatorApiSuccess<'cards.children'>;
@@ -97,16 +90,13 @@ export type CardHistoryEntry = CardHistoryEntryResponse;
 export type CardDiffResponse = OperatorApiSuccess<'cards.diff'>;
 export type RuntimeStateResponse = OperatorApiSuccess<'runtime.getState'>;
 export type ContentPolicyRuntimeResponse = OperatorApiSuccess<'runtime.contentPolicy'>;
-export type RuntimeStatusResponse = OperatorApiSuccess<'runtime.status'>;
 export type AgentConversationResponse = OperatorApiSuccess<'agents.conversation'>;
 export type AgentConversationVersionListResponse = OperatorApiSuccess<'agents.conversationVersions.list'>;
 export type AgentConversationVersionResponse = OperatorApiSuccess<'agents.conversationVersions.get'>;
 export type AgentDetailResponse = OperatorApiSuccess<'agents.detail'>;
 export type CardAgentSessionsResponse = OperatorApiSuccess<'agents.cardSessions'>;
 export type AgentLlmExchangeResponse = OperatorApiSuccess<'agents.llmExchange'>;
-export type AgentSessionsResponse = Omit<OperatorApiSuccess<'agents.list'>, 'sessions'> & {
-  sessions: AgentSession[];
-};
+export type AgentSessionsResponse = OperatorApiSuccess<'agents.list'>;
 export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'>;
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;

@@ -108,7 +108,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import { useAgentStore } from '../stores/agents';
 import { useCardStore } from '../stores/cards';
-import type { AgentSession } from '../types/view-models';
+import type { AgentSession } from '../api/types';
 import type { ConversationSessionId } from '../api/contracts';
 import { parseAgentDetailRouteParam } from '../router/agent-session-route';
 import { formatRecentTimestamp, timestampTitle } from '../utils/timestamp';

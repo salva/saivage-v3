@@ -150,7 +150,7 @@ import { useRuntimeStore } from '../../stores/runtime';
 import { useSyncStore } from '../../stores/sync';
 import { useAuthStore } from '../../stores/auth';
 import { useAnalystChat } from '../../stores/analystChat';
-import type { WsConnectionState } from '../../types/view-models';
+import type { WsConnectionState } from '../../api/types';
 import {
   API_AUTH_REQUIRED_EVENT,
   dismissAuthBannerForSession,

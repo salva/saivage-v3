@@ -1,15 +1,14 @@
 <template>
-  <component :is="as" class="ui-panel" :class="{ 'ui-panel--padded': padded, 'ui-panel--scroll': scroll }">
+  <section class="ui-panel" :class="{ 'ui-panel--padded': padded, 'ui-panel--scroll': scroll }">
     <slot />
-  </component>
+  </section>
 </template>
 
 <script setup lang="ts">
 withDefaults(defineProps<{
-  as?: 'section' | 'div' | 'aside';
   padded?: boolean;
   scroll?: boolean;
-}>(), { as: 'section', padded: true, scroll: false });
+}>(), { padded: true, scroll: false });
 </script>
 
 <style scoped>

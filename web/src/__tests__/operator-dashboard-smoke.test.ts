@@ -34,7 +34,6 @@ function installOperatorApiFetch(): void {
     switch (url.pathname) {
       case '/api/state':
         return jsonResponse({
-          projectRoot: '/workspace/smoke',
           projectId: 'operator-route-smoke',
           runtime: null,
         });
