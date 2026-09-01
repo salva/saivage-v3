@@ -5,11 +5,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import {
+  AgentCurrentStateUnavailableError,
   AgentOperatorReadModelService,
   AgentSessionNotFoundError,
   CardAgentScopeNotFoundError,
 } from '../../src/application/read-models/agent-operator-read-model.js';
-import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversationCatalog } from '../../src/persistence/conversation-file.js';
 import {
   agentMessageSchema,
   cardAgentSessionId,
@@ -19,7 +20,7 @@ import {
 } from '../../src/schemas/index.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
-import { cardStreamFile } from '../../src/persistence/layout.js';
+import { cardConversationsRoot, cardStreamFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-24T00:00:00.000Z';
@@ -51,17 +52,27 @@ describe('AgentOperatorReadModelService granular resources', () => {
     for (const sessionId of [analyst, planner, reviewer, executor]) publishMarker(projectRoot, sessionId);
 
     appendFileSync(currentConversationSegmentPath(projectRoot, planner), '{malformed later envelope}\n');
-    const capture = jest.fn(() => new Set<ConversationSessionId>([analyst, planner, reviewer, executor]));
+    const capture = jest.fn(() => new Set<ConversationSessionId>([analyst, planner, reviewer]));
     const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, capture);
 
-    expect(service.listSessions().sessions.map(({ id }) => id)).toEqual(
+    const firstList = service.listSessions();
+    expect(firstList.sessions.map(({ id }) => id)).toEqual(
       [analyst, executor, planner, reviewer].sort(),
     );
+    expect(firstList.sessions.find(({ id }) => id === executor)).toEqual({
+      id: executor,
+      agent_name: 'executor',
+      session_scope: 'card',
+      card_id: child.id,
+      started_at: readConversationCatalog(projectRoot, executor).createdAt,
+      status: 'inactive',
+      activity: 'idle',
+    });
     expect(service.listSessions().sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: analyst, status: 'active', activity: 'busy' }),
       expect.objectContaining({ id: planner, status: 'active', activity: 'busy' }),
       expect.objectContaining({ id: reviewer, status: 'active', activity: 'busy' }),
-      expect.objectContaining({ id: executor, status: 'active', activity: 'busy' }),
+      expect.objectContaining({ id: executor, status: 'inactive', activity: 'idle' }),
     ]));
     expect(capture).toHaveBeenCalledTimes(2);
     expect(new Date(service.getSession(planner).session.started_at).toString()).not.toBe('Invalid Date');
@@ -155,7 +166,11 @@ describe('AgentOperatorReadModelService granular resources', () => {
     );
     for (const opens of Object.values(snapshot.cardStreamOpens)) expect(opens).toBe(1);
     expect(snapshot.conversationSegmentOpens).toBe(0);
-    expect(snapshot.conversationIndexOpens).toBeGreaterThan(0);
+    expect(Object.keys(snapshot.conversationIndexReads).length).toBeGreaterThan(0);
+    for (const ledger of Object.values(snapshot.conversationIndexReads)) {
+      expect(ledger.readFileCalls).toBe(1);
+      expect(ledger.opens).toBe(1);
+    }
   }, 60_000);
 
   it('throws the same session-not-found failure for a non-global analyst during the global list', () => {
@@ -189,9 +204,16 @@ describe('AgentOperatorReadModelService granular resources', () => {
     });
     const sessionId = cardAgentSessionId('executor', child.id);
     publishMarker(projectRoot, sessionId);
-    rmSync(join(projectRoot, '.saivage', 'cards', 'project', 'children', 'a', 'conversations'), { recursive: true, force: true });
+    rmSync(cardConversationsRoot(projectRoot, child.id), { recursive: true, force: true });
     const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Set());
-    expect(() => service.listSessions()).toThrow(/Current conversation state for 'agent:executor:card-[^']+' is unavailable/);
+    let thrown: unknown;
+    try { service.listSessions(); }
+    catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(AgentCurrentStateUnavailableError);
+    const unavailable = thrown as AgentCurrentStateUnavailableError;
+    expect(unavailable.resource).toBe('conversation');
+    expect(unavailable.ownerId).toBe(sessionId);
+    expect(unavailable.cause).toEqual(expect.objectContaining({ code: 'ENOENT' }));
   });
 });
 
@@ -202,7 +224,11 @@ function createRoot(): string {
   return projectRoot;
 }
 
-function runReadCountChild(projectRoot: string): { cardStreamOpens: Record<string, number>; conversationIndexOpens: number; conversationSegmentOpens: number } {
+function runReadCountChild(projectRoot: string): {
+  cardStreamOpens: Record<string, number>;
+  conversationIndexReads: Record<string, { opens: number; readCalls: number; readFileCalls: number }>;
+  conversationSegmentOpens: number;
+} {
   const inputPath = join(tmpdir(), `agent-list-read-count-${process.pid}-${Date.now()}.json`);
   writeFileSync(inputPath, JSON.stringify({ root: projectRoot }));
   try {
