@@ -40,7 +40,17 @@ export class AgentOperatorReadModelService {
     const candidates: ConversationSessionId[] = [globalAgentSessionId(this.workflows.analyst.name)];
     for (const card of listCards(this.projectRoot))
       candidates.push(...this.cardCandidates(card.id, card.type));
-    return AgentListResponseSchema.parse({ sessions: this.summaries(candidates, liveSessionIds) });
+    if (new Set(candidates).size !== candidates.length)
+      throw new Error('Agent session candidate identities must be unique.');
+    if (this.workflows.analyst.session !== 'global')
+      throw new AgentSessionNotFoundError(`Agent session '${candidates[0]}' not found.`);
+    const sessions: AgentSessionSummary[] = [];
+    for (const id of candidates) {
+      const summary = this.catalogSummary(id, liveSessionIds);
+      if (summary) sessions.push(summary);
+    }
+    sessions.sort((a, b) => a.id.localeCompare(b.id));
+    return AgentListResponseSchema.parse({ sessions });
   }
 
   listCardSessions(cardId: CardId) {
@@ -134,6 +144,24 @@ export class AgentOperatorReadModelService {
     return candidates
       .flatMap((id) => { const summary = this.summary(id, liveSessionIds); return summary ? [summary] : []; })
       .sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  private catalogSummary(sessionId: ConversationSessionId, liveSessionIds: ReadonlySet<ConversationSessionId>): AgentSessionSummary | null {
+    let catalog;
+    try { catalog = readConversationCatalog(this.projectRoot, sessionId); }
+    catch (error) { throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
+    if (catalog.currentVersion === null) return null;
+    const identity = conversationSessionIdentity(sessionId);
+    const live = liveSessionIds.has(sessionId);
+    return AgentSessionSummarySchema.parse({
+      id: sessionId,
+      agent_name: identity.agentName,
+      session_scope: identity.cardId === null ? 'global' : 'card',
+      card_id: identity.cardId,
+      started_at: catalog.createdAt,
+      status: live ? 'active' : 'inactive',
+      activity: live ? 'busy' : 'idle',
+    });
   }
 
   private summary(sessionId: ConversationSessionId, liveSessionIds: ReadonlySet<ConversationSessionId>): AgentSessionSummary | null {

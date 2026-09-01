@@ -1,4 +1,5 @@
-import { appendFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
@@ -18,6 +19,7 @@ import {
 } from '../../src/schemas/index.js';
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
+import { cardStreamFile } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-24T00:00:00.000Z';
@@ -133,6 +135,64 @@ describe('AgentOperatorReadModelService granular resources', () => {
     service.readCurrentSegmentTail(sessionId, 1);
     expect(capture).toHaveBeenCalledTimes(4);
   });
+
+  it('reads each card stream exactly once and no conversation segments during the global list', () => {
+    const projectRoot = createRoot();
+    const cards = new CardService(projectRoot);
+    const goal = cards.create({
+      type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'brief', tags: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+    });
+    const code = cards.create({
+      type: 'code', parent: goal.id, title: 'Code', bootstrap_content: 'brief', tags: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+    });
+    publishMarker(projectRoot, cardAgentSessionId('planner', 'project'));
+    publishMarker(projectRoot, cardAgentSessionId('executor', code.id));
+    const snapshot = runReadCountChild(projectRoot);
+    expect(Object.keys(snapshot.cardStreamOpens).sort()).toEqual(
+      ['project', goal.id, code.id].map((cardId) => cardStreamFile(projectRoot, cardId)).sort(),
+    );
+    for (const opens of Object.values(snapshot.cardStreamOpens)) expect(opens).toBe(1);
+    expect(snapshot.conversationSegmentOpens).toBe(0);
+    expect(snapshot.conversationIndexOpens).toBeGreaterThan(0);
+  }, 60_000);
+
+  it('throws the same session-not-found failure for a non-global analyst during the global list', () => {
+    const projectRoot = createRoot();
+    const nonGlobalAnalyst = { ...TEST_WORKFLOWS, analyst: { ...TEST_WORKFLOWS.analyst, session: 'card' as const } };
+    const service = new AgentOperatorReadModelService(projectRoot, nonGlobalAnalyst, () => new Set());
+    expect(() => service.listSessions()).toThrow(AgentSessionNotFoundError);
+    expect(() => service.listSessions()).toThrow(/Agent session 'agent:analyst:global' not found/);
+  });
+
+  it('throws the same missing-workflow failure during candidate enumeration', () => {
+    const projectRoot = createRoot();
+    const cards = new CardService(projectRoot);
+    const child = cards.create({
+      type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+    });
+    const cardTypes = new Map(TEST_WORKFLOWS.cardTypes);
+    cardTypes.delete(child.type);
+    const missingWorkflow = { ...TEST_WORKFLOWS, cardTypes };
+    const service = new AgentOperatorReadModelService(projectRoot, missingWorkflow as typeof TEST_WORKFLOWS, () => new Set());
+    expect(() => service.listSessions()).toThrow(`No compiled workflow for '${child.type}'.`);
+  });
+
+  it('wraps an unreadable conversation catalog as current-state-unavailable during the global list', () => {
+    const projectRoot = createRoot();
+    const cards = new CardService(projectRoot);
+    const child = cards.create({
+      type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [],
+      priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [],
+    });
+    const sessionId = cardAgentSessionId('executor', child.id);
+    publishMarker(projectRoot, sessionId);
+    rmSync(join(projectRoot, '.saivage', 'cards', 'project', 'children', 'a', 'conversations'), { recursive: true, force: true });
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Set());
+    expect(() => service.listSessions()).toThrow(/Current conversation state for 'agent:executor:card-[^']+' is unavailable/);
+  });
 });
 
 function createRoot(): string {
@@ -140,6 +200,19 @@ function createRoot(): string {
   roots.push(projectRoot);
   initProjectTree(projectRoot);
   return projectRoot;
+}
+
+function runReadCountChild(projectRoot: string): { cardStreamOpens: Record<string, number>; conversationIndexOpens: number; conversationSegmentOpens: number } {
+  const inputPath = join(tmpdir(), `agent-list-read-count-${process.pid}-${Date.now()}.json`);
+  writeFileSync(inputPath, JSON.stringify({ root: projectRoot }));
+  try {
+    const result = spawnSync(process.execPath, ['--import', 'tsx', join('tests', 'fixtures', 'agent-list-read-count-child.ts'), inputPath], { encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    const line = result.stdout.trim().split('\n').at(-1)!;
+    return JSON.parse(line);
+  } finally {
+    rmSync(inputPath, { force: true });
+  }
 }
 
 function publishMarker(projectRoot: string, sessionId: ConversationSessionId): void {
