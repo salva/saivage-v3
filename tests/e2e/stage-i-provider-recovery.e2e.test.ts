@@ -40,6 +40,30 @@ describe('stable same-session recovery', () => {
     expect(JSON.parse(settlement.content)).toEqual({ success: false, error: 'Runtime activation was interrupted before completion. External or domain effects may or may not have happened.', data: { outcome_unknown: true } });
   });
 
+  it('adds only one recovery notice after a matched nonterminal tool result and is read-only on repetition', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-recovery-matched-result-'));
+    initProjectTree(projectRoot);
+    roots.push(projectRoot);
+    const sessionId: ConversationSessionId = 'agent:planner:project';
+    const timestamp = '2026-07-15T00:00:00.000Z';
+    const resultContent = JSON.stringify({ success: true, data: { cards: [] } });
+    const base = { session_id: sessionId, round_id: 'r-pre-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', message_index: 0, block_index: 0, timestamp };
+    appendConversationBatch({ projectRoot }, [
+      { ...base, context_policy: ACTIVITY_ROW_POLICY, id: `${sessionId}:activation:matched`, role: 'system', kind: 'activity', content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: source, timestamp }) },
+      { ...base, context_policy: toolRowPolicies({ content: resultContent }).call, id: `${source}:tool-call:list-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'list-1', type: 'function', function: { name: 'list_cards', arguments: '{}' } }] }), tool: 'list_cards', tool_call_id: 'list-1', message_index: 1 },
+      { ...base, context_policy: toolRowPolicies({ content: resultContent }).result, id: `${source}:tool-result:list-1`, role: 'tool', kind: 'tool_result', content: resultContent, tool: 'list_cards', tool_call_id: 'list-1', message_index: 2 },
+    ] satisfies AgentMessage[]);
+
+    expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
+    const recovered = readConversation(projectRoot, sessionId).physicalRows;
+    expect(recovered.filter((row) => row.kind === 'tool_result')).toHaveLength(1);
+    expect(recovered.filter((row) => row.kind === 'model_recovered')).toHaveLength(1);
+    expect(recovered.at(-1)).toMatchObject({ kind: 'model_recovered', content: MODEL_RECOVERY_NOTICE_TEXT });
+
+    expect(stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('clean');
+    expect(readConversation(projectRoot, sessionId).physicalRows).toEqual(recovered);
+  });
+
   it.each<ConversationSessionId>([
     'agent:planner:project',
     'agent:reviewer:project',

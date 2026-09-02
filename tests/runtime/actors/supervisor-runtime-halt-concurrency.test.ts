@@ -33,7 +33,7 @@ const interruptionIdentity = { sessionId: 'agent:planner:project', sourceInputId
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-function card(id: 'project' | 'card-a', type: 'project' | 'code' = id === 'project' ? 'project' : 'code'): CardRecord {
+function card(id: string, type: 'project' | 'code' = id === 'project' ? 'project' : 'code'): CardRecord {
   return { id, type, children: [], title: id, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'planner', created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], pending_notifications: [], lifecycle: { status: 'running', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null };
 }
 
@@ -83,13 +83,13 @@ function harness(withChild = false) {
   const terminateScopeTree = jest.fn(() => processTermination.promise);
   const lifecycle = new Map<string, CardRecord['lifecycle']['status']>([['project', 'running'], ['card-a', 'running']]);
   const store = {
-    read: jest.fn((id: string) => ({ ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: lifecycle.get(id)! } })),
+    read: jest.fn((id: string) => ({ ...card(id), lifecycle: { ...card(id).lifecycle, status: lifecycle.get(id) ?? 'running' } })),
     readActivationAdmission: jest.fn((id: string) => id === 'card-a' ? { child: { ...card('card-a'), lifecycle: { ...card('card-a').lifecycle, status: lifecycle.get(id)! } }, dependencies: [] } : null),
     commitActivationOutcome: jest.fn((_id: string, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => ({ ...card('project'), lifecycle: { ...card('project').lifecycle, status: outcome.status } })),
     setStatus: jest.fn(() => card('project')),
     listChildren: jest.fn((id: string) => withChild && id === 'project' ? ['card-a'] : []),
-    stopRunningForRecovery: jest.fn((id: string) => { lifecycle.set(id, 'stopped'); return { ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: 'stopped' as const } }; }),
-    activateStopped: jest.fn((id: string) => { lifecycle.set(id, 'running'); return { ...card(id as 'project' | 'card-a'), lifecycle: { ...card(id as 'project' | 'card-a').lifecycle, status: 'running' as const } }; }),
+    stopRunningForRecovery: jest.fn((id: string) => { lifecycle.set(id, 'stopped'); return { ...card(id), lifecycle: { ...card(id).lifecycle, status: 'stopped' as const } }; }),
+    activateStopped: jest.fn((id: string) => { lifecycle.set(id, 'running'); return { ...card(id), lifecycle: { ...card(id).lifecycle, status: 'running' as const } }; }),
   };
   const runtimeChanged = jest.fn();
   const membershipRecords: Array<{ target: { scope: 'card'; cardId: string }; liveIds: ConversationSessionId[]; ownersCleared: boolean }> = [];
@@ -197,6 +197,55 @@ describe('Supervisor singular runtime halt concurrency', () => {
     expect(h.root.terminalWinner).toBe('open');
     expect(h.lease!.phase()).toBe('admitted');
     expect(h.store.commitActivationOutcome).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: 'missing linked membership',
+      configure: (h: ReturnType<typeof harness>) => {
+        h.store.listChildren.mockImplementation((id: string) => id === 'project' ? ['card-a'] : []);
+        h.store.read.mockImplementation((id: string) => id === 'card-a' ? null as never : card('project'));
+      },
+      error: "Linked child 'card-a' of 'project' is missing.",
+    },
+    {
+      name: 'branching running children',
+      configure: (h: ReturnType<typeof harness>) => {
+        h.store.listChildren.mockImplementation((id: string) => id === 'project' ? ['card-a', 'card-b'] : []);
+      },
+      error: "Running card 'project' has more than one running direct child.",
+    },
+    {
+      name: 'discontinuous running descendant',
+      configure: (h: ReturnType<typeof harness>) => {
+        h.lifecycle.set('card-a', 'stopped');
+        h.store.listChildren.mockImplementation((id: string) => id === 'project' ? ['card-a'] : id === 'card-a' ? ['card-a-b'] : []);
+      },
+      error: "Linked running card 'card-a-b' is outside the unique project-rooted running chain.",
+    },
+    {
+      name: 'additional card in a valid running chain',
+      configure: (h: ReturnType<typeof harness>) => {
+        h.store.listChildren.mockImplementation((id: string) => id === 'project' ? ['card-a'] : []);
+      },
+      error: "Natural root settlement requires the durable running chain to be exactly ['project'].",
+    },
+    {
+      name: 'empty durable running chain',
+      configure: (h: ReturnType<typeof harness>) => {
+        h.lifecycle.set('project', 'stopped');
+      },
+      error: "Natural root settlement requires the durable running chain to be exactly ['project'].",
+    },
+  ])('rejects natural root settlement before publication for $name', async ({ configure, error }) => {
+    const h = harness();
+    configure(h);
+    const outcome = { status: 'done' as const, summary: 'done', result: workflowResult('DONE', 'done') };
+
+    await expect(h.internals.settleResult(h.root, outcome)).rejects.toThrow(error);
+    expect(h.store.commitActivationOutcome).not.toHaveBeenCalled();
+    expect(h.root.phase).toBe('active');
+    expect(h.root.terminalWinner).toBe('open');
   });
 
   it.each([false, true])('halts a running publication whose canonical append is visible=%s, then uses normal recovery', async (canonical) => {

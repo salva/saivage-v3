@@ -164,10 +164,8 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
         for (const agentName of eligibleAgents(this.behavior.workflows, card)) {
           if (!this.publish(owner, () => { stabilizeAgentSession({ sessionId: cardAgentSessionId(agentName, card.id), conversations: this.behavior.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) }); return true; })) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
         }
-      }
-      for (const card of [...runningChain].reverse()) {
         this.requirePreparation(owner, runIdentity);
-         if (!this.publish(owner, () => this.behavior.actorStore.stopRunningForRecovery(card.id))) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
+        if (!this.publish(owner, () => this.behavior.actorStore.stopRunningForRecovery(card.id))) return await owner.settlement.promise.then(() => { throw new Error('Prepared root unexpectedly settled.'); });
       }
     }
     this.requirePreparation(owner, runIdentity);
@@ -352,6 +350,10 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     this.requireOwnerAuthority(owner);
     if (owner.terminalWinner === 'cancel') return;
     this.assertNoOwnedChildAtResultSettlement(owner);
+    if (owner.cardId === PROJECT_CARD_ID) {
+      const chain = selectLinkedRunningChain(this.behavior.actorStore);
+      if (chain.length !== 1 || chain[0]!.id !== PROJECT_CARD_ID) throw new Error("Natural root settlement requires the durable running chain to be exactly ['project'].");
+    }
     this.ownershipTransition(true, () => {
       this.requireOwnerAuthority(owner);
       if (owner.terminalWinner === 'open') owner.terminalWinner = 'result';
@@ -368,11 +370,8 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     try { await owner.processor.joinActivation(); } catch { void this.beginHalt('runtime_failure').catch(() => undefined); return; }
     if (this.halt?.owners.includes(owner)) return;
     this.requireOwnerAuthority(owner);
-    if (owner.cardId === PROJECT_CARD_ID) {
-      const chain = selectLinkedRunningChain(this.behavior.actorStore);
-      if (chain.length !== 0) throw new Error('Natural root settlement retained a durable running chain.');
-      this.releaseRootNaturally(owner, outcome);
-    } else this.releaseChildNaturally(owner, outcome);
+    if (owner.cardId === PROJECT_CARD_ID) this.releaseRootNaturally(owner, outcome);
+    else this.releaseChildNaturally(owner, outcome);
   }
 
   private releaseChildNaturally(owner: CardActivationOwner, outcome: import('../../contracts/tool-api.js').CardActivationOutcome): void {

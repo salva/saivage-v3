@@ -14,7 +14,7 @@ describe('running card restart selection', () => {
     expect(selectLinkedRunningChain(reader([code, root, goal])).map((entry) => entry.id)).toEqual([root.id, goal.id, code.id]);
   });
 
-  it('rejects disconnected and branching running sets', () => {
+  it('rejects branching running sets', () => {
     const left = card('card-a', 'goal', 'running');
     const right = card('card-b', 'goal', 'running');
     const root = card('project', 'project', 'running', [left.id, right.id]);
@@ -26,6 +26,35 @@ describe('running card restart selection', () => {
     const root = card('project', 'project', 'running', [stopped.id]);
     expect(selectLinkedRunningChain(reader([root, stopped])).map((entry) => entry.id)).toEqual(['project']);
     expect(selectLinkedRunningChain(reader([card('project', 'project', 'stopped', [stopped.id]), stopped]))).toEqual([]);
+  });
+
+  it('rejects a running descendant below a stopped root', () => {
+    const child = card('card-a', 'goal', 'running');
+    const root = card('project', 'project', 'stopped', [child.id]);
+    expect(() => selectLinkedRunningChain(reader([root, child]))).toThrow("Linked running card 'card-a' is outside the unique project-rooted running chain.");
+  });
+
+  it('rejects a running descendant below a stopped intermediate ancestor', () => {
+    const leaf = card('card-a-b', 'code', 'running');
+    const stopped = card('card-a', 'goal', 'stopped', [leaf.id]);
+    const root = card('project', 'project', 'running', [stopped.id]);
+    expect(() => selectLinkedRunningChain(reader([root, stopped, leaf]))).toThrow("Linked running card 'card-a-b' is outside the unique project-rooted running chain.");
+  });
+
+  it('retains a valid stopped-descendant partial recovery prefix', () => {
+    const stoppedLeaf = card('card-a-b', 'code', 'stopped');
+    const runningGoal = card('card-a', 'goal', 'running', [stoppedLeaf.id]);
+    const root = card('project', 'project', 'running', [runningGoal.id]);
+    expect(selectLinkedRunningChain(reader([root, runningGoal, stoppedLeaf])).map((entry) => entry.id)).toEqual(['project', 'card-a']);
+  });
+
+  it('retains strict missing-child and structural parent validation across stopped history', () => {
+    const rootWithMissing = card('project', 'project', 'stopped', ['card-a']);
+    expect(() => selectLinkedRunningChain(reader([rootWithMissing]))).toThrow("Linked child 'card-a' of 'project' is missing.");
+
+    const misplaced = card('card-a-b', 'code', 'stopped');
+    const rootWithMisplaced = card('project', 'project', 'stopped', [misplaced.id]);
+    expect(() => selectLinkedRunningChain(reader([rootWithMisplaced, misplaced]))).toThrow("Linked child 'card-a-b' does not name 'project' as its parent.");
   });
 });
 
