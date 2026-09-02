@@ -59,7 +59,6 @@ async function install(page: Page): Promise<string[]> {
   const requests: string[] = [];
 
   await page.route('**/api/state', (route) => json(route, parseOperatorResponse('runtime.getState', 200, {
-    projectRoot: '/work/status-fixture',
     projectId: 'project',
     runtime: { status: 'running', project_id: 'project', pid: 4242, started_at: now, current_card_id: goalId, updated_at: now },
     serverAvailability: smokeServerAvailability,

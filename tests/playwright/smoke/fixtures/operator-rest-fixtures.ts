@@ -190,7 +190,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, { ticket: 'synthetic-ws-ticket', expiresAt: '2026-05-19T12:05:00.000Z' });
     }
     if (request.method() === 'GET' && url.pathname === '/api/state') {
-      return json(route, parseOperatorResponse('runtime.getState', 200, { projectRoot: '/work/saivage-e2e-checkers', projectId: 'project', runtime: runtimeRunning, serverAvailability: smokeServerAvailability }));
+      return json(route, parseOperatorResponse('runtime.getState', 200, { projectId: 'project', runtime: runtimeRunning, serverAvailability: smokeServerAvailability }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
       return json(route, parseOperatorResponse('runtime.status', 200, { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, restart_server_available: false, serverAvailability: smokeServerAvailability }));

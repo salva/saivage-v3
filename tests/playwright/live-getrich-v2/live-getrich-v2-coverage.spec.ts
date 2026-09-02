@@ -18,7 +18,6 @@ test.describe('saivage-v3 live deployment — additional endpoint coverage', () 
     const res = await request.get('/api/state');
     expect(res.status()).toBe(200);
     const body = await res.json();
-    expect(body.projectRoot).toBe('/work/getrich-v2');
     expect(body.projectId).toBe('getrich-v2');
     expect(typeof body.runtime).toBe('object');
     expect(typeof body.runtime.status).toBe('string');
