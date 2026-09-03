@@ -36,6 +36,7 @@ const GREP_STREAM_CHUNK_BYTES = 64 * 1024;
 
 export type WorkspaceContext = { projectRoot: string; cardId?: string; agentName?: AgentName; store?: CardService; notifyCard?: (cardId: string, notification: CardNotification) => NotifyCardResult; onRecordWritten?: (name: string) => void };
 type ResolvedToolPath = Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }> | Extract<VfsResolved, { kind: 'record'; recordKind: 'document' }>;
+type WritableToolPath = Omit<Extract<VfsResolved, { kind: 'project' | 'tmp' | 'system' | 'work' }>, 'kind'> & { kind: 'project' | 'tmp' | 'system' };
 type ReadPosition =
   | { kind: 'collection'; item_index: number; item_byte_offset: number }
   | { kind: 'text'; byte_offset: number };
@@ -148,14 +149,15 @@ function resolveReadPath(ctx: WorkspaceContext, raw: string): { resolved: Resolv
   return { resolved: assertScopedReadable(ctx, resolved), scoped: true };
 }
 
-function resolveWritePath(ctx: WorkspaceContext, raw: string): Exclude<ResolvedToolPath, { kind: 'record' }> {
+function resolveWritePath(ctx: WorkspaceContext, raw: string): WritableToolPath {
   const resolved = resolveScopedPath(vfsCtx(ctx), raw, 'write');
   if (resolved === null) {
     return { kind: 'project', ...assertWritable(ctx.projectRoot, raw), isRoot: false };
   }
   const writable = assertScopedWritable(ctx, raw, resolved);
   if (writable.kind === 'record') throw new Error('Logical record writes must be handled before filesystem path resolution.');
-  return writable;
+  if (writable.kind === 'work') throw new Error('Read-only work paths must be rejected by scoped path resolution.');
+  return { ...writable, kind: writable.kind };
 }
 
 async function directoryEntriesForRead(ctx: WorkspaceContext, raw: string, resolved: ResolvedToolPath, scoped: boolean) {
@@ -311,7 +313,9 @@ export async function readProject(ctx: WorkspaceContext, params: ReadProjectPara
   return data;
 }
 
-export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<unknown> {
+export type WorkspaceMutationOutcome = import('../contracts/record-mutation.js').RecordMutationResult | { kind: 'applied'; data: Record<string, unknown> };
+
+export async function writeProject(ctx: WorkspaceContext, params: { path: string; content: string }): Promise<WorkspaceMutationOutcome> {
   if (params.path.startsWith('record:///')) {
     if (!ctx.store || !ctx.agentName) throw new Error('Record writes require an injected card store and named agent.');
     return mutateRecord(ctx.store, { path: params.path, operation: 'write', content: params.content, surface: 'card_agent', agentName: ctx.agentName, cardId: ctx.cardId, requiredTools: ['write'], onRecordWritten: ctx.onRecordWritten });
@@ -319,27 +323,17 @@ export async function writeProject(ctx: WorkspaceContext, params: { path: string
   const resolved = resolveWritePath(ctx, params.path);
   const { absolutePath, relativePath } = resolved;
   mkdirSync(dirname(absolutePath), { recursive: true });
-  if (resolved.kind === 'work') replaceFile(absolutePath, Buffer.from(params.content, 'utf8'));
-  else writeFileSync(absolutePath, params.content, 'utf8');
+  writeFileSync(absolutePath, params.content, 'utf8');
   const scoped = parseScopedPathScheme(params.path);
-  if (scoped === 'work') return { path: displayPathForResolved(ctx.projectRoot, resolved), bytes: Buffer.byteLength(params.content, 'utf8'), written: true };
-  const destination_kind = scoped === null ? 'project_relative' : scoped === 'project' ? 'project_url' : scoped === 'tmp' ? 'tmp_url' : 'system_url';
-  const target = scoped === null ? relativePath.replaceAll('\\', '/') : buildScopedPathUrl(scoped, parseScopedPathUrl(params.path, scoped).segments);
-  return { success: true, data: { destination_kind, target, bytes: Buffer.byteLength(params.content, 'utf8'), written: true } };
+  const destination_kind = scoped === null ? 'project_relative' : resolved.kind === 'project' ? 'project_url' : resolved.kind === 'tmp' ? 'tmp_url' : 'system_url';
+  const target = scoped === null ? relativePath.replaceAll('\\', '/') : buildScopedPathUrl(resolved.kind, parseScopedPathUrl(params.path, resolved.kind).segments);
+  return { kind: 'applied', data: { destination_kind, target, bytes: Buffer.byteLength(params.content, 'utf8'), written: true } };
 }
 
 export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: string; content?: string }): void {
   if (params.path.startsWith('record:///')) {
     const target = resolveRecordWriteTarget(vfsCtx(ctx), params.path);
     assertRecordWrite(target.agent.cardId,target.cardId,toolInputError);
-    return;
-  }
-  if (params.path.startsWith('tmp:///')) {
-    resolveWritePath(ctx, params.path);
-    return;
-  }
-  if (params.path.startsWith('system:///')) {
-    resolveWritePath(ctx, params.path);
     return;
   }
   if (params.path.startsWith('work:///')) throw toolInputError('Webfetch save_as does not support work URLs.');
@@ -530,7 +524,7 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
   }
 }
 
-export async function editProject(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): Promise<unknown> {
+export async function editProject(ctx: WorkspaceContext, params: { path: string; old_string: string; new_string: string; replace_all?: boolean }): Promise<WorkspaceMutationOutcome> {
   if (params.path.startsWith('record:///')) {
     if (!ctx.store || !ctx.agentName) throw new Error('Record edits require an injected card store and named agent.');
     return mutateRecord(ctx.store, { path: params.path, operation: 'edit', oldString: params.old_string, newString: params.new_string, replaceAll: params.replace_all, surface: 'card_agent', agentName: ctx.agentName, cardId: ctx.cardId, requiredTools: ['edit'], onRecordWritten: ctx.onRecordWritten });
@@ -542,9 +536,8 @@ export async function editProject(ctx: WorkspaceContext, params: { path: string;
   if (occurrences === 0) throw toolInputError('old_string was not found.');
   if (occurrences > 1 && params.replace_all !== true) throw toolInputError('old_string appears multiple times; set replace_all to true.');
   const next = params.replace_all === true ? content.split(params.old_string).join(params.new_string) : content.replace(params.old_string, params.new_string);
-  if (resolved.kind === 'work') replaceFile(absolutePath, Buffer.from(next, 'utf8'));
-  else writeFileSync(absolutePath, next, 'utf8');
-  return { path: relativePath, replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next, 'utf8'), edited: true };
+  writeFileSync(absolutePath, next, 'utf8');
+  return { kind: 'applied', data: { path: relativePath, replacements: params.replace_all === true ? occurrences : 1, bytes: Buffer.byteLength(next, 'utf8'), edited: true } };
 }
 
 export async function applyProjectPatch(ctx: WorkspaceContext, params: { patch: string }): Promise<unknown> {

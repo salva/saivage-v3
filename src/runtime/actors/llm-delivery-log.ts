@@ -3,8 +3,9 @@ import { deterministicRoundId } from '../../schemas/round-id-server.js';
 import { conversationSha256 } from '../../persistence/canonical-conversation-artifacts.js';
 import type { ProviderPrivateContext, ToolCall } from '../../agents/llm-contracts.js';
 import type { CanonicalLlmInvocationInput } from './llm-invocation.js';
-import { projectSettledToolResultForConversation } from '../../tools/tool-invocation-outbound.js';
-import { settlementProviderResult, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, type ToolSettlementInput, type ToolResult } from '../../tools/invocation.js';
+import { UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, type ToolSettlementInput } from '../../tools/invocation.js';
+import type { ToolResult } from '../../contracts/tool-result.js';
+import { settleToolActionOutcome } from '../../tools/tool-result-settlement.js';
 import { appendConversationBatch, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import { validateResponsesPairs } from '../../agents/llm-openai-responses-mapper.js';
 
@@ -42,13 +43,12 @@ export type SettledToolResultFacts = Readonly<{
 
 export function settleToolResultForConversation(toolName: string, resultPolicy: InvocationResultPolicy, settlement: ToolSettlementInput): SettledToolResultFacts {
   assertResultPolicyConsistency(resultPolicy, toolName);
-  const providerResult = settlementProviderResult(settlement);
-  const projected = projectSettledToolResultForConversation(providerResult);
-  const settledResultBytes = canonicalJson(projected);
+  const outcome = settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome;
+  const { providerResult, settledResultBytes } = settleToolActionOutcome(outcome);
   const resultContentSha256 = conversationSha256(settledResultBytes);
   const settlementOrigin: ToolSettlementOrigin = settlement.kind === 'executed' ? 'executed' : settlement.kind;
-  const evidence = settledEvidence(resultPolicy, settlement, projected, toolName);
-  return Object.freeze({ providerResult: projected, settledResultBytes, resultContentSha256, settlementOrigin, evidence, callPolicySha256: resultPolicy.resultPolicyTemplateSha256 });
+  const evidence = settledEvidence(resultPolicy, settlement, providerResult, toolName);
+  return Object.freeze({ providerResult, settledResultBytes, resultContentSha256, settlementOrigin, evidence, callPolicySha256: resultPolicy.resultPolicyTemplateSha256 });
 }
 
 function settledEvidence(resultPolicy: InvocationResultPolicy, settlement: ToolSettlementInput, projected: ToolResult, toolName: string): SettledToolEvidence {
@@ -218,9 +218,7 @@ export function appendProviderVisibleSyntheticFailedToolResult(conversations: Co
     tool_call_id: record.toolCallId,
     tool_name: record.toolName,
     resultPolicy: record.resultPolicy,
-    settlement: record.data === undefined
-      ? { kind: 'execution_failed', providerResult: { success: false, error: record.error } }
-      : { kind: 'execution_failed', providerResult: { success: false, error: record.error, data: record.data } },
+    settlement: syntheticToolSettlement('execution_failed', record.error, record.data),
   });
 }
 

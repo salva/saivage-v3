@@ -1,5 +1,4 @@
 import { describe, expect, it } from '@jest/globals';
-import { ZodError } from 'zod';
 
 import {
   projectMcpReconcileResultForOutbound,
@@ -65,13 +64,13 @@ describe('MCP invocation outbound leaves', () => {
     });
   });
 
-  it('fails fast when a reconcile result does not have the fixed direct shape', () => {
-    expect(() => projectMcpReconcileResultForOutbound({ success: true, data: { persisted: true, reconciled: true } }))
-      .toThrow(ZodError);
-    expect(() => projectMcpReconcileResultForOutbound({
+  it('uses the singular opaque ToolResult contract for reconcile results', () => {
+    expect(projectMcpReconcileResultForOutbound({ success: true, data: { persisted: true, reconciled: true } }))
+      .toEqual({ success: true, data: { persisted: true, reconciled: true } });
+    expect(projectMcpReconcileResultForOutbound({
       success: false,
       error: 'failed',
       data: { persisted: false, reconciled: false, extra: true },
-    })).toThrow(ZodError);
+    })).toEqual({ success: false, error: 'failed', data: { persisted: false, reconciled: false, extra: true } });
   });
 });

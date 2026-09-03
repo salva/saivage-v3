@@ -10,7 +10,9 @@ import {buildPreparedInvocationContext} from '../../../src/runtime/actors/contex
 import {initProjectTree} from '../../helpers/canonical-project.js';
 import {testApplicationFatalPort} from '../../helpers/test-application-fatal-port.js';
 import {scriptedAdmissionProvider,testCompactor,unusedSummarizerProvider} from '../../helpers/llm-test-helpers.js';
-import {executedNoneSettlement,settlementProviderResult,type ExecutedToolSettlement} from '../../../src/tools/invocation.js';
+import {executedNoneSettlement,type ExecutedToolSettlement} from '../../../src/tools/invocation.js';
+import {toolSucceeded} from '../../../src/contracts/tool-result.js';
+import {settleToolActionOutcome} from '../../../src/tools/tool-result-settlement.js';
 
 const roots:string[]=[];
 afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
@@ -21,7 +23,7 @@ describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
     const disposalReason=new Error('application disposed during ordinary result publication');
     const continuation=jest.fn((_continuationInputId:string)=>undefined);
     fixture.observer.arm(()=>fixture.actor.dispose(disposalReason));
-    const settlement=executedNoneSettlement({success:true,data:{value:'caller supplied'}});
+    const settlement=executedNoneSettlement(toolSucceeded({value:'caller supplied'}));
 
     await expect(fixture.actor.appendToolResult(fixture.outcome.toolCallId,settlement,undefined,continuation)).rejects.toBe(disposalReason);
 
@@ -39,7 +41,7 @@ describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
     const fixture=await toolCallFixture('restart_server');
     const disposalReason=new Error('application disposed during restart result publication');
     fixture.observer.arm(()=>fixture.actor.dispose(disposalReason));
-    const settlement=executedNoneSettlement({success:true,data:{accepted:true}});
+    const settlement=executedNoneSettlement(toolSucceeded({accepted:true}));
 
     await expect(fixture.actor.settleToolResultWithoutContinuation(fixture.outcome.toolCallId,settlement)).rejects.toBe(disposalReason);
 
@@ -84,7 +86,7 @@ function expectToolResult(fixture:Awaited<ReturnType<typeof toolCallFixture>>,se
   const rows=readConversation(fixture.conversations.projectRoot,fixture.input.sessionId).sourceRows;
   const results=rows.filter(row=>row.kind==='tool_result');
   expect(results).toHaveLength(1);
-  expect(results[0]).toMatchObject({id:`${fixture.input.inputId}:tool-result:${fixture.outcome.toolCallId}`,session_id:fixture.input.sessionId,role:'tool',kind:'tool_result',tool:toolName,tool_call_id:fixture.outcome.toolCallId,content:canonicalJson(settlementProviderResult(settlement))});
+  expect(results[0]).toMatchObject({id:`${fixture.input.inputId}:tool-result:${fixture.outcome.toolCallId}`,session_id:fixture.input.sessionId,role:'tool',kind:'tool_result',tool:toolName,tool_call_id:fixture.outcome.toolCallId,content:settleToolActionOutcome(settlement.execution.providerOutcome).settledResultBytes});
   expect(rows.at(-1)).toBe(results[0]);
   expect(rows.some(row=>row.content.includes('confirmation_required'))).toBe(false);
   expect(rows.some(row=>row.content.includes('Cancelled:'))).toBe(false);

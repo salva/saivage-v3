@@ -17,7 +17,8 @@ import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-g
 import { ProcessRunner, type ProcessOutputIo } from '../../src/runtime/process-runner.js';
 import { replaceFile, type ReplacementFileIo } from '../../src/persistence/replace-file.js';
 import { ContractRuntime } from '../../src/server/contract-runtime.js';
-import { defineTool, executedProviderResult, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
+import { defineTool, executedToolOutcome, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
+import { toolSucceeded } from '../../src/contracts/tool-result.js';
 import { resolveLlmTransportConfig } from '../../src/agents/llm-transport.js';
 import { appendAppLogEntry } from '../../src/persistence/app-log.js';
 import { appLogEntrySchema } from '../../src/contracts/app-log.js';
@@ -154,7 +155,7 @@ if (mode === 'analyst-project-context') {
     inputSchema: z.object({}).strict(),
     executor: async () => {
       mark('tool');
-      return executedProviderResult('none', { success: true, data: null });
+      return executedToolOutcome('none', toolSucceeded(null));
     },
   });
   const surface: InvocationSurface = {

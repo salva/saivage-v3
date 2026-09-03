@@ -8,7 +8,8 @@ import { DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS } from '../runtime/c
 import type { ManagedProcessScope, ProcessCategory, ProcessRecord, ProcessRunner } from '../runtime/process-runner.js';
 import { cardWorkRoot } from '../persistence/layout.js';
 import { parseScopedPathScheme, resolveContainedProjectPath } from '../workspace/index.js';
-import { defineToolBinder, executedProviderResult, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolProviderCleanupReason, type ToolExecutionResult, type ToolResult } from './invocation.js';
+import { defineToolBinder, executedToolOutcome, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolProviderCleanupReason, type ToolExecutionResult } from './invocation.js';
+import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 
 export interface ProcessProviderContext {
@@ -21,8 +22,8 @@ export interface ProcessProviderContext {
   readonly category: ProcessCategory;
 }
 
-function failureFromError(err: unknown): ToolResult {
-  return { success: false, error: err instanceof Error ? err.message : String(err) };
+function failureFromError(err: unknown): ToolActionOutcome {
+  return toolFailed(err instanceof Error ? err.message : String(err));
 }
 
 function isAbortError(err: unknown, signal: AbortSignal): boolean {
@@ -147,21 +148,21 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               ...(ctx.cardId ? { env: { SAIVAGE_CARD_WORK_ROOT: cardWorkRoot(ctx.projectRoot, ctx.cardId) } } : {}),
               ownerKind: ctx.ownerKind,
             });
-            if (args.wait === false) return executedProviderResult('none', { success: true, data: processResult(ctx, record.id) });
+            if (args.wait === false) return executedToolOutcome('none', toolSucceeded(processResult(ctx, record.id)));
             try {
               const pending = waitForProcess(ctx, record.id, timeoutMs(args.timeout_ms), signal);
               await (invocation ? invocation.waits.waitProcess(record.id, pending) : pending);
             } catch (err) {
               throwIfPublicationOutcomeUnknown(err);
               await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted', graceMs: 5000 });
-              if (isAbortError(err, signal)) return executedProviderResult('none', { success: true, data: processResult(ctx, record.id) });
+              if (isAbortError(err, signal)) return executedToolOutcome('none', toolSucceeded(processResult(ctx, record.id)));
               throw err;
             }
-            return executedProviderResult('none', { success: true, data: processResult(ctx, record.id) });
+            return executedToolOutcome('none', toolSucceeded(processResult(ctx, record.id)));
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             if (isAbortError(err, signal)) throw err;
-            return executedProviderResult('none', failureFromError(err));
+            return executedToolOutcome('none', failureFromError(err));
           }
         },
       }),
@@ -174,16 +175,16 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
           try {
             throwIfAborted(signal);
             const current = assertOwned(ctx, args.process_id);
-            if (args.timeout_ms === 0 && current.status === 'running') return executedProviderResult('none', { success: true, data: processResult(ctx, args.process_id) });
-            if (current.status !== 'running') return executedProviderResult('none', { success: true, data: processResult(ctx, args.process_id) });
+            if (args.timeout_ms === 0 && current.status === 'running') return executedToolOutcome('none', toolSucceeded(processResult(ctx, args.process_id)));
+            if (current.status !== 'running') return executedToolOutcome('none', toolSucceeded(processResult(ctx, args.process_id)));
             const pending = waitForProcess(ctx, args.process_id, timeoutMs(args.timeout_ms), signal);
             const result = await (invocation ? invocation.waits.waitProcess(args.process_id, pending) : pending);
-            if (result.timedOut) return executedProviderResult('none', { success: true, data: processResult(ctx, args.process_id) });
-            return executedProviderResult('none', { success: true, data: processResult(ctx, args.process_id) });
+            if (result.timedOut) return executedToolOutcome('none', toolSucceeded(processResult(ctx, args.process_id)));
+            return executedToolOutcome('none', toolSucceeded(processResult(ctx, args.process_id)));
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             if (isAbortError(err, signal)) throw err;
-            return executedProviderResult('none', failureFromError(err));
+            return executedToolOutcome('none', failureFromError(err));
           }
         },
       }),
@@ -197,7 +198,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
             assertOwned(ctx, args.process_id);
             const record = await ctx.processRunner.kill(args.process_id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool kill_process' });
             if (!record) throw new Error(`Unknown process '${args.process_id}'.`);
-            return { success: true, data: processResult(ctx, args.process_id) };
+            return toolSucceeded(processResult(ctx, args.process_id));
           } catch (err) {
             throwIfPublicationOutcomeUnknown(err);
             return failureFromError(err);

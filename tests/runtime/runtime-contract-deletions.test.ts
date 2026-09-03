@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult, selectInvocationResultPolicy } from '../../src/runtime/actors/llm-delivery-log.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import type { CanonicalLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
+import { toolSucceeded } from '../../src/contracts/tool-result.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -48,7 +49,7 @@ describe('runtime ledger contract deletions', () => {
     const invocation: CanonicalLlmInvocationInput = { inputId, agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: '', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0, maxTokens: 2000 }, capabilityRequest: {}, routePass: { kind: 'ordinary', candidateChain: [{ provider: 'test', account: null, model: 'test-model' }] }, episodeContext: {} };
     appendLlmTurnToolCallBatch({ projectRoot }, invocation, { id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }, selectInvocationResultPolicy(invocation, 'read'));
 
-    const settled = appendToolResult({ projectRoot }, { session_id: 'agent:planner:project', source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', resultPolicy: selectInvocationResultPolicy(invocation, 'read'), settlement: { kind: 'executed', execution: { providerResult: { success: true }, evidence: { kind: 'none' } } } });
+    const settled = appendToolResult({ projectRoot }, { session_id: 'agent:planner:project', source_input_id: inputId, tool_call_id: 'call-1', tool_name: 'read', resultPolicy: selectInvocationResultPolicy(invocation, 'read'), settlement: { kind: 'executed', execution: { providerOutcome: toolSucceeded(), evidence: { kind: 'none' } } } });
     expect(settled).toMatchObject({ providerResult: { success: true }, settlementOrigin: 'executed', callPolicySha256: selectInvocationResultPolicy(invocation, 'read').resultPolicyTemplateSha256 });
     expect(settled.evidence).toEqual({ kind: 'none' });
 

@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { cardVersionToolBinders } from '../../src/tools/card-version-provider.js';
-import { invokeTool } from '../../src/tools/invocation.js';
+import { invokeTool, llmToolDefinition, type InvocationSurface } from '../../src/tools/invocation.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { invokeTestTool } from '../helpers/invoke-test-tool.js';
 import { cardStreamFile, cardRecordStreamFile } from '../../src/persistence/layout.js';
 import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
@@ -14,6 +15,9 @@ import { authoredRecordVersionArtifactSchema } from '../../src/persistence/canon
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { canonicalJson } from '../../src/schemas/index.js';
+import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
+import { compileInvocationToolContract } from '../../src/runtime/actors/context/context-blocks.js';
+import { settleToolResultForConversation } from '../../src/runtime/actors/llm-delivery-log.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -24,11 +28,70 @@ function surfaceFor(cards: CardService) {
   return buildInvocationSurfaceFixture('planner', [bindToolProvider('card-version', cardVersionToolBinders, { store: cards })]);
 }
 
+function completeSurfaceFor(cards: CardService) {
+  return buildInvocationSurfaceFixture('planner', [
+    bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary: ['project', 'goal', 'code'] }),
+    bindToolProvider('card-version', cardVersionToolBinders, { store: cards }),
+  ]);
+}
+
+function settleExecution(surface: InvocationSurface, name: string, execution: Awaited<ReturnType<typeof invokeTool>>) {
+  const definition = surface.tools.get(name)!;
+  return settleToolResultForConversation(
+    name,
+    compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate),
+    { kind: 'executed', execution },
+  );
+}
+
 function childInput(title: string, tags: string[] = []) {
   return { type: 'code' as const, parent: 'project', title, bootstrap_content: 'Brief', tags, priority: 0, urgency: 'normal' as const, created_by: 'planner' as const, depends_on: [] as string[], related: [] as string[] };
 }
 
 describe('card version provider', () => {
+  it('rejects an immutable summary that cannot fit the 512-byte final envelope', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-summary-reject-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create(childInput('oversized-' + 'x'.repeat(1600)));
+
+    await expect(invokeTool(surfaceFor(cards), 'get_card_version', {
+      card_id: child.id,
+      version: 1,
+      section: 'summary',
+      response_bytes: 512,
+    })).rejects.toThrow("Section 'summary' does not fit the requested response_bytes budget of 512.");
+  });
+
+  it('settles a fitting immutable summary with locator evidence and matches current summary and notification projection', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-summary-parity-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create(childInput('Parity title', ['alpha', 'beta']));
+    cards.enqueueNotification(child.id, { id: 'notification-1', content: 'review token=[REDACTED]', created_at: '2026-09-03T10:00:00.000Z' });
+    const version = cards.read(child.id)!.version_seq;
+    const surface = completeSurfaceFor(cards);
+    const responseBytes = 2048;
+
+    const currentSummary = await invokeTestTool(surface, 'get_card', { id: child.id, section: 'summary', response_bytes: responseBytes });
+    const immutableSummaryExecution = await invokeTool(surface, 'get_card_version', { card_id: child.id, version, section: 'summary', response_bytes: responseBytes });
+    const immutableSummary = settleExecution(surface, 'get_card_version', immutableSummaryExecution);
+    expect(immutableSummary.evidence).toMatchObject({
+      kind: 'canonical_locator',
+      locator: expect.stringMatching(new RegExp(`^card:///${child.id}\\?v=${version}#entry=`)),
+      sha256: expect.stringMatching(/^[0-9a-f]{64}$/u),
+    });
+    expect(Buffer.byteLength(immutableSummary.settledResultBytes, 'utf8')).toBeLessThanOrEqual(responseBytes);
+    expect(immutableSummary.settledResultBytes).toBe(canonicalJson(immutableSummary.providerResult));
+    expect((immutableSummary.providerResult as { data: { card: unknown } }).data.card).toEqual((currentSummary.data as { card: unknown }).card);
+
+    const currentNotifications = await invokeTestTool(surface, 'get_card', { id: child.id, section: 'notifications', response_bytes: responseBytes });
+    const immutableNotificationExecution = await invokeTool(surface, 'get_card_version', { card_id: child.id, version, section: 'notifications', response_bytes: responseBytes });
+    const immutableNotifications = settleExecution(surface, 'get_card_version', immutableNotificationExecution);
+    const currentItems = (currentNotifications.data as { content: { items: unknown[] } }).content.items;
+    const immutableItems = (immutableNotifications.providerResult as { data: { content: { items: unknown[] } } }).data.content.items;
+    expect(immutableItems).toEqual(currentItems);
+    expect(Buffer.byteLength(immutableNotifications.settledResultBytes, 'utf8')).toBeLessThanOrEqual(responseBytes);
+  });
+
   it('lists stream row metadata paged by byte budget and reads and diffs exact resulting versions', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-tool-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
@@ -47,8 +110,9 @@ describe('card version provider', () => {
 
     const version = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' });
     expect(version.evidence).toMatchObject({ kind: 'canonical_locator', locator: `card:///${child.id}?v=2#entry=${(listData.versions.items[1]!.entry_id)}`, sha256: expect.any(String) });
-    expect(version.providerResult).toMatchObject({ success: true, data: { card_id: child.id, version: 2, section: 'summary', card: { title: 'After' } } });
-    expect(envelopeBytes((version.providerResult as { data: unknown }).data)).toBeLessThanOrEqual(32768);
+    const versionResult = settleToolActionOutcome(version.providerOutcome).providerResult;
+    expect(versionResult).toMatchObject({ success: true, data: { card_id: child.id, version: 2, section: 'summary', card: { title: 'After' } } });
+    expect(envelopeBytes((versionResult as { data: unknown }).data)).toBeLessThanOrEqual(32768);
 
     const diff = await invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 2 });
     const diffData = diff.data as { from_version: number; to_version: number; from_artifact: { artifact_sha256: string }; to_artifact: { artifact_sha256: string }; diff: { content: string; offset_bytes: number; next_offset_bytes: number; total_bytes: number } };
@@ -124,7 +188,7 @@ describe('card version provider', () => {
     const surface = surfaceFor(cards);
 
     const openHead = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 5 });
-    const openHeadResult = openHead.providerResult as { success: boolean; data: { state: string; content_source: string; content: { content: string }; entry_id: string; version_url: string } };
+    const openHeadResult = settleToolActionOutcome(openHead.providerOutcome).providerResult as { success: boolean; data: { state: string; content_source: string; content: { content: string }; entry_id: string; version_url: string } };
     expect(openHead.evidence).toMatchObject({ kind: 'canonical_locator' });
     expect((openHead.evidence as { locator: string }).locator).toBe(`${openHeadResult.data.version_url}#entry=${openHeadResult.data.entry_id}`);
     expect(openHeadResult.data.version_url).toBe(`record:///status.md?card=${encodeURIComponent(child.id)}&v=5`);
@@ -163,7 +227,7 @@ describe('card version provider', () => {
     expect(discardedRow.entry_id).not.toBe(closedRow.entry_id);
 
     const discardedWithBaseline = await invokeTool(surface, 'read_record_version', { card_id: child.id, record_name: 'status.md', version: 6 });
-    const discardedResult = discardedWithBaseline.providerResult as { success: boolean; data: { version: number; entry_id: string; state: string; content_source: string; content: { content: string }; content_sha256: string | null; total_bytes: number } };
+    const discardedResult = settleToolActionOutcome(discardedWithBaseline.providerOutcome).providerResult as { success: boolean; data: { version: number; entry_id: string; state: string; content_source: string; content: { content: string }; content_sha256: string | null; total_bytes: number } };
     expect(discardedResult.data).toMatchObject({ version: 6, entry_id: discardedRow.entry_id, state: 'discarded', content_source: 'accepted', content_sha256: closedRow.accepted!.content_sha256 });
     expect(discardedResult.data.content.content).toBe('baseline');
     expect(discardedWithBaseline.evidence).toMatchObject({ kind: 'canonical_locator', locator: `record:///status.md?card=${encodeURIComponent(child.id)}&v=6#entry=${discardedRow.entry_id}`, sha256: closedRow.accepted!.content_sha256 });
@@ -206,7 +270,7 @@ describe('card version provider', () => {
     const surface = surfaceFor(cards);
 
     const first = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'tags', response_bytes: 2048 });
-    const firstData = (first.providerResult as { data: { artifact_sha256: string; entry_id: string; content: { total: number; returned: number; next: unknown; items: string[] } } }).data;
+    const firstData = (settleToolActionOutcome(first.providerOutcome).providerResult as { data: { artifact_sha256: string; entry_id: string; content: { total: number; returned: number; next: unknown; items: string[] } } }).data;
     expect(first.evidence).toMatchObject({ kind: 'canonical_locator' });
     expect((first.evidence as { locator: string }).locator).toBe(`card:///${child.id}?v=1#entry=${firstData.entry_id}`);
     expect(firstData.content.total).toBe(900);
@@ -215,7 +279,7 @@ describe('card version provider', () => {
 
     const position = firstData.content.next as { item_index: number; item_byte_offset: number };
     const second = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'tags', response_bytes: 32768, position });
-    const secondData = (second.providerResult as { data: { artifact_sha256: string; content: { items: string[] } } }).data;
+    const secondData = (settleToolActionOutcome(second.providerOutcome).providerResult as { data: { artifact_sha256: string; content: { items: string[] } } }).data;
     expect(secondData.content.items[0]).toBe(`tag-${firstData.content.returned}`);
     expect(secondData.artifact_sha256).toBe(firstData.artifact_sha256);
     expect((second.evidence as { sha256: string }).sha256).toBe((first.evidence as { sha256: string }).sha256);

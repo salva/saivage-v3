@@ -5,8 +5,43 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-
 import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
 import { AnalystTurnBusyError } from '../../src/agents/analyst-api.js';
 import { testApplicationFatalDelivery, testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
+import { toolFailed } from '../../src/contracts/tool-result.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { canonicalJson } from '../../src/schemas/index.js';
+import { OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 describe('Analyst WebSocket publication propagation', () => {
+  it('publishes the complete exact settled durable result and projects only parameters', async () => {
+    const settled = settleToolActionOutcome(toolFailed('denied token=sk-a', { code: 'record_mutation_denied', detail: 'sk-a', formerly_narrowed: true }));
+    const response = {
+      sessionId: 'agent:analyst:global' as const,
+      restart: null,
+      toolInvocations: [{
+        tool: 'write',
+        params: { path: 'record:///brief.md?card=project', content: `token=${OUTBOUND_RAW_MARKER}` },
+        result: settled.providerResult,
+        sourceInputId: '11111111-1111-4111-8111-111111111111',
+        toolCallId: 'call-ws-settled',
+      }],
+    };
+    const sendToClient = jest.fn();
+    const handler = new AnalystWsHandler({
+      fatalPort: testApplicationFatalPort,
+      liveSyncSocket: { handleClientFrame: () => false } as never,
+      runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit: async () => response } } as never,
+      sendToClient,
+    });
+    const ws = { OPEN: 1, readyState: 1 } as WebSocket;
+
+    await handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'write' } })));
+
+    const activity = sendToClient.mock.calls[0]![1] as { type: string; content: { params: unknown; result: unknown } };
+    expect(activity.type).toBe('activity');
+    expect(canonicalJson(activity.content.result)).toBe(settled.settledResultBytes);
+    expect(activity.content.result).toEqual(settled.providerResult);
+    expect(JSON.stringify(activity.content.params)).not.toContain(OUTBOUND_RAW_MARKER);
+  });
+
   it('rejects with the exact publication error and sends no ordinary error or acknowledgement frame', async () => {
     const error = new PublicationOutcomeUnknownError();
     const sendToClient = jest.fn();

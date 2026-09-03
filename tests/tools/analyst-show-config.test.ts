@@ -27,8 +27,8 @@ describe('show_config outbound projection', () => {
         },
       };
       const result = await show_config({ configAuthority: createTestConfigAuthority(root, { config }) } as ToolContext);
-      expect(result.success).toBe(true);
-      if (!result.success || typeof result.data !== 'object' || result.data === null || !('config' in result.data)) throw new Error('show_config returned no config');
+      expect(result.kind).toBe('succeeded');
+      if (result.kind !== 'succeeded' || typeof result.data !== 'object' || result.data === null || !('config' in result.data)) throw new Error('show_config returned no config');
       const projected = outboundEffectiveSaivageConfigSchema.parse(result.data.config);
       expect(JSON.stringify(projected)).not.toContain('baseUrl');
       expect(JSON.stringify(projected)).not.toContain('provider-user');

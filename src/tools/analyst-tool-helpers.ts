@@ -1,7 +1,8 @@
 import { PROJECT_CARD_ID, type CardService } from '../cards/card-api.js';
 import type { CardTypeName } from '../schemas/index.js';
-import type { SafeToolData, ToolResult } from './analyst-tool-types.js';
+import type { AnalystToolOutcome, SafeToolData } from './analyst-tool-types.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
+import { toolFailed } from '../contracts/tool-result.js';
 
 export function defaultParentForCreate(store: CardService, type: CardTypeName): string | null | undefined {
   if (type === 'project') return null;
@@ -24,13 +25,13 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-export function toolFailure(message: string, safeData?: SafeToolData): ToolResult {
-  return safeData === undefined ? { success: false, error: message } : { success: false, error: message, data: safeData };
+export function toolFailure(message: string, safeData?: SafeToolData): AnalystToolOutcome {
+  return toolFailed(message, safeData);
 }
 
-export function toolFailureFromError(err: unknown, messageOverride?: string): ToolResult {
+export function toolFailureFromError(err: unknown, messageOverride?: string): AnalystToolOutcome {
   throwIfPublicationOutcomeUnknown(err);
-  return { success: false, error: messageOverride ?? errorMessage(err) };
+  return toolFailed(messageOverride ?? errorMessage(err));
 }
 
 export function isBinarySample(buf: Buffer): boolean {

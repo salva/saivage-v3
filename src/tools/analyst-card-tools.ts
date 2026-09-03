@@ -5,9 +5,10 @@ import { analystCancelCardInputSchema, createAnalystCreateCardInputSchema, analy
 import {
   emptyInput,
 } from './tool-definition.js';
-import type { ToolContext, ToolResult } from './analyst-tool-types.js';
+import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { defaultParentForCreate, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
+import { toolSucceeded } from '../contracts/tool-result.js';
 
 export async function create_card(ctx: ToolContext, params: AnalystCreateCardInput, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {
   const parent = params.parent !== undefined ? params.parent : defaultParentForCreate(ctx.store, params.type) ?? null;
@@ -23,9 +24,9 @@ export async function cancel_card(ctx: ToolContext, params: { cardId: string; re
   return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: { kind: 'runtime_cancellation' }, mutate: (_prepared, input, mutation) => mutation.services.cards.cancel(input.cardId, input.reason) }, signal);
 }
 
-export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<ToolResult> {
+export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<AnalystToolOutcome> {
   try { const store = ctx.store; const runtimeStatus = ctx.runtime.getStatus(); const runtimeSummary = { status: runtimeStatus.status, currentCardId: runtimeStatus.currentCardId }; const allCards = store.list(); const runningProcesses = ctx.processRunner.list({ status: 'running' }); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.lifecycle.status] = (counts[card.lifecycle.status] ?? 0) + 1; return counts; }, {});
-    return { success: true, data: { runtime: runtimeStatus, runtimeSummary, runningProcesses: runningProcesses.length, statusCounts, counts: { stopped: statusCounts.stopped ?? 0, done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } } };
+    return toolSucceeded({ runtime: runtimeStatus, runtimeSummary, runningProcesses: runningProcesses.length, statusCounts, counts: { stopped: statusCounts.stopped ?? 0, done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } });
   } catch (err) { return toolFailureFromError(err); }
 }
 

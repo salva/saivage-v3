@@ -3,7 +3,7 @@ import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { SaivageConfig } from '../../schemas/saivage-config.js';
 import type { RestartPort } from '../../boot/restart-port.js';
-import { redactForOutbound } from '../../redaction/index.js';
+import { projectLiveToolInvocation } from '../../tools/tool-invocation-outbound.js';
 import { ChatToolInvocationSchema } from '../../contracts/operator-api-chats.js';
 import { ANALYST_TURN_BUSY_ERROR } from '../../contracts/operator-api-chats.js';
 import { AnalystTurnBusyError } from '../../agents/analyst-api.js';
@@ -32,9 +32,7 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
       const result = {
         body: {
           toolInvocations: (response.toolInvocations ?? []).map((invocation) => {
-            const projected = redactForOutbound({
-              source: 'tool-invocation',
-              value: {
+            const projected = projectLiveToolInvocation({
                 shape: 'complete',
                 identity: {
                   sessionId: response.sessionId,
@@ -44,10 +42,7 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
                 },
                 arguments: invocation.params,
                 result: invocation.result,
-              },
             });
-            if (projected.shape !== 'complete')
-              throw new Error('Live chat invocation projected to a non-complete shape.');
             return ChatToolInvocationSchema.parse({
               tool: projected.identity.toolName,
               params: projected.arguments,

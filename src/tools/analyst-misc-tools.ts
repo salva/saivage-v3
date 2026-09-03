@@ -1,7 +1,7 @@
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { z } from 'zod';
 import { AgentOperatorReadModelService } from '../application/read-models/index.js';
-import type { ToolContext, ToolResult } from './analyst-tool-types.js';
+import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
@@ -11,7 +11,6 @@ import {
 } from '../config/reconfigure-contract.js';
 import type { ConfigMutation } from '../config/resolved-config-authority.js';
 import { redactForOutbound } from '../redaction/index.js';
-import type { McpReconcileResult } from '../contracts/mcp-invocation.js';
 import {
   queueNotificationInputSchema,
   readAgentSessionInputSchema,
@@ -22,6 +21,7 @@ import {
   AgentSessionSummarySchema,
 } from '../contracts/operator-api-agents.js';
 import { AgentCurrentStateUnavailableError, AgentSessionNotFoundError } from '../application/read-models/agent-operator-read-model.js';
+import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 export const ListAgentSessionsToolDataSchema = z
@@ -59,19 +59,6 @@ export const ReadAgentSessionToolDataSchema = z
           message: 'Message belongs to a foreign session.',
         });
   });
-const toolFailureSchema = z
-  .object({ success: z.literal(false), error: z.string().min(1) })
-  .strict();
-export const ListAgentSessionsToolResultSchema = z.union([
-  z.object({ success: z.literal(true), data: ListAgentSessionsToolDataSchema }).strict(),
-  toolFailureSchema,
-]);
-export const ReadAgentSessionToolResultSchema = z.union([
-  z.object({ success: z.literal(true), data: ReadAgentSessionToolDataSchema }).strict(),
-  z.object({ success: z.literal(false), error: z.literal('Agent session not found.'), data: z.object({ code: z.literal('agent_session_not_found'), session_id: z.string().min(1) }).strict() }).strict(),
-  z.object({ success: z.literal(false), error: z.literal('Agent session has no current conversation segment.'), data: z.object({ code: z.literal('agent_session_empty'), session_id: z.string().min(1) }).strict() }).strict(),
-  z.object({ success: z.literal(false), error: z.literal('Current Agent session state unavailable; restart required.'), data: z.object({ code: z.literal('current_state_unavailable'), resource: z.enum(['card', 'conversation']), owner_id: z.string().min(1), restart_required: z.literal(true) }).strict() }).strict(),
-]);
 
 export async function queue_notification(
   ctx: ToolContext,
@@ -97,13 +84,10 @@ export async function queue_notification(
 export async function show_config(
   ctx: ToolContext,
   _params: Record<string, never> = {},
-): Promise<ToolResult> {
+): Promise<AnalystToolOutcome> {
   try {
     const result = ctx.configAuthority.loadEffective();
-    return {
-      success: true,
-      data: { config: redactForOutbound({ source: 'config', value: result.config }) },
-    };
+    return toolSucceeded({ config: redactForOutbound({ source: 'config', value: result.config }) });
   } catch (err) {
     return toolFailureFromError(err);
   }
@@ -167,45 +151,39 @@ function targetId(input: ReconfigureParams): string {
 export async function mcp_reconcile(
   ctx: ToolContext,
   _params: Record<string, never> = {},
-): Promise<McpReconcileResult> {
-  return {
-    success: false,
-    error: 'MCP reconciliation is unavailable until quiescent Pause is introduced.',
-    data: { persisted: false, reconciled: false },
-  };
+): Promise<AnalystToolOutcome> {
+  return toolFailed('MCP reconciliation is unavailable until quiescent Pause is introduced.', { persisted: false, reconciled: false });
 }
 
 export async function list_agent_sessions(
   ctx: ToolContext,
   _params: Record<string, never>,
-): Promise<ToolResult> {
+): Promise<AnalystToolOutcome> {
   try {
     const sessions = new AgentOperatorReadModelService(
       ctx.projectRoot,
       ctx.store.workflows,
       ctx.captureExecutingLlmSessionIds,
     ).listSessions().sessions;
-    return ListAgentSessionsToolResultSchema.parse({ success: true, data: { sessions } });
+    return toolSucceeded(ListAgentSessionsToolDataSchema.parse({ sessions }));
   } catch (err) {
-    return ListAgentSessionsToolResultSchema.parse(toolFailureFromError(err));
+    return toolFailureFromError(err);
   }
 }
 
 export async function read_agent_session(
   ctx: ToolContext,
   params: z.infer<typeof readAgentSessionInputSchema>,
-): Promise<ToolResult> {
+): Promise<AnalystToolOutcome> {
   try {
     const parsed = readAgentSessionInputSchema.parse(params);
     const sessionId = parsed.session_id;
     const limit = parsed.last_n ?? JSONL_TAIL_DEFAULT;
     const service = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store.workflows, ctx.captureExecutingLlmSessionIds);
     const response = service.readCurrentSegmentTail(sessionId, limit);
-    if (response.kind === 'empty') return ReadAgentSessionToolResultSchema.parse({ success: false, error: 'Agent session has no current conversation segment.', data: { code: 'agent_session_empty', session_id: sessionId } });
+    if (response.kind === 'empty') return toolFailed('Agent session has no current conversation segment.', { code: 'agent_session_empty', session_id: sessionId });
     const conversation = response.conversation;
-    return ReadAgentSessionToolResultSchema.parse({
-      success: true,
-      data: {
+    return toolSucceeded(ReadAgentSessionToolDataSchema.parse({
         session: response.session,
         ownership: response.ownership,
         segment_version: conversation.segmentVersion,
@@ -213,11 +191,10 @@ export async function read_agent_session(
         total_visible_entries: conversation.totalEntries,
         returned_visible_entries: conversation.entries.length,
         messages: conversation.entries,
-      },
-    });
+      }));
   } catch (err) {
-    if (err instanceof AgentSessionNotFoundError) return ReadAgentSessionToolResultSchema.parse({ success: false, error: 'Agent session not found.', data: { code: 'agent_session_not_found', session_id: params.session_id } });
-    if (err instanceof AgentCurrentStateUnavailableError) return ReadAgentSessionToolResultSchema.parse({ success: false, error: 'Current Agent session state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: err.resource, owner_id: err.ownerId, restart_required: true } });
+    if (err instanceof AgentSessionNotFoundError) return toolFailed('Agent session not found.', { code: 'agent_session_not_found', session_id: params.session_id });
+    if (err instanceof AgentCurrentStateUnavailableError) return toolFailed('Current Agent session state unavailable; restart required.', { code: 'current_state_unavailable', resource: err.resource, owner_id: err.ownerId, restart_required: true });
     throw err;
   }
 }

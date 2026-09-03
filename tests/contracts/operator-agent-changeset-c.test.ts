@@ -10,8 +10,8 @@ import {
 } from '../../src/contracts/operator-events.js';
 import { describe, expect, it } from '@jest/globals';
 import {
-  ListAgentSessionsToolResultSchema,
-  ReadAgentSessionToolResultSchema,
+  ListAgentSessionsToolDataSchema,
+  ReadAgentSessionToolDataSchema,
 } from '../../src/tools/analyst-misc-tools.js';
 describe('changeset C contracts', () => {
   const summary = {
@@ -80,21 +80,21 @@ describe('changeset C contracts', () => {
   });
   it('atomically rejects former Analyst producer wrappers', () => {
     expect(
-      ListAgentSessionsToolResultSchema.safeParse({ success: true, data: [summary] }).success,
+      ListAgentSessionsToolDataSchema.safeParse([summary]).success,
     ).toBe(false);
     expect(
-      ListAgentSessionsToolResultSchema.safeParse({ success: true, data: { sessions: [summary] } })
+      ListAgentSessionsToolDataSchema.safeParse({ sessions: [summary] })
         .success,
     ).toBe(true);
     expect(
-      ReadAgentSessionToolResultSchema.safeParse({
+      ReadAgentSessionToolDataSchema.safeParse({
         success: false,
         error: 'missing',
         data: { sessionId: summary.id },
       }).success,
     ).toBe(false);
     expect(
-      ReadAgentSessionToolResultSchema.safeParse({
+      ReadAgentSessionToolDataSchema.safeParse({
         success: true,
         data: { session: summary, total_messages: 0, returned: 0, parse_errors: 0, messages: [] },
       }).success,

@@ -91,8 +91,8 @@ type ToolSettlementBase = {
   settlement: Deferred<void>;
   disposal: { reason: unknown } | null;
 };
-type OrdinaryToolSettlementOperation = ToolSettlementBase & { kind: 'ordinary_continuation'; result: Deferred<LLMActorOutcome> };
-type NoContinuationToolSettlementOperation = ToolSettlementBase & { kind: 'no_continuation'; result: Deferred<void> };
+type OrdinaryToolSettlementOperation = ToolSettlementBase & { kind: 'ordinary_continuation'; result: Deferred<{ outcome: LLMActorOutcome; settled: SettledToolResultFacts }> };
+type NoContinuationToolSettlementOperation = ToolSettlementBase & { kind: 'no_continuation'; result: Deferred<SettledToolResultFacts> };
 type ToolSettlementOperation = OrdinaryToolSettlementOperation | NoContinuationToolSettlementOperation;
 type RepairOperation = { retained: RetainedOperation; result: Deferred<LLMActorOutcome>; settlement: Deferred<void>; disposition: Disposition };
 type ConversationPhase =
@@ -200,10 +200,10 @@ export class ConversationLLMActor {
     return parked.toolContext;
   }
 
-  appendToolResult(toolCallId: string, settlement: ToolSettlementInput, signal?: AbortSignal, continuationContextHook?: LLMToolContinuationContextHook): Promise<LLMActorOutcome> {
+  appendToolResult(toolCallId: string, settlement: ToolSettlementInput, signal?: AbortSignal, continuationContextHook?: LLMToolContinuationContextHook): Promise<{ outcome: LLMActorOutcome; settled: SettledToolResultFacts }> {
     const parked = this.#claimParked(toolCallId);
-    if (parked instanceof Error) return rejected(parked);
-    const direct = deferred<LLMActorOutcome>(); observe(direct.promise);
+    if (parked instanceof Error) return Promise.reject(parked);
+    const direct = deferred<{ outcome: LLMActorOutcome; settled: SettledToolResultFacts }>(); observe(direct.promise);
     const operation: OrdinaryToolSettlementOperation = { kind: 'ordinary_continuation', parked, result: direct, settlement: deferred<void>(), disposal: null };
     observe(operation.settlement.promise);
     this.#phase = { kind: 'settling_tool', operation };
@@ -211,21 +211,21 @@ export class ConversationLLMActor {
     return direct.promise;
   }
 
-  settleToolResultWithoutContinuation(toolCallId: string, settlement: ToolSettlementInput): Promise<void> {
+  settleToolResultWithoutContinuation(toolCallId: string, settlement: ToolSettlementInput): Promise<SettledToolResultFacts> {
     const parked = this.#claimParked(toolCallId, true);
-    if (parked instanceof Error) return rejectedVoid(parked);
-    const direct = deferred<void>(); observe(direct.promise);
+    if (parked instanceof Error) return Promise.reject(parked);
+    const direct = deferred<SettledToolResultFacts>(); observe(direct.promise);
     const operation: NoContinuationToolSettlementOperation = { kind: 'no_continuation', parked, result: direct, settlement: deferred<void>(), disposal: null };
     observe(operation.settlement.promise);
     this.#phase = { kind: 'settling_tool', operation };
     try {
-      this.#appendClaimedToolResult(operation, settlement);
+      const facts = this.#appendClaimedToolResult(operation, settlement);
       if (operation.disposal) {
         this.#settleDisposedTool(operation);
         return direct.promise;
       }
       this.#releaseTool(operation);
-      operation.result.resolve();
+      operation.result.resolve(facts);
       operation.settlement.resolve();
       return direct.promise;
     } catch (error) { this.#deliverPublicationFatal(error); this.#failTool(operation, error); return direct.promise; }
@@ -466,7 +466,7 @@ export class ConversationLLMActor {
       continuationInput = { ...continuationInput, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, continuationInput.sessionId)) };
       this.#releaseChild(operation.parked); operation.settlement.resolve();
       const nested = this.#arm(continuationInput, signal, operation.parked.callbacks, operation.parked.disposition);
-      nested.then(operation.result.resolve, (error: unknown) => operation.result.reject(asError(error)));
+       nested.then((outcome) => operation.result.resolve({ outcome, settled: facts }), (error: unknown) => operation.result.reject(asError(error)));
     } catch (error) { this.#deliverPublicationFatal(error); this.#failTool(operation, error); }
   }
 

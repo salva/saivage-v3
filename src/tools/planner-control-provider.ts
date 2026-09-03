@@ -12,7 +12,8 @@ import { queueNotification } from '../notifications/index.js';
 import { urgencyValues, type CardRecord, type CardTypeName, type Urgency } from '../schemas/index.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
-import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolResult } from './invocation.js';
+import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
+import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import type { PlannerChildControlPort } from '../runtime/actors/card-activation-owner.js';
 import { cardParentId } from '../schemas/card-id.js';
@@ -49,9 +50,9 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
   defineToolBinder({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerQueueNotificationInputSchema, executor: (ctx, args) => executeToolAction('none', async () => queueNotificationTool(ctx, args)) }),
 ]);
 
-function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolResult {
+function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolActionOutcome {
   const type = plannerCreatedType(record.type, ctx.cardTypeVocabulary);
-  if (!type.success) return type;
+  if (!type.success) return failure(type.error);
   if(!ctx.childCreationTypes.has(type.type))return failure(`Child type '${type.type}' is not permitted for this node.`);
   const dependsOn = record.depends_on ?? [];
   const dependencyError = validateImmediateChildDependencies(ctx, dependsOn);
@@ -71,43 +72,43 @@ function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof p
     depends_on: dependsOn,
     related: record.related ?? [],
   };
-  return { success: true, data: { card: compactPlannerToolCard(ctx.store.create(input)) } };
+  return toolSucceeded({ card: compactPlannerToolCard(ctx.store.create(input)) });
 }
 
-function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerEditCardInputSchema>): ToolResult {
+function editCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerEditCardInputSchema>): ToolActionOutcome {
   if (record.card_id.length === 0) return failure('edit_card requires card_id.');
   const child = requireImmediateChild(ctx, record.card_id, 'edit_card');
-  if (!child.success) return child;
+  if (!child.success) return failure(child.error);
   if (['running', 'done', 'cancelled'].includes(child.card.lifecycle.status)) return failure(`edit_card cannot edit ${child.card.lifecycle.status} child '${record.card_id}'.`);
   const patch = plannerEditablePatch(record);
   if (Object.keys(patch).length === 0) return failure('edit_card requires at least one editable field.');
   if (!ctx.store.editCard) throw new Error('Planner edit_card requires a mutable card store.');
   const updated = ctx.store.editCard(record.card_id, patch,ctx.agentName);
-  return { success: true, data: { card: compactPlannerToolCard(updated) } };
+  return toolSucceeded({ card: compactPlannerToolCard(updated) });
 }
 
-function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerReorderChildInputSchema>): ToolResult {
+function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerReorderChildInputSchema>): ToolActionOutcome {
   if (!ctx.store.reorderChildren) throw new Error('Planner reorder_child requires a mutable card store.');
   const result = ctx.store.reorderChildren(ctx.parentCardId, record.orderedChildIds);
-  if (!result.ok) return { success: false, error: `reorder_child set mismatch: missing=${result.missing.join(',') || '(none)'} extra=${result.extra.join(',') || '(none)'}` };
-  return { success: true, data: { parent_id: ctx.parentCardId, changed: result.changed } };
+  if (!result.ok) return failure(`reorder_child set mismatch: missing=${result.missing.join(',') || '(none)'} extra=${result.extra.join(',') || '(none)'}`);
+  return toolSucceeded({ parent_id: ctx.parentCardId, changed: result.changed });
 }
 
-function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>): ToolResult {
+function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>): ToolActionOutcome {
   const queued = queueNotification(record.card_id, record.kind, record.body, ctx.notifyCard);
-  if (!queued.ok && queued.reason === 'terminal_card') return { success: false, error: `Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status } };
-  if (!queued.ok) return { success: false, error: `Card '${queued.cardId}' not found.`, data: { queued: false, reason: queued.reason, card_id: queued.cardId } };
-  return { success: true, data: { queued: true, card_id: record.card_id, notification_id: queued.notificationId } };
+  if (!queued.ok && queued.reason === 'terminal_card') return toolFailed(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
+  if (!queued.ok) return toolFailed(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
+  return toolSucceeded({ queued: true, card_id: record.card_id, notification_id: queued.notificationId });
 }
 
-async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCancelCardInputSchema>): Promise<ToolResult> {
+async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCancelCardInputSchema>): Promise<ToolActionOutcome> {
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');
   if (record.card_id === 'project' || cardParentId(record.card_id) !== ctx.parentCardId) return failure(`cancel_card can target only immediate children of '${ctx.parentCardId}'.`);
-  try { return { success: true, data: await ctx.parentControl.cancelChild({ childCardId: record.card_id, reason: record.reason ?? 'planner_cancel_card' }) }; }
+  try { return toolSucceeded(await ctx.parentControl.cancelChild({ childCardId: record.card_id, reason: record.reason ?? 'planner_cancel_card' })); }
   catch (error) { throwIfPublicationOutcomeUnknown(error); if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
 }
 
-async function activateCard(ctx: PlannerControlProviderContext, record: ActivateCardArguments, invocation?: LlmToolInvocationContext): Promise<ToolResult> {
+async function activateCard(ctx: PlannerControlProviderContext, record: ActivateCardArguments, invocation?: LlmToolInvocationContext): Promise<ToolActionOutcome> {
   if (cardParentId(record.card_id) !== ctx.parentCardId) return failure(`Planner can activate only immediate children of '${ctx.parentCardId}'.`);
   const child=ctx.store.read(record.card_id);if(!child)return failure(`Child '${record.card_id}' not found.`);if(!ctx.childActivationTypes.has(child.type))return failure(`Child type '${child.type}' is not permitted for activation by this node.`);
   if (!invocation) throw new Error('activate_card requires an LLM invocation context.');
@@ -118,15 +119,15 @@ async function activateCard(ctx: PlannerControlProviderContext, record: Activate
   } catch (error) {
     throwIfPublicationOutcomeUnknown(error);
     if (isRuntimeStoppedInterruption(error)) throw error;
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
+    return toolFailed(error instanceof Error ? error.message : String(error));
   }
 }
 
 function requireImmediateChild(ctx: PlannerControlProviderContext, cardId: string, toolName: string): { success: true; card: CardRecord } | { success: false; error: string } {
   const child = ctx.store.read(cardId);
-  if (!child) return failure(`${toolName} target child '${cardId}' not found.`);
-  if (cardParentId(child.id) !== ctx.parentCardId) return failure(`${toolName} can target only immediate children of '${ctx.parentCardId}'.`);
-  if (child.type === 'project') return failure(`${toolName} cannot target project cards.`);
+  if (!child) return { success: false, error: `${toolName} target child '${cardId}' not found.` };
+  if (cardParentId(child.id) !== ctx.parentCardId) return { success: false, error: `${toolName} can target only immediate children of '${ctx.parentCardId}'.` };
+  if (child.type === 'project') return { success: false, error: `${toolName} cannot target project cards.` };
   return { success: true, card: child };
 }
 
@@ -140,8 +141,8 @@ function validateImmediateChildDependencies(ctx: PlannerControlProviderContext, 
 }
 
 function plannerCreatedType(value: string, cardTypeVocabulary: readonly CardTypeName[]): { success: true; type: CardTypeName } | { success: false; error: string } {
-  if (!cardTypeVocabulary.includes(value)) return failure(`create_card.type must be one of: ${cardTypeVocabulary.filter((type) => type !== 'project').join(', ')}.`);
-  if (value === 'project') return failure('create_card cannot create project cards.');
+  if (!cardTypeVocabulary.includes(value)) return { success: false, error: `create_card.type must be one of: ${cardTypeVocabulary.filter((type) => type !== 'project').join(', ')}.` };
+  if (value === 'project') return { success: false, error: 'create_card cannot create project cards.' };
   return { success: true, type: value };
 }
 
@@ -173,6 +174,6 @@ function compactPlannerToolCard(card: CardRecord): { id: string; type: CardTypeN
   return { id: card.id, type: card.type, parent: cardParentId(card.id), status: card.lifecycle.status, title: card.title, depends_on: card.depends_on, related: card.related, tags: card.tags, priority: card.priority, urgency: card.urgency };
 }
 
-function failure(error: string): { success: false; error: string } {
-  return { success: false, error };
+function failure(error: string): ToolActionOutcome {
+  return toolFailed(error);
 }

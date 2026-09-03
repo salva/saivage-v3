@@ -4,7 +4,6 @@ import {
   activateCardArgumentsSchema,
   formatActivateCardResult,
   parseActivateCardArguments,
-  type ActivateCardToolResult,
   type CardActivationOutcome,
 } from '../../src/contracts/tool-api.js';
 import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, type BlockedResult } from '../../src/schemas/index.js';
@@ -21,7 +20,7 @@ describe('activate_card shared tool contract', () => {
   it('formats content-policy BLOCKED as one exact nested result without duplicate top-level evidence fields', () => {
     const result: BlockedResult = { kind: 'content-policy-refusal', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: 'agent:executor:card-a', marker_id: 'marker-id', evidence_url: '/agents/agent%3Aexecutor%3Acard-a?entry=marker-id' };
     const formatted = formatActivateCardResult('card-a', { status: 'blocked', summary: result.summary, result });
-    expect(formatted).toEqual({ success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, result } });
+    expect(formatted).toEqual({ kind: 'succeeded', data: { card_id: 'card-a', outcome: 'blocked', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, result } });
     expect(formatted).not.toHaveProperty('reason');
     expect(formatted).not.toHaveProperty('evidence_url');
     expect(formatted).not.toHaveProperty('session_id');
@@ -56,37 +55,30 @@ describe('activate_card shared tool contract', () => {
     // @ts-expect-error cancelled outcomes have no result field
     const cancelledWithResult: CardActivationOutcome = { status: 'cancelled', summary: 'cancelled', result: { kind: 'failed', summary: 'invalid' } };
 
-    const exactBlocked: BlockedResult = workflowResult('BLOCKED', 'blocked result');
-    const exactBlockedToolResult: ActivateCardToolResult = { success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: exactBlocked.summary, result: exactBlocked } };
-    // @ts-expect-error activate_card tool results do not admit rework
-    const reworkToolResult: ActivateCardToolResult = { success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'revise', result: { kind: 'rework', summary: 'revise' } } };
-
     expect(outcomes.map(({ status }) => status)).toEqual(['done', 'failed', 'blocked', 'cancelled']);
     void doneWithoutResult;
     void failedWithoutResult;
     void blockedWithoutResult;
     void blockedWithRework;
     void cancelledWithResult;
-    void exactBlockedToolResult;
-    void reworkToolResult;
   });
 
   it.each([
     {
       outcome: { status: 'done', summary: 'done summary', result: workflowResult('DONE', 'done result') } as const,
-      expected: { success: true, data: { card_id: 'card-a', outcome: 'done', summary: 'done summary', result: workflowResult('DONE', 'done result') } },
+      expected: { kind: 'succeeded', data: { card_id: 'card-a', outcome: 'done', summary: 'done summary', result: workflowResult('DONE', 'done result') } },
     },
     {
       outcome: { status: 'blocked', summary: 'blocked summary', result: workflowResult('BLOCKED', 'blocked result') } as const,
-      expected: { success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'blocked summary', result: workflowResult('BLOCKED', 'blocked result') } },
+      expected: { kind: 'succeeded', data: { card_id: 'card-a', outcome: 'blocked', summary: 'blocked summary', result: workflowResult('BLOCKED', 'blocked result') } },
     },
     {
       outcome: { status: 'failed', summary: 'failed summary', result: runtimeFailure('failed result') } as const,
-      expected: { success: true, data: { card_id: 'card-a', outcome: 'failed', summary: 'failed summary', result: runtimeFailure('failed result') } },
+      expected: { kind: 'succeeded', data: { card_id: 'card-a', outcome: 'failed', summary: 'failed summary', result: runtimeFailure('failed result') } },
     },
     {
       outcome: { status: 'cancelled', summary: 'cancelled summary' } as const,
-      expected: { success: false, error: "Child card 'card-a' activation was cancelled." },
+      expected: { kind: 'failed', error: "Child card 'card-a' activation was cancelled." },
     },
   ])('formats the $outcome.status result envelope', ({ outcome, expected }) => {
     expect(formatActivateCardResult('card-a', outcome)).toEqual(expected);

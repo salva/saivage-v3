@@ -1,11 +1,12 @@
 import { recordControlAction, stableStringify } from '../persistence/control-action-audit.js';
 import type { ControlActionAuditEntry } from '../schemas/index.js';
-import type { ToolContext, ToolResult } from '../tools/analyst-tool-types.js';
-import { executedProviderResult, type ToolExecutionResult } from '../tools/invocation.js';
+import type { AnalystToolOutcome, ToolContext } from '../tools/analyst-tool-types.js';
+import { executedToolOutcome, type ToolExecutionResult } from '../tools/invocation.js';
 import { toolFailure } from '../tools/analyst-tool-helpers.js';
 import type { AnalystMutationOutcome } from '../application/analyst-mutation-services.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import type { AnalystPreNetworkAdmission } from '../contracts/record-mutation.js';
+import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
 
 export interface AnalystMutationReadContext {
   readonly projectRoot: string;
@@ -57,7 +58,7 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       ...entry,
     }));
   };
-  let result: ToolResult;
+  let result: AnalystToolOutcome;
   try {
     const readServices = ctx.analystPreparation;
     if (spec.prepare && !readServices) throw new Error('Analyst preparation services are required for prepared mutations.');
@@ -68,7 +69,7 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       const admission = spec.admitBeforePrepare(params, readContext);
       if (!admission.ok) {
         settle({ outcome: admission.audit_outcome, outcome_summary: admission.result.error, ...(admission.audit_outcome === 'error' ? { error: admission.result.error } : {}) });
-        return executedProviderResult('none', admission.result);
+        return executedToolOutcome('none', toolFailed(admission.result.error, admission.result.data));
       }
       prepared = await spec.prepare!(params, readContext);
       signal?.throwIfAborted(); ctx.interventionReadiness.assertInterventionReady();
@@ -84,14 +85,12 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
       settle({ outcome: 'denied', outcome_summary: `application admission denied: ${outcome.reason}` });
       result = toolFailure(`Application denied ${spec.action}: ${outcome.reason}.`, { action: spec.action, reason: outcome.reason });
     } else {
-      result = outcome.success
-        ? { success: true, ...(outcome.data === undefined ? {} : { data: outcome.data }) }
-        : { success: false, error: outcome.error, ...(outcome.data === undefined ? {} : { data: outcome.data }) };
-      const classifiedDenied = !result.success && typeof result.data === 'object' && result.data !== null && (result.data as { code?: string }).code === 'record_mutation_denied';
+      result = outcome.success ? toolSucceeded(outcome.data) : toolFailed(outcome.error, outcome.data);
+      const classifiedDenied = outcome.success === false && typeof outcome.data === 'object' && outcome.data !== null && (outcome.data as { code?: string }).code === 'record_mutation_denied';
       settle({
-        outcome: result.success ? 'ok' : classifiedDenied ? 'denied' : 'error',
-        outcome_summary: result.success ? spec.successSummary ?? 'mutation applied' : result.error,
-        ...(result.success ? {} : { error: result.error }),
+        outcome: outcome.success ? 'ok' : classifiedDenied ? 'denied' : 'error',
+        outcome_summary: outcome.success ? spec.successSummary ?? 'mutation applied' : outcome.error,
+        ...(outcome.success ? {} : { error: outcome.error }),
       });
     }
   } catch (error) {
@@ -101,7 +100,7 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
     settle({ outcome: 'error', outcome_summary: summary, error: summary });
     throw error;
   }
-  return executedProviderResult('none', result);
+  return executedToolOutcome('none', result);
 }
 
 export function ANALYST_UNSUPPORTED_ACTION_TEMPLATE(capabilityClass?: string, toolNames?: string[]): string {

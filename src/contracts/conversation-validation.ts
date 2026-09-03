@@ -17,7 +17,7 @@ import {
 } from '../schemas/index.js';
 import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/message-identity.js';
 import { parseToolCallMessageForModel } from './persisted-tool-call.js';
-import { ToolInvocationResultSchema } from './tool-invocation-projection.js';
+import { ToolResultSchema } from './tool-result.js';
 
 export type SourceSegment = {
   readonly kind: 'initial' | 'repair';
@@ -556,7 +556,7 @@ function validateToolOrdering(
 
 function parseToolResultContent(row: AgentMessage): { success: boolean } {
   try {
-    return { success: ToolInvocationResultSchema.parse(JSON.parse(row.content)).success === true };
+    return { success: ToolResultSchema.parse(JSON.parse(row.content)).success === true };
   } catch (error) {
     throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);
   }
@@ -596,7 +596,7 @@ function validateToolContent(row: AgentMessage): { failedResult: boolean } {
     if (row.role !== 'tool') throw new Error(`Tool result '${row.id}' must use tool role.`);
     try {
       return {
-        failedResult: ToolInvocationResultSchema.parse(JSON.parse(row.content)).success === false,
+        failedResult: ToolResultSchema.parse(JSON.parse(row.content)).success === false,
       };
     } catch (error) {
       throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);

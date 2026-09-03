@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RecordMutationFailureSchema, RecordMutationSuccessSchema } from './record-mutation.js';
+import { RecordMutationSuccessSchema } from './record-mutation.js';
 
 export const WebfetchInvocationSchema = z.object({
   url: z.string(),
@@ -22,8 +22,8 @@ export const WebfetchMetadataSchema = z.object({
 
 export type WebfetchMetadata = z.infer<typeof WebfetchMetadataSchema>;
 
-export const WorkspaceWriteSuccessSchema = z.object({ success: z.literal(true), data: z.object({ destination_kind: z.enum(['project_relative', 'project_url', 'tmp_url', 'system_url']), target: z.string().min(1), bytes: z.number().int().safe().nonnegative(), written: z.literal(true) }).strict() }).strict();
-const WebfetchSavedWriteSchema = z.union([z.object({ kind: z.literal('workspace_file'), result: WorkspaceWriteSuccessSchema }).strict(), z.object({ kind: z.literal('record'), result: RecordMutationSuccessSchema }).strict()]);
+export const WorkspaceWriteDataSchema = z.object({ destination_kind: z.enum(['project_relative', 'project_url', 'tmp_url', 'system_url']), target: z.string().min(1), bytes: z.number().int().safe().nonnegative(), written: z.literal(true) }).strict();
+const WebfetchSavedWriteSchema = z.union([z.object({ kind: z.literal('workspace_file'), data: WorkspaceWriteDataSchema }).strict(), z.object({ kind: z.literal('record'), data: RecordMutationSuccessSchema.shape.data }).strict()]);
 
 const WebfetchMetadataOnlyDataSchema = WebfetchMetadataSchema.extend({ metadata_only: z.literal(true) }).strict();
 const WebfetchBinaryDataSchema = WebfetchMetadataSchema.extend({
@@ -47,19 +47,12 @@ const WebfetchSavedDataSchema = WebfetchMetadataSchema.extend({
   bytes: z.number().int().nonnegative(),
 }).strict();
 
-export const WebfetchResultSchema = z.union([
-  z.object({ success: z.literal(false), error: z.string() }).strict(),
-  RecordMutationFailureSchema,
-  z.object({
-    success: z.literal(true),
-    data: z.union([
+export const WebfetchDataSchema = z.union([
       WebfetchMetadataOnlyDataSchema,
       WebfetchBinaryDataSchema,
       WebfetchInlineDataSchema,
       WebfetchStashDataSchema,
       WebfetchSavedDataSchema,
-    ]),
-  }).strict(),
-]);
+    ]);
 
-export type WebfetchResult = z.infer<typeof WebfetchResultSchema>;
+export type WebfetchData = z.infer<typeof WebfetchDataSchema>;

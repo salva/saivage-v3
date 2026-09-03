@@ -2,6 +2,7 @@ import type { AgentName } from '../schemas/index.js';
 import { skillInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { SkillCatalog } from './skill-catalog.js';
+import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
 
 export interface SkillProviderContext {
   readonly projectRoot: string;
@@ -17,11 +18,11 @@ export const skillToolBinders: readonly ToolBinder<SkillProviderContext, any>[] 
     executor: (ctx, args) => executeToolAction('observational_query', async () => {
       const catalog = new SkillCatalog(ctx.projectRoot);
       try {
-        if (args.name === undefined) return { success: true, data: { skills: catalog.list(ctx.agentName) } };
+        if (args.name === undefined) return toolSucceeded({ skills: catalog.list(ctx.agentName) });
         const skill = catalog.read(ctx.agentName, args.name);
-        return { success: true, data: { skill_name: skill.name, skill_content: skill.content } };
+        return toolSucceeded({ skill_name: skill.name, skill_content: skill.content });
       } catch (error) {
-        return { success: false, error: error instanceof Error ? error.message : String(error) };
+        return toolFailed(error instanceof Error ? error.message : String(error));
       }
     }),
   }),

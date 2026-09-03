@@ -6,6 +6,7 @@ import {
   type DoneResult,
   type FailedResult,
 } from '../schemas/index.js';
+import { toolFailed, toolSucceeded, type ToolActionOutcome } from './tool-result.js';
 
 export const activateCardArgumentsSchema = z.object({ card_id: cardIdSchema }).strict();
 
@@ -21,21 +22,15 @@ export type CardActivationOutcome =
   | { status: 'blocked'; summary: string; result: BlockedResult }
   | { status: 'cancelled'; summary: string };
 
-export type ActivateCardToolResult =
-  | { success: true; data: { card_id: string; outcome: 'done'; summary: string; result: DoneResult } }
-  | { success: true; data: { card_id: string; outcome: 'failed'; summary: string; result: FailedResult } }
-  | { success: true; data: { card_id: string; outcome: 'blocked'; summary: string; result: BlockedResult } }
-  | { success: false; error: `Child card '${string}' activation was cancelled.` };
-
-export function formatActivateCardResult(cardId: string, outcome: CardActivationOutcome): ActivateCardToolResult {
+export function formatActivateCardResult(cardId: string, outcome: CardActivationOutcome): ToolActionOutcome {
   if (outcome.status === 'cancelled') {
-    return { success: false, error: `Child card '${cardId}' activation was cancelled.` };
+    return toolFailed(`Child card '${cardId}' activation was cancelled.`);
   }
   if (outcome.status === 'done') {
-    return { success: true, data: { card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result } };
+    return toolSucceeded({ card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result });
   }
   if (outcome.status === 'failed') {
-    return { success: true, data: { card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result } };
+    return toolSucceeded({ card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result });
   }
-  return { success: true, data: { card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result } };
+  return toolSucceeded({ card_id: cardId, outcome: outcome.status, summary: outcome.summary, result: outcome.result });
 }

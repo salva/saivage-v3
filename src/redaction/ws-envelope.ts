@@ -95,6 +95,7 @@ function projectActivityEnvelope(
         },
       });
   }
+  return assertNever(content);
 }
 
 function copyOptional(value: Record<string, unknown>, keys: readonly string[],

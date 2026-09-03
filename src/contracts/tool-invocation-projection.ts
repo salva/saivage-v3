@@ -1,6 +1,5 @@
-import { z } from 'zod';
-
 import type { ConversationSessionId } from '../schemas/index.js';
+import type { ToolResult } from './tool-result.js';
 
 export interface InvocationIdentity {
   readonly sessionId: ConversationSessionId;
@@ -15,19 +14,12 @@ export interface CanonicalCallIdentity extends InvocationIdentity {
 
 export type CanonicalResultIdentity = InvocationIdentity;
 
-export const ToolInvocationResultSchema = z.discriminatedUnion('success', [
-  z.object({ success: z.literal(true), data: z.unknown().optional() }).strict(),
-  z.object({ success: z.literal(false), error: z.string(), data: z.unknown().optional() }).strict(),
-]);
-
-export type ToolInvocationResult = z.infer<typeof ToolInvocationResultSchema>;
-
 export type ToolInvocationProjectionInput =
   | {
       readonly shape: 'complete';
       readonly identity: InvocationIdentity;
       readonly arguments: unknown;
-      readonly result: ToolInvocationResult;
+      readonly result: ToolResult;
     }
   | {
       readonly shape: 'call-row';
@@ -38,7 +30,7 @@ export type ToolInvocationProjectionInput =
   | {
       readonly shape: 'result-row';
       readonly identity: CanonicalResultIdentity;
-      readonly result: ToolInvocationResult;
+      readonly result: ToolResult;
       readonly arguments?: never;
     };
 

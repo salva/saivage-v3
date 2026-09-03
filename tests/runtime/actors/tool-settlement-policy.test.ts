@@ -11,7 +11,8 @@ import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolRes
 import type { CanonicalLlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { compileInvocationToolContract, buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
-import { executedNoneSettlement, executedProviderResult, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
+import { executedNoneSettlement, executedToolOutcome, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';
+import { toolFailed, toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -54,7 +55,7 @@ const hash = (value: string) => createHash('sha256').update(value, 'utf8').diges
 describe('typed tool settlement', () => {
   it('hashes observational evidence from the exact canonical settled bytes across arbitrary result shapes', () => {
     for (const data of [{ rows: [1, 2, 3] }, { nested: { deep: [{ leaf: 'x' }] } }, { unicode: 'ñá€𝄞' }, ['array', { mixed: true }], 'plain']) {
-      const facts = settleToolResultForConversation('get_card', policyOf(cardToolContract()), { kind: 'executed', execution: { providerResult: { success: true, data }, evidence: { kind: 'observational_result_bytes' } } });
+      const facts = settleToolResultForConversation('get_card', policyOf(cardToolContract()), { kind: 'executed', execution: { providerOutcome: toolSucceeded(data), evidence: { kind: 'observational_result_bytes' } } });
       expect(facts.settledResultBytes).toBe(canonicalJson({ success: true, data }));
       expect(facts.resultContentSha256).toBe(hash(facts.settledResultBytes));
       expect(facts.evidence).toEqual({ kind: 'observational_query', observedSha256: facts.resultContentSha256 });
@@ -96,7 +97,7 @@ describe('typed tool settlement', () => {
       tool_call_id: 'call-1',
       tool_name: 'get_card',
       resultPolicy: policy,
-      settlement: { kind: 'executed', execution: { providerResult: { success: true, data: { card: 'a' } }, evidence: { kind: 'observational_result_bytes' } } },
+      settlement: { kind: 'executed', execution: { providerOutcome: toolSucceeded({ card: 'a' }), evidence: { kind: 'observational_result_bytes' } } },
     });
     const conversation = readConversation(root, SESSION);
     const result = conversation.physicalRows.find((message) => message.kind === 'tool_result')!;
@@ -107,12 +108,12 @@ describe('typed tool settlement', () => {
 
   it('rejects wrong execution evidence kinds at runtime', () => {
     const policy = policyOf(cardToolContract());
-    expect(() => settleToolResultForConversation('get_card', policy, { kind: 'executed', execution: { providerResult: { success: true, data: {} }, evidence: { kind: 'none' } as never } })).toThrow(/observational result bytes/);
+    expect(() => settleToolResultForConversation('get_card', policy, { kind: 'executed', execution: { providerOutcome: toolSucceeded({}), evidence: { kind: 'none' } as never } })).toThrow(/observational result bytes/);
     const nonePolicy = policyOf(compileInvocationToolContract({ type: 'function', function: { name: 'write', description: 'w', parameters: { type: 'object' } } }, OPERATIONAL_RESULT_POLICY_TEMPLATE));
-    expect(() => settleToolResultForConversation('write', nonePolicy, { kind: 'executed', execution: { providerResult: { success: true, data: {} }, evidence: { kind: 'observational_result_bytes' } as never } })).toThrow(/none evidence/);
+    expect(() => settleToolResultForConversation('write', nonePolicy, { kind: 'executed', execution: { providerOutcome: toolSucceeded({}), evidence: { kind: 'observational_result_bytes' } as never } })).toThrow(/none evidence/);
     const canonicalPolicy = policyOf(compileInvocationToolContract({ type: 'function', function: { name: 'reader', description: 'r', parameters: { type: 'object' } } }, { ...OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, evidenceMode: 'canonical_locator' }));
-    expect(() => settleToolResultForConversation('reader', canonicalPolicy, { kind: 'executed', execution: { providerResult: { success: true }, evidence: { kind: 'observational_result_bytes' } as never } })).toThrow(/canonical-locator/);
-    expect(settleToolResultForConversation('reader', canonicalPolicy, { kind: 'executed', execution: { providerResult: { success: true, data: {} }, evidence: { kind: 'canonical_locator', locator: 'record:///a.md?card=project&v=1#entry=e1', sha256: hash('content') } } }).evidence)
+    expect(() => settleToolResultForConversation('reader', canonicalPolicy, { kind: 'executed', execution: { providerOutcome: toolSucceeded(), evidence: { kind: 'observational_result_bytes' } as never } })).toThrow(/canonical-locator/);
+    expect(settleToolResultForConversation('reader', canonicalPolicy, { kind: 'executed', execution: { providerOutcome: toolSucceeded({}), evidence: { kind: 'canonical_locator', locator: 'record:///a.md?card=project&v=1#entry=e1', sha256: hash('content') } } }).evidence)
       .toEqual({ kind: 'canonical_locator', locator: 'record:///a.md?card=project&v=1#entry=e1', sha256: hash('content') });
   });
 
@@ -128,11 +129,11 @@ describe('typed tool settlement', () => {
       expect(facts.providerResult.success).toBe(false);
       expect(facts.settledResultBytes).toBe(canonicalJson(facts.providerResult));
     }
-    const failedExecution = settleToolResultForConversation('get_card', policyOf(cardToolContract()), { kind: 'executed', execution: { providerResult: { success: false, error: 'domain refusal' }, evidence: { kind: 'none' } } });
+    const failedExecution = settleToolResultForConversation('get_card', policyOf(cardToolContract()), { kind: 'executed', execution: { providerOutcome: toolFailed('domain refusal'), evidence: { kind: 'none' } } });
     expect(failedExecution.evidence).toEqual({ kind: 'none' });
     expect(failedExecution.settlementOrigin).toBe('executed');
-    expect(executedNoneSettlement({ success: true, data: { accepted: true } })).toEqual({ kind: 'executed', execution: { providerResult: { success: true, data: { accepted: true } }, evidence: { kind: 'none' } } });
-    expect(executedProviderResult('observational_query', { success: false, error: 'x' }).evidence).toEqual({ kind: 'none' });
+    expect(executedNoneSettlement(toolSucceeded({ accepted: true })).execution.evidence).toEqual({ kind: 'none' });
+    expect(executedToolOutcome('observational_query', toolFailed('x')).evidence).toEqual({ kind: 'none' });
   });
 
   it('validates composite-identity pairing, rejection of orphans, repeats, name and commitment mismatches', () => {
@@ -143,7 +144,7 @@ describe('typed tool settlement', () => {
     const policy = selectInvocationResultPolicy(input, 'get_card');
     const rows = () => readConversation(root, SESSION).physicalRows;
     const appendSettled = (sourceInputId: string, toolName: string, resultPolicy: InvocationResultPolicy) =>
-      appendToolResult({ projectRoot: root }, { session_id: SESSION, source_input_id: sourceInputId, tool_call_id: 'shared-call', tool_name: toolName, resultPolicy, settlement: { kind: 'executed', execution: { providerResult: { success: true, data: {} }, evidence: { kind: 'observational_result_bytes' } } } });
+      appendToolResult({ projectRoot: root }, { session_id: SESSION, source_input_id: sourceInputId, tool_call_id: 'shared-call', tool_name: toolName, resultPolicy, settlement: { kind: 'executed', execution: { providerOutcome: toolSucceeded({}), evidence: { kind: 'observational_result_bytes' } } } });
 
     appendLlmTurnToolCallBatch({ projectRoot: root }, input, call(firstInput, 'shared-call'), policy);
     expect(() => appendSettled(secondInput, 'get_card', policy)).toThrow(/no matching earlier call/);

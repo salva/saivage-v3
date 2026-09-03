@@ -4,7 +4,7 @@ import {
   AnalystTurnBusyErrorSchema,
   RestartChatAcknowledgementSchema,
 } from './operator-api-chats.js';
-import { ToolInvocationResultSchema } from './tool-invocation-projection.js';
+import { ToolResultSchema } from './tool-result.js';
 
 export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
 export const WsEnvelopeSchema = z.object({
@@ -263,7 +263,7 @@ export const ClassifiedToolInvocationActivityContentSchema = z
     sessionId: ConversationSessionIdSchema,
     tool: z.string().min(1),
     params: z.unknown(),
-    result: ToolInvocationResultSchema,
+    result: ToolResultSchema,
   })
   .strict();
 

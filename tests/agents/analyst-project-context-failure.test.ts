@@ -9,7 +9,8 @@ import type { CardService } from '../../src/cards/card-api.js';
 import { CardService as CompiledCardService, initProjectTree } from '../helpers/canonical-project.js';
 import { readAppLogEntries } from '../../src/persistence/app-log.js';
 import { appLogFile, globalAgentConversationVersionIndexFile } from '../../src/persistence/layout.js';
-import { defineTool, executedProviderResult, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
+import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
+import { toolSucceeded } from '../../src/contracts/tool-result.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';
@@ -43,7 +44,7 @@ describe('Analyst project-context failure', () => {
       description: 'Must not run after failed project-context construction.',
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: z.object({}).strict(),
-      executor: async () => executedProviderResult('none', await execute()),
+       executor: async () => executedToolOutcome('none', toolSucceeded((await execute()).data)),
     });
     const surface: InvocationSurface = {
       agentName: 'analyst',
@@ -106,7 +107,7 @@ describe('Analyst project-context failure', () => {
       description: 'Must not run after failed static preparation.',
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: z.object({}).strict(),
-      executor: async () => executedProviderResult('none', await execute()),
+       executor: async () => executedToolOutcome('none', toolSucceeded((await execute()).data)),
     });
     const surface: InvocationSurface = {
       agentName: 'analyst',

@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
-import { invokeToolForLlm, settlementProviderResult } from '../../src/tools/invocation.js';
+import { invokeToolForLlm } from '../../src/tools/invocation.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 import { plannerControlToolBinders, type PlannerControlProviderContext } from '../../src/tools/planner-control-provider.js';
 import { ChildInvocationLease } from '../../src/runtime/actors/child-invocation-wait.js';
@@ -21,7 +22,7 @@ const bindPlannerControl = (context: PlannerControlProviderContext) => bindToolP
 
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
 
-function settleToolForLlm(surface: Parameters<typeof invokeToolForLlm>[0], name: string, args: unknown, context: Parameters<typeof invokeToolForLlm>[3], signal?: AbortSignal) { return invokeToolForLlm(surface, name, args, context, signal).then(settlementProviderResult); }
+function settleToolForLlm(surface: Parameters<typeof invokeToolForLlm>[0], name: string, args: unknown, context: Parameters<typeof invokeToolForLlm>[3], signal?: AbortSignal) { return invokeToolForLlm(surface, name, args, context, signal).then((settlement) => settleToolActionOutcome(settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome).providerResult); }
 
 describe('planner control provider ownership delegation', () => {
   function harness() {

@@ -23,7 +23,7 @@ type Admission = { parsed: ReturnType<typeof parseRecordUrl>; current: RecordPro
 
 function failure(value: RecordMutationFailure): RecordMutationFailure { return RecordMutationFailureSchema.parse(value); }
 function denied(parsed: ReturnType<typeof parseRecordUrl>, operation: 'write' | 'edit', reason: z.infer<typeof reasonSchema>): RecordMutationFailure {
-  return failure({ success: false, error: 'Record mutation is not authorized.', data: { code: 'record_mutation_denied', card_id: parsed.cardId, name: parsed.name as never, operation, reason } });
+  return failure({ kind: 'rejected', error: 'Record mutation is not authorized.', data: { code: 'record_mutation_denied', card_id: parsed.cardId, name: parsed.name as never, operation, reason } });
 }
 import { z } from 'zod';
 const reasonSchema = z.enum(['card_not_active', 'writer_not_authorized', 'tool_not_authorized', 'cross_card_scope', 'lifecycle_unsupported']);
@@ -33,7 +33,7 @@ export function admitRecordMutation(store: CardService, request: RecordMutationR
   if (parsed.version !== null) throw new Error('Historical record URLs cannot be mutated.');
   let card: ReturnType<CardService['read']>;
   try { card = store.read(parsed.cardId); }
-  catch { return failure({ success: false, error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'card', owner_id: parsed.cardId, operation: request.operation, restart_required: true } }); }
+  catch { return failure({ kind: 'rejected', error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'card', owner_id: parsed.cardId, operation: request.operation, restart_required: true } }); }
   if (!card) return denied(parsed, request.operation, 'card_not_active');
   if (request.surface === 'card_agent' && request.cardId !== parsed.cardId) return denied(parsed, request.operation, 'cross_card_scope');
   const configured = request.surface === 'analyst' ? store.workflows.analyst : store.workflows.agents.get(request.agentName);
@@ -42,37 +42,37 @@ export function admitRecordMutation(store: CardService, request: RecordMutationR
   if (request.surface === 'analyst' && analystRecordEditEffect(card.lifecycle.status) === null) return denied(parsed, request.operation, 'lifecycle_unsupported');
   let classification: ReturnType<CardService['classifyCurrentRecord']>;
   try { classification = store.classifyCurrentRecord(parsed.cardId, parsed.name); }
-  catch { return failure({ success: false, error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'authored_record', owner_id: `${parsed.cardId}/${parsed.name}`, operation: request.operation, restart_required: true } }); }
+  catch { return failure({ kind: 'rejected', error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'authored_record', owner_id: `${parsed.cardId}/${parsed.name}`, operation: request.operation, restart_required: true } }); }
   const current = classification.kind === 'present' ? classification.projection : null;
-  if (request.surface === 'analyst' && current?.artifact.state === 'open') return failure({ success: false, error: 'Record already has an open workflow draft.', data: { code: 'record_open_conflict', card_id: parsed.cardId, name: parsed.name as never, current_head: current.headVersion, operation: request.operation } });
+  if (request.surface === 'analyst' && current?.artifact.state === 'open') return failure({ kind: 'rejected', error: 'Record already has an open workflow draft.', data: { code: 'record_open_conflict', card_id: parsed.cardId, name: parsed.name as never, current_head: current.headVersion, operation: request.operation } });
   return { parsed, current };
 }
 
 export function preflightAnalystRecordWrite(store: CardService, request: Omit<RecordMutationRequest, 'content' | 'oldString' | 'newString' | 'replaceAll'>): AnalystPreNetworkAdmission {
   const admitted = admitRecordMutation(store, request);
-  if ('success' in admitted) return { ok: false, result: admitted, audit_outcome: admitted.data.code === 'record_mutation_denied' ? 'denied' : 'error' } as AnalystPreNetworkAdmission;
+  if ('kind' in admitted) return { ok: false, result: admitted, audit_outcome: admitted.data.code === 'record_mutation_denied' ? 'denied' : 'error' } as AnalystPreNetworkAdmission;
   return { ok: true };
 }
 
 export function mutateRecord(store: CardService, request: RecordMutationRequest, propagate?: () => { ok: true } | { ok: false; partial: true; error: string }): RecordMutationResult {
-  const admitted = admitRecordMutation(store, request); if ('success' in admitted) return admitted;
+  const admitted = admitRecordMutation(store, request); if ('kind' in admitted) return admitted;
   const { parsed, current } = admitted; const currentHead = current?.headVersion ?? null; const effective = current ? effectiveRecordContent(current.artifact) : null;
   let nextContent: string;
   if (request.operation === 'edit') {
-    if (!effective) return failure({ success: false, error: 'Record has no content to edit.', data: { code: 'record_content_absent', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead } });
+    if (!effective) return failure({ kind: 'rejected', error: 'Record has no content to edit.', data: { code: 'record_content_absent', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead } });
     const oldString = request.oldString!; const occurrences = effective.content.split(oldString).length - 1;
-    if (occurrences === 0) return failure({ success: false, error: 'old_string was not found in current record content.', data: { code: 'record_edit_old_string_not_found', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead! } });
-    if (occurrences > 1 && request.replaceAll !== true) return failure({ success: false, error: 'old_string matched multiple locations; set replace_all to true.', data: { code: 'record_edit_old_string_multiple_matches', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead!, occurrences, replace_all_required: true } });
+    if (occurrences === 0) return failure({ kind: 'rejected', error: 'old_string was not found in current record content.', data: { code: 'record_edit_old_string_not_found', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead! } });
+    if (occurrences > 1 && request.replaceAll !== true) return failure({ kind: 'rejected', error: 'old_string matched multiple locations; set replace_all to true.', data: { code: 'record_edit_old_string_multiple_matches', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead!, occurrences, replace_all_required: true } });
     nextContent = request.replaceAll ? effective.content.split(oldString).join(request.newString!) : effective.content.replace(oldString, request.newString!);
   } else nextContent = request.content!;
-  if (isEmptyRecordContent(nextContent)) return failure({ success: false, error: 'Record content must not be empty.', data: { code: 'record_result_content_empty', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead, operation: request.operation } });
-  if (effective?.content === nextContent) return failure({ success: false, error: 'Record content is unchanged.', data: { code: 'record_content_unchanged', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead!, operation: request.operation } });
+  if (isEmptyRecordContent(nextContent)) return failure({ kind: 'rejected', error: 'Record content must not be empty.', data: { code: 'record_result_content_empty', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead, operation: request.operation } });
+  if (effective?.content === nextContent) return failure({ kind: 'rejected', error: 'Record content is unchanged.', data: { code: 'record_content_unchanged', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead!, operation: request.operation } });
   let open: RecordProjection;
   if (current?.artifact.state === 'open') open = current;
   else open = store.openRecord(parsed.cardId, parsed.name);
   const edited = store.editRecord(parsed.cardId, parsed.name, nextContent);
   const result = request.surface === 'analyst' ? store.closeRecord(parsed.cardId, parsed.name, request.agentName) : edited;
-  const success: RecordMutationSuccess = { success: true, data: { card_id: parsed.cardId, name: parsed.name as never, state: request.surface === 'analyst' ? 'closed' : 'open', head_version: result.headVersion, head_entry_id: result.artifact.entry_id, current_url: result.currentUrl, version_url: result.versionUrl, bytes: Buffer.byteLength(nextContent), written: true, surface: request.surface, ...(request.surface === 'analyst' ? { propagation: propagate ? propagate() : { ok: true as const } } : {}) } };
+  const success: RecordMutationSuccess = { kind: 'applied', data: { card_id: parsed.cardId, name: parsed.name as never, state: request.surface === 'analyst' ? 'closed' : 'open', head_version: result.headVersion, head_entry_id: result.artifact.entry_id, current_url: result.currentUrl, version_url: result.versionUrl, bytes: Buffer.byteLength(nextContent), written: true, surface: request.surface, ...(request.surface === 'analyst' ? { propagation: propagate ? propagate() : { ok: true as const } } : {}) } };
   const validated = RecordMutationSuccessSchema.parse(success);
   if (request.surface === 'card_agent') request.onRecordWritten?.(parsed.name);
   return validated;

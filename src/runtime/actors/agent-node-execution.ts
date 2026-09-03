@@ -21,6 +21,7 @@ import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
 import { PublicationOutcomeUnknownError, throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
+import { toolFailed, toolSucceeded } from '../../contracts/tool-result.js';
 
 export interface AcceptedNodeResult {
   readonly nodeId: string;
@@ -36,18 +37,6 @@ export type NodeTransition = Readonly<{ context: ActorTransitionContext; accepte
 type NodeResult = { outcome: string; summary: string };
 type ReviewerSnapshot = { cards: Array<{ id: string; versionSeq: number }>; includedRecordVersions: Array<{ cardId: string; filename: string; sourceVersion: number | null }> };
 type ReviewerContextPair = { exactContext: ProviderVisibleUserContextMessage; snapshot: ReviewerSnapshot };
-
-export const EmitResultSettlementSchema = z.union([
-  z.object({ success: z.literal(true), data: z.object({ accepted: z.literal(true) }).strict() }).strict(),
-  z.object({ success: z.literal(false), error: z.string().min(1) }).strict(),
-  z.object({ success: z.literal(false), error: z.string().min(1), data: z.object({ reason: z.literal('pending_notifications') }).strict() }).strict(),
-]);
-
-export type EmitResultSettlement = z.infer<typeof EmitResultSettlementSchema>;
-
-export function parseEmitResultSettlement(value: unknown): EmitResultSettlement {
-  return EmitResultSettlementSchema.parse(value);
-}
 
 export interface AgentNodeExecutionHost {
   createLlm(agentId: string): ConversationLLMActor;
@@ -128,7 +117,7 @@ export class AgentNodeExecution {
             if (!parsed.success) throw new Error(parsed.error.message);
             nodeResult = parsed.data;
           }
-          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(parseEmitResultSettlement({ success: false, error: this.correction(process, node, [errorMessage(error)]) })), signal); continue; }
+          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [errorMessage(error)]))), signal)).outcome; continue; }
           const route = node.on.get(`result:${nodeResult.outcome}`);
           if (!route || route.semantic.kind !== 'configured-outcome')
             throw new Error(
@@ -145,11 +134,11 @@ export class AgentNodeExecution {
               ...selected.map((notification) => ({ role: 'user' as const, content: notification.content })),
               { role: 'user', content: this.correction(process, node, ['pending_notifications: reconsider the appended context, update required records if needed, and call emit_result again.']) },
             ];
-            outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(parseEmitResultSettlement({ success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } })), signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }));
+            outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed('emit_result was not accepted because operator context is pending.', { reason: 'pending_notifications' })), signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }))).outcome;
             continue;
           }
           const records = this.validateRecords(node, baseline);
-          if ('violations' in records) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(parseEmitResultSettlement({ success: false, error: this.correction(process, node, records.violations) })), signal); continue; }
+          if ('violations' in records) { outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, records.violations))), signal)).outcome; continue; }
           if (reviewerPair) {
             const stale = this.reviewerStaleReason(input.card.id, reviewerPair.snapshot, node.descendantContext!.records.map((record)=>record.name));
             if (stale) {
@@ -159,13 +148,13 @@ export class AgentNodeExecution {
               recordFinalizationBegun = false;
               const refreshed = this.captureReviewerPair(input.card.id,node.descendantContext!.records.map((record)=>record.name));
               const messages = [refreshed.exactContext, { role: 'user' as const, content: this.correction(process, node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) }];
-              outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(parseEmitResultSettlement({ success: false, error: `Review context is stale: ${stale}.` })), signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }));
+              outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(`Review context is stale: ${stale}.`)), signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }))).outcome;
               continue;
             }
           }
            if (target.kind === 'terminal' && target.terminal === 'DONE') {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
-            if (blocker) { outcome = await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(parseEmitResultSettlement({ success: false, error: this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]) })), signal); continue; }
+            if (blocker) { outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]))), signal)).outcome; continue; }
           }
           if (target.kind === 'terminal') {
             this.host.assertPromotionAvailable(route);
@@ -180,7 +169,7 @@ export class AgentNodeExecution {
           const acceptedRecords = this.closeAcceptedRecords(node, records.candidates, writtenRecords);
           await llm.settleToolResultWithoutContinuation(
             terminalOutcome.toolCallId,
-            executedNoneSettlement(parseEmitResultSettlement({ success: true, data: { accepted: true } })),
+            executedNoneSettlement(toolSucceeded({ accepted: true })),
           );
           this.host.assertCurrentActivation(input);
           cleanupStatus =
@@ -201,7 +190,7 @@ export class AgentNodeExecution {
           : syntheticToolSettlement('unsupported_tool', `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.`);
         signal.throwIfAborted();
         this.host.assertCurrentActivation(input);
-        outcome = await llm.appendToolResult(outcome.toolCallId, toolSettlement, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId));
+        outcome = (await llm.appendToolResult(outcome.toolCallId, toolSettlement, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId))).outcome;
       }
     } catch (error) {
       if (error instanceof PublicationOutcomeUnknownError) throw error;

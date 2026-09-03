@@ -7,8 +7,8 @@ import { appendConversationBatch } from '../../src/persistence/conversation-file
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import {
-  ListAgentSessionsToolResultSchema,
-  ReadAgentSessionToolResultSchema,
+  ListAgentSessionsToolDataSchema,
+  ReadAgentSessionToolDataSchema,
   list_agent_sessions,
   read_agent_session,
 } from '../../src/tools/analyst-misc-tools.js';
@@ -108,7 +108,7 @@ describe('Analyst agent-session tools', () => {
       last_n: 1,
     });
     expect(result).toEqual({
-      success: true,
+      kind: 'succeeded',
       data: {
         session: detail.session,
         ownership: 'active',
@@ -119,8 +119,8 @@ describe('Analyst agent-session tools', () => {
         messages: [expected.entries[2]],
       },
     });
-    const parsedResult = ReadAgentSessionToolResultSchema.parse(result);
-    if (!parsedResult.success) throw new Error(parsedResult.error);
+    if (result.kind !== 'succeeded') throw new Error(result.error);
+    const parsedResult = { data: ReadAgentSessionToolDataSchema.parse(result.data) };
     expect(parsedResult.data.session).toEqual(expect.objectContaining({ status: 'active', activity: 'busy' }));
     expect(JSON.stringify(result)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(JSON.stringify(result)).toContain(OUTBOUND_REDACTED_URL);
@@ -166,8 +166,8 @@ describe('Analyst agent-session tools', () => {
       session_id: 'agent:planner:project',
       last_n: 1,
     });
-    expect(direct).toMatchObject({ success: true, data: { total_visible_entries: 4, returned_visible_entries: 1 } });
-    if (!direct.success) throw new Error(direct.error);
+    expect(direct).toMatchObject({ kind: 'succeeded', data: { total_visible_entries: 4, returned_visible_entries: 1 } });
+    if (direct.kind !== 'succeeded') throw new Error(direct.error);
     expect((direct.data as { messages: AgentMessage[] }).messages[0]!.kind).toBe('tool_result');
     expect(JSON.stringify(direct)).not.toContain('synthetic-result-secret');
 
@@ -216,7 +216,7 @@ describe('Analyst agent-session tools', () => {
       last_n: 2,
     });
     expect(projected).toMatchObject({
-      success: true,
+      kind: 'succeeded',
       data: {
         total_visible_entries: 4,
         returned_visible_entries: 2,
@@ -234,7 +234,7 @@ describe('Analyst agent-session tools', () => {
     await expect(
       read_agent_session(toolContext, { session_id: 'agent:planner:project' }),
     ).resolves.toMatchObject({
-      success: false,
+      kind: 'failed',
       error: 'Agent session has no current conversation segment.',
       data: { code: 'agent_session_empty', session_id: 'agent:planner:project' },
     });
@@ -272,33 +272,33 @@ describe('Analyst agent-session tools', () => {
     ]);
     const toolContext = context(projectRoot);
     await expect(list_agent_sessions(toolContext, {})).resolves.toMatchObject({
-      success: true,
+      kind: 'succeeded',
       data: { sessions: [expect.objectContaining({ id: sessionId })] },
     });
     cards.deleteSubtrees([child.id], () => true);
     await expect(list_agent_sessions(toolContext, {})).resolves.toEqual({
-      success: true,
+      kind: 'succeeded',
       data: { sessions: [] },
     });
     await expect(read_agent_session(toolContext, { session_id: sessionId })).resolves.toMatchObject({
-      success: true,
+      kind: 'succeeded',
       data: { session: { id: sessionId } },
     });
   });
 
   it('rejects former producer success and safe-data failure shapes', () => {
-    expect(ListAgentSessionsToolResultSchema.safeParse({ success: true, data: [] }).success).toBe(
+    expect(ListAgentSessionsToolDataSchema.safeParse([]).success).toBe(
       false,
     );
     expect(
-      ReadAgentSessionToolResultSchema.safeParse({
+      ReadAgentSessionToolDataSchema.safeParse({
         success: false,
         error: 'missing',
         data: { safe: true },
       }).success,
     ).toBe(false);
     expect(
-      ReadAgentSessionToolResultSchema.safeParse({
+      ReadAgentSessionToolDataSchema.safeParse({
         success: true,
         data: {
           session: {},

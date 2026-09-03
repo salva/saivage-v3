@@ -1,61 +1,62 @@
 import { listControlActions } from '../persistence/control-action-audit.js';
 import { eventKindValues } from '../schemas/index.js';
 import { buildProcessView } from '../application/read-models/process-view.js';
-import type { ToolContext, ToolResult } from './analyst-tool-types.js';
+import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../application/event-query-service.js';
 import { listProcessesInputSchema, readControlActionsInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { toolSucceeded } from '../contracts/tool-result.js';
 
 const JSONL_TAIL_DEFAULT = 50;
 
-export async function start_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
+export async function start_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
   const data = await ctx.runtime.startProject();
-  if (!data.error) return { success: true, data };
+  if (!data.error) return toolSucceeded(data);
   return toolFailure(data.error, { status: data.status, started: data.started, stopped: data.stopped });
 }
 
-export async function pause_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
+export async function pause_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
   ctx.runtime.pause();
   const state = ctx.runtime.getStatus();
-  return { success: true, data: { status: state.status } };
+  return toolSucceeded({ status: state.status });
 }
 
-export async function resume_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
+export async function resume_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
   const state = ctx.runtime.getStatus();
   if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
   ctx.runtime.resume();
   const updated = ctx.runtime.getStatus();
-  return { success: true, data: { status: updated.status } };
+  return toolSucceeded({ status: updated.status });
 }
 
-export async function stop_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
-  return { success: true, data: await ctx.runtime.stopProject() };
+export async function stop_project(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
+  return toolSucceeded(await ctx.runtime.stopProject());
 }
 
-export async function restart_server(ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
+export async function restart_server(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
   if (!ctx.restartServerAvailable) return toolFailure('restart unavailable: operator authentication disabled');
-  return { success: true, data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' } };
+  return toolSucceeded({ restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
 }
 
-export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<ToolResult> {
-  try { const limit = params.limit ?? JSONL_TAIL_DEFAULT; const result = ctx.eventQueries.queryEvents({ selection: 'newest_tail', limit, ...(params.kind ? { kind: params.kind as (typeof eventKindValues)[number] } : {}) }); const events = result.events; return { success: true, data: { total_lines: result.total, returned: events.length, parse_errors: 0, events } }; }
+export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<AnalystToolOutcome> {
+  try { const limit = params.limit ?? JSONL_TAIL_DEFAULT; const result = ctx.eventQueries.queryEvents({ selection: 'newest_tail', limit, ...(params.kind ? { kind: params.kind as (typeof eventKindValues)[number] } : {}) }); const events = result.events; return toolSucceeded({ total_lines: result.total, returned: events.length, parse_errors: 0, events }); }
   catch (err) { return toolFailureFromError(err); }
 }
 
-export async function read_runtime_errors(ctx: ToolContext, params: { limit?: number }): Promise<ToolResult> {
-  try { const result = ctx.eventQueries.queryErrors(params.limit ?? JSONL_TAIL_DEFAULT); const errors = result.errors; return { success: true, data: { total_lines: result.total, returned: errors.length, parse_errors: 0, errors } }; }
+export async function read_runtime_errors(ctx: ToolContext, params: { limit?: number }): Promise<AnalystToolOutcome> {
+  try { const result = ctx.eventQueries.queryErrors(params.limit ?? JSONL_TAIL_DEFAULT); const errors = result.errors; return toolSucceeded({ total_lines: result.total, returned: errors.length, parse_errors: 0, errors }); }
   catch (err) { return toolFailureFromError(err); }
 }
 
-export async function read_control_actions(ctx: ToolContext, params: { limit?: number; since?: string }): Promise<ToolResult> {
-  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), EVENT_QUERY_MAX_LIMIT); const all = listControlActions(ctx.projectRoot, params.since ? { since: params.since } : undefined); const tail = all.slice(-limit); return { success: true, data: { total_lines: all.length, returned: tail.length, actions: tail } }; }
+export async function read_control_actions(ctx: ToolContext, params: { limit?: number; since?: string }): Promise<AnalystToolOutcome> {
+  try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), EVENT_QUERY_MAX_LIMIT); const all = listControlActions(ctx.projectRoot, params.since ? { since: params.since } : undefined); const tail = all.slice(-limit); return toolSucceeded({ total_lines: all.length, returned: tail.length, actions: tail }); }
   catch (err) { return toolFailureFromError(err); }
 }
 
-export async function list_processes_tool(ctx: ToolContext, params: { status?: string; cardId?: string }): Promise<ToolResult> {
-  try { const procs = ctx.processRunner.list(params.cardId ? { cardId: params.cardId } : undefined).map((record) => buildProcessView(ctx.projectRoot, record)); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return { success: true, data: filtered }; }
+export async function list_processes_tool(ctx: ToolContext, params: { status?: string; cardId?: string }): Promise<AnalystToolOutcome> {
+  try { const procs = ctx.processRunner.list(params.cardId ? { cardId: params.cardId } : undefined).map((record) => buildProcessView(ctx.projectRoot, record)); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return toolSucceeded(filtered); }
   catch (err) { return toolFailureFromError(err); }
 }
 

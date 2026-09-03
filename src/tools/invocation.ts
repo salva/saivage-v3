@@ -7,10 +7,7 @@ import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-
-export type ToolResult =
-  | { success: true; data?: unknown; error?: never }
-  | { success: false; error: string; data?: unknown };
+import { toolFailed, type ToolActionOutcome } from '../contracts/tool-result.js';
 
 export type ToolEvidenceMode = ToolResultPolicyTemplate['evidenceMode'];
 
@@ -22,28 +19,23 @@ export type ToolExecutionEvidenceInput<M extends ToolEvidenceMode> =
       : { kind: 'none' };
 
 export type ToolExecutionResult<M extends ToolEvidenceMode> =
-  | Readonly<{ providerResult: Extract<ToolResult, { success: false }>; evidence: { kind: 'none' } }>
+  | Readonly<{ providerOutcome: ToolActionOutcome; evidence: { kind: 'none' } }>
   | Readonly<{
-      providerResult: Extract<ToolResult, { success: true }>;
+      providerOutcome: ToolActionOutcome;
       evidence: ToolExecutionEvidenceInput<M>;
     }>;
 
 export type ExecutedToolSettlement = Readonly<{ kind: 'executed'; execution: ToolExecutionResult<ToolEvidenceMode> }>;
 export type SyntheticToolSettlementOrigin = 'rejected_before_execution' | 'unsupported_tool' | 'execution_failed';
-export type SyntheticToolSettlement = Readonly<{ kind: SyntheticToolSettlementOrigin; providerResult: Extract<ToolResult, { success: false }> }>;
+export type SyntheticToolSettlement = Readonly<{ kind: SyntheticToolSettlementOrigin; providerOutcome: ToolActionOutcome }>;
 export type ToolSettlementInput = ExecutedToolSettlement | SyntheticToolSettlement;
 
 export function syntheticToolSettlement(kind: SyntheticToolSettlementOrigin, error: string, data?: unknown): SyntheticToolSettlement {
-  const providerResult: Extract<ToolResult, { success: false }> = data === undefined ? { success: false, error } : { success: false, error, data };
-  return Object.freeze({ kind, providerResult });
+  return Object.freeze({ kind, providerOutcome: toolFailed(error, data) });
 }
 
-export function executedNoneSettlement(providerResult: ToolResult): ExecutedToolSettlement {
-  return Object.freeze({ kind: 'executed', execution: Object.freeze({ providerResult, evidence: Object.freeze({ kind: 'none' }) } as ToolExecutionResult<'none'>) });
-}
-
-export function settlementProviderResult(settlement: ToolSettlementInput): ToolResult {
-  return settlement.kind === 'executed' ? settlement.execution.providerResult : settlement.providerResult;
+export function executedNoneSettlement(providerOutcome: ToolActionOutcome): ExecutedToolSettlement {
+  return Object.freeze({ kind: 'executed', execution: Object.freeze({ providerOutcome, evidence: Object.freeze({ kind: 'none' }) }) });
 }
 
 export const OPERATIONAL_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate & { evidenceMode: 'none' } = Object.freeze({
@@ -68,20 +60,20 @@ export const MCP_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate & { evidenceMo
 export const EMIT_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate & { evidenceMode: 'none' } = OPERATIONAL_RESULT_POLICY_TEMPLATE;
 export const UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE: ToolResultPolicyTemplate & { evidenceMode: 'none' } = OPERATIONAL_RESULT_POLICY_TEMPLATE;
 
-export function executedProviderResult<M extends 'none' | 'observational_query'>(mode: M, result: ToolResult): ToolExecutionResult<M> {
-  if (result.success && mode === 'observational_query')
-    return { providerResult: result, evidence: { kind: 'observational_result_bytes' } } as ToolExecutionResult<M>;
-  return { providerResult: result, evidence: { kind: 'none' } } as ToolExecutionResult<M>;
+export function executedToolOutcome<M extends 'none' | 'observational_query'>(mode: M, outcome: ToolActionOutcome): ToolExecutionResult<M> {
+  if (outcome.kind === 'succeeded' && mode === 'observational_query')
+    return { providerOutcome: outcome, evidence: { kind: 'observational_result_bytes' } } as ToolExecutionResult<M>;
+  return { providerOutcome: outcome, evidence: { kind: 'none' } } as ToolExecutionResult<M>;
 }
 
-export function executeToolAction<M extends 'none' | 'observational_query'>(mode: M, action: () => Promise<ToolResult>): Promise<ToolExecutionResult<M>> {
-  return action().then((result) => executedProviderResult(mode, result));
+export function executeToolAction<M extends 'none' | 'observational_query'>(mode: M, action: () => Promise<ToolActionOutcome>): Promise<ToolExecutionResult<M>> {
+  return action().then((outcome) => executedToolOutcome(mode, outcome));
 }
 
-export function executeCanonicalLocatorToolAction(action: () => Promise<{ result: ToolResult; locator: string; sha256: string }>): Promise<ToolExecutionResult<'canonical_locator'>> {
-  return action().then((outcome) => outcome.result.success
-    ? { providerResult: outcome.result, evidence: { kind: 'canonical_locator', locator: outcome.locator, sha256: outcome.sha256 } }
-    : { providerResult: outcome.result, evidence: { kind: 'none' } });
+export function executeCanonicalLocatorToolAction(action: () => Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }>): Promise<ToolExecutionResult<'canonical_locator'>> {
+  return action().then((outcome) => outcome.outcome.kind === 'succeeded'
+    ? { providerOutcome: outcome.outcome, evidence: { kind: 'canonical_locator', locator: outcome.locator, sha256: outcome.sha256 } }
+    : { providerOutcome: outcome.outcome, evidence: { kind: 'none' } });
 }
 
 export interface ToolDefinition<Args = unknown, M extends ToolEvidenceMode = ToolEvidenceMode> {

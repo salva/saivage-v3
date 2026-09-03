@@ -9,13 +9,14 @@ import type { AgentName } from '../schemas/index.js';
 import { buildScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { describe } from './tool-definition.js';
 import type { ToolContext } from './analyst-tool-types.js';
-import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolResult as InvocationToolResult } from './invocation.js';
+import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
+import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { authorizeWriteProject, writeProject, type WorkspaceContext } from './project-file-tools.js';
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { admitAnalystRecordWebfetch, prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/analyst-prepare/webfetch.js';
 import { redactUrl } from '../redaction/text.js';
-import { WebfetchInvocationSchema, WebfetchResultSchema, WorkspaceWriteSuccessSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
+import { WebfetchDataSchema, WebfetchInvocationSchema, WorkspaceWriteDataSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
 import { RecordMutationResultSchema, RecordMutationSuccessSchema } from '../contracts/record-mutation.js';
 import { websearchInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { replaceFile } from '../persistence/replace-file.js';
@@ -151,34 +152,34 @@ function ddgResults(html: string, base: URL, max: number): Array<{ title: string
   return results;
 }
 
-async function websearchCore(params: { query: string; max_results?: number }, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<InvocationToolResult> {
+async function websearchCore(params: { query: string; max_results?: number }, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<ToolActionOutcome> {
   try {
     const query = params.query.trim();
-    if (!query) return { success: false, error: 'query is required.' };
+    if (!query) return toolFailed('query is required.');
     const max = Math.min(Math.max(params.max_results ?? 10, 1), MAX_RESULTS);
     const url = parseHttpUrl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
     const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes: DEFAULT_MAX_BYTES }, signal);
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
-    if (!fetched.response.ok) return { success: false, error: `Search provider returned HTTP ${fetched.response.status}.` };
+    if (!fetched.response.ok) return toolFailed(`Search provider returned HTTP ${fetched.response.status}.`);
     const html = Buffer.from(fetched.body).toString('utf8');
-    return { success: true, data: { query, results: ddgResults(html, fetched.url, max) } };
+    return toolSucceeded({ query, results: ddgResults(html, fetched.url, max) });
   } catch (err) {
     if (isAbortError(err, signal)) throw err;
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+    return toolFailed(err instanceof Error ? err.message : String(err));
   }
 }
 
-async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<InvocationToolResult> {
+async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation, signal: AbortSignal = new AbortController().signal, wait?: <T>(promise: Promise<T>) => Promise<T>): Promise<ToolActionOutcome> {
   try {
     const url = parseHttpUrl(params.url);
     const maxBytes = Math.min(Math.max(params.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
-    if (params.metadata_only && params.save_as) return { success: false, error: 'metadata_only cannot be combined with save_as.' };
+    if (params.metadata_only && params.save_as) return toolFailed('metadata_only cannot be combined with save_as.');
     if (params.save_as) {
       authorizeWriteProject(ctx, { path: params.save_as });
       if (params.save_as.startsWith('record:///')) {
         if (!ctx.store || !ctx.cardId) throw new Error('Card record Webfetch requires a bound card store.');
         const admission = admitRecordMutation(ctx.store, { path: params.save_as, operation: 'write', surface: 'card_agent', agentName: ctx.agentName, cardId: ctx.cardId, requiredTools: ['write', 'webfetch'] });
-        if ('success' in admission) return admission;
+        if ('kind' in admission) return toolFailed(admission.error, admission.data);
       }
     }
     if (params.metadata_only) {
@@ -186,40 +187,41 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
       const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
       const headers = headersObject(fetched.response.headers);
       const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
-      return { success: true, data: { ...metadata, metadata_only: true } };
+      return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, metadata_only: true }));
     }
     const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes }, signal);
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     const headers = headersObject(fetched.response.headers);
     const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
-    if (!fetched.response.ok) return { success: false, error: `HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.` };
+    if (!fetched.response.ok) return toolFailed(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);
     const contentType = headers['content-type'] ?? '';
     const mode = params.read_mode ?? 'auto';
     const isText = mode === 'text' || (mode === 'auto' && /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType));
-    if (!isText) return { success: true, data: { ...metadata, bytes: fetched.body.byteLength, content: null, binary: true } };
+    if (!isText) return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, bytes: fetched.body.byteLength, content: null, binary: true }));
     const text = Buffer.from(fetched.body).toString('utf8');
     if (params.save_as) {
       const rawWrite = await writeProject(ctx, { path: params.save_as, content: text });
       if (params.save_as.startsWith('record:///')) {
-        const result = RecordMutationResultSchema.parse(rawWrite); if (!result.success) return result;
-        return WebfetchResultSchema.parse({ success: true, data: { ...metadata, saved_as: result.data.current_url, write: { kind: 'record', result }, bytes: Buffer.byteLength(text, 'utf8') } });
+        const result = RecordMutationResultSchema.parse(rawWrite); if (result.kind === 'rejected') return toolFailed(result.error, result.data);
+        return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, saved_as: result.data.current_url, write: { kind: 'record', data: result.data }, bytes: Buffer.byteLength(text, 'utf8') }));
       }
-      const result = WorkspaceWriteSuccessSchema.parse(rawWrite);
-      return WebfetchResultSchema.parse({ success: true, data: { ...metadata, saved_as: result.data.target, write: { kind: 'workspace_file', result }, bytes: Buffer.byteLength(text, 'utf8') } });
+      if (rawWrite.kind !== 'applied') throw new Error('Filesystem Webfetch save returned a record rejection.');
+      const data = WorkspaceWriteDataSchema.parse(rawWrite.data);
+      return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, saved_as: data.target, write: { kind: 'workspace_file', data }, bytes: Buffer.byteLength(text, 'utf8') }));
     }
     const inlineCap = Math.min(Math.max(params.max_inline_bytes ?? DEFAULT_MAX_INLINE_BYTES, 1), maxBytes);
-    if (Buffer.byteLength(text, 'utf8') <= inlineCap) return { success: true, data: { ...metadata, text, bytes: Buffer.byteLength(text, 'utf8'), truncated: false } };
+    if (Buffer.byteLength(text, 'utf8') <= inlineCap) return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, text, bytes: Buffer.byteLength(text, 'utf8'), truncated: false }));
     const hash = createHash('sha256').update(text).digest('hex').slice(0, 16);
     const filename = `webfetch-${Date.now()}-${hash}.txt`;
     const stash = `${SAIVAGE_WORK_RELATIVE_DIR}/tmp/stash/${filename}`;
     const absolute = join(ctx.projectRoot, stash);
     mkdirSync(dirname(absolute), { recursive: true });
     replaceFile(absolute, Buffer.from(text, 'utf8'));
-    return { success: true, data: { ...metadata, stash_url: buildScopedPathUrl('work', ['tmp', 'stash', filename]), bytes: Buffer.byteLength(text, 'utf8'), truncated: true } };
+    return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, stash_url: buildScopedPathUrl('work', ['tmp', 'stash', filename]), bytes: Buffer.byteLength(text, 'utf8'), truncated: true }));
   } catch (err) {
     throwIfPublicationOutcomeUnknown(err);
     if (isAbortError(err, signal)) throw err;
-    return { success: false, error: err instanceof Error ? err.message : String(err) };
+    return toolFailed(err instanceof Error ? err.message : String(err));
   }
 }
 
@@ -264,10 +266,10 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
             mutate: (prepared, input, mutation) => {
               const outcome = mutation.services.recordMutations.write(input.save_as, prepared.content, ['write', 'webfetch']);
               if (outcome.kind === 'denied' || !outcome.success) return outcome;
-               const result = RecordMutationSuccessSchema.parse({ success: true, data: outcome.data });
-               return { kind: 'returned', success: true, data: { ...prepared.metadata, saved_as: result.data.current_url, write: { kind: 'record', result }, bytes: Buffer.byteLength(prepared.content, 'utf8') } };
+               const result = RecordMutationSuccessSchema.parse({ kind: 'applied', data: outcome.data });
+               return { kind: 'returned', success: true, data: WebfetchDataSchema.parse({ ...prepared.metadata, saved_as: result.data.current_url, write: { kind: 'record', data: result.data }, bytes: Buffer.byteLength(prepared.content, 'utf8') }) };
             },
-          }, signal).then((executed) => executed.providerResult);
+          }, signal).then((executed) => executed.providerOutcome);
         }),
       }),
 ]);

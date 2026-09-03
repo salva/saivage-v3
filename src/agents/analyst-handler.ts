@@ -15,8 +15,9 @@ import { buildLlmTurnMessage } from '../runtime/actors/llm-delivery-log.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext,
 } from '../persistence/conversation-file.js';
 import type { PreparedLlmInvocationInput } from '../runtime/actors/llm-invocation.js';
-import { invokeToolForLlm, settlementProviderResult, surfaceToolDefinitions, syntheticToolSettlement, type InvocationSurface, type ToolResult, type ToolSettlementInput,
+import { invokeToolForLlm, surfaceToolDefinitions, syntheticToolSettlement, type InvocationSurface, type ToolSettlementInput,
 } from '../tools/invocation.js';
+import type { ToolResult } from '../contracts/tool-result.js';
 import { surfaceToolContracts } from '../tools/runtime-tool-catalog.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { type PromptTemplateRegistry } from '../utils/prompt-api.js';
@@ -312,23 +313,19 @@ export class AnalystSession {
         operation.toolInFlight = null;
         this.assertCurrent(operation, signal);
       }
-      const result = settlementProviderResult(settlement);
-      operation.toolInvocations.push({
-        tool: outcome.toolName,
-        params,
-        result,
-        sourceInputId: outcome.inputId,
-        toolCallId: outcome.toolCallId,
-      });
-      if (outcome.toolName === 'restart_server' && result.success) {
-        await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, settlement);
+      const actionOutcome = settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome;
+      if (outcome.toolName === 'restart_server' && actionOutcome.kind === 'succeeded') {
+        const settled = await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, settlement);
+        operation.toolInvocations.push({ tool: outcome.toolName, params, result: settled.providerResult, sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId });
         operation.newlyRequestedRestart = true;
         return this.response(operation, {
           status: 'confirmation_required',
           confirmationMessage: 'RESTART SERVER',
         });
       }
-      outcome = await this.#llm.appendToolResult(outcome.toolCallId, settlement, signal);
+      const appended = await this.#llm.appendToolResult(outcome.toolCallId, settlement, signal);
+      operation.toolInvocations.push({ tool: outcome.toolName, params, result: appended.settled.providerResult, sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId });
+      outcome = appended.outcome;
     }
   }
 

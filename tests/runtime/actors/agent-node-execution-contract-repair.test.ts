@@ -1,10 +1,11 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
 
-import { AgentNodeExecution, parseEmitResultSettlement } from '../../../src/runtime/actors/agent-node-execution.js';
+import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/llm-actor.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
-import { defineTool, executedNoneSettlement, executedProviderResult, OPERATIONAL_RESULT_POLICY_TEMPLATE, settlementProviderResult, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
+import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
+import { toolFailed, toolSucceeded } from '../../../src/contracts/tool-result.js';
 
 type ToolOutcome = Extract<LLMActorOutcome, { type: 'tool_call' }>;
 
@@ -51,7 +52,7 @@ function harness(args: {
   const llm = {
     turn: async (_input: unknown, _signal: AbortSignal, handoff: unknown) => { events.push('turn'); handoffs.push(handoff); return args.initial; },
     continueAfterPlainText: async (correction: string, _signal: AbortSignal, handoff: unknown) => { events.push('continue-plain-text'); plainTextCorrections.push(correction); handoffs.push(handoff); return next(); },
-    appendToolResult: async (toolCallId: string, result: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); return next(); },
+    appendToolResult: async (toolCallId: string, result: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); return { outcome: next(), settled: {} }; },
     toolInvocationContext: () => { events.push('tool-context'); return {}; },
     claimResultAndCloseContinuation: (_outcome: ToolOutcome, _reason: Error, claim: () => void) => { events.push('claim-continuation'); claim(); },
     settleToolResultWithoutContinuation: async (toolCallId: string, result: unknown) => { events.push('settle-terminal'); settledToolResults.push({ toolCallId, result }); },
@@ -60,7 +61,8 @@ function harness(args: {
     providerName: 'node-test',
     tools: args.toolExecutor ? [defineTool({ name: 'lookup', description: 'lookup', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor: async () => {
       events.push('tool-execute');
-      return executedProviderResult('none', await args.toolExecutor!());
+      const result = await args.toolExecutor!();
+      return executedToolOutcome('none', toolSucceeded(result.data));
     } })] : [],
     cleanup: async (reason: ToolProviderCleanupReason) => {
       events.push('cleanup');
@@ -256,8 +258,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const test = harness({ initial: terminal('invalid', args), continuations: [terminal('accepted')] });
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
-    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement({ success: false, error: objectGuardCorrection }) });
-    expect(parseEmitResultSettlement(settlementProviderResult(test.appendedToolResults[0]!.result as never))).toEqual(settlementProviderResult(test.appendedToolResults[0]!.result as never));
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement(toolFailed(objectGuardCorrection)) });
   });
 
   it.each([
@@ -271,7 +272,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const test = harness({ initial: terminal('invalid', args), continuations: [terminal('accepted')] });
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
-    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement({ success: false, error: expected }) });
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement(toolFailed(expected)) });
     expect(expected).not.toContain("Terminal tool 'emit_result' arguments must be a JSON object.");
   });
 
@@ -284,7 +285,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete', summary: 'finished' });
     expect(test.events.filter((event) => event.startsWith('append:'))).toHaveLength(6);
-    expect(test.appendedToolResults).toEqual(Array.from({ length: 6 }, (_, index) => ({ toolCallId: `invalid-${index}`, result: executedNoneSettlement({ success: false, error: missingSummaryCorrection }) })));
+    expect(test.appendedToolResults).toEqual(Array.from({ length: 6 }, (_, index) => ({ toolCallId: `invalid-${index}`, result: executedNoneSettlement(toolFailed(missingSummaryCorrection)) })));
   });
 
   it('throws an actor provider error and still cleans up the failed activation', async () => {
@@ -321,7 +322,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.events.indexOf('tool-execute')).toBeLessThan(test.events.indexOf('append:lookup-1'));
     expect(test.events.indexOf('append:lookup-1')).toBeLessThan(test.events.indexOf('claim-continuation'));
     expect(test.events[test.events.indexOf('append:lookup-1') - 1]).toBe('current');
-    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'lookup-1', result: { kind: 'executed', execution: { providerResult: { success: true, data: 'found' }, evidence: { kind: 'none' } } } });
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'lookup-1', result: executedNoneSettlement(toolSucceeded('found')) });
   });
 
   it('accepts an immutable terminal result before successful cleanup', async () => {
@@ -359,8 +360,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
       'cleanup',
     ]);
     expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'done' }]);
-    expect(test.settledToolResults).toEqual([{ toolCallId: 'accepted', result: executedNoneSettlement({ success: true, data: { accepted: true } }) }]);
-    expect(parseEmitResultSettlement(settlementProviderResult(test.settledToolResults[0]!.result as never))).toEqual(settlementProviderResult(test.settledToolResults[0]!.result as never));
+    expect(test.settledToolResults).toEqual([{ toolCallId: 'accepted', result: executedNoneSettlement(toolSucceeded({ accepted: true })) }]);
   });
 
   const settlementCases: Array<[string, NonNullable<Parameters<typeof harness>[0]['terminalVariant']>, unknown]> = [
@@ -372,21 +372,8 @@ describe('AgentNodeExecution contract repair behavior', () => {
   it.each(settlementCases)('validates the %s settlement before append', async (_label, terminalVariant, expected) => {
     const test = harness({ initial: terminal('rejected'), continuations: [terminal('accepted')], terminalVariant });
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
-    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'rejected', result: executedNoneSettlement(expected as Parameters<typeof executedNoneSettlement>[0]) });
-    expect(parseEmitResultSettlement(settlementProviderResult(test.appendedToolResults[0]!.result as never))).toEqual(expected);
-  });
-
-  it('rejects owner protocol violations before an append or settlement call', () => {
-    const append = jest.fn();
-    const invalid = [
-      { success: true, data: { accepted: false } },
-      { success: true, data: { accepted: true }, extra: true },
-      { success: false, error: '' },
-      { success: false, error: 'failed', data: { reason: 'other' } },
-      { success: false, error: 'failed', data: { reason: 'pending_notifications', extra: true } },
-    ];
-    for (const value of invalid) expect(() => append(parseEmitResultSettlement(value))).toThrow();
-    expect(append).not.toHaveBeenCalled();
+    const failure = expected as { error: string; data?: unknown };
+    expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'rejected', result: executedNoneSettlement(toolFailed(failure.error, failure.data)) });
   });
 
   it('rethrows publication uncertainty before cleanup', async () => {

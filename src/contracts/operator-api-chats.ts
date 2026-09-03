@@ -7,7 +7,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { ConversationSessionIdSchema } from '../schemas/index.js';
-import { ToolInvocationResultSchema } from './tool-invocation-projection.js';
+import { ToolResultSchema } from './tool-result.js';
 
 export const ChatWorkspaceContextSchema = z.object({
   view: z.string().nullable(),
@@ -36,7 +36,7 @@ export const ChatToolInvocationSchema = z
   .object({
     tool: z.string().min(1),
     params: z.unknown(),
-    result: ToolInvocationResultSchema,
+    result: ToolResultSchema,
   })
   .strict();
 export const ChatSendResponseSchema = z

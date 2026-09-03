@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { defineTool, invokeTool, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, surfaceToolDefinitions, settlementProviderResult, syntheticToolSettlement, executedProviderResult, type ToolExecutionResult, type ToolProvider } from '../../src/tools/invocation.js';
+import { defineTool, invokeTool, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, surfaceToolDefinitions, syntheticToolSettlement, executedToolOutcome, type ToolExecutionResult, type ToolProvider } from '../../src/tools/invocation.js';
+import { toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
@@ -16,7 +18,7 @@ describe('tool invocation surface', () => {
         description: 'Demo tool.',
         resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: z.object({ value: z.string() }).strict(),
-        executor: async (args) => executedProviderResult('none', { success: true, data: { value: args.value } }),
+        executor: async (args) => executedToolOutcome('none', toolSucceeded({ value: args.value })),
       }),
     ],
   });
@@ -45,7 +47,7 @@ describe('tool invocation surface', () => {
     await expect(invokeTool(surface, 'demo', { value: 1 })).rejects.toThrow(/Expected string/);
     const settlement = await invokeToolForLlm(surface, 'demo', { value: 1 }, testLlmToolInvocationContext({ toolName: 'demo' }));
     expect(settlement.kind).toBe('rejected_before_execution');
-    const result = settlementProviderResult(settlement);
+    const result = settleToolActionOutcome(settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome).providerResult;
     expect(result.success).toBe(false);
     if (!result.success) expect(result.error).toContain('Expected string');
   });
@@ -113,7 +115,7 @@ describe('tool invocation surface', () => {
     const pending = invokeToolForLlm(surface, 'controlled', {}, testLlmToolInvocationContext({ toolName: 'controlled' }), controller.signal);
     await Promise.resolve();
     controller.abort(interruption);
-    if (mode === 'fulfill') resolve(executedProviderResult('none', { success: true }));
+    if (mode === 'fulfill') resolve(executedToolOutcome('none', toolSucceeded()));
     else if (mode === 'same-reject') reject(interruption);
     else reject(new Error('different tool failure'));
     await expect(pending).rejects.toBe(interruption);
@@ -124,7 +126,7 @@ describe('tool invocation surface', () => {
 
     await expect(invokeToolForLlm(surface, 'demo', { value: 'ok' }, testLlmToolInvocationContext({ toolName: 'demo' }))).resolves.toEqual({
       kind: 'executed',
-      execution: { providerResult: { success: true, data: { value: 'ok' } }, evidence: { kind: 'none' } },
+       execution: { providerOutcome: toolSucceeded({ value: 'ok' }), evidence: { kind: 'none' } },
     });
   });
 
@@ -154,11 +156,11 @@ describe('tool invocation surface', () => {
       description: 'Observational tool.',
       resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
       inputSchema: z.object({}).strict(),
-      executor: async () => ({ providerResult: { success: true, data: { rows: [1, 2, 3] } }, evidence: { kind: 'observational_result_bytes' } }) as ToolExecutionResult<'observational_query'>,
+      executor: async () => executedToolOutcome('observational_query', toolSucceeded({ rows: [1, 2, 3] })),
     });
     expect(observational.resultPolicyTemplate.evidenceMode).toBe('observational_query');
-    expect(executedProviderResult('observational_query', { success: true, data: {} })).toEqual({ providerResult: { success: true, data: {} }, evidence: { kind: 'observational_result_bytes' } });
-    expect(executedProviderResult('observational_query', { success: false, error: 'x' })).toEqual({ providerResult: { success: false, error: 'x' }, evidence: { kind: 'none' } });
-    expect(executedProviderResult('none', { success: true })).toEqual({ providerResult: { success: true }, evidence: { kind: 'none' } });
+    expect(executedToolOutcome('observational_query', toolSucceeded({})).evidence).toEqual({ kind: 'observational_result_bytes' });
+    expect(executedToolOutcome('observational_query', toolFailed('x')).evidence).toEqual({ kind: 'none' });
+    expect(executedToolOutcome('none', toolSucceeded()).evidence).toEqual({ kind: 'none' });
   });
 });

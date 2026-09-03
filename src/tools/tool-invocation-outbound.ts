@@ -16,13 +16,14 @@ import { TERMINAL_RESULT_TOOL_NAME } from '../contracts/result-envelope.js';
 import { activateCardArgumentsSchema } from '../contracts/tool-api.js';
 import { WebfetchInvocationSchema } from '../contracts/webfetch.js';
 import {
-  ToolInvocationResultSchema,
   type ToolInvocationProjectionInput,
 } from '../contracts/tool-invocation-projection.js';
+import { ToolResultSchema, type ToolResult } from '../contracts/tool-result.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
 import { redactTextForOutbound, redactUrl } from '../redaction/text.js';
 import { projectMcpToolCallArgumentsForOutbound } from './mcp-invocation-outbound.js';
 import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
+import { projectHistoricalToolResultForOutbound } from './tool-result-settlement.js';
 
 const emitResultArgumentsSchema = z.object({ outcome: z.string(), summary: z.string() }).strict();
 
@@ -157,17 +158,15 @@ function projectReconfigureArguments(input: Record<string, unknown>): unknown {
   }
 }
 
-function projectOpaqueResult(value: unknown): ReturnType<typeof ToolInvocationResultSchema.parse> {
-  const result = ToolInvocationResultSchema.parse(value);
-  return ToolInvocationResultSchema.parse({
-    success: result.success,
-    ...(!result.success ? { error: projectDynamicForOutbound(result.error) } : {}),
-    ...(result.data === undefined ? {} : { data: projectDynamicForOutbound(result.data) }),
-  });
+function projectOpaqueResult(value: unknown): ToolResult {
+  return projectHistoricalToolResultForOutbound(value);
 }
 
-export function projectSettledToolResultForConversation(value: unknown): ReturnType<typeof ToolInvocationResultSchema.parse> {
-  return projectOpaqueResult(value);
+export function projectLiveToolInvocation(input: Extract<ToolInvocationProjectionInput, { shape: 'complete' }>): Extract<ToolInvocationProjectionInput, { shape: 'complete' }> {
+  const projectedArguments = knownToolNames.has(input.identity.toolName)
+    ? projectParsedArguments(input.identity.toolName as KnownToolInvocationName, input.arguments)
+    : projectDynamicForOutbound(input.arguments);
+  return { shape: 'complete', identity: { ...input.identity }, arguments: projectedArguments, result: ToolResultSchema.parse(input.result) };
 }
 
 function copyWithText(input: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {

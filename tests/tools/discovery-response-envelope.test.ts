@@ -23,8 +23,11 @@ import {
   readWorkspaceInputSchema,
 } from '../../src/contracts/builtin-tool-inputs.js';
 import { mcpToolBinders } from '../../src/tools/mcp-provider.js';
-import { llmToolDefinition } from '../../src/tools/invocation.js';
+import { invokeToolForLlm, llmToolDefinition } from '../../src/tools/invocation.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
+import { compileInvocationToolContract } from '../../src/runtime/actors/context/context-blocks.js';
+import { settleToolResultForConversation } from '../../src/runtime/actors/llm-delivery-log.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -139,6 +142,32 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     expect(envelopeBytes(result.data)).toBeLessThanOrEqual(2048);
     expect(JSON.stringify(result.data)).not.toContain('secret-token-value');
     expect(JSON.stringify(result.data)).toContain('[REDACTED]');
+  });
+
+  it('bounds a project read by the final post-redaction settled ToolResult bytes', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-discovery-project-redaction-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    writeFileSync(join(projectRoot, 'redaction.txt'), 'sk-a '.repeat(3000), 'utf8');
+    const surface = analystSurface(new CardService(projectRoot), projectRoot);
+    const definition = surface.tools.get('read')!;
+    const responseBytes = 512;
+    const settlement = await invokeToolForLlm(
+      surface,
+      'read',
+      { path: 'redaction.txt', response_bytes: responseBytes },
+      testLlmToolInvocationContext({ toolName: 'read' }),
+    );
+    const facts = settleToolResultForConversation(
+      'read',
+      compileInvocationToolContract(llmToolDefinition(definition), definition.resultPolicyTemplate),
+      settlement,
+    );
+
+    expect(Buffer.byteLength(facts.settledResultBytes, 'utf8')).toBeLessThanOrEqual(responseBytes);
+    expect(facts.settledResultBytes).toBe(canonicalJson(facts.providerResult));
+    expect(facts.settledResultBytes).not.toContain('sk-a');
+    expect(facts.settledResultBytes).toContain('[REDACTED]');
   });
 
   it('rejects caps below the documented minimum as input validation', async () => {

@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import { initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 import type { ConversationSessionId } from '../../../src/schemas/index.js';
-import { defineTool, executedProviderResult, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
+import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
+import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -23,7 +24,7 @@ function harness(failure: FailureMode) {
   const events: string[] = [];
   const cleanupReasons: ToolProviderCleanupReason[] = [];
   const execute = jest.fn(async () => { events.push('tool-execute'); return { success: true as const, data: 'must not run' }; });
-  const tool = defineTool({ name: 'lookup', description: 'lookup', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor: async () => executedProviderResult('none', await execute()) });
+  const tool = defineTool({ name: 'lookup', description: 'lookup', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor: async () => executedToolOutcome('none', toolSucceeded((await execute()).data)) });
   const provider = {
     providerName: 'static-preparation',
     tools: [tool],

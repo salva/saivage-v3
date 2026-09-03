@@ -4,6 +4,7 @@ import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   DISCOVERY_RESPONSE_MIN_BYTES,
 } from '../contracts/builtin-tool-inputs.js';
+import { settledSuccessBytes } from './tool-result-settlement.js';
 
 export { DISCOVERY_RESPONSE_MAX_BYTES, DISCOVERY_RESPONSE_MIN_BYTES };
 
@@ -59,10 +60,6 @@ export function boundedToolError(message: string): string {
   return utf8SafeSlice(message, 0, DISCOVERY_FAILURE_ERROR_MAX_BYTES).content;
 }
 
-export function successEnvelopeBytes(data: unknown): number {
-  return utf8ByteLength(canonicalJson({ success: true, data }));
-}
-
 export function observationSha256(value: unknown): string {
   return canonicalValueSha256(value);
 }
@@ -91,7 +88,7 @@ export function packTextSliceData(input: Readonly<{
   const total = utf8ByteLength(input.text);
   const offset = Math.min(input.byteOffset, total);
   const make = (maxBytes: number): TextSlice => makeTextSlice(input.text, offset, maxBytes);
-  const fits = (slice: TextSlice): boolean => successEnvelopeBytes(input.render(slice)) <= input.cap;
+  const fits = (slice: TextSlice): boolean => utf8ByteLength(settledSuccessBytes(input.render(slice))) <= input.cap;
   if (!fits(make(0))) throw new DiscoveryBudgetTooSmallError(input.cap);
   let low = 0;
   let high = total - offset;
@@ -139,7 +136,7 @@ export function packCollectionData(input: Readonly<{
     next,
     items: Object.freeze(emitted.map(materialize)),
   });
-  const fits = (): boolean => successEnvelopeBytes(input.render(pageOf(null))) <= input.cap;
+  const fits = (): boolean => utf8ByteLength(settledSuccessBytes(input.render(pageOf(null)))) <= input.cap;
 
   if (input.position.item_index >= input.total) {
     const page = pageOf(null);
@@ -205,10 +202,10 @@ export function packCollectionData(input: Readonly<{
     itemByteOffset = 0;
   }
 
-  while (successEnvelopeBytes(input.render(pageOf(next))) > input.cap) {
+  while (utf8ByteLength(settledSuccessBytes(input.render(pageOf(next)))) > input.cap) {
     const last = emitted.at(-1);
     if (!last) throw new DiscoveryBudgetTooSmallError(input.cap);
-    const overflow = successEnvelopeBytes(input.render(pageOf(next))) - input.cap;
+    const overflow = utf8ByteLength(settledSuccessBytes(input.render(pageOf(next)))) - input.cap;
     if (last.kind === 'value') {
       emitted.pop();
       next = { item_index: last.index, item_byte_offset: 0 };

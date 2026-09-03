@@ -184,12 +184,12 @@ class AnalystRecordMutationImplementation implements AnalystRecordMutationServic
 
   write(path: string, content: string, requiredTools: readonly ('write' | 'webfetch')[] = ['write']): AnalystMutationOutcome {
     const result = mutateRecord(this.store, { path, operation: 'write', content, surface: 'analyst', agentName: this.store.workflows.analyst.name, requiredTools }, () => this.propagate(path));
-    return { kind: 'returned', ...result };
+    return result.kind === 'applied' ? { kind: 'returned', success: true, data: result.data } : { kind: 'returned', success: false, error: result.error, data: result.data };
   }
 
   edit(path: string, oldString: string, newString: string, replaceAll: boolean): AnalystMutationOutcome {
     const result = mutateRecord(this.store, { path, operation: 'edit', oldString, newString, replaceAll, surface: 'analyst', agentName: this.store.workflows.analyst.name, requiredTools: ['edit'] }, () => this.propagate(path));
-    return { kind: 'returned', ...result };
+    return result.kind === 'applied' ? { kind: 'returned', success: true, data: result.data } : { kind: 'returned', success: false, error: result.error, data: result.data };
   }
 
   private propagate(path: string): { ok: true } | { ok: false; partial: true; error: string } {

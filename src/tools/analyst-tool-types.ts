@@ -1,7 +1,7 @@
 import type { CardService } from '../cards/card-api.js';
 import type { McpToolInvocationPort } from '../mcp/manager-api.js';
 import type { RuntimeApi } from '../runtime/runtime-api.js';
-import type { ToolResult } from './invocation.js';
+import type { ToolActionOutcome } from '../contracts/tool-result.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { InterventionReadinessFacet } from '../application/intervention-readiness.js';
@@ -10,7 +10,7 @@ import type { AnalystPreparationReadServices } from '../application/analyst-prep
 import type { EventQueryService } from '../application/event-query-service.js';
 import type { CardTypeName, ConversationSessionId } from '../schemas/index.js';
 
-export type { ToolResult };
+export type AnalystToolOutcome = ToolActionOutcome;
 
 export type SafeToolDataValue =
   | string

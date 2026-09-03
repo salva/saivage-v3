@@ -14,6 +14,7 @@ import { initProjectTree } from '../../helpers/canonical-project.js';
 import { scriptedAdmissionProvider } from '../../helpers/llm-test-helpers.js';
 import type { ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
+import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 
 const compactionConfig: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
 
@@ -61,7 +62,7 @@ describe('ConversationLLMActor compaction ownership', () => {
       const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor, summarizerProvider: summarizer(providerScript) });
       const tool = await actor.turn(first, undefined, terminalHandoff);
       if (tool.type !== 'tool_call') throw new Error('Expected tool call.');
-      await actor.appendToolResult(tool.toolCallId, { kind: 'executed', execution: { providerResult: { success: true, data: { content: 'x'.repeat(4000) } }, evidence: { kind: 'none' } } });
+      await actor.appendToolResult(tool.toolCallId, { kind: 'executed', execution: { providerOutcome: toolSucceeded({ content: 'x'.repeat(4000) }), evidence: { kind: 'none' } } });
 
       expect(checked).toHaveLength(2);
       expect(checked[0]!.preparedCompaction).toBe(prepared);

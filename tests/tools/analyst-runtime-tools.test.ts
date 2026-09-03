@@ -28,11 +28,11 @@ describe('analyst runtime tools', () => {
 
   it('delegates Start without arguments and preserves success and failure mappings', async () => {
     const success = controlContext();
-    await expect(start_project(success, {})).resolves.toEqual({ success: true, data: { runtime: null, status: 'stopped', started: true, stopped: false } });
+    await expect(start_project(success, {})).resolves.toEqual({ kind: 'succeeded', data: { runtime: null, status: 'stopped', started: true, stopped: false } });
     expect(success.runtime!.startProject).toHaveBeenCalledWith();
 
     const failure = controlContext({ startProject: jest.fn(async () => ({ runtime: null, status: 'stopped', started: false, stopped: true, error: 'start failed' })) });
-    await expect(start_project(failure, {})).resolves.toEqual({ success: false, error: 'start failed', data: { status: 'stopped', started: false, stopped: true } });
+    await expect(start_project(failure, {})).resolves.toEqual({ kind: 'failed', error: 'start failed', data: { status: 'stopped', started: false, stopped: true } });
     expect(failure.runtime!.startProject).toHaveBeenCalledWith();
   });
 
@@ -43,19 +43,19 @@ describe('analyst runtime tools', () => {
 
   it('delegates Pause, Resume, and Stop without arguments and preserves status results', async () => {
     const paused = controlContext({ getStatus: jest.fn(() => ({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })) });
-    await expect(pause_runtime(paused, {})).resolves.toEqual({ success: true, data: { status: 'paused' } });
+    await expect(pause_runtime(paused, {})).resolves.toEqual({ kind: 'succeeded', data: { status: 'paused' } });
     expect(paused.runtime!.pause).toHaveBeenCalledWith();
 
     const getStatus = jest.fn()
       .mockReturnValueOnce({ status: 'paused', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })
       .mockReturnValueOnce({ status: 'running', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' });
     const resumed = controlContext({ getStatus });
-    await expect(resume_runtime(resumed, {})).resolves.toEqual({ success: true, data: { status: 'running' } });
+    await expect(resume_runtime(resumed, {})).resolves.toEqual({ kind: 'succeeded', data: { status: 'running' } });
     expect(resumed.runtime!.resume).toHaveBeenCalledWith();
     expect(getStatus).toHaveBeenCalledTimes(2);
 
     const stopped = controlContext();
-    await expect(stop_project(stopped, {})).resolves.toEqual({ success: true, data: { status: 'stopped', contained: true } });
+    await expect(stop_project(stopped, {})).resolves.toEqual({ kind: 'succeeded', data: { status: 'stopped', contained: true } });
     expect(stopped.runtime!.stopProject).toHaveBeenCalledWith();
   });
 
@@ -63,7 +63,7 @@ describe('analyst runtime tools', () => {
     const getStatus = jest.fn(() => ({ status: 'error' as const, currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' }));
     const context = controlContext({ getStatus });
     await expect(resume_runtime(context, {})).resolves.toEqual({
-      success: false,
+      kind: 'failed',
       error: 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.',
       data: { runtime_status: 'error' },
     });
@@ -83,8 +83,8 @@ describe('analyst runtime tools', () => {
       const process = processRunner.spawn({ command: `echo token=${rawSecret}`, cwd, directScope: processScope, category: 'runtime_card', cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', ownerId: 'agent-1', ownerKind: 'agent' });
       const result = await list_processes_tool({ projectRoot, processRunner, actor: 'analyst', surface: 'web' } as unknown as ToolContext, {});
 
-      expect(result.success).toBe(true);
-      if (result.success) {
+      expect(result.kind).toBe('succeeded');
+      if (result.kind === 'succeeded') {
         expect(result.data).toEqual([expect.objectContaining({
           card_id: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa',
           owner_kind: 'agent',
@@ -115,7 +115,7 @@ describe('analyst runtime tools', () => {
       cards.stopRunningForRecovery(card.id);
       const runtime = { status: 'stopped' as const, currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' };
       const result = await get_status({ ...controlContext({ getStatus: jest.fn(() => runtime) }), projectRoot, store: cards, processRunner, actor: 'analyst', surface: 'web-chat' } as ToolContext, {});
-      expect(result).toMatchObject({ success: true, data: { runtime, runtimeSummary: { status: 'stopped', currentCardId: null }, statusCounts: { stopped: 1 }, counts: { stopped: 1 } } });
+      expect(result).toMatchObject({ kind: 'succeeded', data: { runtime, runtimeSummary: { status: 'stopped', currentCardId: null }, statusCounts: { stopped: 1 }, counts: { stopped: 1 } } });
     } finally { rmSync(projectRoot, { recursive: true, force: true }); }
   });
 });

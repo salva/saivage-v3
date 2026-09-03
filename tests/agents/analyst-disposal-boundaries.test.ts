@@ -9,7 +9,9 @@ import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import type { InvocationJoinOutcome } from '../../src/runtime/actors/invocation-lifecycle.js';
 import type { RestartPort } from '../../src/boot/restart-port.js';
 import { readConversation, type ConversationFileContext } from '../../src/persistence/conversation-file.js';
-import { defineTool, executedNoneSettlement, executedProviderResult, OPERATIONAL_RESULT_POLICY_TEMPLATE, settlementProviderResult, type InvocationSurface, type ToolResult } from '../../src/tools/invocation.js';
+import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
+import { toolSucceeded, type ToolActionOutcome } from '../../src/contracts/tool-result.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { canonicalJson } from '../../src/schemas/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -46,7 +48,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
 
   it('retains the caller-supplied ordinary tool result and admits no continuation', async () => {
     const reason = new Error('application disposed during ordinary tool-result publication');
-    const suppliedResult: ToolResult = { success: true, data: { value: 'caller supplied' } };
+    const suppliedResult = toolSucceeded({ value: 'caller supplied' });
     let fixture!: ReturnType<typeof createFixture>;
     fixture = createFixture({
       toolName: 'demo',
@@ -65,7 +67,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
 
   it('retains a successful restart result without installing confirmation or continuing', async () => {
     const reason = new Error('application disposed during restart result publication');
-    const suppliedResult: ToolResult = { success: true, data: { restart: 'confirmation_required' } };
+    const suppliedResult = toolSucceeded({ restart: 'confirmation_required' });
     let fixture!: ReturnType<typeof createFixture>;
     fixture = createFixture({
       toolName: 'restart_server',
@@ -134,7 +136,7 @@ describe('Analyst application-disposal ownership boundaries', () => {
 
 function createFixture(options: {
   toolName?: string;
-  toolResult?: ToolResult;
+  toolResult?: ToolActionOutcome;
   beforeToolReturns?: () => void;
   schedule?: () => void;
 } = {}) {
@@ -146,7 +148,7 @@ function createFixture(options: {
     projectRoot,
     changes: { conversationChanged: observer.conversationChanged, agentMembershipChanged: jest.fn() },
   };
-  const suppliedResult = options.toolResult ?? { success: true, data: { restart: 'confirmation_required' } };
+  const suppliedResult = options.toolResult ?? toolSucceeded({ restart: 'confirmation_required' });
   const definition = options.toolName
     ? defineTool({
         name: options.toolName,
@@ -155,7 +157,7 @@ function createFixture(options: {
         inputSchema: z.object({}).strict(),
         executor: async () => {
           options.beforeToolReturns?.();
-          return executedProviderResult('none', suppliedResult);
+          return executedToolOutcome('none', suppliedResult);
         },
       })
     : null;
@@ -266,7 +268,7 @@ function sequence(projectRoot: string): Array<[unknown, unknown, unknown]> {
   ]);
 }
 
-function expectToolSequence(projectRoot: string, toolName: string, result: ToolResult, userContent: string): void {
+function expectToolSequence(projectRoot: string, toolName: string, result: ToolActionOutcome, userContent: string): void {
   const settlement = executedNoneSettlement(result);
   const rows = readConversation(projectRoot, sessionId).sourceRows;
   expect(rows.map((row) => [row.role, row.kind, row.kind === 'activity' ? (JSON.parse(row.content) as { event: string }).event : undefined])).toEqual([
@@ -288,7 +290,7 @@ function expectToolSequence(projectRoot: string, toolName: string, result: ToolR
     kind: 'tool_result',
     tool: toolName,
     tool_call_id: 'call-1',
-    content: canonicalJson(settlementProviderResult(settlement)),
+    content: settleToolActionOutcome(settlement.execution.providerOutcome).settledResultBytes,
   });
   expect(rows.some((row) => row.content.includes('Cancelled:'))).toBe(false);
 }

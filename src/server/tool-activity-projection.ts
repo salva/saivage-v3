@@ -1,7 +1,7 @@
 import type { ConversationSessionId } from '../schemas/index.js';
 import { ClassifiedToolInvocationActivityContentSchema, type ClassifiedToolInvocationActivityContent } from '../contracts/operator-events.js';
-import type { ToolInvocationResult } from '../contracts/tool-invocation-projection.js';
-import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
+import type { ToolResult as ToolInvocationResult } from '../contracts/tool-result.js';
+import { projectLiveToolInvocation } from '../tools/tool-invocation-outbound.js';
 
 export interface AnalystToolInvocationActivityInput {
   tool: string;
@@ -15,7 +15,7 @@ export function projectAnalystToolInvocationActivity(
   invocation: AnalystToolInvocationActivityInput,
   sessionId:ConversationSessionId,
 ): ClassifiedToolInvocationActivityContent {
-  const projected = projectToolInvocation({
+  const projected = projectLiveToolInvocation({
     shape: 'complete',
     identity: {
       sessionId,
@@ -26,25 +26,11 @@ export function projectAnalystToolInvocationActivity(
     arguments: invocation.params,
     result: invocation.result,
   });
-  if (projected.shape !== 'complete') throw new Error('WebSocket activity invocation projected to a non-complete shape.');
   return ClassifiedToolInvocationActivityContentSchema.parse({
     event: 'tool_invocation',
     sessionId,
     tool: projected.identity.toolName,
     params: projected.arguments,
-    result: narrowActivityResult(projected.result),
+    result: projected.result,
   });
-}
-
-const ACTIVITY_DATA_KEYS = [
-  'classified_as', 'process_id', 'exit_code', 'status', 'duration_ms', 'stdout_url', 'stderr_url',
-  'stdout_bytes', 'stderr_bytes', 'command', 'cwd', 'path', 'stash_url', 'binary', 'size', 'modified_at',
-] as const;
-
-function narrowActivityResult(result: ToolInvocationResult): ToolInvocationResult {
-  if (result.data === null || typeof result.data !== 'object' || Array.isArray(result.data)) return { ...result };
-  const source = result.data as Record<string, unknown>;
-  const data: Record<string, unknown> = {};
-  for (const key of ACTIVITY_DATA_KEYS) if (Object.hasOwn(source, key)) data[key] = source[key];
-  return { ...result, data };
 }

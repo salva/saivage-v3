@@ -1,6 +1,7 @@
 import type { McpToolInvocationPort } from '../mcp/mcp-manager.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
-import { defineToolBinder, executedProviderResult, MCP_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
+import { defineToolBinder, executedToolOutcome, MCP_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
+import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
 
@@ -17,11 +18,11 @@ export const mcpToolBinders: readonly ToolBinder<McpProviderContext, any>[] = Ob
     executor: async (ctx, args): Promise<ToolExecutionResult<'none'>> => {
       try {
         const data = await ctx.mcpToolInvocation.invokeTool(args.serverName, args.toolName, args.args ?? {});
-        return executedProviderResult('none', { success: true, data });
+        return executedToolOutcome('none', toolSucceeded(data));
       } catch (error) {
         throwIfPublicationOutcomeUnknown(error);
         if (error instanceof McpToolInvocationNotInstalledError) throw error;
-        return executedProviderResult('none', { success: false, error: error instanceof Error ? error.message : String(error) });
+        return executedToolOutcome('none', toolFailed(error instanceof Error ? error.message : String(error)));
       }
     },
   }),

@@ -1,6 +1,7 @@
 import type { z } from 'zod';
 import { type CardRecord, type CardStatus, type CardTypeName } from '../schemas/index.js';
-import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder, type ToolResult } from './invocation.js';
+import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder } from './invocation.js';
+import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { orderedCardsForTree } from '../application/read-models/card-view.js';
 import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
@@ -14,12 +15,12 @@ import {
   DISCOVERY_TEXT_PREVIEW_MAX_BYTES,
   observationSha256,
   packCollectionData,
-  successEnvelopeBytes,
   utf8ByteLength,
   utf8SafePreview,
   type CollectionPage,
   type CollectionPosition,
 } from './response-packer.js';
+import { projectBoundedCardSummary, projectCardNotificationItems } from './card-section-projection.js';
 
 interface CardInspectionStore {
   read(cardId: string): CardRecord | null;
@@ -44,11 +45,11 @@ export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProvid
   defineToolBinder({ name: 'get_tree', description: 'Observe a flat canonical preorder page of one card subtree.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getTreeInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getTree(ctx.store, args.rootId, args.depth, args.position, args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES)) }),
 ]);
 
-function failure(error: string): ToolResult {
-  return { success: false, error: boundedToolError(error) };
+function failure(error: string): ToolActionOutcome {
+  return toolFailed(boundedToolError(error));
 }
 
-function cardNotFound(cardId: string): ToolResult {
+function cardNotFound(cardId: string): ToolActionOutcome {
   return failure(`Card '${utf8SafePreview(cardId, DISCOVERY_TEXT_PREVIEW_MAX_BYTES)}' not found.`);
 }
 
@@ -56,7 +57,7 @@ function orderedCardViews(store: CardInspectionStore): CardRecord[] {
   return orderedCardsForTree(store);
 }
 
-function listCards(store: CardInspectionStore, params: ListCardsInput): ToolResult {
+function listCards(store: CardInspectionStore, params: ListCardsInput): ToolActionOutcome {
   let cards = orderedCardViews(store);
   if (params.status) {
     const statuses: CardStatus[] = Array.isArray(params.status) ? params.status : [params.status];
@@ -90,10 +91,10 @@ function listCards(store: CardInspectionStore, params: ListCardsInput): ToolResu
     },
     render: (page: CollectionPage) => ({ observation_sha256: observation, cards: page }),
   });
-  return { success: true, data };
+  return toolSucceeded(data);
 }
 
-function getTree(store: CardInspectionStore, rootId: string, depth: number, position: CollectionPosition | undefined, responseBytes: number): ToolResult {
+function getTree(store: CardInspectionStore, rootId: string, depth: number, position: CollectionPosition | undefined, responseBytes: number): ToolActionOutcome {
   const root = store.read(rootId);
   if (!root) return cardNotFound(rootId);
   const nodes: Array<{ id: string; parent: string | null; depth: number; type: string; status: CardStatus; title: string; children_count: number; descendants: number; depth_omitted: boolean; version_seq: number }> = [];
@@ -143,12 +144,12 @@ function getTree(store: CardInspectionStore, rootId: string, depth: number, posi
     },
     render: (page: CollectionPage) => ({ root_id: rootId, depth, observation_sha256: observation, nodes: page }),
   });
-  return { success: true, data };
+  return toolSucceeded(data);
 }
 
 type CardSection = z.infer<typeof getCardInputSchema>['section'];
 
-function getCard(ctx: CardInspectionProviderContext, cardId: string, section: CardSection, position: CollectionPosition | undefined, responseBytes: number): ToolResult {
+function getCard(ctx: CardInspectionProviderContext, cardId: string, section: CardSection, position: CollectionPosition | undefined, responseBytes: number): ToolActionOutcome {
   const store = ctx.store;
   const card = store.read(cardId);
   if (!card) return cardNotFound(cardId);
@@ -156,36 +157,14 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
   const base = { card_id: card.id, version_seq: card.version_seq, section };
   if (section === 'summary') {
     if (position !== undefined) throw new ToolArgumentValidationError("Section 'summary' is a bounded scalar section and accepts no position.");
-    const data = {
-      ...base,
-      card: {
-        id: projected.id,
-        type: projected.type,
-        status: projected.lifecycle.status,
-        title: titlePreview(card.title),
-        priority: projected.priority,
-        urgency: projected.urgency,
-        parent: cardParentId(projected.id),
-        created_at: projected.created_at,
-        updated_at: projected.updated_at,
-        status_text: projected.status_text === null ? null : utf8SafePreview(projected.status_text, DISCOVERY_TEXT_PREVIEW_MAX_BYTES),
-      },
-    };
-    if (successEnvelopeBytes(data) > responseBytes) throw new ToolArgumentValidationError(`Section 'summary' does not fit the requested response_bytes budget of ${responseBytes}.`);
-    return { success: true, data };
+    const data = projectBoundedCardSummary({ base, card, responseBytes });
+    return toolSucceeded(data);
   }
   let items: () => readonly unknown[];
   if (section === 'tags') items = () => projected.tags.map((tag) => utf8SafePreview(redactTextForOutbound(tag), DISCOVERY_TEXT_PREVIEW_MAX_BYTES));
   else if (section === 'dependencies') items = () => [...projected.depends_on];
   else if (section === 'related') items = () => [...projected.related];
-  else if (section === 'notifications') items = () => projected.pending_notifications.map((notification) => ({
-    id: notification.id,
-    content: utf8SafePreview(notification.content, DISCOVERY_TEXT_PREVIEW_MAX_BYTES),
-    content_bytes: utf8ByteLength(notification.content),
-    content_truncated: utf8ByteLength(notification.content) > DISCOVERY_TEXT_PREVIEW_MAX_BYTES,
-    created_at: notification.created_at,
-    ...('source' in notification ? { source: notification.source } : {}),
-  }));
+  else if (section === 'notifications') items = () => projectCardNotificationItems(projected);
   else if (section === 'children') items = () => store.listChildren(cardId).map((childId) => {
     const child = store.read(childId);
     if (!child) throw new Error(`Linked child '${childId}' disappeared during card observation.`);
@@ -202,7 +181,7 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
     item: (index) => complete[index]!,
     render: (page: CollectionPage) => ({ ...base, observation_sha256: observation, content: page }),
   });
-  return { success: true, data };
+  return toolSucceeded(data);
 }
 
 export function recordMetadataItems(store: Pick<CardInspectionStore, 'readCurrentRecord' | 'recordDefinitions'>, cardId: string): Array<Record<string, unknown>> {

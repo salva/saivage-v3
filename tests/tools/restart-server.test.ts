@@ -28,7 +28,7 @@ describe('restart_server', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-restart-tool-'));
     try {
       await expect(restart_server(context(projectRoot, true))).resolves.toEqual({
-        success: true,
+        kind: 'succeeded',
         data: { restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
       });
       expect(listControlActions(projectRoot)).toEqual([]);
@@ -39,7 +39,7 @@ describe('restart_server', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-restart-tool-'));
     try {
       await expect(restart_server(context(projectRoot, false))).resolves.toEqual({
-        success: false,
+        kind: 'failed',
         error: 'restart unavailable: operator authentication disabled',
       });
       expect(listControlActions(projectRoot)).toEqual([]);

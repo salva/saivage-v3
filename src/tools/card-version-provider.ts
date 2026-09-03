@@ -1,7 +1,8 @@
 import type { z } from 'zod';
 
 import type { ToolContext } from './analyst-tool-types.js';
-import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, defineToolBinder, executeCanonicalLocatorToolAction, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder, type ToolResult } from './invocation.js';
+import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, defineToolBinder, executeCanonicalLocatorToolAction, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, ToolArgumentValidationError, type ToolBinder } from './invocation.js';
+import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { redactForOutbound, redactTextForOutbound } from '../redaction/index.js';
 import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersionsInputSchema, readRecordVersionInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/read-models/card-outbound.js';
@@ -21,6 +22,7 @@ import {
   type CollectionPage,
   type TextSlice,
 } from './response-packer.js';
+import { projectBoundedCardSummary, projectCardNotificationItems } from './card-section-projection.js';
 
 export interface CardVersionProviderContext {
   readonly store: ToolContext['store'];
@@ -33,11 +35,11 @@ export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderCont
   defineToolBinder({ name: 'read_record_version', description: 'Read exactly one immutable authored-record version row by exact version.', resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => readRecordVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => readRecordVersion(ctx, args)) }),
 ]);
 
-function failure(error: string, data?: unknown): ToolResult {
-  return data === undefined ? { success: false, error: boundedToolError(error) } : { success: false, error: boundedToolError(error), data };
+function failure(error: string, data?: unknown): ToolActionOutcome {
+  return toolFailed(boundedToolError(error), data);
 }
 
-function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof listCardVersionsInputSchema>): Promise<ToolResult> {
+function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof listCardVersionsInputSchema>): Promise<ToolActionOutcome> {
   const result = ctx.store.listCardVersions(params.card_id);
   if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
   const versions = result.value;
@@ -58,7 +60,7 @@ function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
     },
     render: (page: CollectionPage) => ({ card_id: params.card_id, observation_sha256: observation, versions: page }),
   });
-  return Promise.resolve({ success: true, data });
+  return Promise.resolve(toolSucceeded(data));
 }
 
 function cardArtifactProjection(value: CardArtifact): unknown {
@@ -71,10 +73,10 @@ function artifactIdentity(value: CardArtifact): { entry_id: string; committed_at
   return { entry_id: value.entry_id, committed_at: value.committed_at, artifact_kind: value.kind };
 }
 
-function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof getCardVersionInputSchema>): Promise<{ result: ToolResult; locator: string; sha256: string }> {
+function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof getCardVersionInputSchema>): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
   const result = ctx.store.readCardVersion(params.card_id, params.version);
-  if (result.kind === 'card-not-found') return Promise.resolve({ result: failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }), locator: '', sha256: '' });
-  if (result.kind === 'version-not-found') return Promise.resolve({ result: failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: params.version }), locator: '', sha256: '' });
+  if (result.kind === 'card-not-found') return Promise.resolve({ outcome: failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }), locator: '', sha256: '' });
+  if (result.kind === 'version-not-found') return Promise.resolve({ outcome: failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: params.version }), locator: '', sha256: '' });
   const value = result.value;
   const card = value.kind === 'card-version' ? value.card : value.final_card;
   const identity = artifactIdentity(value);
@@ -91,26 +93,8 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
   };
   if (params.section === 'summary') {
     if (params.position !== undefined) throw new ToolArgumentValidationError("Section 'summary' is a bounded scalar section and accepts no position.");
-    const projected = projectCardRecordForOutbound(card);
     return Promise.resolve({
-      result: {
-        success: true,
-        data: {
-          ...base,
-          card: {
-            id: projected.id,
-            type: projected.type,
-            status: projected.lifecycle.status,
-            title: utf8SafePreview(redactTextForOutbound(card.title), DISCOVERY_TEXT_PREVIEW_MAX_BYTES),
-            priority: projected.priority,
-            urgency: projected.urgency,
-            parent: cardParentId(projected.id),
-            created_at: projected.created_at,
-            updated_at: projected.updated_at,
-            status_text: projected.status_text === null ? null : utf8SafePreview(projected.status_text, DISCOVERY_TEXT_PREVIEW_MAX_BYTES),
-          },
-        },
-      },
+      outcome: toolSucceeded(projectBoundedCardSummary({ base, card, responseBytes: params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES })),
       locator,
       sha256,
     });
@@ -120,14 +104,7 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
   if (params.section === 'tags') items = projected.tags.map((tag) => utf8SafePreview(redactTextForOutbound(tag), DISCOVERY_TEXT_PREVIEW_MAX_BYTES));
   else if (params.section === 'dependencies') items = [...projected.depends_on];
   else if (params.section === 'related') items = [...projected.related];
-  else if (params.section === 'notifications') items = projected.pending_notifications.map((notification) => ({
-    id: notification.id,
-    content: utf8SafePreview(notification.content, DISCOVERY_TEXT_PREVIEW_MAX_BYTES),
-    content_bytes: utf8ByteLength(notification.content),
-    content_truncated: utf8ByteLength(notification.content) > DISCOVERY_TEXT_PREVIEW_MAX_BYTES,
-    created_at: notification.created_at,
-    ...('source' in notification ? { source: notification.source } : {}),
-  }));
+  else if (params.section === 'notifications') items = projectCardNotificationItems(projected);
   else items = [...projected.children];
   const { data } = packCollectionData({
     cap: params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES,
@@ -136,10 +113,10 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
     item: (index) => items[index]!,
     render: (page: CollectionPage) => ({ ...base, content: page }),
   });
-  return Promise.resolve({ result: { success: true, data }, locator, sha256 });
+  return Promise.resolve({ outcome: toolSucceeded(data), locator, sha256 });
 }
 
-function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof diffCardVersionsInputSchema>): Promise<ToolResult> {
+function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeof diffCardVersionsInputSchema>): Promise<ToolActionOutcome> {
   if (params.from_version > params.to_version) return Promise.resolve(failure('Invalid card version pivots.', { code: 'invalid_card_version_pivots', card_id: params.card_id, from_version: params.from_version, to_version: params.to_version }));
   const result = ctx.store.diffCardVersions(params.card_id, { fromVersion: params.from_version, toVersion: params.to_version });
   if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
@@ -170,10 +147,10 @@ function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
       diff: { ...slice, total_bytes: totalBytes },
     }),
   });
-  return Promise.resolve({ success: true, data });
+  return Promise.resolve(toolSucceeded(data));
 }
 
-function readRecordVersion(ctx: CardVersionProviderContext, params: z.infer<typeof readRecordVersionInputSchema>): Promise<{ result: ToolResult; locator: string; sha256: string }> {
+function readRecordVersion(ctx: CardVersionProviderContext, params: z.infer<typeof readRecordVersionInputSchema>): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
   const reader = ctx.store.recordReader;
   let projection: ReturnType<typeof reader.historical>;
   try {
@@ -181,7 +158,7 @@ function readRecordVersion(ctx: CardVersionProviderContext, params: z.infer<type
     projection = reader.historical(params.card_id, params.record_name, params.version);
   } catch (error) {
     if (error instanceof AuthoredRecordNotFoundError || error instanceof AuthoredRecordDefinitionNotFoundError)
-      return Promise.resolve({ result: failure('Record version not found.', { code: 'record_version_not_found', card_id: params.card_id, record_name: params.record_name, version: params.version }), locator: '', sha256: '' });
+      return Promise.resolve({ outcome: failure('Record version not found.', { code: 'record_version_not_found', card_id: params.card_id, record_name: params.record_name, version: params.version }), locator: '', sha256: '' });
     throw error;
   }
   const artifact = projection.artifact;
@@ -212,5 +189,5 @@ function readRecordVersion(ctx: CardVersionProviderContext, params: z.infer<type
       content: slice,
     }),
   });
-  return Promise.resolve({ result: { success: true, data }, locator, sha256: evidenceSha256 });
+  return Promise.resolve({ outcome: toolSucceeded(data), locator, sha256: evidenceSha256 });
 }

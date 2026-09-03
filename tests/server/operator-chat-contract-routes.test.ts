@@ -17,7 +17,7 @@ import { buildAnalystIngressRows } from '../../src/runtime/actors/conversation-s
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { createEventLog } from '../../src/observability/index.js';
-import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
+import { projectLiveToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
 import {
   OUTBOUND_IDENTITY,
   OUTBOUND_RAW_MARKER,
@@ -29,6 +29,9 @@ import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { AnalystTurnBusyError } from '../../src/agents/analyst-api.js';
 import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
 import type { WebSocket } from 'ws';
+import { toolFailed } from '../../src/contracts/tool-result.js';
+import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
+import { canonicalJson } from '../../src/schemas/index.js';
 
 describe('operator chat route request contracts', () => {
   let fastify: FastifyInstance;
@@ -111,6 +114,29 @@ describe('operator chat route request contracts', () => {
     });
   });
 
+  it('publishes the exact settled durable result through REST while projecting parameters only', async () => {
+    const settled = settleToolActionOutcome(toolFailed('denied token=sk-a', { code: 'record_mutation_denied', detail: 'sk-a', formerly_narrowed: true }));
+    submit.mockResolvedValueOnce({
+      sessionId: 'agent:analyst:global',
+      toolInvocations: [{
+        tool: 'write',
+        params: { path: 'record:///brief.md?card=project', content: `token=${OUTBOUND_RAW_MARKER}` },
+        result: settled.providerResult,
+        sourceInputId: '11111111-1111-4111-8111-111111111111',
+        toolCallId: 'call-rest-settled',
+      }],
+      restart: null,
+    });
+
+    const response = await fastify.inject({ method: 'POST', url: '/api/chat', headers: authHeaders, payload: { content: 'write' } });
+    const invocation = (response.json() as { toolInvocations: Array<{ params: unknown; result: unknown }> }).toolInvocations[0]!;
+
+    expect(response.statusCode).toBe(200);
+    expect(canonicalJson(invocation.result)).toBe(settled.settledResultBytes);
+    expect(invocation.result).toEqual(settled.providerResult);
+    expect(JSON.stringify(invocation.params)).not.toContain(OUTBOUND_RAW_MARKER);
+  });
+
   it.each([
     {
       label: 'settled valid',
@@ -120,11 +146,11 @@ describe('operator chat route request contracts', () => {
         result: {
           success: true as const,
           data: {
-            process_id: OUTBOUND_IDENTITY,
+            process_id: 'tok-[REDACTED]',
             exit_code: 0,
             status: 'exited',
-            stdout_url: `work:///processes/${OUTBOUND_IDENTITY}/stdout.log`,
-            stderr_url: `work:///processes/${OUTBOUND_IDENTITY}/stderr.log`,
+            stdout_url: 'work:///processes/tok-[REDACTED]',
+            stderr_url: 'work:///processes/tok-[REDACTED]',
             stdout_bytes: 1,
             stderr_bytes: 2,
           },
@@ -145,7 +171,7 @@ describe('operator chat route request contracts', () => {
         },
         result: {
           success: true as const,
-          data: { opaque_extension: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } },
+          data: { opaque_extension: { apiKey: '[REDACTED]', identity: 'stable_value' } },
         },
       },
     },
@@ -154,7 +180,7 @@ describe('operator chat route request contracts', () => {
       invocation: {
         tool: 'unsupported_tok_primary',
         params: { apiKey: OUTBOUND_RAW_MARKER },
-        result: { success: false as const, error: OUTBOUND_TEXT_MARKER },
+        result: { success: false as const, error: 'token=[REDACTED]' },
       },
     },
     {
@@ -162,7 +188,7 @@ describe('operator chat route request contracts', () => {
       invocation: {
         tool: 'webfetch',
         params: { url: 7, apiKey: OUTBOUND_RAW_MARKER },
-        result: { success: false as const, error: OUTBOUND_TEXT_MARKER },
+        result: { success: false as const, error: 'token=[REDACTED]' },
       },
     },
     {
@@ -172,7 +198,7 @@ describe('operator chat route request contracts', () => {
         params: {},
         result: {
           success: false as const,
-          error: 'Tool arguments must be valid JSON: sk-chat-marker',
+          error: 'Tool arguments must be valid JSON: sk-[REDACTED]',
         },
       },
     },
@@ -202,7 +228,7 @@ describe('operator chat route request contracts', () => {
         toolInvocations: Array<{ tool: string; params: unknown; result: unknown }>;
       };
       expect(body.toolInvocations).toHaveLength(1);
-      const projected = projectToolInvocation({
+      const projected = projectLiveToolInvocation({
         shape: 'complete',
         identity: {
           sessionId: 'agent:analyst:global',
@@ -213,8 +239,6 @@ describe('operator chat route request contracts', () => {
         arguments: invocation.params,
         result: invocation.result,
       });
-      if (projected.shape !== 'complete')
-        throw new Error('Expected complete chat fixture projection.');
       expect(body.toolInvocations[0]).toEqual({
         tool: projected.identity.toolName,
         params: projected.arguments,
@@ -236,11 +260,11 @@ describe('operator chat route request contracts', () => {
       result: {
         success: true as const,
         data: {
-          process_id: OUTBOUND_IDENTITY,
+          process_id: 'tok-[REDACTED]',
           exit_code: 0,
           status: 'exited',
-          stdout_url: `work:///processes/${OUTBOUND_IDENTITY}/stdout.log`,
-          stderr_url: `work:///processes/${OUTBOUND_IDENTITY}/stderr.log`,
+          stdout_url: 'work:///processes/tok-[REDACTED]',
+          stderr_url: 'work:///processes/tok-[REDACTED]',
           stdout_bytes: 1,
           stderr_bytes: 2,
         },
@@ -324,7 +348,7 @@ describe('operator chat route request contracts', () => {
       } as unknown as ToolContext,
       { session_id: 'agent:analyst:global', last_n: 2 },
     );
-    if (!bounded.success) throw new Error(bounded.error);
+    if (bounded.kind !== 'succeeded') throw new Error(bounded.error);
     expect((bounded.data as { messages: unknown[] }).messages).toEqual(agentRows);
 
     const callArguments = JSON.parse(

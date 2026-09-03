@@ -1,17 +1,18 @@
-import type { ToolContext, ToolResult } from './analyst-tool-types.js';
+import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { navigateWorkspaceInputSchema, type NavigateWorkspaceInput } from '../contracts/builtin-tool-inputs.js';
 import type { WorkspaceNavigationIntent } from '../contracts/workspace-navigation.js';
+import { toolSucceeded } from '../contracts/tool-result.js';
 
-export async function navigate_workspace(_ctx: ToolContext, params: NavigateWorkspaceInput): Promise<ToolResult> {
+export async function navigate_workspace(_ctx: ToolContext, params: NavigateWorkspaceInput): Promise<AnalystToolOutcome> {
   const data = { intent: 'navigate_workspace', target: params.target } satisfies WorkspaceNavigationIntent;
-  return { success: true, data };
+  return toolSucceeded(data);
 }
 
-export async function navigate_back(_ctx: ToolContext, _params: Record<string, never> = {}): Promise<ToolResult> {
+export async function navigate_back(_ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
   const data = { intent: 'navigate_back' } satisfies WorkspaceNavigationIntent;
-  return { success: true, data };
+  return toolSucceeded(data);
 }
 
 export const analystNavigationToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([

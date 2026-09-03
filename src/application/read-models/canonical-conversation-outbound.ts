@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto';
 
 import { parseToolCallMessageForModel } from '../../contracts/persisted-tool-call.js';
 import {
-  ToolInvocationResultSchema,
   type CanonicalCallIdentity,
   type CanonicalResultIdentity,
   type ToolInvocationProjectionInput,
   type ToolInvocationProjector,
 } from '../../contracts/tool-invocation-projection.js';
+import { ToolResultSchema } from '../../contracts/tool-result.js';
 import { agentMessageSchema, canonicalJson, parseCanonicalContentPolicyRefusal, type AgentMessage } from '../../schemas/index.js';
 import {
   sourceInputIdFromToolCallMessageId,
@@ -95,9 +95,9 @@ function projectResultRow(
 ): AgentMessage {
   if (row.role !== 'tool' || !row.tool || !row.tool_call_id)
     throw new Error(`Tool result '${row.id}' is missing canonical identity metadata.`);
-  let result: ReturnType<typeof ToolInvocationResultSchema.parse>;
+  let result: ReturnType<typeof ToolResultSchema.parse>;
   try {
-    result = ToolInvocationResultSchema.parse(JSON.parse(row.content));
+    result = ToolResultSchema.parse(JSON.parse(row.content));
   } catch (error) {
     throw new Error(`Tool result '${row.id}' has malformed content: ${errorMessage(error)}`);
   }
@@ -137,7 +137,7 @@ function assertProjectedResult(
     !sameInvocationIdentity(projected.identity, identity)
   )
     throw new Error('Invocation projector changed canonical result-row shape or identity.');
-  ToolInvocationResultSchema.parse(projected.result);
+  ToolResultSchema.parse(projected.result);
 }
 function sameInvocationIdentity(
   left: CanonicalResultIdentity,

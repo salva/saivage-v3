@@ -9,11 +9,11 @@ import {
   observationSha256,
   packCollectionData,
   packTextSliceData,
-  successEnvelopeBytes,
   utf8ByteLength,
   utf8SafePreview,
   utf8SafeSlice,
 } from '../../src/tools/response-packer.js';
+import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
 
 const envelope = (data: unknown): number => Buffer.byteLength(canonicalJson({ success: true, data }), 'utf8');
 
@@ -148,7 +148,7 @@ describe('response packer primitives', () => {
     expect(DISCOVERY_RESPONSE_MIN_BYTES).toBe(512);
     expect(observationSha256({ b: 1, a: 2 })).toBe(observationSha256({ a: 2, b: 1 }));
     expect(observationSha256({ a: 1 })).not.toBe(observationSha256({ a: 2 }));
-    expect(successEnvelopeBytes({ x: 1 })).toBe(envelope({ x: 1 }));
+    expect(Buffer.byteLength(settledSuccessBytes({ x: 1 }), 'utf8')).toBe(envelope({ x: 1 }));
     expect(utf8SafePreview('tïtle'.repeat(200), 8)).toBe('tïtlet');
     expect(Buffer.byteLength(utf8SafePreview('tïtle'.repeat(200), 8), 'utf8')).toBeLessThanOrEqual(8);
   });

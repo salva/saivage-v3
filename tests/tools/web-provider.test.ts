@@ -161,7 +161,7 @@ describe('WebProvider', () => {
       const analystToolContext = { projectRoot: root, actor: 'analyst', surface: 'web-chat', interventionReadiness: readiness, analystMutations: { recordMutations: { admitWrite, write } } } as never;
       const surface = buildInvocationSurfaceFixture('analyst', [bindWeb({ projectRoot: root, agentName: 'analyst', analystToolContext })]);
       const result = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34/path?raw-query-marker=yes', save_as: mutationPath });
-      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/path?[REDACTED]', saved_as: 'record:///brief.md?card=project', write: { kind: 'record', result: { data: { current_url: 'record:///brief.md?card=project' } } } } });
+      expect(result).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/path?[REDACTED]', saved_as: 'record:///brief.md?card=project', write: { kind: 'record', data: { current_url: 'record:///brief.md?card=project' } } } });
       expect(JSON.stringify(result)).not.toContain('raw-query-marker');
       expect(result).not.toHaveProperty('data.url');
       expect(write).toHaveBeenCalledTimes(1);
@@ -243,7 +243,7 @@ describe('WebProvider', () => {
       for (const expected of cases) {
         const result = await invokeTestTool(surface, 'webfetch', { url: 'https://93.184.216.34/file', save_as: expected.save_as });
         if (!result.success) throw new Error(`${expected.kind}: ${result.error}`);
-        expect(result).toMatchObject({ success: true, data: { saved_as: expected.target, write: { kind: 'workspace_file', result: { success: true, data: { destination_kind: expected.kind, target: expected.target, bytes: 5, written: true } } } } });
+        expect(result).toMatchObject({ success: true, data: { saved_as: expected.target, write: { kind: 'workspace_file', data: { destination_kind: expected.kind, target: expected.target, bytes: 5, written: true } } } });
       }
       expect(fetchSpy).toHaveBeenCalledTimes(cases.length);
     } finally {
@@ -289,7 +289,7 @@ describe('WebProvider', () => {
 
       expect(inline).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/inline?[REDACTED]', text: 'inline', truncated: false } });
       expect(binary).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/binary?[REDACTED]', content: null, binary: true } });
-      expect(saved).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/saved?[REDACTED]', saved_as: 'saved.txt', write: { kind: 'workspace_file', result: { success: true, data: { destination_kind: 'project_relative', target: 'saved.txt', bytes: 5, written: true } } } } });
+      expect(saved).toMatchObject({ success: true, data: { redacted_url: 'https://93.184.216.34/saved?[REDACTED]', saved_as: 'saved.txt', write: { kind: 'workspace_file', data: { destination_kind: 'project_relative', target: 'saved.txt', bytes: 5, written: true } } } });
       expect(JSON.stringify([inline, binary, saved])).not.toContain('raw-query-marker');
       for (const result of [inline, binary, saved]) expect(result).not.toHaveProperty('data.url');
     } finally {
