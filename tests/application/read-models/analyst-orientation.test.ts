@@ -224,9 +224,88 @@ describe('buildAnalystOrientationSnapshot', () => {
     expect(() => buildAnalystOrientationSnapshot(chain, { status: 'running', currentCardId: 'card-c399' })).toThrow(/mandatory root\/active-path skeleton/u);
   });
 
+  it('fits the maximal structural running chain with schema-maximum type names inside the budget', () => {
+    const maxTypeName = 't'.repeat(64);
+    const chainIds: string[] = [];
+    for (let level = 0; level < 12; level += 1) {
+      chainIds.push(level === 0 ? 'card-seg' : `${chainIds[level - 1]!}-seg`);
+    }
+    const cards: AnalystOrientationCard[] = [projectCard([chainIds[0]!], 'running')];
+    for (const [level, id] of chainIds.entries()) {
+      cards.push(card({
+        id,
+        parent: level === 0 ? 'project' : chainIds[level - 1]!,
+        children: level === 11 ? [] : [chainIds[level + 1]!],
+        status: 'running',
+        type: maxTypeName,
+        title: 'T'.repeat(600),
+      }));
+    }
+    const snapshot = buildAnalystOrientationSnapshot(cards, { status: 'running', currentCardId: chainIds[11]! });
+    expect(Buffer.byteLength(snapshot.content, 'utf8')).toBeLessThanOrEqual(ANALYST_ORIENTATION_MAX_BYTES);
+    const parsed = parse(snapshot.content);
+    expect(parsed.active_path).toEqual(['project', ...chainIds]);
+    const nodes = flatten(parsed.root);
+    expect(nodes).toHaveLength(13);
+    expect(nodes.map((node) => node.id)).toEqual(['project', ...chainIds]);
+    const chainNodes = nodes.filter((node) => node.id !== 'project');
+    for (const node of chainNodes) {
+      expect(node.title_bytes).toBe(ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES);
+      expect(node.title_truncated).toBe(true);
+    }
+    const tail = nodes.find((node) => node.id === chainIds[11]!)!;
+    expect(tail).toMatchObject({ id: chainIds[11]!, type: maxTypeName, status: 'running', children_count: 0, descendants: 0, contains_running: true });
+  });
+
+  it('degrades oversized non-running siblings around the maximal chain behind aggregates and the marker', () => {
+    const chainIds: string[] = [];
+    for (let level = 0; level < 12; level += 1) {
+      chainIds.push(level === 0 ? 'card-seg' : `${chainIds[level - 1]!}-seg`);
+    }
+    const siblings = Array.from({ length: 400 }, (_, index) => `card-${'w'.repeat(index + 1)}`);
+    const cards: AnalystOrientationCard[] = [projectCard([chainIds[0]!, ...siblings], 'running')];
+    for (const [level, id] of chainIds.entries()) {
+      cards.push(card({
+        id,
+        parent: level === 0 ? 'project' : chainIds[level - 1]!,
+        children: level === 11 ? [] : [chainIds[level + 1]!],
+        status: 'running',
+        title: 'Mandatory chain node with a long title that exceeds the preview budget by a wide margin',
+      }));
+    }
+    for (const [index, id] of siblings.entries()) {
+      cards.push(card({ id, parent: 'project', children: [], status: index % 3 === 0 ? 'done' : 'backlog', type: index % 2 === 0 ? 'goal' : 'code', title: `Sibling ${index} with a reasonably long descriptive title ${index}` }));
+    }
+    const snapshot = buildAnalystOrientationSnapshot(cards, { status: 'running', currentCardId: chainIds[11]! });
+    expect(Buffer.byteLength(snapshot.content, 'utf8')).toBeLessThanOrEqual(ANALYST_ORIENTATION_MAX_BYTES);
+    const parsed = parse(snapshot.content);
+    expect(parsed.active_path).toEqual(['project', ...chainIds]);
+    const ids = flatten(parsed.root).map((node) => node.id);
+    for (const chainId of ['project', ...chainIds]) expect(ids).toContain(chainId);
+    const rootChildren = parsed.root.children!.map((node) => node.id);
+    expect(rootChildren[0]).toBe(chainIds[0]!);
+    const shownSiblings = rootChildren.slice(1);
+    expect(shownSiblings.length).toBeGreaterThan(0);
+    expect(shownSiblings.length).toBeLessThan(siblings.length);
+    expect(shownSiblings).toEqual(siblings.slice(0, shownSiblings.length));
+    expect(parsed.root.omitted_children).toBe(siblings.length - shownSiblings.length);
+    expect(parsed.root.omission_marker).toBe(ANALYST_ORIENTATION_OMISSION_MARKER);
+    const expectedStatusCounts: Record<string, number> = {};
+    const expectedTypeCounts: Record<string, number> = {};
+    for (const [index, id] of siblings.entries()) {
+      if (shownSiblings.includes(id)) continue;
+      const status = index % 3 === 0 ? 'done' : 'backlog';
+      const type = index % 2 === 0 ? 'goal' : 'code';
+      expectedStatusCounts[status] = (expectedStatusCounts[status] ?? 0) + 1;
+      expectedTypeCounts[type] = (expectedTypeCounts[type] ?? 0) + 1;
+    }
+    expect(parsed.root.omitted_status_counts).toEqual(expectedStatusCounts);
+    expect(parsed.root.omitted_type_counts).toEqual(expectedTypeCounts);
+  });
+
   it('exposes only the strict two-argument builder surface callers cannot inject hashes through', () => {
     expect(buildAnalystOrientationSnapshot).toHaveLength(2);
     expect(parse(buildAnalystOrientationSnapshot([projectCard([])], errorStatus).content).runtime.status).toBe('error');
-    expect(buildAnalystOrientationSnapshot([projectCard([])], errorStatus).content).toContain('"snapshot": "analyst.project_tree"');
+    expect(buildAnalystOrientationSnapshot([projectCard([])], errorStatus).content).toContain('"snapshot":"analyst.project_tree"');
   });
 });

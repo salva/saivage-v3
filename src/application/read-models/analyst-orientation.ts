@@ -4,8 +4,7 @@ import { conversationSha256 } from '../../persistence/canonical-conversation-art
 
 export const ANALYST_ORIENTATION_KEY = 'analyst.project_tree';
 export const ANALYST_ORIENTATION_MAX_BYTES = 8192;
-export const ANALYST_ORIENTATION_MAX_HEURISTIC_TOKENS = 2048;
-export const ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES = 512;
+export const ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES = 128;
 export const ANALYST_ORIENTATION_OMISSION_MARKER = 'Details omitted from orientation; query get_tree, list_cards, or get_card.';
 
 export interface AnalystOrientationCard {
@@ -156,7 +155,7 @@ export function buildAnalystOrientationSnapshot(
       full_observation_sha256: fullObservationSha256,
       root: nodeOf('project'),
     };
-    return JSON.stringify(payload, null, 2);
+    return JSON.stringify(payload);
   };
   const fits = (content: string): boolean => Buffer.byteLength(content, 'utf8') <= ANALYST_ORIENTATION_MAX_BYTES;
 
