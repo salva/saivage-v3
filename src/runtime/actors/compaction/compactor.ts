@@ -32,6 +32,7 @@ import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 import { materializeAccumulatedSummary } from './summary-materializer.js';
 import type { SummarizerProviderPort } from './summarizer.js';
 import { versionFilename } from '../../../persistence/version-index.js';
+import { estimateUtf8Tokens } from './token-estimator.js';
 
 export type AutonomousCompactionPolicy = {
   input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
@@ -114,7 +115,7 @@ function estimateCanonicalStaticTokens(
   systemPrompt: string,
   tools: readonly ToolDefinition[],
 ): number {
-  return estimateTextTokens(systemPrompt) + estimateTextTokens(JSON.stringify(tools));
+  return estimateUtf8Tokens(systemPrompt) + estimateUtf8Tokens(JSON.stringify(tools));
 }
 
 export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
@@ -457,10 +458,6 @@ function coveredSegmentKinds(round: SourceRound, coveredIds: ReadonlySet<string>
 
 function rawRoundRows(round: { rows: readonly { message: AgentMessage }[] }): AgentMessage[] {
   return round.rows.map((row) => row.message);
-}
-
-function estimateTextTokens(text: string): number {
-  return Math.ceil(Buffer.byteLength(text, 'utf8') / 4);
 }
 
 function estimateProviderConversationTokens(projection: ProviderConversationProjection): number {

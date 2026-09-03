@@ -5,6 +5,7 @@ import type {
 } from '../../../contracts/conversation-validation.js';
 import { isConversationBudgetVisible } from '../conversation-session.js';
 import { projectedCanonicalRowContent } from '../context/composition-projector.js';
+import { estimateUtf8Tokens } from './token-estimator.js';
 
 export type ClassifiedMessage = {
   message: AgentMessage;
@@ -40,7 +41,7 @@ export function estimateMessageTokens(message: AgentMessage): number {
   const content = projectedCanonicalRowContent(message);
   const structural = [message.role, message.kind, message.tool, message.tool_call_id, message.round_id,
   ].filter(Boolean).join(' ');
-  return Math.max(1, Math.ceil((content.length + structural.length) / 4));
+  return Math.max(1, estimateUtf8Tokens(content + structural));
 }
 
 function buildRound(

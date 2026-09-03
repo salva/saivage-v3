@@ -43,16 +43,6 @@ function checkAuth(policy: AuthPolicy, request: FastifyRequest): boolean {
 
 function rejectUnauthorizedWebSocket(ws: WebSocket): void {
   ws.close(1008, 'Authentication failed');
-
-  const wsWithPrivateState = ws as WebSocket & {
-    _closeTimer?: NodeJS.Timeout;
-  };
-  const closeTimer = wsWithPrivateState._closeTimer;
-  if (closeTimer) {
-    clearTimeout(closeTimer);
-    closeTimer.unref();
-    wsWithPrivateState._closeTimer = undefined;
-  }
 }
 
 export interface RegisterWebSocketOptions {
