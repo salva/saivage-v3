@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref } from 'vue';
+import { computed, ref, shallowRef } from 'vue';
 import type {
   AgentConversationEntry,
   DetailErrorState,
@@ -16,6 +16,7 @@ import { useWorkspaceRouteStore } from './workspaceRoute';
 import { useFeedbackStore } from './feedback';
 import type { ConversationSessionId } from '../api/contracts';
 import { DURABLE_PRIMARY_CONTENT_POLICY, workspaceNavigationIntentSchema } from '../api/contracts';
+import { createConversationFetch, type ConversationFrame } from './conversation-fetch';
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -76,22 +77,61 @@ function authoritativeContainsPending(
 }
 
 export const useAnalystChat = defineStore('analyst-chat', () => {
-  let messagesRequestSeq = 0;
-  let messagesAbort: AbortController | null = null;
+  let identityEpoch = 0;
+  let identityController: AbortController | null = null;
   const activeSessionId = ref<ConversationSessionId | null>(null);
-  const authoritativeMessages = ref<AgentConversationEntry[]>([]);
   const pendingMessages = ref<PendingMessage[]>([]);
+  const identityLoading = ref(false);
+  const identityError = ref<DetailErrorState | null>(null);
+  type Handoff = {
+    identityEpoch: number;
+    sessionId: ConversationSessionId;
+    owner: symbol | null;
+    acknowledged: boolean;
+    pending: boolean;
+  };
+  const handoff = shallowRef<Handoff | null>(null);
+  const transcript = createConversationFetch<undefined, DetailErrorState>({
+    isOwnerCurrent: () => handoff.value?.owner !== null && handoff.value?.acknowledged === true,
+    async request(signal, requestCursor) {
+      const sessionId = activeSessionId.value;
+      if (!sessionId) throw new Error('Analyst transcript request has no session identity.');
+      const response = await getAgentConversation(
+        sessionId,
+        signal,
+        requestCursor?.message_id
+          ? { segmentVersion: requestCursor.segment_version, messageId: requestCursor.message_id }
+          : undefined,
+      );
+      return { response, metadata: undefined };
+    },
+    projectError: (error) => buildErrorState(error, 'Failed to load analyst chat messages.'),
+    onFailure() {},
+    onAccepted({ responseEntries }) {
+      pendingMessages.value = pendingMessages.value.filter(
+        (pending) => !authoritativeContainsPending(responseEntries, pending.entry),
+      );
+      identityError.value = null;
+    },
+  });
+  const authoritativeMessages = transcript.entries;
   const messages = computed(() => [
     ...authoritativeMessages.value,
     ...pendingMessages.value.map((pending) => pending.entry),
   ]);
   const draft = ref('');
-  const messagesLoading = ref(false);
-  const messagesError = ref<DetailErrorState | null>(null);
+  const messagesLoading = computed(
+    () =>
+      identityLoading.value ||
+      transcript.coldLoading.value ||
+      (!transcript.baselineAccepted.value && handoff.value?.pending === true),
+  );
+  const messagesError = computed(
+    () => identityError.value ?? transcript.initialError.value ?? transcript.refreshError.value,
+  );
   const sending = ref(false);
   const sendError = ref<DetailErrorState | null>(null);
   const restartAcknowledgement = ref<RestartChatAcknowledgement | null>(null);
-  let cursor: { segment_version: number; message_id: string | null } | null = null;
 
   function setDraft(value: string): void {
     draft.value = value;
@@ -109,51 +149,103 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
   }
 
-  async function fetchMessages(frame?: { segment_version: number; visible_message_id: string | null } | null): Promise<void> {
-    if (frame && cursor) { if (frame.segment_version !== cursor.segment_version) cursor = null; else if (frame.visible_message_id === cursor.message_id) return; }
-    const requestSeq = ++messagesRequestSeq;
-    messagesAbort?.abort();
-    const abort = new AbortController();
-    messagesAbort = abort;
-    messagesLoading.value = true;
-    messagesError.value = null;
+  function resetIdentityAndTranscript(): number {
+    const nextIdentityEpoch = ++identityEpoch;
+    identityController?.abort();
+    identityController = null;
+    transcript.reset();
+    activeSessionId.value = null;
+    pendingMessages.value = [];
+    handoff.value = null;
+    identityLoading.value = false;
+    identityError.value = null;
+    return nextIdentityEpoch;
+  }
+
+  async function fetchIdentity(): Promise<void> {
+    const requestEpoch = resetIdentityAndTranscript();
+    const controller = new AbortController();
+    identityController = controller;
+    identityLoading.value = true;
+    identityError.value = null;
     try {
-      if (!activeSessionId.value) {
-        const identity = await getChatEntries(abort.signal);
-        if (requestSeq === messagesRequestSeq) activeSessionId.value = identity.session_id;
-        return;
-      }
-      const sessionId = activeSessionId.value;
-      const response = await getAgentConversation(sessionId, abort.signal, cursor?.message_id ? { segmentVersion: cursor.segment_version, messageId: cursor.message_id } : undefined);
-      if (requestSeq !== messagesRequestSeq) return;
-      const reconciled = pendingMessages.value.filter(
-        (pending) => !authoritativeContainsPending(response.entries, pending.entry),
-      );
-      authoritativeMessages.value =
-        cursor === null || cursor.segment_version !== response.segment_version
-          ? [...response.entries]
-          : [...authoritativeMessages.value, ...response.entries];
-      cursor = response.cursor;
-      pendingMessages.value = reconciled;
-      messagesError.value = null;
-    } catch (err) {
-      if (requestSeq !== messagesRequestSeq) return;
-      if (isOperatorApiError(err, 'agents.conversation', 409)) {
-        authoritativeMessages.value = [];
-        cursor = null;
-        await fetchMessages();
-        return;
-      }
-      authoritativeMessages.value = [];
-      cursor = null;
-      messagesError.value = buildErrorState(err, 'Failed to load analyst chat messages.');
-      throw err;
+      const identity = await getChatEntries(controller.signal);
+      if (requestEpoch !== identityEpoch) return;
+      activeSessionId.value = identity.session_id;
+      handoff.value = {
+        identityEpoch: requestEpoch,
+        sessionId: identity.session_id,
+        owner: null,
+        acknowledged: false,
+        pending: true,
+      };
+    } catch (error) {
+      if (
+        requestEpoch !== identityEpoch ||
+        (error instanceof DOMException && error.name === 'AbortError')
+      ) return;
+      identityError.value = buildErrorState(error, 'Failed to load analyst chat identity.');
+      throw error;
     } finally {
-      if (requestSeq === messagesRequestSeq) {
-        messagesLoading.value = false;
-        messagesAbort = null;
+      if (requestEpoch === identityEpoch) {
+        identityLoading.value = false;
+        identityController = null;
       }
     }
+  }
+
+  async function fetchMessages(): Promise<void> {
+    if (!activeSessionId.value) return fetchIdentity();
+    if (!handoff.value?.owner || !handoff.value.acknowledged || handoff.value.pending) return;
+    await transcript.fetch();
+  }
+
+  function claimTranscriptLease(sessionId: ConversationSessionId): {
+    onFrame(frame: ConversationFrame | null): Promise<void>;
+    release(): void;
+  } {
+    if (activeSessionId.value !== sessionId) {
+      throw new Error(`Cannot claim Analyst transcript lease for non-current session '${sessionId}'.`);
+    }
+    if (
+      !handoff.value ||
+      handoff.value.identityEpoch !== identityEpoch ||
+      handoff.value.sessionId !== sessionId
+    ) throw new Error('Cannot claim Analyst transcript lease without its current identity handoff.');
+    transcript.cancel();
+    const owner = Symbol('analyst-transcript-lease');
+    handoff.value = { ...handoff.value, owner, acknowledged: false, pending: true };
+
+    const isCurrent = () =>
+      handoff.value?.identityEpoch === identityEpoch &&
+      handoff.value.sessionId === sessionId &&
+      handoff.value.owner === owner;
+
+    return {
+      onFrame(frame) {
+        if (!isCurrent()) return Promise.resolve();
+        if (frame === null) {
+          if (handoff.value!.pending) {
+            handoff.value = { ...handoff.value!, acknowledged: true, pending: false };
+            return transcript.fetch();
+          }
+          if (handoff.value!.acknowledged) return transcript.fetch();
+          return Promise.resolve();
+        }
+        if (handoff.value!.pending || !handoff.value!.acknowledged) return Promise.resolve();
+        return transcript.onFrame(frame);
+      },
+      release() {
+        if (!isCurrent()) return;
+        handoff.value = {
+          ...handoff.value!,
+          owner: null,
+          acknowledged: false,
+          pending: true,
+        };
+        transcript.cancel();
+      },
+    };
   }
 
   async function sendMessage(): Promise<void> {
@@ -264,6 +356,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     restartAcknowledgement,
     setDraft,
     fetchMessages,
+    claimTranscriptLease,
     sendMessage,
     ingestWsEvent,
     ingestRestartAcknowledgement,

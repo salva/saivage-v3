@@ -2,7 +2,7 @@
   <div class="conversation-container">
     <ViewState v-if="loading" state="loading" title="Loading conversation" />
     <ViewState
-      v-else-if="conversationUnauthorized"
+      v-else-if="conversationUnauthorized && !currentSession"
       state="unauthorized"
       title="Conversation unavailable"
       message="Provide a valid API token to load this conversation."

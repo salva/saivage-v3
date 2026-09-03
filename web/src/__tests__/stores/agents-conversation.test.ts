@@ -212,6 +212,145 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(store.conversationRefreshError).toBe('conversation refresh failed');
   });
 
+  it('classifies initial and refresh 401 separately and clears authorization on success and selection reset', async () => {
+    const unauthorized = new OperatorApiError('agents.conversation', 401, {
+      statusCode: 401,
+      error: 'Unauthorized',
+    });
+    vi.mocked(getAgentConversation).mockRejectedValueOnce(unauthorized);
+    const store = useAgentStore();
+    const initialToken = store.beginConversationSelection(S1);
+    await expect(store.fetchConversation(initialToken)).rejects.toBe(unauthorized);
+    expect(store.currentSession).toBeNull();
+    expect(store.conversationError).toBe('Unauthorized');
+    expect(store.conversationRefreshError).toBeNull();
+    expect(store.conversationUnauthorized).toBe(true);
+
+    const token = store.beginConversationSelection(S1);
+    expect(store.conversationUnauthorized).toBe(false);
+    expect(store.conversationError).toBeNull();
+    expect(store.conversationRefreshError).toBeNull();
+    expect(store.conversationVersionsError).toBeNull();
+    expect(store.selectedConversationVersionError).toBeNull();
+    vi.mocked(getAgentConversation)
+      .mockResolvedValueOnce(conversation())
+      .mockRejectedValueOnce(unauthorized)
+      .mockRejectedValueOnce(new Error('ordinary refresh failure'))
+      .mockResolvedValueOnce(conversation([{ ...entry, id: 'm2' }], 'm2'));
+    await store.fetchConversation(token);
+    await expect(store.fetchConversation(token)).rejects.toBe(unauthorized);
+    expect(store.currentSession).toEqual(session);
+    expect(store.entries).toEqual([entry]);
+    expect(store.conversationError).toBeNull();
+    expect(store.conversationRefreshError).toBe('Unauthorized');
+    expect(store.conversationUnauthorized).toBe(true);
+    await expect(store.fetchConversation(token)).rejects.toThrow('ordinary refresh failure');
+    expect(store.entries).toEqual([entry]);
+    expect(store.conversationRefreshError).toBe('ordinary refresh failure');
+    expect(store.conversationUnauthorized).toBe(false);
+    await store.fetchConversation(token);
+    expect(store.conversationUnauthorized).toBe(false);
+    expect(store.conversationError).toBeNull();
+    expect(store.conversationRefreshError).toBeNull();
+    expect(store.conversationVersionsError).toBeNull();
+    expect(store.selectedConversationVersionError).toBeNull();
+
+    store.clearConversationSelection(token);
+    expect(store.conversationUnauthorized).toBe(false);
+    expect(store.conversationError).toBeNull();
+    expect(store.conversationRefreshError).toBeNull();
+  });
+
+  it('preserves aggregate model warning when a cursor tail has no model issue', async () => {
+    const modelIssue = { ...entry, id: 'issue', kind: 'model_issue' as const, content: 'issue' };
+    const tail = { ...entry, id: 'tail', content: 'recovered', message_index: 1 };
+    vi.mocked(getAgentConversation)
+      .mockResolvedValueOnce(conversation([modelIssue], 'issue'))
+      .mockResolvedValueOnce(conversation([tail], 'tail'));
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    await store.fetchConversation(token);
+    await store.fetchConversation(token);
+    expect(store.entries.map(({ id }) => id)).toEqual(['issue', 'tail']);
+    expect(store.conversationWarning).toContain('model/tool recovery events');
+  });
+
+  it('retains rows through a cursor 409 and atomically replaces them from one cursorless retry', async () => {
+    const retry = deferred<ReturnType<typeof conversation>>();
+    const conflict = new OperatorApiError('agents.conversation', 409, {
+      error: 'conversation_segment_changed',
+      session_id: S1,
+      requested_segment_version: 1,
+      current_segment_version: 2,
+    });
+    const replacement = { ...entry, id: 'replacement', content: 'replacement' };
+    vi.mocked(getAgentConversation)
+      .mockResolvedValueOnce(conversation())
+      .mockRejectedValueOnce(conflict)
+      .mockReturnValueOnce(retry.promise);
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    await store.fetchConversation(token);
+    const recovery = store.fetchConversation(token);
+    await vi.waitFor(() => expect(getAgentConversation).toHaveBeenCalledTimes(3));
+    expect(store.entries).toEqual([entry]);
+    expect(getAgentConversation).toHaveBeenLastCalledWith(S1, expect.any(AbortSignal), undefined);
+    retry.resolve(conversation([replacement], 'replacement'));
+    await recovery;
+    expect(store.entries).toEqual([replacement]);
+  });
+
+  it('retains accepted rows and reports refresh failure when the cursorless 409 retry fails', async () => {
+    const conflict = new OperatorApiError('agents.conversation', 409, {
+      error: 'conversation_segment_changed',
+      session_id: S1,
+      requested_segment_version: 1,
+      current_segment_version: 2,
+    });
+    vi.mocked(getAgentConversation)
+      .mockResolvedValueOnce(conversation())
+      .mockRejectedValueOnce(conflict)
+      .mockRejectedValueOnce(new Error('retry failed'));
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    await store.fetchConversation(token);
+    await expect(store.fetchConversation(token)).rejects.toThrow('retry failed');
+    expect(store.entries).toEqual([entry]);
+    expect(store.conversationRefreshError).toBe('retry failed');
+  });
+
+  it('does not retry a cursorless or repeated conversation conflict', async () => {
+    const conflict = new OperatorApiError('agents.conversation', 409, {
+      error: 'conversation_segment_changed',
+      session_id: S1,
+      requested_segment_version: 1,
+      current_segment_version: 2,
+    });
+    vi.mocked(getAgentConversation).mockRejectedValueOnce(conflict);
+    const initialStore = useAgentStore();
+    const initialToken = initialStore.beginConversationSelection(S1);
+    await expect(initialStore.fetchConversation(initialToken)).rejects.toBe(conflict);
+    expect(getAgentConversation).toHaveBeenCalledOnce();
+    expect(initialStore.conversationError).toBe(conflict.message);
+    expect(initialStore.conversationRefreshError).toBeNull();
+
+    setActivePinia(createPinia());
+    vi.mocked(getAgentConversation).mockReset();
+    vi.mocked(getAgentConversation)
+      .mockResolvedValueOnce(conversation())
+      .mockRejectedValueOnce(conflict)
+      .mockRejectedValueOnce(conflict);
+    const refreshStore = useAgentStore();
+    const refreshToken = refreshStore.beginConversationSelection(S1);
+    await refreshStore.fetchConversation(refreshToken);
+    await expect(refreshStore.fetchConversation(refreshToken)).rejects.toBe(conflict);
+    expect(getAgentConversation).toHaveBeenCalledTimes(3);
+    expect(getAgentConversation).toHaveBeenLastCalledWith(S1, expect.any(AbortSignal), undefined);
+    expect(refreshStore.entries).toEqual([entry]);
+    expect(refreshStore.conversationError).toBeNull();
+    expect(refreshStore.conversationRefreshError).toBe(conflict.message);
+  });
+
   it('appends cursor deltas without reordering or pair expansion', async () => {
     const result = { ...entry, id: 'm2', kind: 'tool_result' as const, role: 'tool' as const, context_policy: { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } as const };
     vi.mocked(getAgentConversation)

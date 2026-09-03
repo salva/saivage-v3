@@ -376,6 +376,125 @@ describe('SyncClient', () => {
     });
   });
 
+  it('acknowledges a late same-key consumer from the current lease without resubscribing', async () => {
+    const { conn, emitSync } = createConn('connected');
+    const client = new SyncClient(conn);
+    client.start();
+    const first = vi.fn(async () => undefined);
+    const second = vi.fn(async () => undefined);
+    client.openConversation('agent:planner:project', first);
+    const subscribe = vi.mocked(conn.sendRaw).mock.calls[0][0] as { lease: string };
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease });
+    await flush();
+
+    client.openConversation('agent:planner:project', second);
+    await flush();
+    expect(vi.mocked(conn.sendRaw).mock.calls.filter(([frame]: any) => frame.t === 'subscribe')).toHaveLength(1);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenLastCalledWith(null);
+
+    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'm1' } as const;
+    emitSync(frame);
+    await flush();
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(second).toHaveBeenCalledTimes(2);
+    expect(first).toHaveBeenLastCalledWith(frame);
+    expect(second).toHaveBeenLastCalledWith(frame);
+  });
+
+  it('treats reused callback objects as distinct registrations with independent release', async () => {
+    const { conn, emitSync } = createConn('connected');
+    const client = new SyncClient(conn);
+    client.start();
+    const callback = vi.fn(async () => undefined);
+    const closeFirst = client.openConversation('agent:planner:project', callback);
+    const closeSecond = client.openConversation('agent:planner:project', callback);
+    const subscribe = vi.mocked(conn.sendRaw).mock.calls[0][0] as { lease: string };
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease });
+    await flush();
+    expect(callback).toHaveBeenCalledTimes(2);
+    expect(callback.mock.calls).toEqual([[null], [null]]);
+
+    closeFirst();
+    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'm1' } as const;
+    emitSync(frame);
+    await flush();
+    expect(callback).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(conn.sendRaw).mock.calls.filter(([value]: any) => value.t === 'unsubscribe')).toHaveLength(0);
+    closeSecond();
+    expect(vi.mocked(conn.sendRaw).mock.calls.filter(([value]: any) => value.t === 'unsubscribe')).toEqual([
+      [{ t: 'unsubscribe', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease }],
+    ]);
+  });
+
+  it('drains late acknowledgements before a trailing frame and suppresses released pending consumers', async () => {
+    const { conn, emitSync } = createConn('connected');
+    const client = new SyncClient(conn);
+    client.start();
+    const firstFlight = deferred();
+    const secondFlight = deferred();
+    const first = vi.fn(() => firstFlight.promise);
+    const second = vi.fn(() => secondFlight.promise);
+    const released = vi.fn(async () => undefined);
+    client.openConversation('agent:planner:project', first);
+    const subscribe = vi.mocked(conn.sendRaw).mock.calls[0][0] as { lease: string };
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease });
+    expect(first).toHaveBeenCalledWith(null);
+
+    client.openConversation('agent:planner:project', second);
+    const closeReleased = client.openConversation('agent:planner:project', released);
+    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'm1' } as const;
+    emitSync(frame);
+    closeReleased();
+    expect(second).not.toHaveBeenCalled();
+    firstFlight.resolve(undefined);
+    await vi.waitFor(() => expect(second).toHaveBeenCalledOnce());
+    expect(second).toHaveBeenCalledOnce();
+    expect(second).toHaveBeenCalledWith(null);
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(released).not.toHaveBeenCalled();
+
+    secondFlight.resolve(undefined);
+    await vi.waitFor(() => expect(first).toHaveBeenCalledTimes(2));
+    expect(first).toHaveBeenLastCalledWith(frame);
+    expect(second).toHaveBeenLastCalledWith(frame);
+    expect(released).not.toHaveBeenCalled();
+  });
+
+  it('does not retroactively deliver an active frame to a consumer that joins its generation later', async () => {
+    const { conn, emitSync } = createConn('connected');
+    const client = new SyncClient(conn);
+    client.start();
+    const activeFrame = deferred();
+    const first = vi.fn((frame: any) =>
+      frame === null ? Promise.resolve() : activeFrame.promise,
+    );
+    const second = vi.fn(async () => undefined);
+    client.openConversation('agent:planner:project', first);
+    const subscribe = vi.mocked(conn.sendRaw).mock.calls[0][0] as { lease: string };
+    emitSync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease });
+    await flush();
+
+    const frame = { t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'm1' } as const;
+    emitSync(frame);
+    await vi.waitFor(() => expect(first).toHaveBeenCalledTimes(2));
+    expect(first).toHaveBeenLastCalledWith(frame);
+    client.openConversation('agent:planner:project', second);
+    expect(second).not.toHaveBeenCalled();
+
+    activeFrame.resolve(undefined);
+    await vi.waitFor(() => expect(second).toHaveBeenCalledOnce());
+    expect(second).toHaveBeenCalledWith(null);
+    expect(second).not.toHaveBeenCalledWith(frame);
+
+    const laterFrame = { ...frame, visible_message_id: 'm2' };
+    emitSync(laterFrame);
+    await flush();
+    expect(second).toHaveBeenCalledTimes(2);
+    expect(second).toHaveBeenLastCalledWith(laterFrame);
+  });
+
   it('subscribes every mounted conversation when the socket opens', () => {
     const { conn, emitOpen } = createConn();
     const client = new SyncClient(conn);

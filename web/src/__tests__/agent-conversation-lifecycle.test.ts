@@ -253,6 +253,38 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
   });
 
+  it('shows initial 401 as unavailable but keeps accepted content mounted on refresh 401', async () => {
+    const unauthorized = new OperatorApiError('agents.conversation', 401, {
+      statusCode: 401,
+      error: 'Unauthorized',
+    });
+    api.getAgentConversation.mockRejectedValueOnce(unauthorized);
+    const initial = await mountConversation('target');
+    await expect(initial.callback(null)).rejects.toBe(unauthorized);
+    await flushPromises();
+    expect(initial.wrapper.text()).toContain('Conversation unavailable');
+    expect(initial.wrapper.find('.conv-rounds').exists()).toBe(false);
+    initial.wrapper.unmount();
+
+    api.getAgentConversation
+      .mockResolvedValueOnce(response([textEntry('target', 1)]))
+      .mockRejectedValueOnce(unauthorized);
+    const loaded = await mountConversation('target');
+    await loaded.callback(null);
+    await flushPromises();
+    await expect(loaded.callback({
+      t: 'invalidate',
+      resource: 'conversation',
+      id: 'agent:planner:project',
+      segment_version: 1,
+      visible_message_id: 'next',
+    })).rejects.toBe(unauthorized);
+    await flushPromises();
+    expect(loaded.wrapper.text()).toContain('Unauthorized');
+    expect(loaded.wrapper.find('[data-entry-id="target"]').exists()).toBe(true);
+    expect(loaded.wrapper.find('.conv-rounds').exists()).toBe(true);
+  });
+
   it('disposes a queued evidence watcher without DOM or focus effects', async () => {
     api.getAgentConversation.mockResolvedValueOnce(response([textEntry('target', 1)]));
     const { wrapper, store, callback } = await mountConversation('target');
@@ -269,7 +301,7 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(centerScrolls).toBe(0);
   });
 
-  it('suppresses the real store cursor-conflict reset and focuses only the settled authoritative replacement', async () => {
+  it('retains rows during cursor-conflict recovery and focuses only the settled authoritative replacement', async () => {
     const authoritative = deferred<AgentConversationResponse>();
     api.getAgentConversation
       .mockResolvedValueOnce(response([textEntry('target', 1), textEntry('prior', 2)]))
@@ -291,8 +323,13 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     const recovery = callback({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'next' });
     await flushPromises();
 
-    expect(store.entries).toEqual([]);
-    expect(store.conversationLoading || store.conversationRefreshing).toBe(true);
+    expect(store.entries.map(({ id }) => id)).toEqual(['target', 'prior']);
+    expect(store.conversationRefreshing).toBe(true);
+    expect(api.getAgentConversation).toHaveBeenLastCalledWith(
+      'agent:planner:project',
+      expect.any(AbortSignal),
+      undefined,
+    );
     expect(evidenceLookups).toBe(0);
     expect(centerScrolls).toBe(0);
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
@@ -305,6 +342,40 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     expect(centerScrolls).toBe(1);
     expect(wrapper.text()).not.toContain('requested conversation entry was not found');
     expect(wrapper.find('[data-entry-id="authoritative"]').exists()).toBe(true);
+  });
+
+  it('retains mounted rows and reports refresh error when the cursorless conflict retry fails', async () => {
+    api.getAgentConversation
+      .mockResolvedValueOnce(response([textEntry('target', 1)]))
+      .mockRejectedValueOnce(
+        new OperatorApiError('agents.conversation', 409, {
+          error: 'conversation_segment_changed',
+          session_id: 'agent:planner:project',
+          requested_segment_version: 1,
+          current_segment_version: 2,
+        }),
+      )
+      .mockRejectedValueOnce(new Error('cursorless retry failed'));
+    const { wrapper, store, callback } = await mountConversation('target');
+    await callback(null);
+    await flushPromises();
+
+    await expect(callback({
+      t: 'invalidate',
+      resource: 'conversation',
+      id: 'agent:planner:project',
+      segment_version: 1,
+      visible_message_id: 'next',
+    })).rejects.toThrow('cursorless retry failed');
+    await flushPromises();
+    expect(api.getAgentConversation).toHaveBeenLastCalledWith(
+      'agent:planner:project',
+      expect.any(AbortSignal),
+      undefined,
+    );
+    expect(store.entries.map(({ id }) => id)).toEqual(['target']);
+    expect(store.conversationRefreshError).toBe('cursorless retry failed');
+    expect(wrapper.find('[data-entry-id="target"]').exists()).toBe(true);
   });
 
   it('route A to B fully disposes keyed A before keyed B subscribes and fetches', async () => {

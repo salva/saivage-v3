@@ -83,8 +83,9 @@ describe('changeset C lease ownership', () => {
     expect(callback).toHaveBeenCalledTimes(2);
   });
 
-  it('does not let a pre-reconnect completion release the new generation single flight', async () => {
+  it('serializes within each generation without letting old completion gate or drain the new generation', async () => {
     const h = harness();
+    const order: string[] = [];
     let releaseOld!: () => void;
     let releaseCurrent!: () => void;
     const oldRequest = new Promise<void>((resolve) => {
@@ -93,11 +94,19 @@ describe('changeset C lease ownership', () => {
     const currentRequest = new Promise<void>((resolve) => {
       releaseCurrent = resolve;
     });
-    const callback = vi
-      .fn()
-      .mockImplementationOnce(() => oldRequest)
-      .mockImplementationOnce(() => currentRequest)
-      .mockResolvedValue(undefined);
+    const callback = vi.fn((frame) => {
+      if (callback.mock.calls.length === 1) {
+        order.push('old null start');
+        return oldRequest.then(() => { order.push('old null settle'); });
+      }
+      if (callback.mock.calls.length === 2) {
+        order.push('new null start');
+        return currentRequest.then(() => { order.push('new null settle'); });
+      }
+      order.push('current invalidation start');
+      expect(frame).toMatchObject({ t: 'invalidate', visible_message_id: 'a' });
+      return Promise.resolve();
+    });
 
     h.client.openConversation('agent:planner:project', callback);
     const firstSubscribe = h.sent.at(-1) as { lease: string };
@@ -119,19 +128,35 @@ describe('changeset C lease ownership', () => {
       lease: reconnectSubscribe.lease,
     });
     expect(callback).toHaveBeenCalledTimes(2);
+    expect(order).toEqual(['old null start', 'new null start']);
 
-    releaseOld();
-    await flush();
+    h.sync({
+      t: 'subscribed',
+      resource: 'conversation',
+      id: 'agent:planner:project',
+      lease: firstSubscribe.lease,
+    });
     h.sync({
       t: 'invalidate',
       resource: 'conversation',
       id: 'agent:planner:project',
       segment_version: 1, visible_message_id: 'a',
     });
+
+    releaseOld();
+    await flush();
     expect(callback).toHaveBeenCalledTimes(2);
+    expect(order).toEqual(['old null start', 'new null start', 'old null settle']);
     releaseCurrent();
     await flush();
     expect(callback).toHaveBeenCalledTimes(3);
+    expect(order).toEqual([
+      'old null start',
+      'new null start',
+      'old null settle',
+      'new null settle',
+      'current invalidation start',
+    ]);
   });
 
   it('routes exchange independently and exact-unsubscribes the final owner', async () => {

@@ -29,7 +29,7 @@
       <StatusBanner v-if="conversationWarning" tone="warning" :message="conversationWarning" />
       <ViewState v-if="conversationLoading" state="loading" title="Loading agent conversation..." />
       <ViewState
-        v-else-if="conversationUnauthorized"
+        v-else-if="conversationUnauthorized && !currentSession"
         state="unauthorized"
         title="Conversation unavailable"
         message="Provide a valid API token to load this conversation."

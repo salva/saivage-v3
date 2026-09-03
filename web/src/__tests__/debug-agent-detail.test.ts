@@ -37,8 +37,10 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     });
     api.getAgentConversation.mockResolvedValue({
       session_id: 'agent:executor:project',
+      segment_version: 1,
+      segment_context: null,
       entries: [],
-      cursor: 'empty',
+      cursor: { segment_version: 1, message_id: null },
     });
     api.getAgentLlmExchange.mockRejectedValue(
       new OperatorApiError('agents.llmExchange', 404, { error: 'No LLM exchange recorded for this session yet.' }),
@@ -113,6 +115,54 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     expect(wrapper.text()).toContain('No LLM exchange recorded');
     wrapper.unmount();
     expect(clear).toHaveBeenCalledOnce();
+  });
+
+  it('renders initial 401 as unavailable and refresh 401 as a warning beside accepted content', async () => {
+    const unauthorized = new OperatorApiError('agents.conversation', 401, {
+      statusCode: 401,
+      error: 'Unauthorized',
+    });
+    let callback!: (frame: any) => Promise<void>;
+    live.openConversation.mockImplementation((_id, value) => {
+      callback = value;
+      return vi.fn();
+    });
+    api.getAgentConversation.mockRejectedValueOnce(unauthorized);
+    const initial = mount(DebugAgentDetail, {
+      props: { sessionId: 'agent:executor:project', kind: 'conversation' },
+    });
+    await expect(callback(null)).rejects.toBe(unauthorized);
+    await flushPromises();
+    expect(initial.text()).toContain('Conversation unavailable');
+    expect(initial.find('.agent-debug-conversation').exists()).toBe(false);
+    initial.unmount();
+
+    api.getAgentConversation
+      .mockResolvedValueOnce({
+        session_id: 'agent:executor:project',
+        segment_version: 1,
+        segment_context: null,
+        entries: [],
+        cursor: { segment_version: 1, message_id: null },
+      })
+      .mockRejectedValueOnce(unauthorized);
+    const loaded = mount(DebugAgentDetail, {
+      props: { sessionId: 'agent:executor:project', kind: 'conversation' },
+    });
+    await callback(null);
+    await flushPromises();
+    await expect(callback({
+      t: 'invalidate',
+      resource: 'conversation',
+      id: 'agent:executor:project',
+      segment_version: 1,
+      visible_message_id: 'next',
+    })).rejects.toBe(unauthorized);
+    await flushPromises();
+    expect(loaded.text()).toContain('Unauthorized');
+    expect(loaded.text()).not.toContain('Conversation unavailable');
+    expect(loaded.find('.agent-debug-conversation').exists()).toBe(true);
+    loaded.unmount();
   });
 
   it('contains no prop/list synchronization watcher', () => {

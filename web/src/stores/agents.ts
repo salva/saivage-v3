@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
-import type { AgentConversationEntry, AgentConversationResponse, AgentConversationVersionListResponse, AgentConversationVersionResponse, AgentSession } from '../api/types';
+import type { AgentConversationResponse, AgentConversationVersionListResponse, AgentConversationVersionResponse, AgentSession } from '../api/types';
 import {
   OperatorApiError,
   getAgentConversation,
@@ -14,6 +14,7 @@ import {
 } from '../api/client';
 import type { ConversationSessionId, ProviderExchangePayload } from '../api/contracts';
 import type { LeaseInvalidation } from '../sync/client';
+import { createConversationFetch } from './conversation-fetch';
 
 const abortError = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 declare const conversationBrand: unique symbol;
@@ -36,12 +37,7 @@ export const useAgentStore = defineStore('agents', () => {
   const membershipGenerations = new Map<string, number>();
   const selectedConversationSessionId = ref<ConversationSessionId | null>(null);
   const currentSession = ref<AgentSession | null>(null);
-  const entries = ref<AgentConversationEntry[]>([]);
   const conversationWarning = ref<string | null>(null);
-  const conversationLoading = ref(false);
-  const conversationRefreshing = ref(false);
-  const conversationError = ref<string | null>(null);
-  const conversationRefreshError = ref<string | null>(null);
   const conversationUnauthorized = ref(false);
   const conversationSegmentContext = ref<AgentConversationResponse['segment_context']>(null);
   const conversationVersions = ref<AgentConversationVersionListResponse['versions']>([]);
@@ -50,11 +46,45 @@ export const useAgentStore = defineStore('agents', () => {
   const selectedConversationVersion = ref<AgentConversationVersionResponse | null>(null);
   const selectedConversationVersionLoading = ref(false);
   const selectedConversationVersionError = ref<string | null>(null);
-  let conversationController: AbortController | null = null;
-  let conversationGeneration = 0;
-  let conversationCursor: { segment_version: number; message_id: string | null } | null = null;
   let activeConversationToken: ConversationSelectionToken | null = null;
   const conversationIds = new WeakMap<object, ConversationSessionId>();
+  const conversation = createConversationFetch<{ session: AgentSession }, string>({
+    isOwnerCurrent: () => activeConversationToken !== null,
+    async request(signal, requestCursor) {
+      const token = activeConversationToken;
+      if (!token) throw new Error('Conversation request has no current selection owner.');
+      const id = conversationIds.get(token);
+      if (!id) throw new Error('Conversation selection owner has no session identity.');
+      const [detail, response] = await Promise.all([
+        getAgentSession(id, signal),
+        getAgentConversation(
+          id,
+          signal,
+          requestCursor?.message_id
+            ? { segmentVersion: requestCursor.segment_version, messageId: requestCursor.message_id }
+            : undefined,
+        ),
+      ]);
+      return { response, metadata: detail };
+    },
+    projectError: (error) => error instanceof Error ? error.message : String(error),
+    onFailure(error) {
+      conversationUnauthorized.value = error instanceof OperatorApiError && error.isUnauthorized;
+    },
+    onAccepted({ acceptedEntries, response, metadata }) {
+      currentSession.value = metadata.session;
+      conversationSegmentContext.value = response.segment_context;
+      conversationWarning.value = acceptedEntries.some((entry) => entry.kind === 'model_issue')
+        ? 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.'
+        : null;
+      conversationUnauthorized.value = false;
+    },
+  });
+  const entries = conversation.entries;
+  const conversationLoading = conversation.coldLoading;
+  const conversationRefreshing = conversation.refreshing;
+  const conversationError = conversation.initialError;
+  const conversationRefreshError = conversation.refreshError;
   const currentLlmExchange = ref<ProviderExchangePayload | null>(null);
   const llmExchangeLoaded = ref(false);
   const llmExchangeLoading = ref(false);
@@ -186,72 +216,27 @@ export const useAgentStore = defineStore('agents', () => {
     sessions.value = [];
   }
   function beginConversationSelection(id: ConversationSessionId): ConversationSelectionToken {
-    ++conversationGeneration;
-    conversationController?.abort();
+    conversation.reset();
     const token = Object.freeze({}) as ConversationSelectionToken;
     conversationIds.set(token, id);
     activeConversationToken = token;
     selectedConversationSessionId.value = id;
     currentSession.value = null;
-    entries.value = [];
-    conversationCursor = null;
-    conversationError.value = null;
+    conversationWarning.value = null;
+    conversationUnauthorized.value = false;
     conversationSegmentContext.value = null;
     conversationVersions.value = [];
+    conversationVersionsLoading.value = false;
+    conversationVersionsError.value = null;
     selectedConversationVersion.value = null;
+    selectedConversationVersionLoading.value = false;
+    selectedConversationVersionError.value = null;
     return token;
   }
   async function fetchConversation(token: ConversationSelectionToken, frame?: { segment_version: number; visible_message_id: string | null } | null): Promise<void> {
     if (token !== activeConversationToken) return;
-    if (frame && conversationCursor) { if (frame.segment_version !== conversationCursor.segment_version) conversationCursor = null; else if (frame.visible_message_id === conversationCursor.message_id) return; }
-    const id = conversationIds.get(token)!;
-    const generation = ++conversationGeneration;
-    conversationController?.abort();
-    const controller = new AbortController();
-    conversationController = controller;
-    conversationCursor ? (conversationRefreshing.value = true) : (conversationLoading.value = true);
-    try {
-      const [detail, response] = await Promise.all([
-        getAgentSession(id, controller.signal),
-        getAgentConversation(id, controller.signal, conversationCursor?.message_id ? { segmentVersion: conversationCursor.segment_version, messageId: conversationCursor.message_id } : undefined),
-      ]);
-      if (token !== activeConversationToken || generation !== conversationGeneration) return;
-      currentSession.value = detail.session;
-      if (conversationCursor === null || conversationCursor.segment_version !== response.segment_version) entries.value = response.entries;
-      else entries.value = [...entries.value, ...response.entries];
-      conversationCursor = response.cursor;
-      conversationSegmentContext.value = response.segment_context;
-      conversationWarning.value = entries.value.some((entry) => entry.kind === 'model_issue')
-        ? 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.'
-        : null;
-      conversationError.value = null;
-      conversationRefreshError.value = null;
-    } catch (error) {
-      if (
-        token !== activeConversationToken ||
-        generation !== conversationGeneration ||
-        abortError(error)
-      )
-        return;
-      if (isOperatorApiError(error, 'agents.conversation', 409)) {
-        entries.value = [];
-        conversationCursor = null;
-        conversationSegmentContext.value = null;
-        await fetchConversation(token);
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      conversationCursor
-        ? (conversationRefreshError.value = message)
-        : (conversationError.value = message);
-      conversationUnauthorized.value = error instanceof OperatorApiError && error.isUnauthorized;
-      throw error;
-    } finally {
-      if (token === activeConversationToken && generation === conversationGeneration) {
-        conversationLoading.value = false;
-        conversationRefreshing.value = false;
-      }
-    }
+    if (frame) await conversation.onFrame(frame);
+    else await conversation.fetch();
   }
   const refetchConversation = fetchConversation;
   async function fetchConversationVersions(token: ConversationSelectionToken): Promise<void> {
@@ -271,7 +256,7 @@ export const useAgentStore = defineStore('agents', () => {
   async function selectConversationVersion(token: ConversationSelectionToken, version: number): Promise<void> {
     if (token !== activeConversationToken) return;
     const id = conversationIds.get(token)!;
-    if (conversationCursor?.segment_version === version) {
+    if (conversation.cursor.value?.segment_version === version) {
       selectedConversationVersion.value = null;
       selectedConversationVersionError.value = null;
       return;
@@ -290,16 +275,21 @@ export const useAgentStore = defineStore('agents', () => {
   }
   function clearConversationSelection(token: ConversationSelectionToken) {
     if (token !== activeConversationToken) return;
-    ++conversationGeneration;
-    conversationController?.abort();
+    conversation.reset();
     activeConversationToken = null;
     selectedConversationSessionId.value = null;
     currentSession.value = null;
-    entries.value = [];
-    conversationCursor = null;
+    conversationWarning.value = null;
+    conversationUnauthorized.value = false;
+    conversationError.value = null;
+    conversationRefreshError.value = null;
     conversationSegmentContext.value = null;
     conversationVersions.value = [];
+    conversationVersionsLoading.value = false;
+    conversationVersionsError.value = null;
     selectedConversationVersion.value = null;
+    selectedConversationVersionLoading.value = false;
+    selectedConversationVersionError.value = null;
   }
 
   function beginLlmExchangeSelection(id: ConversationSessionId): LlmExchangeSelectionToken {

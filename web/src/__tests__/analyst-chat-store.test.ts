@@ -51,6 +51,14 @@ function chat(entries: AgentConversationEntry[] = []) {
   return { session_id: analystSessionId, segment_version: 1, segment_context: null, entries, cursor: { segment_version: 1, message_id: entries.at(-1)?.id ?? null } };
 }
 
+async function loadTranscript(store = useAnalystChat()) {
+  store.activeSessionId = null;
+  await store.fetchMessages();
+  const handle = store.claimTranscriptLease(analystSessionId);
+  await handle.onFrame(null);
+  return handle;
+}
+
 describe('analyst chat store', () => {
   beforeEach(() => {
     window.localStorage.clear();
@@ -71,7 +79,7 @@ describe('analyst chat store', () => {
 
   it('does not refresh transcript from analyst tool activity frames', async () => {
     const store = useAnalystChat();
-    await store.fetchMessages();
+    await loadTranscript(store);
     apiMocks.getAgentConversation.mockClear();
 
     store.ingestWsEvent({
@@ -93,6 +101,142 @@ describe('analyst chat store', () => {
 
     expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith(expect.any(AbortSignal));
     expect(store.activeSessionId).toBe(analystSessionId);
+  });
+
+  it('makes superseded identity success, failure, and abort inert', async () => {
+    const store = useAnalystChat();
+    store.activeSessionId = null;
+    const oldSuccess = deferred<{ session_id: typeof analystSessionId }>();
+    let oldSuccessSignal!: AbortSignal;
+    apiMocks.getChatEntries.mockImplementationOnce((signal) => {
+      oldSuccessSignal = signal;
+      return oldSuccess.promise;
+    });
+    const first = store.fetchMessages();
+    await store.fetchMessages();
+    expect(oldSuccessSignal.aborted).toBe(true);
+    oldSuccess.resolve({ session_id: analystSessionId });
+    await expect(first).resolves.toBeUndefined();
+    expect(store.activeSessionId).toBe(analystSessionId);
+    expect(store.messagesError).toBeNull();
+    expect(store.messagesLoading).toBe(true);
+
+    store.activeSessionId = null;
+    const oldFailure = deferred<never>();
+    apiMocks.getChatEntries.mockReturnValueOnce(oldFailure.promise);
+    const staleFailure = store.fetchMessages();
+    await store.fetchMessages();
+    oldFailure.reject(new Error('stale identity failure'));
+    await expect(staleFailure).resolves.toBeUndefined();
+    expect(store.activeSessionId).toBe(analystSessionId);
+    expect(store.messagesError).toBeNull();
+    expect(store.messagesLoading).toBe(true);
+  });
+
+  it('fails wrong-session claims and makes stale ownership inert across release and identity reset', async () => {
+    const store = useAnalystChat();
+    store.activeSessionId = null;
+    await store.fetchMessages();
+    expect(() => store.claimTranscriptLease('agent:planner:project')).toThrow(
+      "Cannot claim Analyst transcript lease for non-current session 'agent:planner:project'.",
+    );
+    const first = store.claimTranscriptLease(analystSessionId);
+    first.release();
+    await first.onFrame(null);
+    await first.onFrame({ segment_version: 1, visible_message_id: 'm1' });
+    expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
+
+    const second = store.claimTranscriptLease(analystSessionId);
+    store.activeSessionId = null;
+    await store.fetchMessages();
+    await second.onFrame(null);
+    expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
+  });
+
+  it('fully resets identity and transcript acquisition before a replacement identity commits', async () => {
+    const accepted = entry({ id: 'accepted', role: 'assistant', content: 'accepted row' });
+    apiMocks.getAgentConversation.mockResolvedValueOnce(chat([accepted]));
+    const store = useAnalystChat();
+    const oldHandle = await loadTranscript(store);
+    apiMocks.getAgentConversation.mockRejectedValueOnce(new Error('retained refresh error'));
+    await expect(store.fetchMessages()).rejects.toThrow('retained refresh error');
+
+    const replacementIdentity = deferred<{ session_id: typeof analystSessionId }>();
+    apiMocks.getChatEntries.mockReturnValueOnce(replacementIdentity.promise);
+    store.activeSessionId = null;
+    const replacement = store.fetchMessages();
+    expect(store.activeSessionId).toBeNull();
+    expect(store.messages).toEqual([]);
+    expect(store.messagesError).toBeNull();
+    expect(store.messagesLoading).toBe(true);
+    await oldHandle.onFrame(null);
+    expect(apiMocks.getAgentConversation).toHaveBeenCalledTimes(2);
+
+    replacementIdentity.resolve({ session_id: analystSessionId });
+    await replacement;
+    expect(store.activeSessionId).toBe(analystSessionId);
+    expect(store.messages).toEqual([]);
+    expect(store.messagesError).toBeNull();
+    expect(store.messagesLoading).toBe(true);
+    await oldHandle.onFrame({ segment_version: 1, visible_message_id: 'late' });
+    expect(apiMocks.getAgentConversation).toHaveBeenCalledTimes(2);
+  });
+
+  it('retains accepted and optimistic rows, refresh error, and loaded projection across lease handoff', async () => {
+    const accepted = entry({ id: 'accepted', role: 'assistant', content: 'accepted row' });
+    apiMocks.getAgentConversation.mockResolvedValueOnce(chat([accepted]));
+    const store = useAnalystChat();
+    const first = await loadTranscript(store);
+    store.setDraft('pending row');
+    apiMocks.getAgentConversation.mockResolvedValueOnce(chat([]));
+    await store.sendMessage();
+    apiMocks.getAgentConversation.mockRejectedValueOnce(new Error('refresh failed'));
+    await expect(store.fetchMessages()).rejects.toThrow('refresh failed');
+    expect(store.messages.map(({ content }) => content)).toEqual(['accepted row', 'pending row']);
+    expect(store.messagesError?.message).toBe('refresh failed');
+
+    first.release();
+    expect(store.messagesLoading).toBe(false);
+    expect(store.messagesError?.message).toBe('refresh failed');
+    await first.onFrame(null);
+    expect(apiMocks.getAgentConversation).toHaveBeenCalledTimes(3);
+
+    const refresh = deferred<AgentConversationResponse>();
+    apiMocks.getAgentConversation.mockReturnValueOnce(refresh.promise);
+    const second = store.claimTranscriptLease(analystSessionId);
+    const acquisition = second.onFrame(null);
+    expect(store.messagesLoading).toBe(false);
+    expect(store.messagesError).toBeNull();
+    expect(store.messages.map(({ content }) => content)).toEqual(['accepted row', 'pending row']);
+    second.release();
+    refresh.resolve(chat([]));
+    await acquisition;
+    expect(store.messages.map(({ content }) => content)).toEqual(['accepted row', 'pending row']);
+  });
+
+  it('reconciles optimistic rows from the accepted response delta, not an older aggregate match', async () => {
+    const oldMatch = entry({ id: 'old-match', content: 'repeat me' });
+    apiMocks.getAgentConversation.mockResolvedValueOnce(chat([oldMatch]));
+    const store = useAnalystChat();
+    const handle = await loadTranscript(store);
+    store.setDraft('repeat me');
+    const unrelated = entry({ id: 'unrelated', role: 'assistant', content: 'other', message_index: 1 });
+    apiMocks.getAgentConversation.mockResolvedValueOnce(chat([unrelated]));
+    await store.sendMessage();
+    expect(store.messages.map(({ id }) => id)).toEqual([
+      'old-match',
+      'unrelated',
+      expect.stringContaining('optimistic'),
+    ]);
+
+    const newMatch = entry({ id: 'new-match', content: 'repeat me', message_index: 2 });
+    apiMocks.getAgentConversation.mockResolvedValueOnce(chat([newMatch]));
+    await store.fetchMessages();
+    expect(store.messages.map(({ id }) => id)).toEqual(['old-match', 'unrelated', 'new-match']);
+
+    apiMocks.getAgentConversation.mockResolvedValueOnce(chat([]));
+    await handle.onFrame(null);
+    expect(apiMocks.getAgentConversation).toHaveBeenCalledTimes(4);
   });
 
   it('keeps sending as transport-only state', async () => {
@@ -121,7 +265,7 @@ describe('analyst chat store', () => {
     apiMocks.getAgentConversation.mockResolvedValueOnce(chat([first, second]));
 
     const store = useAnalystChat();
-    await store.fetchMessages();
+    await loadTranscript(store);
 
     expect(store.messages.map((message) => message.id)).toEqual([first.id, second.id]);
   });
@@ -232,6 +376,7 @@ describe('analyst chat store', () => {
 
   it('retains a consumed acknowledgement when a non-scheduled response refetch fails', async () => {
     const store = useAnalystChat();
+    await loadTranscript(store);
     apiMocks.sendChatMessage.mockResolvedValueOnce({
       toolInvocations: [],
       restart: { status: 'confirmation_required', confirmationMessage: 'RESTART SERVER' },
@@ -251,9 +396,10 @@ describe('analyst chat store', () => {
   });
 
   it('retains pending rows through stale and failed normal refreshes', async () => {
+    const store = useAnalystChat();
+    await loadTranscript(store);
     const stale = deferred<AgentConversationResponse>();
     apiMocks.getAgentConversation.mockReturnValueOnce(stale.promise);
-    const store = useAnalystChat();
     const staleFetch = store.fetchMessages();
     store.setDraft('pending');
     await store.sendMessage();
@@ -274,16 +420,21 @@ describe('analyst chat store', () => {
   });
 
   it('aborts superseded exact message requests', () => {
-    apiMocks.getAgentConversation.mockReturnValue(new Promise(() => {}));
     const store = useAnalystChat();
-    void store.fetchMessages();
-    const firstMessageSignal = apiMocks.getAgentConversation.mock.calls[0][1] as AbortSignal;
-    void store.fetchMessages();
-    expect(firstMessageSignal.aborted).toBe(true);
+    store.activeSessionId = null;
+    return store.fetchMessages().then(() => {
+      const handle = store.claimTranscriptLease(analystSessionId);
+      apiMocks.getAgentConversation.mockReturnValue(new Promise(() => {}));
+      void handle.onFrame(null);
+      const firstMessageSignal = apiMocks.getAgentConversation.mock.calls[0][1] as AbortSignal;
+      void store.fetchMessages();
+      expect(firstMessageSignal.aborted).toBe(true);
+    });
   });
 
   it('reconciles an accepted send only when an authoritative row proves it', async () => {
     const store = useAnalystChat();
+    await loadTranscript(store);
     store.setDraft('accepted');
     apiMocks.getAgentConversation.mockResolvedValueOnce(chat());
     await store.sendMessage();
@@ -297,6 +448,7 @@ describe('analyst chat store', () => {
 
   it('lets the newest normal or send-owned refresh win in either request order', async () => {
     const store = useAnalystChat();
+    await loadTranscript(store);
     const normalFirst = deferred<AgentConversationResponse>();
     apiMocks.getAgentConversation.mockReturnValueOnce(normalFirst.promise);
     const oldNormal = store.fetchMessages();
@@ -322,6 +474,7 @@ describe('analyst chat store', () => {
 
   it('ignores a superseded initial error delivered after abort and preserves the newer complete tuple', async () => {
     const store = useAnalystChat();
+    await loadTranscript(store);
     const initial = deferred<AgentConversationResponse>();
     apiMocks.getAgentConversation.mockReturnValueOnce(initial.promise);
     const old = store.fetchMessages();
@@ -338,6 +491,7 @@ describe('analyst chat store', () => {
 
   it('isolates send failure cleanup and restores its draft only when unchanged', async () => {
     const store = useAnalystChat();
+    await loadTranscript(store);
     const sendFailure = deferred<never>();
     apiMocks.sendChatMessage.mockReturnValueOnce(sendFailure.promise);
     store.setDraft('failed send');

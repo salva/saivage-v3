@@ -40,6 +40,24 @@ interface FlightState {
   trailing?: () => Promise<void>;
 }
 
+type LeaseCallback = (frame: LeaseInvalidation) => Promise<void>;
+
+interface LeaseConsumer {
+  callback: LeaseCallback;
+  acknowledgedGeneration: number | null;
+}
+
+interface LeaseEntry {
+  resource: LeaseResource;
+  id?: string;
+  consumers: Set<LeaseConsumer>;
+  lease: string | null;
+  acknowledged: boolean;
+  inFlight: boolean;
+  trailingFrame: Exclude<LeaseInvalidation, null> | undefined;
+  generation: number;
+}
+
 const log = createLogger('sync');
 
 function createConversationLease(): string {
@@ -51,19 +69,7 @@ function createConversationLease(): string {
 export class SyncClient {
   private readonly conn: WsConnectionManager;
   private readonly resources = new Map<SyncResourceKey, SyncResourceRegistration>();
-  private readonly leases = new Map<
-    string,
-    {
-      resource: LeaseResource;
-      id?: string;
-      callbacks: Set<(frame: LeaseInvalidation) => Promise<void>>;
-      lease: string | null;
-      acknowledged: boolean;
-      inFlight: boolean;
-      trailingFrame: LeaseInvalidation | undefined;
-      generation: number;
-    }
-  >();
+  private readonly leases = new Map<string, LeaseEntry>();
   private readonly flights = new Map<string, FlightState>();
   private started = false;
   private cardsBaselineOpenPending = true;
@@ -152,23 +158,23 @@ export class SyncClient {
       const entry = this.leases.get(key);
       if (entry?.lease === frame.lease && !entry.acknowledged) {
         entry.acknowledged = true;
-        this.runLease(key, entry, null);
+        this.drainLease(key, entry, entry.generation);
       }
       return;
     }
     if (frame.resource === 'conversation' || frame.resource === 'llm-exchange') {
       const key = leaseKey(frame.resource, frame.id);
       const entry = this.leases.get(key);
-      if (entry) this.runLease(key, entry, frame);
+      if (entry) this.queueLeaseFrame(key, entry, frame);
       return;
     }
     if (frame.resource === 'agent-membership') {
       const global = this.leases.get('agents');
-      if (global) this.runLease('agents', global, frame);
+      if (global) this.queueLeaseFrame('agents', global, frame);
       if (frame.scope === 'card') {
         const key = leaseKey('card-agent-sessions', frame.card_id);
         const card = this.leases.get(key);
-        if (card) this.runLease(key, card, frame);
+        if (card) this.queueLeaseFrame(key, card, frame);
       }
       return;
     }
@@ -190,10 +196,6 @@ export class SyncClient {
 
   private resubscribeLeases(): void {
     for (const entry of this.leases.values()) {
-      entry.acknowledged = false;
-      entry.lease = null;
-      entry.inFlight = false;
-      entry.trailingFrame = undefined;
       this.subscribeLease(entry);
     }
   }
@@ -211,25 +213,28 @@ export class SyncClient {
     callback: (frame: LeaseInvalidation) => Promise<void>,
   ): () => void {
     const key = leaseKey(resource, id);
-    const entry = this.leases.get(key) ?? {
+    const entry: LeaseEntry = this.leases.get(key) ?? {
       resource,
       id,
-      callbacks: new Set(),
+      consumers: new Set(),
       lease: null,
       acknowledged: false,
       inFlight: false,
       trailingFrame: undefined,
       generation: 0,
     };
-    entry.callbacks.add(callback);
+    const consumer: LeaseConsumer = { callback, acknowledgedGeneration: null };
+    entry.consumers.add(consumer);
     this.leases.set(key, entry);
-    if (entry.callbacks.size === 1 && this.conn.state.value === 'connected')
+    if (entry.consumers.size === 1 && this.conn.state.value === 'connected')
       this.subscribeLease(entry);
+    else if (entry.acknowledged)
+      this.drainLease(key, entry, entry.generation);
     return () => {
       const current = this.leases.get(key);
       if (current !== entry) return;
-      current.callbacks.delete(callback);
-      if (current.callbacks.size > 0) return;
+      current.consumers.delete(consumer);
+      if (current.consumers.size > 0) return;
       this.leases.delete(key);
       if (current.lease)
         this.conn.sendRaw(
@@ -244,18 +249,12 @@ export class SyncClient {
         );
     };
   }
-  private subscribeLease(
-    entry: {
-      resource: LeaseResource;
-      id?: string;
-      lease: string | null;
-      acknowledged: boolean;
-      generation: number;
-    },
-  ): void {
+  private subscribeLease(entry: LeaseEntry): void {
     entry.generation += 1;
     entry.lease = createConversationLease();
     entry.acknowledged = false;
+    entry.inFlight = false;
+    entry.trailingFrame = undefined;
     this.conn.sendRaw(
       entry.id === undefined
         ? { t: 'subscribe', resource: 'agents', lease: entry.lease }
@@ -267,28 +266,86 @@ export class SyncClient {
           },
     );
   }
-  private runLease(
+  private queueLeaseFrame(
     key: string,
-    entry: {
-      callbacks: Set<(frame: LeaseInvalidation) => Promise<void>>;
-      acknowledged: boolean;
-      inFlight: boolean;
-      trailingFrame: LeaseInvalidation | undefined;
-      generation: number;
-    },
-    frame: LeaseInvalidation,
+    entry: LeaseEntry,
+    frame: Exclude<LeaseInvalidation, null>,
   ): void {
-    if (!entry.acknowledged || entry.inFlight) {
-      if (frame?.resource === 'conversation' && entry.trailingFrame?.resource === 'conversation' && frame.segment_version < entry.trailingFrame.segment_version) return;
-      entry.trailingFrame = frame;
+    if (
+      frame.resource === 'conversation' &&
+      entry.trailingFrame?.resource === 'conversation' &&
+      frame.segment_version < entry.trailingFrame.segment_version
+    ) return;
+    entry.trailingFrame = frame;
+    this.drainLease(key, entry, entry.generation);
+  }
+
+  private drainLease(key: string, entry: LeaseEntry, generation: number): void {
+    if (
+      this.leases.get(key) !== entry ||
+      entry.generation !== generation ||
+      !entry.acknowledged ||
+      entry.inFlight
+    ) return;
+
+    const pendingAcknowledgements = [...entry.consumers].filter(
+      (consumer) => consumer.acknowledgedGeneration !== generation,
+    );
+    if (pendingAcknowledgements.length > 0) {
+      entry.inFlight = true;
+      const callbacks = pendingAcknowledgements.flatMap((consumer) => {
+        if (
+          this.leases.get(key) !== entry ||
+          entry.generation !== generation ||
+          !entry.acknowledged ||
+          !entry.consumers.has(consumer) ||
+          consumer.acknowledgedGeneration === generation
+        ) return [];
+        consumer.acknowledgedGeneration = generation;
+        return [this.invokeLeaseCallback(consumer.callback, null)];
+      });
+      this.settleLeaseBatch(key, entry, generation, callbacks);
       return;
     }
-    const generation = entry.generation;
+
+    const frame = entry.trailingFrame;
+    if (frame === undefined) return;
+    entry.trailingFrame = undefined;
     entry.inFlight = true;
+    const callbacks = [...entry.consumers].flatMap((consumer) => {
+      if (
+        this.leases.get(key) !== entry ||
+        entry.generation !== generation ||
+        !entry.acknowledged ||
+        !entry.consumers.has(consumer) ||
+        consumer.acknowledgedGeneration !== generation
+      ) return [];
+      return [this.invokeLeaseCallback(consumer.callback, frame)];
+    });
+    this.settleLeaseBatch(key, entry, generation, callbacks);
+  }
+
+  private invokeLeaseCallback(
+    callback: LeaseCallback,
+    frame: LeaseInvalidation,
+  ): Promise<void> {
+    try {
+      return callback(frame);
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  private settleLeaseBatch(
+    key: string,
+    entry: LeaseEntry,
+    generation: number,
+    callbacks: Promise<void>[],
+  ): void {
     void Promise.all(
-      [...entry.callbacks].map(async (callback) => {
+      callbacks.map(async (callback) => {
         try {
-          await callback(frame);
+          await callback;
         } catch (error) {
           log.warn(`Lease refresh failed for ${key}`, error);
         }
@@ -296,11 +353,7 @@ export class SyncClient {
     ).finally(() => {
       if (this.leases.get(key) !== entry || entry.generation !== generation) return;
       entry.inFlight = false;
-      if (entry.trailingFrame !== undefined) {
-        const trailing = entry.trailingFrame;
-        entry.trailingFrame = undefined;
-        this.runLease(key, entry, trailing);
-      }
+      this.drainLease(key, entry, generation);
     });
   }
 

@@ -22,27 +22,29 @@
       <div v-if="messagesLoading" class="chat-status-card loading-skeleton" role="status">
         Loading history…
       </div>
-      <div v-else-if="messagesError" class="chat-status-card chat-status-error" role="alert">
-        {{ messagesErrorLabel }}
-      </div>
-      <div
-        v-else-if="
-          !messagesLoading &&
-          messages.length === 0 &&
-          timelineControls.timeline.value.rounds.length === 0
-        "
-        class="chat-status-card"
-        role="status"
-      >
-        No messages yet. Ask the analyst something.
-      </div>
-      <div v-else class="chat-rounds">
-        <ConversationTimeline
-          :timeline="timelineControls.timeline.value"
-          :expanded-ids="timelineControls.expandedIds.value"
-          @toggle="timelineControls.toggleExpanded"
-        />
-      </div>
+      <template v-else>
+        <div v-if="messagesError" class="chat-status-card chat-status-error" role="alert">
+          {{ messagesErrorLabel }}
+        </div>
+        <div
+          v-if="
+            !messagesError &&
+            messages.length === 0 &&
+            timelineControls.timeline.value.rounds.length === 0
+          "
+          class="chat-status-card"
+          role="status"
+        >
+          No messages yet. Ask the analyst something.
+        </div>
+        <div v-if="timelineControls.timeline.value.rounds.length > 0" class="chat-rounds">
+          <ConversationTimeline
+            :timeline="timelineControls.timeline.value"
+            :expanded-ids="timelineControls.expandedIds.value"
+            @toggle="timelineControls.toggleExpanded"
+          />
+        </div>
+      </template>
     </div>
     <button
       v-if="!timelineControls.pinnedToLatest.value || timelineControls.unseenCount.value > 0"
@@ -174,12 +176,12 @@ async function submitMessage(): Promise<void> {
   focusComposer();
 }
 
-async function refreshConversation(frame?: { segment_version: number; visible_message_id: string | null } | null): Promise<void> {
+async function refreshConversation(): Promise<void> {
   if (!rootSettled) {
     refreshPending = true;
     return;
   }
-  await chat.fetchMessages(frame);
+  await chat.fetchMessages();
   await nextTick();
   timelineControls.scrollToLatest();
 }
@@ -204,7 +206,16 @@ watch(
   (sessionId, _previousSessionId, onCleanup) => {
     timelineControls.resetScrollState();
     if (!sessionId) return;
-    onCleanup(liveSync.openConversation(sessionId, refreshConversation));
+    const handle = chat.claimTranscriptLease(sessionId);
+    const close = liveSync.openConversation(sessionId, async (frame) => {
+      await handle.onFrame(frame);
+      await nextTick();
+      timelineControls.scrollToLatest();
+    });
+    onCleanup(() => {
+      close();
+      handle.release();
+    });
   },
   { immediate: true },
 );
