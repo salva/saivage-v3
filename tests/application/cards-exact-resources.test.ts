@@ -53,6 +53,32 @@ describe('exact Card operator resources',()=>{
     expect(recordRead.value.filter((path)=>path===cardRecordStreamFile(root,card.id,testRecordDefinition('brief.md','goal')))).toHaveLength(1);
   });
 
+  it('diffs projected record views without disclosing raw secret changes',()=>{
+    const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
+    const secrets=['sentinel-alpha-SEC1','sentinel-bravo-SEC1','sentinel-charlie-SEC1','sentinel-delta-SEC1'];
+    cards.openRecord(card.id,'status.md');
+    cards.editRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[0]}`);
+    cards.editRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[1]}`);
+    const draft=model.diffRecord(card.id,'status.md',{from:2,to:3,view:'draft'});
+    const effective=model.diffRecord(card.id,'status.md',{from:2,to:3,view:'effective'});
+    expect(draft.body).toMatchObject({view:'draft',hunks:[]});
+    expect(effective.body).toMatchObject({view:'effective',hunks:[]});
+
+    cards.closeRecord(card.id,'status.md');
+    cards.openRecord(card.id,'status.md');
+    cards.editRecord(card.id,'status.md',`mode=steady\ntoken=${secrets[2]}`);
+    cards.closeRecord(card.id,'status.md');
+    const accepted=model.diffRecord(card.id,'status.md',{from:4,to:7,view:'accepted'});
+    expect(accepted.body).toMatchObject({view:'accepted',hunks:[]});
+
+    cards.openRecord(card.id,'status.md');
+    cards.editRecord(card.id,'status.md',`mode=changed\ntoken=${secrets[3]}`);
+    const safeChange=model.diffRecord(card.id,'status.md',{from:6,to:9,view:'effective'});
+    expect(safeChange.body).toMatchObject({view:'effective',hunks:[{old_lines:2,new_lines:2,lines:['-mode=steady','-token=[REDACTED]','+mode=changed','+token=[REDACTED]']}]});
+    const serialized=JSON.stringify([draft,effective,accepted,safeChange]);
+    for(const secret of secrets)expect(serialized).not.toContain(secret);
+  });
+
   it('distinguishes dynamic and optional absence, malformed names, bootstrap corruption, and inactive cards',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
     expect(model.getRecord(card.id,'unknown.md')).toEqual({statusCode:404,body:{error:'Card record not found',cardId:card.id,name:'unknown.md'}});
