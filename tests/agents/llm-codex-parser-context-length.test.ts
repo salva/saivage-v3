@@ -6,7 +6,7 @@ describe('OpenAI Codex SSE error classification', () => {
   function failureFor(event: Record<string, unknown>, responseStatus = 200) {
     const dataText = JSON.stringify(event);
     try {
-      handleOpenAICodexEvent(dataText, responseStatus, new Map(), new Set(), [], () => undefined);
+      handleOpenAICodexEvent(dataText, responseStatus, new Map(), new Set(), [], () => { throw new Error('Unexpected completed message.'); });
     } catch (error) {
       expect(error).toBeInstanceOf(LlmRequestError);
       return (error as LlmRequestError).failure;

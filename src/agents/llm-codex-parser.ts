@@ -7,27 +7,25 @@ import { IncrementalSseReader, SSE_DONE, type SseOutput } from './llm-sse.js';
 export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, responseStatus: number): Promise<LlmCompleteResult> {
   const reader = body.getReader();
   const sse = new IncrementalSseReader();
-  let content = '';
+  let message: string | undefined;
   const pendingToolCalls = new Map<string, { id: string; name: string; args: string }>();
   const finalizedToolCalls = new Set<string>();
   const toolCalls: ToolCall[] = [];
-  const appendContent = (delta: string): void => {
-    if (content.length > 0 && delta.startsWith(content)) content = delta;
-    else if (!content.endsWith(delta)) content += delta;
-  };
+  const setMessage = (content: string): void => { message = content; };
 
   try {
     for (;;) {
       const { done, value } = await reader.read();
       if (done) {
-        consumeCodexEvents(sse.finish(), responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, appendContent);
-        break;
+        if (consumeCodexEvents(sse.finish(), responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, setMessage)) {
+          return completedCodexResult(toolCalls, message);
+        }
+        throw new Error('OpenAI Codex stream truncated before response.completed.');
       }
-      consumeCodexEvents(sse.push(value), responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, appendContent);
+      if (consumeCodexEvents(sse.push(value), responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, setMessage)) {
+        return completedCodexResult(toolCalls, message);
+      }
     }
-
-    if (toolCalls.length > 0) return { kind: 'tool_calls', tool_calls: toolCalls };
-    return { kind: 'message', content };
   } catch (err) {
     if (err instanceof LlmRequestError) throw err;
     if (err instanceof DOMException && err.name === 'AbortError') {
@@ -39,8 +37,18 @@ export async function readOpenAICodexStream(body: ReadableStream<Uint8Array>, re
   }
 }
 
-function consumeCodexEvents(outputs: SseOutput[], responseStatus: number, pendingToolCalls: Map<string, { id: string; name: string; args: string }>, finalizedToolCalls: Set<string>, toolCalls: ToolCall[], appendContent: (delta: string) => void): void {
-  for (const output of outputs) if (output !== SSE_DONE) handleOpenAICodexEvent(output.dataText, responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, appendContent);
+function completedCodexResult(toolCalls: ToolCall[], message: string | undefined): LlmCompleteResult {
+  if (toolCalls.length > 0) return { kind: 'tool_calls', tool_calls: toolCalls };
+  if (message !== undefined) return { kind: 'message', content: message };
+  throw new Error('OpenAI Codex response completed without a finalized tool call or completed assistant message.');
+}
+
+function consumeCodexEvents(outputs: SseOutput[], responseStatus: number, pendingToolCalls: Map<string, { id: string; name: string; args: string }>, finalizedToolCalls: Set<string>, toolCalls: ToolCall[], setMessage: (content: string) => void): boolean {
+  for (const output of outputs) {
+    if (output === SSE_DONE) throw new Error('OpenAI Codex stream ended before response.completed.');
+    if (handleOpenAICodexEvent(output.dataText, responseStatus, pendingToolCalls, finalizedToolCalls, toolCalls, setMessage)) return true;
+  }
+  return false;
 }
 
 export function handleOpenAICodexEvent(
@@ -49,13 +57,13 @@ export function handleOpenAICodexEvent(
   pendingToolCalls: Map<string, { id: string; name: string; args: string }>,
   finalizedToolCalls: Set<string>,
   toolCalls: ToolCall[],
-  appendContent: (delta: string) => void,
-): void {
+  setMessage: (content: string) => void,
+): boolean {
   const event = JSON.parse(dataText) as Record<string, unknown>;
 
   const type = event['type'];
   if (type === 'response.output_text.delta') {
-    appendContent(String(event['delta'] ?? ''));
+    if (typeof event['delta'] !== 'string') throw new Error('OpenAI Codex output text delta must be a string.');
   } else if (type === 'response.output_item.added') {
     const item = event['item'] as Record<string, unknown> | undefined;
     if (item?.['type'] === 'function_call') {
@@ -66,22 +74,18 @@ export function handleOpenAICodexEvent(
       if (itemId && itemId !== callId) pendingToolCalls.set(itemId, pending);
     }
   } else if (type === 'response.output_item.done') {
-    const item = event['item'] as Record<string, unknown> | undefined;
-    if (item?.['type'] === 'function_call') {
+    const item = directObject(event['item']);
+    if (!item) throw new Error('OpenAI Codex completed output item must be an object.');
+    if (item['type'] === 'function_call') {
       const callId = String(item['call_id'] ?? item['id'] ?? `call_${toolCalls.length}`);
       const itemId = typeof item['id'] === 'string' ? item['id'] : undefined;
       const pending = pendingToolCalls.get(callId) ?? (itemId ? pendingToolCalls.get(itemId) : undefined);
       finalizeCodexToolCall(toolCalls, finalizedToolCalls, callId, String(item['name'] ?? pending?.name ?? ''), String(item['arguments'] ?? pending?.args ?? '{}'));
       pendingToolCalls.delete(callId);
       if (itemId) pendingToolCalls.delete(itemId);
-    } else if (item?.['type'] === 'message') {
-      appendCodexMessageContent(item, appendContent);
+    } else if (item['type'] === 'message') {
+      setMessage(completedCodexMessageContent(item));
     }
-  } else if (type === 'response.content_part.done') {
-    const part = event['part'] as Record<string, unknown> | undefined;
-    if (part?.['type'] === 'output_text' && typeof part['text'] === 'string') appendContent(part['text']);
-  } else if (type === 'response.output_text.done') {
-    if (typeof event['text'] === 'string') appendContent(event['text']);
   } else if (type === 'response.function_call_arguments.delta') {
     const id = String(event['call_id'] ?? event['item_id'] ?? '');
     const pending = pendingToolCalls.get(id);
@@ -99,7 +103,14 @@ export function handleOpenAICodexEvent(
     throw createCodexStreamError('OpenAI Codex response failed', event, responseStatus, dataText);
   } else if (type === 'error') {
     throw createCodexStreamError('OpenAI Codex stream error', event, responseStatus, dataText);
+  } else if (type === 'response.completed') {
+    const response = directObject(event['response']);
+    if (!response || typeof response['id'] !== 'string') {
+      throw new Error('OpenAI Codex response.completed must carry an object response with a string id.');
+    }
+    return true;
   }
+  return false;
 }
 
 function finalizeCodexToolCall(
@@ -114,14 +125,19 @@ function finalizeCodexToolCall(
   toolCalls.push({ id, type: 'function', function: { name, arguments: args || '{}' } });
 }
 
-function appendCodexMessageContent(item: Record<string, unknown>, appendContent: (delta: string) => void): void {
+function completedCodexMessageContent(item: Record<string, unknown>): string {
+  if (item['role'] !== 'assistant') throw new Error('OpenAI Codex completed message role must be assistant.');
   const content = item['content'];
-  if (!Array.isArray(content)) return;
+  if (!Array.isArray(content)) throw new Error('OpenAI Codex completed message content must be an array.');
+  let message = '';
   for (const part of content) {
     if (!part || typeof part !== 'object') continue;
     const typedPart = part as Record<string, unknown>;
-    if (typedPart['type'] === 'output_text' && typeof typedPart['text'] === 'string') appendContent(typedPart['text']);
+    if (typedPart['type'] !== 'output_text') continue;
+    if (typeof typedPart['text'] !== 'string') throw new Error('OpenAI Codex completed output text must be a string.');
+    message += typedPart['text'];
   }
+  return message;
 }
 
 function createCodexStreamError(prefix: string, payload: Record<string, unknown>, responseStatus: number, providerResponse: string): LlmRequestError {

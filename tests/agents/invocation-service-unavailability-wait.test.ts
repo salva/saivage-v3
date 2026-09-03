@@ -247,7 +247,7 @@ describe('InvocationService temporary LLM unavailability wait', () => {
 
 function codexOverloadFailure(): LlmRequestError {
   try {
-    handleOpenAICodexEvent(JSON.stringify({ type: 'error', error: { code: 'server_is_overloaded', message: 'busy' } }), 200, new Map(), new Set(), [], () => undefined);
+    handleOpenAICodexEvent(JSON.stringify({ type: 'error', error: { code: 'server_is_overloaded', message: 'busy' } }), 200, new Map(), new Set(), [], () => { throw new Error('Unexpected completed message.'); });
   } catch (error) {
     if (error instanceof LlmRequestError) return error;
     throw error;
