@@ -147,6 +147,66 @@ describe('InvocationService temporary LLM unavailability wait', () => {
     expect(bodies[1]).toBe(bodies[0]);
   });
 
+  it('terminates after four pre-provider transient attempts without waiting for the exhausted candidate cooldown', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const availability = new MemoryCandidateAvailability();
+    const failure = new LlmRequestError({ kind: 'server_transient', provider: 'p', status: 0, message: 'refresh unavailable' });
+    let calls = 0;
+    class ScriptedService extends InvocationService {
+      override async executeAdmittedPlan(): Promise<ProviderTurnCompletion> {
+        calls++;
+        throw failure;
+      }
+    }
+    const scripted = new ScriptedService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([candidate]), candidateAvailability: availability });
+    const pending = invoke(scripted, request());
+    const rejection = pending.then(
+      () => { throw new Error('Expected exhausted pre-provider attempts to reject.'); },
+      (error: unknown) => error,
+    );
+
+    await jest.advanceTimersByTimeAsync(60_000);
+    await jest.advanceTimersByTimeAsync(60_000);
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    const caught = await rejection;
+    expect(caught).toBeInstanceOf(ProviderTurnFailure);
+    expect(caught).toMatchObject({ failure_phase: 'pre_provider', provider_exchanges: [] });
+    expect((caught as ProviderTurnFailure).originalFailure).toBe(failure);
+    expect(calls).toBe(4);
+    expect(Date.now()).toBe(180_000);
+    expect(availability.getEntry(candidate)).toMatchObject({ state: 'COOLING', untilMs: 240_000, reason: 'server_transient' });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
+  it('selects an alternative after primary pre-provider exhaustion and retains only real exchange evidence', async () => {
+    jest.useFakeTimers({ now: 0 });
+    const availability = new MemoryCandidateAvailability();
+    const failure = new LlmRequestError({ kind: 'server_transient', provider: 'p', status: 0, message: 'refresh unavailable' });
+    const seen: Candidate[] = [];
+    class ScriptedService extends InvocationService {
+      override async executeAdmittedPlan(plan: CandidateRequestPlan): Promise<ProviderTurnCompletion> {
+        seen.push(plan.candidate);
+        if (plan.candidate.provider === candidate.provider) throw failure;
+        return { result: { kind: 'message', content: 'alternative succeeded' }, provider_exchanges: [exchange('unindexed', 8, 'ok', alternate)] };
+      }
+    }
+    const scripted = new ScriptedService({ projectRoot: mkdtempRoot(), freshness: NO_FRESHNESS_EFFECTS, registry: invocationProviderRegistry([candidate, alternate]), candidateAvailability: availability });
+    const pending = invoke(scripted, request([candidate, alternate]));
+
+    await jest.advanceTimersByTimeAsync(60_000);
+    await jest.advanceTimersByTimeAsync(60_000);
+    await jest.advanceTimersByTimeAsync(60_000);
+
+    await expect(pending).resolves.toMatchObject({
+      result: { kind: 'message', content: 'alternative succeeded' },
+      provider_exchanges: [{ source_input_id: 'agent:planner:card:1', attempt_index: 0, status: 'ok', provider: 'alt', model: 'm-alt' }],
+    });
+    expect(seen).toEqual([candidate, candidate, candidate, candidate, alternate]);
+    expect(availability.getEntry(candidate)).toMatchObject({ state: 'COOLING', untilMs: 240_000, reason: 'server_transient' });
+    expect(jest.getTimerCount()).toBe(0);
+  });
+
   it('retries exact Codex server_is_overloaded on one fixed candidate and indexes error then success', async () => {
     jest.useFakeTimers({ now: 0 });
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-overload-recovery-'));
@@ -255,7 +315,13 @@ function codexOverloadFailure(): LlmRequestError {
   throw new Error('Expected exact Codex overload event to fail.');
 }
 
-function exchange(source_input_id: string, attempt_index: number, status: 'ok' | 'error'): ProviderExchangeAttempt {
-  const common = { contract_id: 'test.v1', contract_name: 'test', transport: 'generic' as const, provider: 'p', model: 'm', source_input_id, attempt_index, request_params: { endpoint: 'https://example.invalid', method: 'POST', stream: false, offered_tools_count: 0, temperature: 0, max_tokens: 10 }, started_at: '2026-08-10T00:00:00.000Z', completed_at: '2026-08-10T00:00:01.000Z', terminal_tool_fired: null };
+function exchange(source_input_id: string, attempt_index: number, status: 'ok' | 'error', identity: Candidate = candidate): ProviderExchangeAttempt {
+  const common = { contract_id: 'test.v1', contract_name: 'test', transport: 'generic' as const, provider: identity.provider, model: identity.model, source_input_id, attempt_index, request_params: { endpoint: 'https://example.invalid', method: 'POST', stream: false, offered_tools_count: 0, temperature: 0, max_tokens: 10 }, started_at: '2026-08-10T00:00:00.000Z', completed_at: '2026-08-10T00:00:01.000Z', terminal_tool_fired: null };
   return status === 'ok' ? { ...common, status } : { ...common, status, error: { name: 'LlmRequestError', message: 'busy' } };
+}
+
+function mkdtempRoot(): string {
+  const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-invoke-wait-'));
+  roots.push(projectRoot);
+  return projectRoot;
 }

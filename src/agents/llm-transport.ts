@@ -1,7 +1,7 @@
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { ProviderRegistry } from './provider.js';
 import { CredentialSourceResolver } from './credential-source-resolver.js';
-import { localSetupFailure } from '../contracts/llm-failure.js';
+import { LlmRequestError, localSetupFailure } from '../contracts/llm-failure.js';
 import { type AuthProfile, isProfileExpired } from '../auth/index.js';
 import { readAuthProfiles, replaceAuthProfiles } from '../auth/auth-profile-file.js';
 import type { LlmCredentialRequirement } from './llm-protocol-adapter.js';
@@ -117,8 +117,9 @@ async function refreshOpenAICodexProfile(
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
   let refreshed: AuthProfile;
+  let response: Response;
   try {
-    const response = await fetch(OPENAI_CODEX_TOKEN_URL, {
+    response = await fetch(OPENAI_CODEX_TOKEN_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -132,25 +133,27 @@ async function refreshOpenAICodexProfile(
       }).toString(),
       signal: abortSignal,
     });
-    abortSignal?.throwIfAborted();
-    if (!response.ok) return null;
-    const data = await response.json().catch(() => null);
-    abortSignal?.throwIfAborted();
-    if (typeof data?.access_token !== 'string') return null;
-    refreshed = {
-      ...profile,
-      accessToken: data.access_token,
-      refreshToken:
-        typeof data.refresh_token === 'string' ? data.refresh_token : profile.refreshToken,
-      expiresAt:
-        typeof data.expires_in === 'number'
-          ? Date.now() + data.expires_in * 1000
-          : profile.expiresAt,
-    };
   } catch {
     abortSignal?.throwIfAborted();
-    return null;
+    throw refreshServerTransient('openai-codex', 0);
   }
+  abortSignal?.throwIfAborted();
+  if (response.status >= 500 && response.status <= 599)
+    throw refreshServerTransient('openai-codex', response.status);
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => null);
+  abortSignal?.throwIfAborted();
+  if (typeof data?.access_token !== 'string') return null;
+  refreshed = {
+    ...profile,
+    accessToken: data.access_token,
+    refreshToken:
+      typeof data.refresh_token === 'string' ? data.refresh_token : profile.refreshToken,
+    expiresAt:
+      typeof data.expires_in === 'number'
+        ? Date.now() + data.expires_in * 1000
+        : profile.expiresAt,
+  };
   commitRefreshedAuthProfile(projectRoot, profileName, refreshed, abortSignal);
   return refreshed;
 }
@@ -163,8 +166,9 @@ async function refreshGitHubCopilotProfile(
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
   let refreshed: AuthProfile;
+  let response: Response;
   try {
-    const response = await fetch('https://api.github.com/copilot_internal/v2/token', {
+    response = await fetch('https://api.github.com/copilot_internal/v2/token', {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${profile.refreshToken}`,
@@ -176,25 +180,36 @@ async function refreshGitHubCopilotProfile(
       },
       signal: abortSignal,
     });
-    abortSignal?.throwIfAborted();
-    if (!response.ok) return null;
-    const data = await response.json().catch(() => null);
-    abortSignal?.throwIfAborted();
-    if (typeof data?.token !== 'string') return null;
-    refreshed = {
-      ...profile,
-      accessToken: data.token,
-      expiresAt:
-        typeof data.expires_at === 'number'
-          ? data.expires_at * 1000 - 5 * 60 * 1000
-          : profile.expiresAt,
-    };
   } catch {
     abortSignal?.throwIfAborted();
-    return null;
+    throw refreshServerTransient('github-copilot', 0);
   }
+  abortSignal?.throwIfAborted();
+  if (response.status >= 500 && response.status <= 599)
+    throw refreshServerTransient('github-copilot', response.status);
+  if (!response.ok) return null;
+  const data = await response.json().catch(() => null);
+  abortSignal?.throwIfAborted();
+  if (typeof data?.token !== 'string') return null;
+  refreshed = {
+    ...profile,
+    accessToken: data.token,
+    expiresAt:
+      typeof data.expires_at === 'number'
+        ? data.expires_at * 1000 - 5 * 60 * 1000
+        : profile.expiresAt,
+  };
   commitRefreshedAuthProfile(projectRoot, profileName, refreshed, abortSignal);
   return refreshed;
+}
+
+function refreshServerTransient(provider: 'openai-codex' | 'github-copilot', status: number): LlmRequestError {
+  return new LlmRequestError({
+    kind: 'server_transient',
+    provider,
+    status,
+    message: `OAuth credential refresh for provider '${provider}' failed before provider request.`,
+  });
 }
 
 function commitRefreshedAuthProfile(

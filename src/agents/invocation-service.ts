@@ -577,6 +577,7 @@ export class InvocationService {
       .sort((a, b) => a - b)[0];
     if (rateWaiting !== undefined) return waitUntil(rateWaiting, now, deadlineMs);
     for (const record of records) {
+      if (record.state.kind === 'exhausted') continue;
       const entry = this.candidateAvailability.getEntry(record.identity);
       if (!entry || entry.state === 'HEALTHY') continue;
       if (entry.reason && WAITABLE_UNAVAILABILITY_REASONS.has(entry.reason))
