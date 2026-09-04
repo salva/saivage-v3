@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, readonly, ref, shallowRef } from 'vue';
 import type {
   AgentConversationEntry,
   DetailErrorState,
@@ -63,6 +63,11 @@ type PendingMessage = {
   entry: AgentConversationEntry;
 };
 
+export type AnalystIdentityState =
+  | { kind: 'pending' }
+  | { kind: 'resolved'; sessionId: ConversationSessionId }
+  | { kind: 'failed'; error: DetailErrorState };
+
 function authoritativeContainsPending(
   entries: AgentConversationEntry[],
   pending: AgentConversationEntry,
@@ -79,10 +84,14 @@ function authoritativeContainsPending(
 export const useAnalystChat = defineStore('analyst-chat', () => {
   let identityEpoch = 0;
   let identityController: AbortController | null = null;
-  const activeSessionId = ref<ConversationSessionId | null>(null);
+  const mutableIdentityState = shallowRef<AnalystIdentityState>({ kind: 'pending' });
+  const identityState = readonly(mutableIdentityState);
+  const activeSessionId = computed(() =>
+    mutableIdentityState.value.kind === 'resolved'
+      ? mutableIdentityState.value.sessionId
+      : null,
+  );
   const pendingMessages = ref<PendingMessage[]>([]);
-  const identityLoading = ref(false);
-  const identityError = ref<DetailErrorState | null>(null);
   type Handoff = {
     identityEpoch: number;
     sessionId: ConversationSessionId;
@@ -111,7 +120,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       pendingMessages.value = pendingMessages.value.filter(
         (pending) => !authoritativeContainsPending(responseEntries, pending.entry),
       );
-      identityError.value = null;
     },
   });
   const authoritativeMessages = transcript.entries;
@@ -122,12 +130,15 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   const draft = ref('');
   const messagesLoading = computed(
     () =>
-      identityLoading.value ||
+      mutableIdentityState.value.kind === 'pending' ||
       transcript.coldLoading.value ||
       (!transcript.baselineAccepted.value && handoff.value?.pending === true),
   );
   const messagesError = computed(
-    () => identityError.value ?? transcript.initialError.value ?? transcript.refreshError.value,
+    () =>
+      (mutableIdentityState.value.kind === 'failed' ? mutableIdentityState.value.error : null) ??
+      transcript.initialError.value ??
+      transcript.refreshError.value,
   );
   const sending = ref(false);
   const sendError = ref<DetailErrorState | null>(null);
@@ -149,31 +160,26 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     }
   }
 
-  function resetIdentityAndTranscript(): number {
+  function beginIdentityResolution(): { epoch: number; controller: AbortController } {
     const nextIdentityEpoch = ++identityEpoch;
     identityController?.abort();
-    identityController = null;
     transcript.reset();
-    activeSessionId.value = null;
     pendingMessages.value = [];
     handoff.value = null;
-    identityLoading.value = false;
-    identityError.value = null;
-    return nextIdentityEpoch;
-  }
-
-  async function fetchIdentity(): Promise<void> {
-    const requestEpoch = resetIdentityAndTranscript();
+    mutableIdentityState.value = { kind: 'pending' };
     const controller = new AbortController();
     identityController = controller;
-    identityLoading.value = true;
-    identityError.value = null;
+    return { epoch: nextIdentityEpoch, controller };
+  }
+
+  async function resolveIdentity(): Promise<void> {
+    const owner = beginIdentityResolution();
     try {
-      const identity = await getChatEntries(controller.signal);
-      if (requestEpoch !== identityEpoch) return;
-      activeSessionId.value = identity.session_id;
+      const identity = await getChatEntries(owner.controller.signal);
+      if (owner.epoch !== identityEpoch || identityController !== owner.controller) return;
+      mutableIdentityState.value = { kind: 'resolved', sessionId: identity.session_id };
       handoff.value = {
-        identityEpoch: requestEpoch,
+        identityEpoch: owner.epoch,
         sessionId: identity.session_id,
         owner: null,
         acknowledged: false,
@@ -181,21 +187,24 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
       };
     } catch (error) {
       if (
-        requestEpoch !== identityEpoch ||
+        owner.epoch !== identityEpoch ||
+        identityController !== owner.controller ||
         (error instanceof DOMException && error.name === 'AbortError')
       ) return;
-      identityError.value = buildErrorState(error, 'Failed to load analyst chat identity.');
+      mutableIdentityState.value = {
+        kind: 'failed',
+        error: buildErrorState(error, 'Failed to load analyst chat identity.'),
+      };
       throw error;
     } finally {
-      if (requestEpoch === identityEpoch) {
-        identityLoading.value = false;
+      if (owner.epoch === identityEpoch && identityController === owner.controller) {
         identityController = null;
       }
     }
   }
 
   async function fetchMessages(): Promise<void> {
-    if (!activeSessionId.value) return fetchIdentity();
+    if (mutableIdentityState.value.kind !== 'resolved') return;
     if (!handoff.value?.owner || !handoff.value.acknowledged || handoff.value.pending) return;
     await transcript.fetch();
   }
@@ -346,6 +355,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
   }
 
   return {
+    identityState,
     activeSessionId,
     messages,
     draft,
@@ -355,6 +365,7 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
     sendError,
     restartAcknowledgement,
     setDraft,
+    resolveIdentity,
     fetchMessages,
     claimTranscriptLease,
     sendMessage,

@@ -74,6 +74,8 @@ const entries = [
 ] as const;
 
 function mountPanel(pinia = createPinia()) {
+  const chat = useAnalystChat(pinia);
+  if (chat.identityState.kind !== 'resolved') void chat.resolveIdentity();
   return mount(AnalystChatPanel, {
     attachTo: document.body,
     global: { plugins: [pinia] },
@@ -113,18 +115,12 @@ describe('AnalystChatPanel', () => {
     });
   });
 
-  it('waits for root, loads identity, subscribes before transcript REST, and closes on unmount', async () => {
+  it('loads independently of delayed Cards, subscribes before transcript REST, and closes on unmount', async () => {
     let resolveRoot!: (value: unknown) => void;
     const pinia = createPinia();
     api.getCardChildren.mockReturnValue(new Promise((resolve) => (resolveRoot = resolve)));
     const existingRoot = useCardStore(pinia).ensureRoot();
     const wrapper = mountPanel(pinia);
-    await flushPromises();
-    expect(api.getChatEntries).not.toHaveBeenCalled();
-    expect(live.openConversation).not.toHaveBeenCalled();
-
-    resolveRoot({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog', permitted_child_types: ['goal'] }, children: [] });
-    await existingRoot;
     await flushPromises();
     expect(api.getChatEntries).toHaveBeenCalledTimes(1);
     expect(live.openConversation).toHaveBeenCalledWith(analystSessionId, expect.any(Function));
@@ -133,6 +129,11 @@ describe('AnalystChatPanel', () => {
       expect.any(AbortSignal),
       undefined,
     );
+
+    resolveRoot({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog', permitted_child_types: ['goal'] }, children: [] });
+    await existingRoot;
+    await flushPromises();
+    expect(api.getChatEntries).toHaveBeenCalledTimes(1);
     wrapper.unmount();
     expect(live.closeConversation).toHaveBeenCalledTimes(1);
   });
@@ -180,16 +181,11 @@ describe('AnalystChatPanel', () => {
     expect(secondClose).toHaveBeenCalledTimes(1);
   });
 
-  it('makes root settlement inert after unmount', async () => {
-    let resolveRoot!: (value: unknown) => void;
-    api.getCardChildren.mockReturnValue(new Promise((resolve) => (resolveRoot = resolve)));
+  it('never initiates Cards loading from the panel', async () => {
     const wrapper = mountPanel();
     await flushPromises();
+    expect(api.getCardChildren).not.toHaveBeenCalled();
     wrapper.unmount();
-    resolveRoot({ parent: { id: 'project', type: 'project', title: 'Project', status: 'backlog', permitted_child_types: ['goal'] }, children: [] });
-    await flushPromises();
-    expect(api.getChatEntries).not.toHaveBeenCalled();
-    expect(live.openConversation).not.toHaveBeenCalled();
   });
 
   it('renders durable messages and tool chips with explicit expansion', async () => {

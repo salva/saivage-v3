@@ -52,15 +52,14 @@ function chat(entries: AgentConversationEntry[] = []) {
 }
 
 async function loadTranscript(store = useAnalystChat()) {
-  store.activeSessionId = null;
-  await store.fetchMessages();
+  await store.resolveIdentity();
   const handle = store.claimTranscriptLease(analystSessionId);
   await handle.onFrame(null);
   return handle;
 }
 
 describe('analyst chat store', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     window.localStorage.clear();
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
@@ -74,7 +73,7 @@ describe('analyst chat store', () => {
       toolInvocations: [],
       restart: null,
     });
-    useAnalystChat().activeSessionId = analystSessionId;
+    await useAnalystChat().resolveIdentity();
   });
 
   it('does not refresh transcript from analyst tool activity frames', async () => {
@@ -93,27 +92,28 @@ describe('analyst chat store', () => {
     expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
   });
 
-  it('fetches the fixed singleton Analyst chat without a session argument', async () => {
+  it('resolves the fixed singleton Analyst identity without fetching its transcript', async () => {
     const store = useAnalystChat();
 
-    store.activeSessionId = null;
-    await store.fetchMessages();
+    apiMocks.getChatEntries.mockClear();
+    await store.resolveIdentity();
 
     expect(apiMocks.getChatEntries).toHaveBeenLastCalledWith(expect.any(AbortSignal));
+    expect(store.identityState).toEqual({ kind: 'resolved', sessionId: analystSessionId });
     expect(store.activeSessionId).toBe(analystSessionId);
+    expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
   });
 
   it('makes superseded identity success, failure, and abort inert', async () => {
     const store = useAnalystChat();
-    store.activeSessionId = null;
     const oldSuccess = deferred<{ session_id: typeof analystSessionId }>();
     let oldSuccessSignal!: AbortSignal;
     apiMocks.getChatEntries.mockImplementationOnce((signal) => {
       oldSuccessSignal = signal;
       return oldSuccess.promise;
     });
-    const first = store.fetchMessages();
-    await store.fetchMessages();
+    const first = store.resolveIdentity();
+    await store.resolveIdentity();
     expect(oldSuccessSignal.aborted).toBe(true);
     oldSuccess.resolve({ session_id: analystSessionId });
     await expect(first).resolves.toBeUndefined();
@@ -121,11 +121,10 @@ describe('analyst chat store', () => {
     expect(store.messagesError).toBeNull();
     expect(store.messagesLoading).toBe(true);
 
-    store.activeSessionId = null;
     const oldFailure = deferred<never>();
     apiMocks.getChatEntries.mockReturnValueOnce(oldFailure.promise);
-    const staleFailure = store.fetchMessages();
-    await store.fetchMessages();
+    const staleFailure = store.resolveIdentity();
+    await store.resolveIdentity();
     oldFailure.reject(new Error('stale identity failure'));
     await expect(staleFailure).resolves.toBeUndefined();
     expect(store.activeSessionId).toBe(analystSessionId);
@@ -133,10 +132,28 @@ describe('analyst chat store', () => {
     expect(store.messagesLoading).toBe(true);
   });
 
+  it('publishes only the current identity failure and keeps transcript fetching identity-only', async () => {
+    const store = useAnalystChat();
+    apiMocks.getChatEntries.mockClear();
+    apiMocks.getAgentConversation.mockClear();
+    const failure = new Error('identity failed');
+    apiMocks.getChatEntries.mockRejectedValueOnce(failure);
+
+    await expect(store.resolveIdentity()).rejects.toBe(failure);
+
+    expect(store.identityState).toEqual({
+      kind: 'failed',
+      error: { kind: 'network', status: null, message: 'identity failed' },
+    });
+    expect(store.activeSessionId).toBeNull();
+    await store.fetchMessages();
+    expect(apiMocks.getChatEntries).toHaveBeenCalledTimes(1);
+    expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
+  });
+
   it('fails wrong-session claims and makes stale ownership inert across release and identity reset', async () => {
     const store = useAnalystChat();
-    store.activeSessionId = null;
-    await store.fetchMessages();
+    await store.resolveIdentity();
     expect(() => store.claimTranscriptLease('agent:planner:project')).toThrow(
       "Cannot claim Analyst transcript lease for non-current session 'agent:planner:project'.",
     );
@@ -147,8 +164,7 @@ describe('analyst chat store', () => {
     expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
 
     const second = store.claimTranscriptLease(analystSessionId);
-    store.activeSessionId = null;
-    await store.fetchMessages();
+    await store.resolveIdentity();
     await second.onFrame(null);
     expect(apiMocks.getAgentConversation).not.toHaveBeenCalled();
   });
@@ -163,8 +179,7 @@ describe('analyst chat store', () => {
 
     const replacementIdentity = deferred<{ session_id: typeof analystSessionId }>();
     apiMocks.getChatEntries.mockReturnValueOnce(replacementIdentity.promise);
-    store.activeSessionId = null;
-    const replacement = store.fetchMessages();
+    const replacement = store.resolveIdentity();
     expect(store.activeSessionId).toBeNull();
     expect(store.messages).toEqual([]);
     expect(store.messagesError).toBeNull();
@@ -272,7 +287,7 @@ describe('analyst chat store', () => {
 
   it('does not refresh transcript from card or control activity frames', async () => {
     const store = useAnalystChat();
-    await store.fetchMessages();
+    await store.resolveIdentity();
     apiMocks.getAgentConversation.mockClear();
 
     store.ingestWsEvent({ event: 'card_history_appended', sessionId: analystSessionId });
@@ -421,8 +436,7 @@ describe('analyst chat store', () => {
 
   it('aborts superseded exact message requests', () => {
     const store = useAnalystChat();
-    store.activeSessionId = null;
-    return store.fetchMessages().then(() => {
+    return store.resolveIdentity().then(() => {
       const handle = store.claimTranscriptLease(analystSessionId);
       apiMocks.getAgentConversation.mockReturnValue(new Promise(() => {}));
       void handle.onFrame(null);

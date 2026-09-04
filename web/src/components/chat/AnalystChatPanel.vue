@@ -88,7 +88,7 @@
         <button
           type="submit"
           class="chat-send-button"
-          :disabled="sending || !draft.trim()"
+          :disabled="sending || !activeSessionId || !draft.trim()"
           title="Ask the analyst…"
         >
           {{ sending ? 'Sending…' : 'Send' }}
@@ -143,9 +143,6 @@ const messagesErrorLabel = computed(() => {
   }
   return messagesError.value.message;
 });
-let rootSettled = false;
-let refreshPending = false;
-let mounted = false;
 
 function setTimelineScrollArea(el: Element | ComponentPublicInstance | null): void {
   timelineControls.scrollAreaRef.value = el instanceof HTMLElement ? el : null;
@@ -176,29 +173,8 @@ async function submitMessage(): Promise<void> {
   focusComposer();
 }
 
-async function refreshConversation(): Promise<void> {
-  if (!rootSettled) {
-    refreshPending = true;
-    return;
-  }
-  await chat.fetchMessages();
-  await nextTick();
-  timelineControls.scrollToLatest();
-}
-
-function settleRootGate(): void {
-  if (!mounted) return;
-  rootSettled = true;
-  if (!refreshPending) return;
-  refreshPending = false;
-  void refreshConversation().catch(() => {});
-}
-
 onMounted(() => {
-  mounted = true;
   window.addEventListener('saivage:focus-chat', handleFocusChat);
-  void refreshConversation();
-  void cards.ensureRoot().then(settleRootGate, settleRootGate);
 });
 
 watch(
@@ -221,7 +197,6 @@ watch(
 );
 
 onBeforeUnmount(() => {
-  mounted = false;
   window.removeEventListener('saivage:focus-chat', handleFocusChat);
 });
 </script>

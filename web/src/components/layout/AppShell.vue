@@ -48,7 +48,23 @@
           <div class="workspace-route-host">
             <router-view v-slot="{ Component }">
               <transition name="fade" mode="out-in">
-                <component :is="Component" />
+                <component v-if="workspacePresentation === 'component'" :is="Component" />
+                <div
+                  v-else-if="workspacePresentation === 'identity-pending'"
+                  class="workspace-identity-state"
+                  role="status"
+                  data-testid="analyst-identity-pending"
+                >
+                  Loading Analyst identity…
+                </div>
+                <div
+                  v-else-if="workspacePresentation === 'identity-failed'"
+                  class="workspace-identity-state"
+                  role="alert"
+                  data-testid="analyst-identity-failed"
+                >
+                  Analyst identity is unavailable.
+                </div>
               </transition>
             </router-view>
           </div>
@@ -56,7 +72,7 @@
       </div>
     </div>
 
-    <div v-if="!suppressAnalystPane" class="analyst-pane">
+    <div v-if="showAnalystPane" class="analyst-pane">
       <header class="analyst-pane-header" aria-label="Project">
         <span class="analyst-pane-project-name">{{ projectName }}</span>
       </header>
@@ -74,7 +90,7 @@
         Workspace
       </button>
       <button
-        v-if="!suppressAnalystPane"
+        v-if="showAnalystPane"
         type="button"
         class="pane-tab"
         :class="{ active: effectiveMobileActivePane === 'analyst' }"
@@ -135,7 +151,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, nextTick, onMounted, onUnmounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { storeToRefs } from 'pinia';
 import NavRail from '../nav/NavRail.vue';
@@ -224,13 +240,16 @@ const showAuthBanner = ref(false);
 const mobileActivePane = ref<'workspace' | 'analyst'>('workspace');
 const showShortcutHelp = ref(false);
 const analystActivityDot = computed(() => analystChat.sending);
+const showAnalystPane = ref(true);
+const workspacePresentation = ref<
+  'component' | 'identity-pending' | 'identity-failed' | 'teardown'
+>('component');
+let presentationToken = 0;
 const routeAgentId = computed(() => {
   const parsed = parseAgentDetailRouteParam(route.params.id);
   return parsed.kind === 'valid' ? parsed.sessionId : null;
 });
-const suppressAnalystPane = computed(
-  () => route.name === 'agent-detail' && routeAgentId.value === analystChat.activeSessionId,
-);
+const suppressAnalystPane = computed(() => !showAnalystPane.value);
 const effectiveMobileActivePane = computed(() =>
   suppressAnalystPane.value ? 'workspace' : mobileActivePane.value,
 );
@@ -252,6 +271,44 @@ const currentSectionTitle = computed(() => {
 
 const wsConnectionState = computed<WsConnectionState>(() => syncConnectionState.value ?? 'offline');
 const runtimeStatus = computed<string | null>(() => status.value ?? null);
+
+async function reconcileConversationMounts(): Promise<void> {
+  const token = ++presentationToken;
+  const validAgentRoute = route.name === 'agent-detail' && routeAgentId.value !== null;
+  const identity = analystChat.identityState;
+
+  let target: 'component' | 'identity-pending' | 'identity-failed' = 'component';
+  if (validAgentRoute && identity.kind === 'pending') target = 'identity-pending';
+  if (validAgentRoute && identity.kind === 'failed') target = 'identity-failed';
+  const matching =
+    validAgentRoute &&
+    identity.kind === 'resolved' &&
+    routeAgentId.value === identity.sessionId;
+
+  if (matching) {
+    showAnalystPane.value = false;
+    workspacePresentation.value = 'teardown';
+    await nextTick();
+    if (token !== presentationToken) return;
+    workspacePresentation.value = 'component';
+    return;
+  }
+
+  if (!showAnalystPane.value) {
+    workspacePresentation.value = 'teardown';
+    await nextTick();
+    if (token !== presentationToken) return;
+  }
+  showAnalystPane.value = true;
+  workspacePresentation.value = target;
+}
+
+watch(
+  [() => route.name, routeAgentId, () => analystChat.identityState],
+  () => void reconcileConversationMounts(),
+  { immediate: true },
+);
+
 function handleKeydown(event: KeyboardEvent): void {
   if (document.body.hasAttribute('data-modal-open')) return;
   const target = event.target as HTMLElement;
@@ -309,6 +366,7 @@ function handleTokenCleared(): void {
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown);
   window.addEventListener(API_AUTH_REQUIRED_EVENT, handleApiAuthRequired);
+  void analystChat.resolveIdentity().catch(() => {});
 });
 
 onUnmounted(() => {
@@ -361,6 +419,14 @@ onUnmounted(() => {
   flex: 1;
   min-height: 0;
   overflow: auto;
+}
+
+.workspace-identity-state {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+  padding: 24px;
+  color: var(--text-muted);
 }
 
 .analyst-pane {

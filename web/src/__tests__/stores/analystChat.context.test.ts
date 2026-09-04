@@ -16,7 +16,7 @@ vi.mock('../../api/client', async (importOriginal) => ({
 }));
 
 describe('analyst chat workspace context', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
     setActivePinia(createPinia());
@@ -27,6 +27,7 @@ describe('analyst chat workspace context', () => {
       toolInvocations: [],
       restart: null,
     });
+    await useAnalystChat().resolveIdentity();
   });
 
   it('sends workspace context beside content without an Analyst identity argument', async () => {
@@ -35,7 +36,6 @@ describe('analyst chat workspace context', () => {
     workspaceRoute.entityId = '11111111-1111-4111-8111-111111111111';
     workspaceRoute.refinement = { tab: 'history' };
     const chat = useAnalystChat();
-    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('what is this?');
     await chat.sendMessage();
     expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('what is this?', { view: 'cards', entityId: '11111111-1111-4111-8111-111111111111', refinement: { tab: 'history' } });
@@ -43,7 +43,6 @@ describe('analyst chat workspace context', () => {
 
   it('sends the deterministic null workspace context at the default route state', async () => {
     const chat = useAnalystChat();
-    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('hello');
     await chat.sendMessage();
     expect(apiMocks.sendChatMessage).toHaveBeenCalledWith('hello', { view: null, entityId: null, refinement: null });
@@ -59,7 +58,6 @@ describe('analyst chat workspace context', () => {
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
     const chat = useAnalystChat();
-    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('open this card');
     await chat.sendMessage();
     expect(applySpy).toHaveBeenCalledTimes(1);
@@ -75,7 +73,6 @@ describe('analyst chat workspace context', () => {
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
     const chat = useAnalystChat();
-    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('go back');
     await chat.sendMessage();
     expect(applySpy).toHaveBeenCalledWith(payload);
@@ -89,7 +86,6 @@ describe('analyst chat workspace context', () => {
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
     const chat = useAnalystChat();
-    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('go back');
     await chat.sendMessage();
     expect(applySpy).not.toHaveBeenCalled();
@@ -103,7 +99,6 @@ describe('analyst chat workspace context', () => {
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
     const chat = useAnalystChat();
-    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('open a card');
 
     await expect(chat.sendMessage()).rejects.toThrow();
@@ -125,7 +120,6 @@ describe('analyst chat workspace context', () => {
     const workspaceRoute = useWorkspaceRouteStore();
     const applySpy = vi.spyOn(workspaceRoute, 'apply').mockImplementation(() => undefined);
     const chat = useAnalystChat();
-    chat.activeSessionId = 'agent:analyst:global';
     chat.setDraft('navigate');
 
     await expect(chat.sendMessage()).rejects.toThrow(`Navigation tool ${tool} returned ${data.intent} intent.`);
