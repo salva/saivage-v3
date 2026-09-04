@@ -122,8 +122,8 @@ describe('FilesView', () => {
 
     await refetch();
 
-    expect(listFiles).toHaveBeenCalledWith(path);
-    expect(listFiles).not.toHaveBeenCalledWith(hiddenPath);
+    expect(listFiles).toHaveBeenCalledWith(path, expect.any(AbortSignal));
+    expect(vi.mocked(listFiles).mock.calls.map(([calledPath]) => calledPath)).not.toContain(hiddenPath);
     wrapper.unmount();
   });
 
@@ -160,10 +160,10 @@ describe('FilesView', () => {
     vi.mocked(getFileContent).mockClear();
     await refetch();
 
-    expect(listFiles).toHaveBeenCalledWith(parentPath);
+    expect(listFiles).toHaveBeenCalledWith(parentPath, expect.any(AbortSignal));
     expect(getFileContent).toHaveBeenCalledWith(filePath);
-    expect(listFiles).not.toHaveBeenCalledWith('.saivage/work');
-    expect(listFiles).not.toHaveBeenCalledWith(filePath);
+    expect(vi.mocked(listFiles).mock.calls.map(([calledPath]) => calledPath)).not.toContain('.saivage/work');
+    expect(vi.mocked(listFiles).mock.calls.map(([calledPath]) => calledPath)).not.toContain(filePath);
     wrapper.unmount();
   });
 

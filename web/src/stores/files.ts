@@ -22,6 +22,11 @@ let fileContentRequestSeq = 0;
 const METADATA_ROOT = '.saivage';
 const OUTPUT_ROOT = '.saivage/work';
 
+interface ListRequestOwner {
+  readonly sequence: number;
+  readonly controller: AbortController;
+}
+
 // ── Helpers ────────────────────────────────────────────────────
 
 function buildBreadcrumbs(currentPath: string, root: string): { label: string; path: string }[] {
@@ -71,6 +76,10 @@ export const useFileStore = defineStore('files', () => {
   const unauthorized = ref(false);
   const isStale = ref(false);
   let staleTimer: ReturnType<typeof setTimeout> | undefined;
+  let metaRequestSequence = 0;
+  let outputRequestSequence = 0;
+  let metaRequestOwner: ListRequestOwner | undefined;
+  let outputRequestOwner: ListRequestOwner | undefined;
 
   // ── Getters ────────────────────────────────────────────────
 
@@ -108,6 +117,12 @@ export const useFileStore = defineStore('files', () => {
 
   onScopeDispose(() => {
     if (staleTimer !== undefined) clearTimeout(staleTimer);
+    const metaOwner = metaRequestOwner;
+    metaRequestOwner = undefined;
+    metaOwner?.controller.abort();
+    const outputOwner = outputRequestOwner;
+    outputRequestOwner = undefined;
+    outputOwner?.controller.abort();
   });
 
   function handleApiError(err: unknown, fallback: string): string {
@@ -119,52 +134,72 @@ export const useFileStore = defineStore('files', () => {
   // ── Actions: Metadata Browser ──────────────────────────────
 
   async function fetchMetaFiles(path?: string): Promise<void> {
+    metaRequestOwner?.controller.abort();
+    const owner: ListRequestOwner = {
+      sequence: ++metaRequestSequence,
+      controller: new AbortController(),
+    };
+    metaRequestOwner = owner;
     metaLoading.value = true;
     listError.value = null;
     const p = path || metaPath.value;
     try {
-      const response: FilesListResponse = await listFiles(p);
+      const response: FilesListResponse = await listFiles(p, owner.controller.signal);
+      if (metaRequestOwner !== owner || metaRequestOwner.sequence !== owner.sequence) return;
       metaFiles.value = response.files;
       metaPath.value = response.path;
       markRestSnapshotCompleted();
     } catch (err) {
+      if (metaRequestOwner !== owner || owner.controller.signal.aborted) return;
       const msg = handleApiError(err, 'Failed to list metadata files');
       listError.value = msg;
       log.error('fetchMetaFiles', msg);
     } finally {
-      metaLoading.value = false;
+      if (metaRequestOwner === owner && !owner.controller.signal.aborted) {
+        metaLoading.value = false;
+        metaRequestOwner = undefined;
+      }
     }
   }
 
   async function navigateMeta(path: string): Promise<void> {
     if (path !== metaPath.value) clearViewedFile();
-    metaPath.value = path;
     await fetchMetaFiles(path);
   }
 
   // ── Actions: Output Browser ─────────────────────────────────
 
   async function fetchOutputFiles(path?: string): Promise<void> {
+    outputRequestOwner?.controller.abort();
+    const owner: ListRequestOwner = {
+      sequence: ++outputRequestSequence,
+      controller: new AbortController(),
+    };
+    outputRequestOwner = owner;
     outputLoading.value = true;
     listError.value = null;
     const p = path || outputPath.value;
     try {
-      const response: FilesListResponse = await listFiles(p);
+      const response: FilesListResponse = await listFiles(p, owner.controller.signal);
+      if (outputRequestOwner !== owner || outputRequestOwner.sequence !== owner.sequence) return;
       outputFiles.value = response.files;
       outputPath.value = response.path;
       markRestSnapshotCompleted();
     } catch (err) {
+      if (outputRequestOwner !== owner || owner.controller.signal.aborted) return;
       const msg = handleApiError(err, 'Failed to list output files');
       listError.value = msg;
       log.error('fetchOutputFiles', msg);
     } finally {
-      outputLoading.value = false;
+      if (outputRequestOwner === owner && !owner.controller.signal.aborted) {
+        outputLoading.value = false;
+        outputRequestOwner = undefined;
+      }
     }
   }
 
   async function navigateOutput(path: string): Promise<void> {
     if (path !== outputPath.value) clearViewedFile();
-    outputPath.value = path;
     await fetchOutputFiles(path);
   }
 

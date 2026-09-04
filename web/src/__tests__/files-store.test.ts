@@ -11,6 +11,7 @@
  *  5. Scoped error handling: list API messages and clearing, generic preview fallback,
  *     and preview clear/recovery state transitions.
  *  6. Store-level navigation actions: navigateMeta, navigateOutput, clearViewedFile.
+ *  7. Independent abortable latest-request ownership for metadata and output listings.
  *
  * These tests mock ../api/client so we verify store-side logic without a server.
  */
@@ -18,18 +19,37 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { setActivePinia, createPinia } from 'pinia';
 
+const loggerMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+}));
+
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   listFiles: vi.fn(),
   getFileContent: vi.fn(),
 }));
 
+vi.mock('../utils/logger', () => ({
+  createLogger: () => ({ info: vi.fn(), warn: vi.fn(), error: loggerMocks.error }),
+}));
+
 import { listFiles, getFileContent, OperatorApiError } from '../api/client';
+import type { FilesListResponse } from '../api/types';
 import { useFileStore } from '../stores/files';
 
 function setupStore() {
   setActivePinia(createPinia());
   return useFileStore();
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }
 
 const mockMetaRootFiles = {
@@ -287,7 +307,7 @@ describe('useFileStore', () => {
 
       await store.fetchMetaFiles('.saivage/cards');
 
-      expect(listFiles).toHaveBeenCalledWith('.saivage/cards');
+      expect(listFiles).toHaveBeenCalledWith('.saivage/cards', expect.any(AbortSignal));
       expect(store.metaPath).toBe('.saivage/cards');
       expect(store.metaFiles).toEqual(mockMetaNestedFiles.files);
     });
@@ -306,6 +326,148 @@ describe('useFileStore', () => {
     });
   });
 
+  describe('listing request ownership', () => {
+    it('aborts and replaces an older metadata owner and makes its success and finalization inert', async () => {
+      const store = setupStore();
+      const older = deferred<typeof mockMetaRootFiles>();
+      const newer = deferred<typeof mockMetaNestedFiles>();
+      const signals: AbortSignal[] = [];
+      vi.mocked(listFiles)
+        .mockImplementationOnce((_path, signal) => {
+          signals.push(signal!);
+          return older.promise;
+        })
+        .mockImplementationOnce((_path, signal) => {
+          signals.push(signal!);
+          return newer.promise;
+        });
+
+      const olderFetch = store.fetchMetaFiles('.saivage');
+      const newerFetch = store.fetchMetaFiles('.saivage/cards');
+
+      expect(signals).toHaveLength(2);
+      expect(signals[0]?.aborted).toBe(true);
+      expect(signals[1]?.aborted).toBe(false);
+
+      older.resolve(mockMetaRootFiles);
+      await olderFetch;
+      expect(store.metaLoading).toBe(true);
+      expect(store.metaFiles).toEqual([]);
+      expect(store.metaPath).toBe('.saivage');
+
+      newer.resolve(mockMetaNestedFiles);
+      await newerFetch;
+      expect(store.metaLoading).toBe(false);
+      expect(store.metaFiles).toEqual(mockMetaNestedFiles.files);
+      expect(store.metaPath).toBe('.saivage/cards');
+    });
+
+    it('makes an older metadata failure inert while the current owner controls shared state and logging', async () => {
+      const store = setupStore();
+      const older = deferred<FilesListResponse>();
+      const newer = deferred<typeof mockMetaNestedFiles>();
+      vi.mocked(listFiles)
+        .mockReturnValueOnce(older.promise)
+        .mockReturnValueOnce(newer.promise);
+
+      const olderFetch = store.fetchMetaFiles('.saivage');
+      const newerFetch = store.fetchMetaFiles('.saivage/cards');
+      older.reject(new OperatorApiError('files.list', 401, { error: 'Unauthorized', statusCode: 401 }));
+      await olderFetch;
+
+      expect(store.metaLoading).toBe(true);
+      expect(store.listError).toBeNull();
+      expect(store.unauthorized).toBe(false);
+      expect(loggerMocks.error).not.toHaveBeenCalled();
+
+      newer.reject(new OperatorApiError('files.list', 403, { error: 'Current failure' }));
+      await newerFetch;
+      expect(store.metaLoading).toBe(false);
+      expect(store.listError).toBe('Current failure');
+      expect(store.unauthorized).toBe(false);
+      expect(loggerMocks.error).toHaveBeenCalledWith('fetchMetaFiles', 'Current failure');
+    });
+
+    it('keeps metadata and output owners independent when both listings run concurrently', async () => {
+      const store = setupStore();
+      const olderMeta = deferred<typeof mockMetaRootFiles>();
+      const output = deferred<typeof mockOutputRootFiles>();
+      const newerMeta = deferred<typeof mockMetaNestedFiles>();
+      const signals: AbortSignal[] = [];
+      vi.mocked(listFiles).mockImplementation((_path, signal) => {
+        signals.push(signal!);
+        if (signals.length === 1) return olderMeta.promise;
+        if (signals.length === 2) return output.promise;
+        return newerMeta.promise;
+      });
+
+      const olderMetaFetch = store.fetchMetaFiles();
+      const outputFetch = store.fetchOutputFiles();
+      expect(signals[0]?.aborted).toBe(false);
+      expect(signals[1]?.aborted).toBe(false);
+
+      const newerMetaFetch = store.fetchMetaFiles('.saivage/cards');
+      expect(signals[0]?.aborted).toBe(true);
+      expect(signals[1]?.aborted).toBe(false);
+      expect(signals[2]?.aborted).toBe(false);
+
+      output.resolve(mockOutputRootFiles);
+      newerMeta.resolve(mockMetaNestedFiles);
+      olderMeta.resolve(mockMetaRootFiles);
+      await Promise.all([olderMetaFetch, outputFetch, newerMetaFetch]);
+
+      expect(store.outputFiles).toEqual(mockOutputRootFiles.files);
+      expect(store.metaFiles).toEqual(mockMetaNestedFiles.files);
+      expect(store.outputLoading).toBe(false);
+      expect(store.metaLoading).toBe(false);
+    });
+
+    it('lets only the current listing success update Files freshness', async () => {
+      vi.useFakeTimers();
+      const store = setupStore();
+      const older = deferred<typeof mockMetaRootFiles>();
+      const newer = deferred<typeof mockMetaNestedFiles>();
+      vi.mocked(listFiles)
+        .mockReturnValueOnce(older.promise)
+        .mockReturnValueOnce(newer.promise);
+
+      try {
+        const olderFetch = store.fetchMetaFiles();
+        const newerFetch = store.fetchMetaFiles('.saivage/cards');
+        newer.resolve(mockMetaNestedFiles);
+        await newerFetch;
+
+        await vi.advanceTimersByTimeAsync(20_000);
+        older.resolve(mockMetaRootFiles);
+        await olderFetch;
+        await vi.advanceTimersByTimeAsync(10_000);
+
+        expect(store.isStale).toBe(true);
+      } finally {
+        store.$dispose();
+        vi.useRealTimers();
+      }
+    });
+
+    it('aborts both independent listing owners on store disposal', () => {
+      const store = setupStore();
+      const signals: AbortSignal[] = [];
+      vi.mocked(listFiles).mockImplementation((_path, signal) => {
+        signals.push(signal!);
+        return new Promise<FilesListResponse>(() => {});
+      });
+
+      void store.fetchMetaFiles();
+      void store.fetchOutputFiles();
+      expect(signals.every((signal) => !signal.aborted)).toBe(true);
+
+      store.$dispose();
+
+      expect(signals).toHaveLength(2);
+      expect(signals.every((signal) => signal.aborted)).toBe(true);
+    });
+  });
+
   describe('navigateMeta()', () => {
     it('sets metaPath and fetches files for the given path', async () => {
       const store = setupStore();
@@ -314,7 +476,7 @@ describe('useFileStore', () => {
       await store.navigateMeta('.saivage/cards');
 
       expect(store.metaPath).toBe('.saivage/cards');
-      expect(listFiles).toHaveBeenCalledWith('.saivage/cards');
+      expect(listFiles).toHaveBeenCalledWith('.saivage/cards', expect.any(AbortSignal));
       expect(store.metaFiles).toEqual(mockMetaNestedFiles.files);
     });
 
@@ -339,7 +501,7 @@ describe('useFileStore', () => {
       await store.navigateOutput('.saivage/work');
 
       expect(store.outputPath).toBe('.saivage/work');
-      expect(listFiles).toHaveBeenCalledWith('.saivage/work');
+      expect(listFiles).toHaveBeenCalledWith('.saivage/work', expect.any(AbortSignal));
     });
   });
 

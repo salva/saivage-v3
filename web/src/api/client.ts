@@ -340,8 +340,8 @@ export function sendChatMessage(
   return operatorRequest('chats.send', { body });
 }
 
-export function listFiles(path?: string): Promise<FilesListResponse> {
-  return operatorRequest('files.list', { query: path ? { path } : undefined });
+export function listFiles(path?: string, signal?: AbortSignal): Promise<FilesListResponse> {
+  return operatorRequest('files.list', { query: path ? { path } : undefined, signal });
 }
 
 export function getFileContent(path: string, signal?: AbortSignal): Promise<FileContent> {
