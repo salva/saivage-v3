@@ -119,7 +119,7 @@ Rollback after rollout is another complete stopped reset-only operation, never a
 
 ## App-log and named-agent/workflow cutover
 
-The current app log contains only strict `{type,data}` rows for `event`, `control_action`, and `provider_exchange`. Do not restore logs with outer identity/time fields, old lanes, or old event kinds. Current events are only `runtime_diagnostic`, `runtime_actionable_error`, and `mcp_tool_invocation`; Debug > Errors derives both runtime kinds plus failed MCP invocations. `/api/events` is the sole timeline collection and Debug requests its newest 1000 events. Dashboard is current-state-only and is not the command, activation, actionable-error, or recovery ledger.
+The current app log contains only strict `{type,data}` rows for `event`, `control_action`, and `provider_exchange`. Do not restore logs with outer identity/time fields, old lanes, or old event kinds. Current events are only `runtime_diagnostic`, `runtime_actionable_error`, and `mcp_tool_invocation`; use Debug > Errors for durable failures derived from both runtime kinds plus failed MCP invocations. For explicit event inspection, use the authenticated `/api/events` query or the Analyst `read_runtime_events` tool. Debug has no Timeline. Dashboard is current-state-only and is not the command, activation, actionable-error, or recovery ledger.
 
 Apply this named incompatible app-log and workflow/config cutover to each affected deployment in this exact order:
 

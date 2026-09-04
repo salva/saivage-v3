@@ -41,7 +41,7 @@ export interface EventLog {
   appendEventPrepared(prepareEvent: () => AppendEventInput, context?: AppLogPublicationContext): LoggedEvent;
 }
 
-export function createEventLog(projectRoot: string, timelineChanged: () => void = () => undefined): EventLog {
+export function createEventLog(projectRoot: string): EventLog {
   const appendPrepared = (prepareEvent: () => AppendEventInput, context: AppLogPublicationContext = {}): LoggedEvent => {
     const entry = appendAppLogEntry(projectRoot, 'event', () => {
       const event = prepareEvent();
@@ -54,7 +54,6 @@ export function createEventLog(projectRoot: string, timelineChanged: () => void 
         }) }),
       };
     }, context);
-    timelineChanged();
     return entry.data;
   };
   return {

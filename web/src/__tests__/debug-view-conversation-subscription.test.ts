@@ -25,7 +25,6 @@ vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
   getDebugErrors: vi.fn().mockResolvedValue({ errors: [], total: 0 }),
-  getNewestEvents: vi.fn().mockResolvedValue({ events: [], total: 0 }),
   getDoctor: vi.fn().mockResolvedValue({ status: 'ok', checks: [{ name: 'cards_loadable', passed: true, details: 'Cards loaded successfully.' }], issues: [] }),
   listProcesses: vi.fn().mockResolvedValue({ processes: [] }),
   getMcpTools: vi.fn().mockResolvedValue({ servers: [] }),
@@ -130,7 +129,7 @@ describe('DebugView canonical agent selection and keyed detail lifecycle', () =>
     expect(api.listAgentSessions).toHaveBeenCalledTimes(1);
   });
 
-  it('does not register hidden timeline or process refresh owners', async () => {
+  it('does not register a process refresh owner while Agents is selected', async () => {
     const { wrapper } = await mountDebug();
     expect(live.registerResource).not.toHaveBeenCalled();
     wrapper.unmount();

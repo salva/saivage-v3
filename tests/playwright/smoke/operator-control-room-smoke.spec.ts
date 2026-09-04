@@ -52,7 +52,7 @@ test('operator control room smoke walks browser routes with REST fixtures and We
 
   await page.getByText('Debug').first().click();
   await expect(page).toHaveURL(/\/debug$/);
-  await expect(page.getByText('Timeline').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Timeline', exact: true })).toHaveCount(0);
   await page.getByText('Errors').first().click();
   const errorGroup=page.locator('.error-source-group').filter({has:page.getByRole('heading',{level:4,name:'planner-smoke (1)',exact:true})}); await expect(errorGroup).toHaveCount(1); const errorItem=errorGroup.locator(':scope > .error-item'); await expect(errorItem).toHaveCount(1); await expect(errorItem.locator(':scope > .error-message')).toHaveText('Synthetic provider failure redacted'); const detailCode=errorItem.locator(':scope > .code-block .code-block__code'); await expect(detailCode).toHaveCount(1); const detailText=await detailCode.textContent(); expect(detailText).not.toBeNull(); expect(JSON.parse(detailText as string)).toEqual({phase:'planner-smoke',error_message:'Synthetic provider failure redacted'});
 

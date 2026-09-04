@@ -75,14 +75,14 @@ describe('live-sync scoped Cards contracts', () => {
 });
 
 describe('live-sync unscoped wire contracts', () => {
-  it.each(['runtime', 'timeline'] as const)('accepts the emitted %s invalidation', (resource) => {
-    expect(LiveSyncInvalidateFrameSchema.parse({ t: 'invalidate', resource })).toEqual({
+  it('accepts the runtime invalidation', () => {
+    expect(LiveSyncInvalidateFrameSchema.parse({ t: 'invalidate', resource: 'runtime' })).toEqual({
       t: 'invalidate',
-      resource,
+      resource: 'runtime',
     });
   });
 
-  it.each(['files', 'processes'] as const)('rejects removed %s invalidations', (resource) => {
+  it.each(['timeline', 'files', 'processes'] as const)('rejects removed %s invalidations', (resource) => {
     expect(LiveSyncInvalidateFrameSchema.safeParse({ t: 'invalidate', resource }).success).toBe(false);
   });
 });

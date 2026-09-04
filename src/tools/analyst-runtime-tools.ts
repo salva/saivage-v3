@@ -25,7 +25,7 @@ export async function pause_runtime(ctx: ToolContext, _params: Record<string, ne
 
 export async function resume_runtime(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
   const state = ctx.runtime.getStatus();
-  if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
+  if (state.status === 'error') return toolFailure('Runtime is in error state. Inspect Debug Errors and fix the underlying failure before attempting recovery.', { runtime_status: state.status });
   ctx.runtime.resume();
   const updated = ctx.runtime.getStatus();
   return toolSucceeded({ status: updated.status });

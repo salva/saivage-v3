@@ -70,13 +70,6 @@ const debugErrors = parseOperatorResponse('debug.errors', 200, {
   }],
   total: 1,
 });
-const debugTimeline = parseOperatorResponse('events.list', 200, {
-  events: [
-    { id: 'evt-1', kind: 'runtime_diagnostic', phase: 'planner-smoke', timestamp: now, error_message: 'Synthetic provider failure redacted' },
-    { id: 'evt-2', kind: 'mcp_tool_invocation', server: 'filesystem', tool: 'read', success: true, duration_ms: 5, timestamp: now },
-  ],
-  total: 2,
-});
 const codeDebugGraph = {
     card_type: 'code', permitted_child_types: [],
     records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false }],
@@ -319,9 +312,6 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, debugErrors);
     }
     if (request.method() === 'GET' && url.pathname === '/api/debug/graphs') return json(route, debugGraphs);
-    if (request.method() === 'GET' && url.pathname === '/api/events') {
-      return json(route, debugTimeline);
-    }
     if (request.method() === 'GET' && url.pathname === '/api/debug/doctor') return json(route, doctorOk);
     if (request.method() === 'GET' && url.pathname === '/api/mcp/tools') {
       return json(route, parseOperatorResponse('mcp.tools', 200, {

@@ -1,7 +1,7 @@
 /**
  * Pinia store for debug information.
  *
- * Exposes errors, timeline, process, and Doctor
+ * Exposes errors, process, and Doctor
  * diagnostics. All data is read-only
  * for inspection purposes — actions should link back to the
  * relevant card or process.
@@ -11,9 +11,7 @@ import { defineStore } from 'pinia';
 import { ref, computed, readonly } from 'vue';
 import type {
   DebugErrorRecord,
-  DebugTimelineEvent,
   DebugErrorsResponse,
-  EventsResponse,
   DoctorCheck,
   DoctorIssue,
   DoctorResponse,
@@ -23,7 +21,6 @@ import type {
 } from '../api/types';
 import {
   getDebugErrors,
-  getNewestEvents,
   getDoctor,
   listProcesses,
   OperatorApiError,
@@ -33,9 +30,7 @@ import { createLogger } from '../utils/logger';
 import {
   projectErrorRecord,
   type DebugErrorItem,
-  type DebugTimelineItem,
   selectErrorsBySource,
-  selectSortedTimeline,
 } from './debug-read-model';
 
 const log = createLogger('store:debug');
@@ -44,9 +39,6 @@ export const useDebugStore = defineStore('debug', () => {
   const errors = ref<DebugErrorRecord[]>([]);
   const errorsLoading = ref(false);
   const errorsError = ref<string | null>(null);
-  const timelineEvents = ref<DebugTimelineEvent[]>([]);
-  const timelineLoading = ref(false);
-  const timelineError = ref<string | null>(null);
 
   const processes = ref<ProcessView[]>([]);
   const processesLoading = ref(false);
@@ -68,8 +60,6 @@ export const useDebugStore = defineStore('debug', () => {
   const projectedErrors = computed<DebugErrorItem[]>(() => errors.value.map(projectErrorRecord));
   const errorsBySource = computed<Map<string, DebugErrorItem[]>>(() => selectErrorsBySource(projectedErrors.value));
 
-  const sortedTimeline = computed<DebugTimelineItem[]>(() => selectSortedTimeline(timelineEvents.value));
-
   async function fetchErrors(): Promise<void> {
     errorsLoading.value = true;
     errorsError.value = null;
@@ -83,22 +73,6 @@ export const useDebugStore = defineStore('debug', () => {
       throw err;
     } finally {
       errorsLoading.value = false;
-    }
-  }
-
-  async function fetchTimeline(): Promise<void> {
-    timelineLoading.value = true;
-    timelineError.value = null;
-    try {
-      const response: EventsResponse = await getNewestEvents();
-      timelineEvents.value = response.events;
-    } catch (err) {
-      const msg = err instanceof OperatorApiError ? err.message : 'Failed to fetch debug timeline';
-      timelineError.value = msg;
-      log.error('fetchTimeline', msg);
-      throw err;
-    } finally {
-      timelineLoading.value = false;
     }
   }
 
@@ -173,9 +147,6 @@ export const useDebugStore = defineStore('debug', () => {
     errorsTotal: readonly(computed(() => projectedErrors.value.length)),
     errorsLoading: readonly(errorsLoading),
     errorsError: readonly(errorsError),
-    timelineEvents: readonly(timelineEvents),
-    timelineLoading: readonly(timelineLoading),
-    timelineError: readonly(timelineError),
     processes: readonly(processes),
     processesLoading: readonly(processesLoading),
     processesError: readonly(processesError),
@@ -190,9 +161,7 @@ export const useDebugStore = defineStore('debug', () => {
     graphsError: readonly(graphsError),
     graphsRefreshError: readonly(graphsRefreshError),
     errorsBySource,
-    sortedTimeline,
     fetchErrors,
-    fetchTimeline,
     fetchProcesses,
     fetchDoctor,
     fetchGraphs,

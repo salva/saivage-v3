@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { DebugErrorRecord, DebugTimelineEvent, ProcessView } from '../api/types';
-import { filterTimelineByKinds, projectErrorRecord, selectErrorsBySource, selectRuntimeStatusLabel, selectSortedProcesses, selectSortedTimeline, selectTimelineKindOptions } from '../stores/debug-read-model';
+import type { DebugErrorRecord, ProcessView } from '../api/types';
+import { projectErrorRecord, selectErrorsBySource, selectRuntimeStatusLabel, selectSortedProcesses } from '../stores/debug-read-model';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
-const diagnostic = { id: 'event-diagnostic', kind: 'runtime_diagnostic', timestamp, card_id: 'card-a', goal_id: 'project', phase: 'execute', error_message: 'token=abc1234567890' } as const satisfies DebugTimelineEvent;
-const actionable = { id: 'event-actionable', kind: 'runtime_actionable_error', timestamp, actionable_error: { code: 'blocked', message: 'act now', nextAction: 'retry', cardId: 'card-a' } } as const satisfies DebugTimelineEvent;
+const diagnostic = { id: 'event-diagnostic', kind: 'runtime_diagnostic', timestamp, card_id: 'card-a', goal_id: 'project', phase: 'execute', error_message: 'token=abc1234567890' } as const satisfies DebugErrorRecord;
+const actionable = { id: 'event-actionable', kind: 'runtime_actionable_error', timestamp, actionable_error: { code: 'blocked', message: 'act now', nextAction: 'retry', cardId: 'card-a' } } as const satisfies DebugErrorRecord;
 const mcpFailure = { id: 'event-mcp', kind: 'mcp_tool_invocation', timestamp, server: 'tools', tool: 'inspect', success: false, duration_ms: 10, error: 'tool failed' } as const satisfies DebugErrorRecord;
 
 function process(overrides: Partial<ProcessView>): ProcessView {
@@ -12,21 +12,13 @@ function process(overrides: Partial<ProcessView>): ProcessView {
 }
 
 describe('debug-read-model', () => {
-  it('projects each strict durable error event without a timeline-derived duplicate', () => {
+  it('projects each strict durable error event directly', () => {
     const projected = [diagnostic, actionable, mcpFailure].map(projectErrorRecord);
     expect(projected[0]).toMatchObject({ id: diagnostic.id, source: 'card-a', type: 'execute', severity: 'error' });
     expect(projected[0]!.message).toContain('[REDACTED]');
     expect(projected[1]).toMatchObject({ source: 'card-a', message: 'act now', type: 'runtime_actionable_error' });
     expect(projected[2]).toMatchObject({ source: 'mcp:tools', message: 'tool failed', type: 'mcp_tool_invocation' });
     expect(selectErrorsBySource(projected).get('card-a')).toHaveLength(2);
-  });
-
-  it('sorts and filters only retained event kinds', () => {
-    const input: DebugTimelineEvent[] = [{ ...diagnostic, timestamp: '2026-01-01T00:00:01.000Z' }, mcpFailure];
-    const sorted = selectSortedTimeline(input);
-    expect(sorted.map((event) => event.id)).toEqual([diagnostic.id, mcpFailure.id]);
-    expect(selectTimelineKindOptions(sorted)).toEqual(['mcp_tool_invocation', 'runtime_diagnostic']);
-    expect(filterTimelineByKinds(sorted, ['mcp_tool_invocation']).map((event) => event.kind)).toEqual(['mcp_tool_invocation']);
   });
 
   it('projects process ordering', () => {

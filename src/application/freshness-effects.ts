@@ -13,7 +13,6 @@ export interface FreshnessEffects {
   agentMembershipChanged(target: AgentMembershipFreshnessTarget): void;
   conversationChanged(target: ConversationFreshnessTarget): void;
   llmExchangeChanged(id: ConversationSessionId): void;
-  timelineChanged(): void;
 }
 
 export const NO_FRESHNESS_EFFECTS: FreshnessEffects = Object.freeze({
@@ -22,5 +21,4 @@ export const NO_FRESHNESS_EFFECTS: FreshnessEffects = Object.freeze({
   agentMembershipChanged() {},
   conversationChanged() {},
   llmExchangeChanged() {},
-  timelineChanged() {},
 });

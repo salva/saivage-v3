@@ -23,11 +23,9 @@ describe('websocket bootstrap boundary after S06', () => {
     expect(() => parseKnownWsEnvelope({ type: 'activity', content: { event: 'analyst_tool_invoked', sessionId: id, tool: 'read', success: true, summary: '' } })).toThrow();
   });
 
-  it('accepts only runtime and timeline as unscoped invalidation resources', () => {
-    for (const resource of ['runtime', 'timeline']) {
-      expect(LiveSyncInvalidateFrameSchema.safeParse({ t: 'invalidate', resource }).success).toBe(true);
-    }
-    for (const resource of ['files', 'processes']) {
+  it('accepts only runtime as an unscoped invalidation resource', () => {
+    expect(LiveSyncInvalidateFrameSchema.safeParse({ t: 'invalidate', resource: 'runtime' }).success).toBe(true);
+    for (const resource of ['timeline', 'files', 'processes']) {
       expect(LiveSyncInvalidateFrameSchema.safeParse({ t: 'invalidate', resource }).success).toBe(false);
     }
   });

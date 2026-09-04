@@ -5,7 +5,7 @@ import { createMemoryHistory, createRouter } from 'vue-router';
 import DebugView from '../views/DebugView.vue';
 
 const api = vi.hoisted(() => ({
-  getMcpTools: vi.fn(), getNewestEvents: vi.fn(), getDebugErrors: vi.fn(),
+  getMcpTools: vi.fn(), getDebugErrors: vi.fn(),
   listProcesses: vi.fn(), listAgentSessions: vi.fn(), getDebugGraphs: vi.fn(), getDoctor: vi.fn(),
 }));
 vi.mock('../api/client', async (importOriginal) => ({
@@ -46,7 +46,6 @@ describe('Debug selected-tab ownership', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.getMcpTools.mockResolvedValue({ servers: [] });
-    api.getNewestEvents.mockResolvedValue({ events: [], total: 0 });
     api.getDebugErrors.mockResolvedValue({ errors: [], total: 0 });
     api.listProcesses.mockResolvedValue({ processes: [] });
     api.listAgentSessions.mockResolvedValue({ sessions: [] });
@@ -57,7 +56,6 @@ describe('Debug selected-tab ownership', () => {
   it('loads only MCP when MCP is selected and never polls', async () => {
     const wrapper = await mountDebug('/debug?tab=mcp');
     expect(api.getMcpTools).toHaveBeenCalledTimes(1);
-    expect(api.getNewestEvents).not.toHaveBeenCalled();
     expect(api.getDebugErrors).not.toHaveBeenCalled();
     expect(api.listAgentSessions).not.toHaveBeenCalled();
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -65,10 +63,10 @@ describe('Debug selected-tab ownership', () => {
     wrapper.unmount();
   });
 
-  it('loads no Agent, event, or MCP resource for the default State tab', async () => {
+  it('loads no Agent, Errors, or MCP resource for the default State tab', async () => {
     const wrapper = await mountDebug('/debug');
     expect(api.listAgentSessions).not.toHaveBeenCalled();
-    expect(api.getNewestEvents).not.toHaveBeenCalled();
+    expect(api.getDebugErrors).not.toHaveBeenCalled();
     expect(api.getMcpTools).not.toHaveBeenCalled();
     wrapper.unmount();
   });
@@ -82,49 +80,19 @@ describe('Debug selected-tab ownership', () => {
     wrapper.unmount();
   });
 
-  it('presents only the selected Errors or Timeline request state', async () => {
+  it('presents the selected Errors request state without an event-list request', async () => {
     const errorsRequest = deferred<{ errors: []; total: 0 }>();
-    const timelineRequest = deferred<{ events: []; total: 0 }>();
     api.getDebugErrors.mockReturnValue(errorsRequest.promise);
-    api.getNewestEvents.mockReturnValue(timelineRequest.promise);
     const wrapper = await mountDebug('/debug?tab=errors');
-    const tabButton = (label: string) =>
-      wrapper.findAll('button.debug-tab-button').find((button) => button.text() === label)!;
 
     expect(api.getDebugErrors).toHaveBeenCalledTimes(1);
-    expect(api.getNewestEvents).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain('Loading errors...');
-    expect(wrapper.text()).not.toContain('Loading timeline...');
-    expect(wrapper.text()).not.toContain('Failed to fetch debug timeline');
-
-    await tabButton('Timeline').trigger('click');
-    await flushPromises();
-
-    expect(api.getDebugErrors).toHaveBeenCalledTimes(1);
-    expect(api.getNewestEvents).toHaveBeenCalledTimes(1);
-    expect(wrapper.text()).toContain('Loading timeline...');
-    expect(wrapper.text()).not.toContain('Loading errors...');
-    expect(wrapper.text()).not.toContain('Failed to fetch debug errors');
+    expect(wrapper.findAll('button.debug-tab-button').map((button) => button.text())).not.toContain('Timeline');
 
     errorsRequest.reject(new Error('errors unavailable'));
     await flushPromises();
 
-    expect(wrapper.text()).toContain('Loading timeline...');
-    expect(wrapper.text()).not.toContain('Failed to fetch debug errors');
-
-    timelineRequest.reject(new Error('timeline unavailable'));
-    await flushPromises();
-
-    expect(wrapper.text()).toContain('Failed to fetch debug timeline');
-    expect(wrapper.text()).not.toContain('Failed to fetch debug errors');
-
-    await tabButton('Errors').trigger('click');
-    await flushPromises();
-
-    expect(api.getDebugErrors).toHaveBeenCalledTimes(2);
-    expect(api.getNewestEvents).toHaveBeenCalledTimes(1);
     expect(wrapper.text()).toContain('Failed to fetch debug errors');
-    expect(wrapper.text()).not.toContain('Failed to fetch debug timeline');
     wrapper.unmount();
   });
 });

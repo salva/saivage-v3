@@ -102,11 +102,11 @@ describe('read-only positive checklist', () => {
     expect(debugAgentDetailSource).toContain('useAgentTimeline(entries)');
     expect(analystChatPanelSource).not.toMatch(/state-panel|message-bubble|message-badges|pending-tool|chat-composer|composer-input|primary-btn/);
 
-    // DebugView: passive tab switching, refresh/fetch, filtering, and file-browse navigation remain.
+    // DebugView: passive tab switching, refresh/fetch, and file-browse navigation remain.
     expect(debugViewSource).toContain('@click="setTab(tab.id)"');
     expect(debugViewSource).toContain('@click="refreshOperatorControl"');
-    expect(debugViewSource).toContain('aria-label="Filter timeline event kinds"');
-    expect(debugViewSource).toContain('selectedTimelineKinds = []');
+    expect(debugViewSource).not.toContain('timeline-kind-filter');
+    expect(debugViewSource).not.toContain('selectedTimelineKinds = []');
     expect(debugViewSource).toContain('debugStore.fetchProcesses()');
     expect(debugViewSource).toContain('browseProcessLog(logEntry.value)');
     expect(debugViewSource).not.toContain('browseQuarantineItem');

@@ -119,12 +119,10 @@ describe('strict app-log publication', () => {
     ];
     const preserved = serializeGrowingEnvelope(duplicateRows, appLogEntrySchema);
     writeFileSync(path, preserved);
-    const timelineChanged = jest.fn();
-    const log = createEventLog(projectRoot, timelineChanged);
+    const log = createEventLog(projectRoot);
 
     expect(() => log.appendEvent(event('distinct', '2026-07-20T00:00:02.000Z').data)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
     expect(readFileSync(path)).toEqual(preserved);
-    expect(timelineChanged).not.toHaveBeenCalled();
     expect(() => readAppLogEntries(projectRoot)).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
     expect(() => readAppLogEntries(projectRoot, 'provider_exchange')).toThrow(/duplicate logical id 'cross-lane-duplicate'/);
   });

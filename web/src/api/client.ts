@@ -23,7 +23,6 @@ import type {
   FilesListResponse,
   FileContent,
   DebugErrorsResponse,
-  EventsResponse,
   DoctorResponse,
   McpToolsResponse,
   ProcessListResponse,
@@ -360,10 +359,6 @@ export function getDebugGraphs(
   signal?: AbortSignal,
 ): Promise<import('./types').DebugGraphsResponse> {
   return operatorRequest('debug.graphs', { signal });
-}
-
-export function getNewestEvents(): Promise<EventsResponse> {
-  return operatorRequest('events.list', { query: { selection: 'newest_tail', limit: '1000' } });
 }
 
 export function getDoctor(): Promise<DoctorResponse> {

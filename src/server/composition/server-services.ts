@@ -68,7 +68,7 @@ export async function createServerServices(input: {
   const liveSyncSocket = new LiveSyncSocket();
   terminal.registerAdmissionCloser('websocket-admission', () => liveSyncSocket.closeAdmission());
   const syncHub = new SyncHub(liveSyncSocket);
-  const eventLogger = createEventLog(projectRoot, () => syncHub.timelineChanged());
+  const eventLogger = createEventLog(projectRoot);
   const cardStore = new CardService(projectRoot, workflows, syncHub);
 
   const processRegistry = new ManagedProcessGroupRegistry();

@@ -54,7 +54,7 @@ test.describe('saivage-v3 live deployment — UI interaction coverage', () => {
     await expect(page.getByRole('heading', { name: /Card history/i })).toBeVisible();
   });
 
-  test('Debug view exposes operator, errors, timeline, mcp, processes, and Doctor tabs', async ({ page }) => {
+  test('Debug view exposes the retained tabs and no Timeline tab', async ({ page }) => {
     await page.goto('/debug');
     await expect(page.locator('.debug-tabs')).toBeVisible({ timeout: 10_000 });
     const errors: string[] = [];
@@ -62,7 +62,8 @@ test.describe('saivage-v3 live deployment — UI interaction coverage', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') errors.push(msg.text());
     });
-    for (const tab of ['Operator', 'Errors', 'Timeline', 'MCP', 'Processes', 'Supervision']) {
+    await expect(page.getByRole('button', { name: 'Timeline', exact: true })).toHaveCount(0);
+    for (const tab of ['State', 'Operator Control', 'Errors', 'Agents', 'Graphs', 'Processes', 'Doctor', 'MCP']) {
       const btn = page.locator('.debug-tab-button', { hasText: new RegExp(`^${tab}`, 'i') }).first();
       await btn.click();
       await expect(page.locator('.debug-tab-content')).toBeVisible();

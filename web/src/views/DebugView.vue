@@ -169,62 +169,6 @@
         </div>
       </div>
 
-      <div v-if="localActiveTab === 'timeline'" class="debug-tab-content">
-        <ViewState v-if="timelineLoading" state="loading" title="Loading timeline..." />
-        <ViewState
-          v-else-if="timelineError"
-          state="error"
-          title="Failed to load"
-          :message="timelineError"
-        />
-        <template v-else>
-          <div class="timeline-filter">
-            <label class="timeline-filter-label" for="timeline-kind-filter">Event kinds</label>
-            <select
-              id="timeline-kind-filter"
-              v-model="selectedTimelineKinds"
-              class="timeline-filter-select"
-              multiple
-              aria-label="Filter timeline event kinds"
-            >
-              <option v-for="kind in timelineKindOptions" :key="kind" :value="kind">
-                {{ kind }}
-              </option>
-            </select>
-            <span class="timeline-filter-help">No selection shows all event kinds.</span>
-            <button
-              v-if="selectedTimelineKinds.length > 0"
-              class="filter-chip"
-              @click="selectedTimelineKinds = []"
-            >
-              Show all
-            </button>
-          </div>
-          <ViewState
-            v-if="filteredTimeline.length === 0"
-            state="empty"
-            title="No timeline events."
-          />
-          <div v-else class="timeline-list">
-            <div v-for="event in filteredTimeline" :key="timelineKey(event)" class="tl-event">
-              <span class="tl-event-type">{{ formatEventKind(event.kind) }}</span>
-              <span v-if="event.cardId" class="tl-event-card mono">Card: {{ event.cardId }}</span>
-              <span v-if="event.goalId" class="tl-event-card mono">Goal: {{ event.goalId }}</span>
-              <span v-if="event.sessionId" class="tl-event-card mono"
-                >Session: {{ event.sessionId }}</span
-              >
-              <span class="tl-event-time">{{ fmtDate(event.timestamp) }}</span>
-              <CodeBlock
-                v-if="Object.keys(event.details).length"
-                :code="formatJson(event.details)"
-                language="json"
-                copyable
-              />
-            </div>
-          </div>
-        </template>
-      </div>
-
       <div v-if="localActiveTab === 'agents'" class="debug-tab-content">
         <section class="debug-section">
           <div class="debug-section-header operator-header">
@@ -664,7 +608,6 @@ import StatusBanner from '../components/ui/StatusBanner.vue';
 import StatusBadge from '../components/ui/StatusBadge.vue';
 import { statusForRuntimeStatus } from '../utils/status';
 import type { ProcessView } from '../api/types';
-import type { DebugTimelineItem } from '../stores/debug-read-model';
 
 const debugStore = useDebugStore();
 const liveSyncStore = useSyncStore();
@@ -678,8 +621,6 @@ const {
   errorsTotal,
   errorsLoading,
   errorsError,
-  timelineLoading,
-  timelineError,
   processes,
   processesLoading,
   processesError,
@@ -716,13 +657,10 @@ const {
 const {
   tabs,
   localActiveTab,
-  selectedTimelineKinds,
   runtimeStatusLabel,
   currentCardId,
   operatorPanelBusy,
   sortedProcesses,
-  timelineKindOptions,
-  filteredTimeline,
   errorSourceEntries,
 } = useDebugReadModel(debugStore, runtimeStore);
 
@@ -801,19 +739,11 @@ function fmtDate(ts: string): string {
 function absoluteDate(ts: string): string {
   return formatTimestamp(ts, 'absolute');
 }
-function formatEventKind(kind: string): string {
-  return kind.replace(/_/g, ' ');
-}
-function timelineKey(event: DebugTimelineItem): string {
-  return event.id;
-}
-
 let unregisterAgents: (() => void) | null = null;
 watch(
   localActiveTab,
   (tab) => {
     if (tab === 'errors') debugStore.fetchErrors().catch(() => {});
-    else if (tab === 'timeline') debugStore.fetchTimeline().catch(() => {});
     else if (tab === 'processes') debugStore.fetchProcesses().catch(() => {});
     else if (tab === 'graphs' && graphs.value === null) debugStore.fetchGraphs().catch(() => {});
     else if (tab === 'mcp') mcpStore.fetchMcpData().catch(() => {});
@@ -1029,66 +959,6 @@ onUnmounted(() => {
 .error-message {
   font-size: 13px;
   color: var(--text);
-}
-.timeline-filter {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
-  padding: 10px;
-  background: var(--surface-1);
-  border: 1px solid var(--surface-3);
-  border-radius: 6px;
-}
-.timeline-filter-label {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 600;
-}
-.timeline-filter-select {
-  min-width: 220px;
-  max-width: 340px;
-  min-height: 76px;
-  background: var(--bg);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 6px;
-  font-family: inherit;
-  font-size: 12px;
-}
-.timeline-filter-help {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.timeline-list {
-  display: flex;
-  flex-direction: column;
-}
-.tl-event {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--surface-3);
-  font-size: 12px;
-  flex-wrap: wrap;
-}
-.tl-event-type {
-  font-family: 'SF Mono', monospace;
-  font-size: 11px;
-  color: var(--accent-2);
-  font-weight: 500;
-}
-.tl-event-card {
-  font-size: 10px;
-  color: var(--text-muted);
-}
-.tl-event-time {
-  font-size: 10px;
-  color: var(--border-strong);
-  margin-left: auto;
 }
 .agent-debug-layout {
   display: grid;

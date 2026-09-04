@@ -64,7 +64,6 @@ export type FileContent = OperatorApiSuccess<'files.content'>;
 export type DebugErrorRecord = OperatorApiSuccess<'debug.errors'>['errors'][number];
 export type DebugGraph = OperatorApiSuccess<'debug.graphs'>['graphs'][number];
 export type DebugGraphsResponse = OperatorApiSuccess<'debug.graphs'>;
-export type DebugTimelineEvent = OperatorApiSuccess<'events.list'>['events'][number];
 
 export type McpServerWithTools = ContractMcpToolsResponse['servers'][number];
 export type McpToolsResponse = OperatorApiSuccess<'mcp.tools'>;
@@ -101,4 +100,3 @@ export type ChatEntriesResponse = OperatorApiSuccess<'chats.get'>;
 export type ChatResponse = OperatorApiSuccess<'chats.send'>;
 export type FilesListResponse = OperatorApiSuccess<'files.list'>;
 export type DebugErrorsResponse = OperatorApiSuccess<'debug.errors'>;
-export type EventsResponse = OperatorApiSuccess<'events.list'>;

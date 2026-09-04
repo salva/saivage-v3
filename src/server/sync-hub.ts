@@ -49,9 +49,6 @@ export class SyncHub implements FreshnessEffects {
   llmExchangeChanged(id: ConversationSessionId): void {
     this.markDirty({ resource: 'llm-exchange', id });
   }
-  timelineChanged(): void {
-    this.markDirty({ resource: 'timeline' });
-  }
   private markDirty(target: LiveSyncInvalidateTarget): void {
     try {
       const prior = this.#pending.get(targetKey(target));

@@ -14,7 +14,6 @@ const directRouteCases = [
 
 const debugTabResources = [
   'GET /api/debug/errors',
-  'GET /api/events',
   'GET /api/agents',
   'GET /api/mcp/tools',
 ] as const;
@@ -75,12 +74,22 @@ test('production browser direct loads initialize router and render route-owned b
 
   const beforeDefaultDebug = new Map(debugTabResources.map((key) => [key, rest.counts.get(key) ?? 0]));
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug', { waitUntil: 'networkidle' })));
-  await expect(page.getByTestId('route-debug')).toContainText(/Runtime State|Timeline|Errors/i);
+  await expect(page.getByTestId('route-debug')).toContainText(/Runtime State|Errors|Processes/i);
+  await expect(page.locator('.debug-tabs > .debug-tab-button')).toHaveText([
+    'State',
+    'Operator Control',
+    'Errors',
+    'Agents',
+    'Graphs',
+    'Processes',
+    'Doctor',
+    'MCP',
+  ]);
+  await expect(page.getByRole('button', { name: 'Timeline', exact: true })).toHaveCount(0);
   for (const key of debugTabResources) expect(rest.counts.get(key) ?? 0, `${key} hidden on default Debug`).toBe(beforeDefaultDebug.get(key));
 
   const selectedDebugTabs = [
     { tab: 'errors', label: 'Errors', resource: 'GET /api/debug/errors', bodyText: 'Synthetic provider failure redacted' },
-    { tab: 'timeline', label: 'Timeline', resource: 'GET /api/events', bodyText: 'runtime diagnostic' },
     { tab: 'agents', label: 'Agents', resource: 'GET /api/agents', bodyText: 'agent:analyst:global' },
     { tab: 'mcp', label: 'MCP', resource: 'GET /api/mcp/tools', bodyText: 'filesystem' },
   ] as const;

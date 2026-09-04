@@ -5,7 +5,9 @@ import { join } from 'node:path';
 
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
-import { list_processes_tool, pause_runtime, resume_runtime, start_project, stop_project } from '../../src/tools/analyst-runtime-tools.js';
+import { EventQueryService } from '../../src/application/event-query-service.js';
+import { createEventLog } from '../../src/observability/event-logger.js';
+import { list_processes_tool, pause_runtime, read_runtime_errors, read_runtime_events, resume_runtime, start_project, stop_project } from '../../src/tools/analyst-runtime-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { get_status } from '../../src/tools/analyst-card-tools.js';
 import { CardService } from '../helpers/canonical-project.js';
@@ -64,11 +66,47 @@ describe('analyst runtime tools', () => {
     const context = controlContext({ getStatus });
     await expect(resume_runtime(context, {})).resolves.toEqual({
       kind: 'failed',
-      error: 'Runtime is in error state. Inspect Debug errors/timeline and fix the underlying failure before attempting recovery.',
+      error: 'Runtime is in error state. Inspect Debug Errors and fix the underlying failure before attempting recovery.',
       data: { runtime_status: 'error' },
     });
     expect(context.runtime!.resume).not.toHaveBeenCalled();
     expect(getStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads retained events and errors through the real event query authority', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-analyst-events-'));
+    try {
+      const log = createEventLog(projectRoot);
+      log.appendEvent({ id: 'diagnostic-old', kind: 'runtime_diagnostic', timestamp: '2026-07-18T00:00:00.000Z', phase: 'planner', error_message: 'older failure' });
+      log.appendEvent({ id: 'mcp-ok', kind: 'mcp_tool_invocation', timestamp: '2026-07-18T00:00:01.000Z', server: 'tools', tool: 'inspect', success: true, duration_ms: 1 });
+      log.appendEvent({ id: 'diagnostic-new', kind: 'runtime_diagnostic', timestamp: '2026-07-18T00:00:02.000Z', phase: 'executor', error_message: 'newer failure' });
+      log.appendEvent({ id: 'mcp-failed', kind: 'mcp_tool_invocation', timestamp: '2026-07-18T00:00:03.000Z', server: 'tools', tool: 'inspect', success: false, duration_ms: 2, error: 'tool failed' });
+      const context = { projectRoot, eventQueries: new EventQueryService(projectRoot) } as ToolContext;
+
+      await expect(read_runtime_events(context, { limit: 1, kind: 'runtime_diagnostic' })).resolves.toEqual({
+        kind: 'succeeded',
+        data: {
+          total_lines: 2,
+          returned: 1,
+          parse_errors: 0,
+          events: [expect.objectContaining({ id: 'diagnostic-new', kind: 'runtime_diagnostic' })],
+        },
+      });
+      await expect(read_runtime_errors(context, { limit: 2 })).resolves.toEqual({
+        kind: 'succeeded',
+        data: {
+          total_lines: 3,
+          returned: 2,
+          parse_errors: 0,
+          errors: [
+            expect.objectContaining({ id: 'diagnostic-new', kind: 'runtime_diagnostic' }),
+            expect.objectContaining({ id: 'mcp-failed', kind: 'mcp_tool_invocation', success: false }),
+          ],
+        },
+      });
+    } finally {
+      rmSync(projectRoot, { recursive: true, force: true });
+    }
   });
 
   it('projects process logs as canonical work URLs', async () => {

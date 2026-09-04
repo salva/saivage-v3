@@ -54,10 +54,9 @@ describe('ContractRuntime app-log ownership', () => {
     expect(handler).not.toHaveBeenCalled();
   });
 
-  it('appends an actionable error, then hints, then returns the existing contract failure', async () => {
+  it('appends an actionable error and returns the existing contract failure', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'contract-runtime-log-')); roots.push(projectRoot);
-    const trace: string[] = [];
-    const eventLogger = createEventLog(projectRoot, () => { trace.push('hint'); });
+    const eventLogger = createEventLog(projectRoot);
     const fastify = Fastify({ logger: false });
     new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: contract }, {
       operation: () => ({ body: { ok: false } }),
@@ -66,9 +65,9 @@ describe('ContractRuntime app-log ownership', () => {
     await fastify.close();
 
     expect(response.statusCode).toBe(500);
+    expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
     const events = readAppLogEntries(projectRoot, 'event').map((entry) => entry.data);
     expect(events).toEqual([expect.objectContaining({ kind: 'runtime_actionable_error', actionable_error: expect.objectContaining({ code: 'contract_response_violation' }) })]);
-    expect(trace).toEqual(['hint']);
   });
 
   it.each<[string, number, unknown]>([

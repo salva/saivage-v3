@@ -183,8 +183,7 @@ export class SyncClient {
       if (registration?.resource === 'cards') registration.onInvalidate(frame);
       return;
     }
-    if (frame.resource === 'runtime' || frame.resource === 'timeline')
-      this.refetchResource(frame.resource);
+    if (frame.resource === 'runtime') this.refetchResource(frame.resource);
   }
 
   private handleResourceOpen(): void {

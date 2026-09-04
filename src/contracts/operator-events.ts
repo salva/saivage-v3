@@ -12,7 +12,7 @@ export const WsEnvelopeSchema = z.object({
   content: z.record(z.string(), z.unknown()),
 });
 
-export const LiveSyncUnscopedResourceSchema = z.enum(['runtime', 'timeline']);
+export const LiveSyncUnscopedResourceSchema = z.literal('runtime');
 export const LiveSyncCardRecordNameSchema = recordNameSchema;
 export const LiveSyncCardInvalidateFrameSchema = z.union([
   z

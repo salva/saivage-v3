@@ -18,7 +18,7 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
   it('retains diagnostic tabs and refresh controls while removing mutation controls', () => {
     expect(readModelSource).toContain("label: 'State'");
     expect(readModelSource).toContain("label: 'Errors'");
-    expect(readModelSource).toContain("label: 'Timeline'");
+    expect(readModelSource).not.toContain("label: 'Timeline'");
     expect(readModelSource).toContain("label: 'Processes'");
     expect(readModelSource).toContain("label: 'Graphs'");
     expect(source).toContain('useDebugReadModel');
@@ -48,7 +48,7 @@ describe('DebugView S06 diagnostic-only integration contract', () => {
     expect(source).toContain(':key="`${effectiveAgentSessionId}:${selectedAgentDebugKind}`"');
     expect(debugStoreSource).not.toMatch(/listAgentSessions|getAgentConversation|getAgentLlmExchange/);
     expect(debugStoreSource).toContain('async function fetchErrors()');
-    expect(debugStoreSource).toContain('async function fetchTimeline()');
+    expect(debugStoreSource).not.toContain('async function fetchTimeline()');
     expect(debugStoreSource).not.toContain('refreshObservability');
     expect(source).not.toContain('startPolling');
   });
