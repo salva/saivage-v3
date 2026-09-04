@@ -80,7 +80,7 @@ export function assertPreviewRequestFailures(
   options: { filesMetadataListDisposal?: boolean } = {},
 ) {
   const origin = new URL(baseURL).origin;
-  const declared = declaredPhases.flatMap((phase) => [
+  const declared = declaredPhases.flatMap<Cancellation>((phase) => [
     { phase, method: 'GET', origin, path: '/api/state', error: 'net::ERR_ABORTED' },
     { phase, method: 'GET', origin, path: '/api/runtime/status', error: 'net::ERR_ABORTED' },
   ]);
