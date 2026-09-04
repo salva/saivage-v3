@@ -62,10 +62,17 @@ export function hasContentPolicyEvidence(error: Record<string, unknown>): boolea
   return message !== undefined && CONTENT_POLICY_PHRASES.some((phrase) => message.includes(phrase));
 }
 
+export type DirectProviderFailureSource =
+  | { kind: 'non_ok_http_response'; responseStatus: number }
+  | {
+      kind: 'opened_response_terminal';
+      responseStatus: number;
+      embeddedStatus: number | undefined;
+    };
+
 export function classifyDirectProviderFailure(args: {
   provider: string;
-  status?: number;
-  responseStatus: number;
+  source: DirectProviderFailureSource;
   error?: Record<string, unknown>;
   allowedContextParams: readonly string[];
   message: string;
@@ -73,19 +80,21 @@ export function classifyDirectProviderFailure(args: {
   retryAfterMs?: number;
   resetsAt?: string;
 }): LlmTransportFailure | undefined {
-  const { provider, error, responseStatus } = args;
-  const status = args.status ?? responseStatus;
-  if (args.status === 401 || (args.status === undefined && responseStatus === 401)) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
-  if (args.status === 429 || responseStatus === 429 || args.retryAfterMs !== undefined || args.resetsAt !== undefined || (error !== undefined && directToken(error, RATE_LIMIT_TOKENS))) {
+  const { provider, error, source } = args;
+  const responseStatus = source.responseStatus;
+  const embeddedStatus = source.kind === 'opened_response_terminal' ? source.embeddedStatus : undefined;
+  if (responseStatus === 401 || embeddedStatus === 401) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
+  if (responseStatus === 429 || embeddedStatus === 429 || args.retryAfterMs !== undefined || args.resetsAt !== undefined || (error !== undefined && directToken(error, RATE_LIMIT_TOKENS))) {
     return { kind: 'rate_limit', provider, status: responseStatus, message: args.message, ...(args.retryAfterMs !== undefined ? { retryAfterMs: args.retryAfterMs } : {}), ...(args.resetsAt !== undefined ? { resetsAt: args.resetsAt } : {}) };
   }
-  if ((args.status !== undefined && args.status >= 500) || responseStatus >= 500 || (error !== undefined && directToken(error, TRANSIENT_TOKENS))) return { kind: 'server_transient', provider, status: responseStatus, message: args.message };
-  const context = error !== undefined && isInputContextErrorObject(error, args.allowedContextParams);
+  if ((embeddedStatus !== undefined && embeddedStatus >= 500) || responseStatus >= 500 || (error !== undefined && directToken(error, TRANSIENT_TOKENS))) return { kind: 'server_transient', provider, status: responseStatus, message: args.message };
+  const contextEligible = source.kind === 'opened_response_terminal' || responseStatus === 400;
+  const context = contextEligible && error !== undefined && isInputContextErrorObject(error, args.allowedContextParams);
   const content = error !== undefined && hasContentPolicyEvidence(error);
   if (context && content) return { kind: 'provider_protocol_error', provider, status: responseStatus, message: `Ambiguous provider failure contains both input-context and content-policy evidence.`, bodyPreview: args.providerResponse.slice(0, 500) };
   if (context) return { kind: 'input_context_exhausted', provider, status: responseStatus, message: args.message };
-  if (content) return { kind: 'content_policy', provider, status, message: args.message, providerResponse: args.providerResponse };
-  if (args.status === 403 || responseStatus === 403 || (error !== undefined && directToken(error, AUTH_TOKENS))) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
+  if (content) return { kind: 'content_policy', provider, status: responseStatus, message: args.message, providerResponse: args.providerResponse };
+  if (responseStatus === 403 || embeddedStatus === 403 || (error !== undefined && directToken(error, AUTH_TOKENS))) return { kind: 'auth_permanent', provider, status: responseStatus, message: args.message };
   return undefined;
 }
 
@@ -95,6 +104,7 @@ export function classifyHttpFailure(
   bodyText: string,
   ctx: ClassifierContext,
 ): LlmTransportFailure {
+  if (response.ok) throw new Error('classifyHttpFailure requires a non-OK HTTP response.');
   const status = response.status;
   const provider = ctx.provider;
   const d = detail(bodyText);
@@ -102,9 +112,8 @@ export function classifyHttpFailure(
   const error = body === undefined ? undefined : directObject(body['error']);
   const classified = classifyDirectProviderFailure({
     provider,
-    status,
-    responseStatus: status,
-    error: status >= 400 ? error : undefined,
+    source: { kind: 'non_ok_http_response', responseStatus: status },
+    error,
     allowedContextParams: transport === 'chat' ? ['input', 'messages'] : ['input'],
     message: `LLM request failed (HTTP ${status})${d}`,
     providerResponse: bodyText,

@@ -60,7 +60,7 @@ function nonCompletedFailure(response: Record<string, unknown>, ctx: ParserConte
   if (status === 'cancelled') return new LlmRequestError({ kind: 'server_transient', provider: ctx.provider, status: ctx.responseStatus, message: 'OpenAI Responses provider cancelled response before completion' });
   if (status === 'failed') {
     const error = objectField(response, 'error');
-    const classified = classifyDirectProviderFailure({ provider: ctx.provider, responseStatus: ctx.responseStatus, error: ctx.responseStatus === 200 ? error : undefined, allowedContextParams: ['input'], message: providerErrorMessage(response), providerResponse });
+    const classified = classifyDirectProviderFailure({ provider: ctx.provider, source: { kind: 'opened_response_terminal', responseStatus: ctx.responseStatus, embeddedStatus: undefined }, error: ctx.responseStatus === 200 ? error : undefined, allowedContextParams: ['input'], message: providerErrorMessage(response), providerResponse });
     if (classified) return new LlmRequestError(classified);
     return new LlmRequestError({ kind: 'server_transient', provider: ctx.provider, status: ctx.responseStatus, message: providerErrorMessage(response) });
   }

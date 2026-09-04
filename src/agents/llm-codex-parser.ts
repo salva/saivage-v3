@@ -148,7 +148,7 @@ function createCodexStreamError(prefix: string, payload: Record<string, unknown>
   const message = `${prefix}: ${codePrefix}${redactTextForOutbound(rawMessage)}`;
   const embeddedStatus = statusFromCodexPayload(payload, error);
   const retryAfterMs = retryAfterMsFromCodexPayload(payload, error);
-  const classified = classifyDirectProviderFailure({ provider: 'openai-codex', status: embeddedStatus, responseStatus, error, allowedContextParams: ['input'], message, providerResponse, retryAfterMs });
+  const classified = classifyDirectProviderFailure({ provider: 'openai-codex', source: { kind: 'opened_response_terminal', responseStatus, embeddedStatus }, error, allowedContextParams: ['input'], message, providerResponse, retryAfterMs });
   if (classified) return new LlmRequestError(classified);
   return new LlmRequestError({ kind: 'provider_protocol_error', provider: 'openai-codex', status: responseStatus, message, bodyPreview: JSON.stringify(payload).slice(0, 500) });
 }

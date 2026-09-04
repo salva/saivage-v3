@@ -39,6 +39,7 @@ describe('OpenAI Codex SSE error classification', () => {
   it('preserves other structured SSE failure classes while retaining opened response status', () => {
     expect(failureFor({ type: 'error', error: { code: 'server_error', message: 'server failed' } })).toMatchObject({ kind: 'server_transient', status: 200 });
     expect(failureFor({ type: 'response.failed', response: { status: 503, error: { message: 'unavailable' } } })).toMatchObject({ kind: 'server_transient', status: 200 });
+    expect(failureFor({ type: 'error', status: 429, error: { message: 'slow down' } })).toMatchObject({ kind: 'rate_limit', status: 200 });
     expect(failureFor({ type: 'error', retry_after: 2, error: { code: 'rate_limit_exceeded', message: 'slow down' } }, 201)).toMatchObject({ kind: 'rate_limit', status: 201, retryAfterMs: 2000 });
     expect(failureFor({ type: 'error', retry_after_ms: 1250.4, error: { code: 'rate_limit_exceeded', message: 'slow down' } }, 201)).toMatchObject({ kind: 'rate_limit', status: 201, retryAfterMs: 1250 });
     expect(failureFor({ type: 'error', status: 401, error: { code: 'unauthorized', message: 'bad auth' } })).toMatchObject({ kind: 'auth_permanent', status: 200 });
@@ -71,9 +72,11 @@ describe('OpenAI Codex SSE error classification', () => {
     expect(failureFor(event)).toMatchObject({ kind: 'provider_protocol_error', status: 200 });
   });
 
-  it('classifies content evidence with exact normalized event data',()=>{
-    const event={type:'response.failed',response:{status:'failed',error:{code:'content_filter',message:'content policy refusal'}}};
-    const failure=failureFor(event);
-    expect(failure).toMatchObject({kind:'content_policy',providerResponse:JSON.stringify(event)});
+  it('classifies content before embedded 403 auth with actual status and exact normalized event data', () => {
+    const event = { type: 'error', status: 403, error: { code: 'content_filter', message: 'content policy refusal' } };
+    const dataText = JSON.stringify(event);
+    const failure = failureFor(event);
+    expect(failure).toMatchObject({ kind: 'content_policy', status: 200, providerResponse: dataText });
+    expect(failure).toHaveProperty('providerResponse', dataText);
   });
 });

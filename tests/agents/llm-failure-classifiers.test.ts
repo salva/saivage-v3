@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
 import {
+  classifyDirectProviderFailure,
   classifyHttpFailure,
   classifyTransportFailure,
   type LlmHttpTransport,
@@ -41,7 +42,6 @@ describe('strict HTTP input-context classification', () => {
   });
 
   it.each<[number, unknown]>([
-    [200, { error: { code: 'context_length_exceeded' } }],
     [429, { error: { code: 'context_length_exceeded' } }],
     [500, { error: { code: 'context_length_exceeded' } }],
     [400, { error: 'context_length_exceeded' }],
@@ -64,8 +64,18 @@ describe('strict HTTP input-context classification', () => {
     expect(classify('responses', status, JSON.stringify(body)).kind).not.toBe('input_context_exhausted');
   });
 
-  it.each([413,422])('classifies exact context evidence independently of an otherwise unmatched HTTP %s status',(status)=>{
-    expect(classify('responses',status,JSON.stringify({error:{code:'context_length_exceeded'}})).kind).toBe('input_context_exhausted');
+  it.each([413, 422])('rejects exact context evidence for non-OK HTTP %s outside the exact-400 boundary', (status) => {
+    expect(classify('responses', status, JSON.stringify({ error: { code: 'context_length_exceeded' } })).kind).toBe('provider_protocol_error');
+  });
+
+  it.each([413, 422])('classifies direct content evidence rather than ambiguity outside the exact-400 boundary for HTTP %s', (status) => {
+    expect(classify('responses', status, JSON.stringify({ error: { code: 'context_length_exceeded', message: 'content policy refusal' } })))
+      .toMatchObject({ kind: 'content_policy', status });
+  });
+
+  it('fails fast when the non-OK HTTP classifier receives an OK response', () => {
+    expect(() => classify('responses', 200, JSON.stringify({ error: { code: 'context_length_exceeded' } })))
+      .toThrow('classifyHttpFailure requires a non-OK HTTP response.');
   });
 
   it.each(['', 'null', '[]', '"context_length_exceeded"', '{bad'])('rejects malformed or non-object HTTP body %p', (body) => {
@@ -81,6 +91,24 @@ describe('strict HTTP input-context classification', () => {
 });
 
 describe('common HTTP and transport classification', () => {
+  it('retains actual opened status and exact evidence when content precedes embedded 403 auth', () => {
+    const providerResponse = '{"distinctive":"terminal-content-evidence"}';
+    expect(classifyDirectProviderFailure({
+      provider: 'openai-codex',
+      source: { kind: 'opened_response_terminal', responseStatus: 200, embeddedStatus: 403 },
+      error: { code: 'content_filter', message: 'content policy refusal' },
+      allowedContextParams: ['input'],
+      message: 'terminal failure',
+      providerResponse,
+    })).toEqual({
+      kind: 'content_policy',
+      provider: 'openai-codex',
+      status: 200,
+      message: 'terminal failure',
+      providerResponse,
+    });
+  });
+
   it.each(['cyber_policy','content_filter'])('classifies direct content code %s and preserves exact response evidence',(code)=>{
     const body=JSON.stringify({error:{code,message:'refused'}});
     expect(classify('responses',400,body)).toMatchObject({kind:'content_policy',providerResponse:body,status:400});
