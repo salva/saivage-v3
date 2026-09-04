@@ -102,7 +102,6 @@ function harness(args: {
   const input = {
     card,
     activationId: 'activation-1',
-    alreadyStabilizedAgents: new Set(),
     notificationDelivery: { selectNotifications, removeNotifications: () => undefined },
     claimResult: () => { events.push('claim-result'); },
   };

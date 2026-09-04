@@ -1,4 +1,4 @@
-import type { AgentName, CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
+import type { CardNotification, CardRecord, CardStatus } from '../../schemas/index.js';
 import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { CardProcessEntry } from '../card-process/card-process-config.js';
 import type { ChildInvocationLease } from './child-invocation-wait.js';
@@ -11,7 +11,6 @@ export interface CardActivationInput {
   caller: CardActivationCaller;
   entry: CardProcessEntry;
   notificationDelivery: CardNotificationDeliveryPort;
-  alreadyStabilizedAgents: ReadonlySet<AgentName>;
   claimResult(): void;
 }
 
@@ -47,7 +46,6 @@ export class CardActivationOwner {
   childCardId: string | null = null;
   cancellationReason: CardCancelReason | null = null;
   cancellationSettlement: Promise<CardCancellationResult> | null = null;
-  readonly alreadyStabilizedAgents: ReadonlySet<AgentName>;
 
   constructor(args: {
     card: CardRecord;
@@ -56,7 +54,6 @@ export class CardActivationOwner {
     entry: CardProcessEntry;
     phase: Extract<CardActivationOwnerPhase, 'prepared_root' | 'child_admission'>;
     parentRelationship?: ParentActivationRelationship;
-    alreadyStabilizedAgents?: ReadonlySet<AgentName>;
   }) {
     this.cardId = args.card.id;
     this.processor = args.processor;
@@ -65,7 +62,6 @@ export class CardActivationOwner {
     this.phase = args.phase;
     this.cachedStatus = args.card.lifecycle.status;
     this.parentRelationship = args.parentRelationship ?? null;
-    this.alreadyStabilizedAgents = args.alreadyStabilizedAgents ?? new Set();
     void this.settlement.promise.catch(() => undefined);
   }
 }

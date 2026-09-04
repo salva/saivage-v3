@@ -106,7 +106,6 @@ export class CardProcessActor extends BaseActor {
     this.#activationSettled = false;
     this.#preJoinFailure = null;
     this.#operationTracker = new ActivationOperationTracker();
-    this.#runner.beginActivation();
     this.#acceptedByNode.clear();
     this.#result = deferred<ProcessOutcome>();
     this.parkedSendEvent(`activate:${input.entry}`);

@@ -58,7 +58,6 @@ function harness(failure: FailureMode) {
   const input = {
     card,
     activationId: 'activation-1',
-    alreadyStabilizedAgents: new Set(),
     notificationDelivery: { selectNotifications, removeNotifications },
     claimResult: () => { events.push('claim-result'); },
   };

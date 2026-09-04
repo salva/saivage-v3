@@ -97,4 +97,17 @@ describe('source-derived publication owner inventory', () => {
   it('has no obsolete publication errors or retained process writer anywhere in production', () => {
     expect(allSource).not.toMatch(/AppLogPublicationError|rethrowAppLogPublicationError|RecordAcceptanceOutcomeUnknown|createWriteStream|WriteStream|streamClose/);
   });
+
+  it('keeps corrective conversation recovery solely in Supervisor explicit Run', () => {
+    const recoveryModule = 'src/runtime/actors/conversation-recovery.ts';
+    const correctiveCalls = sourceFiles
+      .filter((path) => relativePath(path) !== recoveryModule)
+      .flatMap((path) => {
+        const count = [...readFileSync(path, 'utf8').matchAll(/\bstabilizeAgentSession\s*\(/gu)].length;
+        return count === 0 ? [] : [`${relativePath(path)}:${count}`];
+      });
+
+    expect(correctiveCalls).toEqual(['src/runtime/actors/supervisor-runtime-api.ts:1']);
+    expect(allSource).not.toMatch(/alreadyStabilizedAgents|#stabilizedAgents|\bbeginActivation\s*\(/u);
+  });
 });

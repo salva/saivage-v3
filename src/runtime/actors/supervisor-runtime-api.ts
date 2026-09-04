@@ -146,9 +146,8 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     if (!root || root.id !== PROJECT_CARD_ID || root.type !== 'project') throw new Error(`Root card record '${PROJECT_CARD_ID}' is missing.`);
     const entry = runningChain.length > 0 ? 'STOPPED' : cardProcessEntryForStatus(root.lifecycle.status);
     if (entry === null) throw new Error(`Project card in status '${root.lifecycle.status}' cannot start.`);
-    const stabilized = runningChain.length > 0 ? new Set(eligibleAgents(this.behavior.workflows, root)) : new Set<import('../../schemas/index.js').AgentName>();
     const runIdentity = {};
-    const owner = this.createOwner(root, entry, 'prepared_root', undefined, stabilized);
+    const owner = this.createOwner(root, entry, 'prepared_root');
     const launch = Object.freeze({ owner, runIdentity }) as SupervisorLaunchPlan;
     this.ownershipTransition(true, () => {
       this.runIdentity = runIdentity;
@@ -299,14 +298,14 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     lease.markRejected(); lease.deliverInterruption(error); return lease.activation as Promise<never>;
   }
 
-  private createOwner(card: CardRecord, entry: CardProcessEntry, phase: 'prepared_root' | 'child_admission', relationship?: CardActivationOwner['parentRelationship'], stabilized?: ReadonlySet<import('../../schemas/index.js').AgentName>): CardActivationOwner {
+  private createOwner(card: CardRecord, entry: CardProcessEntry, phase: 'prepared_root' | 'child_admission', relationship?: CardActivationOwner['parentRelationship']): CardActivationOwner {
     const activationId = randomUUID();
     const parentControl = this.boundParentControl(card.id, activationId);
     const process = this.behavior.workflows.cardTypes.get(card.type);
     if (!process) throw new Error(`No compiled workflow for card type '${card.type}'.`);
     const processor = new CardProcessActor({ projectRoot: this.behavior.projectRoot, cardId: card.id, process, workflows:this.behavior.workflows, store: this.behavior.actorStore, parentControl, notifyCard: (id, notification) => this.notifyCard(id, notification), provider: this.behavior.provider, conversations: this.behavior.conversations, processRunner: this.#processRunner, runtimeProcessRootScope: this.#runtimeProcessRootScope, promptTemplates: this.behavior.promptTemplates, runtimeProjectionChanged: () => { this.ownershipInvalidated(); this.behavior.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id }); }, onActorMainFailure: (error) => this.onProcessorActorMainFailure(card.id, activationId, error), fatalPort: this.behavior.fatalPort, gate: this.runtimeGate, mcpToolInvocation: this.behavior.mcpToolInvocation, compactor: this.behavior.compactor, compactionConfig: this.behavior.compactionConfig, summarizerProvider: this.behavior.summarizerProvider });
     processor.start();
-    return new CardActivationOwner({ card, processor, activationId, entry, phase, parentRelationship: relationship ?? undefined, alreadyStabilizedAgents: stabilized });
+    return new CardActivationOwner({ card, processor, activationId, entry, phase, parentRelationship: relationship ?? undefined });
   }
 
   private activateProcessor(owner: CardActivationOwner): void {
@@ -315,7 +314,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     const caller = owner.parentRelationship === null
       ? { kind: 'root' as const }
       : { kind: 'parent' as const, cardId: owner.parentRelationship.parentCardId, sessionId: owner.parentRelationship.invocation.identity.sessionId };
-    const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller, entry: owner.entry, alreadyStabilizedAgents: owner.alreadyStabilizedAgents, notificationDelivery: { selectNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications; }, removeNotifications: (ids: readonly string[]) => { this.requireOwnerAuthority(owner); this.behavior.actorStore.removeNotifications(owner.cardId, [...ids]); } }, claimResult: () => this.claimResult(owner) };
+    const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller, entry: owner.entry, notificationDelivery: { selectNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications; }, removeNotifications: (ids: readonly string[]) => { this.requireOwnerAuthority(owner); this.behavior.actorStore.removeNotifications(owner.cardId, [...ids]); } }, claimResult: () => this.claimResult(owner) };
     void owner.processor.activate(input, owner.abortController.signal).then((outcome) => this.settleResult(owner, outcome), (error) => {
       if (this.halt?.owners.includes(owner) || owner.terminalWinner === 'cancel') return;
       if (error instanceof PublicationOutcomeUnknownError) {

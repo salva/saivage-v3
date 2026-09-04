@@ -12,7 +12,6 @@ import { readConversation, type ConversationFileContext } from '../../persistenc
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
 import { cardBootstrapForPrompt } from '../records/card-bootstrap.js';
 import { appendActivationMarker, appendUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
-import { stabilizeAgentSession } from './conversation-recovery.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from './compaction/compactor.js';
 import { cleanupInvocationSurface, EMIT_RESULT_POLICY_TEMPLATE, executedNoneSettlement, invokeToolForLlm, syntheticToolSettlement, surfaceToolDefinitions, type InvocationSurface, type ToolSettlementInput } from '../../tools/invocation.js';
 import { buildPreparedInvocationContext, compileInvocationToolContract, type ContextBlock } from './context/context-blocks.js';
@@ -62,10 +61,7 @@ export interface AgentNodeExecutionDeps {
 }
 
 export class AgentNodeExecution {
-  readonly #stabilizedAgents = new Set<AgentName>();
   constructor(readonly deps: AgentNodeExecutionDeps, readonly host: AgentNodeExecutionHost) {}
-
-  beginActivation(): void { this.#stabilizedAgents.clear(); }
 
   async execute(args: { process: CompiledCardTypeWorkflow; stateId: string; node: CompiledNodeContract; transition: NodeTransition; input: CardActivationInput; signal: AbortSignal; nodeOrdinal: number }): Promise<NodeExecutionResult> {
     const { process, stateId, node, input, signal } = args;
@@ -218,10 +214,6 @@ export class AgentNodeExecution {
   }
 
   private prepareNodeEntry(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, reviewerPair: ReviewerContextPair | null): void {
-    if (!this.#stabilizedAgents.has(node.agent.name)) {
-      if (!input.alreadyStabilizedAgents.has(node.agent.name)) stabilizeAgentSession({ sessionId, conversations: this.deps.conversations, terminalToolNames: new Set([TERMINAL_RESULT_TOOL_NAME]) });
-      this.#stabilizedAgents.add(node.agent.name);
-    }
     appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', agent_name: node.agent.name, card_id: this.deps.cardId, input_id: inputId });
     const roleContext: ProviderVisibleUserContextMessage[] = [];
     const selected = input.notificationDelivery.selectNotifications();
