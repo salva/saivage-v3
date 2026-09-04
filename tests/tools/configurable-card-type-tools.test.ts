@@ -55,24 +55,33 @@ describe('configuration-bound card-type tool vocabulary',()=>{
     const workflows=compileProjectWorkflows(config);
     const binder=getAnalystControlToolBinders().find((candidate)=>candidate.name==='create_card')!;
     const tool=binder.bind({cardTypeVocabulary:workflows.cardTypeVocabulary} as ToolContext);
-    expect(tool.inputSchema.safeParse({type:'project',parent:null,title:'root',bootstrap_content:'root'}).success).toBe(true);
-    expect((surfaceToolDefinitions({agentName:'analyst',tools:new Map([['create_card',tool]]),providers:[]})[0]!.function.parameters as any).properties.type.enum).toEqual(['project']);
+    expect(tool.inputSchema.safeParse({type:'project',parent:'project',title:'root',bootstrap_content:'root'}).success).toBe(true);
+    const parameters=surfaceToolDefinitions({agentName:'analyst',tools:new Map([['create_card',tool]]),providers:[]})[0]!.function.parameters as any;
+    expect(parameters.properties.type.enum).toEqual(['project']);
+    expect(parameters.required).toContain('parent');
+    expect(parameters.properties.parent).toMatchObject({anyOf:[{const:'project'},{type:'string'}]});
+    expect(JSON.stringify(parameters.properties.parent)).not.toContain('"type":"null"');
   });
 
-  it('keeps project admission in the mutation owner and rejects unknown configured membership before mutation',async()=>{
+  it('requires a valid explicit Analyst parent before mutation and keeps project admission in the mutation owner',async()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'analyst-card-type-admission-'));
     try{
       const create=jest.fn(()=>({kind:'denied' as const,reason:'Root project card already exists'}));
       const context={projectRoot,actor:'analyst',surface:'web-chat',cardTypeVocabulary:['project','custom-leaf'],store:{} as never,interventionReadiness:{assertInterventionReady(){}},analystMutations:{cards:{create}}} as unknown as ToolContext;
       const surface=buildInvocationSurfaceFixture('analyst',[bindToolProvider('analyst',[getAnalystControlToolBinders().find((candidate)=>candidate.name==='create_card')!],context)]);
       const base={title:'root',bootstrap_content:'root'};
-      for(const parent of [undefined,null,'project']){
-        const input=parent===undefined?{...base,type:'project'}:{...base,type:'project',parent};
-        await expect(invokeTestTool(surface,'create_card',input)).resolves.toMatchObject({success:false,error:expect.stringContaining('Root project card already exists')});
+      for(const input of [
+        {...base,type:'custom-leaf'},
+        {...base,type:'custom-leaf',parent:null},
+        {...base,type:'custom-leaf',parent:'not-a-card-id'},
+      ]){
+        await expect(invokeTestTool(surface,'create_card',input)).rejects.toThrow();
       }
-      expect(create).toHaveBeenCalledTimes(3);
+      expect(create).not.toHaveBeenCalled();
+      await expect(invokeTestTool(surface,'create_card',{...base,type:'project',parent:'project'})).resolves.toMatchObject({success:false,error:expect.stringContaining('Root project card already exists')});
+      expect(create).toHaveBeenCalledTimes(1);
       create.mockClear();
-      await expect(invokeTestTool(surface,'create_card',{type:'unconfigured',title:'unknown',bootstrap_content:'unknown'})).rejects.toThrow(/unconfigured/);
+      await expect(invokeTestTool(surface,'create_card',{type:'unconfigured',parent:'project',title:'unknown',bootstrap_content:'unknown'})).rejects.toThrow(/unconfigured/);
       expect(create).not.toHaveBeenCalled();
     }finally{rmSync(projectRoot,{recursive:true,force:true});}
   });

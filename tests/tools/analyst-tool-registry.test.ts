@@ -52,6 +52,8 @@ describe('registered Analyst card mutation catalog', () => {
       title: 'Create once',
       bootstrap_content: 'Type is selected at creation.',
     }).success).toBe(true);
+    expect(registered.get('create_card')!.inputSchema.safeParse({ type: 'code', title: 'Missing parent', bootstrap_content: 'Strict input.' }).success).toBe(false);
+    expect(registered.get('create_card')!.inputSchema.safeParse({ type: 'code', parent: null, title: 'Null parent', bootstrap_content: 'Strict input.' }).success).toBe(false);
     expect(registered.get('create_card')!.inputSchema.safeParse({ type: 'code', parent: 'project', title: 'No legacy status', bootstrap_content: 'Strict input.', status: 'backlog' }).success).toBe(false);
 
     const postCreationInputs = new Map<string, Record<string, unknown>>([

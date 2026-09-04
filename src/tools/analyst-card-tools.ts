@@ -6,13 +6,12 @@ import {
   emptyInput,
 } from './tool-definition.js';
 import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
-import { defaultParentForCreate, toolFailureFromError } from './analyst-tool-helpers.js';
+import { toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
 import { toolSucceeded } from '../contracts/tool-result.js';
 
 export async function create_card(ctx: ToolContext, params: AnalystCreateCardInput, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {
-  const parent = params.parent !== undefined ? params.parent : defaultParentForCreate(ctx.store, params.type) ?? null;
-  const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: params.type, parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: params.urgency, depends_on: params.depends_on, related: params.related };
+  const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: params.type, parent: params.parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: params.urgency, depends_on: params.depends_on, related: params.related };
   return runAuditedAnalystTool(ctx, input, { action: 'card.create', safety_class: 'low', target_kind: 'card', getTargetId: () => null, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, value, mutation) => mutation.services.cards.create(value) }, signal);
 }
 
@@ -39,7 +38,7 @@ export async function reopen_card(ctx: ToolContext, params: z.infer<typeof analy
 }
 
 export const analystCardToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([
-  defineToolBinder({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and an existing non-running parent. Every created child receives backlog lifecycle.`, resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: (ctx) => createAnalystCreateCardInputSchema(ctx.cardTypeVocabulary), executor: (ctx, args, signal) => create_card(ctx, args, signal) }),
+  defineToolBinder({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and requires an explicit existing non-running parent card ID argument. Every created child receives backlog lifecycle.`, resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: (ctx) => createAnalystCreateCardInputSchema(ctx.cardTypeVocabulary), executor: (ctx, args, signal) => create_card(ctx, args, signal) }),
   defineToolBinder({ name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => analystReorderChildInputSchema, executor: (ctx, args, signal) => reorder_child(ctx, args, signal) }),
   defineToolBinder({ name: 'reopen_card', description: 'Reopen a done, failed, or blocked card without editing its content while Analyst intervention is ready (runtime stopped or settled paused). Changes the target and eligible resting ancestors through normal changed propagation.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => analystReopenCardInputSchema, executor: (ctx, args, signal) => reopen_card(ctx, args, signal) }),
   defineToolBinder({ name: 'get_status', description: 'Get the overall project status.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => emptyInput, executor: (ctx, args) => executeToolAction('observational_query', () => get_status(ctx, args)) }),

@@ -10,6 +10,7 @@ import { toCardView } from './read-models/card-view.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import type { AnalystPreNetworkAdmission } from '../contracts/record-mutation.js';
 import { mutateRecord, preflightAnalystRecordWrite } from './record-mutation-service.js';
+import type { CardId } from '../schemas/card-id.js';
 
 export type AnalystMutationOutcome =
   | { kind: 'denied'; reason: string }
@@ -18,7 +19,7 @@ export type AnalystMutationOutcome =
 
 export interface CreateAnalystCardInput {
   type: CardTypeName;
-  parent: string | null;
+  parent: CardId;
   title: string;
   bootstrap_content: string;
   tags?: string[];
@@ -86,8 +87,6 @@ class AnalystCardMutationImplementation implements AnalystCardMutationService {
 
   create(input: CreateAnalystCardInput): AnalystMutationOutcome {
     const parent = input.parent;
-    if (input.type === 'project' && parent === null) return denied('Root project card already exists');
-    if (parent === null) return denied('non-project card requires a parent');
     const parentCard = this.store.read(parent);
     if (!parentCard) return denied(`parent '${parent}' does not exist`);
     if (!canCreateChildInStatus(parentCard.lifecycle.status) || parentCard.lifecycle.status === 'running') return denied('wrong_state');

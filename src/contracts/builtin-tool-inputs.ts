@@ -30,7 +30,7 @@ const cardTypeEnum = (cardTypeVocabulary: readonly CardTypeName[]) => z.enum(car
 
 export const createAnalystCreateCardInputSchema = (cardTypeVocabulary: readonly CardTypeName[]) => z.object({
   type: cardTypeEnum(cardTypeVocabulary).describe(`The non-project card type. Allowed values: ${cardTypeVocabulary.join(', ')}.`),
-  parent: z.string().nullable().optional().describe("The ID of the parent card. Use null only when creating the root project card; use 'project' for top-level goals."),
+  parent: cardIdSchema.describe('The exact existing parent card ID for the new child.'),
   title: z.string().describe('A short title.'),
   bootstrap_content: z.string().trim().min(1).describe('Non-empty Markdown content for the child type configured bootstrap record.'),
   tags: z.array(z.string().describe('A tag string')).optional().describe('Optional tags.'),
