@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { ConfigGetResponseSchema } from '../../src/contracts/operator-api-config.js';
+import { configOperatorApiContracts, ConfigGetResponseSchema } from '../../src/contracts/operator-api-config.js';
 import { buildConfigOperatorContractHandlers } from '../../src/server/routes/operator-config-handlers.js';
 import { recordControlAction } from '../../src/persistence/control-action-audit.js';
 import { createTestConfigAuthority } from '../helpers/project-config.js';
@@ -63,7 +63,14 @@ describe('controlActions.list projection', () => {
         providerRoutingReadModelProvider: () => { throw new Error('providers.list is not under test'); },
       });
 
-      const response = handlers['controlActions.list']({ query: { card_id: 'card-a', since: '2026-01-03T00:00:00.000Z' } });
+      const response = handlers['controlActions.list']({
+        contract: configOperatorApiContracts['controlActions.list'],
+        params: undefined,
+        query: { card_id: 'card-a', since: '2026-01-03T00:00:00.000Z' },
+        body: undefined,
+        request: {} as never,
+        reply: { raw: { once: () => undefined }, header: () => undefined },
+      });
       if (response instanceof Promise) throw new Error('controlActions.list unexpectedly returned a Promise');
       expect(response.body).toEqual({ control_actions: [expect.objectContaining({ id: 'analyst-match' })], total: 1 });
     } finally {
