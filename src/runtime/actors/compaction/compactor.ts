@@ -27,10 +27,9 @@ import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type Slidi
 } from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens,
 } from './round-classifier.js';
-import { LocalExactAdmissionError } from '../../../agents/invocation-admission.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
-import { materializeAccumulatedSummary } from './summary-materializer.js';
-import type { SummarizerProviderPort } from './summarizer.js';
+import { createIncrementalSummaryMaterializer } from './summary-materializer.js';
+import { SummaryResultValidationError, type SummarizerProviderPort } from './summarizer.js';
 import { versionFilename } from '../../../persistence/version-index.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
 
@@ -207,16 +206,38 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     snap: budget.snap,
   });
   assertEscalatedSuffixSubsets(computedNormal, computedEscalated);
+  const summaries = createIncrementalSummaryMaterializer({
+    conversation,
+    inheritedHistory,
+    summarizerProvider: args.summarizerProvider,
+    budget: {
+      inputBudgetTokens: budget.inputBudgetTokens,
+      completionReserveTokens: budget.reservedCompletionTokens,
+    },
+    signal: args.signal,
+  });
+  const candidates = new Map<number, Candidate>();
 
   const accepted = (estimated: number): boolean =>
     args.strategy === 'preventive'
       ? estimated <= budget.triggerMessageThreshold
       : estimated < rejectedEstimatedProviderMessageTokens;
 
-  const candidateFor = async (coveredRows: readonly AgentMessage[]): Promise<Candidate | null> => {
-    if (coveredRows.length === 0) return null;
-    const summaryText = await constructAccumulatedSummary(args, inheritedHistory, coveredRows, conversation);
+  const candidateFor = async (cutoffCount: number): Promise<Candidate | null> => {
+    if (cutoffCount === 0) return null;
+    const memoized = candidates.get(cutoffCount);
+    if (memoized) return memoized;
+    if (cutoffCount <= summaries.materializedThrough)
+      throw new Error(`Compaction candidate cutoff ${cutoffCount} moved backward from materialized cutoff ${summaries.materializedThrough}.`);
+    let summaryText: string;
+    try {
+      summaryText = await summaries.materializeThrough(cutoffCount);
+    } catch (error) {
+      if (error instanceof SummaryResultValidationError) throw new CompactionSummaryConstructionError(error);
+      throw error;
+    }
     args.signal.throwIfAborted();
+    const coveredRows = sourceRows.slice(0, cutoffCount);
     const successor = buildSuccessorHistory({ conversation, sessionId, sourceVersion, sourceGenesis, coveredRows, summaryText });
     validateCompactedHistorySuccessor({ source: conversation, sourceGenesis, sourceVersion, successor, coveredRows });
     const cutoffSourceIndex = coveredRows.length - 1;
@@ -230,7 +251,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       smallestCandidateEstimatedProviderMessageTokens === null
         ? estimatedProviderMessageTokens
         : Math.min(smallestCandidateEstimatedProviderMessageTokens, estimatedProviderMessageTokens);
-    return {
+    const candidate = {
       history: successor,
       cutoffSourceIndex,
       cutoffMessageId: coveredRows[cutoffSourceIndex]!.id,
@@ -238,6 +259,8 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       estimatedProviderMessageTokens,
       composedProviderConversationBytes: composedProviderConversationBytes(providerConversation),
     };
+    candidates.set(cutoffCount, candidate);
+    return candidate;
   };
 
   const partitionBaseRows = (partition: SlidingBandPartitions): readonly AgentMessage[] => [
@@ -248,12 +271,12 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
 
   const evaluatePartition = async (partition: SlidingBandPartitions, mode: 'bounded' | 'all'): Promise<Candidate[]> => {
     const baseRows = partitionBaseRows(partition);
-    const base = await candidateFor(baseRows);
+    const base = await candidateFor(baseRows.length);
     if (mode === 'bounded' && base && accepted(base.estimatedProviderMessageTokens)) return [base];
     const evaluated: Candidate[] = base ? [base] : [];
     for (const cutoff of safeFallbackCutoffs(conversation, baseRows.length)) {
       args.signal.throwIfAborted();
-      const candidate = await candidateFor(conversation.sourceRows.slice(0, cutoff));
+      const candidate = await candidateFor(cutoff);
       if (candidate) evaluated.push(candidate);
     }
     if (mode === 'bounded') {
@@ -351,6 +374,12 @@ function safeFallbackCutoffs(conversation: ValidatedConversation, baseCount: num
       cutoffs.push(roundEnd);
     }
   }
+  let previous = baseCount;
+  for (const cutoff of cutoffs) {
+    if (cutoff <= previous)
+      throw new Error(`Compaction safe fallback cutoffs must strictly increase above base ${baseCount}; received ${cutoff} after ${previous}.`);
+    previous = cutoff;
+  }
   return cutoffs;
 }
 
@@ -401,30 +430,6 @@ function buildSuccessorHistory(args: {
       source: args.conversation,
     }),
   });
-}
-
-async function constructAccumulatedSummary(
-  args: CompactArgs,
-  inheritedHistory: CompactedHistory | null,
-  coveredRows: readonly AgentMessage[],
-  conversation: ValidatedConversation,
-): Promise<string> {
-  try {
-    return await materializeAccumulatedSummary({
-      conversation,
-      inheritedHistory,
-      coveredRows,
-      summarizerProvider: args.summarizerProvider,
-      budget: {
-        inputBudgetTokens: args.input.preparedCompaction.inputBudgetTokens,
-        completionReserveTokens: args.input.preparedCompaction.reservedCompletionTokens,
-      },
-      signal: args.signal,
-    });
-  } catch (error) {
-    if (error instanceof LocalExactAdmissionError) throw new CompactionSummaryConstructionError(error);
-    throw error;
-  }
 }
 
 function successorContinuation(

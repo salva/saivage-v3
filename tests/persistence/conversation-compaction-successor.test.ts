@@ -146,7 +146,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const calls: SummaryCall[] = [];
       const result = await compactOnce(root, 'local_exact_admission', summarizer({
         calls,
-        summaryOf: (call) => (call.contents.some((content) => content.includes('T2-EXPLODE')) ? 'Q'.repeat(26_000) : 'Q'.repeat(200)),
+        summaryOf: (call) => (call.contents.some((content) => content.includes('T2-EXPLODE')) ? `T2-EXPLODE${'Q'.repeat(25_900)}` : 'Q'.repeat(200)),
       }), readConversation(root, SESSION));
       if (result.kind !== 'compacted') throw new Error('expected compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
@@ -154,6 +154,10 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(segment.rows.map((row) => row.id)).toEqual(['activation-2', 't2', 'activation-3', 't3']);
       expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
       expect(calls.length).toBeGreaterThan(2);
+      const rawInputs = calls.filter((call) => call.systemPrompt.includes('Summarize the labeled')).flatMap((call) => call.contents);
+      expect(rawInputs.filter((content) => content.includes('T1-PLAIN'))).toHaveLength(1);
+      expect(rawInputs.filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
+      expect(rawInputs.filter((content) => content.includes('T3-PLAIN'))).toHaveLength(1);
     } finally { rmSync(root, { recursive: true, force: true }); }
 
     const rootFurthest = mkdtempSync(join(tmpdir(), 'compaction-local-exact-furthest-'));
@@ -161,12 +165,58 @@ describe('compaction fallback, successor identity, and internal summary identity
     try {
       const LOCAL_BIG = 'x'.repeat(9000);
       appendConversationBatch({ projectRoot: rootFurthest }, [activation(1), text('t1', `${LOCAL_BIG}T1-PLAIN`), activation(2), text('t2', `${LOCAL_BIG}T2-EXPLODE`), activation(3), text('t3', `${LOCAL_BIG}T3-PLAIN`)]);
-      const result = await compactOnce(rootFurthest, 'local_exact_admission', summarizer({ calls: [], summaryOf: constantSummary('Q'.repeat(200)) }), readConversation(rootFurthest, SESSION));
+      const furthestCalls: SummaryCall[] = [];
+      const result = await compactOnce(rootFurthest, 'local_exact_admission', summarizer({ calls: furthestCalls, summaryOf: constantSummary('Q'.repeat(200)) }), readConversation(rootFurthest, SESSION));
       if (result.kind !== 'compacted') throw new Error('expected compacted');
       const segment = readCurrentConversationSegment(rootFurthest, SESSION)!;
       expect(segment.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t3');
       expect(segment.rows).toEqual([]);
+      expect(furthestCalls.filter((call) => call.systemPrompt.includes('Summarize the labeled')).flatMap((call) => call.contents).filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
     } finally { rmSync(rootFurthest, { recursive: true, force: true }); }
+  });
+
+  it('reuses normal/escalated overlap without resubmitting raw rows or publishing when no candidate is accepted', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-overlap-memo-'));
+    initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [
+        activation(1), text('t1', 'ROW-ONE'.concat('x'.repeat(3000))),
+        activation(2), text('t2', 'ROW-TWO'.concat('x'.repeat(3000))),
+        activation(3), text('t3', 'ROW-THREE'.concat('x'.repeat(3000))),
+      ]);
+      const conversation = readConversation(root, SESSION);
+      const restrictivePolicy: AutonomousCompactionPolicy = {
+        input_budget_tokens: 10_000, trigger_fraction: 0.3, completion_reserve_fraction: 0.2,
+        merge_line_fraction: 0.1, summary_line_fraction: 0.2,
+        escalate_merge_line_fraction: 0.15, escalate_summary_line_fraction: 0.25,
+        snap: 'compact_straddler',
+      };
+      const preparedCompaction = prepareCompaction(restrictivePolicy, 'system', []);
+      const input = invocation(conversation, {
+        preparedCompaction,
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+      });
+      const calls: SummaryCall[] = [];
+      await expect(compact({
+        strategy: 'preventive', conversations: { projectRoot: root }, input,
+        summarizerProvider: summarizer({ calls, summaryOf: constantSummary('S'.repeat(13_000)) }), signal: new AbortController().signal,
+      })).rejects.toThrow(/could not fit the residual context/);
+      const leafInputs = calls.filter((call) => call.systemPrompt.includes('Summarize the labeled')).flatMap((call) => call.contents);
+      for (const marker of ['ROW-ONE', 'ROW-TWO', 'ROW-THREE'])
+        expect(leafInputs.filter((content) => content.includes(marker))).toHaveLength(1);
+      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+
+      const exactCalls: SummaryCall[] = [];
+      const noSmaller = await compact({
+        strategy: 'local_exact_admission', conversations: { projectRoot: root }, input,
+        summarizerProvider: summarizer({ calls: exactCalls, summaryOf: constantSummary('S'.repeat(13_000)) }), signal: new AbortController().signal,
+      });
+      expect(noSmaller.kind).toBe('no_smaller_projection');
+      if (noSmaller.kind !== 'no_smaller_projection') throw new Error('expected no-smaller diagnostics');
+      expect(noSmaller.smallestCandidateEstimatedProviderMessageTokens).not.toBeNull();
+      expect(noSmaller.rejectedEstimatedProviderMessageTokens).toBeLessThan(noSmaller.smallestCandidateEstimatedProviderMessageTokens!);
+      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('fails freshness before summary or publication when the prepared projection is stale', async () => {

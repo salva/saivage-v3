@@ -11,7 +11,7 @@ import {
   type SummaryRequestSerialization,
   type SummarizerProviderPort,
 } from '../../../src/runtime/actors/compaction/summarizer.js';
-import { materializeAccumulatedSummary } from '../../../src/runtime/actors/compaction/summary-materializer.js';
+import { createIncrementalSummaryMaterializer } from '../../../src/runtime/actors/compaction/summary-materializer.js';
 import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
@@ -27,14 +27,13 @@ describe('compaction summarizer projection boundary', () => {
     const conversation = validateConversation(SESSION, rows);
     const completeTurn = jest.fn(async (input: Parameters<SummarizerProviderPort['completeTurn']>[0]) => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }));
     const provider: SummarizerProviderPort = { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() };
-    await expect(materializeAccumulatedSummary({
+    await expect(createIncrementalSummaryMaterializer({
       conversation,
       inheritedHistory: null,
-      coveredRows: rows,
       summarizerProvider: provider,
       budget: BUDGET,
       signal: new AbortController().signal,
-    })).resolves.toBe('summary');
+    }).materializeThrough(rows.length)).resolves.toBe('summary');
     expect(completeTurn).toHaveBeenCalledTimes(1);
     const input = completeTurn.mock.calls[0]![0];
     expect(input.capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true });
@@ -64,7 +63,7 @@ describe('compaction summarizer projection boundary', () => {
       },
       projectProviderExchanges: jest.fn(),
     };
-    await materializeAccumulatedSummary({ conversation, inheritedHistory: null, coveredRows: rows, summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
+    await createIncrementalSummaryMaterializer({ conversation, inheritedHistory: null, summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
     expect(serializations).toHaveLength(3);
     expect(JSON.parse(serializations[0]!.serializedRequest).messages).toEqual([]);
     const measured = serializations[1]!.serializedRequest;
@@ -79,49 +78,45 @@ describe('compaction summarizer projection boundary', () => {
     const conversation = validateConversation(SESSION, rows);
     const providerFailure = new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [attempt('summary-input')], originalFailure: new LlmRequestError({ kind: 'server_transient', provider: 'test', status: 200, message: 'overloaded' }), candidate: CANDIDATE });
     const projected = jest.fn();
-    await expect(materializeAccumulatedSummary({
+    await expect(createIncrementalSummaryMaterializer({
       conversation,
       inheritedHistory: null,
-      coveredRows: rows,
       summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => { throw providerFailure; }, projectProviderExchanges: projected },
       budget: BUDGET,
       signal: new AbortController().signal,
-    })).rejects.toBe(providerFailure);
+    }).materializeThrough(rows.length)).rejects.toBe(providerFailure);
     expect(projected).toHaveBeenCalledTimes(1);
     expect(projected).toHaveBeenCalledWith(internalCompactionSummarySessionId(SESSION), expect.any(String), [expect.anything()], { assistantOutputIds: [], terminalConversationOutputId: null });
 
     const publicationFailure = new Error('summary evidence publication failed');
-    await expect(materializeAccumulatedSummary({
+    await expect(createIncrementalSummaryMaterializer({
       conversation,
       inheritedHistory: null,
-      coveredRows: rows,
       summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [attempt('summary-input')] }), projectProviderExchanges: () => { throw publicationFailure; } },
       budget: BUDGET,
       signal: new AbortController().signal,
-    })).rejects.toBe(publicationFailure);
+    }).materializeThrough(rows.length)).rejects.toBe(publicationFailure);
 
     const controller = new AbortController();
     const abortReason = new Error('stop summary admission');
     controller.abort(abortReason);
     const neverCalled = jest.fn(async () => { throw new Error('unexpected provider admission'); });
-    await expect(materializeAccumulatedSummary({
+    await expect(createIncrementalSummaryMaterializer({
       conversation,
       inheritedHistory: null,
-      coveredRows: rows,
       summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: controller.signal,
-    })).rejects.toBe(abortReason);
+    }).materializeThrough(rows.length)).rejects.toBe(abortReason);
     expect(neverCalled).not.toHaveBeenCalled();
 
-    await expect(materializeAccumulatedSummary({
+    await expect(createIncrementalSummaryMaterializer({
       conversation,
       inheritedHistory: null,
-      coveredRows: rows,
       summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: '   ' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: new AbortController().signal,
-    })).rejects.toBeInstanceOf(SummaryResultValidationError);
+    }).materializeThrough(rows.length)).rejects.toBeInstanceOf(SummaryResultValidationError);
   });
 });
 

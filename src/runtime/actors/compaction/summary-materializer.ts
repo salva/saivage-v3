@@ -31,33 +31,70 @@ type MaterializationContext = Readonly<{
   signal: AbortSignal;
 }>;
 
-export async function materializeAccumulatedSummary(args: {
+export type IncrementalSummaryMaterializer = Readonly<{
+  materializedThrough: number;
+  materializeThrough(cutoffCount: number): Promise<string>;
+}>;
+
+export function createIncrementalSummaryMaterializer(args: {
   conversation: ValidatedConversation;
   inheritedHistory: CompactedHistory | null;
-  coveredRows: readonly AgentMessage[];
   summarizerProvider: SummarizerProviderPort;
   budget: SummaryMaterialBudget;
   signal: AbortSignal;
-}): Promise<string> {
+}): IncrementalSummaryMaterializer {
   const context: MaterializationContext = {
     conversation: args.conversation,
     summarizerProvider: args.summarizerProvider,
     budget: args.budget,
     signal: args.signal,
   };
-  const priorSummaryText = args.inheritedHistory?.summaryText ?? null;
-  const reductionPrependItems = supersededSlotItems(args.inheritedHistory, args.coveredRows, args.conversation.sourceSessionId);
-  const leafItems = buildLeafItems(args.conversation, args.coveredRows);
-  if (leafItems.length === 0) {
-    if (priorSummaryText === null && reductionPrependItems.length === 0) return EMPTY_COVERAGE_SUMMARY;
-    throw new Error('Compaction found no newly covered conversation content.');
-  }
-  const leafOutputs = await summarizeItemRequests(context, leafItems, SUMMARY_LEAF_INSTRUCTION);
-  const reductionItems: SummaryRequestItem[] = [];
-  if (priorSummaryText !== null) reductionItems.push(priorSummaryItem(priorSummaryText));
-  reductionItems.push(...reductionPrependItems);
-  for (const [index, output] of leafOutputs.entries()) reductionItems.push(reductionOutputItem(output, index, leafOutputs.length));
-  return reduceToFinalSummary(context, reductionItems);
+  let materializedThrough = 0;
+  let accumulatedSummaryText = args.inheritedHistory?.summaryText ?? null;
+  let hasCurrentSegmentSummaryMaterial = false;
+  let inheritedRecoveryFolded = false;
+  let inheritedRefusalFolded = false;
+
+  return {
+    get materializedThrough() {
+      return materializedThrough;
+    },
+    async materializeThrough(cutoffCount: number): Promise<string> {
+      if (!Number.isInteger(cutoffCount) || cutoffCount <= materializedThrough || cutoffCount > args.conversation.sourceRows.length)
+        throw new Error(
+          `Incremental summary cutoff must be an integer greater than ${materializedThrough} and no greater than ${args.conversation.sourceRows.length}; received ${cutoffCount}.`,
+        );
+      const incrementRows = args.conversation.sourceRows.slice(materializedThrough, cutoffCount);
+      const newlySuperseded = supersededSlotItems({
+        inheritedHistory: args.inheritedHistory,
+        incrementRows,
+        sourceSessionId: args.conversation.sourceSessionId,
+        includeRecovery: !inheritedRecoveryFolded,
+        includeRefusal: !inheritedRefusalFolded,
+      });
+      const leafItems = buildLeafItems(args.conversation, incrementRows);
+      if (leafItems.length === 0) {
+        if (accumulatedSummaryText !== null && !hasCurrentSegmentSummaryMaterial)
+          throw new Error('Compaction found no newly covered conversation content.');
+        materializedThrough = cutoffCount;
+        return accumulatedSummaryText ?? EMPTY_COVERAGE_SUMMARY;
+      }
+
+      const leafOutputs = await summarizeItemRequests(context, leafItems, SUMMARY_LEAF_INSTRUCTION);
+      const reductionItems: SummaryRequestItem[] = [];
+      if (accumulatedSummaryText !== null) reductionItems.push(priorSummaryItem(accumulatedSummaryText));
+      reductionItems.push(...newlySuperseded.items);
+      for (const [index, output] of leafOutputs.entries()) reductionItems.push(reductionOutputItem(output, index, leafOutputs.length));
+      const nextSummaryText = await reduceToFinalSummary(context, reductionItems);
+
+      accumulatedSummaryText = nextSummaryText;
+      hasCurrentSegmentSummaryMaterial = true;
+      inheritedRecoveryFolded ||= newlySuperseded.recovery;
+      inheritedRefusalFolded ||= newlySuperseded.refusal;
+      materializedThrough = cutoffCount;
+      return nextSummaryText;
+    },
+  };
 }
 
 function measureRequest(context: MaterializationContext, items: readonly SummaryRequestItem[], instruction: string): SummaryRequestSerialization {
@@ -209,29 +246,33 @@ function buildLeafItems(
   return items;
 }
 
-function supersededSlotItems(
-  inheritedHistory: CompactedHistory | null,
-  coveredRows: readonly AgentMessage[],
-  sourceSessionId: ConversationSessionId,
-): readonly SummaryRequestItem[] {
-  const facts = inheritedHistory?.requiredModelFacts;
-  if (!facts) return [];
+function supersededSlotItems(args: {
+  inheritedHistory: CompactedHistory | null;
+  incrementRows: readonly AgentMessage[];
+  sourceSessionId: ConversationSessionId;
+  includeRecovery: boolean;
+  includeRefusal: boolean;
+}): Readonly<{ items: readonly SummaryRequestItem[]; recovery: boolean; refusal: boolean }> {
+  const facts = args.inheritedHistory?.requiredModelFacts;
+  if (!facts) return { items: [], recovery: false, refusal: false };
   const items: SummaryRequestItem[] = [];
-  if (facts.latestRecovery && coveredRows.some((row) => row.kind === 'model_recovered'))
+  const recovery = args.includeRecovery && facts.latestRecovery !== null && args.incrementRows.some((row) => row.kind === 'model_recovered');
+  if (recovery && facts.latestRecovery)
     items.push({
       label: `[kind=superseded_recovery_notice source=${facts.latestRecovery.sourceMessageId}]`,
       role: 'system',
       content: `An earlier runtime interruption of activation ${facts.latestRecovery.activationInputId} was recovered before this history; its recovery notice read exactly: ${MODEL_RECOVERY_NOTICE_TEXT}`,
       codeOwnedSemantic: null,
     });
-  if (facts.latestContentPolicyRefusal && coveredRows.some((row) => row.kind === 'content_policy_refusal'))
+  const refusal = args.includeRefusal && facts.latestContentPolicyRefusal !== null && args.incrementRows.some((row) => row.kind === 'content_policy_refusal');
+  if (refusal && facts.latestContentPolicyRefusal)
     items.push({
       label: `[kind=superseded_refusal_notice source=${facts.latestContentPolicyRefusal.markerId}]`,
       role: 'user',
-      content: `An earlier activation ${facts.latestContentPolicyRefusal.activationInputId} ended after repeated provider content-policy refusal; its replanning notice read exactly: ${contentPolicyRefusalProjectionText(sourceSessionId, facts.latestContentPolicyRefusal.markerId)}`,
+      content: `An earlier activation ${facts.latestContentPolicyRefusal.activationInputId} ended after repeated provider content-policy refusal; its replanning notice read exactly: ${contentPolicyRefusalProjectionText(args.sourceSessionId, facts.latestContentPolicyRefusal.markerId)}`,
       codeOwnedSemantic: null,
     });
-  return items;
+  return { items, recovery, refusal };
 }
 
 function convertSummarizerContextItem(item: SummarizerContextItem): SummaryRequestItem {

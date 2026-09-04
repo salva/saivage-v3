@@ -38,6 +38,43 @@ describe('Stage-I versioned compaction', () => {
       const projected = providerConversationProjection(current.conversation).messages; expect(projected.filter((row) => row.id.endsWith(':compacted-history'))).toHaveLength(1); expect(projected[0]!.content).toBe(current.conversation.effectiveCompactedHistory!.summaryText);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
+
+  it('walks multiple cutoffs with disjoint raw inputs, sequential calls, and one canonical selected successor', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-incremental-compaction-')); initProjectTree(root);
+    try {
+      for (let ordinal = 1; ordinal <= 7; ordinal++) appendRound(root, ordinal);
+      const before = readConversation(root, SESSION);
+      const rawRequests: string[][] = [];
+      let activeCalls = 0;
+      let maximumActiveCalls = 0;
+      const result = await compact({
+        strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocationFor(SESSION, providerConversationProjection(before).messages),
+        summarizerProvider: {
+          candidate: TEST_CANDIDATE,
+          serializeSummaryRequest: deterministicSummarySerialization,
+          completeTurn: async (input) => {
+            activeCalls++;
+            maximumActiveCalls = Math.max(maximumActiveCalls, activeCalls);
+            rawRequests.push(input.providerConversation.messages.map((row) => row.content));
+            await Promise.resolve();
+            activeCalls--;
+            return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] };
+          },
+          projectProviderExchanges: jest.fn(),
+        }, signal: new AbortController().signal,
+      });
+      expect(result.kind).toBe('compacted');
+      expect(maximumActiveCalls).toBe(1);
+      const allInputs = rawRequests.flat();
+      for (let ordinal = 1; ordinal <= 7; ordinal++)
+        expect(allInputs.filter((content) => content.includes(`source=message-${ordinal}`))).toHaveLength(1);
+      const current = readCurrentConversationSegment(root, SESSION)!;
+      expect(current.entry.version).toBe(2);
+      expect(current.rows).toEqual([]);
+      expect(current.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('message-7');
+      expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toHaveLength(14);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
 
 const SESSION = 'agent:planner:project' as const;

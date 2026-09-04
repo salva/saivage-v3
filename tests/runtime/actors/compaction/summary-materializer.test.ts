@@ -8,7 +8,7 @@ import {
   EMPTY_COVERAGE_SUMMARY,
   SUMMARY_LEAF_INSTRUCTION,
   SUMMARY_REDUCTION_INSTRUCTION,
-  materializeAccumulatedSummary,
+  createIncrementalSummaryMaterializer,
 } from '../../../../src/runtime/actors/compaction/summary-materializer.js';
 import type { CompactedHistory } from '../../../../src/schemas/index.js';
 import type { SummarizerProviderPort } from '../../../../src/runtime/actors/compaction/summarizer.js';
@@ -92,19 +92,20 @@ function inheritedHistory(summaryText: string): CompactedHistory {
   };
 }
 
-const materialize = (
+const materializeAllRows = (
   rows: readonly AgentMessage[],
   provider: SummarizerProviderPort,
   budget: { inputBudgetTokens: number; completionReserveTokens: number } = BUDGET,
   prior: CompactedHistory | null = null,
 ) =>
-  materializeAccumulatedSummary({ conversation: conversationOf(rows), inheritedHistory: prior, coveredRows: [...rows], summarizerProvider: provider, budget, signal: new AbortController().signal });
+  createIncrementalSummaryMaterializer({ conversation: conversationOf(rows), inheritedHistory: prior, summarizerProvider: provider, budget, signal: new AbortController().signal })
+    .materializeThrough(rows.length);
 
 describe('bounded summary materialization', () => {
   it('packs the maximal ordered prefix per exact measured request and splits overflow into further requests', async () => {
     const rows = [activation(1), text('a', 'A'.repeat(3000)), text('b', 'B'.repeat(3000)), text('c', 'C'.repeat(3000))];
     const requests: RecordedRequest[] = [];
-    const summary = await materialize(rows, recordingProvider({ requests, summaryOf: (r) => `s(${r.items.length})` }), {
+    const summary = await materializeAllRows(rows, recordingProvider({ requests, summaryOf: (r) => `s(${r.items.length})` }), {
       inputBudgetTokens: 4000,
       completionReserveTokens: 2000,
     });
@@ -125,7 +126,7 @@ describe('bounded summary materialization', () => {
     const rows = [activation(1), ...settledBundle('call-1', body)];
     const run = async (): Promise<RecordedRequest[]> => {
       const requests: RecordedRequest[] = [];
-      await materialize(rows, recordingProvider({ requests, summaryOf: () => 'chunk-summary' }), {
+      await materializeAllRows(rows, recordingProvider({ requests, summaryOf: () => 'chunk-summary' }), {
         inputBudgetTokens: 5000,
         completionReserveTokens: 2500,
       });
@@ -149,7 +150,7 @@ describe('bounded summary materialization', () => {
   it('keeps the UTF-8 chunk boundary off code-point interiors', async () => {
     const rows = [activation(1), text('t1', 'é'.repeat(977))];
     const requests: RecordedRequest[] = [];
-    await materialize(rows, recordingProvider({ requests, summaryOf: () => 'x' }), { inputBudgetTokens: 2200, completionReserveTokens: 2100 });
+    await materializeAllRows(rows, recordingProvider({ requests, summaryOf: () => 'x' }), { inputBudgetTokens: 2200, completionReserveTokens: 2100 });
     const chunks = requests.filter((request) => request.instruction === SUMMARY_LEAF_INSTRUCTION);
     expect(chunks.length).toBeGreaterThan(1);
     const pieces = chunks.map((request) => request.items[0]!.split('\n').slice(1).join(''));
@@ -160,7 +161,7 @@ describe('bounded summary materialization', () => {
   it('measures labels, instruction, wrappers, prior history, and the completion reserve inside every admitted request', async () => {
     const rows = [activation(1), text('t1', 'T1'), text('t2', 'T2')];
     const requests: RecordedRequest[] = [];
-    await materialize(rows, recordingProvider({ requests, summaryOf: (r) => `s:${r.items.join('|').slice(0, 24)}` }), { inputBudgetTokens: 4096, completionReserveTokens: 2048 }, inheritedHistory('PRIOR-HISTORY'));
+    await materializeAllRows(rows, recordingProvider({ requests, summaryOf: (r) => `s:${r.items.join('|').slice(0, 24)}` }), { inputBudgetTokens: 4096, completionReserveTokens: 2048 }, inheritedHistory('PRIOR-HISTORY'));
     const leaf = requests.find((request) => request.instruction === SUMMARY_LEAF_INSTRUCTION)!;
     expect(leaf.items.join('\n')).toContain('[kind=message source=t1 role=user semantic=direct]');
     expect(leaf.items.join('\n')).toContain('[kind=message source=t2 role=user semantic=direct]');
@@ -177,7 +178,7 @@ describe('bounded summary materialization', () => {
     const rows = [activation(1)];
     for (let index = 1; index <= 6; index++) rows.push(text(`t${index}`, `BODY-${index}-`.repeat(400)));
     const requests: RecordedRequest[] = [];
-    const final = await materialize(rows, recordingProvider({
+    const final = await materializeAllRows(rows, recordingProvider({
       requests,
       summaryOf: (r) => r.instruction === SUMMARY_LEAF_INSTRUCTION ? `L(${r.items.length}):${'y'.repeat(200)}` : `R(${r.items.length}):${'z'.repeat(60)}`,
     }), { inputBudgetTokens: 4000, completionReserveTokens: 2000 });
@@ -189,8 +190,8 @@ describe('bounded summary materialization', () => {
   it('fails before provider I/O when fixed overhead cannot fit the configured budget or reserve', async () => {
     const rows = [activation(1), text('t1', 'T1')];
     const calls: RecordedRequest[] = [];
-    await expect(materialize(rows, recordingProvider({ requests: calls, summaryOf: () => 'x' }), { inputBudgetTokens: 2020, completionReserveTokens: 4000 })).rejects.toThrow(/fixed overhead/);
-    await expect(materialize(rows, recordingProvider({ requests: calls, summaryOf: () => 'x' }), { inputBudgetTokens: 100_000, completionReserveTokens: 1999 })).rejects.toThrow(/completion reserve/);
+    await expect(materializeAllRows(rows, recordingProvider({ requests: calls, summaryOf: () => 'x' }), { inputBudgetTokens: 2020, completionReserveTokens: 4000 })).rejects.toThrow(/fixed overhead/);
+    await expect(materializeAllRows(rows, recordingProvider({ requests: calls, summaryOf: () => 'x' }), { inputBudgetTokens: 100_000, completionReserveTokens: 1999 })).rejects.toThrow(/completion reserve/);
     expect(calls).toHaveLength(0);
   });
 
@@ -198,7 +199,7 @@ describe('bounded summary materialization', () => {
     const rows = [activation(1), text('t1', 'SMALL')];
     const oversizedPrior = 'P'.repeat(40_000);
     const requests: RecordedRequest[] = [];
-    const final = await materialize(rows, recordingProvider({ requests, summaryOf: (r) => r.items.join('').length > 1000 ? r.items.join('').slice(0, 500) : 'compact-final' }), { inputBudgetTokens: 5000, completionReserveTokens: 2500 }, inheritedHistory(oversizedPrior));
+    const final = await materializeAllRows(rows, recordingProvider({ requests, summaryOf: (r) => r.items.join('').length > 1000 ? r.items.join('').slice(0, 500) : 'compact-final' }), { inputBudgetTokens: 5000, completionReserveTokens: 2500 }, inheritedHistory(oversizedPrior));
     const priorChunks = requests.filter((request) => request.instruction === SUMMARY_REDUCTION_INSTRUCTION && request.items.join('\n').includes('prior_accumulated_summary'));
     expect(priorChunks.length).toBeGreaterThanOrEqual(1);
     expect(final.length).toBeLessThan(oversizedPrior.length);
@@ -207,25 +208,99 @@ describe('bounded summary materialization', () => {
   it('fails as a construction invariant when a reduction level does not shrink the measured aggregate', async () => {
     const rows = [activation(1), text('t1', 'BODY-ONE-'.repeat(300)), text('t2', 'BODY-TWO-'.repeat(300))];
     const identity = recordingProvider({ summaryOf: (r) => r.items.join('') });
-    await expect(materialize(rows, identity, { inputBudgetTokens: 3000, completionReserveTokens: 2000 })).rejects.toThrow(/did not reduce the measured aggregate/);
+    await expect(materializeAllRows(rows, identity, { inputBudgetTokens: 3000, completionReserveTokens: 2000 })).rejects.toThrow(/did not reduce the measured aggregate/);
   });
 
   it('returns the empty coverage summary for structural-only coverage without prior history', async () => {
     const rows = [activation(1)];
     const provider = recordingProvider({ summaryOf: () => 'x' });
-    await expect(materialize(rows, provider)).resolves.toBe(EMPTY_COVERAGE_SUMMARY);
+    await expect(materializeAllRows(rows, provider)).resolves.toBe(EMPTY_COVERAGE_SUMMARY);
   });
 
   it('rejects materialization with prior history but no newly covered conversation content', async () => {
     const rows = [activation(1)];
-    await expect(materialize(rows, recordingProvider({ summaryOf: () => 'x' }), BUDGET, inheritedHistory('PRIOR'))).rejects.toThrow(/no newly covered conversation content/);
+    await expect(materializeAllRows(rows, recordingProvider({ summaryOf: () => 'x' }), BUDGET, inheritedHistory('PRIOR'))).rejects.toThrow(/no newly covered conversation content/);
+  });
+
+  it('keeps repeated structural candidates outside the accumulator and excludes the sentinel from later provider input', async () => {
+    const rows = [activation(1), activation(2), text('t1', 'CONTENT-AFTER-STRUCTURE')];
+    const requests: RecordedRequest[] = [];
+    const summaries = createIncrementalSummaryMaterializer({
+      conversation: conversationOf(rows),
+      inheritedHistory: null,
+      summarizerProvider: recordingProvider({ requests, summaryOf: () => 'genuine-summary' }),
+      budget: BUDGET,
+      signal: new AbortController().signal,
+    });
+    await expect(summaries.materializeThrough(1)).resolves.toBe(EMPTY_COVERAGE_SUMMARY);
+    await expect(summaries.materializeThrough(2)).resolves.toBe(EMPTY_COVERAGE_SUMMARY);
+    await expect(summaries.materializeThrough(3)).resolves.toBe('genuine-summary');
+    expect(requests.flatMap((request) => request.items).join('\n')).not.toContain(EMPTY_COVERAGE_SUMMARY);
+    expect(requests.flatMap((request) => request.items).join('\n')).toContain('CONTENT-AFTER-STRUCTURE');
+    expect(summaries.materializedThrough).toBe(3);
+  });
+
+  it('submits disjoint leaf increments and carries inherited content after a genuine summary across a structural advance', async () => {
+    const rows = [activation(1), text('t1', 'FIRST-INCREMENT'), activation(2), text('t2', 'SECOND-INCREMENT'), activation(3)];
+    const requests: RecordedRequest[] = [];
+    const summaries = createIncrementalSummaryMaterializer({
+      conversation: conversationOf(rows),
+      inheritedHistory: inheritedHistory('PRIOR-HISTORY'),
+      summarizerProvider: recordingProvider({ requests, summaryOf: (request) => request.instruction === SUMMARY_LEAF_INSTRUCTION ? `leaf-${requests.length}` : `reduced-${requests.length}` }),
+      budget: BUDGET,
+      signal: new AbortController().signal,
+    });
+    const first = await summaries.materializeThrough(2);
+    await summaries.materializeThrough(4);
+    const carried = await summaries.materializeThrough(5);
+    const leafInputs = requests.filter((request) => request.instruction === SUMMARY_LEAF_INSTRUCTION).map((request) => request.items.join('\n'));
+    expect(leafInputs.filter((input) => input.includes('FIRST-INCREMENT'))).toHaveLength(1);
+    expect(leafInputs.filter((input) => input.includes('SECOND-INCREMENT'))).toHaveLength(1);
+    expect(leafInputs.some((input) => input.includes('FIRST-INCREMENT') && input.includes('SECOND-INCREMENT'))).toBe(false);
+    expect(requests.flatMap((request) => request.items).filter((input) => input.includes('PRIOR-HISTORY'))).toHaveLength(1);
+    expect(carried).not.toBe(first);
+    expect(requests.at(-1)!.instruction).toBe(SUMMARY_REDUCTION_INSTRUCTION);
+  });
+
+  it('leaves inherited structural failure and provider failure uncommitted and never overlaps calls', async () => {
+    const structuralRows = [activation(1), text('t1', 'later')];
+    const inherited = createIncrementalSummaryMaterializer({
+      conversation: conversationOf(structuralRows), inheritedHistory: inheritedHistory('PRIOR'),
+      summarizerProvider: recordingProvider({ summaryOf: () => 'unused' }), budget: BUDGET, signal: new AbortController().signal,
+    });
+    await expect(inherited.materializeThrough(1)).rejects.toThrow(/no newly covered conversation content/);
+    expect(inherited.materializedThrough).toBe(0);
+
+    let active = 0;
+    let maximumActive = 0;
+    let attempts = 0;
+    const provider: SummarizerProviderPort = {
+      candidate: CANDIDATE,
+      serializeSummaryRequest: deterministicSummarySerialization,
+      completeTurn: async () => {
+        active++;
+        maximumActive = Math.max(maximumActive, active);
+        attempts++;
+        await Promise.resolve();
+        active--;
+        if (attempts === 1) throw new Error('first summary failed');
+        return { result: { kind: 'message' as const, content: 'recovered-summary' }, provider_exchanges: [] };
+      },
+      projectProviderExchanges: jest.fn(),
+    };
+    const retryable = createIncrementalSummaryMaterializer({ conversation: conversationOf(structuralRows), inheritedHistory: null, summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
+    await expect(retryable.materializeThrough(2)).rejects.toThrow('first summary failed');
+    expect(retryable.materializedThrough).toBe(0);
+    await expect(retryable.materializeThrough(2)).resolves.toBe('recovered-summary');
+    expect(maximumActive).toBe(1);
+    await expect(retryable.materializeThrough(2)).rejects.toThrow(/greater than 2/);
   });
 
   it('proves arbitrarily large diagnostic-shaped bodies need no envelope bound through chunked materialization', async () => {
     const body = 'DIAG-NOSTIC-'.repeat(50_000);
     const rows = [activation(1), ...settledBundle('call-huge', body)];
     const requests: RecordedRequest[] = [];
-    const final = await materialize(rows, recordingProvider({ requests, summaryOf: (r) => `seg(${r.items.length})` }), { inputBudgetTokens: 6000, completionReserveTokens: 3000 });
+    const final = await materializeAllRows(rows, recordingProvider({ requests, summaryOf: (r) => `seg(${r.items.length})` }), { inputBudgetTokens: 6000, completionReserveTokens: 3000 });
     const chunks = requests.filter((request) => request.instruction === SUMMARY_LEAF_INSTRUCTION);
     expect(chunks.length).toBeGreaterThan(10);
     for (const request of chunks) expect(Math.ceil(request.admittedBytes / 4) + 2000).toBeLessThanOrEqual(6000);

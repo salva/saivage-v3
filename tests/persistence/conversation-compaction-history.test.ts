@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { appendConversationBatch, foldConversation, readConversation, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { compact, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
+import { CompactionSummaryConstructionError, compact, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { composeContextProjection, type ComposedContextProjection } from '../../src/runtime/actors/context/composition-projector.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
@@ -21,6 +21,9 @@ import type { ValidatedConversation } from '../../src/contracts/conversation-val
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
 import { SUMMARY_REDUCTION_INSTRUCTION } from '../../src/runtime/actors/compaction/summary-materializer.js';
+import { SummaryResultValidationError } from '../../src/runtime/actors/compaction/summarizer.js';
+import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 
@@ -38,10 +41,11 @@ function recordingSummarizer(calls: SummaryCall[]) {
     completeTurn: async (input: PreparedLlmInvocationInput) => {
       calls.push({ systemPrompt: input.systemPrompt, contents: input.providerConversation.messages.map((row) => row.content) });
       const previews = input.providerConversation.messages.map((row) => row.content.split('\n').slice(1).join('\n').slice(0, 120)).join('|');
+      const markers = [...new Set(input.providerConversation.messages.flatMap((row) => row.content.match(/OPERATIONAL-FINDINGS|BUNDLE-(?:TWO|FIVE)/g) ?? []))];
       if (input.systemPrompt === SUMMARY_REDUCTION_INSTRUCTION) {
-        return { result: { kind: 'message' as const, content: `merge[${previews}]` }, provider_exchanges: [] };
+        return { result: { kind: 'message' as const, content: `merge[${markers.join('|') || previews.slice(0, 40)}]` }, provider_exchanges: [] };
       }
-      return { result: { kind: 'message' as const, content: `round[${previews}]` }, provider_exchanges: [] };
+      return { result: { kind: 'message' as const, content: `round[${markers.join('|') || previews.slice(0, 40)}]` }, provider_exchanges: [] };
     },
     projectProviderExchanges: jest.fn(),
   };
@@ -215,18 +219,105 @@ describe('accumulated compaction history generations', () => {
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
       const conversation = readConversation(root, SESSION);
+      const failure = new ProviderTurnFailure({
+        failure_phase: 'provider_attempt', provider_exchanges: [], candidate: CANDIDATE,
+        originalFailure: new LlmRequestError({ kind: 'server_transient', provider: 'test', status: 503, message: 'summary provider failed' }),
+      });
       const failing = {
         candidate: CANDIDATE,
         serializeSummaryRequest: deterministicSummarySerialization,
-        completeTurn: async () => { throw new Error('summary provider failed'); },
+        completeTurn: async () => { throw failure; },
         projectProviderExchanges: jest.fn(),
       };
-      await expect(compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: failing, signal: new AbortController().signal })).rejects.toThrow(/summary provider failed/);
+      await expect(compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation), summarizerProvider: failing, signal: new AbortController().signal })).rejects.toBe(failure);
       expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.genesis.kind).toBe('ordinary_segment_genesis');
       expect(segment.rows).toHaveLength(6);
       expect(providerConversationProjection(segment.conversation).messages.some((row) => row.content === BIG)).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it.each([
+    ['tool-call result', { kind: 'tool_calls' as const, tool_calls: [] }],
+    ['empty text', { kind: 'message' as const, content: '   ' }],
+    ['recoverable-evidence section', { kind: 'message' as const, content: 'Recoverable evidence\n- forbidden' }],
+  ])('wraps malformed successful %s and stops before publication or another summary call', async (_label, malformedResult) => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-history-malformed-summary-'));
+    initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      const conversation = readConversation(root, SESSION);
+      const completeTurn = jest.fn(async () => ({ result: malformedResult, provider_exchanges: [] }));
+      const operation = compact({
+        strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
+        summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() },
+        signal: new AbortController().signal,
+      });
+      const failure = await operation.catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(CompactionSummaryConstructionError);
+      expect((failure as Error & { cause: unknown }).cause).toBeInstanceOf(SummaryResultValidationError);
+      expect(completeTurn).toHaveBeenCalledTimes(1);
+      expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('preserves abort and summary-exchange publication failure identity at the compactor boundary', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-history-boundary-identity-'));
+    initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      const conversation = readConversation(root, SESSION);
+      const controller = new AbortController();
+      const abortReason = new Error('stop compaction summary');
+      controller.abort(abortReason);
+      const neverCalled = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
+      await expect(compact({
+        strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
+        summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() }, signal: controller.signal,
+      })).rejects.toBe(abortReason);
+      expect(neverCalled).not.toHaveBeenCalled();
+
+      const publicationFailure = new Error('summary exchange publication failed');
+      await expect(compact({
+        strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
+        summarizerProvider: {
+          candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization,
+          completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }),
+          projectProviderExchanges: () => { throw publicationFailure; },
+        }, signal: new AbortController().signal,
+      })).rejects.toBe(publicationFailure);
+      expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('preserves an ordinary materializer invariant error without wrapping or publication', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-history-materializer-invariant-'));
+    initProjectTree(root);
+    try {
+      appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
+      const conversation = readConversation(root, SESSION);
+      const operation = compact({
+        strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(conversation),
+        summarizerProvider: {
+          candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization,
+          completeTurn: async (input) => ({
+            result: {
+              kind: 'message' as const,
+              content: input.systemPrompt === SUMMARY_REDUCTION_INSTRUCTION
+                ? input.providerConversation.messages.map((row) => row.content.split('\n').slice(1).join('\n')).join('')
+                : 'leaf',
+            },
+            provider_exchanges: [],
+          }),
+          projectProviderExchanges: jest.fn(),
+        }, signal: new AbortController().signal,
+      });
+      const failure = await operation.catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(Error);
+      expect(failure).not.toBeInstanceOf(CompactionSummaryConstructionError);
+      expect((failure as Error).message).toMatch(/did not reduce the measured aggregate/);
+      expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -328,6 +419,7 @@ describe('accumulated compaction history generations', () => {
       expect(facts2.latestRecovery).toBeNull();
       const mergeInputs2 = reductionCalls(calls2);
       expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes(`superseded_refusal_notice source=${marker1}`)))).toBe(true);
+      expect(mergeInputs2.flatMap((call) => call.contents).filter((content) => content.includes(`superseded_refusal_notice source=${marker1}`))).toHaveLength(1);
       const projected = providerConversationProjection(gen2.conversation).messages;
       expect(projected.filter((row) => row.content === contentPolicyRefusalProjectionText(SESSION, marker2))).toHaveLength(1);
       expect(projected.some((row) => row.content === contentPolicyRefusalProjectionText(SESSION, marker1))).toBe(false);
