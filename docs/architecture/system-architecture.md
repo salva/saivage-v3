@@ -8,6 +8,8 @@ Saivage is designed for an externally isolated LXC container. Deployment provide
 
 Internal path, command, and process controls serve operational and API-contract purposes, and runtime/data invariants preserve ordinary correctness and integrity; none contains that trusted root-capable principal. Ordinary workflows may remain constrained despite that capability. External operator authentication and outbound secret non-disclosure remain genuine product boundaries.
 
+Ordinary deployments require bearer authentication. Headerless, authentication-disabled operation is supported only when deployment-owned external isolation limits exposure to trusted origins; Saivage neither establishes nor detects that isolation. The server retains wildcard CORS, which is not authentication and does not make an auth-disabled deployment safe. API bearer credentials remain header-only and are never accepted in URLs.
+
 ## Activation Ownership Architecture
 
 The supervisor owns one `Map<string, CardActivationOwner>` and one guarded synchronous `ownershipTransition`. `CardActivationOwner` is plain activation-local state and the one `CardProcessActor` implementation is the remaining micro-actor, built over a narrow `BaseActor`. `ConversationLLMActor` is a separate direct provider/tool phase owner.

@@ -248,13 +248,13 @@ curl http://localhost:8080/health
 curl http://localhost:8080/health/ready
 ```
 
-Every `/api/*` operator contract, including Doctor, uses the shared operator registry and operator-session boundary. Required exact status-response maps validate both server output and browser input for status 200 and declared non-200 responses; `npm run validate:docs` checks the source-derived route inventory and response-contract fixtures. When `SAIVAGE_API_TOKEN` is configured, send it only as a bearer header, for example:
+Every `/api/*` operator contract, including Doctor, uses the shared operator registry and operator-session boundary. Required exact status-response maps validate both server output and browser input for status 200 and declared non-200 responses; `npm run validate:docs` checks the source-derived route inventory and response-contract fixtures. Ordinary deployments require bearer authentication through `SAIVAGE_API_TOKEN`; send the token only in the `Authorization` header, for example:
 
 ```bash
 curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/processes
 ```
 
-Omitting `SAIVAGE_API_TOKEN` intentionally runs development auth-disabled mode, in which those same operator-session routes accept headerless requests. Never place the token in a URL.
+Omitting `SAIVAGE_API_TOKEN` runs authentication-disabled mode, in which those same operator-session routes accept headerless requests. This mode is supported only where deployment-owned external isolation limits exposure to trusted origins. Saivage neither establishes nor detects that isolation. Wildcard CORS remains enabled and is not authentication. API bearer credentials remain header-only; never place the token in a URL.
 
 ## Current documentation
 
