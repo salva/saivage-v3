@@ -22,7 +22,14 @@ describe('provider routing read model', () => {
           'model-alpha': { toolsMode: 'unsupported', maxOutputTokens: 4096 },
         },
         accounts: {
-          blocked: { priority: 10, models: ['model-alpha'] },
+          blocked: {
+            priority: 10,
+            models: ['model-alpha'],
+            capabilities: {
+              contextWindowTokens: 32000,
+              quirks: ['explicit-account-override'],
+            },
+          },
           cooling: { priority: 20, models: ['model-alpha'] },
           healthy: { priority: 30, models: ['model-beta'] },
         },
@@ -39,6 +46,10 @@ describe('provider routing read model', () => {
     availability.markSucceeded(healthy);
 
     const readModel = buildProviderRoutingReadModel({ registry, availability });
+    const provider = registry.get('routed');
+    if (!provider) throw new Error('Expected routed provider.');
+    const implicitCapabilities = provider.getEffectiveCapabilities('model-alpha', null);
+    const explicitCapabilities = provider.getEffectiveCapabilities('model-alpha', 'blocked');
 
     expect(readModel).toEqual({
       availabilityScope: 'process_local_reset_on_restart',
@@ -73,6 +84,17 @@ describe('provider routing read model', () => {
         },
       },
     });
+    expect(explicitCapabilities).toMatchObject({
+      contextWindowTokens: 32000,
+      quirks: ['explicit-account-override'],
+    });
+    expect(explicitCapabilities).not.toEqual(implicitCapabilities);
+    expect(readModel.providers.routed?.capabilitiesByModel['model-alpha']).toEqual(implicitCapabilities);
+    expect(readModel.providers.routed?.availability.map((entry) => entry.candidate.account)).toEqual([
+      'blocked',
+      'cooling',
+      'healthy',
+    ]);
     expect(readModel.providers.routed).not.toHaveProperty('baseUrl');
     expect(readModel.providers.routed?.availability[2]).not.toHaveProperty('untilMs');
   });
