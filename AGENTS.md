@@ -124,6 +124,7 @@ large or cross-cutting refactor.
 ## Runtime Coding Rules
 
 - Fail fast for impossible states. If a code path should be unreachable under correct operation, throw rather than silently recovering, normalizing, or returning fallback values.
+- Fail fast means detection at use. The strict operation that consumes state rejects corrupted or impossible values when it actually reads them; it does not require re-checking state ahead of use. Do not add proactive internal state validation, cleanliness assertions, or pre-use verification passes for conditions that existing consumers already reject at use time — or that cannot arise under correct operation. A pre-use verification pass is over-defensive machinery even when its failure mode is loud; deletion of the defensive path is preferred over replacing it with an assertion.
 - No over-defensive code. Do not guard against states that cannot happen or that we do not know how to handle. If we cannot handle it, let it crash loudly.
 - Keep data models and API contracts singular. When a contract changes, update producers, consumers, tests, docs, and deployment assumptions in the same change set.
 
