@@ -105,7 +105,7 @@ test('production browser direct loads initialize router and render route-owned b
   await expect(page.getByText('Permitted children').locator('..')).toContainText('code');
   expect(rest.counts.get('GET /api/debug/graphs')).toBe(1);
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation'], { filesMetadataListDisposal: true });
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

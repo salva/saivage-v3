@@ -44,7 +44,7 @@ async function acknowledgeCurrentConversationLease(page: Page, sessionId: string
   }), { id: sessionId, currentLease: lease });
 }
 
-test('Cards root settlement precedes exact Analyst acquisition and defers global Agents until visible', async ({ page }) => {
+test('Cards bootstrap and Analyst identity start independently while transcript acknowledgement and Agents visibility gate their reads', async ({ page }) => {
   const rootRelease = deferred();
   const agentRelease = deferred();
   const rootObserved = deferred();
@@ -91,10 +91,6 @@ test('Cards root settlement precedes exact Analyst acquisition and defers global
       throw new Error('Unexpected removed aggregate request GET /api/chats');
     }
     if (request.method() === 'GET' && pathname === exactAnalystPath) {
-      if (!rootReleased) {
-        await route.abort('failed');
-        throw new Error(`Exact Analyst HTTP started before Cards root settlement: ${requestLedger.join(', ')}`);
-      }
       analystIdentityReads += 1;
       requestLedger.push(`analyst:identity:${analystIdentityReads}`);
     }
@@ -107,27 +103,19 @@ test('Cards root settlement precedes exact Analyst acquisition and defers global
 
   await page.goto('/cards');
   await rootObserved.promise;
+  await expect.poll(() => analystIdentityReads).toBe(1);
   const socketChip = page.locator('.workspace-header .ws-connected');
   await expect(socketChip).toHaveText('Live');
   await expect(socketChip).toHaveAttribute('title', 'WebSocket invalidations are connected; displayed runtime data still comes from REST.');
   await expect.poll(() => page.evaluate(() => window.__saivageWsFixture?.sockets.length ?? 0)).toBe(1);
-  expect(await outboundConversationSubscribe(page, analystSessionId)).toBeNull();
   expect(rootRequests).toBe(1);
   expect(rest.counts.get('GET /api/chats') ?? 0).toBe(0);
   expect(agentRequests).toBe(0);
-  expect(analystIdentityReads).toBe(0);
+  expect(analystIdentityReads).toBe(1);
   expect(analystConversationReads).toBe(0);
-  expect(requestLedger).toEqual(['cards:root']);
-
-  rootReleased = true;
-  eventLedger.push('cards:root:release');
-  rootRelease.resolve();
-  await expect(page.getByText('Synthetic Project', { exact: true })).toBeVisible();
-  await expect.poll(() => analystIdentityReads).toBe(1);
-  expect(agentRequests).toBe(0);
-  expect(analystConversationReads).toBe(0);
-  expect(requestLedger[0]).toBe('cards:root');
-  expect(requestLedger.slice(1)).toEqual(['analyst:identity:1']);
+  expect(requestLedger).toHaveLength(2);
+  expect(requestLedger).toEqual(expect.arrayContaining(['cards:root', 'analyst:identity:1']));
+  await expect(page.getByText('Synthetic Project', { exact: true })).toHaveCount(0);
 
   await expect.poll(() => outboundConversationSubscribe(page, analystSessionId)).toMatchObject({
     t: 'subscribe',
@@ -144,11 +132,16 @@ test('Cards root settlement precedes exact Analyst acquisition and defers global
   eventLedger.push('analyst:invalidate:settled');
   await page.evaluate((id) => window.__saivageWsFixture?.emit({ t: 'invalidate', resource: 'conversation', id, segment_version: 1, visible_message_id: 'newer-opaque-id' }), analystSessionId);
   await expect.poll(() => analystConversationReads).toBe(2);
+
+  rootReleased = true;
+  eventLedger.push('cards:root:release');
+  rootRelease.resolve();
+  await expect(page.getByText('Synthetic Project', { exact: true })).toBeVisible();
   expect(eventLedger).toEqual([
-    'cards:root:release',
     'analyst:subscribe',
     'analyst:ack:settled',
     'analyst:invalidate:settled',
+    'cards:root:release',
   ]);
 
   await page.locator('.nav-item-link').filter({ hasText: 'Agents' }).click();
