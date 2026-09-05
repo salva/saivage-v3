@@ -30,7 +30,6 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
       try {
         return { body: agentReadModel().getSession(params.id) };
       } catch (error) {
-        throwIfPublicationOutcomeUnknown(error);
         if (error instanceof AgentSessionNotFoundError)
           return { statusCode: 404, body: { error: 'Agent session not found' } };
         if (error instanceof ConversationHistoricalVersionNotFoundError) return { statusCode: 404, body: { error: 'Agent session not found' } };
@@ -41,7 +40,6 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
       try {
         return { body: agentReadModel().listCardSessions(params.id) };
       } catch (error) {
-        throwIfPublicationOutcomeUnknown(error);
         if (error instanceof CardAgentScopeNotFoundError)
           return { statusCode: 404, body: { error: 'Card not found', cardId: params.id } };
         throw error;
@@ -51,7 +49,6 @@ export function buildAgentOperatorContractHandlers(options: AgentOperatorHandler
       try {
         return { body: agentReadModel().getConversation(params.id, query) };
       } catch (error) {
-        throwIfPublicationOutcomeUnknown(error);
         if (error instanceof ConversationCursorNotFoundError)
           return {
             statusCode: 400,
