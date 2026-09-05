@@ -9,7 +9,7 @@ import type { ProviderRoutingReadModel } from '../../agents/provider-routing-rea
 import type { CardService } from '../../cards/card-api.js';
 import type { buildServerAvailability } from '../availability.js';
 import type { ContractRequestContext } from '../contract-runtime.js';
-import type { RestartPort } from '../../boot/restart-port.js';
+import type { RestartCapability } from '../../contracts/index.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
 
 export type OperatorContractHandler<K extends OperatorApiOperationId> = (
@@ -39,8 +39,7 @@ export interface OperatorCardServiceContext {
 
 export interface OperatorRuntimeProviderContext {
   runtimeApplication: RuntimeApplication;
-  restartPort?: RestartPort;
-  restartServerAvailable?: boolean;
+  restartCapability: RestartCapability;
 }
 
 export interface OperatorAvailabilityContext {

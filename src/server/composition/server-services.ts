@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { SaivageConfig } from '../../schemas/saivage-config.js';
 import type { AppTerminalRegistration } from '../../boot/app.js';
-import type { RestartPort } from '../../boot/restart-port.js';
+import type { RestartCapability, RestartPort } from '../../contracts/index.js';
 import { createRuntimeApplication, type RuntimeApplication,
 } from '../../application/runtime-composition.js';
 import { CardService } from '../../cards/card-api.js';
@@ -33,6 +33,7 @@ export interface ServerServices {
   liveSyncSocket: LiveSyncSocket;
   syncHub: SyncHub;
   authPolicy: AuthPolicy;
+  restartCapability: RestartCapability;
   workflows: import('../../runtime/card-process/card-process-config.js').CompiledRuntimeWorkflows;
 }
 
@@ -47,8 +48,14 @@ export async function createServerServices(input: {
   const projectRoot = environment.projectRoot;
   const config = environment.config;
   const authPolicy = new AuthPolicy({ apiToken: environment.auth.apiToken });
-  const restartServerAvailable = authPolicy.authEnabled;
-  if (restartServerAvailable && !input.restartPort) throw new Error('Authenticated server requires an application-owned restart port.');
+  const restartPort = input.restartPort;
+  let restartCapability: RestartCapability;
+  if (authPolicy.authEnabled) {
+    if (!restartPort) throw new Error('Authenticated server requires an application-owned restart port.');
+    restartCapability = Object.freeze({ available: true, port: restartPort });
+  } else {
+    restartCapability = Object.freeze({ available: false });
+  }
 
   const providerRegistry = new ProviderRegistry(config);
   const workflows = bindRuntimeWorkflows(
@@ -80,7 +87,7 @@ export async function createServerServices(input: {
   );
   const processRunner = new ProcessRunner(projectRoot, processRegistry, input.fatalPort);
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
-  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, workflows,providerRegistry, configAuthority: environment.configAuthority, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartServerAvailable, restartPort: restartServerAvailable ? input.restartPort : undefined, fatalPort: input.fatalPort,
+  const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, workflows,providerRegistry, configAuthority: environment.configAuthority, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartCapability, fatalPort: input.fatalPort,
     analystSessionId,
   });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
@@ -106,6 +113,6 @@ export async function createServerServices(input: {
   terminal.registerCleanupLeaf('sync-hub', () => syncHub.dispose());
   terminal.registerCleanupLeaf('live-sync', () => liveSyncSocket.dispose());
 
-  return { projectRoot, config, fastify, eventLogger, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, authPolicy, workflows,
+  return { projectRoot, config, fastify, eventLogger, cardStore, runtimeApplication, mcpManager, liveSyncSocket, syncHub, authPolicy, restartCapability, workflows,
   };
 }

@@ -24,7 +24,7 @@ function buildSession(projectRoot: string, cardStore: CardServiceType, completeT
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render },
-    restartServerAvailable: false,
+    restartCapability: { available: false },
     provider: scriptedAdmissionProvider(completeTurn),
     conversations: { projectRoot },
     compactionPolicy: testCompactionPolicy,

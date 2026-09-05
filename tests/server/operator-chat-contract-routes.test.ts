@@ -58,7 +58,7 @@ describe('operator chat route request contracts', () => {
         cardStore: new CardService(projectRoot),
       } as unknown as RuntimeApplication,
       saivageConfig: TEST_SAIVAGE_CONFIG,
-      restartPort: { schedule: jest.fn(), acknowledge },
+      restartCapability: { available: true, port: { schedule: jest.fn(), acknowledge } },
     });
     new ContractRuntime({
       authPolicy: new AuthPolicy({ apiToken: 'route-token' }),
@@ -446,6 +446,7 @@ describe('operator chat route request contracts', () => {
     const sendToClient = jest.fn();
     const wsHandler = new AnalystWsHandler({
       fatalPort: testApplicationFatalPort,
+      restartCapability: { available: false },
       liveSyncSocket: { handleClientFrame: () => false } as never,
       runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit } } as never,
       sendToClient,

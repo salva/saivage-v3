@@ -58,8 +58,7 @@ describe('runtime-control route request contracts', () => {
       cardStore,
       runtimeApplication,
       serverAvailabilityProvider: () => serverAvailability,
-      restartServerAvailable: true,
-      restartPort: { schedule, acknowledge },
+      restartCapability: { available: true, port: { schedule, acknowledge } },
     });
     new ContractRuntime({ authPolicy: new AuthPolicy({ apiToken: 'route-token' }), eventLogger: createEventLog('.'), fatalPort: testApplicationFatalPort }).mount(fastify, operatorApiContracts, handlers);
     await fastify.ready();
@@ -90,7 +89,7 @@ describe('runtime-control route request contracts', () => {
     expect(readiness.json()).toEqual({ status: 'ready', serverAvailability });
     const status = await fastify.inject({ method: 'GET', url: '/api/runtime/status', headers: { authorization: 'Bearer route-token' } });
     expect(status.statusCode).toBe(200);
-    expect(status.json()).toMatchObject({ runtime: 'stopped', serverAvailability });
+    expect(status.json()).toMatchObject({ runtime: 'stopped', restart_server_available: true, serverAvailability });
   });
 
   it.each(routes)('accepts an absent body for %s', async (url, control) => {
@@ -154,5 +153,40 @@ describe('runtime-control route request contracts', () => {
     expect(response.json()).toEqual({ status: 'restart_scheduled' });
     expect(schedule).toHaveBeenCalledTimes(1);
     expect(observedHeaders.at(-1)).toMatchObject({ authorization: 'Bearer route-token', accept: 'application/json', 'content-type': 'application/json' });
+  });
+
+  it('projects and enforces an unavailable restart capability without a port', async () => {
+    const unavailable = Fastify({ logger: false });
+    try {
+      const cardStore = new CardService(projectRoot);
+      const runtimeApplication = {
+        cardStore,
+        runtimeApi: {
+          pause,
+          resume,
+          stopProject,
+          getStatus: jest.fn(() => ({ status: 'stopped', currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' })),
+          getActorRuntimeReadModel: jest.fn(() => ({ pauseMode: 'idle', cards: [] })),
+        },
+      } as unknown as RuntimeApplication;
+      const handlers = buildRuntimeCardOperatorContractHandlers({
+        projectRoot,
+        cardStore,
+        runtimeApplication,
+        serverAvailabilityProvider: () => serverAvailability,
+        restartCapability: { available: false },
+      });
+      new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: createEventLog(projectRoot), fatalPort: testApplicationFatalPort }).mount(unavailable, operatorApiContracts, handlers);
+      await unavailable.ready();
+
+      const status = await unavailable.inject({ method: 'GET', url: '/api/runtime/status' });
+      expect(status.json()).toMatchObject({ restart_server_available: false });
+      const restart = await unavailable.inject({ method: 'POST', url: '/api/runtime/restart-server', headers: { 'content-type': 'application/json' }, payload: { confirmation: 'RESTART SERVER' } });
+      expect(restart.statusCode).toBe(403);
+      expect(restart.json()).toEqual({ code: 'restart_unavailable', message: 'restart unavailable: operator authentication disabled' });
+      expect(schedule).not.toHaveBeenCalled();
+    } finally {
+      await unavailable.close();
+    }
   });
 });

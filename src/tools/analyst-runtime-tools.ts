@@ -36,7 +36,7 @@ export async function stop_project(ctx: ToolContext, _params: Record<string, nev
 }
 
 export async function restart_server(ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
-  if (!ctx.restartServerAvailable) return toolFailure('restart unavailable: operator authentication disabled');
+  if (!ctx.restartCapability.available) return toolFailure('restart unavailable: operator authentication disabled');
   return toolSucceeded({ restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
 }
 

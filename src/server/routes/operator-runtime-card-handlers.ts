@@ -50,19 +50,19 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
     'cards.history.get': ({ params }) => getCardsReadModel().getHistoryEntry(params.id, params.version),
     'cards.diff': ({ params, query }) => getCardsReadModel().diffCard(params.id, query),
     'runtime.status': () => {
-      return { body: { ...buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider() }), restart_server_available: options.restartServerAvailable === true } };
+      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability }) };
     },
     'runtime.pause': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       options.runtimeApplication.runtimeApi.pause();
-      return { body: { ...buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider() }), restart_server_available: options.restartServerAvailable === true } };
+      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability }) };
     },
     'runtime.resume': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       options.runtimeApplication.runtimeApi.resume();
-      return { body: { ...buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider() }), restart_server_available: options.restartServerAvailable === true } };
+      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability }) };
     },
     stop_project: async ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
@@ -70,9 +70,8 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
       return { body: await options.runtimeApplication.runtimeApi.stopProject() };
     },
     restart_server: ({ reply }) => {
-      if (!options.restartServerAvailable) return { statusCode: 403, body: { code: 'restart_unavailable', message: 'restart unavailable: operator authentication disabled' } };
-      const restartPort = options.restartPort;
-      if (!restartPort) throw new Error('Restart port is unavailable.');
+      if (!options.restartCapability.available) return { statusCode: 403, body: { code: 'restart_unavailable', message: 'restart unavailable: operator authentication disabled' } };
+      const restartPort = options.restartCapability.port;
       restartPort.schedule();
       reply.raw.once('finish', () => { void restartPort.acknowledge(); });
       return { body: { status: 'restart_scheduled' } };

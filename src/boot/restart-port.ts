@@ -1,9 +1,5 @@
 import { logShutdownWarnings, type ShutdownReport } from './app.js';
-
-export interface RestartPort {
-  schedule(): void;
-  acknowledge(): Promise<void>;
-}
+import type { RestartPort } from '../contracts/index.js';
 
 export function createRestartPort(args: { onAcknowledgedRestart(): Promise<ShutdownReport>; exit(code: number): never }): RestartPort {
   let scheduled = false;

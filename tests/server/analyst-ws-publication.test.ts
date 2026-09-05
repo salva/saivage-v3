@@ -11,6 +11,30 @@ import { canonicalJson } from '../../src/schemas/index.js';
 import { OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 describe('Analyst WebSocket publication propagation', () => {
+  it('acknowledges a scheduled restart through the available capability after frame delivery', async () => {
+    const acknowledge = jest.fn(async () => {});
+    const sendToClient = jest.fn((_ws, _event, callback?: (error?: Error) => void) => callback?.());
+    const handler = new AnalystWsHandler({
+      fatalPort: testApplicationFatalPort,
+      restartCapability: { available: true, port: { schedule() {}, acknowledge } },
+      liveSyncSocket: { handleClientFrame: () => false } as never,
+      runtimeApplication: {
+        analystSessionId: 'agent:analyst:global',
+        analystRuntime: { submit: async () => ({ sessionId: 'agent:analyst:global', restart: { status: 'scheduled' }, toolInvocations: [] }) },
+      } as never,
+      sendToClient,
+    });
+    const ws = { OPEN: 1, readyState: 1 } as WebSocket;
+
+    await handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'RESTART SERVER' } })));
+
+    expect(sendToClient).toHaveBeenCalledWith(ws, {
+      type: 'status',
+      content: { event: 'analyst_turn_acknowledged', sessionId: 'agent:analyst:global', restart: { status: 'scheduled' } },
+    }, expect.any(Function));
+    expect(acknowledge).toHaveBeenCalledTimes(1);
+  });
+
   it('publishes the complete exact settled durable result and projects only parameters', async () => {
     const settled = settleToolActionOutcome(toolFailed('denied token=sk-a', { code: 'record_mutation_denied', detail: 'sk-a', formerly_narrowed: true }));
     const response = {
@@ -27,6 +51,7 @@ describe('Analyst WebSocket publication propagation', () => {
     const sendToClient = jest.fn();
     const handler = new AnalystWsHandler({
       fatalPort: testApplicationFatalPort,
+      restartCapability: { available: false },
       liveSyncSocket: { handleClientFrame: () => false } as never,
       runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit: async () => response } } as never,
       sendToClient,
@@ -47,6 +72,7 @@ describe('Analyst WebSocket publication propagation', () => {
     const sendToClient = jest.fn();
     const handler = new AnalystWsHandler({
       fatalPort: testApplicationFatalPort,
+      restartCapability: { available: false },
       liveSyncSocket: { handleClientFrame: () => false } as never,
       runtimeApplication: { analystRuntime: { submit: async () => { throw error; } } } as never,
       sendToClient,
@@ -67,6 +93,7 @@ describe('Analyst WebSocket publication propagation', () => {
     const sendToClient = jest.fn();
     const handler = new AnalystWsHandler({
       fatalPort: testApplicationFatalPort,
+      restartCapability: { available: false },
       liveSyncSocket: { handleClientFrame: () => false } as never,
       runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit } } as never,
       sendToClient,
@@ -104,6 +131,7 @@ describe('Analyst WebSocket publication propagation', () => {
     const sendToClient = jest.fn();
     const handler = new AnalystWsHandler({
       fatalPort: testApplicationFatalPort,
+      restartCapability: { available: false },
       liveSyncSocket: { handleClientFrame: () => false } as never,
       runtimeApplication: { analystSessionId: 'agent:analyst:global', analystRuntime: { submit } } as never,
       sendToClient,
@@ -132,6 +160,7 @@ describe('Analyst WebSocket publication propagation', () => {
     const sendToClient = jest.fn();
     const handler = new AnalystWsHandler({
       fatalPort: testApplicationFatalPort,
+      restartCapability: { available: false },
       liveSyncSocket: { handleClientFrame: () => false } as never,
       runtimeApplication: { analystRuntime: { submit: async () => { throw new Error('secret dynamic failure'); } } } as never,
       sendToClient,

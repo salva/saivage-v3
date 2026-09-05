@@ -60,8 +60,7 @@ export function registerOperatorContractRoutes(
       cardStore: options.cardStore,
       runtimeApplication: options.runtimeApplication,
       serverAvailabilityProvider: options.serverAvailabilityProvider,
-      restartPort: options.restartPort,
-      restartServerAvailable: options.authPolicy.authEnabled,
+      restartCapability: options.restartCapability,
     }),
     ...buildMcpOperatorContractHandlers({
       mcpToolsProvider: options.mcpManager,
@@ -70,7 +69,7 @@ export function registerOperatorContractRoutes(
     ...buildChatOperatorContractHandlers({
       projectRoot,
       runtimeApplication: options.runtimeApplication,
-      restartPort: options.restartPort,
+      restartCapability: options.restartCapability,
       saivageConfig: options.saivageConfig,
     }),
     ...buildFilesDebugOperatorContractHandlers({

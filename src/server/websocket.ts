@@ -19,7 +19,7 @@ import type { AuthPolicy } from './auth-policy.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { AnalystWsHandler } from './analyst-ws-handler.js';
-import type { RestartPort } from '../boot/restart-port.js';
+import type { RestartCapability } from '../contracts/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
 export function serializeOutboundEnvelope(event: ServerEgressWsEnvelope): string {
@@ -50,7 +50,7 @@ export interface RegisterWebSocketOptions {
   authPolicy: AuthPolicy;
   liveSyncSocket: LiveSyncSocket;
   runtimeApplication: RuntimeApplication;
-  restartPort?: RestartPort;
+  restartCapability: RestartCapability;
   fatalPort: ApplicationFatalPort;
 }
 
@@ -61,7 +61,7 @@ export function registerWebSocket(fastify: FastifyInstance,
   const analystWsHandler = new AnalystWsHandler({
     liveSyncSocket,
     runtimeApplication: options.runtimeApplication,
-    restartPort: options.restartPort,
+    restartCapability: options.restartCapability,
     sendToClient,
     fatalPort: options.fatalPort,
   });

@@ -1,4 +1,4 @@
-import type { RestartPort } from '../../src/boot/restart-port.js';
+import type { RestartPort } from '../../src/contracts/index.js';
 
 export function createTestRestartPort(): RestartPort {
   let scheduled = false;

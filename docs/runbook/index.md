@@ -150,7 +150,7 @@ HTTP Pause, Resume, and `stop_project` must omit the request body and JSON `Cont
 
 ## Server restart
 
-`restart_server` is available only when operator authentication is enabled/published bearer. It requires the exact `RESTART SERVER` confirmation. The acknowledgement means accepted asynchronous intent, not that replacement is running. It enters the App terminal coordinator, never project Stop. Disabled-auth catalogs/UI omit it and direct calls fail `restart unavailable: operator authentication disabled`.
+`restart_server` is available only when operator authentication is enabled/published bearer. Server composition derives that capability once and the required runtime-status boolean projects the same value. It requires the exact `RESTART SERVER` confirmation. The acknowledgement means accepted asynchronous intent, not that replacement is running. It enters the App terminal coordinator, never project Stop. Disabled-auth UI omits the action; the Analyst tool remains in its configured catalog but reports unavailable, and direct calls fail `restart unavailable: operator authentication disabled`.
 
 ## Terminal application cleanup
 

@@ -16,6 +16,7 @@ import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvid
 import { TEST_SAIVAGE_CONFIG } from '../helpers/test-saivage-config.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import { canonicalJson } from '../../src/schemas/index.js';
+import type { RestartCapability } from '../../src/contracts/index.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -30,7 +31,7 @@ function toolCall(argumentsJson: string, toolName = 'demo'): ProviderTurnComplet
 function analyst(
   argumentsJson: string,
   executor: (args: { value: string }, signal: AbortSignal, context?: LlmToolInvocationContext) => Promise<ToolExecutionResult<'none'>>,
-  options: { toolName?: string; restartServerAvailable?: boolean; beforeContinuation?: (projectRoot: string) => void } = {},
+  options: { toolName?: string; restartCapability?: RestartCapability; beforeContinuation?: (projectRoot: string) => void } = {},
 ) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'analyst-tool-invocation-'));
   roots.push(projectRoot);
@@ -58,7 +59,7 @@ function analyst(
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest,
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => 'test analyst prompt' },
-    restartServerAvailable: options.restartServerAvailable ?? false,
+    restartCapability: options.restartCapability ?? { available: false },
     provider: scriptedAdmissionProvider(completeTurn),
     conversations: { projectRoot },
     compactionPolicy: testCompactionPolicy,
@@ -192,7 +193,7 @@ describe('Analyst parsed tool invocation', () => {
     const test = analyst(
       '{"value":"restart"}',
       jest.fn(async () => executedToolOutcome('none', toolSucceeded({ restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' }))),
-      { toolName: 'restart_server', restartServerAvailable: true },
+      { toolName: 'restart_server', restartCapability: { available: true, port: { schedule() {}, acknowledge: async () => {} } } },
     );
 
     const response = await test.session.submit({ userContent: 'request restart' });

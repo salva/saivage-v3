@@ -41,10 +41,12 @@ describe('operator runtime availability read models', () => {
     };
     // @ts-expect-error Runtime status projection requires concrete server availability.
     const missingAvailability: RuntimeStatusInputs = { runtimeApi };
-    const complete: RuntimeStatusInputs = { runtimeApi, serverAvailability };
+    const complete: RuntimeStatusInputs = { runtimeApi, serverAvailability, restartCapability: { available: false } };
     expect(missingAvailability).toBeDefined();
     const status = buildRuntimeStatusReadModel(complete);
     expect(status.runtime).toBe('stopped');
+    expect(status.restart_server_available).toBe(false);
     expect(status.serverAvailability).toBe(serverAvailability);
+    expect(buildRuntimeStatusReadModel({ ...complete, restartCapability: { available: true, port: { schedule() {}, acknowledge: async () => {} } } }).restart_server_available).toBe(true);
   });
 });

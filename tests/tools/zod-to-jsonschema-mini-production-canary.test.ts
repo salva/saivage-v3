@@ -23,6 +23,7 @@ import {
 import { llmToolDefinition } from '../../src/tools/invocation.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardService, initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
+import { createTestRestartPort } from '../helpers/restart-port.js';
 
 const roots: string[] = [];
 
@@ -95,7 +96,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
         getStatus: () => ({ status: 'stopped', currentCardId: null, pid: process.pid, startedAt: new Date(0).toISOString() }),
       },
       mcpToolInvocation,
-      restartServerAvailable: true,
+      restartCapability: { available: true, port: createTestRestartPort() },
       actor: 'analyst',
       surface: 'web-chat',
       eventQueries: new EventQueryService(projectRoot),

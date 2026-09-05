@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AnalystRuntime, AnalystSession } from '../../src/agents/analyst-handler.js';
 import type { ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import type { InvocationJoinOutcome } from '../../src/runtime/actors/invocation-lifecycle.js';
-import type { RestartPort } from '../../src/boot/restart-port.js';
+import type { RestartPort } from '../../src/contracts/index.js';
 import { readConversation, type ConversationFileContext } from '../../src/persistence/conversation-file.js';
 import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { toolSucceeded, type ToolActionOutcome } from '../../src/contracts/tool-result.js';
@@ -184,8 +184,7 @@ function createFixture(options: {
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
     promptTemplates: { render: () => 'test analyst prompt' },
-    restartServerAvailable: true,
-    restartPort,
+    restartCapability: { available: true, port: restartPort },
     provider: scriptedAdmissionProvider(completeTurn),
     conversations,
     compactionPolicy: testCompactionPolicy,

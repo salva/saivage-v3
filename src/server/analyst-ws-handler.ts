@@ -3,7 +3,7 @@ import { AnalystTurnBusyError } from '../agents/analyst-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
 import type { ServerEgressWsEnvelope } from '../contracts/operator-events.js';
-import type { RestartPort } from '../boot/restart-port.js';
+import type { RestartCapability } from '../contracts/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { projectAnalystToolInvocationActivity } from './tool-activity-projection.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
@@ -14,7 +14,7 @@ import type { GlobalConversationSessionId } from '../schemas/index.js';
 export interface AnalystWsHandlerOptions {
   liveSyncSocket: LiveSyncSocket;
   runtimeApplication: RuntimeApplication;
-  restartPort?: RestartPort;
+  restartCapability: RestartCapability;
   sendToClient: (ws: WebSocket, event: ServerEgressWsEnvelope, callback?: (error?: Error) => void,
   ) => void;
   fatalPort: ApplicationFatalPort;
@@ -44,16 +44,13 @@ export class AnalystWsHandler {
           ),
           });
         }
-        const restartPort = response.restart?.status === 'scheduled' ? this.options.restartPort : undefined;
-        if (response.restart?.status === 'scheduled' && !restartPort) throw new Error('Scheduled restart acknowledgement requires an application-owned restart port.',
-        );
         this.options.sendToClient(ws, {
           type: 'status',
           content: { event: 'analyst_turn_acknowledged', sessionId: response.sessionId, restart: response.restart,
           },
         }, (error) => {
-          if (error || response.restart?.status !== 'scheduled') return;
-          void restartPort!.acknowledge();
+          if (error || response.restart?.status !== 'scheduled' || !this.options.restartCapability.available) return;
+          void this.options.restartCapability.port.acknowledge();
         },
       );
       } catch (error) {

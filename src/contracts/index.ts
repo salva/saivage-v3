@@ -225,6 +225,7 @@ export {
   throwIfPublicationOutcomeUnknown,
 } from './publication-outcome.js';
 export type { ApplicationFatalPort } from './publication-outcome.js';
+export type { RestartCapability, RestartPort } from './restart-capability.js';
 
 export type {
   AnalystActivityContent,

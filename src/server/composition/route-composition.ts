@@ -4,7 +4,7 @@ import type { RuntimeApplication } from '../../application/runtime-composition.j
 import type { CardService } from '../../cards/card-api.js';
 import type { McpManager } from '../../mcp/manager-api.js';
 import type { LiveSyncSocket } from '../live-sync-socket.js';
-import type { RestartPort } from '../../boot/restart-port.js';
+import type { RestartCapability } from '../../contracts/index.js';
 import { buildServerAvailability } from '../availability.js';
 import { registerOperatorContractRoutes } from '../routes/operator-contracts.js';
 import { registerWebSocket } from '../websocket.js';
@@ -23,7 +23,7 @@ export function registerServerRoutes(options: {
   saivageConfig: SaivageConfig;
   configAuthority: ResolvedConfigAuthority;
   liveSyncSocket: LiveSyncSocket;
-  restartPort?: RestartPort;
+  restartCapability: RestartCapability;
   authPolicy: AuthPolicy;
   eventLogger: EventLog;
   workflows: CompiledRuntimeWorkflows;
@@ -42,7 +42,7 @@ export function registerServerRoutes(options: {
     configAuthority: options.configAuthority,
     saivageConfig: options.saivageConfig,
     providerRoutingReadModelProvider: () => options.runtimeApplication.getProviderRoutingReadModel(),
-    restartPort: options.restartPort,
+    restartCapability: options.restartCapability,
     authPolicy: options.authPolicy,
     eventLogger: options.eventLogger,
     workflows: options.workflows,
@@ -52,7 +52,7 @@ export function registerServerRoutes(options: {
     authPolicy: options.authPolicy,
     liveSyncSocket: options.liveSyncSocket,
     runtimeApplication: options.runtimeApplication,
-    restartPort: options.restartPort,
+    restartCapability: options.restartCapability,
     fatalPort: options.fatalPort,
   });
 }

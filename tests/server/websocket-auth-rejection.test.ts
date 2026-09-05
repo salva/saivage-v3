@@ -28,7 +28,8 @@ describe('WebSocket authentication rejection', () => {
 
       try {
         await fastify.register(websocket);
-        registerWebSocket(fastify, {
+  registerWebSocket(fastify, {
+    restartCapability: { available: false },
           authPolicy: new AuthPolicy({ apiToken: 'test-bearer-token' }),
           liveSyncSocket,
           runtimeApplication,

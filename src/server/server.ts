@@ -5,7 +5,7 @@ import { McpManager } from '../mcp/manager-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { registerServerRoutes } from './composition/route-composition.js';
 import { createServerServices } from './composition/server-services.js';
-import type { RestartPort } from '../boot/restart-port.js';
+import type { RestartPort } from '../contracts/index.js';
 import type { AppTerminalRegistration } from '../boot/app.js';
 import type { RuntimeProcessIdentity } from '../runtime/lock.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
@@ -31,7 +31,7 @@ export async function createServer(options: CreateServerOptions): Promise<Server
     configAuthority: environment.configAuthority,
     saivageConfig: services.config,
     liveSyncSocket: services.liveSyncSocket,
-    restartPort: options.restartPort,
+    restartCapability: services.restartCapability,
     authPolicy: services.authPolicy,
     eventLogger: services.eventLogger,
     workflows: services.workflows,

@@ -20,7 +20,7 @@ import { ProcessRunner } from '../runtime/process-runner.js';
 import type { ManagedProcessScope } from '../runtime/managed-process-group-registry.js';
 import { RuntimeGate } from '../runtime/runtime-gate.js';
 import { createPromptTemplateRegistry } from '../utils/prompt-api.js';
-import type { RestartPort } from '../boot/restart-port.js';
+import type { RestartCapability } from '../contracts/index.js';
 import type { ResolvedConfigAuthority } from '../config/index.js';
 import type { FreshnessEffects } from './freshness-effects.js';
 import type { ConversationFileContext } from '../persistence/conversation-file.js';
@@ -66,8 +66,7 @@ export interface RuntimeApplicationServices {
   providerRegistry: ProviderRegistry;
   configAuthority: ResolvedConfigAuthority;
   cardStore: CardService;
-  restartServerAvailable?: boolean;
-  restartPort?: RestartPort;
+  restartCapability: RestartCapability;
   freshness: FreshnessEffects;
   processRunner: ProcessRunner;
   runtimeProcessRootScope: ManagedProcessScope;
@@ -82,8 +81,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     projectRoot,
     config,
     cardStore,
-    restartServerAvailable = false,
-    restartPort,
+    restartCapability,
   } = services;
   const eventQueries = new EventQueryService(projectRoot);
   const candidateAvailability = new MemoryCandidateAvailability();
@@ -198,7 +196,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         sessionId: analystSessionId,
         runtime: runtimeApi,
         mcpToolInvocation: services.mcpToolInvocation,
-        restartServerAvailable,
+        restartCapability,
         actor: workflows.analyst.name,
         surface: 'web-chat',
         analystMutations,
@@ -239,8 +237,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       capabilityRequest: analystBinding.capabilityRequest,
       candidateChain: analystBinding.candidateChain,
       promptTemplates,
-      restartServerAvailable,
-      restartPort,
+      restartCapability,
       provider: analystProvider,
       conversations,
       compactionPolicy,

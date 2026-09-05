@@ -2,7 +2,7 @@ import type { OperatorProjectContext } from './operator-handler-context.js';
 import { defineOperatorContractHandlers } from './operator-handler-context.js';
 import type { RuntimeApplication } from '../../application/runtime-composition.js';
 import type { SaivageConfig } from '../../schemas/saivage-config.js';
-import type { RestartPort } from '../../boot/restart-port.js';
+import type { RestartCapability } from '../../contracts/index.js';
 import { projectLiveToolInvocation } from '../../tools/tool-invocation-outbound.js';
 import { ChatToolInvocationSchema } from '../../contracts/operator-api-chats.js';
 import { ANALYST_TURN_BUSY_ERROR } from '../../contracts/operator-api-chats.js';
@@ -11,7 +11,7 @@ import { AnalystTurnBusyError } from '../../agents/analyst-api.js';
 type ChatOperatorHandlerOptions = OperatorProjectContext & {
   runtimeApplication: RuntimeApplication;
   saivageConfig: SaivageConfig;
-  restartPort?: RestartPort;
+  restartCapability: RestartCapability;
 };
 
 export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOptions) {
@@ -52,10 +52,8 @@ export function buildChatOperatorContractHandlers(options: ChatOperatorHandlerOp
           restart: response.restart,
         },
       };
-      if (response.restart?.status === 'scheduled') {
-        const restartPort = options.restartPort;
-        if (!restartPort)
-          throw new Error('Scheduled restart response requires an application-owned restart port.');
+      if (response.restart?.status === 'scheduled' && options.restartCapability.available) {
+        const restartPort = options.restartCapability.port;
         reply.raw.once('finish', () => {
           void restartPort.acknowledge();
         });

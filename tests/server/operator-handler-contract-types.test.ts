@@ -43,11 +43,11 @@ const serverAvailability = {
 const actorRuntime = { pauseMode: 'idle' as const, cards: [] };
 
 function chatFactoryDependencyTypeFixtures(): void {
-  buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication, saivageConfig });
+  buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication, saivageConfig, restartCapability: { available: false } });
   // @ts-expect-error Chat composition requires the runtime application.
-  buildChatOperatorContractHandlers({ projectRoot: '.', saivageConfig });
+  buildChatOperatorContractHandlers({ projectRoot: '.', saivageConfig, restartCapability: { available: false } });
   // @ts-expect-error Chat composition requires the startup-selected Saivage config.
-  buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication });
+  buildChatOperatorContractHandlers({ projectRoot: '.', runtimeApplication, restartCapability: { available: false } });
 }
 
 function processFactoryDependencyTypeFixtures(): void {
@@ -58,14 +58,14 @@ function processFactoryDependencyTypeFixtures(): void {
 
 function runtimeAndMcpFactoryDependencyTypeFixtures(): void {
   const serverAvailabilityProvider = () => serverAvailability;
-  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, runtimeApplication, serverAvailabilityProvider });
+  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, runtimeApplication, serverAvailabilityProvider, restartCapability: { available: false } });
   buildMcpOperatorContractHandlers({ mcpToolsProvider });
   // @ts-expect-error Runtime/card composition requires the card service.
-  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', runtimeApplication, serverAvailabilityProvider });
+  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', runtimeApplication, serverAvailabilityProvider, restartCapability: { available: false } });
   // @ts-expect-error Runtime/card composition requires the runtime application.
-  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, serverAvailabilityProvider });
+  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, serverAvailabilityProvider, restartCapability: { available: false } });
   // @ts-expect-error Runtime/card composition requires the availability provider.
-  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, runtimeApplication });
+  buildRuntimeCardOperatorContractHandlers({ projectRoot: '.', cardStore, runtimeApplication, restartCapability: { available: false } });
   // @ts-expect-error MCP composition requires the tools read-model provider.
   buildMcpOperatorContractHandlers({});
 }

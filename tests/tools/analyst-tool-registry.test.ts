@@ -17,7 +17,7 @@ function bindConfiguredAnalystSurface() {
     processScope: {},
     processOwnerId: 'agent:analyst:global',
     mcpToolInvocation: {} as never,
-    analystToolContext: { restartServerAvailable: false, actor: 'analyst', surface: 'web-chat', cardTypeVocabulary, runtime: { notifyCard: () => ({ ok: false, reason: 'missing_card', cardId: 'project' }) } } as never,
+    analystToolContext: { restartCapability: { available: false }, actor: 'analyst', surface: 'web-chat', cardTypeVocabulary, runtime: { notifyCard: () => ({ ok: false, reason: 'missing_card', cardId: 'project' }) } } as never,
     cardTypeVocabulary,
   } as never);
 }
@@ -70,7 +70,7 @@ describe('registered Analyst card mutation catalog', () => {
   });
 
   it('keeps restart_server stable across published authentication capability', () => {
-    const names = (restartServerAvailable: boolean) => bindToolProvider('analyst', getAnalystControlToolBinders(), { restartServerAvailable, actor: 'analyst', surface: 'web-chat',cardTypeVocabulary } as never).tools.map(({ name }) => name);
+    const names = (available: boolean) => bindToolProvider('analyst', getAnalystControlToolBinders(), { restartCapability: available ? { available: true, port: { schedule() {}, acknowledge: async () => {} } } : { available: false }, actor: 'analyst', surface: 'web-chat',cardTypeVocabulary } as never).tools.map(({ name }) => name);
     expect(names(false)).toContain('restart_server');
     expect(names(true)).toContain('restart_server');
   });

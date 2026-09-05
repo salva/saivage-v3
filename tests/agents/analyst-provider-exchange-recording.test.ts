@@ -126,6 +126,7 @@ describe('production-composed Analyst provider-exchange recording', () => {
         runtimeProcessRootScope,
         analystProcessRootScope,
         mcpToolInvocation: unusedMcpToolInvocation,
+        restartCapability: { available: false },
         fatalPort: testApplicationFatalPort,
         analystSessionId: 'agent:analyst:global',
       });

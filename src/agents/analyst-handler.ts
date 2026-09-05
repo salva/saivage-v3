@@ -22,7 +22,7 @@ import { surfaceToolContracts } from '../tools/runtime-tool-catalog.js';
 import { deferred, type Deferred } from '../runtime/actors/deferred.js';
 import { type PromptTemplateRegistry } from '../utils/prompt-api.js';
 import { buildAnalystOrientationSnapshot, type AnalystOrientationCard, type AnalystOrientationSnapshot } from '../application/read-models/analyst-orientation.js';
-import type { RestartPort } from '../boot/restart-port.js';
+import type { RestartCapability } from '../contracts/index.js';
 import type { RestartChatAcknowledgement } from '../contracts/operator-api-chats.js';
 import { ActivationOperationTracker, type InvocationJoinOutcome,
 } from '../runtime/actors/invocation-lifecycle.js';
@@ -143,8 +143,7 @@ export class AnalystSession {
   readonly #capabilityRequest: CapabilityRequest;
   readonly #candidateChain:readonly Candidate[];
   readonly #promptTemplates: PromptTemplateRegistry;
-  readonly #restartServerAvailable: boolean;
-  readonly #restartPort: RestartPort | undefined;
+  readonly #restartCapability: RestartCapability;
   readonly #conversations: ConversationFileContext;
   readonly #compactionPolicy: AutonomousCompactionPolicy;
   readonly #cardStore: CardService;
@@ -165,8 +164,7 @@ export class AnalystSession {
     capabilityRequest: CapabilityRequest;
     candidateChain:readonly Candidate[];
     promptTemplates: PromptTemplateRegistry;
-    restartServerAvailable: boolean;
-    restartPort?: RestartPort;
+    restartCapability: RestartCapability;
     provider: LLMProviderPort;
     conversations: ConversationFileContext;
     compactionPolicy: AutonomousCompactionPolicy;
@@ -186,8 +184,7 @@ export class AnalystSession {
     this.#capabilityRequest = input.capabilityRequest;
     this.#candidateChain=Object.freeze([...input.candidateChain]);
     this.#promptTemplates = input.promptTemplates;
-    this.#restartServerAvailable = input.restartServerAvailable;
-    this.#restartPort = input.restartPort;
+    this.#restartCapability = input.restartCapability;
     this.#conversations = input.conversations;
     this.#compactionPolicy = input.compactionPolicy;
     this.#cardStore = input.cardStore;
@@ -330,7 +327,7 @@ export class AnalystSession {
   }
 
   private runConfirmedRestart(operation: AnalystTurnOperation): AnalystResponse {
-    if (!operation.restartConfirmation || !this.#restartServerAvailable || !this.#restartPort)
+    if (!operation.restartConfirmation || !this.#restartCapability.available)
       throw new RecoverablePreparationError(
         new Error(
           'Restart confirmation is unavailable without authenticated operator restart capability.',
@@ -351,7 +348,7 @@ export class AnalystSession {
     operation.step = { kind: 'confirmed_restart_published' };
     if (request) throw request.reason;
     operation.step = { kind: 'confirmed_restart_scheduling' };
-    this.#restartPort.schedule();
+    this.#restartCapability.port.schedule();
     operation.restartConfirmation = null;
     return this.response(operation, { status: 'scheduled' });
   }

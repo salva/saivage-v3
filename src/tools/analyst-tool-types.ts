@@ -9,6 +9,7 @@ import type { AnalystMutationServices } from '../application/analyst-mutation-se
 import type { AnalystPreparationReadServices } from '../application/analyst-prepare/webfetch.js';
 import type { EventQueryService } from '../application/event-query-service.js';
 import type { CardTypeName, ConversationSessionId } from '../schemas/index.js';
+import type { RestartCapability } from '../contracts/index.js';
 
 export type AnalystToolOutcome = ToolActionOutcome;
 
@@ -38,7 +39,7 @@ export interface ToolContext {
     'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'getStatus'
   >;
   mcpToolInvocation: McpToolInvocationPort;
-  restartServerAvailable: boolean;
+  restartCapability: RestartCapability;
   actor: import('../schemas/index.js').AgentName;
   surface: 'web-chat';
   analystMutations?: AnalystMutationServices;
