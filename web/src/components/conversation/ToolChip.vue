@@ -26,7 +26,7 @@
             <dd><InlineParts :parts="detailTarget" /></dd>
           </div>
         </dl>
-        <div v-if="!display.known && display.statusTone !== 'pending'" class="detail-hint">Generic tool — view raw payload for full detail.</div>
+        <div v-if="!display.known && resultContent !== null" class="detail-hint">Generic tool — view raw payload for full detail.</div>
       </div>
       <div class="tool-chip-raw-bar">
         <button type="button" class="raw-toggle" :aria-expanded="showRawCall" @click="showRawCall = !showRawCall">{{ showRawCall ? 'Hide raw request' : 'Show raw request' }}</button>
@@ -42,7 +42,7 @@
 import { computed, ref, watch } from 'vue';
 import InlineParts from '../content/InlineParts.vue';
 import CodeBlock from '../content/CodeBlock.vue';
-import type { ToolDisplayModel } from '../../utils/tool-friendly';
+import type { ToolDisplayModel, ToolTone } from '../../utils/tool-friendly';
 import { inlinePartsText } from '../../utils/tool-friendly';
 import { formatRecentTimestamp, timestampTitle as absoluteTimestampTitle } from '../../utils/timestamp';
 
@@ -57,22 +57,18 @@ const props = defineProps<{
 
 defineEmits<{ (event: 'toggle'): void }>();
 
-const statusClass = computed(() => {
-  if (props.display.statusTone === 'pending') return 'tool-chip-pending';
-  if (props.display.statusTone === 'error') return 'tool-chip-error';
-  return 'tool-chip-ok';
-});
+const outcomeClass = {
+  neutral: '',
+  ok: 'tool-chip-ok',
+  error: 'tool-chip-error',
+} satisfies Record<ToolTone, string>;
+const statusClass = computed(() => outcomeClass[props.display.statusTone]);
 const detailTarget = computed(() => [...props.display.target, ...props.display.links]);
 const groupLabel = computed(() => `tool ${props.display.toolName} ${props.display.statusTone}`);
 const toggleLabel = computed(() => `${props.expanded ? 'Collapse' : 'Expand'} tool ${props.display.toolName} details`);
 const formattedTimestamp = computed(() => props.timestamp ? formatRecentTimestamp(props.timestamp) : '');
 const timeTitle = computed(() => props.timestamp ? absoluteTimestampTitle(props.timestamp) : '');
-const statusText = computed(() => {
-  if (props.display.status.length) return inlinePartsText(props.display.status);
-  if (props.display.statusTone === 'pending') return 'running…';
-  if (props.display.statusTone === 'error') return 'errored';
-  return 'ok';
-});
+const statusText = computed(() => inlinePartsText(props.display.status));
 
 const showRawCall = ref(false);
 const showRawResult = ref(false);
@@ -93,16 +89,12 @@ watch(() => props.resultContent, () => { showRawResult.value = false; });
 .tool-chip-status { justify-self:end; max-width:min(42vw, 520px); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text-muted); border:1px solid var(--border); border-radius:var(--radius-pill); background:var(--surface-2); padding:1px 8px; line-height:1.35; }
 .tool-chip-status[data-tone="ok"] { color:var(--accent-2); border-color:var(--entry-accent-border); background:var(--entry-accent-bg); }
 .tool-chip-status[data-tone="error"] { color:var(--danger); border-color:var(--entry-danger-border); background:var(--entry-danger-bg); }
-.tool-chip-status[data-tone="warn"] { color:var(--warn); border-color:var(--entry-warn-border); background:var(--entry-warn-bg); }
-.tool-chip-status[data-tone="pending"] { color:var(--accent); border-color:var(--entry-accent-border); background:var(--entry-accent-bg); font-style:italic; }
 .tool-chip-time { color:var(--text-muted); font-size:11px; white-space:nowrap; }
-.tool-chip-pending .tool-chip-action { color:var(--accent); }
 .tool-chip-error .tool-chip-action { color:var(--danger); }
 .tool-chip-error .tool-chip-toggle { background:var(--entry-danger-bg); }
 .tool-chip-links { align-items:baseline; padding:3px 0 3px 8px; font-size:12px; min-width:0; }
 
 .tool-chip-detail { display:flex; flex-direction:column; gap:8px; background:var(--surface-1); border-left:2px solid var(--surface-3); border-radius:0 var(--radius-sm) var(--radius-sm) 0; padding:8px 12px; margin:4px 0 4px 22px; }
-.tool-chip-pending .tool-chip-detail { border-left-color:var(--accent); background:var(--entry-accent-bg); }
 .tool-chip-error .tool-chip-detail { border-left-color:var(--danger); background:var(--entry-danger-bg); }
 .tool-chip-body { display:flex; flex-direction:column; gap:8px; font-size:13px; }
 .tool-chip-fields { display:flex; flex-direction:column; gap:4px; margin:0; }
@@ -111,8 +103,6 @@ watch(() => props.resultContent, () => { showRawResult.value = false; });
 .tool-chip-field dd { min-width:0; color:var(--text); overflow-wrap:anywhere; margin:0; }
 .tool-chip-field dd[data-tone="ok"] { color:var(--accent-2); }
 .tool-chip-field dd[data-tone="error"] { color:var(--danger); }
-.tool-chip-field dd[data-tone="warn"] { color:var(--warn); }
-.tool-chip-field dd[data-tone="pending"] { color:var(--accent); }
 .tool-chip-field code { font-family:'SF Mono',monospace; font-size:12px; color:var(--text-muted); }
 .detail-hint { font-size:11px; color:var(--text-muted); font-style:italic; }
 

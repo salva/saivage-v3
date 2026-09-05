@@ -3,7 +3,7 @@ import type { ToolPair, ToolGroup, ToolListItem } from './agent-timeline/types';
 import { presentToolCall, presentToolResult } from './tool-presenters';
 import { getToolPresenter } from './tool-presenters/presenters';
 
-export type ToolTone = 'neutral' | 'ok' | 'warn' | 'error' | 'pending';
+export type ToolTone = 'neutral' | 'ok' | 'error';
 
 export function isKnownTool(name: string): boolean {
   return getToolPresenter(name) !== undefined;
@@ -43,6 +43,12 @@ export interface ToolDisplayModel {
   known: boolean;
 }
 
+function presentPairResult(pair: ToolPair): ReturnType<typeof presentToolResult> | null {
+  return pair.result === null
+    ? null
+    : presentToolResult(pair.result.content, { tool: pair.result.tool });
+}
+
 /**
  * Build the single tool display model directly from a paired tool call/result.
  * The per-tool presenters parse the raw payloads; this function derives the
@@ -51,9 +57,7 @@ export interface ToolDisplayModel {
  */
 export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
   const callPres = presentToolCall(pair.call.content);
-  const result = pair.result;
-  const resultPres = result ? presentToolResult(result.content, { tool: result.tool }) : null;
-  const status = pair.status;
+  const resultPres = presentPairResult(pair);
 
   const action = friendlyAction(callPres.name);
   const known = isKnownTool(callPres.name);
@@ -61,18 +65,16 @@ export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
   const target = callParts.filter((part) => !isInteractive(part));
   let links = callParts.filter(isInteractive);
 
-  let statusParts: InlinePart[] = [];
+  let statusParts: InlinePart[] = [{ kind: 'text', text: 'no result recorded' }];
   let statusTone: ToolTone = 'neutral';
 
-  if (status === 'pending') {
-    statusParts = [{ kind: 'text', text: 'running…' }];
-    statusTone = 'pending';
-  } else {
-    const resultParts = [...(resultPres?.headline ?? []), ...(resultPres?.detail ?? [])];
+  if (resultPres) {
+    const resultParts = [...resultPres.headline, ...(resultPres.detail ?? [])];
     const text = inlinePartsText(resultParts);
+    statusParts = [];
+    statusTone = resultPres.status;
     if (text) {
       statusParts = resultParts.filter((part) => !isInteractive(part));
-      statusTone = resultPres?.status === 'error' ? 'error' : 'ok';
     }
     const linkExtras = resultParts.filter(isInteractive);
     if (linkExtras.length) links.push(...linkExtras);
@@ -82,7 +84,7 @@ export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
 }
 
 export function isGroupable(pair: ToolPair): boolean {
-  if (pair.status !== 'ok') return false;
+  if (presentPairResult(pair)?.status !== 'ok') return false;
   const name = pair.call.tool ?? '';
   return getToolPresenter(name)?.group !== undefined;
 }
@@ -117,7 +119,7 @@ function makeGroup(roundId: string, key: string, pairs: ToolPair[]): ToolGroup {
 
 /**
  * Collapse runs of adjacent successful read-only context calls into summary
- * groups. Mutations, dispatches, errors, pending calls, diagnostics, and
+ * groups. Mutations, dispatches, errors, unmatched calls, diagnostics, and
  * singletons are never grouped — they stay visible.
  */
 export function groupToolPairs(roundId: string, pairs: ToolPair[]): ToolListItem[] {

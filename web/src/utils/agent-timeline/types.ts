@@ -7,7 +7,6 @@ export interface ParsedRoundId {
 export interface ToolPair {
   call: AgentConversationEntry;
   result: AgentConversationEntry | null;
-  status: 'pending' | 'ok' | 'error';
 }
 export interface ToolGroup {
   kind: 'tool_group';

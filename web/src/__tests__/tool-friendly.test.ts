@@ -26,14 +26,14 @@ function entry(id: string, kind: AgentConversationEntry['kind'], content: string
   } as AgentConversationEntry;
 }
 
-function pair(id: string, tool: string, status: ToolPair['status'], args: Record<string, unknown> = {}, resultBody: unknown = { success: true }): ToolPair {
+function pair(id: string, tool: string, args: Record<string, unknown> = {}, resultBody: unknown | null = { success: true }): ToolPair {
   const call = entry(id, 'tool_call', callContent(tool, args), tool);
-  const result = status === 'pending' ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(resultBody), tool);
-  return { call, result, status };
+  const result = resultBody === null ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(resultBody), tool);
+  return { call, result };
 }
 
-function pairWithRawResult(id: string, tool: string, status: ToolPair['status'], resultContent: string): ToolPair {
-  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: entry(`${id}-r`, 'tool_result', resultContent, tool), status };
+function pairWithRawResult(id: string, tool: string, resultContent: string): ToolPair {
+  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: entry(`${id}-r`, 'tool_result', resultContent, tool) };
 }
 
 function displayText(display: ReturnType<typeof buildToolDisplay>): string {
@@ -61,31 +61,31 @@ describe('friendlyAction', () => {
 });
 
 describe('buildToolDisplay', () => {
-  it('renders a known pending tool with action, pending tone, and target routed from the call', () => {
-    const display = buildToolDisplay(pair('c1', 'read', 'pending', { path: 'README.md' }));
+  it('renders a known unmatched call with a neutral factual status and target routed from the call', () => {
+    const display = buildToolDisplay(pair('c1', 'read', { path: 'README.md' }, null));
     expect(display.action).toBe('Read');
     expect(display.known).toBe(true);
     const parts = [...display.target, ...display.links] as { text?: string; path?: string }[];
     expect(parts.some((p) => p.text === 'README.md' || p.path === 'README.md')).toBe(true);
-    expect(display.status.map((p) => (p as { text?: string }).text)).toContain('running…');
-    expect(display.statusTone).toBe('pending');
+    expect(display.status).toEqual([{ kind: 'text', text: 'no result recorded' }]);
+    expect(display.statusTone).toBe('neutral');
   });
 
   it('keeps non-interactive targets inline and surfaces an ok outcome status', () => {
-    const display = buildToolDisplay(pair('c1', 'run_command', 'ok', { command: 'npm test' }, { success: true, data: { process_id: 'proc-1', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 0, stderr_bytes: 0 } }));
+    const display = buildToolDisplay(pair('c1', 'run_command', { command: 'npm test' }, { success: true, data: { process_id: 'proc-1', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/proc-1/stdout.log', stderr_url: 'work:///processes/proc-1/stderr.log', stdout_bytes: 0, stderr_bytes: 0 } }));
     expect(display.action).toBe('Shell');
     expect(display.statusTone).toBe('ok');
   });
 
   it('produces a legible generic row for an unknown MCP tool', () => {
-    const display = buildToolDisplay(pair('c1', 'mcp__github__create_issue', 'pending'));
+    const display = buildToolDisplay(pair('c1', 'mcp__github__create_issue', {}, null));
     expect(display.action).toBe('MCP');
     expect(display.known).toBe(false);
   });
 
   it('uses only presenter-owned semantics for failures and malformed results', () => {
     const longError = `permission denied ${'x'.repeat(140)}`;
-    const display = buildToolDisplay(pair('c1', 'run_command', 'error', { command: 'boom' }, { success: false, error: longError, data: { marker: 'failure-data-secret' } }));
+    const display = buildToolDisplay(pair('c1', 'run_command', { command: 'boom' }, { success: false, error: longError, data: { marker: 'failure-data-secret' } }));
     expect(display.statusTone).toBe('error');
     expect(displayText(display)).toHaveLength(120);
     expect(displayText(display)).toContain('permission denied');
@@ -104,23 +104,23 @@ describe('buildToolDisplay', () => {
       '{invalid-json-secret',
     ];
     for (const [index, content] of malformed.entries()) {
-      const malformedDisplay = buildToolDisplay(pairWithRawResult(`m${index}`, 'read', 'ok', content));
+      const malformedDisplay = buildToolDisplay(pairWithRawResult(`m${index}`, 'read', content));
       expect(malformedDisplay.statusTone).toBe('ok');
       expect(displayText(malformedDisplay)).toBe('result unavailable');
     }
   });
 });
 
-function groupPair(id: string, tool: string, status: ToolPair['status']): ToolPair {
-  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: status === 'pending' ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(status === 'error' ? { success: false, error: 'boom' } : { success: true }), tool), status };
+function groupPair(id: string, tool: string, resultBody: unknown | null = { success: true }): ToolPair {
+  return { call: entry(id, 'tool_call', callContent(tool, {}), tool), result: resultBody === null ? null : entry(`${id}-r`, 'tool_result', JSON.stringify(resultBody), tool) };
 }
 
 describe('groupToolPairs', () => {
   it('collapses adjacent read-only context calls into a summary group', () => {
     const items = groupToolPairs('r1', [
-      groupPair('c1', 'read', 'ok'),
-      groupPair('c2', 'read', 'ok'),
-      groupPair('c3', 'grep', 'ok'),
+      groupPair('c1', 'read'),
+      groupPair('c2', 'read'),
+      groupPair('c3', 'grep'),
     ]);
     expect(items).toHaveLength(1);
     expect(isToolGroup(items[0])).toBe(true);
@@ -134,22 +134,22 @@ describe('groupToolPairs', () => {
 
   it('keeps web research separate from filesystem context', () => {
     const items = groupToolPairs('r1', [
-      groupPair('c1', 'read', 'ok'),
-      groupPair('c2', 'read', 'ok'),
-      groupPair('c3', 'websearch', 'ok'),
-      groupPair('c4', 'websearch', 'ok'),
+      groupPair('c1', 'read'),
+      groupPair('c2', 'read'),
+      groupPair('c3', 'websearch'),
+      groupPair('c4', 'websearch'),
     ]);
     expect(items).toHaveLength(2);
     expect(isToolGroup(items[0]) && items[0].label).toBe('Gathered context');
     expect(isToolGroup(items[1]) && items[1].label).toBe('Web research');
   });
 
-  it('never groups mutations, errors, pending calls, or singletons', () => {
+  it('never groups mutations, errors, unmatched calls, or singletons', () => {
     const items = groupToolPairs('r1', [
-      groupPair('c1', 'read', 'ok'),
-      groupPair('c2', 'write', 'ok'),
-      groupPair('c3', 'read', 'error'),
-      groupPair('c4', 'run_command', 'ok'),
+      groupPair('c1', 'read'),
+      groupPair('c2', 'write'),
+      groupPair('c3', 'read', { success: false, error: 'boom' }),
+      groupPair('c4', 'run_command', null),
     ]);
     expect(items.every((item) => !isToolGroup(item))).toBe(true);
     expect(items).toHaveLength(4);

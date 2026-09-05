@@ -143,7 +143,6 @@ describe('entriesToTimeline tool pairing', () => {
     const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
     expect(pairs).toHaveLength(1);
     expect(pairs[0].result).not.toBeNull();
-    expect(pairs[0].status).toBe('ok');
   });
 
   it('still pairs entries that already carry top-level tool_call_id (forward-compatible path)', () => {
@@ -172,10 +171,10 @@ describe('entriesToTimeline tool pairing', () => {
     });
     const timeline = entriesToTimeline([call, result]);
     const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
-    expect(pairs[0].status).toBe('ok');
+    expect(pairs[0].result).toBe(result);
   });
 
-  it('marks failed tool_result payloads as error and leaves unpaired calls pending', () => {
+  it('records matched results and represents an unmatched call only with a null result', () => {
     const call = entry({
       id: 'msg-a',
       kind: 'tool_call',
@@ -212,8 +211,9 @@ describe('entriesToTimeline tool pairing', () => {
     const timeline = entriesToTimeline([call, errResult, lonely]);
     const pairs = timeline.rounds.flatMap((round) => round.toolPairs);
     const byCall = new Map(pairs.map((p) => [p.call.id, p]));
-    expect(byCall.get('msg-a')?.status).toBe('error');
-    expect(byCall.get('msg-c')?.status).toBe('pending');
+    expect(byCall.get('msg-a')?.result).toBe(errResult);
+    expect(byCall.get('msg-c')?.result).toBeNull();
+    expect(Object.keys(byCall.get('msg-c') ?? {})).toEqual(['call', 'result']);
   });
 });
 

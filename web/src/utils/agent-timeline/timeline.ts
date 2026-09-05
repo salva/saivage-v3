@@ -3,7 +3,6 @@ import { parseToolCallMessage } from '../persistedToolCall';
 import { parseRoundId } from './round-id';
 import type { AgentTimeline, TimelineRound, ToolPair } from './types';
 import { groupToolPairs } from '../tool-friendly';
-import { presentToolResult } from '../tool-presenters';
 
 type TimelineEntry = AgentConversationEntry;
 
@@ -39,7 +38,6 @@ function buildToolPairs(entries: TimelineEntry[]): ToolPair[] {
     return {
       call,
       result,
-      status: result ? presentToolResult(result.content, { tool: result.tool }).status : 'pending',
     };
   });
 }

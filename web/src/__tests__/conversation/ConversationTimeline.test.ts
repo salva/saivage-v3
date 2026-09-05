@@ -68,27 +68,35 @@ describe('ConversationTimeline', () => {
     expect(cards[2].find('.round-head').exists()).toBe(true);
   });
 
-  it('projects canonical tool rows to mounted pending, success, error, known, fallback, and Files-link chips', async () => {
+  it('projects canonical tool rows to mounted unmatched, success, error, known, fallback, and Files-link chips', async () => {
     const entries: AgentConversationEntry[] = [
       toolEntry('call-read', 'read', { path: 'README.md' }, 0),
-      toolEntry('call-mcp', 'mcp_reconcile', {}, 1),
-      resultEntry('result-mcp', 'call-mcp', 'mcp_reconcile', { success: true }, 2),
-      toolEntry('call-unknown', 'move_card', { id: 'old-card' }, 3),
-      resultEntry('result-unknown', 'call-unknown', 'move_card', { success: false, error: 'boom' }, 4),
-      toolEntry('call-fetch', 'webfetch', { url: 'https://example.com' }, 5),
-      resultEntry('result-fetch', 'call-fetch', 'webfetch', { success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }, 6),
+      resultEntry('result-read', 'call-read', 'read', { success: true }, 1),
+      toolEntry('call-mcp', 'mcp_reconcile', {}, 2),
+      resultEntry('result-mcp', 'call-mcp', 'mcp_reconcile', { success: true }, 3),
+      toolEntry('call-unknown', 'move_card', { id: 'old-card' }, 4),
+      resultEntry('result-unknown', 'call-unknown', 'move_card', { success: false, error: 'boom' }, 5),
+      toolEntry('call-fetch', 'webfetch', { url: 'https://example.com' }, 6),
+      resultEntry('result-fetch', 'call-fetch', 'webfetch', { success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }, 7),
+      toolEntry('call-unmatched-unknown', 'custom_probe', { exact: 'request-payload' }, 8),
     ];
     const timeline = entriesToTimeline(entries);
-    expect(timeline.rounds[0].toolPairs.map((pair) => pair.status)).toEqual(['pending', 'ok', 'error', 'ok']);
+    expect(timeline.rounds[0].toolPairs.map((pair) => pair.result?.id ?? null)).toEqual([
+      'result-read',
+      'result-mcp',
+      'result-unknown',
+      'result-fetch',
+      null,
+    ]);
 
     const r = router(); await r.push('/files'); await r.isReady();
     const wrapper = mount(ConversationTimeline, {
-      props: { timeline, expandedIds: new Set(['call-mcp', 'call-unknown']) },
+      props: { timeline, expandedIds: new Set(['call-mcp', 'call-unknown', 'call-unmatched-unknown']) },
       global: { plugins: [r, createPinia()] },
     });
     const chips = wrapper.findAll('.tool-chip');
-    expect(chips).toHaveLength(4);
-    expect(chips[0].classes()).toContain('tool-chip-pending');
+    expect(chips).toHaveLength(5);
+    expect(chips[0].classes()).toContain('tool-chip-ok');
     expect(chips[0].text()).toContain('Read');
     expect(chips[0].text()).toContain('README.md');
     expect(chips[1].classes()).toContain('tool-chip-ok');
@@ -99,6 +107,16 @@ describe('ConversationTimeline', () => {
     expect(chips[2].findAll('button.raw-toggle')).toHaveLength(2);
     expect(chips[3].find('a.inline-part-file').text()).toBe('work:///tmp/stash/webfetch.txt');
     expect(chips[3].find('a.inline-part-file').attributes('href')).toContain('path=.saivage/work/tmp/stash/webfetch.txt');
+    expect(chips[4].text()).toContain('no result recorded');
+    expect(chips[4].find('.tool-chip-status').attributes('data-tone')).toBe('neutral');
+    expect(chips[4].classes()).not.toContain('tool-chip-ok');
+    expect(chips[4].classes()).not.toContain('tool-chip-error');
+    expect(chips[4].classes()).not.toContain('tool-chip-pending');
+    expect(chips[4].find('.detail-hint').exists()).toBe(false);
+    expect(chips[4].findAll('button.raw-toggle')).toHaveLength(1);
+    await chips[4].find('button.raw-toggle').trigger('click');
+    expect(chips[4].find('[aria-label="Raw tool request"]').text()).toContain('request-payload');
+    expect(chips[4].find('[aria-label="Raw tool response"]').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('stash_path');
   });
 });
