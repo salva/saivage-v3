@@ -1,4 +1,3 @@
-import type { AgentName } from '../schemas/index.js';
 import { unwrapFailure } from '../contracts/llm-failure.js';
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
@@ -90,10 +89,6 @@ export class InvocationRecoveryPolicy {
       default:
         return assertNever(failure);
     }
-  }
-
-  decideNoCandidates(context: { agentName: AgentName }): string {
-    return `No healthy candidates available for agent '${context.agentName}'.`;
   }
 }
 

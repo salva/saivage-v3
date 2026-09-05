@@ -19,7 +19,7 @@ export interface AgentProtocolViolation {
 
 const RAW_PREVIEW_LIMIT = 500;
 
-export function rawProtocolPreview(raw: string): string {
+function rawProtocolPreview(raw: string): string {
   const redacted = redactTextForOutbound(raw);
   return redacted.length <= RAW_PREVIEW_LIMIT
     ? redacted

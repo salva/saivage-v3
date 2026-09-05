@@ -23,7 +23,7 @@ export function parseOpenAIResponsesJson(text: string, ctx: ParserContext): Pars
   return parseOpenAIResponsesObject(response, ctx, text);
 }
 
-export function parseOpenAIResponsesObject(response: Record<string, unknown>, ctx: ParserContext, providerResponse: string): ParsedOpenAIResponsesCompletion {
+function parseOpenAIResponsesObject(response: Record<string, unknown>, ctx: ParserContext, providerResponse: string): ParsedOpenAIResponsesCompletion {
   const status = response.status;
   if (typeof status !== 'string' || !KNOWN_STATUSES.has(status)) throw new LlmRequestError({ kind: 'parse_error', provider: ctx.provider, message: 'OpenAI Responses payload has missing or unknown status.', bodyPreview: providerResponse.slice(0, 500) });
   if (status !== 'completed') throw nonCompletedFailure(response, ctx, status, providerResponse);

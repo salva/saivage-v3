@@ -87,7 +87,7 @@ export const openAIResponsesAdapter: LlmProtocolAdapter = {
     };
   },
 };
-export function buildOpenAIResponsesRequest(
+function buildOpenAIResponsesRequest(
   candidate: Candidate,
   systemPrompt: string,
   providerConversation: ProviderConversationProjection,

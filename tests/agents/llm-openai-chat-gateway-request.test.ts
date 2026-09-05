@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
-import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-adapter.js';
+import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 import type {
   LlmCompleteOptions,
@@ -10,6 +10,8 @@ import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 
 const CANDIDATE: Candidate = { provider: 'openai-chat', account: null, model: 'gpt-5' };
+const ADAPTER = selectLlmProtocolAdapter('openai-chat-completions');
+const CAPABILITIES = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, quirks: [] };
 const SYSTEM = 'system-prompt';
 const MESSAGES: AgentMessage[] = [
   {
@@ -46,7 +48,7 @@ const SAMPLE_TOOL: ToolDefinition = {
 
 afterEach(() => { jest.restoreAllMocks(); });
 
-describe('buildOpenAIChatRequest wire shape', () => {
+describe('OpenAI Chat adapter request shape', () => {
   it('preserves the ordered operational and terminal tool surface with auto choice and parallel calls disabled', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
@@ -58,7 +60,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL],
       tool_choice: 'auto',
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: SYSTEM, providerConversation: { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, options: opts, capabilities: CAPABILITIES });
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
@@ -98,7 +100,7 @@ describe('buildOpenAIChatRequest wire shape', () => {
       tools: [],
       tool_choice: 'auto',
     };
-    const body = buildOpenAIChatRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts) as unknown as Record<string, unknown>;
+    const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: SYSTEM, providerConversation: { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, options: opts, capabilities: CAPABILITIES });
 
     expect(Object.prototype.hasOwnProperty.call(body, 'tools')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'tool_choice')).toBe(false);

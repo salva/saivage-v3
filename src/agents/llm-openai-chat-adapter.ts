@@ -134,7 +134,7 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
   },
 };
 
-export function buildOpenAIChatRequest(
+function buildOpenAIChatRequest(
   candidate: Candidate,
   systemPrompt: string,
   providerConversation: ProviderConversationProjection,

@@ -57,11 +57,6 @@ describe('InvocationRecoveryPolicy', () => {
     }), baseContext)).toEqual({ kind: 'terminal' });
   });
 
-  it('returns the installed-chain no-healthy-candidate message', () => {
-    expect(policy.decideNoCandidates({ agentName: 'planner' }))
-      .toBe("No healthy candidates available for agent 'planner'.");
-  });
-
   it('uses standard retry control for parse errors without provider-health mutation', () => {
     expect(policy.decideFailure(
       new LlmRequestError({ kind: 'parse_error', provider: 'openai-compatible', message: 'invalid json', bodyPreview: '{' }),

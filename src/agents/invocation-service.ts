@@ -58,7 +58,6 @@ const WAITABLE_UNAVAILABILITY_REASONS = new Set([
   'timeout',
   'rate_limit',
   'unknown',
-  'parse_error',
 ]);
 
 interface InvocationRequestBase {

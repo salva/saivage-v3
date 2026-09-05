@@ -8,9 +8,7 @@ import { type AgentMessage, type ConversationSessionId, MODEL_RECOVERY_NOTICE_TE
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY as TEXT_ROW_POLICY_FIXTURE, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
-import { responsesInputFromProviderConversation } from '../../src/agents/llm-openai-responses-mapper.js';
-import { codexMessages } from '../../src/agents/llm-openai-codex-adapter.js';
-import { buildOpenAIChatRequest } from '../../src/agents/llm-openai-chat-adapter.js';
+import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -100,19 +98,36 @@ describe('stable same-session recovery', () => {
     expect(JSON.parse(failed.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
     expect(generic).toContainEqual(expect.objectContaining({ role: 'system', kind: 'text', content: MODEL_RECOVERY_NOTICE_TEXT }));
 
-    expect(codexMessages(generic)).toEqual(expect.arrayContaining([
+    const options = { inputId: 'wire-check', contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto' as const, terminalToolOffered: [], temperature: 0, max_tokens: 10 };
+    const codex = selectLlmProtocolAdapter('openai-codex-backend').buildRequestBody({
+      candidate: { provider: 'openai-codex', model: 'gpt-test', account: 'default' },
+      systemPrompt: 'system',
+      providerConversation,
+      options,
+      capabilities: { transportProtocol: 'openai-codex-backend', toolsMode: 'native', exclusiveToolChoiceSupport: 'parallel_off', quirks: [] },
+    });
+    expect(codex.input).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function_call', call_id: 'call-1' }),
       expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: failed.content }),
     ]));
-    expect(responsesInputFromProviderConversation(providerConversation)).toEqual(expect.arrayContaining([
+    const responses = selectLlmProtocolAdapter('openai-responses').buildRequestBody({
+      candidate: { provider: 'openai', model: 'gpt-test', account: 'default' },
+      systemPrompt: 'system',
+      providerConversation,
+      options,
+      capabilities: { transportProtocol: 'openai-responses', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+    });
+    expect(responses.input).toEqual(expect.arrayContaining([
       expect.objectContaining({ type: 'function_call', call_id: 'call-1' }),
       expect.objectContaining({ type: 'function_call_output', call_id: 'call-1', output: failed.content }),
     ]));
-    const chat = buildOpenAIChatRequest(
-      { provider: 'openai', model: 'gpt-test', account: 'default' },
-      'system', providerConversation,
-      { inputId: 'wire-check', contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto', terminalToolOffered: [], temperature: 0, max_tokens: 10 },
-    );
+    const chat = selectLlmProtocolAdapter('openai-chat-completions').buildRequestBody({
+      candidate: { provider: 'openai', model: 'gpt-test', account: 'default' },
+      systemPrompt: 'system',
+      providerConversation,
+      options,
+      capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+    });
     expect(chat.messages).toEqual(expect.arrayContaining([
       expect.objectContaining({ role: 'assistant', tool_calls: [expect.objectContaining({ id: 'call-1' })] }),
       { role: 'tool', content: failed.content, tool_call_id: 'call-1' },

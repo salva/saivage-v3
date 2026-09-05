@@ -69,7 +69,7 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
   return input;
 }
 
-export function parsePrivateContent(message: AgentMessage): OpenAIResponsesPrivateRowContent {
+function parsePrivateContent(message: AgentMessage): OpenAIResponsesPrivateRowContent {
   if (message.kind !== 'provider_private') throw new Error(`Message '${message.id}' is not a provider_private row.`);
   const parsed = JSON.parse(message.content) as OpenAIResponsesPrivateRowContent;
   if (parsed.transport !== 'openai-responses') throw new Error(`Provider private row '${message.id}' has unsupported transport.`);

@@ -234,7 +234,7 @@ const PREVIEW_MAX_BYTES = 128;
 const DIAGNOSTIC_CANDIDATE_CAP = 32;
 const ELLIPSIS_BYTES = 3;
 
-export function utf8TruncatingPreview(value: string, maxBytes = PREVIEW_MAX_BYTES): string {
+function utf8TruncatingPreview(value: string, maxBytes = PREVIEW_MAX_BYTES): string {
   if (Buffer.byteLength(value, 'utf8') <= maxBytes) return value;
   const prefix = utf8SafeSlice(value, 0, Math.max(0, maxBytes - ELLIPSIS_BYTES)).content;
   return `${prefix}…`;
@@ -277,7 +277,7 @@ export function projectAdmissionDiagnostics(candidates: readonly CandidateLocalA
   });
 }
 
-export const STATE_KINDS: readonly AdmittedCandidateAttemptStateKind[] = [
+const STATE_KINDS: readonly AdmittedCandidateAttemptStateKind[] = [
   'untried',
   'temporarily_unavailable',
   'retry_waiting',

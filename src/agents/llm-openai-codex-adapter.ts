@@ -75,7 +75,7 @@ export const openAICodexAdapter: LlmProtocolAdapter = {
   },
 };
 
-export function buildOpenAICodexRequest(
+function buildOpenAICodexRequest(
   candidate: Candidate,
   systemPrompt: string,
   providerConversation: ProviderConversationProjection,
@@ -110,7 +110,7 @@ export function buildOpenAICodexRequest(
   return body;
 }
 
-export function codexMessages(messages: AgentMessage[]): CodexMessage[] {
+function codexMessages(messages: AgentMessage[]): CodexMessage[] {
   const settled = new Set<string>();
   const seen = new Set<string>();
   for (const message of messages) {

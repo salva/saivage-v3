@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
-import { buildOpenAICodexRequest } from '../../src/agents/llm-openai-codex-adapter.js';
+import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 import type {
   LlmCompleteOptions,
   ToolDefinition,
@@ -14,6 +14,8 @@ import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 afterEach(() => { jest.restoreAllMocks(); });
 
 const CANDIDATE: Candidate = { provider: 'openai-codex', account: null, model: 'gpt-5' };
+const ADAPTER = selectLlmProtocolAdapter('openai-codex-backend');
+const CAPABILITIES = { transportProtocol: 'openai-codex-backend' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'parallel_off' as const, quirks: ['openai-codex-backend'] };
 const SYSTEM = 'system-prompt';
 const MESSAGES: AgentMessage[] = [
   {
@@ -48,7 +50,7 @@ const SAMPLE_TOOL: ToolDefinition = {
   },
 };
 
-describe('buildOpenAICodexRequest wire shape', () => {
+describe('OpenAI Codex adapter request shape', () => {
   it('preserves the ordered operational and terminal tool surface with auto choice and parallel calls disabled', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
@@ -60,7 +62,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
       tools: [SAMPLE_TOOL, PLANNER_TERMINAL_TOOL],
       tool_choice: 'auto',
     };
-    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts);
+    const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: SYSTEM, providerConversation: { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, options: opts, capabilities: CAPABILITIES });
 
     expect(JSON.stringify(body)).not.toContain('response_format');
     expect(Object.prototype.hasOwnProperty.call(body, 'response_format')).toBe(false);
@@ -87,7 +89,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
 
   it('omits the configured completion quantity and universally projects system context into instructions', () => {
     const opts: LlmCompleteOptions = { inputId: 'test:input:1', temperature: 0.2, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 777 };
-    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }] }, opts);
+    const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: SYSTEM, providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }] }, options: opts, capabilities: CAPABILITIES });
     expect(Object.prototype.hasOwnProperty.call(body, 'max_output_tokens')).toBe(false);
     expect(body.instructions).toContain('compacted context');
     expect(body.input).toEqual([{ role: 'user', content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }] }]);
@@ -104,7 +106,7 @@ describe('buildOpenAICodexRequest wire shape', () => {
       tools: [],
       tool_choice: 'auto',
     };
-    const body = buildOpenAICodexRequest(CANDIDATE, SYSTEM, { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, opts);
+    const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: SYSTEM, providerConversation: { sourceSessionId: 'agent:analyst:global', messages: MESSAGES }, options: opts, capabilities: CAPABILITIES });
 
     expect(Object.prototype.hasOwnProperty.call(body, 'tools')).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(body, 'tool_choice')).toBe(false);
