@@ -36,6 +36,7 @@ const PACKAGE_SCRIPTS = {
   'test:parallel': 'NODE_OPTIONS=--experimental-vm-modules jest',
   'test:terminal-child': TERMINAL_CHILD_COMMAND,
   'test:direct': 'NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js',
+  'test:e2e': "NODE_OPTIONS=--experimental-vm-modules jest tests/e2e/ --testPathIgnorePatterns='<rootDir>/tests/playwright/'",
   'audit:root': 'npm audit --audit-level=high --omit=dev',
   'audit:web': 'cd web && npm audit --audit-level=high --omit=dev',
   'audit:security': 'npm run audit:root && npm run audit:web',
@@ -44,23 +45,18 @@ const PACKAGE_SCRIPTS = {
   'deps:review': 'npm run audit:security:all && npm run deps:freshness',
   'web:typecheck': 'cd web && npm run typecheck',
   'web:test': 'cd web && npm run test',
-  'test:web': 'npm run web:test',
   'web:test:sweep': 'npm run web:test:control-room && npm run web:test:stores',
-  'test:web:sweep': 'npm run web:test:sweep',
   'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts',
-  'test:web:operator-smoke': 'npm run web:test:operator-smoke',
   'web:test:analyst-ui': 'cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts',
-  'test:web:analyst-ui': 'npm run web:test:analyst-ui',
   'validate:docs': 'npm run docs:verify',
   'validate:routine': 'npm run typecheck && npm run check:canonical-persistence-drift && npm run docs:verify',
   'validate:ui-smoke': 'npm run web:test:operator-smoke',
   'validate:ui': 'npm run web:typecheck && npm run web:test:sweep && npm run web:test:operator-smoke',
-  'validate:release': 'npm run typecheck && npm run build && npm test && npm run web:test:operator-smoke && npm run docs:verify',
+  'validate:release': 'npm run typecheck && npm run build && npm test && npm run test:e2e && npm run web:test:operator-smoke && npm run docs:verify',
   'web:test:e2e:install': 'playwright install chromium',
   'web:test:e2e:preview-smoke': 'playwright test -c tests/playwright/smoke/playwright.config.ts',
   'web:test:e2e:browser-client-smoke': 'playwright test -c tests/playwright/browser-client/chat-api-client-browser.config.ts',
   'web:test:e2e:smoke': 'npm run web:test:e2e:preview-smoke && npm run web:test:e2e:browser-client-smoke',
-  'web:test:live-getrich-v2': 'playwright test -c tests/playwright/live-getrich-v2/live-getrich-v2.config.ts',
 };
 
 const PACKAGE_JSON = JSON.stringify({
@@ -83,20 +79,11 @@ const VALID_PLAYWRIGHT_DOCS = `
 npm ci
 (cd web && npm ci)
 npm run build
-npm run web:test:live-getrich-v2
 \`\`\`
 The backend-jest-build job runs root \`npm ci\`, then web \`cd web && npm ci\`.
 \`web:test:e2e:smoke\` runs the complete self-contained browser profile: every production-preview smoke test plus the one source browser-client test. It has a preview server and a dev server prerequisite.
-The live command \`npm run web:test:live-getrich-v2\` has a reachable deployment prerequisite; override it with \`SAIVAGE_LIVE_BASE_URL\`.
 After a failed or cancelled run, best-effort artifacts preserve \`tmp/playwright-report\` and \`tmp/playwright-results\`.
 See \`tests/playwright/smoke/preview.spec.ts\`.
-`;
-
-const VALID_LIVE_RECORD = `Date: 2026-06-24
-npm run web:test:live-getrich-v2
-Requires a reachable deployment; override with SAIVAGE_LIVE_BASE_URL.
-tests/playwright/live-getrich-v2/live-getrich-v2.spec.ts:36
-tests/playwright/live-getrich-v2/live-getrich-v2-coverage.spec.ts:167
 `;
 
 const VALID_DOCS_VERIFY = `#!/usr/bin/env bash
@@ -142,7 +129,7 @@ function validFiles(overrides = {}) {
     'package.json': PACKAGE_JSON,
     'README.md': 'Use Node.js 24 with `node >=24 <25` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_TERMINAL_CHILD_DOCS + VALID_PLAYWRIGHT_DOCS,
     'web/package.json': WEB_PACKAGE_JSON,
-    'docs/architecture/system-architecture.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\nValidation-command confusion: canonical `npm run web:test:analyst-ui` and alias `npm run test:web:analyst-ui`; smoke uses `npm run web:test:operator-smoke` or `npm run test:web:operator-smoke`.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\nnpm run test:web:sweep\n```\n' + VALID_PROFILE_DOCS,
+    'docs/architecture/system-architecture.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\nCanonical commands include `npm run web:test:analyst-ui` and `npm run web:test:operator-smoke`.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\n```\n' + VALID_PROFILE_DOCS,
     '.github/workflows/validation.yml': VALID_WORKFLOW,
     'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
     'scripts/check-existing.js': '#!/usr/bin/env node\n',
@@ -152,10 +139,6 @@ function validFiles(overrides = {}) {
     'tests/playwright/smoke/preview.spec.ts': 'test();\n',
     'tests/playwright/browser-client/chat-api-client-browser.config.ts': "testDir: '.'\ntestMatch: /(^|\\/)chat-api-client-browser\\.spec\\.ts$/\n",
     'tests/playwright/browser-client/client.spec.ts': 'test();\n',
-    'tests/playwright/live-getrich-v2/live-getrich-v2.config.ts': "testDir: '.'\ntestMatch: /live-getrich-v2(-extra|-ui|-coverage)?\\.spec\\.ts/\n",
-    'tests/playwright/live-getrich-v2/live-getrich-v2.spec.ts': 'test();\n',
-    'tests/playwright/live-getrich-v2/live-getrich-v2-coverage.spec.ts': 'test();\n',
-    'docs/validation/live-getrich-v2-launch-playwright-issues-2026-06-24.md': VALID_LIVE_RECORD,
     ...overrides,
   };
 }
@@ -177,8 +160,7 @@ describe('validation cadence guard', () => {
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run validate:routine'));
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run audit:security'));
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
-      expect(result.webTestAliasEntriesChecked).toContain('package.json alias test:web:sweep -> web:test:sweep');
-      expect(result.webTestAliasEntriesChecked).toContain('package.json alias test:web:operator-smoke -> web:test:operator-smoke');
+      expect(result.canonicalWebTestNamespaceEntriesChecked).toContain('package.json singular canonical web-test namespace');
       expect(result.runtimeEngineEntriesChecked).toContain('package.json engines');
       expect(result.runtimeEngineEntriesChecked).toContain('web/package.json engines');
       expect(result.docsVerifyEntriesChecked).toContain('scripts/docs-verify.sh:4 node-script scripts/check-existing.js');
@@ -243,6 +225,15 @@ describe('validation cadence guard', () => {
       const release = `${PACKAGE_SCRIPTS['validate:release']} && npm run test:terminal-child`;
       expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:release': release } }), 'must invoke singular npm test exactly once');
     });
+
+    it.each([
+      ['omits backend E2E', PACKAGE_SCRIPTS['validate:release'].replace(' && npm run test:e2e', '')],
+      ['runs backend E2E before npm test', PACKAGE_SCRIPTS['validate:release'].replace('npm test && npm run test:e2e', 'npm run test:e2e && npm test')],
+      ['runs backend E2E after browser smoke', PACKAGE_SCRIPTS['validate:release'].replace('npm run test:e2e && npm run web:test:operator-smoke', 'npm run web:test:operator-smoke && npm run test:e2e')],
+      ['runs backend E2E twice', PACKAGE_SCRIPTS['validate:release'].replace('npm run test:e2e', 'npm run test:e2e && npm run test:e2e')],
+    ])('rejects release when it %s', (_label, release) => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:release': release } }), 'must invoke npm run test:e2e exactly once after npm test and before npm run web:test:operator-smoke');
+    });
   });
 
   it('fails clearly when root npm test uses --passWithNoTests', () => {
@@ -289,25 +280,20 @@ describe('validation cadence guard', () => {
     });
   });
 
-  it('fails clearly when a documented test:web alias is missing', () => {
-    const { 'test:web:analyst-ui': _alias, ...scripts } = PACKAGE_SCRIPTS;
-    withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=24 <25', npm: '>=10 <12' }, scripts }) }), (root) => {
-      const result = verifyValidationCadence({ root });
-      expect(result.ok).toBe(false);
-      expect(result.failures).toContain('docs/architecture/system-architecture.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" script');
-      expect(result.failures).toContain('docs/architecture/system-architecture.md: npm run test:web:analyst-ui documents npm run test:web:analyst-ui, but package.json has no "test:web:analyst-ui" alias to "web:test:analyst-ui"');
-    });
+  it('rejects a reintroduced package test:web alias independently of documentation', () => {
+    const scripts = { ...PACKAGE_SCRIPTS, 'test:web:operator-smoke': 'npm run web:test:operator-smoke' };
+    expectPackageFailure(packageJson({ scripts }), 'package.json must not define forbidden test:web* script keys: test:web:operator-smoke');
   });
 
-  it('fails clearly when a documented test:web alias drifts from its canonical web:test target', () => {
-    const packageWithDriftedAlias = JSON.stringify({
-      engines: { node: '>=24 <25', npm: '>=10 <12' },
-      scripts: { ...PACKAGE_SCRIPTS, 'test:web:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts' },
-    });
-    withFixture(validFiles({ 'package.json': packageWithDriftedAlias }), (root) => {
+  it.each([
+    ['README.md', 'Current inline guidance: `npm run test:web:operator-smoke`.\n'],
+    ['docs/architecture/system-architecture.md', '```bash\nnpm run test:web:operator-smoke\n```\n'],
+  ])('rejects a documented test:web alias in %s without a package alias', (file, reference) => {
+    const current = validFiles()[file];
+    withFixture(validFiles({ [file]: `${current}\n${reference}` }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('package.json alias "test:web:operator-smoke" must be exactly "npm run web:test:operator-smoke", but is currently: cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts');
+      expect(result.failures).toContainEqual(expect.stringMatching(new RegExp(`^${file.replaceAll('.', '\\.')}:\\d+ documents forbidden npm script namespace "test:web:operator-smoke"`)));
     });
   });
 
@@ -417,6 +403,7 @@ describe('validation cadence guard', () => {
   describe('complete aggregate mutations', () => {
     const pathJobs = [
       ['backend-jest-build', 'BACKEND'],
+      ['backend-e2e', 'BACKEND_E2E'],
       ['ui-vitest', 'UI'],
       ['browser-smoke', 'BROWSER'],
       ['dependency-hygiene', 'DEPENDENCY'],
@@ -465,6 +452,8 @@ describe('validation cadence guard', () => {
     const workflowMutations = [
       ['omitted backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project', '      - name: Build project', 'backend-jest-build scalar commands must be exactly'],
       ['misordered backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project\n        run: npm run build', '      - name: Build project\n        run: npm run build\n\n      - name: Install web dependencies\n        run: cd web && npm ci', 'backend-jest-build scalar commands must be exactly'],
+      ['omitted backend E2E command', '      - name: Backend E2E suite\n        run: npm run test:e2e\n', '', 'backend-e2e scalar commands must be exactly'],
+      ['extra backend E2E setup step', '      - name: Backend E2E suite\n        run: npm run test:e2e', '      - name: Unexpected setup\n        uses: example/setup@v1\n\n      - name: Backend E2E suite\n        run: npm run test:e2e', 'backend-e2e steps must be exactly'],
       ['changed browser install command', '        run: npm run web:test:e2e:install', '        run: playwright install chromium', 'browser-smoke scalar commands must be exactly'],
       ['live suite enters CI', '        run: npm run web:test:e2e:smoke', '        run: npm run web:test:e2e:smoke && npm run web:test:live-getrich-v2', 'must exclude the external live GetRich v2 suite'],
       ['wrong artifact condition', '        if: ${{ failure() || cancelled() }}', '        if: ${{ failure() }}', 'condition must be exactly failure() || cancelled()'],
@@ -538,13 +527,6 @@ describe('validation cadence guard', () => {
       });
     });
 
-    it.each(['live-getrich-v2.spec.ts', 'live-getrich-v2-coverage.spec.ts'])('rejects old root-level %s in the dated record', (name) => {
-      const record = VALID_LIVE_RECORD.replace(`tests/playwright/live-getrich-v2/${name}`, `tests/playwright/${name}`);
-      withFixture(validFiles({ 'docs/validation/live-getrich-v2-launch-playwright-issues-2026-06-24.md': record }), (root) => {
-        const result = verifyValidationCadence({ root });
-        expect(result.failures).toContainEqual(expect.stringContaining(`references nonexistent Playwright path tests/playwright/${name}`));
-      });
-    });
   });
 
   it('fails clearly when the operator smoke script stops targeting the smoke test', () => {

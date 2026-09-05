@@ -231,6 +231,27 @@ jobs:
       - name: Default Jest suite
         run: npm test
 
+  backend-e2e:
+    name: backend-e2e
+    runs-on: ubuntu-latest
+    needs: classify-changes
+    if: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Backend E2E suite
+        run: npm run test:e2e
+
   ui-vitest:
     name: ui-vitest
     runs-on: ubuntu-latest
@@ -327,6 +348,7 @@ jobs:
       - classify-changes
       - routine-docs
       - backend-jest-build
+      - backend-e2e
       - ui-vitest
       - browser-smoke
       - dependency-hygiene
@@ -337,10 +359,12 @@ jobs:
           CLASSIFIER_RESULT: ${{ needs.classify-changes.result }}
           ROUTINE_RESULT: ${{ needs.routine-docs.result }}
           BACKEND_RESULT: ${{ needs.backend-jest-build.result }}
+          BACKEND_E2E_RESULT: ${{ needs.backend-e2e.result }}
           UI_RESULT: ${{ needs.ui-vitest.result }}
           BROWSER_RESULT: ${{ needs.browser-smoke.result }}
           DEPENDENCY_RESULT: ${{ needs.dependency-hygiene.result }}
           BACKEND_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
+          BACKEND_E2E_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
           UI_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.ui == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
           BROWSER_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
           DEPENDENCY_APPLIES: ${{ needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true' }}
@@ -375,6 +399,7 @@ jobs:
           require_success classify-changes "$CLASSIFIER_RESULT"
           require_success routine-docs "$ROUTINE_RESULT"
           require_applicable backend-jest-build "$BACKEND_APPLIES" "$BACKEND_RESULT"
+          require_applicable backend-e2e "$BACKEND_E2E_APPLIES" "$BACKEND_E2E_RESULT"
           require_applicable ui-vitest "$UI_APPLIES" "$UI_RESULT"
           require_applicable browser-smoke "$BROWSER_APPLIES" "$BROWSER_RESULT"
           require_applicable dependency-hygiene "$DEPENDENCY_APPLIES" "$DEPENDENCY_RESULT"
@@ -384,6 +409,7 @@ jobs:
             echo "- classifier: $CLASSIFIER_RESULT ($CLASSIFIER_SUMMARY)"
             echo "- routine-docs: $ROUTINE_RESULT"
             echo "- backend-jest-build: $BACKEND_RESULT (applies=$BACKEND_APPLIES)"
+            echo "- backend-e2e: $BACKEND_E2E_RESULT (applies=$BACKEND_E2E_APPLIES)"
             echo "- ui-vitest: $UI_RESULT (applies=$UI_APPLIES)"
             echo "- browser-smoke: $BROWSER_RESULT (applies=$BROWSER_APPLIES)"
             echo "- dependency-hygiene: $DEPENDENCY_RESULT (applies=$DEPENDENCY_APPLIES)"

@@ -29,11 +29,10 @@ const JEST_IGNORE_PATTERNS = [
   TERMINAL_CHILD_IGNORE_REGEX,
 ];
 const TERMINAL_CHILD_TEST_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_TEST_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
-const DATED_LIVE_VALIDATION_RECORD = 'docs/validation/live-getrich-v2-launch-playwright-issues-2026-06-24.md';
+const ARCHIVED_PLAYWRIGHT_DIRECTORY = 'tests/playwright/live-getrich-v2/';
 const PLAYWRIGHT_SUITE_OWNERS = [
   ['preview smoke', 'tests/playwright/smoke', 'tests/playwright/smoke/playwright.config.ts', 'web:test:e2e:preview-smoke', String.raw`testMatch: /.*\.spec\.ts/`],
   ['browser-client smoke', 'tests/playwright/browser-client', 'tests/playwright/browser-client/chat-api-client-browser.config.ts', 'web:test:e2e:browser-client-smoke', String.raw`testMatch: /(^|\/)chat-api-client-browser\.spec\.ts$/`],
-  ['live GetRich v2', 'tests/playwright/live-getrich-v2', 'tests/playwright/live-getrich-v2/live-getrich-v2.config.ts', 'web:test:live-getrich-v2', String.raw`testMatch: /live-getrich-v2(-extra|-ui|-coverage)?\.spec\.ts/`],
 ];
 
 
@@ -104,7 +103,7 @@ const REQUIRED_VALIDATION_PROFILES = [
   },
   {
     name: 'validate:release',
-    mustInclude: ['npm run typecheck', 'npm run build', 'npm test', 'npm run web:test:operator-smoke', 'npm run docs:verify'],
+    mustInclude: ['npm run typecheck', 'npm run build', 'npm test', 'npm run test:e2e', 'npm run web:test:operator-smoke', 'npm run docs:verify'],
     description: 'release sign-off validation profile',
   },
 ];
@@ -160,6 +159,75 @@ function inlineNpmRunCommands(markdown) {
     commands.push(normalizeCommandLine(match[1]));
   }
   return commands;
+}
+
+function validateForbiddenDocumentedWebTestNamespace({ root, files = DEFAULT_DOCUMENTED_COMMAND_FILES }) {
+  const failures = [];
+  const checked = [];
+  const forbidden = (scriptName) => scriptName === 'test:web' || scriptName.startsWith('test:web:');
+
+  for (const file of files) {
+    const fullPath = path.join(root, file);
+    if (!existsSync(fullPath)) continue;
+    const markdown = readFileSync(fullPath, 'utf8');
+    const lines = markdown.split('\n');
+    let shellFence = false;
+    let pending = '';
+    let pendingLine = 0;
+
+    const inspect = (command, line) => {
+      for (const segment of splitCommandSegments(normalizeCommandLine(command))) {
+        const scriptName = npmRunScriptName(segment);
+        if (!scriptName || !forbidden(scriptName)) continue;
+        checked.push(`${file}:${line} forbidden documented npm script ${scriptName}`);
+        failures.push(`${file}:${line} documents forbidden npm script namespace "${scriptName}"; use the canonical web:test* namespace`);
+      }
+    };
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const trimmed = line.trim();
+      if (/^```(?:bash|sh|shell)\s*$/i.test(trimmed)) {
+        shellFence = true;
+        pending = '';
+        continue;
+      }
+      if (shellFence && /^```/.test(trimmed)) {
+        if (pending) inspect(pending, pendingLine);
+        shellFence = false;
+        pending = '';
+        continue;
+      }
+      if (shellFence && trimmed && !trimmed.startsWith('#')) {
+        if (!pending) pendingLine = index + 1;
+        pending = pending ? `${pending} ${trimmed}` : trimmed;
+        if (!/\\\s*$/.test(trimmed)) {
+          inspect(pending, pendingLine);
+          pending = '';
+        } else {
+          pending = pending.replace(/\\\s*$/, '').trim();
+        }
+      }
+
+      const inlinePattern = /`(npm\s+run\s+([^`\s]+)(?:\s+[^`]*)?)`/g;
+      let match;
+      while ((match = inlinePattern.exec(line)) !== null) {
+        if (forbidden(match[2])) inspect(match[1], index + 1);
+      }
+    }
+  }
+
+  return { checked, failures };
+}
+
+function validateCanonicalWebTestNamespace({ scripts }) {
+  const failures = [];
+  const checked = ['package.json singular canonical web-test namespace'];
+  const forbidden = Object.keys(scripts).filter((name) => name === 'test:web' || name.startsWith('test:web:'));
+  if (forbidden.length > 0) {
+    failures.push(`package.json must not define forbidden test:web* script keys: ${forbidden.join(', ')}`);
+  }
+  return { checked, failures };
 }
 
 function workflowRunCommands(content) {
@@ -530,6 +598,10 @@ const PATH_JOBS = {
     prefix: 'BACKEND',
     condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
   },
+  'backend-e2e': {
+    prefix: 'BACKEND_E2E',
+    condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
+  },
   'ui-vitest': {
     prefix: 'UI',
     condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.ui == 'true' || needs.classify-changes.outputs.browser == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
@@ -717,6 +789,27 @@ function validateValidationWorkflowContract({ workflowDocuments }) {
       failures.push(`${file} backend-jest-build scalar commands must be exactly ${expectedBackendRuns.join(' -> ')}`);
     }
 
+    const backendE2e = jobs['backend-e2e'];
+    const backendE2eRuns = scalarRunSteps(backendE2e).map(({ run }) => run);
+    const expectedBackendE2eRuns = ['npm ci', 'npm run test:e2e'];
+    checked.push(`${file} exact backend-e2e install/test order`);
+    if (JSON.stringify(backendE2eRuns) !== JSON.stringify(expectedBackendE2eRuns)) {
+      failures.push(`${file} backend-e2e scalar commands must be exactly ${expectedBackendE2eRuns.join(' -> ')}`);
+    }
+    const backendE2eSteps = Array.isArray(backendE2e?.steps) ? backendE2e.steps : [];
+    checked.push(`${file} exact backend-e2e step topology`);
+    const backendE2eCheckout = backendE2eSteps[0];
+    const backendE2eNode = backendE2eSteps[1];
+    if (backendE2eSteps.length !== 4
+        || backendE2eCheckout?.uses !== 'actions/checkout@v4'
+        || backendE2eNode?.uses !== 'actions/setup-node@v4'
+        || `${backendE2eNode?.with?.['node-version']}` !== '24'
+        || backendE2eNode?.with?.cache !== 'npm'
+        || backendE2eSteps[2]?.run !== 'npm ci'
+        || backendE2eSteps[3]?.run !== 'npm run test:e2e') {
+      failures.push(`${file} backend-e2e steps must be exactly checkout@v4, setup-node@v4 with Node 24/npm cache, root npm ci, and npm run test:e2e`);
+    }
+
     const browser = jobs['browser-smoke'];
     const browserRuns = scalarRunSteps(browser).map(({ run }) => run);
     const expectedBrowserRuns = ['npm ci', 'cd web && npm ci', 'npm run web:test:e2e:install', 'npx playwright install-deps chromium', 'npm run web:test:e2e:smoke'];
@@ -760,7 +853,7 @@ function validateValidationWorkflowContract({ workflowDocuments }) {
 function validatePlaywrightOwnership({ root, scripts }) {
   const failures = [];
   const checked = [];
-  const allSpecs = listFilesRecursively(root, 'tests/playwright').filter((file) => file.endsWith('.spec.ts'));
+  const allSpecs = listFilesRecursively(root, 'tests/playwright').filter((file) => file.endsWith('.spec.ts') && !file.startsWith(ARCHIVED_PLAYWRIGHT_DIRECTORY));
   const owned = new Set();
   for (const [name, directory, config, script, testMatch] of PLAYWRIGHT_SUITE_OWNERS) {
     const specs = allSpecs.filter((file) => file.startsWith(`${directory}/`));
@@ -790,7 +883,7 @@ function validatePlaywrightDocumentation({ root }) {
   const failures = [];
   const checked = [];
   const literalPattern = /tests\/playwright\/[A-Za-z0-9_./-]+\.(?:spec|config)\.ts/g;
-  for (const file of ['README.md', DATED_LIVE_VALIDATION_RECORD]) {
+  for (const file of ['README.md']) {
     const fullPath = path.join(root, file);
     if (!existsSync(fullPath)) {
       failures.push(`${file} does not exist; cannot verify Playwright documentation`);
@@ -809,8 +902,6 @@ function validatePlaywrightDocumentation({ root }) {
     ['backend dual clean install', /backend-jest-build[\s\S]{0,300}root `npm ci`[\s\S]{0,160}web `cd web && npm ci`/i],
     ['complete self-contained smoke ownership', /web:test:e2e:smoke[\s\S]{0,200}complete self-contained browser profile[\s\S]{0,200}every production-preview smoke test[\s\S]{0,120}one source browser-client test/i],
     ['preview and dev-server prerequisites', /preview[\s\S]{0,200}dev server/i],
-    ['live command and reachable deployment prerequisite', /npm run web:test:live-getrich-v2[\s\S]{0,260}reachable deployment/i],
-    ['live base URL override', /SAIVAGE_LIVE_BASE_URL/],
     ['best-effort failed or cancelled browser artifacts', /failed or cancelled[\s\S]{0,220}best-effort[\s\S]{0,220}tmp\/playwright-report[\s\S]{0,100}tmp\/playwright-results/i],
   ];
   for (const [label, pattern] of requirements) {
@@ -818,13 +909,6 @@ function validatePlaywrightDocumentation({ root }) {
     if (!pattern.test(readme)) failures.push(`README.md must document ${label}`);
   }
 
-  const recordPath = path.join(root, DATED_LIVE_VALIDATION_RECORD);
-  const record = existsSync(recordPath) ? readFileSync(recordPath, 'utf8') : '';
-  for (const required of ['npm run web:test:live-getrich-v2', 'SAIVAGE_LIVE_BASE_URL', 'tests/playwright/live-getrich-v2/live-getrich-v2.spec.ts:36', 'tests/playwright/live-getrich-v2/live-getrich-v2-coverage.spec.ts:167']) {
-    checked.push(`${DATED_LIVE_VALIDATION_RECORD} ${required}`);
-    if (!record.includes(required)) failures.push(`${DATED_LIVE_VALIDATION_RECORD} must contain ${required}`);
-  }
-  if (!/reachable deployment/i.test(record)) failures.push(`${DATED_LIVE_VALIDATION_RECORD} must state the reachable-deployment prerequisite`);
   return { checked, failures };
 }
 
@@ -998,6 +1082,13 @@ function validateTerminalChildJestContract({ pkg, scripts, markdownByFile }) {
       || releaseSegments.some((segment) => /^npm run test:(?:parallel|terminal-child)(?:\s|$)/.test(segment))) {
     failures.push('package.json validate:release must invoke singular npm test exactly once and must not invoke backend Jest subphases independently');
   }
+  checked.push('package.json release backend-E2E cadence');
+  const ordinaryIndex = releaseSegments.indexOf('npm test');
+  const e2eIndexes = releaseSegments.map((segment, index) => segment === 'npm run test:e2e' ? index : -1).filter((index) => index !== -1);
+  const browserIndex = releaseSegments.indexOf('npm run web:test:operator-smoke');
+  if (e2eIndexes.length !== 1 || ordinaryIndex === -1 || browserIndex === -1 || !(ordinaryIndex < e2eIndexes[0] && e2eIndexes[0] < browserIndex)) {
+    failures.push('package.json validate:release must invoke npm run test:e2e exactly once after npm test and before npm run web:test:operator-smoke');
+  }
 
   const readme = markdownByFile.get('README.md') ?? '';
   checked.push('README.md two-phase backend Jest guidance');
@@ -1077,47 +1168,6 @@ function validateValidationProfiles({ scripts, documentedCommands, markdownByFil
   return { checked, failures };
 }
 
-
-function expectedWebTestAliasTarget(scriptName) {
-  if (scriptName === 'test:web') {
-    return 'web:test';
-  }
-  if (scriptName.startsWith('test:web:')) {
-    return `web:test:${scriptName.slice('test:web:'.length)}`;
-  }
-  return null;
-}
-
-function validateDocumentedWebTestAliases({ scripts, documentedCommands }) {
-  const failures = [];
-  const checked = [];
-
-  for (const location of documentedCommands) {
-    const command = location.replace(/^.*?:\s*/, '');
-    const scriptName = npmRunScriptName(command);
-    const canonical = scriptName ? expectedWebTestAliasTarget(scriptName) : null;
-    if (!scriptName || !canonical) {
-      continue;
-    }
-
-    checked.push(`package.json alias ${scriptName} -> ${canonical}`);
-    if (!scripts[canonical]) {
-      failures.push(`${location} documents npm run ${scriptName}, but canonical package.json script "${canonical}" is missing`);
-      continue;
-    }
-    const aliasCommand = scripts[scriptName];
-    const expected = `npm run ${canonical}`;
-    if (!aliasCommand) {
-      failures.push(`${location} documents npm run ${scriptName}, but package.json has no "${scriptName}" alias to "${canonical}"`);
-      continue;
-    }
-    if (aliasCommand.trim() !== expected) {
-      failures.push(`package.json alias "${scriptName}" must be exactly "${expected}", but is currently: ${aliasCommand}`);
-    }
-  }
-
-  return { checked, failures };
-}
 
 function validateRuntimeEngines({ root, workflowFiles = DEFAULT_WORKFLOW_DIRS.flatMap(() => []), markdownByFile }) {
   const failures = [];
@@ -1212,17 +1262,15 @@ export function verifyValidationCadence(options = {}) {
     documentedCommands: documented.checked,
     markdownByFile: documented.markdownByFile,
   });
-  const webTestAliases = validateDocumentedWebTestAliases({
-    scripts,
-    documentedCommands: documented.checked,
-  });
+  const forbiddenDocumentedWebTestNamespace = validateForbiddenDocumentedWebTestNamespace({ root, files: options.documentedCommandFiles ?? DEFAULT_DOCUMENTED_COMMAND_FILES });
+  const canonicalWebTestNamespace = validateCanonicalWebTestNamespace({ scripts });
   const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
   const docsVerify = validateDocsVerifySubguards({ root, scripts });
   const failClosedJest = validateFailClosedJestGates({ scripts, workflowCommands: workflow.checked });
   const terminalChildJest = validateTerminalChildJestContract({ pkg, scripts, markdownByFile: documented.markdownByFile });
   const playwrightOwnership = validatePlaywrightOwnership({ root, scripts });
   const playwrightDocumentation = validatePlaywrightDocumentation({ root });
-  const failures = [...documented.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...webTestAliases.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
+  const failures = [...documented.failures, ...forbiddenDocumentedWebTestNamespace.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...canonicalWebTestNamespace.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
   return {
     ok: failures.length === 0,
     failures,
@@ -1232,7 +1280,8 @@ export function verifyValidationCadence(options = {}) {
     workflowFilesChecked: workflow.workflowFilesChecked,
     requiredValidationScriptsChecked: requiredScripts.checked,
     validationProfilesChecked: profiles.checked,
-    webTestAliasEntriesChecked: webTestAliases.checked,
+    forbiddenDocumentedWebTestNamespaceEntriesChecked: forbiddenDocumentedWebTestNamespace.checked,
+    canonicalWebTestNamespaceEntriesChecked: canonicalWebTestNamespace.checked,
     runtimeEngineEntriesChecked: runtimeEngines.checked,
     docsVerifyEntriesChecked: docsVerify.checked,
     failClosedJestGateEntriesChecked: failClosedJest.checked,
@@ -1252,7 +1301,7 @@ function main() {
     process.exit(1);
   }
   console.log(
-    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), ${result.webTestAliasEntriesChecked.length} web-test alias item(s), ${result.runtimeEngineEntriesChecked.length} runtime engine alignment item(s), ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s), ${result.failClosedJestGateEntriesChecked.length} fail-closed Jest gate item(s), and ${result.terminalChildJestContractEntriesChecked.length} terminal-child Jest contract item(s) resolve`,
+    `✓ validation cadence check passed — ${result.documentedCommandsChecked.length} documented validation command(s), ${result.workflowCommandsChecked.length} workflow command(s), ${result.requiredValidationScriptsChecked.length} required validation script(s), ${result.validationProfilesChecked.length} validation profile(s), ${result.runtimeEngineEntriesChecked.length} runtime engine alignment item(s), ${result.docsVerifyEntriesChecked.length} docs:verify sub-guard entry point(s), ${result.failClosedJestGateEntriesChecked.length} fail-closed Jest gate item(s), and ${result.terminalChildJestContractEntriesChecked.length} terminal-child Jest contract item(s) resolve`,
   );
 }
 
