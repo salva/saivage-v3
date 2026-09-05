@@ -24,7 +24,7 @@ if (scenario === 'coordinator-fast-reject') {
 } else {
   if (!projectRoot) throw new Error('Child-process App scenario requires a project root.');
   try {
-    const app = await startApp({ argv: ['node', 'child', 'start', '--project-root', projectRoot], env: process.env });
+    const app = await startApp({ projectRoot, createRuntime: false, env: process.env });
     if (scenario === 'signal') {
       process.stdout.write('READY\n');
     } else if (scenario === 'restart-75') {

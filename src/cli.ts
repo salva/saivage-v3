@@ -4,7 +4,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
-import { publishInitialProjectRuntime, startApp } from './boot/index.js';
+import { publishInitialProjectRuntime, startApp, type StartInputs } from './boot/index.js';
 import { findProjectRoot } from './persistence/discovery.js';
 import { readRuntimeLockStatus } from './runtime/lock.js';
 import { resetOwnedGeneratedRoots } from './persistence/layout.js';
@@ -23,12 +23,17 @@ const fatalPort = createApplicationFatalPort();
 
 function loadCanonicalWorkflows(projectRoot:string){const path=join(projectRoot,'.saivage','saivage.yaml');const authority=createResolvedConfigAuthority({path,interpolationEnvironment:process.env,projectRoot});return authority.loadEffective().workflows;}
 
-interface CliOptions { port?: string; host?: string; config?: string; profile?: string; 'project-root'?: string; 'create-runtime'?: boolean; }
+interface InitInputs { readonly profile?: string }
+type Command = 'init' | 'start' | 'status' | 'pause' | 'resume' | 'stop' | 'restart_server' | 'reset' | 'help';
+type ParsedCommand =
+  | { readonly command: 'init'; readonly inputs: InitInputs }
+  | { readonly command: 'start'; readonly inputs: StartInputs }
+  | { readonly command: Exclude<Command, 'init' | 'start'> };
 const USAGE = `Saivage v3 CLI
 
 Usage:
   saivage init [--profile <classic|classic-typed>]
-  saivage start [--port <port>] [--host <host>] [--project-root <path>] [--create-runtime]
+  saivage start [--host <host>] [--port <port>] [--config <path>] [--project-root <path>] [--create-runtime]
   saivage status
   saivage pause
   saivage resume
@@ -45,7 +50,44 @@ Usage:
       canonical runtime.lock manually and retry.
   saivage help
 `;
-function parseCommand(rawArgs: string[]): { command: string; options: CliOptions } { const args = rawArgs.slice(2); if (args.length === 0) return { command: 'help', options: {} }; const command = args[0]!; const rest = args.slice(1); let options: CliOptions = {}; if (rest.length > 0) { const parsed = parseArgs({ args: rest, options: { port: { type: 'string' }, host: { type: 'string' }, config: { type: 'string' }, profile: { type: 'string' }, 'project-root': { type: 'string' }, 'create-runtime': { type: 'boolean' } }, allowPositionals: false, strict: true }); options = parsed.values as CliOptions; } return { command, options }; }
+function parseSingletonOptions(args: readonly string[], options: Record<string, { readonly type: 'string' | 'boolean' }>): Record<string, string | boolean | undefined> {
+  const parsed = parseArgs({ args: [...args], options, allowPositionals: false, strict: true, tokens: true });
+  const seen = new Set<string>();
+  for (const token of parsed.tokens) {
+    if (token.kind !== 'option') continue;
+    if (seen.has(token.name)) throw new Error(`Option --${token.name} may only be specified once.`);
+    seen.add(token.name);
+  }
+  return parsed.values;
+}
+
+function parseCommand(rawArgs: string[]): ParsedCommand {
+  const args = rawArgs.slice(2);
+  const rawCommand = args[0] ?? 'help';
+  const command = rawCommand === '--help' || rawCommand === '-h' ? 'help' : rawCommand;
+  const rest = args.slice(1);
+  if (command === 'init') {
+    const values = parseSingletonOptions(rest, { profile: { type: 'string' } });
+    return { command, inputs: { profile: values['profile'] as string | undefined } };
+  }
+  if (command === 'start') {
+    const values = parseSingletonOptions(rest, {
+      host: { type: 'string' }, port: { type: 'string' }, config: { type: 'string' },
+      'project-root': { type: 'string' }, 'create-runtime': { type: 'boolean' },
+    });
+    return { command, inputs: {
+      host: values['host'] as string | undefined,
+      port: values['port'] as string | undefined,
+      config: values['config'] as string | undefined,
+      projectRoot: values['project-root'] as string | undefined,
+      createRuntime: values['create-runtime'] === true,
+    } };
+  }
+  const commandsWithoutOptions = new Set(['status', 'pause', 'resume', 'stop', 'restart_server', 'reset', 'help']);
+  if (!commandsWithoutOptions.has(command)) throw new Error(`Unknown command: ${command}`);
+  parseSingletonOptions(rest, {});
+  return { command: command as Exclude<Command, 'init' | 'start'> };
+}
 function materializePromptTree(sourceRoot: string, destinationRoot: string): void {
   for (const entry of readdirSync(sourceRoot, { withFileTypes: true })) {
     if (entry.isDirectory()) materializePromptTree(join(sourceRoot, entry.name), join(destinationRoot, entry.name));
@@ -57,7 +99,7 @@ function materializePromptTree(sourceRoot: string, destinationRoot: string): voi
     }
   }
 }
-async function handleInit(options: CliOptions): Promise<void> {
+async function handleInit(options: InitInputs): Promise<void> {
   const projectRoot = process.cwd();
   withDirectMutationComposition(projectRoot, 'init', fatalPort, (composition) => {
     const canonicalProjectRoot = composition.projectRoot;
@@ -78,7 +120,7 @@ async function handleInit(options: CliOptions): Promise<void> {
     console.log(projectCard === null ? `Project initialized at ${canonicalProjectRoot}` : `Project already initialized at ${canonicalProjectRoot}`);
   });
 }
-async function handleStart(_options: CliOptions, args: string[]): Promise<void> { const app = await startApp({ argv: args }); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
+async function handleStart(inputs: StartInputs): Promise<void> { const app = await startApp(inputs); console.log(`Saivage server listening on http://${app.environment.server.host}:${app.environment.server.port}`); }
 async function handleRuntimeControl(command: 'status' | 'pause' | 'resume' | 'stop' | 'restart_server'): Promise<void> {
   const projectRoot = findProjectRoot();
   if (projectRoot === null) throw new Error('Not in a Saivage project');
@@ -128,5 +170,5 @@ async function handleReset(): Promise<void> {
   });
 }
 function handleHelp(): void { console.log(USAGE); }
-export async function run(args: string[]): Promise<void> { const { command, options } = parseCommand(args); switch (command) { case 'init': await handleInit(options); break; case 'start': await handleStart(options, args); break; case 'status': case 'resume': case 'pause': case 'stop': case 'restart_server': if (Object.keys(options).length > 0) throw new Error(`${command} accepts no options.`); await handleRuntimeControl(command); break; case 'reset': await handleReset(); break; case 'help': case '--help': case '-h': handleHelp(); break; default: throw new Error(`Unknown command: ${command}`); } }
+export async function run(args: string[]): Promise<void> { const parsed = parseCommand(args); switch (parsed.command) { case 'init': await handleInit(parsed.inputs); break; case 'start': await handleStart(parsed.inputs); break; case 'status': case 'resume': case 'pause': case 'stop': case 'restart_server': await handleRuntimeControl(parsed.command); break; case 'reset': await handleReset(); break; case 'help': handleHelp(); break; } }
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) { run(process.argv).catch((err: unknown) => { if (err instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(err); console.error(`Fatal error: ${(err as Error).message}`); process.exit(1); }); }

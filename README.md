@@ -241,6 +241,19 @@ Start Saivage from the target project directory:
 SAIVAGE_API_TOKEN=test "$SAIVAGE_BIN" start
 ```
 
+`start` accepts only `--host <host>`, `--port <port>`, `--config <path>`, `--project-root <path>`, and `--create-runtime`. Each option is a singleton: repeated equal values and mixed `--name value`/`--name=value` spellings are rejected, as are unknown, positional, missing-value, and command-inapplicable inputs. `init` accepts only `--profile`; runtime controls, `reset`, and `help` accept no options.
+
+Startup selects one raw value in each chain before validating that selected value. A malformed shadowed value therefore does not invalidate a valid higher-precedence selection:
+
+| Setting | Precedence |
+| --- | --- |
+| project root | `--project-root` > [`SAIVAGE_PROJECT_ROOT`](docs/runbook/index.md#startup-command-inputs) > current working directory |
+| config path | `--config` > [`SAIVAGE_CONFIG`](docs/runbook/index.md#startup-command-inputs) > `<selected-root>/.saivage/saivage.yaml` |
+| host | `--host` > [`SAIVAGE_HOST`](docs/runbook/index.md#startup-command-inputs) > selected config > `0.0.0.0` |
+| port | `--port` > [`SAIVAGE_PORT`](docs/runbook/index.md#startup-command-inputs) > selected config > `8080` |
+
+`NODE_ENV`, `LOG_LEVEL`, and `SAIVAGE_API_TOKEN` are environment-only inputs outside those chains. An authenticated confirmed server restart exits the current process with code 75 only after the restart handoff is acknowledged; code 75 does not prove that a service manager launched or successfully booted a replacement.
+
 Open the web UI at `http://localhost:8080/`, or check the two public probes with:
 
 ```bash

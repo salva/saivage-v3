@@ -136,7 +136,7 @@ function writeCustomPrompts(root: string): void {
 
 async function start(root: string): Promise<App> {
   const app = await startApp({
-    argv: ['node', 'saivage', 'start', '--project-root', root],
+    projectRoot: root, createRuntime: false,
     env: { ...process.env, NODE_ENV: 'test', LOG_LEVEL: 'error', SAIVAGE_API_TOKEN: TOKEN },
   });
   apps.add(app);

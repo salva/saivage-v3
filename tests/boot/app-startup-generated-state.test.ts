@@ -61,6 +61,23 @@ describe('application startup generated-state admission', () => {
     expect(existsSync(runtimeProcessLockFile(root))).toBe(false);
   });
 
+  it('uses the same typed root and create intent for locking and environment loading', async () => {
+    const root = projectRoot();
+    const shadowedRoot = mkdtempSync(join(tmpdir(), 'saivage-app-shadowed-root-')); roots.push(shadowedRoot);
+    const config = join(root, '.saivage', 'saivage.yaml');
+    const app = await startApp({
+      projectRoot: root, config, host: '127.0.0.1', port: '0', createRuntime: true,
+      env: {
+        NODE_ENV: 'test', SAIVAGE_PROJECT_ROOT: join(shadowedRoot, 'missing'),
+        SAIVAGE_CONFIG: join(shadowedRoot, 'missing.yaml'), SAIVAGE_HOST: 'shadowed.invalid', SAIVAGE_PORT: 'malformed',
+      },
+    });
+    apps.push(app);
+    expect(app.environment).toMatchObject({ projectRoot: root, server: { host: '127.0.0.1', port: 0 } });
+    expect(existsSync(saivageCardsRoot(root))).toBe(true);
+    expect(existsSync(join(shadowedRoot, '.saivage'))).toBe(false);
+  });
+
   it('boots a newly published runtime with the explicit specialized compiled authority',async()=>{
     const root=projectRoot();replaceConfigYaml(join(root,'.saivage','saivage.yaml'),selectedSpecializedConfig());cpSync(resolveSystemTemplate('classic-typed').promptRoot,join(root,'.saivage','config','prompts'),{recursive:true});
     const app=await start(root,true);apps.push(app);
@@ -102,7 +119,7 @@ describe('application startup generated-state admission', () => {
 });
 
 function projectRoot(): string { const root = mkdtempSync(join(tmpdir(), 'saivage-app-startup-')); roots.push(root); createProjectIdentity(root, 'Startup test'); replaceConfigYaml(join(root, '.saivage', 'saivage.yaml'), TEST_SAIVAGE_CONFIG); return root; }
-function start(root: string, createRuntime: boolean): Promise<App> { return startApp({ argv: ['node', 'saivage', 'start', '--project-root', root, ...(createRuntime ? ['--create-runtime'] : [])], env: { NODE_ENV: 'test', SAIVAGE_PORT: '0', SAIVAGE_HOST: '127.0.0.1' } }); }
+function start(root: string, createRuntime: boolean): Promise<App> { return startApp({ projectRoot: root, createRuntime, env: { NODE_ENV: 'test', SAIVAGE_PORT: '0', SAIVAGE_HOST: '127.0.0.1' } }); }
 function explicitFixtureFamilyConfig() {
   const config = structuredClone(TEST_SAIVAGE_CONFIG);
   const project = config.card_types.project!;

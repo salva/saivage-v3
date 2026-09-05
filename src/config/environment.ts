@@ -1,6 +1,5 @@
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { parseArgs } from 'node:util';
 import type { EnvironmentSource } from './env-interpolation.js';
 import type { SaivageConfig } from '../schemas/saivage-config.js';
 import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from './resolved-config-authority.js';
@@ -43,12 +42,12 @@ export class EnvironmentLoadError extends Error {
   }
 }
 
-interface CliEnvironmentOptions {
-  host?: string;
-  port?: string;
-  config?: string;
-  projectRoot?: string;
-  createRuntime: boolean;
+export interface StartInputs {
+  readonly host?: string;
+  readonly port?: string;
+  readonly config?: string;
+  readonly projectRoot?: string;
+  readonly createRuntime: boolean;
 }
 
 const logLevelSchema = z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
@@ -64,34 +63,7 @@ function deepFreeze<T>(value: T): T {
   return value;
 }
 
-function parseCli(argv: readonly string[]): CliEnvironmentOptions {
-  const args = argv.slice(2);
-  const command = args[0];
-  const rest = command === 'start' ? args.slice(1) : args;
-  const parsed = parseArgs({
-    args: rest,
-    options: {
-      host: { type: 'string' },
-      port: { type: 'string' },
-      config: { type: 'string' },
-      'project-root': { type: 'string' },
-      'create-runtime': { type: 'boolean' },
-    },
-    allowPositionals: false,
-    strict: false,
-  });
-  const values = parsed.values as Omit<CliEnvironmentOptions, 'createRuntime'> & { 'project-root'?: string; 'create-runtime'?: boolean };
-  return {
-    host: values.host,
-    port: values.port,
-    config: values.config,
-    projectRoot: values['project-root'],
-    createRuntime: values['create-runtime'] === true,
-  };
-}
-
-function parsePort(raw: string | undefined, source: 'cli' | 'env'): number | undefined {
-  if (raw === undefined) return undefined;
+function parsePort(raw: string, source: 'cli' | 'env'): number {
   if (!/^\d+$/.test(raw)) {
     throw new EnvironmentLoadError(`Invalid server port from ${source}: expected integer 0-65535`, { field: 'server.port', expected: 'integer 0-65535', received: 'non-integer', source });
   }
@@ -120,10 +92,15 @@ function parseLogLevel(raw: string | undefined): LogLevel | undefined {
   return parsed.data;
 }
 
-export async function loadEnvironment(argv: readonly string[], env: EnvironmentSource): Promise<Environment> {
-  const cli = parseCli(argv);
-  const projectRoot = realpathSync(resolve(cli.projectRoot ?? env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd()));
-  const configPath = resolve(cli.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`);
+export function resolveStartupProjectRoot(inputs: StartInputs, env: EnvironmentSource): string {
+  const selected = inputs.projectRoot ?? env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd();
+  return realpathSync(resolve(selected));
+}
+
+export async function loadEnvironment(inputs: StartInputs, env: EnvironmentSource): Promise<Environment> {
+  const projectRoot = resolveStartupProjectRoot(inputs, env);
+  const selectedConfig = inputs.config ?? env['SAIVAGE_CONFIG'] ?? `${projectRoot}/.saivage/saivage.yaml`;
+  const configPath = resolve(selectedConfig);
   const configAuthority = createResolvedConfigAuthority({ path: configPath, interpolationEnvironment: env,projectRoot });
   let config: SaivageConfig;
   let workflows:CompiledProjectWorkflows;
@@ -136,8 +113,11 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
     });
   }
 
-  const envPort = parsePort(env['SAIVAGE_PORT'], 'env');
-  const cliPort = parsePort(cli.port, 'cli');
+  const port = inputs.port !== undefined
+    ? parsePort(inputs.port, 'cli')
+    : env['SAIVAGE_PORT'] !== undefined
+      ? parsePort(env['SAIVAGE_PORT'], 'env')
+      : config.server.port ?? 8080;
   const logLevel = parseLogLevel(env['LOG_LEVEL']) ?? 'info';
   const nodeEnv = parseNodeEnv(env['NODE_ENV']);
   const apiToken = env['SAIVAGE_API_TOKEN'] && env['SAIVAGE_API_TOKEN'].trim() !== '' ? env['SAIVAGE_API_TOKEN'] : undefined;
@@ -149,8 +129,8 @@ export async function loadEnvironment(argv: readonly string[], env: EnvironmentS
     config,
     workflows,
     server: {
-      host: cli.host ?? env['SAIVAGE_HOST'] ?? config.server.host ?? '0.0.0.0',
-      port: cliPort ?? envPort ?? config.server.port ?? 8080,
+      host: inputs.host ?? env['SAIVAGE_HOST'] ?? config.server.host ?? '0.0.0.0',
+      port,
       logLevel,
     },
     auth: {

@@ -1,6 +1,4 @@
-import { realpathSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { loadEnvironment, type Environment } from '../config/index.js';
+import { loadEnvironment, resolveStartupProjectRoot, type Environment, type StartInputs } from '../config/index.js';
 import { initializeAndValidateCurrentGeneratedState } from '../persistence/current-generated-graph.js';
 import { readProjectCardOrAssertInitialPublicationAllowed } from '../persistence/generated-state.js';
 import { acquireRuntimeLifecycleLock, publishRuntimeControlEndpoint, releaseRuntimeLifecycleLock, runtimeProcessIdentity, type RuntimeLifecycleLockHandle } from '../runtime/lock.js';
@@ -105,48 +103,28 @@ export interface App {
   stop(): Promise<ShutdownReport>;
 }
 
-export interface StartAppOptions {
-  argv: readonly string[];
+export interface StartAppOptions extends StartInputs {
   env?: Readonly<Record<string, string | undefined>>;
-}
-
-function prelockStartupInputs(argv: readonly string[], env: Readonly<Record<string, string | undefined>>): { projectRoot: string; createRuntime: boolean } {
-  const args = argv.slice(2);
-  const command = args[0];
-  const rest = command === 'start' ? args.slice(1) : args;
-  let projectRoot = env['SAIVAGE_PROJECT_ROOT'] ?? process.cwd();
-  let createRuntime = false;
-  for (let i = 0; i < rest.length; i += 1) {
-    const arg = rest[i];
-    if (arg === '--create-runtime') createRuntime = true;
-    if (arg === '--project-root') {
-      const value = rest[i + 1];
-      if (!value) throw new Error('Missing value for --project-root.');
-      projectRoot = value;
-      i += 1;
-    } else if (arg.startsWith('--project-root=')) projectRoot = arg.slice('--project-root='.length);
-  }
-  return { projectRoot: realpathSync(resolve(projectRoot)), createRuntime };
 }
 
 export async function startApp(options: StartAppOptions): Promise<App> {
   const fatalPort = createApplicationFatalPort();
   const env = options.env ?? process.env;
-  const prelock = prelockStartupInputs(options.argv, env);
+  const projectRoot = resolveStartupProjectRoot(options, env);
   const terminal = createAppTerminalCoordinator();
   let lifecycleLock: RuntimeLifecycleLockHandle;
-  try { lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot: prelock.projectRoot, mode: 'bound' }); }
+  try { lifecycleLock = acquireRuntimeLifecycleLock({ projectRoot, mode: 'bound' }); }
   catch (error) { if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error); throw error; }
   const processIdentity = runtimeProcessIdentity(lifecycleLock);
   terminal.registerCleanupLeaf('lifecycle-lock', () => releaseRuntimeLifecycleLock(lifecycleLock));
   let environment: Environment;
   let server: ServerInstance;
   try {
-    environment = await loadEnvironment(options.argv, env);
-    if (prelock.createRuntime && readProjectCardOrAssertInitialPublicationAllowed(prelock.projectRoot) === null) {
-      publishInitialProjectRuntime(prelock.projectRoot, environment.workflows);
+    environment = await loadEnvironment(options, env);
+    if (options.createRuntime && readProjectCardOrAssertInitialPublicationAllowed(projectRoot) === null) {
+      publishInitialProjectRuntime(projectRoot, environment.workflows);
     }
-    initializeAndValidateCurrentGeneratedState(prelock.projectRoot, environment.workflows);
+    initializeAndValidateCurrentGeneratedState(projectRoot, environment.workflows);
     const restartPort = createRestartPort({
       onAcknowledgedRestart: () => terminal.stop(),
       exit: (code) => process.exit(code),
