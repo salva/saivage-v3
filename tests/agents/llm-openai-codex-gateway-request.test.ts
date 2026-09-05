@@ -10,6 +10,7 @@ import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
 import { makeCodexJwt } from '../helpers/llm-test-helpers.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 
 afterEach(() => { jest.restoreAllMocks(); });
 
@@ -125,6 +126,20 @@ describe('OpenAI Codex adapter and runner context failure evidence', () => {
     terminalToolOffered: [],
     tools: [],
     tool_choice: 'auto',
+  });
+
+  it('keeps non-OK HTTP classification and source evidence owned by Codex', () => {
+    const bodyText = JSON.stringify({ error: { code: 'content_filter', message: 'blocked by policy' } });
+    const error = ADAPTER.classifyHttpFailure(CANDIDATE, new Response(bodyText, { status: 403 }), bodyText, {}, opts());
+
+    expect(error).toBeInstanceOf(LlmRequestError);
+    expect(error.failure).toMatchObject({
+      kind: 'content_policy',
+      provider: 'openai-codex',
+      status: 403,
+      message: `LLM request failed (HTTP 403): ${bodyText}`,
+      providerResponse: bodyText,
+    });
   });
 
   it('records the actual opened HTTP 200 status for a typed Codex SSE context failure', async () => {

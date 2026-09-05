@@ -70,7 +70,7 @@ describe('OpenAI Responses parser', () => {
 
   it('classifies HTTP-200 failed content evidence and preserves the original body',()=>{
     const body=JSON.stringify({status:'failed',error:{type:'content_filter',message:'blocked'}});
-    try{parseOpenAIResponsesJson(body,CTX);}catch(error){expect((error as LlmRequestError).failure).toMatchObject({kind:'content_policy',status:200,providerResponse:body});return;}
+    try{parseOpenAIResponsesJson(body,CTX);}catch(error){expect((error as LlmRequestError).failure).toMatchObject({kind:'content_policy',status:200,message:'OpenAI Responses provider failed response before completion: blocked',providerResponse:body});return;}
     throw new Error('Expected content refusal');
   });
 });

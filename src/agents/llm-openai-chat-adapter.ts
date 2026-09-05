@@ -10,7 +10,6 @@ import type {
 } from './llm-contracts.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
-import { appendFinalOutboundLlmRequestSectionSizesDiagnostic } from './llm-request-diagnostics.js';
 import {
   serializeToolsForChat,
   type WireToolDefinitionChat,
@@ -50,17 +49,18 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       providerConversation,
       options,
     ) as unknown as Record<string, unknown>,
-  deriveWire(_candidate, transport, body, options) {
+  deriveWire(candidate, transport, body, options) {
     const baseUrl = transport.baseUrl.replace(/\/+$/, '');
+    const isCopilot = candidate.provider === 'github-copilot';
     const endpoint =
-      baseUrl.includes('githubcopilot.com') || /\/v1$/.test(baseUrl)
+      isCopilot || /\/v1$/.test(baseUrl)
         ? `${baseUrl}/chat/completions`
         : `${baseUrl}/v1/chat/completions`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Connection: 'close',
     };
-    if (baseUrl.includes('githubcopilot.com'))
+    if (isCopilot)
       Object.assign(headers, {
         'User-Agent': 'GitHubCopilotChat/0.35.0',
         'Editor-Version': 'vscode/1.107.0',
@@ -81,28 +81,11 @@ export const openAIChatAdapter: LlmProtocolAdapter = {
       },
     };
   },
-  classifyHttpFailure(candidate, response, bodyText, body, options) {
+  classifyHttpFailure(candidate, response, bodyText) {
     const failure = classifyHttpFailure('chat', response, bodyText, {
       provider: candidate.provider,
       model: candidate.model,
     });
-    const request = body as unknown as ChatCompletionRequest;
-    if (failure.kind === 'input_context_exhausted')
-      failure.message = appendFinalOutboundLlmRequestSectionSizesDiagnostic(
-        failure.message,
-        request.messages[0]?.content ?? '',
-        request.messages.slice(1).map((message) => ({
-          role: message.role,
-          kind: message.tool_calls ? 'tool_call' : message.role === 'tool' ? 'tool_result' : 'text',
-          tool: message.tool_calls?.[0]?.function.name,
-          content: message.tool_calls?.length
-            ? JSON.stringify(message.tool_calls)
-            : message.content,
-        })),
-        request.tools?.length ?? 0,
-        JSON.stringify(request.tools ?? []).length,
-        options,
-      );
     return new LlmRequestError(failure);
   },
   async parseSuccess(candidate, response) {

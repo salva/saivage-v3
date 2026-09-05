@@ -4,6 +4,7 @@ import type { LlmCompleteOptions, ToolDefinition } from '../../src/agents/llm-co
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { LlmPipelineTestClient } from '../helpers/llm-pipeline-test-client.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 
 const CANDIDATE: Candidate = { provider: 'openai', account: null, model: 'gpt-5.6' };
 const ADAPTER = selectLlmProtocolAdapter('openai-responses');
@@ -15,6 +16,20 @@ const TERMINAL_TOOL: ToolDefinition = { type: 'function', function: { name: 'emi
 afterEach(() => { jest.restoreAllMocks(); });
 
 describe('OpenAI Responses request shape', () => {
+  it('keeps non-OK HTTP failure classification owned by the Responses adapter', () => {
+    const bodyText = JSON.stringify({ error: { code: 'context_length_exceeded', param: 'input', message: 'request too large' } });
+    const options: LlmCompleteOptions = { inputId: 'input-http-failure', temperature: 0, max_tokens: 100, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
+    const error = ADAPTER.classifyHttpFailure(CANDIDATE, new Response(bodyText, { status: 400 }), bodyText, {}, options);
+
+    expect(error).toBeInstanceOf(LlmRequestError);
+    expect(error.failure).toMatchObject({
+      kind: 'input_context_exhausted',
+      provider: 'openai',
+      status: 400,
+      message: `LLM request failed (HTTP 400): ${bodyText}`,
+    });
+  });
+
   it('sends stateless fields and preserves the ordered operational and terminal tool surface', () => {
     const opts: LlmCompleteOptions = { inputId: 'input-1', temperature: 0.2, contract_id: 'c', contractName: 'contract', terminalToolOffered: ['emit_result'], tools: [TOOL, TERMINAL_TOOL], tool_choice: 'auto', max_tokens: 1234 };
     const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: 'sys', providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [MSG] }, options: opts, capabilities: CAPABILITIES });

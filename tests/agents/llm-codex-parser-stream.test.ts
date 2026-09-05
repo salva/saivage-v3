@@ -118,7 +118,18 @@ describe('OpenAI Codex stream parser', () => {
   });
 
   it('fails physical EOF after a completed message but before valid completion', async () => {
-    await expectParseError(stream(message('candidate')));
+    try {
+      await readOpenAICodexStream(stream(message('candidate')), 200);
+    } catch (error) {
+      expect(error).toBeInstanceOf(LlmRequestError);
+      expect((error as LlmRequestError).failure).toMatchObject({
+        kind: 'parse_error',
+        provider: 'openai-codex',
+        message: 'Error reading OpenAI Codex stream: OpenAI Codex stream truncated before response.completed.',
+      });
+      return;
+    }
+    throw new Error('Expected incomplete OpenAI Codex stream failure.');
   });
 
   it.each([
@@ -185,6 +196,18 @@ describe('OpenAI Codex stream parser', () => {
     } satisfies LlmTransportFailure],
   ])('lets pre-completion %s supersede message and tool candidates and prevents rescue', async (_name, failureEvent, expected) => {
     await expectFailure(stream(message('candidate') + finalizedTool() + failureEvent + completion('resp_later')), expected);
+  });
+
+  it('preserves Codex-owned message and normalized terminal evidence for a failed stream', async () => {
+    const failureEvent = event({ type: 'error', status: 403, error: { code: 'content_filter', message: 'blocked by policy' } });
+    const providerResponse = JSON.stringify({ type: 'error', status: 403, error: { code: 'content_filter', message: 'blocked by policy' } });
+    await expectFailure(stream(failureEvent), {
+      kind: 'content_policy',
+      provider: 'openai-codex',
+      status: 200,
+      message: 'OpenAI Codex stream error: content_filter: blocked by policy',
+      providerResponse,
+    });
   });
 
   it.each([

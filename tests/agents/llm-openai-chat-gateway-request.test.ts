@@ -8,6 +8,7 @@ import type {
 } from '../../src/agents/llm-contracts.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
+import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 
 const CANDIDATE: Candidate = { provider: 'openai-chat', account: null, model: 'gpt-5' };
 const ADAPTER = selectLlmProtocolAdapter('openai-chat-completions');
@@ -49,6 +50,36 @@ const SAMPLE_TOOL: ToolDefinition = {
 afterEach(() => { jest.restoreAllMocks(); });
 
 describe('OpenAI Chat adapter request shape', () => {
+  it.each<[string, Candidate, string, string, boolean]>([
+    ['canonical Copilot URL', { provider: 'github-copilot', account: null, model: 'gpt-5' }, 'https://api.individual.githubcopilot.com', 'https://api.individual.githubcopilot.com/chat/completions', true],
+    ['custom Copilot URL', { provider: 'github-copilot', account: null, model: 'gpt-5' }, 'https://proxy.example.test/copilot', 'https://proxy.example.test/copilot/chat/completions', true],
+    ['generic Copilot-lookalike URL', CANDIDATE, 'https://api.githubcopilot.com', 'https://api.githubcopilot.com/v1/chat/completions', false],
+    ['generic v1 URL', CANDIDATE, 'https://provider.example.test/v1', 'https://provider.example.test/v1/chat/completions', false],
+  ])('derives %s from provider identity', (_name, candidate, baseUrl, endpoint, copilotHeaders) => {
+    const wire = ADAPTER.deriveWire(candidate, { baseUrl, apiKey: 'resolved-credential' }, {}, options());
+
+    expect(wire.endpoint).toBe(endpoint);
+    expect(wire.headers.Authorization).toBe('Bearer resolved-credential');
+    expect(wire.headers['User-Agent'] === 'GitHubCopilotChat/0.35.0').toBe(copilotHeaders);
+    expect(wire.headers['Editor-Version'] === 'vscode/1.107.0').toBe(copilotHeaders);
+    expect(wire.headers['Editor-Plugin-Version'] === 'copilot-chat/0.35.0').toBe(copilotHeaders);
+    expect(wire.headers['Copilot-Integration-Id'] === 'vscode-chat').toBe(copilotHeaders);
+  });
+
+  it('keeps Chat non-OK context classification without request-section diagnostics', () => {
+    const bodyText = JSON.stringify({ error: { code: 'context_length_exceeded', type: 'invalid_request_error', param: 'messages', message: 'too large' } });
+    const error = ADAPTER.classifyHttpFailure(CANDIDATE, new Response(bodyText, { status: 400 }), bodyText, {}, options());
+
+    expect(error).toBeInstanceOf(LlmRequestError);
+    expect(error.failure).toMatchObject({
+      kind: 'input_context_exhausted',
+      provider: 'openai-chat',
+      status: 400,
+      message: `LLM request failed (HTTP 400): ${bodyText}`,
+    });
+    expect(error.failure.message).not.toContain('request_section_sizes');
+  });
+
   it('preserves the ordered operational and terminal tool surface with auto choice and parallel calls disabled', () => {
     const opts: LlmCompleteOptions = {
       inputId: 'test:input:1',
@@ -124,3 +155,16 @@ describe('OpenAI Chat adapter request shape', () => {
     expect(completion.provider_exchanges[0]!.request_params).not.toHaveProperty('phase');
   });
 });
+
+function options(): LlmCompleteOptions {
+  return {
+    inputId: 'test:input:wire',
+    temperature: 0,
+    max_tokens: 100,
+    contract_id: 'test.v1',
+    contractName: 'test',
+    terminalToolOffered: [],
+    tools: [],
+    tool_choice: 'auto',
+  };
+}
