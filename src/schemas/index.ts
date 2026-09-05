@@ -75,6 +75,7 @@ export {
   createActionableErrorEnvelope,
 } from './actionable-error.js';
 export {
+  CARD_RECORD_FIELDS,
   cardStatusValues,
   cardActionValues,
   urgencyValues,

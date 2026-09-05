@@ -36,6 +36,22 @@ export interface CardRecord {
   status_text_author_session_id: null; latest_self_report: null; metadata: null;
   pending_notifications: CardNotification[];
 }
+
+export const CARD_RECORD_FIELDS = [
+  'id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at',
+  'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate',
+  'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id',
+  'latest_self_report', 'metadata', 'pending_notifications',
+] as const satisfies readonly (keyof CardRecord)[];
+
+type TupleDuplicate<Values extends readonly PropertyKey[], Seen = never> =
+  Values extends readonly [infer Head extends PropertyKey, ...infer Tail extends readonly PropertyKey[]]
+    ? Head extends Seen ? Head : TupleDuplicate<Tail, Seen | Head>
+    : never;
+type AssertNever<Value extends never> = Value;
+type _CardRecordFieldsHaveNoMissingKeys = AssertNever<Exclude<keyof CardRecord, typeof CARD_RECORD_FIELDS[number]>>;
+type _CardRecordFieldsHaveNoDuplicates = AssertNever<TupleDuplicate<typeof CARD_RECORD_FIELDS>>;
+
 export interface CardOperatorSummary {
   blocked: boolean;
   hasError: boolean;

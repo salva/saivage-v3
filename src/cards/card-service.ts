@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  CARD_RECORD_FIELDS,
   cardRecordSchema,
   positiveSafeIntegerSchema,
   valuesEqual,
@@ -99,7 +100,13 @@ function clone<T>(value: T): T { return structuredClone(value); }
 
 function diffArtifacts(from: CardArtifact, to: CardArtifact): CardDiffEntry[] {
   const before = cardDiffValue(from); const after = cardDiffValue(to);
-  const fields: Array<'deleted' | keyof CardRecord> = ['deleted', 'id', 'type', 'children', 'title', 'lifecycle', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'];
+  const lifecyclePosition = CARD_RECORD_FIELDS.indexOf('title') + 1;
+  const cardFields: readonly (keyof CardRecord)[] = [
+    ...CARD_RECORD_FIELDS.slice(0, lifecyclePosition),
+    'lifecycle',
+    ...CARD_RECORD_FIELDS.slice(lifecyclePosition).filter((field) => field !== 'lifecycle'),
+  ];
+  const fields: readonly ('deleted' | keyof CardRecord)[] = ['deleted', ...cardFields];
   return fields.flatMap((field) => {
     const left = field === 'deleted' ? before.deleted : before.card[field]; const right = field === 'deleted' ? after.deleted : after.card[field];
     return valuesEqual(left, right) ? [] : [{ field, before: left, after: right }];
@@ -350,7 +357,6 @@ export class CardService {
   }
 
   private publishExactChildReorder(parent: CardRecord, fullOrder: string[]): CardRecord {
-    if (new Set(fullOrder).size !== fullOrder.length || fullOrder.length !== parent.children.length || parent.children.some((id) => !fullOrder.includes(id)) || valuesEqual(fullOrder, parent.children)) throw new Error('Exact child reorder requires a nonidentity complete same-membership permutation.');
     return this.publishVersion(parent, { ...parent, children: fullOrder, version_seq: parent.version_seq + 1, updated_at: new Date().toISOString() }, 'reorder', ['children'], 'children reordered', 'children reordered');
   }
 

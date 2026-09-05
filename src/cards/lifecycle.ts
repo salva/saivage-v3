@@ -1,4 +1,4 @@
-import { cardNotificationSchema, valuesEqual, type CardNotification, type CardRecord, type CardTypeName, type CreatedBy, type Urgency } from '../schemas/index.js';
+import { cardNotificationSchema, valuesEqual, type CardNotification, type CardRecord, type CardStatus, type CardTypeName, type CreatedBy, type Urgency } from '../schemas/index.js';
 import type { CardLifecycleState } from '../schemas/index.js';
 import { acceptsCardNotifications } from './card-status.js';
 
@@ -20,14 +20,18 @@ export type SetStatusTarget = 'running' | 'changed' | 'cancelled';
 export type SetStatusLifecycle = Extract<CardLifecycleState, { status: SetStatusTarget }>;
 
 const EDIT_FIELDS = ['title', 'tags', 'priority', 'urgency', 'related'] as const satisfies ReadonlyArray<keyof CardEditPatch>;
+const SET_STATUS_SOURCES: Record<SetStatusTarget, readonly CardStatus[]> = {
+  running: ['backlog', 'blocked', 'changed'],
+  changed: ['blocked', 'done', 'failed'],
+  cancelled: ['backlog', 'running', 'blocked', 'changed', 'stopped', 'failed'],
+};
+
+export function isSetStatusTransition(from: CardStatus, to: CardStatus): boolean {
+  return to in SET_STATUS_SOURCES && SET_STATUS_SOURCES[to as SetStatusTarget].includes(from);
+}
 
 export function assertSetStatusAdmission(card: CardRecord, target: SetStatusTarget): void {
-  const sources: Record<SetStatusTarget, readonly CardRecord['lifecycle']['status'][]> = {
-    running: ['backlog', 'blocked', 'changed'],
-    changed: ['blocked', 'done', 'failed'],
-    cancelled: ['backlog', 'running', 'blocked', 'changed', 'stopped', 'failed'],
-  };
-  if (!sources[target].includes(card.lifecycle.status)) {
+  if (!isSetStatusTransition(card.lifecycle.status, target)) {
     throw new Error(`Invalid status operation: ${card.lifecycle.status} → ${target}.`);
   }
 }

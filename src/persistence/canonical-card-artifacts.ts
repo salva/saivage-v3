@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-import { summarizeChangedFields } from '../cards/lifecycle.js';
-import { cardIdSchema, cardRecordSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, valuesEqual, type CardRecord } from '../schemas/index.js';
+import { isSetStatusTransition, summarizeChangedFields } from '../cards/lifecycle.js';
+import { CARD_RECORD_FIELDS, cardIdSchema, cardRecordSchema, nonRootCardIdSchema, positiveSafeIntegerSchema, valuesEqual, type CardRecord } from '../schemas/index.js';
 import { cardVersionChangeSchema } from '../schemas/card-version-change.js';
 import type { CardVersionChange } from '../schemas/card-version-change.js';
 import { uuidV4Schema } from './version-index.js';
@@ -66,7 +66,9 @@ export function cardVersionListEntry(row: CardArtifact): CardVersionListEntry {
 
 function fail(path: string, message: string): never { throw new Error(`Card stream '${path}' ${message}.`); }
 
-const BUSINESS_FIELDS = ['id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const satisfies ReadonlyArray<keyof CardRecord>;
+type CardBusinessField = Exclude<keyof CardRecord, 'updated_at' | 'version_seq'>;
+function isBusinessField(field: keyof CardRecord): field is CardBusinessField { return field !== 'updated_at' && field !== 'version_seq'; }
+const BUSINESS_FIELDS: readonly CardBusinessField[] = CARD_RECORD_FIELDS.filter(isBusinessField);
 function actualDelta(prior: CardRecord, next: CardRecord): string[] { return BUSINESS_FIELDS.filter((field) => !valuesEqual(prior[field], next[field])); }
 function requireSame(path: string, left: unknown, right: unknown, message: string): void { if (!valuesEqual(left, right)) fail(path, message); }
 function rowCard(row: CardArtifact): CardRecord { return row.kind === 'card-version' ? row.card : row.final_card; }
@@ -151,7 +153,7 @@ export function validateCardTransition(prior: CardRecord, next: CardRecord, chan
       const from = prior.lifecycle.status; const to = next.lifecycle.status; let reason: string;
       if (from === 'running' && to === 'stopped') reason = 'recovery stopped lifecycle';
       else if (from === 'stopped' && to === 'running') reason = 'STOPPED activation';
-      else { const admitted = (to === 'running' && ['backlog', 'blocked', 'changed'].includes(from)) || (to === 'changed' && ['blocked', 'done', 'failed'].includes(from)) || (to === 'cancelled' && ['backlog', 'running', 'blocked', 'changed', 'stopped', 'failed'].includes(from)); if (!admitted) fail(path, 'has an invalid status transition'); reason = `status -> ${to}`; }
+      else { if (!isSetStatusTransition(from, to)) fail(path, 'has an invalid status transition'); reason = `status -> ${to}`; }
       const clears = to === 'cancelled' && prior.pending_notifications.length > 0; const fields = ['lifecycle', ...(clears ? ['pending_notifications'] : [])];
       if (to === 'cancelled') requireSame(path, next.pending_notifications, [], 'retained cancellation notifications'); else requireSame(path, next.pending_notifications, prior.pending_notifications, 'changed notifications during status operation');
       requireChange(path, change, fields, reason); requireSame(path, actualDelta(prior, next), fields, 'has a status piggyback change'); break;
