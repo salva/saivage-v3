@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
+import { writeAllExact } from './write-all-exact.js';
 
 export type PublicationTemporaryIdFactory = () => string;
 export interface ReplacementFileIo {
@@ -32,18 +33,7 @@ export function replaceFile(
     temporaryPath,
     constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY,
   );
-  let offset = 0;
-  while (offset < bytes.byteLength) {
-    let written: number;
-    try {
-      written = io.write(descriptor, bytes, offset, bytes.byteLength - offset);
-    } catch (error) {
-      if (offset === 0 && (error as NodeJS.ErrnoException & { bytesWritten?: number }).code === 'EINTR' && (error as { bytesWritten?: number }).bytesWritten === 0) continue;
-      throw error;
-    }
-    if (written === 0) throw new Error(`Write made no progress for '${temporaryPath}'.`);
-    offset += written;
-  }
+  writeAllExact(descriptor, bytes, io.write, () => new Error(`Write made no progress for '${temporaryPath}'.`));
   io.fsync(descriptor);
   io.close(descriptor);
   try {

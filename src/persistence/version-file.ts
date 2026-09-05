@@ -1,4 +1,5 @@
 import { closeSync, constants, fsyncSync, openSync, writeSync } from 'node:fs';
+import { writeAllExact } from './write-all-exact.js';
 
 export interface ImmutableVersionFileIo {
   open: typeof openSync;
@@ -16,19 +17,7 @@ const immutableVersionFileIo: ImmutableVersionFileIo = {
 
 export function createImmutableVersionFile(path: string, bytes: Uint8Array, io: ImmutableVersionFileIo = immutableVersionFileIo): void {
   const descriptor = io.open(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY);
-  let offset = 0;
-  while (offset < bytes.byteLength) {
-    let written: number;
-    try {
-      written = io.write(descriptor, bytes, offset, bytes.byteLength - offset);
-    } catch (error) {
-      const failure = error as NodeJS.ErrnoException & { bytesWritten?: number };
-      if (offset === 0 && failure.code === 'EINTR' && failure.bytesWritten === 0) continue;
-      throw error;
-    }
-    if (written === 0) throw new Error(`Write made no progress for '${path}'.`);
-    offset += written;
-  }
+  writeAllExact(descriptor, bytes, io.write, () => new Error(`Write made no progress for '${path}'.`));
   io.fsync(descriptor);
   io.close(descriptor);
 }

@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { replaceFile, type PublicationTemporaryIdFactory, type ReplacementFileIo } from './replace-file.js';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
+import { writeAllExact } from './write-all-exact.js';
 
 export interface GrowingFileIo {
   open: typeof openSync; stat: (descriptor: number) => Stats; write: typeof writeSync; fsync: typeof fsyncSync; close: typeof closeSync;
@@ -129,18 +130,8 @@ export function appendEnvelope(
   try {
     if (!io.stat(fd).isFile()) throw new Error(`Growing-file append target '${target}' must be a regular file.`);
   } catch (error) { try { io.close(fd); } catch { /* pre-publication close does not displace admission failure */ } throw error; }
-  let offset = 0;
   try {
-    while (offset < bytes.byteLength) {
-      let written: number;
-      try { written = io.write(fd, bytes, offset, bytes.byteLength - offset); }
-      catch (error) {
-        if (offset === 0 && (error as NodeJS.ErrnoException & { bytesWritten?: number }).code === 'EINTR' && (error as { bytesWritten?: number }).bytesWritten === 0) continue;
-        throw error;
-      }
-      if (written === 0) throw new Error('zero progress');
-      offset += written;
-    }
+    writeAllExact(fd, bytes, io.write, () => new Error('zero progress'));
     io.fsync(fd);
     io.close(fd);
   } catch { throw new PublicationOutcomeUnknownError(); }

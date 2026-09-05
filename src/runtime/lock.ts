@@ -15,6 +15,7 @@ import { dirname } from 'node:path';
 import { projectIdentityFile, runtimeProcessLockFile } from '../persistence/layout.js';
 import { replaceFile } from '../persistence/replace-file.js';
 import { parseProjectIdentity, projectIdentityDigest, readProjectIdentity } from '../persistence/project-identity.js';
+import { writeAllExact } from '../persistence/write-all-exact.js';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 
 export interface RuntimeControlEndpoint {
@@ -229,18 +230,8 @@ export function acquireRuntimeLifecycleLock(input: {
     }
     throw error;
   }
-  let offset = 0;
   try {
-    while (offset < bytes.byteLength) {
-      let written: number;
-      try { written = io.write(fd, bytes, offset, bytes.byteLength - offset); }
-      catch (error) {
-        if (offset === 0 && (error as NodeJS.ErrnoException & { bytesWritten?: number }).code === 'EINTR' && (error as { bytesWritten?: number }).bytesWritten === 0) continue;
-        throw error;
-      }
-      if (written === 0) throw new Error('zero progress');
-      offset += written;
-    }
+    writeAllExact(fd, bytes, io.write, () => new Error('zero progress'));
     io.fsync(fd);
     io.close(fd);
     const parentFd = io.open(dirname(path), constants.O_RDONLY);

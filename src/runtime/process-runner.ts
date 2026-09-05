@@ -4,6 +4,7 @@ import { closeSync, constants, fstatSync, fsyncSync, mkdirSync, openSync, writeS
 import type { Readable } from 'node:stream';
 import { join, resolve } from 'node:path';
 import { cardProcessOutputRoot, nonCardProcessOutputRoot } from '../persistence/layout.js';
+import { writeAllExact } from '../persistence/write-all-exact.js';
 import type { ProcessStatus } from '../schemas/index.js';
 import { now } from '../utils/clock.js';
 import { redactCommandForPolicy, sanitizedCommandEnv } from './command-policy.js';
@@ -86,18 +87,8 @@ export function appendProcessOutputChunk(path: string, chunk: Uint8Array, io: Pr
   const fd = io.open(path, constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try { if (!io.stat(fd).isFile()) throw new Error(`Process output target '${path}' must be a regular file.`); }
   catch (error) { try { io.close(fd); } catch { /* pre-publication admission failure remains authoritative */ } throw error; }
-  let offset = 0;
   try {
-    while (offset < bytes.byteLength) {
-      let written: number;
-      try { written = io.write(fd, bytes, offset, bytes.byteLength - offset); }
-      catch (error) {
-        if (offset === 0 && (error as NodeJS.ErrnoException & { bytesWritten?: number }).code === 'EINTR' && (error as { bytesWritten?: number }).bytesWritten === 0) continue;
-        throw error;
-      }
-      if (written === 0) throw new Error('zero progress');
-      offset += written;
-    }
+    writeAllExact(fd, bytes, io.write, () => new Error('zero progress'));
     io.fsync(fd);
     io.close(fd);
   } catch { throw new PublicationOutcomeUnknownError(); }

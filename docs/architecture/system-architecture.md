@@ -581,8 +581,11 @@ at rename. The startup conversation-tail owner becomes uncertain at `ftruncate`.
 Lifecycle-lock first creation syncs its parent directory and treats the created empty
 namespace as known. JSONL append uses `missing` only for exact append-open `ENOENT`;
 process output requires its prepublished exact file and leaves every open error direct.
-All canonical write loops permit only proven-zero-transfer first-write `EINTR` and
-suffix-only completion after short writes.
+One policy-free exact-write byte loop serves replacement temporary bodies, growing-file
+appends, immutable version files, lifecycle-lock records, and process-output chunks. It
+permits only proven-zero-transfer first-write `EINTR` and suffix-only completion after
+short writes; acquisition, file admission, durability, close, and publication-uncertainty
+classification remain with those five owners.
 
 Process logs use no `WriteStream`, pipe, retained descriptor, or writer lifecycle.
 Each data callback performs one synchronous exact-file append. Presentation settlement
