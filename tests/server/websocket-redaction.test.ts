@@ -1,12 +1,29 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import type { WebSocket } from 'ws';
 
-import { KnownWsEnvelopeSchema } from '../../src/contracts/index.js';
-import { sendToClient } from '../../src/server/websocket.js';
+import { ServerEgressWsEnvelopeSchema } from '../../src/contracts/index.js';
+import { sendToClient, serializeOutboundEnvelope } from '../../src/server/websocket.js';
 import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
 import { OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
 describe('WebSocket outbound serialization', () => {
+  it.each([
+    { type: 'message', content: { text: 'browser input only' } },
+    { type: 'thinking', content: {} },
+    {
+      type: 'status',
+      content: {
+        event: 'connected',
+        sessionId: 'agent:analyst:global',
+        timestamp: '2026-09-05T00:00:00.000Z',
+        clientCount: 1,
+      },
+      extra: true,
+    },
+  ])('rejects a wrong-direction, unsupported, or extra server envelope %#', (envelope) => {
+    expect(() => serializeOutboundEnvelope(envelope as never)).toThrow();
+  });
+
   it('projects arguments and serializes an already-settled result without changing it', () => {
     const secret = OUTBOUND_RAW_MARKER;
     const ws = {
@@ -30,7 +47,7 @@ describe('WebSocket outbound serialization', () => {
     expect(ws.send).toHaveBeenCalledTimes(1);
     const serialized = jest.mocked(ws.send).mock.calls[0]?.[0] as string;
     expect(serialized).not.toContain(secret);
-    expect(KnownWsEnvelopeSchema.parse(JSON.parse(serialized))).toEqual({
+    expect(ServerEgressWsEnvelopeSchema.parse(JSON.parse(serialized))).toEqual({
       type: 'activity',
       content: {
         event: 'tool_invocation',

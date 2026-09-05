@@ -1,26 +1,19 @@
 import {
-  KnownWsEnvelopeWithClassifiedToolActivitySchema,
-  type KnownWsEnvelopeWithClassifiedToolActivity,
+  ServerEgressWsEnvelopeSchema,
+  type ServerEgressWsEnvelope,
 } from '../contracts/operator-events.js';
 import { redactTextForOutbound } from './text.js';
 
 export function projectWsEnvelopeForOutbound(
-  envelope: KnownWsEnvelopeWithClassifiedToolActivity,
-): KnownWsEnvelopeWithClassifiedToolActivity {
+  envelope: ServerEgressWsEnvelope,
+): ServerEgressWsEnvelope {
   switch (envelope.type) {
-    case 'message':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
-        type: 'message',
-        content: {
-          text: redactTextForOutbound(envelope.content.text),
-        },
-      });
     case 'error':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse(envelope);
+      return ServerEgressWsEnvelopeSchema.parse(envelope);
     case 'status':
       switch (envelope.content.event) {
         case 'connected':
-          return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
+          return ServerEgressWsEnvelopeSchema.parse({
             type: 'status',
             content: {
               event: 'connected',
@@ -30,7 +23,7 @@ export function projectWsEnvelopeForOutbound(
             },
           });
         case 'analyst_turn_acknowledged':
-          return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({ type: 'status', content: { ...envelope.content },
+          return ServerEgressWsEnvelopeSchema.parse({ type: 'status', content: { ...envelope.content },
           });
       }
       return assertNever(envelope.content);
@@ -40,15 +33,15 @@ export function projectWsEnvelopeForOutbound(
 }
 
 function projectActivityEnvelope(
-  envelope: Extract<KnownWsEnvelopeWithClassifiedToolActivity, { type: 'activity' }>,
-): KnownWsEnvelopeWithClassifiedToolActivity {
+  envelope: Extract<ServerEgressWsEnvelope, { type: 'activity' }>,
+): ServerEgressWsEnvelope {
   const content = envelope.content;
   switch (content.event) {
     case 'tool_invocation':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({ type: 'activity', content: { ...content },
+      return ServerEgressWsEnvelopeSchema.parse({ type: 'activity', content: { ...content },
       });
     case 'analyst_tool_invoked':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
+      return ServerEgressWsEnvelopeSchema.parse({
         type: 'activity',
         content: {
           event: content.event,
@@ -61,7 +54,7 @@ function projectActivityEnvelope(
         },
       });
     case 'card_history_appended':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
+      return ServerEgressWsEnvelopeSchema.parse({
         type: 'activity',
         content: {
           event: content.event,
@@ -72,7 +65,7 @@ function projectActivityEnvelope(
         },
       });
     case 'notification_added':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
+      return ServerEgressWsEnvelopeSchema.parse({
         type: 'activity',
         content: {
           event: content.event,
@@ -81,7 +74,7 @@ function projectActivityEnvelope(
         },
       });
     case 'control_action_recorded':
-      return KnownWsEnvelopeWithClassifiedToolActivitySchema.parse({
+      return ServerEgressWsEnvelopeSchema.parse({
         type: 'activity',
         content: {
           event: content.event,

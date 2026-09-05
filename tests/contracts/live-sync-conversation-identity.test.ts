@@ -5,8 +5,9 @@ import {
   LiveSyncSubscribedFrameSchema,
   LiveSyncSubscribeFrameSchema,
   LiveSyncUnsubscribeFrameSchema,
+  InboundAnalystMessageEnvelopeSchema,
   buildConnectedEnvelope,
-  parseKnownWsEnvelope,
+  parseServerEgressWsEnvelope,
   parseLiveSyncClientFrame,
 } from '../../src/contracts/operator-events.js';
 
@@ -87,15 +88,26 @@ describe('live-sync unscoped wire contracts', () => {
   });
 });
 
-describe('known WebSocket parsers', () => {
+describe('server-egress WebSocket parser', () => {
   const connected = buildConnectedEnvelope({
     sessionId: 'agent:analyst:global',
     timestamp: '2026-07-24T00:00:00.000Z',
     clientCount: 1,
   });
 
-  it('returns known valid envelopes', () => {
-    expect(parseKnownWsEnvelope(connected)).toEqual(connected);
+  it('returns valid server envelopes', () => {
+    expect(parseServerEgressWsEnvelope(connected)).toEqual(connected);
+  });
+
+  it('keeps strict browser-to-server Analyst input separate', () => {
+    const input = { type: 'message', content: { text: 'Inspect the project.' } };
+    expect(InboundAnalystMessageEnvelopeSchema.parse(input)).toEqual(input);
+    expect(InboundAnalystMessageEnvelopeSchema.safeParse({ ...input, extra: true }).success).toBe(false);
+    expect(InboundAnalystMessageEnvelopeSchema.safeParse({
+      ...input,
+      content: { ...input.content, extra: true },
+    }).success).toBe(false);
+    expect(() => parseServerEgressWsEnvelope(input)).toThrow();
   });
 
   it.each([
@@ -103,7 +115,11 @@ describe('known WebSocket parsers', () => {
     {},
     { type: 'activity', content: { event: 'future_event' } },
     { type: 'activity', content: { event: 'card_history_appended' } },
-  ])('throws for unknown, missing, or malformed known envelopes %#', (envelope) => {
-    expect(() => parseKnownWsEnvelope(envelope)).toThrow();
+    { type: 'message', content: { text: 'browser input only' } },
+    { type: 'thinking', content: {} },
+    { ...connected, extra: true },
+    { ...connected, content: { ...connected.content, extra: true } },
+  ])('throws for browser-input, unknown, extra, missing, or malformed server envelopes %#', (envelope) => {
+    expect(() => parseServerEgressWsEnvelope(envelope)).toThrow();
   });
 });

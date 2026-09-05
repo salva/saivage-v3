@@ -7,7 +7,7 @@ import {
   ControlActionRecordedContentSchema,
   InboundAnalystMessageContentSchema,
   NotificationAddedContentSchema,
-  ToolInvocationContentSchema,
+  ClassifiedToolInvocationActivityContentSchema,
 } from '../../src/contracts/operator-events.js';
 
 const strictContentCases = [
@@ -66,13 +66,13 @@ const strictContentCases = [
   },
   {
     name: 'tool invocation activity',
-    schema: ToolInvocationContentSchema,
+    schema: ClassifiedToolInvocationActivityContentSchema,
     valid: {
       event: 'tool_invocation',
       sessionId: 'agent:analyst:global',
       tool: 'read',
       params: { path: 'README.md' },
-      result: { ok: true },
+      result: { success: true },
     },
   },
   {

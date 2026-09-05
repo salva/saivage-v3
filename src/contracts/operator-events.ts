@@ -6,12 +6,6 @@ import {
 } from './operator-api-chats.js';
 import { ToolResultSchema } from './tool-result.js';
 
-export const WsEventTypeSchema = z.enum(['message', 'activity', 'thinking', 'status', 'error']);
-export const WsEnvelopeSchema = z.object({
-  type: WsEventTypeSchema,
-  content: z.record(z.string(), z.unknown()),
-});
-
 export const LiveSyncUnscopedResourceSchema = z.literal('runtime');
 export const LiveSyncCardRecordNameSchema = recordNameSchema;
 export const LiveSyncCardInvalidateFrameSchema = z.union([
@@ -178,7 +172,7 @@ export const ConnectedStatusContentSchema = z
 export const ConnectedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
   content: ConnectedStatusContentSchema,
-});
+}).strict();
 
 export const AnalystTurnAcknowledgedStatusContentSchema = z
   .object({
@@ -191,7 +185,7 @@ export const AnalystTurnAcknowledgedStatusContentSchema = z
 export const AnalystTurnAcknowledgedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
   content: AnalystTurnAcknowledgedStatusContentSchema,
-});
+}).strict();
 
 export const AnalystActivityEventNames = [
   'card_history_appended',
@@ -247,16 +241,6 @@ export const AnalystToolInvokedContentSchema = z
   })
   .strict();
 
-export const ToolInvocationContentSchema = z
-  .object({
-    event: z.literal('tool_invocation'),
-    sessionId: ConversationSessionIdSchema,
-    tool: z.string().min(1),
-    params: z.unknown().optional(),
-    result: z.unknown().optional(),
-  })
-  .strict();
-
 export const ClassifiedToolInvocationActivityContentSchema = z
   .object({
     event: z.literal('tool_invocation'),
@@ -272,13 +256,13 @@ export const AnalystActivityContentSchema = z.discriminatedUnion('event', [
   NotificationAddedContentSchema,
   ControlActionRecordedContentSchema,
   AnalystToolInvokedContentSchema,
-  ToolInvocationContentSchema,
+  ClassifiedToolInvocationActivityContentSchema,
 ]);
 
-export const AnalystActivityEnvelopeSchema = z.object({
+export const ServerActivityEnvelopeSchema = z.object({
   type: z.literal('activity'),
   content: AnalystActivityContentSchema,
-});
+}).strict();
 
 export const InboundAnalystMessageContentSchema = z
   .object({
@@ -289,7 +273,7 @@ export const InboundAnalystMessageContentSchema = z
 export const InboundAnalystMessageEnvelopeSchema = z.object({
   type: z.literal('message'),
   content: InboundAnalystMessageContentSchema,
-});
+}).strict();
 
 export const AnalystProcessingFailedErrorSchema = z.object({
     error: z.literal('analyst_processing_failed'),
@@ -313,44 +297,23 @@ export const ErrorEnvelopeSchema = z
   })
   .strict();
 
-export const KnownStatusWsEnvelopeSchema = z.union([
+const ServerStatusWsEnvelopeSchema = z.union([
   ConnectedStatusEnvelopeSchema,
   AnalystTurnAcknowledgedStatusEnvelopeSchema,
 ]);
 
-export const KnownWsEnvelopeSchema = z.union([
-  KnownStatusWsEnvelopeSchema,
-  AnalystActivityEnvelopeSchema,
-  InboundAnalystMessageEnvelopeSchema,
-  ErrorEnvelopeSchema,
-]);
-
-const ClassifiedAnalystActivityContentSchema = z.discriminatedUnion('event', [
-  CardHistoryAppendedContentSchema,
-  NotificationAddedContentSchema,
-  ControlActionRecordedContentSchema,
-  AnalystToolInvokedContentSchema,
-  ClassifiedToolInvocationActivityContentSchema,
-]);
-export const KnownWsEnvelopeWithClassifiedToolActivitySchema = z.union([
-  KnownStatusWsEnvelopeSchema,
-  z.object({ type: z.literal('activity'), content: ClassifiedAnalystActivityContentSchema }),
-  InboundAnalystMessageEnvelopeSchema,
+export const ServerEgressWsEnvelopeSchema = z.union([
+  ServerStatusWsEnvelopeSchema,
+  ServerActivityEnvelopeSchema,
   ErrorEnvelopeSchema,
 ]);
 
 const analystActivityEventNameSet = new Set<string>(AnalystActivityEventNames);
 
-export type WsEventType = z.infer<typeof WsEventTypeSchema>;
-export type WsEnvelope = z.infer<typeof WsEnvelopeSchema>;
-export type KnownWsEnvelope = z.infer<typeof KnownWsEnvelopeSchema>;
-export type KnownWsEnvelopeWithClassifiedToolActivity = z.infer<
-  typeof KnownWsEnvelopeWithClassifiedToolActivitySchema
->;
+export type ServerEgressWsEnvelope = z.infer<typeof ServerEgressWsEnvelopeSchema>;
 export type ClassifiedToolInvocationActivityContent = z.infer<
   typeof ClassifiedToolInvocationActivityContentSchema
 >;
-export type KnownStatusWsEnvelope = z.infer<typeof KnownStatusWsEnvelopeSchema>;
 export type AnalystTurnAcknowledgedStatusEnvelope = z.infer<
   typeof AnalystTurnAcknowledgedStatusEnvelopeSchema
 >;
@@ -363,8 +326,8 @@ function getContentEvent(content: unknown): string | null {
   return typeof event === 'string' ? event : null;
 }
 
-export function parseKnownWsEnvelope(envelope: unknown): KnownWsEnvelope {
-  return KnownWsEnvelopeSchema.parse(envelope);
+export function parseServerEgressWsEnvelope(envelope: unknown): ServerEgressWsEnvelope {
+  return ServerEgressWsEnvelopeSchema.parse(envelope);
 }
 
 export function isAnalystActivityContent(content: unknown): content is AnalystActivityContent {

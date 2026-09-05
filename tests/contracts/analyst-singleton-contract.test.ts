@@ -10,7 +10,7 @@ import {
   AnalystToolInvokedContentSchema,
   AnalystTurnAcknowledgedStatusContentSchema,
   ConnectedStatusContentSchema,
-  ToolInvocationContentSchema,
+  ClassifiedToolInvocationActivityContentSchema,
   ErrorEnvelopeSchema,
   buildConnectedEnvelope,
 } from '../../src/contracts/operator-events.js';
@@ -32,7 +32,7 @@ describe('singleton Analyst contracts', () => {
     expect(buildConnectedEnvelope({sessionId:'agent:analyst:global'}).content.sessionId).toBe('agent:analyst:global');
     expect(AnalystTurnAcknowledgedStatusContentSchema.parse({ event: 'analyst_turn_acknowledged', sessionId: 'agent:analyst:global', restart: null }).sessionId).toBe('agent:analyst:global');
     expect(AnalystToolInvokedContentSchema.parse({ event: 'analyst_tool_invoked', sessionId: 'agent:analyst:global', tool: 'read', success: true, summary: '' }).sessionId).toBe('agent:analyst:global');
-    expect(ToolInvocationContentSchema.parse({ event: 'tool_invocation', sessionId: 'agent:analyst:global', tool: 'read' }).sessionId).toBe('agent:analyst:global');
+    expect(ClassifiedToolInvocationActivityContentSchema.parse({ event: 'tool_invocation', sessionId: 'agent:analyst:global', tool: 'read', params: {}, result: { success: true } }).sessionId).toBe('agent:analyst:global');
   });
 
   it.each(invalid)('rejects noncanonical Analyst identity %s at every identity-bearing success/event boundary', (sessionId) => {
@@ -40,7 +40,7 @@ describe('singleton Analyst contracts', () => {
     expect(ConnectedStatusContentSchema.safeParse({ event: 'connected', sessionId, timestamp, clientCount: 1 }).success).toBe(false);
     expect(AnalystTurnAcknowledgedStatusContentSchema.safeParse({ event: 'analyst_turn_acknowledged', sessionId, restart: null }).success).toBe(false);
     expect(AnalystToolInvokedContentSchema.safeParse({ event: 'analyst_tool_invoked', sessionId, tool: 'read', success: true, summary: '' }).success).toBe(false);
-    expect(ToolInvocationContentSchema.safeParse({ event: 'tool_invocation', sessionId, tool: 'read' }).success).toBe(false);
+    expect(ClassifiedToolInvocationActivityContentSchema.safeParse({ event: 'tool_invocation', sessionId, tool: 'read', params: {}, result: { success: true } }).success).toBe(false);
   });
 
   it('accepts only the identity response and rejects removed transcript/activity fields', () => {

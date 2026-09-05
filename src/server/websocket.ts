@@ -4,16 +4,17 @@
  * Connection:  ws://host:port/ws
  * Auth:        Checked on upgrade; invalid → close 1008.
  *
- * Message envelope (JSON):
- *   { "type": "message | activity | thinking | status | error", "content": { ... } }
+ * Server event envelope (JSON):
+ *   { "type": "activity | status | error", "content": { ... } }
+ * Browser-to-server Analyst messages use their separate strict input contract.
  */
 
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { WebSocket } from 'ws';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
-import { buildConnectedEnvelope, KnownWsEnvelopeWithClassifiedToolActivitySchema,
+import { buildConnectedEnvelope, ServerEgressWsEnvelopeSchema,
 } from '../contracts/index.js';
-import type { WsEnvelope } from '../contracts/index.js';
+import type { ServerEgressWsEnvelope } from '../contracts/index.js';
 import type { AuthPolicy } from './auth-policy.js';
 import { redactForOutbound } from '../redaction/index.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
@@ -21,13 +22,13 @@ import { AnalystWsHandler } from './analyst-ws-handler.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
-export function serializeOutboundEnvelope(event: WsEnvelope): string {
-  const classified = KnownWsEnvelopeWithClassifiedToolActivitySchema.parse(event);
+export function serializeOutboundEnvelope(event: ServerEgressWsEnvelope): string {
+  const classified = ServerEgressWsEnvelopeSchema.parse(event);
   const envelope = redactForOutbound({ source: 'ws-envelope', value: classified });
-  return JSON.stringify(KnownWsEnvelopeWithClassifiedToolActivitySchema.parse(envelope));
+  return JSON.stringify(ServerEgressWsEnvelopeSchema.parse(envelope));
 }
 
-export function sendToClient(ws: WebSocket, event: WsEnvelope, callback?: (error?: Error) => void,
+export function sendToClient(ws: WebSocket, event: ServerEgressWsEnvelope, callback?: (error?: Error) => void,
 ): void {
   try {
     if (ws.readyState === ws.OPEN) {

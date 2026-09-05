@@ -88,7 +88,7 @@ describe('websocket ticket client', () => {
     expect(MockWebSocket.instances).toHaveLength(0);
   });
 
-  it('dispatches the parsed known envelope', async () => {
+  it('dispatches the parsed server-egress envelope', async () => {
     mocks.issueWebSocketTicket.mockResolvedValueOnce({ ticket: 'known', expiresAt: '2026-01-01T00:00:00.000Z' });
     const conn = createWsConnection();
     const handler = vi.fn();
@@ -110,7 +110,7 @@ describe('websocket ticket client', () => {
     expect(handler).toHaveBeenCalledWith(connected);
   });
 
-  it('does not dispatch unknown or malformed known envelopes', async () => {
+  it('does not dispatch browser-input, unknown, or malformed server envelopes', async () => {
     mocks.issueWebSocketTicket.mockResolvedValueOnce({ ticket: 'strict', expiresAt: '2026-01-01T00:00:00.000Z' });
     const conn = createWsConnection();
     const handler = vi.fn();
@@ -119,6 +119,8 @@ describe('websocket ticket client', () => {
     await vi.runAllTicks();
 
     const socket = MockWebSocket.instances[0]!;
+    socket.onmessage?.({ data: JSON.stringify({ type: 'message', content: { text: 'browser input only' } }) });
+    socket.onmessage?.({ data: JSON.stringify({ type: 'thinking', content: {} }) });
     socket.onmessage?.({ data: JSON.stringify({ type: 'activity', content: { event: 'future_event' } }) });
     socket.onmessage?.({ data: JSON.stringify({ type: 'activity', content: { event: 'card_history_appended' } }) });
 

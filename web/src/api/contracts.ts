@@ -56,11 +56,11 @@ export {
   buildConnectedEnvelope,
   isAnalystActivityContent,
   parseAnalystTurnAcknowledgedStatusContent,
-  parseKnownWsEnvelope,
+  parseServerEgressWsEnvelope,
 } from '@saivage/contracts/operator-events';
 
 export type {
-  KnownWsEnvelope,
+  ServerEgressWsEnvelope,
   LiveSyncClientFrame,
   LiveSyncCardInvalidateFrame,
   LiveSyncCardInvalidateTarget,

@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import { AnalystTurnBusyError } from '../agents/analyst-api.js';
 import type { RuntimeApplication } from '../application/runtime-composition.js';
 import { InboundAnalystMessageEnvelopeSchema } from '../contracts/index.js';
-import type { KnownWsEnvelopeWithClassifiedToolActivity } from '../contracts/operator-events.js';
+import type { ServerEgressWsEnvelope } from '../contracts/operator-events.js';
 import type { RestartPort } from '../boot/restart-port.js';
 import { LiveSyncSocket } from './live-sync-socket.js';
 import { projectAnalystToolInvocationActivity } from './tool-activity-projection.js';
@@ -15,7 +15,7 @@ export interface AnalystWsHandlerOptions {
   liveSyncSocket: LiveSyncSocket;
   runtimeApplication: RuntimeApplication;
   restartPort?: RestartPort;
-  sendToClient: (ws: WebSocket, event: KnownWsEnvelopeWithClassifiedToolActivity, callback?: (error?: Error) => void,
+  sendToClient: (ws: WebSocket, event: ServerEgressWsEnvelope, callback?: (error?: Error) => void,
   ) => void;
   fatalPort: ApplicationFatalPort;
 }

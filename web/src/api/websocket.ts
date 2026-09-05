@@ -5,14 +5,15 @@
  * with auto-reconnect, visible connection state, and event
  * dispatching to registered listeners.
  *
- * All messages use the JSON envelope contract in docs/spec/system-specification.md:
- *   { "type": "message | activity | thinking | status | error", "content": { ... } }
+ * Server events use the strict JSON egress contract in docs/spec/system-specification.md:
+ *   { "type": "activity | status | error", "content": { ... } }
+ * Browser-to-server Analyst messages use a separate strict input contract.
  */
 
 import type { WsConnectionState } from './types';
 import { issueWebSocketTicket } from './client';
 import { getAuthToken } from './auth';
-import { LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseKnownWsEnvelope, type KnownWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
+import { LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseServerEgressWsEnvelope, type ServerEgressWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
 import { createLogger } from '../utils/logger';
 
 // ── Re-export auth helper ────────────────────────────────────
@@ -21,7 +22,7 @@ export { getAuthToken };
 
 // ── Types ─────────────────────────────────────────────────────
 
-export type WsEventHandler = (envelope: KnownWsEnvelope) => void;
+export type WsEventHandler = (envelope: ServerEgressWsEnvelope) => void;
 export type WsStateHandler = (state: WsConnectionState) => void;
 export type WsOpenHandler = () => void;
 export type WsSyncFrameHandler = (frame: LiveSyncInvalidateFrame | LiveSyncSubscribedFrame) => void;
@@ -181,11 +182,11 @@ export function createWsConnection(): WsConnectionManager {
             return;
           }
 
-          let envelope: KnownWsEnvelope;
+          let envelope: ServerEgressWsEnvelope;
           try {
-            envelope = parseKnownWsEnvelope(rawEnvelope);
+            envelope = parseServerEgressWsEnvelope(rawEnvelope);
           } catch (err) {
-            log.error('Dropped unknown or malformed WS envelope', err);
+            log.error('Dropped wrong-direction, unknown, or malformed server WS envelope', err);
             return;
           }
 

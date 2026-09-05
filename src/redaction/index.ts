@@ -21,7 +21,7 @@ import type { ProcessOutboundValue } from '../application/read-models/process-ou
 import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';
 import type { ToolInvocationProjectionInput } from '../contracts/tool-invocation-projection.js';
 import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
-import type { KnownWsEnvelopeWithClassifiedToolActivity } from '../contracts/operator-events.js';
+import type { ServerEgressWsEnvelope } from '../contracts/operator-events.js';
 import { projectWsEnvelopeForOutbound } from './ws-envelope.js';
 import type { InternalMcpToolsReadModel } from '../mcp/status-projection.js';
 import { projectMcpToolsForOutbound } from '../mcp/mcp-outbound.js';
@@ -43,7 +43,7 @@ export type OutboundRedactionRequest =
   | { source: 'config'; value: SaivageConfig }
   | { source: 'process-view'; value: ProcessOutboundValue }
   | { source: 'tool-invocation'; value: ToolInvocationProjectionInput }
-  | { source: 'ws-envelope'; value: KnownWsEnvelopeWithClassifiedToolActivity }
+  | { source: 'ws-envelope'; value: ServerEgressWsEnvelope }
   | { source: 'mcp-tools'; value: InternalMcpToolsReadModel }
   | { source: 'dynamic'; value: unknown };
 
@@ -66,7 +66,7 @@ export type OutboundRedactionResult<Request extends OutboundRedactionRequest> = 
                   : Request extends { source: 'tool-invocation' }
                     ? ToolInvocationProjectionInput
                     : Request extends { source: 'ws-envelope' }
-                      ? KnownWsEnvelopeWithClassifiedToolActivity
+                       ? ServerEgressWsEnvelope
                       : Request extends { source: 'mcp-tools' }
                           ? McpToolsResponse
                           : unknown;

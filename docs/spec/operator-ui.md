@@ -174,7 +174,7 @@ For each mounted conversation's initial subscribe and reconnect, the browser gen
 
 ## 4. Analyst Panel
 
-REST chat completion and WebSocket `tool_invocation` activity receive the complete already-settled top-level `ToolResult` whose canonical JSON equals the durable conversation `tool_result.content`. The live projector outbound-projects parameters only; it does not re-redact, reconstruct, or narrow the result. Denied record writes and edits therefore render as ordinary top-level failures. Successful Webfetch saves expose `write:{kind,data}` metadata and never a nested result envelope.
+REST chat completion and server-to-browser WebSocket `tool_invocation` activity receive the complete already-settled top-level `ToolResult` whose canonical JSON equals the durable conversation `tool_result.content`. Server event envelopes are strict `status | activity | error`; browser-to-server Analyst `message` input is separate, and neither `message` nor `thinking` is accepted as server egress. The live projector outbound-projects parameters only; it does not re-redact, reconstruct, or narrow the result. Denied record writes and edits therefore render as ordinary top-level failures. Successful Webfetch saves expose `write:{kind,data}` metadata and never a nested result envelope.
 
 The Analyst panel is the user's ordinary mutation path. The user asks for changes in natural language; the Analyst invokes canonical services.
 

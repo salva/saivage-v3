@@ -4,7 +4,7 @@ import {
   LiveSyncInvalidateFrameSchema,
   LiveSyncSubscribedFrameSchema,
   buildConnectedEnvelope,
-  parseKnownWsEnvelope,
+  parseServerEgressWsEnvelope,
 } from '../api/contracts';
 
 describe('websocket bootstrap boundary after S06', () => {
@@ -19,8 +19,8 @@ describe('websocket bootstrap boundary after S06', () => {
   it.each(['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'])('rejects malformed exact-identity server frames for %s', (id) => {
     expect(LiveSyncSubscribedFrameSchema.safeParse({ t: 'subscribed', resource: 'conversation', id, lease: 'lease' }).success).toBe(false);
     expect(LiveSyncInvalidateFrameSchema.safeParse({ t: 'invalidate', resource: 'conversation', id }).success).toBe(false);
-    expect(() => parseKnownWsEnvelope({ type: 'status', content: { event: 'analyst_turn_acknowledged', sessionId: id, restart: null } })).toThrow();
-    expect(() => parseKnownWsEnvelope({ type: 'activity', content: { event: 'analyst_tool_invoked', sessionId: id, tool: 'read', success: true, summary: '' } })).toThrow();
+    expect(() => parseServerEgressWsEnvelope({ type: 'status', content: { event: 'analyst_turn_acknowledged', sessionId: id, restart: null } })).toThrow();
+    expect(() => parseServerEgressWsEnvelope({ type: 'activity', content: { event: 'analyst_tool_invoked', sessionId: id, tool: 'read', success: true, summary: '' } })).toThrow();
   });
 
   it('accepts only runtime as an unscoped invalidation resource', () => {
@@ -30,11 +30,32 @@ describe('websocket bootstrap boundary after S06', () => {
     }
   });
 
-  it('strictly parses valid known input and throws for unknown or malformed input', () => {
+  it('strictly parses valid server input and throws for wrong-direction, unknown, or malformed input', () => {
     const connected = buildConnectedEnvelope({ sessionId: 'agent:analyst:global' });
-    expect(parseKnownWsEnvelope(connected)).toEqual(connected);
+    expect(parseServerEgressWsEnvelope(connected)).toEqual(connected);
 
-    expect(() => parseKnownWsEnvelope({ type: 'activity', content: { event: 'future_event' } })).toThrow();
-    expect(() => parseKnownWsEnvelope({ type: 'activity', content: { event: 'card_history_appended' } })).toThrow();
+    expect(() => parseServerEgressWsEnvelope({ type: 'activity', content: { event: 'future_event' } })).toThrow();
+    expect(() => parseServerEgressWsEnvelope({ type: 'activity', content: { event: 'card_history_appended' } })).toThrow();
+    expect(() => parseServerEgressWsEnvelope({ type: 'message', content: { text: 'browser input only' } })).toThrow();
+    expect(() => parseServerEgressWsEnvelope({ type: 'thinking', content: {} })).toThrow();
+    expect(() => parseServerEgressWsEnvelope({ ...connected, extra: true })).toThrow();
+  });
+
+  it('requires the classified ToolResult activity contract', () => {
+    const activity = {
+      type: 'activity',
+      content: {
+        event: 'tool_invocation',
+        sessionId: 'agent:analyst:global',
+        tool: 'read',
+        params: {},
+        result: { success: true, data: { visible: true } },
+      },
+    };
+    expect(parseServerEgressWsEnvelope(activity)).toEqual(activity);
+    expect(() => parseServerEgressWsEnvelope({
+      ...activity,
+      content: { ...activity.content, result: { success: true, error: 'impossible' } },
+    })).toThrow();
   });
 });
