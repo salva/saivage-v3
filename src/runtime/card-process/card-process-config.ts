@@ -5,7 +5,7 @@ import type { AgentName } from '../../schemas/agent-name.js';
 import { parseRecordName, type RecordName } from '../../schemas/record-name.js';
 import type { CardTypeSource, SaivageConfig } from '../../schemas/saivage-config.js';
 import { parseCardTypeName, type CardStatus, type CardTypeName } from '../../schemas/index.js';
-import { validateCompiledActorTable } from '../micro-actor/index.js';
+import { validateCompiledActorTable } from '../micro-actor/micro-actor.js';
 import { compilePromptTemplate, renderCompiledPrompt, type AgentPromptHost, type CompiledPromptTemplate, type ProcessPromptHost, type PromptHost } from '../../utils/prompt-api.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 import type { ModelRouter } from '../../agents/model-router.js';

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createAppTerminalCoordinator } from '../../src/boot/app.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
-import { ProcessRunner } from '../../src/runtime/process-runner.js';
+import { ProcessRunner, type ProcessStopReport } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 
 describe('App real managed-process cleanup', () => {
@@ -26,17 +26,17 @@ describe('App real managed-process cleanup', () => {
         env: { READY_PATH: readinessPath },
       });
       const calls: string[] = [];
+      let processStopReport: ProcessStopReport | undefined;
       const terminal = createAppTerminalCoordinator();
       terminal.registerCleanupLeaf('fastify', () => { calls.push('following'); });
       terminal.registerCleanupLeaf('runtime', async () => {
         calls.push('runtime');
-        const report = await runner.terminateScopeTree({ rootScope: runtimeProcessRootScope, categories: ['runtime_card'], reason: 'application stopping', graceMs: 5_000 });
-        if (report.failed.length !== 0) throw new Error('managed process cleanup failed');
+        processStopReport = await runner.terminateScopeTree({ rootScope: runtimeProcessRootScope, categories: ['runtime_card'], reason: 'application stopping', graceMs: 5_000 });
+        if (processStopReport.failed.length !== 0) throw new Error('managed process cleanup failed');
       });
 
       const readinessDeadline = Date.now() + 5_000;
       while (!existsSync(readinessPath)) {
-        if (!registry.isLive(processRecord.id)) throw new Error('resistant runtime exited before signaling readiness');
         if (Date.now() >= readinessDeadline) throw new Error('timed out waiting for resistant runtime readiness');
         await new Promise((resolve) => setTimeout(resolve, 10));
       }
@@ -47,7 +47,7 @@ describe('App real managed-process cleanup', () => {
 
       expect(report.warnings).toEqual([]);
       expect(calls).toEqual(['runtime', 'following']);
-      expect(registry.isLive(processRecord.id)).toBe(false);
+      expect(processStopReport).toEqual({ selected: [processRecord.id], stopped: [processRecord.id], failed: [] });
       expect(elapsed).toBeGreaterThanOrEqual(5_000);
       expect(elapsed).toBeLessThan(10_000);
     } finally {

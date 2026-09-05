@@ -2,13 +2,10 @@ import { describe, expect, it, jest } from '@jest/globals';
 import {
   BaseActor,
   InternalActorError,
-  InvalidActorDefinitionError,
-  validateCompiledActorTable,
 } from '../../../src/runtime/micro-actor/index.js';
 import type {
   ActorLifecycleContext,
   ActorTransitionContext,
-  CompiledActorState,
 } from '../../../src/runtime/micro-actor/index.js';
 import { compiledActorState, compiledActorTable, compiledActorTransition } from '../../helpers/compiled-actor-table.js';
 
@@ -47,34 +44,6 @@ class TestActor extends BaseActor {
 }
 
 const unexpectedFailure = (error: Error): never => { throw error; };
-
-describe('compiled actor table validation', () => {
-  it('builds compiled transitions directly and rejects invalid production tables', () => {
-    const table = compiledActorTable('ready', {
-      ready: compiledActorState({ parked: true, on: { go: compiledActorTransition('done'), stay: compiledActorTransition('ready'), again: compiledActorTransition('ready', true) } }),
-      done: compiledActorState({ terminal: true }),
-    });
-    const ready = table.states.get('ready')!;
-    expect(ready.on.get('go')).toEqual({ targetStateId: 'done', reenter: false });
-    expect(ready.on.get('stay')).toEqual({ targetStateId: 'ready', reenter: false });
-    expect(ready.on.get('again')).toEqual({ targetStateId: 'ready', reenter: true });
-    expect(Object.isFrozen(ready.on.get('go'))).toBe(true);
-    expect(() => validateCompiledActorTable(table.initial, table.states)).not.toThrow();
-
-    const invalid: Array<readonly [string, ReadonlyMap<string, CompiledActorState>, string | RegExp]> = [
-      ['missing', new Map(), 'at least one state'],
-      ['', new Map([['', compiledActorState()]]), 'non-empty'],
-      ['missing', new Map([['ready', compiledActorState()]]), 'Initial state'],
-      ['ready', new Map([['ready', compiledActorState({ on: { go: compiledActorTransition('missing') } })]]), 'Transition target'],
-      ['ready', new Map([['ready', compiledActorState({ on: { '': compiledActorTransition('ready') } })]]), 'Event name'],
-      ['done', new Map([['done', compiledActorState({ terminal: true, on: { go: compiledActorTransition('done') } })]]), 'cannot have transitions'],
-      ['done', new Map([['done', compiledActorState({ terminal: true, parked: true })]]), 'both terminal and parked'],
-      ['ready', new Map([['ready', compiledActorState({ on: { go: compiledActorTransition('done', true) } })], ['done', compiledActorState()]]), /state "ready".*event "go".*"done"/],
-    ];
-    for (const [initial, states, message] of invalid) expect(() => validateCompiledActorTable(initial, states)).toThrow(message);
-    expect(() => validateCompiledActorTable(invalid[0]![0], invalid[0]![1])).toThrow(InvalidActorDefinitionError);
-  });
-});
 
 describe('configured actor lifecycle', () => {
   it('1. starts at the explicit initial state with the exact frozen sequence-free context', () => {

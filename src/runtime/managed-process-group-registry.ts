@@ -41,8 +41,6 @@ interface GroupRecord {
   terminationReason: string | null;
   leaderExited: boolean;
   absenceConfirmed: boolean;
-  settlement: Promise<void>;
-  resolveSettlement: () => void;
 }
 
 export interface ProcessStopReport {
@@ -133,8 +131,6 @@ export class ManagedProcessGroupRegistry {
       throw new Error(`Managed process group '${input.groupId}' has no leader PID.`);
     }
 
-    let resolveSettlement!: () => void;
-    const settlement = new Promise<void>((resolve) => { resolveSettlement = resolve; });
     const record: GroupRecord = {
       groupId: input.groupId,
       pgid: child.pid,
@@ -148,8 +144,6 @@ export class ManagedProcessGroupRegistry {
       terminationReason: null,
       leaderExited: false,
       absenceConfirmed: false,
-      settlement,
-      resolveSettlement,
     };
     this.groups.set(input.groupId, record);
     scope.groups.set(input.groupId, record);
@@ -188,14 +182,6 @@ export class ManagedProcessGroupRegistry {
     const categories = new Set(input.categories);
     const selected = [...this.groups.values()].filter((group) => categories.has(group.category) && this.isDescendant(group.directScope, input.rootScope));
     return this.terminateRecords(selected, input.reason, input.graceMs ?? 5_000);
-  }
-
-  wait(groupId: string): Promise<void> | null {
-    return this.groups.get(groupId)?.settlement ?? null;
-  }
-
-  isLive(groupId: string): boolean {
-    return this.groups.has(groupId);
   }
 
   private allocateScope(parent: ManagedProcessScope | null, kind: 'container', label: string, category: null): ManagedProcessScope;
@@ -293,7 +279,6 @@ export class ManagedProcessGroupRegistry {
       this.retireDirectScope(record.directScopeRecord);
     }
     record.onAbsent(record.terminationReason);
-    record.resolveSettlement();
   }
 
   private validateCapturedRecord(record: GroupRecord): void {
