@@ -8,6 +8,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { CurrentStateUnavailableSchema } from './operator-api-agents.js';
+import { HistoricalVersionNotFoundSchema } from './historical-version-not-found.js';
 
 export const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() }).strict();
 export const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() }).strict();
@@ -40,8 +41,7 @@ export const WorkspaceFileTooLargeErrorSchema = z.object({
   size: z.number().int().nonnegative(),
   maxSize: z.number().int().positive(),
 }).strict();
-const HistoricalVersionNotListedSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.enum(['card', 'authored_record', 'conversation']), owner_id: z.string().min(1), version: z.number().int().positive() }).strict();
-export const WorkspaceHistoricalVersionNotFoundSchema = z.object({ error: z.literal('workspace_historical_version_not_found'), path: z.string(), historical: HistoricalVersionNotListedSchema }).strict();
+export const WorkspaceHistoricalVersionNotFoundSchema = z.object({ error: z.literal('workspace_historical_version_not_found'), path: z.string(), historical: HistoricalVersionNotFoundSchema }).strict();
 export const WorkspaceCurrentStateUnavailableSchema = z.object({ error: z.literal('workspace_current_state_unavailable'), path: z.string(), current: CurrentStateUnavailableSchema }).strict();
 export const WorkspaceFilesListBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFilePathErrorSchema]);
 export const WorkspaceFileContentBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);

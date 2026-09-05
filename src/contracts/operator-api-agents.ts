@@ -18,6 +18,7 @@ import {
   type OperatorRouteContract,
 } from './operator-api-core.js';
 import { CardNotFoundErrorSchema } from './operator-api-runtime-cards.js';
+import { ConversationHistoricalVersionNotFoundSchema } from './historical-version-not-found.js';
 
 export const AgentSessionParamsSchema = z.object({ id: ConversationSessionIdSchema }).strict();
 export const AgentConversationParamsSchema = AgentSessionParamsSchema;
@@ -145,7 +146,6 @@ export const ConversationVersionContentResponseSchema = z.object({ session_id: C
   value.entries.forEach((entry, index) => { if (entry.session_id !== value.session_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries', index, 'session_id'], message: 'Conversation entry session must match the enclosing session.' }); });
   if ((value.version === 1) !== (value.segment_context === null)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['segment_context'], message: 'Conversation segment context must match the selected version.' });
 });
-export const ConversationHistoricalNotFoundSchema = z.object({ error: z.literal('historical_version_not_found'), resource: z.literal('conversation'), owner_id: ConversationSessionIdSchema, version: positiveSafeIntegerSchema }).strict();
 export const ConversationHistoricalUnavailableSchema = z.object({ error: z.literal('historical_version_content_unavailable'), resource: z.literal('conversation'), owner_id: ConversationSessionIdSchema, version: positiveSafeIntegerSchema, reason: z.enum(['missing','corrupt','io_error']) }).strict();
 export const CurrentStateUnavailableSchema = z.object({ error: z.literal('current_state_unavailable'), resource: z.enum(['card', 'authored_record', 'conversation', 'provider_exchange_log']), owner_id: z.string().min(1), restart_required: z.literal(true) }).strict();
 export const AgentConversationBadRequestSchema = z.union([
@@ -192,7 +192,7 @@ export const agentOperatorApiContracts = {
     ...operatorSessionContract,
   },
   'agents.conversationVersions.list': { operationId: 'agents.conversationVersions.list', method: 'GET', path: '/api/agents/:id/conversation/versions', params: AgentConversationParamsSchema, success: ConversationVersionListResponseSchema, response: { 200: ConversationVersionListResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: AgentSessionNotFoundErrorSchema, 503: CurrentStateUnavailableSchema, 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract },
-  'agents.conversationVersions.get': { operationId: 'agents.conversationVersions.get', method: 'GET', path: '/api/agents/:id/conversation/versions/:version', params: ConversationVersionParamsSchema, success: ConversationVersionContentResponseSchema, response: { 200: ConversationVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalNotFoundSchema, ConversationHistoricalUnavailableSchema]), 409: ConversationHistoricalUnavailableSchema, 503: z.union([CurrentStateUnavailableSchema, ConversationHistoricalUnavailableSchema]), 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract },
+  'agents.conversationVersions.get': { operationId: 'agents.conversationVersions.get', method: 'GET', path: '/api/agents/:id/conversation/versions/:version', params: ConversationVersionParamsSchema, success: ConversationVersionContentResponseSchema, response: { 200: ConversationVersionContentResponseSchema, 400: ValidationErrorSchema, 401: UnauthorizedErrorSchema, 404: z.union([AgentSessionNotFoundErrorSchema, ConversationHistoricalVersionNotFoundSchema, ConversationHistoricalUnavailableSchema]), 409: ConversationHistoricalUnavailableSchema, 503: z.union([CurrentStateUnavailableSchema, ConversationHistoricalUnavailableSchema]), 500: UnexpectedInternalServerErrorSchema }, failureIdentity: { kind: 'session', parameter: 'id' }, ...operatorSessionContract },
   'agents.cardSessions': {
     operationId: 'agents.cardSessions',
     method: 'GET',

@@ -6,6 +6,14 @@ import type { CardDiffRow as OperatorApiCardDiffRow } from '../../src/contracts/
 import type { CardDiffRow as IndexCardDiffRow } from '../../src/contracts/index.js';
 import { positiveSafeIntegerSchema } from '../../src/schemas/index.js';
 import { allRepresentativeLoggedEvents } from '../helpers/logged-events.js';
+import {
+  AuthoredRecordHistoricalVersionNotFoundSchema,
+  ConversationHistoricalVersionNotFoundSchema,
+  HistoricalVersionNotFoundErrorSchema,
+  HistoricalVersionNotFoundSchema,
+  HistoricalVersionSchema,
+} from '../../src/contracts/historical-version-not-found.js';
+import { WorkspaceHistoricalVersionNotFoundSchema } from '../../src/contracts/operator-api-files-debug.js';
 
 const timestamp = '2026-01-01T00:00:00.000Z';
 const serverAvailability = {
@@ -559,6 +567,33 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(contractsModule.CardDiffNotFoundUnionSchema.parse(entry)).toEqual(entry);
     for (const invalid of [{ error: 'Card not found' }, { ...card, message: 'missing' }, { error: 'anything', message: 'missing' }]) {
       expect(contractsModule.CardNotFoundErrorSchema.safeParse(invalid).success).toBe(false);
+    }
+  });
+
+  it('correlates every historical-version-not-found resource with its exact owner grammar', () => {
+    const card = { error: 'historical_version_not_found', resource: 'card', owner_id: 'card-a-b', version: 1 } as const;
+    const record = { error: 'historical_version_not_found', resource: 'authored_record', owner_id: 'card-a/status.md', version: 2 } as const;
+    const conversation = { error: 'historical_version_not_found', resource: 'conversation', owner_id: 'agent:executor:card-a', version: 3 } as const;
+
+    expect(operatorApiModule.HistoricalVersionNotFoundErrorSchema).toBe(HistoricalVersionNotFoundErrorSchema);
+    expect(contractsModule.HistoricalVersionNotFoundErrorSchema).toBe(HistoricalVersionNotFoundErrorSchema);
+    expect(HistoricalVersionNotFoundErrorSchema.parse(card)).toEqual(card);
+    expect(AuthoredRecordHistoricalVersionNotFoundSchema.parse(record)).toEqual(record);
+    expect(ConversationHistoricalVersionNotFoundSchema.parse(conversation)).toEqual(conversation);
+    for (const body of [card, record, conversation]) expect(HistoricalVersionNotFoundSchema.parse(body)).toEqual(body);
+    expect(WorkspaceHistoricalVersionNotFoundSchema.parse({ error: 'workspace_historical_version_not_found', path: 'project:///card-a/status.md?v=2', historical: record }).historical).toEqual(record);
+
+    for (const invalid of [
+      { ...card, owner_id: 'anything' },
+      { ...record, owner_id: 'card-a/not/a-record.md' },
+      { ...record, owner_id: 'agent:executor:card-a/status.md' },
+      { ...conversation, owner_id: 'card-a' },
+      { ...conversation, resource: 'card' },
+    ]) expect(HistoricalVersionNotFoundSchema.safeParse(invalid).success).toBe(false);
+
+    for (const version of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(HistoricalVersionSchema.safeParse(version).success).toBe(false);
+      expect(HistoricalVersionNotFoundSchema.safeParse({ ...card, version }).success).toBe(false);
     }
   });
 

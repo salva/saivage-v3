@@ -116,6 +116,7 @@ export {
   AvailabilityStateSchema,
   ServerAvailabilitySchema,
 } from './operator-api-availability.js';
+export { HistoricalVersionNotFoundErrorSchema } from './historical-version-not-found.js';
 export type {
   AvailabilityComponent,
   AvailabilityState,
@@ -159,7 +160,6 @@ export {
   CardIdParamsSchema,
   CardDiffNotFoundUnionSchema,
   CardDiffBadRequestSchema,
-  HistoricalVersionNotFoundErrorSchema,
   CardHistoryEntryNotFoundUnionSchema,
   CardNotFoundErrorSchema,
   InvalidCardDiffPivotsErrorSchema,
