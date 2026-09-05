@@ -355,7 +355,7 @@ Run, Pause, Resume, and Stop produce no lifecycle-control audit entries. Unrelat
 
 ## 8. Lifecycle Lock And CLI
 
-Lock observation outcomes are missing, verified live, positively verified dead, indeterminate, and malformed. Indeterminate includes permission denial, unavailable process-start identity, and observation races. No outcome authorizes automatic lock deletion or takeover.
+Lock observation outcomes are missing, verified live, positively verified dead, indeterminate, and malformed. Indeterminate includes permission denial, unavailable process-start identity, and observation races. No outcome authorizes automatic lock deletion or takeover. After identity admission and successful acquisition of the current process-start identity, lock acquisition creates exactly `.saivage` and then `.saivage/locks` with non-recursive default directory creation. At either level only `EEXIST` permits an exact `lstat`, and only a real directory is admitted; files, symlinks, and other objects fail. Bound acquisition rejects a missing project identity before either directory can be created.
 
 Initial project publication permits first publication only after direct proof that all four generated roots are absent. Existing generated state enters initialization only through required current-format project card and bootstrap record streams. Partial required publication and old or mixed layouts fail reset-required; no stream is probed or accepted as current. The decision derives only exact canonical authorities and never enumerates siblings or descendants.
 

@@ -27,6 +27,12 @@ afterEach(async () => {
 });
 
 describe('application startup generated-state admission', () => {
+  it('rejects a bare ordinary start before creating runtime layout', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-app-startup-bare-')); roots.push(root);
+    await expect(start(root, false)).rejects.toThrow(/Project identity is missing/);
+    expect(existsSync(join(root, '.saivage'))).toBe(false);
+  });
+
   it('rejects ordinary start without project authority before optional effects and releases the lifecycle lock', async () => {
     const root = projectRoot(); const workflows = compileProjectWorkflows(TEST_SAIVAGE_CONFIG);
     publishInitialProjectRuntime(root, workflows);

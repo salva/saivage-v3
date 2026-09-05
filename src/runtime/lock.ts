@@ -3,6 +3,7 @@ import {
   closeSync,
   constants,
   fsyncSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
@@ -12,7 +13,7 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 
-import { projectIdentityFile, runtimeProcessLockFile } from '../persistence/layout.js';
+import { projectIdentityFile, runtimeProcessLockFile, saivageLocksRoot, saivageRoot } from '../persistence/layout.js';
 import { replaceFile } from '../persistence/replace-file.js';
 import { parseProjectIdentity, projectIdentityDigest, readProjectIdentity } from '../persistence/project-identity.js';
 import { writeAllExact } from '../persistence/write-all-exact.js';
@@ -193,6 +194,16 @@ function syncDirectory(path: string): void {
   try { fsyncSync(fd); } finally { closeSync(fd); }
 }
 
+function admitLockDirectory(path: string): void {
+  try {
+    mkdirSync(path);
+  } catch (error) {
+    if (!isErrno(error, 'EEXIST')) throw error;
+    const stat = lstatSync(path);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error(`Runtime lock parent '${path}' must be a real directory.`);
+  }
+}
+
 export function acquireRuntimeLifecycleLock(input: {
   readonly projectRoot: string;
   readonly mode: 'init' | 'bound';
@@ -205,7 +216,8 @@ export function acquireRuntimeLifecycleLock(input: {
   const readStart = input.config?.readProcessStartIdentity ?? readProcStartIdentity;
   let processStartIdentity: string;
   try { processStartIdentity = readStart(process.pid); } catch (error) { throw new Error(`Cannot acquire runtime lock without the current process start identity: ${(error as Error).message}`); }
-  mkdirSync(dirname(path), { recursive: true });
+  admitLockDirectory(saivageRoot(canonicalProjectRoot));
+  admitLockDirectory(saivageLocksRoot(canonicalProjectRoot));
   const base = {
     format_version: 1 as const,
     instance_id: randomUUID(),
