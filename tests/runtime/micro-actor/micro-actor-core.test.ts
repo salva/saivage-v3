@@ -17,6 +17,7 @@ type TaskCallbacks<Result> = Readonly<{
 class TestActor extends BaseActor {
   readonly #entered: (context: ActorLifecycleContext) => void;
   readonly #transitioned: (context: ActorTransitionContext) => void;
+  readonly #fatalTaskError: (error: unknown) => void;
   readonly #mainFailed: (error: unknown) => void;
 
   constructor(
@@ -24,12 +25,14 @@ class TestActor extends BaseActor {
     hooks: Readonly<{
       entered?(context: ActorLifecycleContext): void;
       transitioned?(context: ActorTransitionContext): void;
+      fatalTaskError?(error: unknown): void;
       mainFailed?(error: unknown): void;
     }> = {},
   ) {
     super(table.initial, table.states);
     this.#entered = hooks.entered ?? (() => undefined);
     this.#transitioned = hooks.transitioned ?? (() => undefined);
+    this.#fatalTaskError = hooks.fatalTaskError ?? (() => undefined);
     this.#mainFailed = hooks.mainFailed ?? (() => undefined);
   }
 
@@ -40,6 +43,7 @@ class TestActor extends BaseActor {
 
   protected onStateEntered(context: ActorLifecycleContext): void { this.#entered(context); }
   protected onTransition(context: ActorTransitionContext): void { this.#transitioned(context); }
+  protected onFatalTaskError(error: unknown): void { this.#fatalTaskError(error); }
   protected onActorMainFailure(error: unknown): void { this.#mainFailed(error); }
 }
 
@@ -278,7 +282,74 @@ describe('configured actor lifecycle', () => {
     log.mockRestore();
   });
 
-  it('14. chains configured execution because each next node entry sees a null task slot', async () => {
+  it('13. fails once through actor-main when a non-terminal state has no transition for an event', async () => {
+    const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const fatalTaskError = jest.fn<(error: unknown) => void>();
+    const mainFailed = jest.fn<(error: unknown) => void>();
+    let callbackCalls = 0;
+    let currentSettlement!: Promise<void>;
+    let actor!: TestActor;
+    actor = new TestActor(
+      compiledActorTable('running', { running: compiledActorState() }),
+      {
+        entered: () => actor.task(() => Promise.resolve(), {
+          onDone: () => {
+            callbackCalls += 1;
+            actor.event('unhandled');
+            currentSettlement = actor.settlement();
+            void currentSettlement.catch(() => undefined);
+          },
+          onFailed: unexpectedFailure,
+        }),
+        fatalTaskError,
+        mainFailed,
+      },
+    );
+
+    actor.start();
+    await eventually(() => expect(currentSettlement).toBeDefined());
+    const expected = new InternalActorError('Actor event "unhandled" has no transition from non-terminal state "running"');
+    await expect(currentSettlement).rejects.toEqual(expected);
+    await eventually(() => expect(mainFailed).toHaveBeenCalledTimes(1));
+    const failure = mainFailed.mock.calls[0]![0];
+    expect(failure).toEqual(expected);
+    expect(fatalTaskError).toHaveBeenCalledTimes(1);
+    expect(fatalTaskError).toHaveBeenCalledWith(failure);
+    await expect(actor.settlement()).rejects.toBe(failure);
+
+    actor.event('unhandled-again');
+    await expect(actor.settlement()).rejects.toBe(failure);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(callbackCalls).toBe(1);
+    expect(mainFailed).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls.filter(([message, error]) => message === 'BaseActor main loop failed' && error === failure)).toHaveLength(1);
+    expect(actor.state()).toBe('running');
+    log.mockRestore();
+  });
+
+  it('14. preserves terminal completion when terminal entry queues an event with no transition', async () => {
+    const mainFailed = jest.fn<(error: unknown) => void>();
+    let actor!: TestActor;
+    actor = new TestActor(
+      compiledActorTable('ready', {
+        ready: compiledActorState({ parked: true, on: { finish: compiledActorTransition('done') } }),
+        done: compiledActorState({ terminal: true }),
+      }),
+      {
+        entered: ({ target, source }) => { if (target === 'done' && source !== null) actor.event('after-terminal'); },
+        mainFailed,
+      },
+    );
+
+    actor.start();
+    actor.parkedEvent('finish');
+    await actor.settlement();
+    await actor.settlement();
+    expect(actor.state()).toBe('done');
+    expect(mainFailed).not.toHaveBeenCalled();
+  });
+
+  it('15. chains configured execution because each next node entry sees a null task slot', async () => {
     const entries: string[] = [];
     let actor!: TestActor;
     actor = new TestActor(

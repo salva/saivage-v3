@@ -123,7 +123,12 @@ export abstract class BaseActor {
     const stateDef = this.#states.get(currentState)!;
 
     const transition = stateDef.on.get(eventName);
-    if (transition === undefined) return currentState;
+    if (transition === undefined) {
+      if (!stateDef.isTerminal) {
+        throw new InternalActorError(`Actor event "${eventName}" has no transition from non-terminal state "${currentState}"`);
+      }
+      return currentState;
+    }
 
     if (transition.targetStateId === currentState && !transition.reenter) return currentState;
 
@@ -250,4 +255,3 @@ export function validateCompiledActorTable<Transition extends CompiledActorTrans
     }
   }
 }
-
