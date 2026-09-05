@@ -5,6 +5,14 @@ import dashboardViewSource from '../views/DashboardView.vue?raw';
 import filesViewSource from '../views/FilesView.vue?raw';
 import agentsViewSource from '../views/AgentsView.vue?raw';
 import debugViewSource from '../views/DebugView.vue?raw';
+import agentsPanelSource from '../components/debug/AgentsPanel.vue?raw';
+import doctorPanelSource from '../components/debug/DoctorPanel.vue?raw';
+import errorsPanelSource from '../components/debug/ErrorsPanel.vue?raw';
+import graphsPanelSource from '../components/debug/GraphsPanel.vue?raw';
+import mcpPanelSource from '../components/debug/McpPanel.vue?raw';
+import operatorControlPanelSource from '../components/debug/OperatorControlPanel.vue?raw';
+import processesPanelSource from '../components/debug/ProcessesPanel.vue?raw';
+import statePanelSource from '../components/debug/StatePanel.vue?raw';
 import cardDetailSource from '../components/cards/CardDetailView.vue?raw';
 import cardsTreeSource from '../components/cards/CardsTreeView.vue?raw';
 import agentConversationSource from '../components/agents/AgentConversationView.vue?raw';
@@ -45,6 +53,14 @@ describe('read-only positive checklist', () => {
       filesViewSource,
       agentsViewSource,
       debugViewSource,
+      agentsPanelSource,
+      doctorPanelSource,
+      errorsPanelSource,
+      graphsPanelSource,
+      mcpPanelSource,
+      operatorControlPanelSource,
+      processesPanelSource,
+      statePanelSource,
     ].join('\n');
 
     // CardsView: tree expand/collapse and navigation remain; filters, presentation tabs, and duplicate page chrome are intentionally gone.
@@ -104,11 +120,12 @@ describe('read-only positive checklist', () => {
 
     // DebugView: passive tab switching, refresh/fetch, and file-browse navigation remain.
     expect(debugViewSource).toContain('@click="setTab(tab.id)"');
-    expect(debugViewSource).toContain('@click="refreshOperatorControl"');
+    expect(debugViewSource).toContain('@refresh="refreshOperatorControl"');
     expect(debugViewSource).not.toContain('timeline-kind-filter');
     expect(debugViewSource).not.toContain('selectedTimelineKinds = []');
     expect(debugViewSource).toContain('debugStore.fetchProcesses()');
-    expect(debugViewSource).toContain('browseProcessLog(logEntry.value)');
+    expect(processesPanelSource).toContain("emit('browse-log', logEntry.value)");
+    expect(operatorControlPanelSource).toContain("emit('refresh')");
     expect(debugViewSource).not.toContain('browseQuarantineItem');
 
     // Card detail and tree navigation remain read-only positive paths.

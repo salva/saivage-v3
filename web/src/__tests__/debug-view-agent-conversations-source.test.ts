@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import debugViewSource from '../views/DebugView.vue?raw';
+import agentsPanelSource from '../components/debug/AgentsPanel.vue?raw';
 import debugStoreSource from '../stores/debug.ts?raw';
 import debugDetailSource from '../components/agents/DebugAgentDetail.vue?raw';
 
@@ -10,7 +11,9 @@ describe('DebugView agent conversations source', () => {
     expect(debugStoreSource).not.toContain('getAgentConversation');
     expect(debugViewSource).toContain('useAgentStore');
     expect(debugDetailSource).toContain('ConversationTimeline');
-    expect(debugViewSource).not.toContain('.saivage/agents/messages');
-    expect(debugViewSource).not.toContain('.saivage/agents/sessions');
+    expect(agentsPanelSource).toContain('DebugAgentDetail');
+    expect(agentsPanelSource).not.toMatch(/useRoute|useRouter|use\w+Store|storeToRefs/);
+    expect([debugViewSource, agentsPanelSource].join('\n')).not.toContain('.saivage/agents/messages');
+    expect([debugViewSource, agentsPanelSource].join('\n')).not.toContain('.saivage/agents/sessions');
   });
 });

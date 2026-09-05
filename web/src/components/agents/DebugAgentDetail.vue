@@ -227,20 +227,6 @@ onUnmounted(() => {
   font-size: 12px;
   padding: 6px 12px;
 }
-.sv-fetch-btn {
-  margin-left: 8px;
-  padding: 4px 8px;
-  font-size: 11px;
-  color: var(--accent-2);
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  cursor: pointer;
-}
-.sv-fetch-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 .mono {
   font-family: 'SF Mono', monospace;
   font-size: 11px;
