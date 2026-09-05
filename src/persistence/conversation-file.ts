@@ -1,12 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, fsyncSync, ftruncateSync, lstatSync, mkdirSync, openSync, readFileSync } from 'node:fs';
 
-import type { FreshnessEffects } from '../application/freshness-effects.js';
-import { projectCanonicalConversationRow } from '../application/read-models/canonical-conversation-outbound.js';
 import { validateCompactedHistorySuccessor, validateConversation, type CompactedGenesisSeed, type ValidatedConversation } from '../contracts/conversation-validation.js';
-import { currentCoveredRequiredFactRows } from '../runtime/actors/context/composition-projector.js';
-import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, type CompactedHistory, type ConversationSessionId, type RequiredModelFactSlots } from '../schemas/index.js';
-import { projectToolInvocation } from '../tools/tool-invocation-outbound.js';
+import { agentMessageSchema, conversationSessionIdentity, type AgentMessage, type CompactedHistory, type ConversationSessionId } from '../schemas/index.js';
 import { PublicationOutcomeUnknownError } from '../contracts/index.js';
 import {
   conversationSegmentEnvelopeSchema,
@@ -33,14 +29,17 @@ import { replaceFile, type PublicationTemporaryIdFactory } from './replace-file.
 import { createImmutableVersionFile, serializeStrictJson } from './version-file.js';
 import { versionFilename } from './version-index.js';
 
-export interface ConversationFileContext { readonly projectRoot: string; readonly changes?: Pick<FreshnessEffects, 'conversationChanged' | 'agentMembershipChanged'> }
+export interface ConversationFileContext {
+  readonly projectRoot: string;
+  readonly changes?: {
+    conversationChanged(target: { readonly session_id: ConversationSessionId; readonly segment_version: number; readonly visible_message_id: string | null }): void;
+    agentMembershipChanged(target: { readonly scope: 'card'; readonly cardId: Exclude<ReturnType<typeof conversationSessionIdentity>['cardId'], null> } | { readonly scope: 'global-session'; readonly sessionId: ConversationSessionId }): void;
+  };
+}
 export interface ConversationAppendOptions { readonly publicationTemporaryId?: PublicationTemporaryIdFactory; readonly io?: GrowingFileIo }
 interface ConversationTruncationIo { open(path: string, flags: number): number; ftruncate(fd: number, length: number): void; fsync(fd: number): void; close(fd: number): void }
-export interface FoldedConversation { readonly sessionId: ConversationSessionId; readonly entries: readonly AgentMessage[]; readonly cursor: string | null; readonly totalEntries: number; readonly segmentVersion: number; readonly segmentContext: ConversationSegmentContext }
-export type ConversationSegmentContext = null | { readonly kind: 'compacted'; readonly source_version: number; readonly covered_through_message_id: string; readonly summary_text: string; readonly source_kind: 'current_rows' | 'prior_genesis_plus_current_rows'; readonly prior_genesis_id: string | null; readonly prior_history_hash: string | null; readonly covered_group_count: number; readonly dispositions: CompactedHistory['dispositionCommitment']; readonly coverage: CompactedHistory['coverageCommitment']; readonly required_model_facts: RequiredModelFactSlots; readonly continuation: ConversationContinuation };
 export interface ConversationCatalog { readonly sessionId: ConversationSessionId; readonly createdAt: string; readonly versions: readonly ConversationVersionEntry[]; readonly currentVersion: number | null }
 export interface ConversationSegment { readonly index: ConversationVersionIndex; readonly entry: ConversationVersionEntry; readonly genesis: ConversationSegmentGenesis; readonly rows: readonly AgentMessage[]; readonly bytes: Buffer; readonly conversation: ValidatedConversation }
-export class ConversationSegmentChangedError extends Error { constructor(readonly requestedVersion: number, readonly currentVersion: number) { super('Conversation segment changed.'); } }
 export class ConversationHistoricalVersionNotFoundError extends Error {}
 export class ConversationHistoricalVersionUnavailableError extends Error { constructor(readonly version: number, readonly reason: 'missing'|'corrupt'|'io_error') { super('Historical conversation segment unavailable.'); } }
 function validationSeeds(genesis: ConversationSegmentGenesis): { inherited: import('../contracts/conversation-validation.js').InheritedConversationActivation | undefined; compacted: CompactedGenesisSeed | undefined } {
@@ -124,32 +123,6 @@ export function readHistoricalConversationSegment(projectRoot: string, sessionId
   catch (error) { if (error instanceof ConversationHistoricalVersionNotFoundError) throw error; const code = (error as NodeJS.ErrnoException).code; throw new ConversationHistoricalVersionUnavailableError(version, code === 'ENOENT' ? 'missing' : code ? 'io_error' : 'corrupt'); }
 }
 export function readConversation(projectRoot: string, sessionId: ConversationSessionId): ValidatedConversation { return readSegment(projectRoot, sessionId)?.conversation ?? validateConversation(sessionId, []); }
-export function foldConversation(projectRoot: string, sessionId: ConversationSessionId, options: { segmentVersion?: number; since?: string; lastN?: number } = {}): FoldedConversation {
-  const segment = readSegment(projectRoot, sessionId); if (!segment) throw new ConversationHistoricalVersionNotFoundError();
-  if (options.segmentVersion !== undefined && options.segmentVersion !== segment.entry.version) throw new ConversationSegmentChangedError(options.segmentVersion, segment.entry.version);
-  const coveredFacts = coveredRequiredFactRows(segment);
-  const rows = [...coveredFacts, ...segment.rows]; const selected: AgentMessage[] = []; let cursorFound = options.since === undefined; let cursor: string | null = options.since ?? null; let totalEntries = 0;
-  for (const row of rows) {
-    if (options.since !== undefined && !cursorFound) { if (row.id === options.since) cursorFound = true; continue; }
-    if (row.kind === 'provider_private') continue;
-    cursor = row.id;
-    const clean = row.provider_projection ? stripProviderProjection(row) : row; selected.push(projectCanonicalConversationRow(clean, projectToolInvocation)); totalEntries += 1;
-    if (options.lastN !== undefined && selected.length > options.lastN) selected.shift();
-  }
-  if (!cursorFound) throw new ConversationCursorNotFoundError(options.since!);
-  return Object.freeze({ sessionId, entries: Object.freeze(selected), cursor, totalEntries, segmentVersion: segment.entry.version, segmentContext: segmentContext(segment.genesis) });
-}
-function coveredRequiredFactRows(segment: ConversationSegment): readonly AgentMessage[] {
-  if (segment.genesis.kind !== 'compacted_segment_genesis') return [];
-  return currentCoveredRequiredFactRows({
-    sourceSessionId: segment.conversation.sourceSessionId,
-    requiredModelFacts: segment.conversation.effectiveRequiredModelFacts,
-    uncoveredRows: segment.conversation.sourceRows,
-  });
-}
-export function segmentContext(genesis: ConversationSegmentGenesis): ConversationSegmentContext { return genesis.kind === 'ordinary_segment_genesis' ? null : Object.freeze({ kind: 'compacted', source_version: genesis.source.version, covered_through_message_id: genesis.source.covered_through_message_id, summary_text: genesis.compaction.summaryText, source_kind: genesis.compaction.source.kind, prior_genesis_id: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorGenesisId : null, prior_history_hash: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorHistoryHash : null, covered_group_count: genesis.compaction.source.groups.length, dispositions: genesis.compaction.dispositionCommitment, coverage: genesis.compaction.coverageCommitment, required_model_facts: genesis.compaction.requiredModelFacts, continuation: genesis.continuation }); }
-export class ConversationCursorNotFoundError extends Error { constructor(readonly cursor: string) { super(`Conversation cursor '${cursor}' was not found.`); } }
-function stripProviderProjection(row: AgentMessage): AgentMessage { const result = { ...row }; delete result.provider_projection; return agentMessageSchema.parse(result); }
 function validateBatch(messages: readonly AgentMessage[]): AgentMessage[] { if (!messages.length) throw new Error('Conversation append requires at least one message.'); const parsed = messages.map((message) => agentMessageSchema.parse(message)); const sessionId = parsed[0]!.session_id; if (parsed.some((message) => message.session_id !== sessionId)) throw new Error('Conversation append requires one session.'); if (new Set(parsed.map((message) => message.id)).size !== parsed.length) throw new Error('Conversation append contains duplicate message ids.'); return parsed; }
 function segmentEnvelope(rows: readonly unknown[]): Buffer { return Buffer.from(`${JSON.stringify(conversationSegmentEnvelopeSchema.parse({ version: 1, type: 'conversation-segment', rows }))}\n`); }
 function visibleMessageId(rows: readonly AgentMessage[]): string | null { return rows.filter((row) => row.kind !== 'provider_private').at(-1)?.id ?? null; }

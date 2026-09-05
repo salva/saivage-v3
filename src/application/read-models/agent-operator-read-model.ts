@@ -8,7 +8,8 @@ import {
   ConversationVersionListResponseSchema,
   type AgentSessionSummary,
 } from '../../contracts/operator-api-agents.js';
-import { ConversationCursorNotFoundError, ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError, ConversationSegmentChangedError, foldConversation, readConversationCatalog, readHistoricalConversationSegment, segmentContext } from '../../persistence/conversation-file.js';
+import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError, readConversationCatalog, readHistoricalConversationSegment } from '../../persistence/conversation-file.js';
+import { ConversationCursorNotFoundError, ConversationSegmentChangedError, foldConversation, foldHistoricalConversationRows, segmentContext } from './agent-conversation-read-model.js';
 import { listCards, readCard, readCurrentCardArtifact } from '../../persistence/card-files.js';
 import {
   cardAgentSessionId,
@@ -97,7 +98,7 @@ export class AgentOperatorReadModelService {
   }
 
   listConversationVersions(sessionId: ConversationSessionId) { const catalog = this.admitConversationCatalog(sessionId); const versions = catalog.versions.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.created_at, genesis_kind: entry.genesis.kind, source_version: entry.genesis.kind === 'compacted' ? entry.genesis.source_version : null })); return ConversationVersionListResponseSchema.parse({ session_id: sessionId, versions, total: versions.length }); }
-  getConversationVersion(sessionId: ConversationSessionId, version: number) { this.admitSession(sessionId); let segment; try { segment = readHistoricalConversationSegment(this.projectRoot, sessionId, version); } catch (error) { if (error instanceof ConversationHistoricalVersionNotFoundError || error instanceof ConversationHistoricalVersionUnavailableError) throw error; throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); } return ConversationVersionContentResponseSchema.parse({ session_id: sessionId, version, entry_id: segment.entry.entry_id, published_at: segment.entry.created_at, segment_context: segmentContext(segment.genesis), entries: foldVisible(segment.rows) }); }
+  getConversationVersion(sessionId: ConversationSessionId, version: number) { this.admitSession(sessionId); let segment; try { segment = readHistoricalConversationSegment(this.projectRoot, sessionId, version); } catch (error) { if (error instanceof ConversationHistoricalVersionNotFoundError || error instanceof ConversationHistoricalVersionUnavailableError) throw error; throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); } return ConversationVersionContentResponseSchema.parse({ session_id: sessionId, version, entry_id: segment.entry.entry_id, published_at: segment.entry.created_at, segment_context: segmentContext(segment.genesis), entries: foldHistoricalConversationRows(segment.rows) }); }
 
   readCurrentSegmentTail(sessionId: ConversationSessionId, lastN: number) {
     const liveSessionIds = this.captureExecutingLlmSessionIds();
@@ -180,5 +181,3 @@ export class AgentOperatorReadModelService {
     });
   }
 }
-
-function foldVisible(rows: readonly import('../../schemas/index.js').AgentMessage[]) { return rows.filter((row) => row.kind !== 'provider_private').map((row) => { const clean = { ...row }; delete clean.provider_projection; return clean; }); }

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { appendConversationBatch, foldConversation, readConversation, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { foldConversation } from '../../src/application/read-models/agent-conversation-read-model.js';
 import { CompactionSummaryConstructionError, compact, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { composeContextProjection, type ComposedContextProjection } from '../../src/runtime/actors/context/composition-projector.js';
