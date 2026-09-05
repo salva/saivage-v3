@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Environment } from '../../config/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
+import { serializeRequestForLog } from '../request-log-serializer.js';
 
 export async function createFastifyApp(environment: Environment, fatalPort: ApplicationFatalPort): Promise<FastifyInstance> {
   let transportOpt: { target: string; options: Record<string, unknown> } | undefined;
@@ -19,7 +20,7 @@ export async function createFastifyApp(environment: Environment, fatalPort: Appl
     }
   }
 
-  const fastify = Fastify({ logger: { level: environment.server.logLevel, transport: transportOpt } });
+  const fastify = Fastify({ logger: { level: environment.server.logLevel, transport: transportOpt, serializers: { req: serializeRequestForLog } } });
   fastify.setErrorHandler((error, _request, _reply) => {
     if (error instanceof PublicationOutcomeUnknownError) fatalPort.publicationOutcomeUnknown(error);
     throw error;
