@@ -48,7 +48,7 @@ export type LlmTransportFailure =
     }
   | { kind: 'unknown'; provider: string; message: string };
 
-export type LocalSetupErrorReason =
+type LocalSetupErrorReason =
   | 'missing_provider'
   | 'missing_account'
   | 'invalid_account'

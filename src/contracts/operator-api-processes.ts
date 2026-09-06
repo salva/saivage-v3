@@ -65,8 +65,6 @@ export const ProcessListResponseSchema = z.object({ processes: z.array(ProcessVi
 
 export type ProcessView = z.infer<typeof ProcessViewSchema>;
 export type ProcessToolResult = z.infer<typeof ProcessToolResultSchema>;
-export type ProcessListResponse = z.infer<typeof ProcessListResponseSchema>;
-
 export const processesOperatorApiContracts = {
   'processes.list': {
     operationId: 'processes.list',

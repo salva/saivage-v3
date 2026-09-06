@@ -12,10 +12,6 @@ export const activateCardArgumentsSchema = z.object({ card_id: cardIdSchema }).s
 
 export type ActivateCardArguments = z.infer<typeof activateCardArgumentsSchema>;
 
-export function parseActivateCardArguments(value: unknown): ActivateCardArguments {
-  return activateCardArgumentsSchema.parse(value);
-}
-
 export type CardActivationOutcome =
   | { status: 'done'; summary: string; result: DoneResult }
   | { status: 'failed'; summary: string; result: FailedResult }

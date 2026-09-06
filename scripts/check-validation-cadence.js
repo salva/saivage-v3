@@ -29,6 +29,8 @@ const JEST_IGNORE_PATTERNS = [
   TERMINAL_CHILD_IGNORE_REGEX,
 ];
 const TERMINAL_CHILD_TEST_COMMAND = `NODE_OPTIONS=--experimental-vm-modules node ./node_modules/jest/bin/jest.js --runInBand --runTestsByPath ${TERMINAL_CHILD_TEST_PATH} --testPathIgnorePatterns='<rootDir>/tests/(playwright|e2e)/'`;
+const EXPORT_CONSUMER_COMMAND = 'npm run check:export-consumers';
+const EXPORT_CONSUMER_SCRIPT = 'node scripts/check-export-consumers.js';
 const ARCHIVED_PLAYWRIGHT_DIRECTORY = 'tests/playwright/live-getrich-v2/';
 const PLAYWRIGHT_SUITE_OWNERS = [
   ['preview smoke', 'tests/playwright/smoke', 'tests/playwright/smoke/playwright.config.ts', 'web:test:e2e:preview-smoke', String.raw`testMatch: /.*\.spec\.ts/`],
@@ -37,6 +39,11 @@ const PLAYWRIGHT_SUITE_OWNERS = [
 
 
 const REQUIRED_VALIDATION_SCRIPTS = [
+  {
+    name: 'check:export-consumers',
+    mustInclude: [EXPORT_CONSUMER_SCRIPT],
+    description: 'phase-1 contracts/schemas semantic external-consumer guard',
+  },
   {
     name: 'web:test:operator-smoke',
     mustInclude: ['operator-dashboard-smoke.test.ts'],
@@ -88,7 +95,7 @@ const REQUIRED_VALIDATION_PROFILES = [
   },
   {
     name: 'validate:routine',
-    mustInclude: ['npm run typecheck', 'npm run docs:verify'],
+    mustInclude: ['npm run typecheck', EXPORT_CONSUMER_COMMAND, 'npm run docs:verify'],
     description: 'routine backend/runtime validation profile',
   },
   {
@@ -1168,6 +1175,42 @@ function validateValidationProfiles({ scripts, documentedCommands, markdownByFil
   return { checked, failures };
 }
 
+function validateExportConsumerCadence({ scripts }) {
+  const failures = [];
+  const checked = [
+    'package.json exact export-consumer script edge',
+    'package.json validate:routine export-consumer order',
+    'package.json lint export-consumer order',
+  ];
+
+  if (scripts['check:export-consumers'] !== EXPORT_CONSUMER_SCRIPT) {
+    failures.push(`package.json script "check:export-consumers" must be exactly ${EXPORT_CONSUMER_SCRIPT}, but is currently: ${scripts['check:export-consumers'] ?? '<missing>'}`);
+  }
+
+  const routineSegments = splitCommandSegments(scripts['validate:routine'] ?? '');
+  const expectedRoutine = [
+    'npm run typecheck',
+    EXPORT_CONSUMER_COMMAND,
+    'npm run check:canonical-persistence-drift',
+    'npm run docs:verify',
+  ];
+  if (JSON.stringify(routineSegments) !== JSON.stringify(expectedRoutine)) {
+    failures.push(`package.json script "validate:routine" must run exactly ${expectedRoutine.join(' -> ')}`);
+  }
+
+  const lintSegments = splitCommandSegments(scripts.lint ?? '');
+  const exportConsumerIndexes = lintSegments.flatMap((segment, index) => segment === EXPORT_CONSUMER_COMMAND ? [index] : []);
+  const orderedLintCommands = ['eslint src/', 'node scripts/check-import-boundaries.cjs', 'node scripts/check-web-component-boundaries.cjs'];
+  if (exportConsumerIndexes.length !== 1 || orderedLintCommands.some((command) => {
+    const index = lintSegments.indexOf(command);
+    return index === -1 || exportConsumerIndexes[0] >= index;
+  })) {
+    failures.push(`package.json script "lint" must invoke ${EXPORT_CONSUMER_COMMAND} exactly once before ESLint and both boundary guards`);
+  }
+
+  return { checked, failures };
+}
+
 
 function validateRuntimeEngines({ root, workflowFiles = DEFAULT_WORKFLOW_DIRS.flatMap(() => []), markdownByFile }) {
   const failures = [];
@@ -1262,6 +1305,7 @@ export function verifyValidationCadence(options = {}) {
     documentedCommands: documented.checked,
     markdownByFile: documented.markdownByFile,
   });
+  const exportConsumerCadence = validateExportConsumerCadence({ scripts });
   const forbiddenDocumentedWebTestNamespace = validateForbiddenDocumentedWebTestNamespace({ root, files: options.documentedCommandFiles ?? DEFAULT_DOCUMENTED_COMMAND_FILES });
   const canonicalWebTestNamespace = validateCanonicalWebTestNamespace({ scripts });
   const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });
@@ -1270,7 +1314,7 @@ export function verifyValidationCadence(options = {}) {
   const terminalChildJest = validateTerminalChildJestContract({ pkg, scripts, markdownByFile: documented.markdownByFile });
   const playwrightOwnership = validatePlaywrightOwnership({ root, scripts });
   const playwrightDocumentation = validatePlaywrightDocumentation({ root });
-  const failures = [...documented.failures, ...forbiddenDocumentedWebTestNamespace.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...canonicalWebTestNamespace.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
+  const failures = [...documented.failures, ...forbiddenDocumentedWebTestNamespace.failures, ...workflow.failures, ...validationWorkflowContract.failures, ...requiredScripts.failures, ...profiles.failures, ...exportConsumerCadence.failures, ...canonicalWebTestNamespace.failures, ...runtimeEngines.failures, ...docsVerify.failures, ...failClosedJest.failures, ...terminalChildJest.failures, ...playwrightOwnership.failures, ...playwrightDocumentation.failures];
   return {
     ok: failures.length === 0,
     failures,
@@ -1280,6 +1324,7 @@ export function verifyValidationCadence(options = {}) {
     workflowFilesChecked: workflow.workflowFilesChecked,
     requiredValidationScriptsChecked: requiredScripts.checked,
     validationProfilesChecked: profiles.checked,
+    exportConsumerCadenceEntriesChecked: exportConsumerCadence.checked,
     forbiddenDocumentedWebTestNamespaceEntriesChecked: forbiddenDocumentedWebTestNamespace.checked,
     canonicalWebTestNamespaceEntriesChecked: canonicalWebTestNamespace.checked,
     runtimeEngineEntriesChecked: runtimeEngines.checked,

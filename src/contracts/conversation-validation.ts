@@ -19,11 +19,11 @@ import { loggedToolCallIdentity, loggedToolResultIdentity } from '../schemas/mes
 import { parseToolCallMessageForModel } from './persisted-tool-call.js';
 import { ToolResultSchema } from './tool-result.js';
 
-export type SourceSegment = {
+type SourceSegment = {
   readonly kind: 'initial' | 'repair';
   readonly rows: readonly AgentMessage[];
 };
-export type ActivationCheckpoint = { readonly source: 'row'; readonly message: AgentMessage } | { readonly source: 'compacted_genesis'; readonly marker_id: string; readonly input_id: string };
+type ActivationCheckpoint = { readonly source: 'row'; readonly message: AgentMessage } | { readonly source: 'compacted_genesis'; readonly marker_id: string; readonly input_id: string };
 export type SourceRound = {
   readonly state: 'closed' | 'open';
   readonly label: string;
@@ -32,7 +32,7 @@ export type SourceRound = {
   readonly segments: readonly SourceSegment[];
 };
 
-export type ValidatedCompactionCoverage = Readonly<{
+type ValidatedCompactionCoverage = Readonly<{
   sourceSessionId: string;
   sourceVersion: number;
   coveredThroughMessageId: string;
@@ -40,7 +40,7 @@ export type ValidatedCompactionCoverage = Readonly<{
   accumulatedSummarySha256: string;
 }>;
 
-export type CanonicalConversationCall = {
+type CanonicalConversationCall = {
   readonly sessionId: ConversationSessionId;
   readonly sourceInputId: string;
   readonly toolCallId: string;
@@ -52,7 +52,7 @@ export type CanonicalConversationCall = {
   readonly resultSourceIndex: number | null;
 };
 
-export type CompactedGenesisIdentity = Readonly<{ id: string; timestamp: string }>;
+type CompactedGenesisIdentity = Readonly<{ id: string; timestamp: string }>;
 
 export type ValidatedConversation = {
   readonly sourceSessionId: ConversationSessionId;
@@ -69,7 +69,7 @@ export type ValidatedConversation = {
   readonly effectiveRequiredModelFacts: RequiredModelFactSlots;
 };
 
-export interface CanonicalConversationSourceCheckpoint {
+interface CanonicalConversationSourceCheckpoint {
   readonly id: string;
   readonly role: AgentMessage['role'];
   readonly kind: AgentMessage['kind'];
@@ -83,12 +83,12 @@ export interface CanonicalConversationSourceCheckpoint {
   readonly rowOrdinal: number;
 }
 
-export interface CanonicalConversationSegmentCheckpoint {
+interface CanonicalConversationSegmentCheckpoint {
   readonly kind: 'initial' | 'repair';
   readonly start: number;
   end: number;
 }
-export interface CanonicalConversationRoundCheckpoint {
+interface CanonicalConversationRoundCheckpoint {
   readonly label: string;
   readonly activationInputId: string;
   readonly activationOrdinal: number | null;
@@ -108,7 +108,7 @@ interface CanonicalToolCallCheckpoint {
   resultOrdinal: number | null;
 }
 
-export interface CanonicalConversationValidationState {
+interface CanonicalConversationValidationState {
   readonly sessionId: ConversationSessionId;
   readonly physicalIds: Set<string>;
   readonly sources: CanonicalConversationSourceCheckpoint[];
@@ -133,7 +133,7 @@ export interface CompactedGenesisSeed {
   readonly sourceVersion: number;
 }
 
-export function createCanonicalConversationValidationState(
+function createCanonicalConversationValidationState(
   sessionId: ConversationSessionId,
   inheritedActivation?: InheritedConversationActivation,
 ): CanonicalConversationValidationState {
@@ -151,7 +151,7 @@ export function createCanonicalConversationValidationState(
   return state;
 }
 
-export function reduceCanonicalConversationRow(
+function reduceCanonicalConversationRow(
   state: CanonicalConversationValidationState,
   row: AgentMessage,
   rowOrdinal: number,
@@ -218,7 +218,7 @@ export function reduceCanonicalConversationRow(
   return state;
 }
 
-export function finishCanonicalConversationValidation(
+function finishCanonicalConversationValidation(
   state: CanonicalConversationValidationState,
 ): CanonicalConversationValidationState {
   const unmatched = [...state.toolCalls.values()].filter((call) => call.resultOrdinal === null);
@@ -245,7 +245,7 @@ export function validateConversation(
   return materializeValidatedConversation(state, physicalRows, compactedGenesis ?? null);
 }
 
-export type CoveredSourceSelection = Readonly<{
+type CoveredSourceSelection = Readonly<{
   readonly groups: readonly CoveredSourceGroup[];
   readonly rows: readonly AgentMessage[];
   readonly dispositions: readonly { id: string; disposition: CoveredDisposition }[];
@@ -661,12 +661,12 @@ function isSafeFallbackBoundary(
   return true;
 }
 
-export function hashConversationRows(rows: readonly AgentMessage[]): string {
+function hashConversationRows(rows: readonly AgentMessage[]): string {
   return createHash('sha256')
     .update(rows.map(conversationRowHashText).join('\n'), 'utf8')
     .digest('hex');
 }
-export function conversationRowHashText(row: AgentMessage): string {
+function conversationRowHashText(row: AgentMessage): string {
   return JSON.stringify({
     id: row.id,
     role: row.role,

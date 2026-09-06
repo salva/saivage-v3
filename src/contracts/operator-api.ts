@@ -10,205 +10,33 @@ import { mcpOperatorApiContracts } from './operator-api-mcp.js';
 import { processesOperatorApiContracts } from './operator-api-processes.js';
 import { runtimeCardsOperatorApiContracts } from './operator-api-runtime-cards.js';
 
-export {
-  AgentConversationEntrySchema,
-  AgentConversationBadRequestSchema,
-  AgentConversationCursorNotFoundErrorSchema,
-  AgentConversationParamsSchema,
-  AgentConversationResponseSchema,
-  AgentConversationQuerySchema,
-  AgentLlmExchangeParamsSchema,
-  AgentLlmExchangeResponseSchema,
-  AgentLlmExchangeNotFoundErrorSchema,
-  AgentListResponseSchema,
-  CardAgentSessionsParamsSchema,
-  CardAgentSessionsResponseSchema,
-  AgentSessionDetailSchema,
-  AgentSessionParamsSchema,
-  AgentSessionSummarySchema,
-  AgentSessionNotFoundErrorSchema,
-} from './operator-api-agents.js';
-export type {
-  AgentConversationEntry,
-  AgentConversationResponse,
-  AgentDetailResponse,
-  AgentListResponse,
-  AgentLlmExchangeResponse,
-  AgentSessionDetail,
-  AgentSessionSummary,
-  CardAgentSessionsResponse,
-} from './operator-api-agents.js';
-export {
-  ChatIdentityResponseSchema,
-  ChatSendRequestSchema,
-  ChatSendResponseSchema,
-  AnalystTurnBusyErrorSchema,
-  ANALYST_TURN_BUSY_ERROR,
-  RestartChatAcknowledgementSchema,
-  ChatWorkspaceContextSchema,
-} from './operator-api-chats.js';
-export type {
-  ChatIdentityResponse,
-  ChatSendRequest,
-  ChatSendResponse,
-  AnalystTurnBusyErrorResponse,
-  ChatWorkspaceContext,
-  RestartChatAcknowledgement,
-} from './operator-api-chats.js';
-export {
-  DebugErrorsResponseSchema,
-  DebugGraphsResponseSchema,
-  DoctorResponseSchema,
-  WorkspaceFileContentBadRequestSchema,
-  WorkspaceFileContentForbiddenSchema,
-  WorkspaceFileErrorSchema,
-  WorkspaceFilePathErrorSchema,
-  WorkspaceFilesListBadRequestSchema,
-  WorkspaceFileTooLargeErrorSchema,
-  WorkspaceFileContentQuerySchema,
-  WorkspaceFileContentResponseSchema,
-  WorkspaceFilesListResponseSchema,
-  WorkspaceFilesQuerySchema,
-} from './operator-api-files-debug.js';
-export type {
-  DebugErrorsResponse,
-  DebugGraph,
-  DebugGraphsResponse,
-  DoctorResponse,
-  WorkspaceFileContentResponse,
-  WorkspaceFilesListResponse,
-} from './operator-api-files-debug.js';
-export {
-  ConfigGetResponseSchema,
-  ControlActionsListResponseSchema,
-  ControlActionsQuerySchema,
-  ProviderSummarySchema,
-  ProvidersListResponseSchema,
-} from './operator-api-config.js';
-export type {
-  ConfigGetResponse,
-  ControlActionsListResponse,
-  ControlActionsQuery,
-  ProviderSummary,
-  ProvidersListResponse,
-} from './operator-api-config.js';
+export { AgentConversationResponseSchema, AgentListResponseSchema, CardAgentSessionsResponseSchema, AgentSessionSummarySchema } from './operator-api-agents.js';
+export type { AgentConversationEntry, AgentSessionSummary } from './operator-api-agents.js';
+export { ChatSendRequestSchema, AnalystTurnBusyErrorSchema } from './operator-api-chats.js';
+export type { ChatWorkspaceContext, RestartChatAcknowledgement } from './operator-api-chats.js';
+export { DebugGraphsResponseSchema, DoctorResponseSchema, WorkspaceFilesListResponseSchema } from './operator-api-files-debug.js';
+export type { WorkspaceFilesListResponse } from './operator-api-files-debug.js';
+export { ProviderSummarySchema } from './operator-api-config.js';
 export {
   EventsListResponseSchema,
   EventsQuerySchema } from './operator-api-events.js';
-export type { EventsListResponse, EventsQuery } from './operator-api-events.js';
 export {
   UnauthorizedErrorSchema,
   ValidationErrorSchema,
   UnexpectedInternalServerErrorSchema,
   UNEXPECTED_INTERNAL_SERVER_ERROR,
 } from './operator-api-core.js';
-export type {
-  ContractAuthClass,
-  ContractFailureIdentity,
-  HttpMethod,
-  OperatorRouteContract,
-  UnexpectedInternalServerError,
-} from './operator-api-core.js';
-export {
-  AvailabilityComponentSchema,
-  AvailabilityComponentSourceSchema,
-  AvailabilityDiagnosticSchema,
-  AvailabilityStateSchema,
-  ServerAvailabilitySchema,
-} from './operator-api-availability.js';
+export type { OperatorRouteContract } from './operator-api-core.js';
+export { AvailabilityComponentSourceSchema, AvailabilityStateSchema, ServerAvailabilitySchema } from './operator-api-availability.js';
 export { HistoricalVersionNotFoundErrorSchema } from './historical-version-not-found.js';
-export type {
-  AvailabilityComponent,
-  AvailabilityState,
-  ServerAvailability,
-} from './operator-api-availability.js';
-export { authOperatorApiContracts, WebSocketTicketResponseSchema } from './operator-api-auth.js';
-export type { WebSocketTicketResponse } from './operator-api-auth.js';
-export {
-  McpInvocationStatSchema,
-  McpStatusStateSchema,
-  McpToolsResponseSchema,
-  McpTransportSchema,
-} from './operator-api-mcp.js';
-export type {
-  McpInvocationStat,
-  McpStatusState,
-  McpToolsResponse,
-  McpTransport,
-} from './operator-api-mcp.js';
-
-export {
-  CardDetailResponseSchema,
-  CardDetailSchema,
-  CardRecordDescriptorSchema,
-  CardRecordListResponseSchema,
-  CardRecordContentSchema,
-  CardRecordContentResponseSchema,
-  CardRecordNameParamsSchema,
-  CardRecordDefinitionNotFoundErrorSchema,
-  CardRecordNotFoundErrorSchema,
-  CardHierarchyParentSchema,
-  CardHierarchyChildSummarySchema,
-  CardChildrenResponseSchema,
-  CardDiffQuerySchema,
-  CardDiffRowSchema,
-  CardDiffResponseSchema,
-  CardHistoryEntryParamsSchema,
-  CardHistoryEntryResponseSchema,
-  CardHistoryListResponseSchema,
-  CardHistoryParamsSchema,
-  CardIdParamsSchema,
-  CardDiffNotFoundUnionSchema,
-  CardDiffBadRequestSchema,
-  CardHistoryEntryNotFoundUnionSchema,
-  CardNotFoundErrorSchema,
-  InvalidCardDiffPivotsErrorSchema,
-  canonicalPositiveSafeIntegerStringSchema,
-  HealthLivenessResponseSchema,
-  HealthReadinessResponseSchema,
-  RuntimeGetStateResponseSchema,
-  ContentPolicyRuntimeResponseSchema,
-  RuntimeStatusResponseSchema,
-  StopProjectResponseSchema,
-  RestartServerRequestSchema,
-  RestartServerResponseSchema,
-  RestartUnavailableErrorSchema,
-  runtimeCardsOperatorApiContracts,
-} from './operator-api-runtime-cards.js';
-export type {
-  CardDetailResponse,
-  CardDetail,
-  CardRecordDescriptor,
-  CardRecordListResponse,
-  CardRecordContent,
-  CardRecordContentResponse,
-  CardHierarchyParent,
-  CardHierarchyChildSummary,
-  CardChildrenResponse,
-  CardDiffRow,
-  CardDiffResponse,
-  CardHistoryEntryResponse,
-  CardHistoryListResponse,
-  HealthLivenessResponse,
-  HealthReadinessResponse,
-  RuntimeGetStateResponse,
-  ContentPolicyRuntimeResponse,
-  RuntimeStatusResponse,
-} from './operator-api-runtime-cards.js';
-
-export {
-  ProcessListResponseSchema,
-  ProcessLogRefsSchema,
-  ProcessToolResultSchema,
-  ProcessViewSchema,
-  processesOperatorApiContracts,
-} from './operator-api-processes.js';
-export type {
-  ProcessListResponse,
-  ProcessToolResult,
-  ProcessView,
-} from './operator-api-processes.js';
-
+export type { ServerAvailability } from './operator-api-availability.js';
+export { WebSocketTicketResponseSchema } from './operator-api-auth.js';
+export { McpToolsResponseSchema } from './operator-api-mcp.js';
+export type { McpToolsResponse } from './operator-api-mcp.js';
+export { CardDetailResponseSchema, CardDetailSchema, CardRecordListResponseSchema, CardRecordContentResponseSchema, CardChildrenResponseSchema, CardDiffQuerySchema, CardDiffRowSchema, CardDiffResponseSchema, CardHistoryEntryParamsSchema, CardHistoryEntryResponseSchema, CardHistoryListResponseSchema, CardDiffNotFoundUnionSchema, CardHistoryEntryNotFoundUnionSchema, CardNotFoundErrorSchema, canonicalPositiveSafeIntegerStringSchema, HealthLivenessResponseSchema, ContentPolicyRuntimeResponseSchema } from './operator-api-runtime-cards.js';
+export type { CardDetail, CardRecordDescriptor, CardHierarchyParent, CardHierarchyChildSummary, CardDiffRow, CardHistoryListResponse, ContentPolicyRuntimeResponse, RuntimeStatusResponse } from './operator-api-runtime-cards.js';
+export { ProcessListResponseSchema, ProcessViewSchema } from './operator-api-processes.js';
+export type { ProcessView } from './operator-api-processes.js';
 export const operatorApiContracts = {
   ...authOperatorApiContracts,
   ...runtimeCardsOperatorApiContracts,

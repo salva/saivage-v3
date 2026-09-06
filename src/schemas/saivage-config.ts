@@ -16,7 +16,7 @@ const modelEquivalentsSchema = z.array(z.array(z.string()));
 const namedIdentifierSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 export const systemTemplateNameSchema = z.string().regex(/^[a-z][a-z0-9-]{0,63}$/u);
 const outcomeIdentifierSchema = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/u);
-export const recordWritePatternSchema = z.string().regex(/^[a-z*][a-z0-9*-]{0,63}\.md$/u, 'Expected a lowercase Markdown record-name pattern containing only literal stem characters and * wildcards.');
+const recordWritePatternSchema = z.string().regex(/^[a-z*][a-z0-9*-]{0,63}\.md$/u, 'Expected a lowercase Markdown record-name pattern containing only literal stem characters and * wildcards.');
 const modelRouteSchema = z.object({
   candidates: z.array(z.string().min(1)).min(1).optional(),
   profile: namedIdentifierSchema.optional(),
@@ -71,7 +71,7 @@ const serverSectionSchema = z.object({
   host: z.string().default('0.0.0.0'),
 }).strict();
 
-export const candidateSchema = z.object({
+const candidateSchema = z.object({
   provider: z.string().min(1),
   account: z.union([z.string().min(1), z.literal(null)]),
   model: z.string().min(1),
@@ -187,7 +187,7 @@ const cardTypeWorkflowSchema = z.object({
   records: z.record(recordNameSchema, recordDefinitionSchema),
   workflow: cardProcessSchema,
 }).strict();
-export const cardTypesSchema = z.record(cardTypeNameSchema, cardTypeWorkflowSchema).superRefine((cardTypes, ctx) => {
+const cardTypesSchema = z.record(cardTypeNameSchema, cardTypeWorkflowSchema).superRefine((cardTypes, ctx) => {
   if (!Object.prototype.hasOwnProperty.call(cardTypes, 'project')) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['project'], message: "card_types must contain the reserved 'project' entry" });
   }

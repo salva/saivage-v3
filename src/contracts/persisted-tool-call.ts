@@ -1,10 +1,10 @@
-export interface PersistedToolCallForModel {
+interface PersistedToolCallForModel {
   id: string;
   name: string;
   arguments: string;
 }
 
-export type PersistedRowCorruptCode =
+type PersistedRowCorruptCode =
   | 'not_object'
   | 'legacy_tool_calls_wrapper'
   | 'malformed_tool_call';

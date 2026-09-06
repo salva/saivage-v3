@@ -9,7 +9,7 @@ import {
 import { ConversationSessionIdSchema } from '../schemas/index.js';
 import { ToolResultSchema } from './tool-result.js';
 
-export const ChatWorkspaceContextSchema = z.object({
+const ChatWorkspaceContextSchema = z.object({
   view: z.string().nullable(),
   entityId: z.string().nullable(),
   refinement: z.record(z.string(), z.string()).nullable(),
@@ -60,13 +60,7 @@ export const ANALYST_TURN_BUSY_ERROR = Object.freeze(
 );
 
 export type ChatWorkspaceContext = z.infer<typeof ChatWorkspaceContextSchema>;
-export type ChatSendRequest = z.infer<typeof ChatSendRequestSchema>;
-export type ChatIdentityResponse = z.infer<typeof ChatIdentityResponseSchema>;
 export type RestartChatAcknowledgement = z.infer<typeof RestartChatAcknowledgementSchema>;
-export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
-
-export type AnalystTurnBusyErrorResponse = z.infer<typeof AnalystTurnBusyErrorSchema>;
-
 export const chatOperatorApiContracts = {
   'chats.get': {
     operationId: 'chats.get',

@@ -6,8 +6,6 @@ import {
   cardStatusValues,
   urgencyValues,
 } from './types.js';
-import { loggedEventSchema } from './event-catalog.js';
-export { actionableErrorEnvelopeSchema, actionableEnumError, createActionableErrorEnvelope } from './actionable-error.js';
 import { roundIdGrammar } from './round-id.js';
 import { cardLifecycleStateSchema } from './lifecycle.js';
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from './message-identity.js';
@@ -20,18 +18,14 @@ import { canonicalJson } from './context-compaction.js';
 import { rowContextPolicySchema, type StructuralRowBehavior } from './context-policy.js';
 export { nonRootCardIdSchema } from './card-id.js';
 export { cardIdSchema };
-export { roundIdGrammar, assertRoundId, type RoundKind } from './round-id.js';
-export * from './context-policy.js';
-
-
 export const cardTypeSchema = cardTypeNameSchema;
 export const cardStatusSchema = z.enum(cardStatusValues);
 export const cardActionSchema = z.enum(cardActionValues);
 export const positiveSafeIntegerSchema = z.number().int().safe().positive();
 export const urgencySchema = z.enum(urgencyValues);
-export const createdBySchema = z.union([agentNameSchema,z.literal('runtime:bootstrap')]);
-export const noteAuthorSchema = z.union([z.literal('user'),z.literal('runtime'),agentNameSchema]);
-export const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui']);
+const createdBySchema = z.union([agentNameSchema,z.literal('runtime:bootstrap')]);
+const noteAuthorSchema = z.union([z.literal('user'),z.literal('runtime'),agentNameSchema]);
+const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui']);
 export const cardNotificationSchema: z.ZodType<import('./types.js').CardNotification> = z.object({ id: z.string().min(1), content: z.string().min(1), created_at: z.string().datetime(), source: z.string().min(1).optional() }).strict();
 const cardRecordShape = { id: cardIdSchema, type: cardTypeSchema, child_membership: z.array(cardIdSchema), active_child_order: z.array(cardIdSchema), title: z.string().min(1), lifecycle: cardLifecycleStateSchema, subtype: z.null(), tags: z.array(z.string()), priority: z.number().int(), urgency: urgencySchema, created_by: createdBySchema, created_at: z.string().datetime(), updated_at: z.string().datetime(), version_seq: positiveSafeIntegerSchema, assigned_to: z.null(), depends_on: z.array(cardIdSchema), related: z.array(cardIdSchema), metrics: z.null(), estimate: z.null(), started_at: z.null(), duration_ms: z.null(), status_text: z.string().nullable(), status_text_updated_at: z.string().datetime().nullable(), status_text_author_session_id: z.null(), latest_self_report: z.null(), metadata: z.null(), pending_notifications: z.array(cardNotificationSchema) };
 function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.RefinementCtx): void {
@@ -47,7 +41,6 @@ function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.Refin
   if ((card.lifecycle.status === 'done' || card.lifecycle.status === 'failed' || card.lifecycle.status === 'cancelled') && card.pending_notifications.length !== 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Cards in status '${card.lifecycle.status}' require empty pending_notifications.`, path: ['pending_notifications'] });
 }
 export const cardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() => z.object(cardRecordShape).strict().superRefine(refineCardLifecycle));
-export const cardHistoryKindSchema = z.enum(['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete']);
 const historyCommonShape = { entry_id: z.string().uuid(), card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, changed_at: z.string().datetime(), change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() };
 const historyProvenance = {
   update: { changed_by_actor: agentNameSchema, changed_by_surface: z.literal('runtime') },
@@ -70,9 +63,9 @@ export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryE
 export const controlActionAuditEntrySchema: z.ZodType<import('./types.js').ControlActionAuditEntry> = z.object({ id: z.string().min(1), actor: noteAuthorSchema, surface: controlActionSurfaceSchema, action: z.string().min(1), target_kind: z.enum(['card', 'note', 'process', 'runtime', 'config', 'session']).nullable(), target_id: z.string().nullable(), params_summary: z.string(), safety_class: z.enum(['read_only', 'low', 'high', 'destructive', 'deployment']).optional(), outcome: z.enum(['ok', 'error', 'denied']), outcome_summary: z.string(), error: z.string().optional(), created_at: z.string().datetime() }).strict();
 export const projectConfigSchema = z.object({ id: z.literal('project'), name: z.string().min(1), context: z.string(), goals_summary: z.string(), constraints: z.array(z.string()), planner_enabled: z.boolean(), created_at: z.string().datetime(), updated_at: z.string().datetime() });
 export const processStatusSchema = z.enum(['running', 'exited', 'failed', 'killed']);
-export const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
-export const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'model_issue', 'model_repair', 'content_policy_retry', 'content_policy_refusal', 'model_recovered', 'provider_private']);
-export const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment']), entity_id: z.string().min(1), label: z.string().optional() }).strict();
+const messageRoleSchema = z.enum(['user', 'assistant', 'system', 'tool']);
+const messageKindSchema = z.enum(['text', 'activity', 'tool_call', 'tool_result', 'model_issue', 'model_repair', 'content_policy_retry', 'content_policy_refusal', 'model_recovered', 'provider_private']);
+const entityLinkSchema = z.object({ entity_type: z.enum(['card', 'process', 'artifact', 'attachment']), entity_id: z.string().min(1), label: z.string().optional() }).strict();
 const providerProjectionSchema = z.object({ kind: z.literal('openai_responses'), source_input_id: z.string().uuid(), private_message_id: z.string().min(1), projection_kind: z.enum(['assistant_message', 'assistant_tool_call']) }).strict();
 export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: ConversationSessionIdSchema, role: messageRoleSchema, kind: messageKindSchema, content: z.string(), context_policy: rowContextPolicySchema, round_id: z.string().regex(roundIdGrammar), message_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), block_index: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER), tool: z.string().optional(), tool_call_id: z.string().optional(), timestamp: z.string().datetime(), links: z.array(entityLinkSchema).optional(), model_spec: z.string().optional(), requested_model_spec: z.string().optional(), provider_projection: providerProjectionSchema.optional() }).strict().superRefine((message, ctx) => {
   const policyIssue = (message: string, path: readonly (string | number)[] = ['context_policy']): void => ctx.addIssue({ code: z.ZodIssueCode.custom, message, path: [...path] });
@@ -148,10 +141,9 @@ export const agentMessageSchema = z.object({ id: z.string().min(1), session_id: 
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : String(error), path: ['id'] });
   }
 });
-
 export const runtimeStatusSchema = z.enum(['stopped', 'starting', 'running', 'pausing', 'paused', 'closing', 'error']);
 export const runtimeStateSchema = z.object({ status: runtimeStatusSchema, project_id: z.literal('project'), pid: z.number().int().positive(), started_at: z.string().datetime(), current_card_id: cardIdSchema, updated_at: z.string().datetime() }).strict();
-export const skillTargetAgentSchema = agentNameSchema;
+const skillTargetAgentSchema = agentNameSchema;
 const skillFileSchema = z.string().min(1).superRefine((file, ctx) => {
   const segments = file.split('/');
   const isAbsolute = file.startsWith('/') || /^[A-Za-z]:[\\/]/.test(file) || file.startsWith('\\\\');
@@ -159,7 +151,7 @@ const skillFileSchema = z.string().min(1).superRefine((file, ctx) => {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Skill file must be a normalized relative path without empty, dot, or parent segments.' });
   }
 });
-export const skillIndexEntrySchema: z.ZodType<import('./types.js').SkillIndexEntry> = z.object({
+const skillIndexEntrySchema: z.ZodType<import('./types.js').SkillIndexEntry> = z.object({
   name: z.string().min(1),
   file: skillFileSchema,
   target_agents: z.array(skillTargetAgentSchema).min(1).superRefine((roles, ctx) => {
@@ -173,6 +165,3 @@ export const skillIndexSchema = z.array(skillIndexEntrySchema).superRefine((entr
     seen.add(entry.name);
   });
 });
-
-
-export { loggedEventSchema };

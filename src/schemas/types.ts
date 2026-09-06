@@ -8,13 +8,11 @@ export type CardStatus = typeof cardStatusValues[number];
 
 export const cardActionValues = ['card.start', 'card.create', 'card.cancel', 'card.delete', 'card.reorder_child'] as const;
 export type CardAction = typeof cardActionValues[number];
-export type { ActionableErrorEnvelope } from './actionable-error.js';
-
 export const urgencyValues = ['low', 'normal', 'high', 'critical'] as const;
 export type Urgency = typeof urgencyValues[number];
 export type CreatedBy = import('./agent-name.js').AgentName | 'runtime:bootstrap';
-export type NoteAuthor = 'user' | 'runtime' | import('./agent-name.js').AgentName;
-export type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui';
+type NoteAuthor = 'user' | 'runtime' | import('./agent-name.js').AgentName;
+type ControlActionSurface = 'web-chat' | 'rest' | 'cli' | 'runtime' | 'web-ui';
 
 import type { CardLifecycleState } from './lifecycle.js';
 
@@ -60,11 +58,11 @@ export interface CardOperatorSummary {
   stale: boolean;
 }
 export interface CardView { card: CardRecord; logical_path: string | null; status: CardStatus; parent: string | null; operator_summary: CardOperatorSummary; }
-export type CardHistoryKind = 'update' | 'notification_enqueue' | 'notification_remove' | 'status' | 'terminal' | 'child_link' | 'reorder' | 'delete';
-export interface CardHistoryEntryBase { entry_id: string; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; change_reason: string | null; changed_fields: string[]; change_summary: string; }
-export type RuntimeCardHistoryEntry = CardHistoryEntryBase & { kind: Exclude<CardHistoryKind, 'update' | 'delete'>; changed_by_actor: 'runtime'; changed_by_surface: 'runtime' };
-export type UpdateCardHistoryEntry = CardHistoryEntryBase & { kind: 'update'; changed_by_actor: import('./agent-name.js').AgentName; changed_by_surface: 'runtime' };
-export type DeleteCardHistoryEntry = CardHistoryEntryBase & { kind: 'delete'; changed_by_actor: import('./agent-name.js').AgentName; changed_by_surface: 'runtime' };
+type CardHistoryKind = 'update' | 'notification_enqueue' | 'notification_remove' | 'status' | 'terminal' | 'child_link' | 'reorder' | 'delete';
+interface CardHistoryEntryBase { entry_id: string; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; change_reason: string | null; changed_fields: string[]; change_summary: string; }
+type RuntimeCardHistoryEntry = CardHistoryEntryBase & { kind: Exclude<CardHistoryKind, 'update' | 'delete'>; changed_by_actor: 'runtime'; changed_by_surface: 'runtime' };
+type UpdateCardHistoryEntry = CardHistoryEntryBase & { kind: 'update'; changed_by_actor: import('./agent-name.js').AgentName; changed_by_surface: 'runtime' };
+type DeleteCardHistoryEntry = CardHistoryEntryBase & { kind: 'delete'; changed_by_actor: import('./agent-name.js').AgentName; changed_by_surface: 'runtime' };
 export type CardHistoryEntry = RuntimeCardHistoryEntry | UpdateCardHistoryEntry | DeleteCardHistoryEntry;
 export type CardHistoryHeader = CardHistoryEntry extends infer Entry ? Entry extends CardHistoryEntry ? Omit<Entry, 'snapshot'> : never : never;
 export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; outcome: 'ok' | 'error' | 'denied'; outcome_summary: string; error?: string; created_at: string; }
@@ -74,21 +72,13 @@ export interface AnalystIssue { summary: string; severity?: typeof analystIssueS
 export type ProcessStatus = 'running' | 'exited' | 'failed' | 'killed';
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool';
 export type MessageKind = 'text' | 'activity' | 'tool_call' | 'tool_result' | 'model_issue' | 'model_repair' | 'content_policy_retry' | 'content_policy_refusal' | 'model_recovered' | 'provider_private';
-export interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
-export interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; source_input_id: string; private_message_id: string; projection_kind: 'assistant_message' | 'assistant_tool_call'; }
+interface EntityLink { entity_type: 'card' | 'process' | 'artifact' | 'attachment'; entity_id: string; label?: string; }
+interface OpenAIResponsesProviderProjection { kind: 'openai_responses'; source_input_id: string; private_message_id: string; projection_kind: 'assistant_message' | 'assistant_tool_call'; }
 export interface AgentMessage { id: string; session_id: ConversationSessionId; role: MessageRole; kind: MessageKind; content: string; context_policy: import('./context-policy.js').RowContextPolicy; round_id: string; message_index: number; block_index: number; tool?: string; tool_call_id?: string; timestamp: string; links?: EntityLink[]; model_spec?: string; requested_model_spec?: string; provider_projection?: OpenAIResponsesProviderProjection; }
 export type RuntimeStatus = 'stopped' | 'starting' | 'running' | 'pausing' | 'paused' | 'closing' | 'error';
 export interface RuntimeState { status: RuntimeStatus; project_id: 'project'; pid: number; started_at: string; current_card_id: string; updated_at: string; }
 export interface SkillIndexEntry { name: string; file: string; target_agents: import('./agent-name.js').AgentName[]; }
 
 
-export { eventKindValues, type EventKind } from './event-catalog.js';
-export type {
-  ErrorEvent,
-  EventPayloadByKind,
-  LoggedEvent,
-  LoggedEventByKind,
-  McpToolInvocationEvent,
-  RuntimeActionableErrorEvent,
-  RuntimeDiagnosticEvent,
-} from './event-catalog.js';
+export { type EventKind } from './event-catalog.js';
+export type { ErrorEvent, LoggedEvent, LoggedEventByKind, RuntimeActionableErrorEvent } from './event-catalog.js';

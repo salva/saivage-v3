@@ -11,8 +11,6 @@ export const WebSocketTicketResponseSchema = z.object({
   expiresAt: z.string(),
 }).strict();
 
-export type WebSocketTicketResponse = z.infer<typeof WebSocketTicketResponseSchema>;
-
 export const authOperatorApiContracts = {
   'auth.wsTicket': {
     operationId: 'auth.wsTicket',

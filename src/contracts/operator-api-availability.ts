@@ -2,11 +2,11 @@ import { z } from 'zod';
 
 export const AvailabilityStateSchema = z.enum(['available', 'degraded', 'idle', 'unknown']);
 export const AvailabilityComponentSourceSchema = z.enum(['runtime-application', 'mcp-manager', 'health-check']);
-export const AvailabilityDiagnosticSchema = z.object({
+const AvailabilityDiagnosticSchema = z.object({
   code: z.string().min(1),
   summary: z.string().min(1).max(240),
 }).strict();
-export const AvailabilityComponentSchema = z.object({
+const AvailabilityComponentSchema = z.object({
   state: AvailabilityStateSchema,
   source: AvailabilityComponentSourceSchema,
   checkedAt: z.string().datetime(),
@@ -21,6 +21,4 @@ export const ServerAvailabilitySchema = z.object({
   }).strict(),
 }).strict();
 
-export type AvailabilityState = z.infer<typeof AvailabilityStateSchema>;
-export type AvailabilityComponent = z.infer<typeof AvailabilityComponentSchema>;
 export type ServerAvailability = z.infer<typeof ServerAvailabilitySchema>;

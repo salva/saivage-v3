@@ -12,7 +12,6 @@ import { readConversation, type ConversationFileContext } from '../../src/persis
 import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface } from '../../src/tools/invocation.js';
 import { toolSucceeded, type ToolActionOutcome } from '../../src/contracts/tool-result.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
-import { canonicalJson } from '../../src/schemas/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import { scriptedAdmissionProvider, testCompactionPolicy, unusedSummarizerProvider } from '../helpers/llm-test-helpers.js';

@@ -473,7 +473,7 @@ This appendix is maintained as source-derived reference data for documentation d
 | `POST /api/runtime/pause` | Bodyless Pause project work. | `src/contracts/operator-api-runtime-cards.ts:324` |
 | `POST /api/runtime/resume` | Bodyless Resume project work. | `src/contracts/operator-api-runtime-cards.ts:334` |
 | `POST /api/runtime/stop-project` | Bodyless Stop project containment. | `src/contracts/operator-api-runtime-cards.ts:344` |
-| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:354` |
+| `POST /api/runtime/restart-server` | Strict-confirmation authenticated server restart. | `src/contracts/operator-api-runtime-cards.ts:344` |
 <!-- saivage:operator-routes:end -->
 
 ### Internal debug routes
@@ -481,7 +481,7 @@ This appendix is maintained as source-derived reference data for documentation d
 <!-- saivage:internal-debug-routes:start -->
 | Route | Purpose | Source |
 |---|---|---|
-| `GET /api/debug/doctor` | Authenticated registry-owned card diagnostic. | `src/contracts/operator-api-files-debug.ts:194` |
+| `GET /api/debug/doctor` | Authenticated registry-owned card diagnostic. | `src/contracts/operator-api-files-debug.ts:184` |
 | `GET /api/debug/errors` | Internal error projection. | `src/contracts/operator-api-files-debug.ts:174` |
 | `GET /api/debug/graphs` | Strict non-disclosing projection of immutable startup workflows. | `src/contracts/operator-api-files-debug.ts:184` |
 <!-- saivage:internal-debug-routes:end -->

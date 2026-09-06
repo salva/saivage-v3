@@ -14,7 +14,7 @@ export type WebfetchInvocation = z.infer<typeof WebfetchInvocationSchema>;
 
 const WebfetchHeadersSchema = z.record(z.string(), z.string());
 
-export const WebfetchMetadataSchema = z.object({
+const WebfetchMetadataSchema = z.object({
   redacted_url: z.string(),
   status: z.number().int(),
   headers: WebfetchHeadersSchema,
@@ -54,5 +54,3 @@ export const WebfetchDataSchema = z.union([
       WebfetchStashDataSchema,
       WebfetchSavedDataSchema,
     ]);
-
-export type WebfetchData = z.infer<typeof WebfetchDataSchema>;

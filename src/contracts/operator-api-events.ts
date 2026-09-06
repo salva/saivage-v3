@@ -21,9 +21,6 @@ export const EventsListResponseSchema = z.object({
   total: z.number().int().nonnegative(),
 }).strict();
 
-export type EventsQuery = z.infer<typeof EventsQuerySchema>;
-export type EventsListResponse = z.infer<typeof EventsListResponseSchema>;
-
 export const eventsOperatorApiContracts = {
   'events.list': {
     operationId: 'events.list',

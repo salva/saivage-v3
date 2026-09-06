@@ -2,18 +2,18 @@ import { z } from 'zod';
 
 export const sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
-export const contextReplacementSchema = z.discriminatedUnion('kind', [
+const contextReplacementSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('retain') }).strict(),
   z.object({ kind: z.literal('latest_snapshot'), key: z.string().min(1), contentSha256: sha256HexSchema }).strict(),
 ]);
-export const contextAudienceSchema = z.enum(['primary_and_summarizer', 'summarizer_only', 'evidence_only']);
-export const contextEvidenceSchema = z.discriminatedUnion('kind', [
+const contextAudienceSchema = z.enum(['primary_and_summarizer', 'summarizer_only', 'evidence_only']);
+const contextEvidenceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }).strict(),
   z.object({ kind: z.literal('canonical_locator'), locator: z.string().min(1), sha256: sha256HexSchema }).strict(),
   z.object({ kind: z.literal('observational_query'), tool: z.string().min(1), arguments: z.unknown(), observed_sha256: sha256HexSchema }).strict(),
 ]);
 
-export const toolResultPolicyTemplateSchema = z.object({
+const toolResultPolicyTemplateSchema = z.object({
   storage: z.literal('durable'),
   replacement: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('retain') }).strict(),
@@ -23,13 +23,13 @@ export const toolResultPolicyTemplateSchema = z.object({
   evidenceMode: z.enum(['none', 'observational_query', 'canonical_locator']),
 }).strict();
 
-export const settledToolEvidenceSchema = z.discriminatedUnion('kind', [
+const settledToolEvidenceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('none') }).strict(),
   z.object({ kind: z.literal('observational_query'), observedSha256: sha256HexSchema }).strict(),
   z.object({ kind: z.literal('canonical_locator'), locator: z.string().min(1), sha256: sha256HexSchema }).strict(),
 ]);
 
-export const toolSettlementOriginSchema = z.enum(['executed', 'rejected_before_execution', 'unsupported_tool', 'execution_failed']);
+const toolSettlementOriginSchema = z.enum(['executed', 'rejected_before_execution', 'unsupported_tool', 'execution_failed']);
 
 export const rowContextPolicySchema = z.discriminatedUnion('kind', [
   z.object({

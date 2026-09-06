@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const cardSegmentSchema = z.string().regex(/^[a-z]+$/u, 'Expected one or more lowercase ASCII letters.');
+const cardSegmentSchema = z.string().regex(/^[a-z]+$/u, 'Expected one or more lowercase ASCII letters.');
 export const MAX_CARD_DEPTH = 12;
 const nonRootCardIdPattern = new RegExp(`^card-[a-z]+(?:-[a-z]+){0,${MAX_CARD_DEPTH - 1}}$`, 'u');
 export const nonRootCardIdSchema = z.string().regex(nonRootCardIdPattern, `Expected a hierarchical card id with one to ${MAX_CARD_DEPTH} alphabetic segments.`);

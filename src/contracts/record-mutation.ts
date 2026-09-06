@@ -6,9 +6,9 @@ import { uuidV4Schema } from '../persistence/version-index.js';
 const operationSchema = z.enum(['write', 'edit']);
 const commonIdentity = { card_id: cardIdSchema, name: recordNameSchema } as const;
 
-export const RecordMutationDeniedSchema = z.object({ kind: z.literal('rejected'), error: z.literal('Record mutation is not authorized.'), data: z.object({ code: z.literal('record_mutation_denied'), ...commonIdentity, operation: operationSchema, reason: z.enum(['card_not_active', 'writer_not_authorized', 'tool_not_authorized', 'cross_card_scope', 'lifecycle_unsupported']) }).strict() }).strict();
-export const RecordMutationCurrentUnavailableSchema = z.object({ kind: z.literal('rejected'), error: z.literal('Current record state unavailable; restart required.'), data: z.object({ code: z.literal('current_state_unavailable'), resource: z.enum(['card', 'authored_record']), owner_id: z.string().min(1), operation: operationSchema, restart_required: z.literal(true) }).strict() }).strict();
-export const RecordMutationStateFailureSchema = z.discriminatedUnion('error', [
+const RecordMutationDeniedSchema = z.object({ kind: z.literal('rejected'), error: z.literal('Record mutation is not authorized.'), data: z.object({ code: z.literal('record_mutation_denied'), ...commonIdentity, operation: operationSchema, reason: z.enum(['card_not_active', 'writer_not_authorized', 'tool_not_authorized', 'cross_card_scope', 'lifecycle_unsupported']) }).strict() }).strict();
+const RecordMutationCurrentUnavailableSchema = z.object({ kind: z.literal('rejected'), error: z.literal('Current record state unavailable; restart required.'), data: z.object({ code: z.literal('current_state_unavailable'), resource: z.enum(['card', 'authored_record']), owner_id: z.string().min(1), operation: operationSchema, restart_required: z.literal(true) }).strict() }).strict();
+const RecordMutationStateFailureSchema = z.discriminatedUnion('error', [
   z.object({ kind: z.literal('rejected'), error: z.literal('Record has no content to edit.'), data: z.object({ code: z.literal('record_content_absent'), ...commonIdentity, current_head: positiveSafeIntegerSchema.nullable() }).strict() }).strict(),
   z.object({ kind: z.literal('rejected'), error: z.literal('Record already has an open workflow draft.'), data: z.object({ code: z.literal('record_open_conflict'), ...commonIdentity, current_head: positiveSafeIntegerSchema, operation: operationSchema }).strict() }).strict(),
   z.object({ kind: z.literal('rejected'), error: z.literal('Record content is unchanged.'), data: z.object({ code: z.literal('record_content_unchanged'), ...commonIdentity, current_head: positiveSafeIntegerSchema, operation: operationSchema }).strict() }).strict(),
@@ -48,7 +48,7 @@ export const ModelRecordTargetWireSchema = z.object({
   }
   if (value.head_version === null || value.version_url !== `${currentUrl}&v=${value.head_version}`) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Populated record target must identify its head artifact.' });
 });
-export const AnalystPreNetworkAdmissionSchema = z.union([
+const AnalystPreNetworkAdmissionSchema = z.union([
   z.object({ ok: z.literal(true) }).strict(),
   z.object({ ok: z.literal(false), result: z.union([RecordMutationDeniedSchema, RecordMutationStateFailureSchema, RecordMutationCurrentUnavailableSchema]), audit_outcome: z.enum(['denied', 'error']) }).strict().superRefine((value, ctx) => {
     if ((value.result.data.code === 'record_mutation_denied') !== (value.audit_outcome === 'denied')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Pre-network audit outcome must match admission result.' });

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createPinia, setActivePinia } from 'pinia';
 import { useAnalystChat } from '../../stores/analystChat';
 import { useWorkspaceRouteStore } from '../../stores/workspaceRoute';
-import type { AgentConversationEntry } from '../../api/types';
 
 const apiMocks = vi.hoisted(() => ({
   getChatEntries: vi.fn(),

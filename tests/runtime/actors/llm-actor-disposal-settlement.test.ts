@@ -4,7 +4,7 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {ConversationLLMActor} from '../../../src/runtime/actors/llm-actor.js';
 import {appendConversationBatch,readConversation,type ConversationFileContext} from '../../../src/persistence/conversation-file.js';
-import {agentMessageSchema,canonicalJson} from '../../../src/schemas/index.js';
+import {agentMessageSchema} from '../../../src/schemas/index.js';
 import {prepareCompaction} from '../../../src/runtime/actors/compaction/compactor.js';
 import {buildPreparedInvocationContext} from '../../../src/runtime/actors/context/context-blocks.js';
 import {initProjectTree} from '../../helpers/canonical-project.js';

@@ -10,8 +10,8 @@ import {
 import { CurrentStateUnavailableSchema } from './operator-api-agents.js';
 import { HistoricalVersionNotFoundSchema } from './historical-version-not-found.js';
 
-export const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() }).strict();
-export const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() }).strict();
+const WorkspaceFilesQuerySchema = z.object({ path: z.string().optional() }).strict();
+const WorkspaceFileContentQuerySchema = z.object({ path: z.string().optional() }).strict();
 export const WorkspaceFilesListResponseSchema = z.object({
   path: z.string(),
   files: z.array(z.object({
@@ -22,7 +22,7 @@ export const WorkspaceFilesListResponseSchema = z.object({
     modifiedAt: z.string(),
   }).strict()),
 }).strict();
-export const WorkspaceFileContentResponseSchema = z.object({
+const WorkspaceFileContentResponseSchema = z.object({
   path: z.string(),
   size: z.number().int().nonnegative(),
   contentType: z.string(),
@@ -33,21 +33,21 @@ export const WorkspaceFileContentResponseSchema = z.object({
   modifiedAt: z.string().nullable().optional(),
 }).strict();
 
-export const WorkspaceFileErrorSchema = z.object({ error: z.string() }).strict();
-export const WorkspaceFilePathErrorSchema = z.object({ error: z.string(), path: z.string() }).strict();
-export const WorkspaceFileTooLargeErrorSchema = z.object({
+const WorkspaceFileErrorSchema = z.object({ error: z.string() }).strict();
+const WorkspaceFilePathErrorSchema = z.object({ error: z.string(), path: z.string() }).strict();
+const WorkspaceFileTooLargeErrorSchema = z.object({
   error: z.string(),
   path: z.string(),
   size: z.number().int().nonnegative(),
   maxSize: z.number().int().positive(),
 }).strict();
 export const WorkspaceHistoricalVersionNotFoundSchema = z.object({ error: z.literal('workspace_historical_version_not_found'), path: z.string(), historical: HistoricalVersionNotFoundSchema }).strict();
-export const WorkspaceCurrentStateUnavailableSchema = z.object({ error: z.literal('workspace_current_state_unavailable'), path: z.string(), current: CurrentStateUnavailableSchema }).strict();
-export const WorkspaceFilesListBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFilePathErrorSchema]);
-export const WorkspaceFileContentBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);
-export const WorkspaceFileContentForbiddenSchema = z.union([WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);
+const WorkspaceCurrentStateUnavailableSchema = z.object({ error: z.literal('workspace_current_state_unavailable'), path: z.string(), current: CurrentStateUnavailableSchema }).strict();
+const WorkspaceFilesListBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFilePathErrorSchema]);
+const WorkspaceFileContentBadRequestSchema = z.union([ValidationErrorSchema, WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);
+const WorkspaceFileContentForbiddenSchema = z.union([WorkspaceFileErrorSchema, WorkspaceFilePathErrorSchema]);
 
-export const DebugErrorsResponseSchema = z.object({ errors: z.array(errorEventSchema), total: z.number().int().nonnegative() }).strict()
+const DebugErrorsResponseSchema = z.object({ errors: z.array(errorEventSchema), total: z.number().int().nonnegative() }).strict()
   .refine((response) => response.total === response.errors.length, { path: ['total'], message: 'total must equal errors.length' });
 
 const DebugGraphRecordSchema = z.object({
@@ -103,7 +103,7 @@ const DebugGraphNodeSchema = z.object({
   descendant_context: z.object({ records: z.array(recordNameSchema), require_unchanged_until_accept: z.boolean() }).strict().nullable(),
   outcomes: z.array(z.string().min(1)),
 }).strict();
-export const DebugGraphSchema = z.object({
+const DebugGraphSchema = z.object({
   card_type: cardTypeSchema,
   permitted_child_types: z.array(cardTypeSchema),
   records: z.array(DebugGraphRecordSchema),
@@ -142,12 +142,7 @@ export const DoctorResponseSchema = z.discriminatedUnion('status', [
 ]);
 
 export type WorkspaceFilesListResponse = z.infer<typeof WorkspaceFilesListResponseSchema>;
-export type WorkspaceFileContentResponse = z.infer<typeof WorkspaceFileContentResponseSchema>;
-export type DebugErrorsResponse = z.infer<typeof DebugErrorsResponseSchema>;
-export type DebugGraph = z.infer<typeof DebugGraphSchema>;
 export type DebugGraphsResponse = z.infer<typeof DebugGraphsResponseSchema>;
-export type DoctorResponse = z.infer<typeof DoctorResponseSchema>;
-
 export const filesDebugOperatorApiContracts = {
   'files.list': {
     operationId: 'files.list',

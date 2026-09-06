@@ -43,13 +43,15 @@ const PACKAGE_SCRIPTS = {
   'audit:security:all': 'npm audit --audit-level=moderate && cd web && npm audit --audit-level=moderate',
   'deps:freshness': 'node scripts/check-dependency-freshness.js',
   'deps:review': 'npm run audit:security:all && npm run deps:freshness',
+  'check:export-consumers': 'node scripts/check-export-consumers.js',
+  lint: 'npm run check:export-consumers && npm run check:stamp-producers && eslint src/ && node scripts/check-import-boundaries.cjs && node scripts/check-web-component-boundaries.cjs',
   'web:typecheck': 'cd web && npm run typecheck',
   'web:test': 'cd web && npm run test',
   'web:test:sweep': 'npm run web:test:control-room && npm run web:test:stores',
   'web:test:operator-smoke': 'cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts',
   'web:test:analyst-ui': 'cd web && npx vitest run src/__tests__/analyst-chat-panel.test.ts',
   'validate:docs': 'npm run docs:verify',
-  'validate:routine': 'npm run typecheck && npm run check:canonical-persistence-drift && npm run docs:verify',
+  'validate:routine': 'npm run typecheck && npm run check:export-consumers && npm run check:canonical-persistence-drift && npm run docs:verify',
   'validate:ui-smoke': 'npm run web:test:operator-smoke',
   'validate:ui': 'npm run web:typecheck && npm run web:test:sweep && npm run web:test:operator-smoke',
   'validate:release': 'npm run typecheck && npm run build && npm test && npm run test:e2e && npm run web:test:operator-smoke && npm run docs:verify',
@@ -70,7 +72,7 @@ const WEB_PACKAGE_JSON = JSON.stringify({
   scripts: { build: 'vite build' },
 });
 
-const VALID_PROFILE_DOCS = '```bash\nnpm run validate:docs\nnpm run validate:routine\nnpm run validate:ui-smoke\nnpm run validate:ui\nnpm run validate:release\nnpm run audit:security\nnpm run deps:review\n```\n`npm run validate:docs` intentionally runs docs verification only and does not run `npm test` or the Vitest smoke guard.\n';
+const VALID_PROFILE_DOCS = '```bash\nnpm run check:export-consumers\nnpm run validate:docs\nnpm run validate:routine\nnpm run validate:ui-smoke\nnpm run validate:ui\nnpm run validate:release\nnpm run audit:security\nnpm run deps:review\n```\n`npm run validate:docs` intentionally runs docs verification only and does not run `npm test` or the Vitest smoke guard.\n';
 
 const VALID_TERMINAL_CHILD_DOCS = 'Root `npm test` is the complete non-E2E backend authority: ordinary parallel Jest is followed by the exact serial real-terminal-child suite. Use `npm run test:terminal-child` for that suite. The `test:direct` helper covers ordinary Jest and excludes the terminal-child suite.\n';
 
@@ -134,6 +136,7 @@ function validFiles(overrides = {}) {
     'scripts/docs-verify.sh': VALID_DOCS_VERIFY,
     'scripts/check-existing.js': '#!/usr/bin/env node\n',
     'scripts/check-dependency-freshness.js': '#!/usr/bin/env node\n',
+    'scripts/check-export-consumers.js': '#!/usr/bin/env node\n',
     'tests/existing.test.js': 'test("ok", () => {});\n',
     'tests/playwright/smoke/playwright.config.ts': "testDir: '.'\ntestMatch: /.*\\.spec\\.ts/\n",
     'tests/playwright/smoke/preview.spec.ts': 'test();\n',
@@ -160,6 +163,8 @@ describe('validation cadence guard', () => {
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run validate:routine'));
       expect(result.workflowCommandsChecked).toContainEqual(expect.stringContaining('npm run audit:security'));
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
+      expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json validate:routine export-consumer order');
+      expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json lint export-consumer order');
       expect(result.canonicalWebTestNamespaceEntriesChecked).toContain('package.json singular canonical web-test namespace');
       expect(result.runtimeEngineEntriesChecked).toContain('package.json engines');
       expect(result.runtimeEngineEntriesChecked).toContain('web/package.json engines');
@@ -168,6 +173,26 @@ describe('validation cadence guard', () => {
       expect(result.terminalChildJestContractEntriesChecked).toContain('package.json exact ordinary Jest ignore array');
       expect(PACKAGE_JSON).toContain('app-terminal-child-process\\\\.test\\\\.ts$');
       expect(JSON.parse(PACKAGE_JSON).jest.testPathIgnorePatterns[2]).toBe(TERMINAL_CHILD_IGNORE_REGEX);
+    });
+  });
+
+  describe('export-consumer cadence mutations', () => {
+    it.each([
+      ['drops the validate:routine edge', PACKAGE_SCRIPTS['validate:routine'].replace(' && npm run check:export-consumers', '')],
+      ['moves the validate:routine edge before typecheck', PACKAGE_SCRIPTS['validate:routine'].replace('npm run typecheck && npm run check:export-consumers', 'npm run check:export-consumers && npm run typecheck')],
+    ])('rejects a package that %s', (_label, command) => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'validate:routine': command } }), 'validate:routine" must run exactly');
+    });
+
+    it.each([
+      ['drops the lint edge', PACKAGE_SCRIPTS.lint.replace('npm run check:export-consumers && ', '')],
+      ['moves the lint edge after ESLint', PACKAGE_SCRIPTS.lint.replace('npm run check:export-consumers && npm run check:stamp-producers && eslint src/', 'npm run check:stamp-producers && eslint src/ && npm run check:export-consumers')],
+    ])('rejects a package that %s', (_label, command) => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, lint: command } }), 'lint" must invoke npm run check:export-consumers exactly once before ESLint and both boundary guards');
+    });
+
+    it('rejects a drifted checker script edge', () => {
+      expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'check:export-consumers': 'node scripts/other.js' } }), 'check:export-consumers" must be exactly');
     });
   });
 

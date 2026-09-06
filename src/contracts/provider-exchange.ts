@@ -1,8 +1,8 @@
 import { z } from 'zod';
 
-export const providerExchangeTransportSchema = z.enum(['generic', 'codex', 'openai-responses']);
+const providerExchangeTransportSchema = z.enum(['generic', 'codex', 'openai-responses']);
 
-export const providerExchangeErrorSchema = z.object({
+const providerExchangeErrorSchema = z.object({
   name: z.string().min(1),
   message: z.string(),
   status: z.number().int().optional(),
@@ -56,7 +56,7 @@ export const providerExchangePayloadSchema = z.discriminatedUnion('status', [
 
 export type ProviderExchangePayload = z.infer<typeof providerExchangePayloadSchema>;
 export type ProviderExchangeOkPayload = Extract<ProviderExchangePayload, { status: 'ok' }>;
-export type ProviderExchangeErrorPayload = Extract<ProviderExchangePayload, { status: 'error' }>;
+type ProviderExchangeErrorPayload = Extract<ProviderExchangePayload, { status: 'error' }>;
 
 export type ProviderExchangeAttempt =
   | (Omit<ProviderExchangeOkPayload, 'assistant_output_ids' | 'attempt_index'> & { attempt_index?: number })
@@ -66,44 +66,3 @@ export type ProviderExchangePublicationContext = Readonly<{
   assistantOutputIds: readonly string[];
   terminalConversationOutputId: string | null;
 }>;
-
-function orderedPayload(payload: ProviderExchangePayload): ProviderExchangePayload {
-  const base = {
-    contract_id: payload.contract_id,
-    contract_name: payload.contract_name,
-    transport: payload.transport,
-    provider: payload.provider,
-    model: payload.model,
-    ...(payload.account ? { account: payload.account } : {}),
-    source_input_id: payload.source_input_id,
-    attempt_index: payload.attempt_index,
-    request_params: payload.request_params,
-    started_at: payload.started_at,
-    completed_at: payload.completed_at,
-    status: payload.status,
-    ...(payload.response_status !== undefined ? { response_status: payload.response_status } : {}),
-    ...(payload.status === 'ok' && payload.finish_reason !== undefined ? { finish_reason: payload.finish_reason } : {}),
-    ...(payload.status === 'ok' && payload.token_usage !== undefined ? { token_usage: payload.token_usage } : {}),
-    ...(payload.latency_ms !== undefined ? { latency_ms: payload.latency_ms } : {}),
-    terminal_tool_fired: payload.terminal_tool_fired,
-    ...(payload.status === 'ok'
-      ? { assistant_output_ids: payload.assistant_output_ids }
-      : { terminal_conversation_output_id: payload.terminal_conversation_output_id, error: payload.error }),
-  };
-  return providerExchangePayloadSchema.parse(base);
-}
-
-export function serializeProviderExchangePayload(payload: ProviderExchangePayload): string {
-  return JSON.stringify(orderedPayload(providerExchangePayloadSchema.parse(payload)));
-}
-
-export function parseProviderExchangePayload(content: unknown): ProviderExchangePayload {
-  if (typeof content !== 'string') throw new Error('provider_exchange content must be a canonical JSON string.');
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (error) {
-    throw new Error(`provider_exchange content is invalid JSON: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  return providerExchangePayloadSchema.parse(parsed);
-}

@@ -3,7 +3,6 @@ import { describe, expect, it } from '@jest/globals';
 import {
   activateCardArgumentsSchema,
   formatActivateCardResult,
-  parseActivateCardArguments,
   type CardActivationOutcome,
 } from '../../src/contracts/tool-api.js';
 import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, type BlockedResult } from '../../src/schemas/index.js';
@@ -14,7 +13,6 @@ describe('activate_card shared tool contract', () => {
     const args = { card_id: 'card-a-b' };
 
     expect(activateCardArgumentsSchema.parse(args)).toEqual(args);
-    expect(parseActivateCardArguments(args)).toEqual(args);
   });
 
   it('formats content-policy BLOCKED as one exact nested result without duplicate top-level evidence fields', () => {
@@ -33,7 +31,6 @@ describe('activate_card shared tool contract', () => {
     ['invalid card_id', { card_id: 'card-1' }],
   ])('rejects %s', (_name, value) => {
     expect(activateCardArgumentsSchema.safeParse(value).success).toBe(false);
-    expect(() => parseActivateCardArguments(value)).toThrow();
   });
 
   it('requires each outcome variant exact result shape and forbids a cancelled result', () => {

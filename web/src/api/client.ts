@@ -43,7 +43,6 @@ import {
   type OperatorApiResponse,
   type OperatorApiSuccess,
 } from './contracts';
-import type { ProviderExchangePayload } from './contracts';
 import { dispatchApiAuthRequired } from '../utils/auth-events';
 
 function authHeaders(): Record<string, string> {

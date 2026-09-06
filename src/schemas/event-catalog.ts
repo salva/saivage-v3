@@ -8,7 +8,7 @@ const eventBaseShape = {
   timestamp: z.string().datetime(),
 };
 
-export const runtimeDiagnosticEventSchema = z.object({
+const runtimeDiagnosticEventSchema = z.object({
   ...eventBaseShape,
   kind: z.literal('runtime_diagnostic'),
   goal_id: cardIdSchema.optional(),
@@ -17,13 +17,13 @@ export const runtimeDiagnosticEventSchema = z.object({
   error_message: z.string(),
 }).strict();
 
-export const runtimeActionableErrorEventSchema = z.object({
+const runtimeActionableErrorEventSchema = z.object({
   ...eventBaseShape,
   kind: z.literal('runtime_actionable_error'),
   actionable_error: actionableErrorEnvelopeSchema,
 }).strict();
 
-export const mcpToolInvocationEventSchema = z.object({
+const mcpToolInvocationEventSchema = z.object({
   ...eventBaseShape,
   kind: z.literal('mcp_tool_invocation'),
   server: z.string(),
@@ -40,14 +40,12 @@ export const loggedEventSchema = z.discriminatedUnion('kind', [
 ]);
 
 export type LoggedEvent = z.infer<typeof loggedEventSchema>;
-export type RuntimeDiagnosticEvent = z.infer<typeof runtimeDiagnosticEventSchema>;
+type RuntimeDiagnosticEvent = z.infer<typeof runtimeDiagnosticEventSchema>;
 export type RuntimeActionableErrorEvent = z.infer<typeof runtimeActionableErrorEventSchema>;
-export type McpToolInvocationEvent = z.infer<typeof mcpToolInvocationEventSchema>;
+type McpToolInvocationEvent = z.infer<typeof mcpToolInvocationEventSchema>;
 export type EventKind = LoggedEvent['kind'];
 export type LoggedEventByKind = { [K in EventKind]: Extract<LoggedEvent, { kind: K }> };
-export type EventPayloadByKind = { [K in EventKind]: Omit<LoggedEventByKind[K], 'id' | 'kind' | 'timestamp'> };
-export type EventPayload<K extends EventKind> = EventPayloadByKind[K];
-export type SeverityLevel = 'info' | 'warning' | 'error';
+type SeverityLevel = 'info' | 'warning' | 'error';
 
 export const eventKindValues = [
   'runtime_diagnostic',

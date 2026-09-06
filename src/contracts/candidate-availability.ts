@@ -8,7 +8,7 @@
 
 import type { Candidate } from './provider-candidate.js';
 
-export type CandidateState = 'HEALTHY' | 'BLOCKED_UNTIL' | 'COOLING';
+type CandidateState = 'HEALTHY' | 'BLOCKED_UNTIL' | 'COOLING';
 
 export interface CandidateAvailabilityEntry {
   candidate: Candidate;

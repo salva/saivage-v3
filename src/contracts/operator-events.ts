@@ -6,9 +6,9 @@ import {
 } from './operator-api-chats.js';
 import { ToolResultSchema } from './tool-result.js';
 
-export const LiveSyncUnscopedResourceSchema = z.literal('runtime');
-export const LiveSyncCardRecordNameSchema = recordNameSchema;
-export const LiveSyncCardInvalidateFrameSchema = z.union([
+const LiveSyncUnscopedResourceSchema = z.literal('runtime');
+const LiveSyncCardRecordNameSchema = recordNameSchema;
+const LiveSyncCardInvalidateFrameSchema = z.union([
   z
     .object({
       t: z.literal('invalidate'),
@@ -138,7 +138,7 @@ export const LiveSyncClientFrameSchema = z.union([
 
 export type LiveSyncUnscopedResource = z.infer<typeof LiveSyncUnscopedResourceSchema>;
 export type LiveSyncCardRecordName = z.infer<typeof LiveSyncCardRecordNameSchema>;
-export type LiveSyncCardInvalidateFrame = z.infer<typeof LiveSyncCardInvalidateFrameSchema>;
+type LiveSyncCardInvalidateFrame = z.infer<typeof LiveSyncCardInvalidateFrameSchema>;
 export type LiveSyncInvalidateFrame = z.infer<typeof LiveSyncInvalidateFrameSchema>;
 export type LiveSyncSubscribedFrame = z.infer<typeof LiveSyncSubscribedFrameSchema>;
 export type LiveSyncClientFrame = z.infer<typeof LiveSyncClientFrameSchema>;
@@ -169,7 +169,7 @@ export const ConnectedStatusContentSchema = z
   })
   .strict();
 
-export const ConnectedStatusEnvelopeSchema = z.object({
+const ConnectedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
   content: ConnectedStatusContentSchema,
 }).strict();
@@ -182,12 +182,12 @@ export const AnalystTurnAcknowledgedStatusContentSchema = z
   })
   .strict();
 
-export const AnalystTurnAcknowledgedStatusEnvelopeSchema = z.object({
+const AnalystTurnAcknowledgedStatusEnvelopeSchema = z.object({
   type: z.literal('status'),
   content: AnalystTurnAcknowledgedStatusContentSchema,
 }).strict();
 
-export const AnalystActivityEventNames = [
+const AnalystActivityEventNames = [
   'card_history_appended',
   'notification_added',
   'control_action_recorded',
@@ -251,7 +251,7 @@ export const ClassifiedToolInvocationActivityContentSchema = z
   })
   .strict();
 
-export const AnalystActivityContentSchema = z.discriminatedUnion('event', [
+const AnalystActivityContentSchema = z.discriminatedUnion('event', [
   CardHistoryAppendedContentSchema,
   NotificationAddedContentSchema,
   ControlActionRecordedContentSchema,
@@ -259,7 +259,7 @@ export const AnalystActivityContentSchema = z.discriminatedUnion('event', [
   ClassifiedToolInvocationActivityContentSchema,
 ]);
 
-export const ServerActivityEnvelopeSchema = z.object({
+const ServerActivityEnvelopeSchema = z.object({
   type: z.literal('activity'),
   content: AnalystActivityContentSchema,
 }).strict();
@@ -275,7 +275,7 @@ export const InboundAnalystMessageEnvelopeSchema = z.object({
   content: InboundAnalystMessageContentSchema,
 }).strict();
 
-export const AnalystProcessingFailedErrorSchema = z.object({
+const AnalystProcessingFailedErrorSchema = z.object({
     error: z.literal('analyst_processing_failed'),
     message: z.literal('Failed to process Analyst message.'),
   })
@@ -286,7 +286,7 @@ export const ANALYST_PROCESSING_FAILED_ERROR = Object.freeze(
     message: 'Failed to process Analyst message.',
   }),
 );
-export const AnalystWsErrorContentSchema = z.discriminatedUnion('error', [
+const AnalystWsErrorContentSchema = z.discriminatedUnion('error', [
   AnalystTurnBusyErrorSchema,
   AnalystProcessingFailedErrorSchema,
 ]);
@@ -314,11 +314,8 @@ export type ServerEgressWsEnvelope = z.infer<typeof ServerEgressWsEnvelopeSchema
 export type ClassifiedToolInvocationActivityContent = z.infer<
   typeof ClassifiedToolInvocationActivityContentSchema
 >;
-export type AnalystTurnAcknowledgedStatusEnvelope = z.infer<
-  typeof AnalystTurnAcknowledgedStatusEnvelopeSchema
->;
 export type InboundAnalystMessageEnvelope = z.infer<typeof InboundAnalystMessageEnvelopeSchema>;
-export type AnalystActivityContent = z.infer<typeof AnalystActivityContentSchema>;
+type AnalystActivityContent = z.infer<typeof AnalystActivityContentSchema>;
 
 function getContentEvent(content: unknown): string | null {
   if (!content || typeof content !== 'object') return null;

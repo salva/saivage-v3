@@ -1,7 +1,7 @@
 import type { ConversationSessionId } from '../schemas/index.js';
 import type { ToolResult } from './tool-result.js';
 
-export interface InvocationIdentity {
+interface InvocationIdentity {
   readonly sessionId: ConversationSessionId;
   readonly sourceInputId: string;
   readonly toolCallId: string;

@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
-export type ContractAuthClass = 'public' | 'operator-session';
+type ContractAuthClass = 'public' | 'operator-session';
 
-export type HttpMethod = 'GET' | 'POST';
+type HttpMethod = 'GET' | 'POST';
 
 export const UnexpectedInternalServerErrorSchema = z.object({
   error: z.literal('InternalServerError'),
   message: z.literal('Internal server error'),
 }).strict();
-export type UnexpectedInternalServerError = z.infer<typeof UnexpectedInternalServerErrorSchema>;
+type UnexpectedInternalServerError = z.infer<typeof UnexpectedInternalServerErrorSchema>;
 export const UNEXPECTED_INTERNAL_SERVER_ERROR: Readonly<UnexpectedInternalServerError> = Object.freeze(
   UnexpectedInternalServerErrorSchema.parse({ error: 'InternalServerError', message: 'Internal server error' }),
 );
@@ -27,7 +27,7 @@ export const UnauthorizedErrorSchema = z.object({
 export const operatorSessionContract = { auth: 'operator-session' } as const;
 export const publicContract = { auth: 'public' } as const;
 
-export type ContractFailureIdentity =
+type ContractFailureIdentity =
   | { kind: 'session'; parameter: 'id' }
   | { kind: 'card'; parameter: 'id' };
 

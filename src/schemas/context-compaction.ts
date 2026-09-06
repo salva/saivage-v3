@@ -8,7 +8,7 @@ const nonNegativeSafeInteger = z.number().int().safe().nonnegative();
 const sha256HexString = z.string().regex(sha256HexPattern);
 const canonicalUuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 
-export const coveredSourceGroupSchema = z.object({ message_ids: z.array(z.string().min(1)).min(1), content_sha256: sha256HexString }).strict();
+const coveredSourceGroupSchema = z.object({ message_ids: z.array(z.string().min(1)).min(1), content_sha256: sha256HexString }).strict();
 
 export const requiredModelFactSlotsSchema = z.object({
   latestRecovery: z.object({ sourceMessageId: z.string().min(1), activationInputId: canonicalUuidSchema }).strict().nullable(),
@@ -40,17 +40,14 @@ export const compactedHistorySchema = z.object({
 
 export type CoveredSourceGroup = z.infer<typeof coveredSourceGroupSchema>;
 export type RequiredModelFactSlots = z.infer<typeof requiredModelFactSlotsSchema>;
-export type RequiredModelFactRecoverySlot = NonNullable<RequiredModelFactSlots['latestRecovery']>;
-export type RequiredModelFactRefusalSlot = NonNullable<RequiredModelFactSlots['latestContentPolicyRefusal']>;
 export type CompactedHistory = z.infer<typeof compactedHistorySchema>;
-export type DispositionCommitment = CompactedHistory['dispositionCommitment'];
+type DispositionCommitment = CompactedHistory['dispositionCommitment'];
 
 export type CoveredDisposition = 'summarized' | 'evidence_only' | 'superseded';
 
 export function canonicalJson(value: unknown): string {
   return JSON.stringify(sortJson(value));
 }
-
 function sortJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(sortJson);
   if (value !== null && typeof value === 'object') {
@@ -78,10 +75,4 @@ export function foldDispositionCommitment(prior: DispositionCommitment | null, d
     evidenceOnly: (prior?.evidenceOnly ?? 0) + evidenceOnly,
     superseded: (prior?.superseded ?? 0) + superseded,
   };
-}
-
-export function parseCanonicalCompactedHistory(content: string): CompactedHistory {
-  const parsed = compactedHistorySchema.parse(JSON.parse(content));
-  if (content !== canonicalJson(parsed)) throw new Error('Compacted history must be canonical JSON.');
-  return parsed;
 }

@@ -60,26 +60,20 @@ export const ProviderSummarySchema = z.object({
   availability: z.array(ProviderAvailabilitySchema),
 }).strict();
 
-export const ProvidersListResponseSchema = z.object({
+const ProvidersListResponseSchema = z.object({
   availabilityScope: z.literal('process_local_reset_on_restart'),
   providers: z.record(z.string(), ProviderSummarySchema),
 }).strict();
 
-export const ControlActionsQuerySchema = z.object({
+const ControlActionsQuerySchema = z.object({
   card_id: cardIdSchema.optional(),
   since: z.string().optional(),
 }).strict();
 
-export const ControlActionsListResponseSchema = z.object({
+const ControlActionsListResponseSchema = z.object({
   control_actions: z.array(controlActionAuditEntrySchema),
   total: z.number().int().nonnegative(),
 }).strict();
-
-export type ConfigGetResponse = z.infer<typeof ConfigGetResponseSchema>;
-export type ProviderSummary = z.infer<typeof ProviderSummarySchema>;
-export type ProvidersListResponse = z.infer<typeof ProvidersListResponseSchema>;
-export type ControlActionsQuery = z.infer<typeof ControlActionsQuerySchema>;
-export type ControlActionsListResponse = z.infer<typeof ControlActionsListResponseSchema>;
 
 export const configOperatorApiContracts = {
   'config.get': {

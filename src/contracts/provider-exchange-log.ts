@@ -9,7 +9,7 @@ export const providerExchangeLogDataSchema = z.object({
   payload: providerExchangePayloadSchema,
 }).strict();
 
-export type ProviderExchangeLogData = z.infer<typeof providerExchangeLogDataSchema>;
+type ProviderExchangeLogData = z.infer<typeof providerExchangeLogDataSchema>;
 
 export function providerExchangeLogId(data: Pick<ProviderExchangeLogData, 'session_id' | 'source_input_id' | 'attempt_index'>): string {
   return `provider-exchange:${encodeURIComponent(data.session_id)}:${encodeURIComponent(data.source_input_id)}:${data.attempt_index}`;

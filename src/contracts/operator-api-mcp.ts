@@ -5,9 +5,9 @@ import {
   UnexpectedInternalServerErrorSchema,
   type OperatorRouteContract,
 } from './operator-api-core.js';
-export const McpTransportSchema = z.enum(['stdio', 'streamable-http']);
-export const McpStatusStateSchema = z.enum(['running', 'stopped', 'error']);
-export const McpInvocationStatSchema = z.object({
+const McpTransportSchema = z.enum(['stdio', 'streamable-http']);
+const McpStatusStateSchema = z.enum(['running', 'stopped', 'error']);
+const McpInvocationStatSchema = z.object({
   total: z.number().int().nonnegative(),
   success: z.number().int().nonnegative(),
   error: z.number().int().nonnegative(),
@@ -28,9 +28,6 @@ export const McpToolsResponseSchema = z.object({
   servers: z.array(McpServerToolsSchema),
 }).strict();
 
-export type McpTransport = z.infer<typeof McpTransportSchema>;
-export type McpStatusState = z.infer<typeof McpStatusStateSchema>;
-export type McpInvocationStat = z.infer<typeof McpInvocationStatSchema>;
 export type McpToolsResponse = z.infer<typeof McpToolsResponseSchema>;
 
 export const mcpOperatorApiContracts = {

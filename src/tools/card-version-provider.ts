@@ -7,7 +7,6 @@ import { redactForOutbound, redactTextForOutbound } from '../redaction/index.js'
 import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersionsInputSchema, readRecordVersionInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/read-models/card-outbound.js';
 import type { CardArtifact } from '../persistence/canonical-card-artifacts.js';
-import { cardParentId } from '../schemas/card-id.js';
 import { recordContentSha256 } from '../persistence/canonical-record-artifacts.js';
 import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
 import {

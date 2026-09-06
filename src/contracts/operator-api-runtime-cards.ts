@@ -32,19 +32,19 @@ import {
 
 
 export const CardNotFoundErrorSchema = z.object({ error: z.literal('Card not found'), cardId: cardIdSchema }).strict();
-export const CardRecordDefinitionNotFoundErrorSchema = z.object({ error: z.literal('Card record definition not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
-export const CardRecordNotFoundErrorSchema = z.object({ error: z.literal('Card record not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
+const CardRecordDefinitionNotFoundErrorSchema = z.object({ error: z.literal('Card record definition not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
+const CardRecordNotFoundErrorSchema = z.object({ error: z.literal('Card record not found'), cardId: cardIdSchema, name: recordNameSchema }).strict();
 export const CardHistoryEntryNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, HistoricalVersionNotFoundErrorSchema]);
 export const CardDiffNotFoundUnionSchema = z.union([CardNotFoundErrorSchema, HistoricalVersionNotFoundErrorSchema]);
 
-export const CardIdParamsSchema = z.object({ id: cardIdSchema }).strict();
-export const CardRecordNameParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema }).strict();
+const CardIdParamsSchema = z.object({ id: cardIdSchema }).strict();
+const CardRecordNameParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema }).strict();
 
 export const HealthLivenessResponseSchema = z.object({ status: z.literal('ok'), version: z.string(), project: z.string() }).strict();
-export const HealthReadinessResponseSchema = z.object({ status: z.literal('ready'), serverAvailability: ServerAvailabilitySchema }).strict();
+const HealthReadinessResponseSchema = z.object({ status: z.literal('ready'), serverAvailability: ServerAvailabilitySchema }).strict();
 
 
-export const RuntimeGetStateResponseSchema = z.object({
+const RuntimeGetStateResponseSchema = z.object({
   projectId: z.string().min(1),
   runtime: runtimeStateSchema.nullable(),
   serverAvailability: ServerAvailabilitySchema,
@@ -66,12 +66,12 @@ const refineHierarchyIdentity = (value: { id: string; type: string }, ctx: z.Ref
   if (value.id !== 'project' && value.type === 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['type'], message: 'Only the fixed project card may have type project.' });
 };
 const hierarchyShape = { id: cardIdSchema, title: z.string().min(1), type: cardTypeSchema, status: cardStatusSchema, permitted_child_types: z.array(cardTypeSchema) };
-export const CardHierarchyParentSchema = z.object(hierarchyShape).strict().superRefine(refineHierarchyIdentity);
-export const CardHierarchyChildSummarySchema = z.object(hierarchyShape).strict().superRefine(refineHierarchyIdentity);
+const CardHierarchyParentSchema = z.object(hierarchyShape).strict().superRefine(refineHierarchyIdentity);
+const CardHierarchyChildSummarySchema = z.object(hierarchyShape).strict().superRefine(refineHierarchyIdentity);
 export const CardChildrenResponseSchema = z.object({ parent: CardHierarchyParentSchema, children: z.array(CardHierarchyChildSummarySchema) }).strict().superRefine((value, ctx) => {
   if (new Set(value.children.map(({ id }) => id)).size !== value.children.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['children'], message: 'Direct child ids must be unique.' });
 });
-export const CardDetailLifecycleSchema = cardLifecycleStateSchema;
+const CardDetailLifecycleSchema = cardLifecycleStateSchema;
 export const CardDetailSchema = z.object({
   id: cardIdSchema,
   title: z.string().min(1),
@@ -85,27 +85,27 @@ export const CardDetailSchema = z.object({
 }).strict().superRefine(refineHierarchyIdentity);
 export const CardDetailResponseSchema = z.object({ card: CardDetailSchema }).strict();
 const CardRecordCurrentDescriptorSchema = z.object({ head_version: positiveSafeIntegerSchema, head_entry_id: z.string().uuid(), state: z.enum(['open', 'closed', 'discarded']), accepted_source_version: positiveSafeIntegerSchema.nullable(), draft_present: z.boolean() }).strict();
-export const CardRecordDescriptorSchema = z.object({ name: recordNameSchema, format: z.literal('markdown'), schema: z.string().min(1), bootstrap: z.boolean(), current: CardRecordCurrentDescriptorSchema.nullable() }).strict();
+const CardRecordDescriptorSchema = z.object({ name: recordNameSchema, format: z.literal('markdown'), schema: z.string().min(1), bootstrap: z.boolean(), current: CardRecordCurrentDescriptorSchema.nullable() }).strict();
 export const CardRecordListResponseSchema = z.object({ card_id: cardIdSchema, records: z.array(CardRecordDescriptorSchema) }).strict().superRefine((value, ctx) => {
   if (new Set(value.records.map(({ name }) => name)).size !== value.records.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['records'], message: 'Record names must be unique.' });
   if (value.records.filter(({ bootstrap }) => bootstrap).length !== 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['records'], message: 'Exactly one record must be bootstrap.' });
 });
 const RecordAcceptedWireSchema = z.object({ source_version: positiveSafeIntegerSchema, source_entry_id: z.string().uuid(), committed_at: z.string().datetime(), writer_agent: z.union([agentNameSchema, z.literal('runtime:bootstrap')]), card_version_seq: positiveSafeIntegerSchema, content: z.string(), content_sha256: z.string().regex(/^[0-9a-f]{64}$/), size_bytes: z.number().int().nonnegative() }).strict();
 const RecordDraftWireSchema = z.object({ opened_at: z.string().datetime(), updated_at: z.string().datetime(), content: z.string(), content_sha256: z.string().regex(/^[0-9a-f]{64}$/) }).strict();
-export const CardRecordContentSchema = z.object({ name: recordNameSchema, head_version: positiveSafeIntegerSchema, head_entry_id: z.string().uuid(), state: z.enum(['open', 'closed', 'discarded']), accepted: RecordAcceptedWireSchema.nullable(), draft: RecordDraftWireSchema.nullable(), discarded: z.object({ discarded_at: z.string().datetime(), reason: z.string() }).strict().nullable(), effective_content_source: z.enum(['draft', 'accepted']).nullable() }).strict();
+const CardRecordContentSchema = z.object({ name: recordNameSchema, head_version: positiveSafeIntegerSchema, head_entry_id: z.string().uuid(), state: z.enum(['open', 'closed', 'discarded']), accepted: RecordAcceptedWireSchema.nullable(), draft: RecordDraftWireSchema.nullable(), discarded: z.object({ discarded_at: z.string().datetime(), reason: z.string() }).strict().nullable(), effective_content_source: z.enum(['draft', 'accepted']).nullable() }).strict();
 export const CardRecordContentResponseSchema = z.object({ card_id: cardIdSchema, record: CardRecordContentSchema }).strict();
 export const canonicalPositiveSafeIntegerStringSchema = z.string().regex(/^[1-9][0-9]*$/).superRefine((raw, ctx) => {
   if (!positiveSafeIntegerSchema.safeParse(Number(raw)).success) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Expected a canonical positive safe integer.' });
 }).transform(Number);
 const RecordHistoryVersionSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), state: z.enum(['open', 'closed', 'discarded']), accepted_source_version: positiveSafeIntegerSchema.nullable(), draft_present: z.boolean(), discarded_at: z.string().datetime().nullable() }).strict();
-export const RecordHistoryListResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, versions: z.array(RecordHistoryVersionSchema), total: z.number().int().nonnegative() }).strict();
-export const RecordVersionContentResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, version: positiveSafeIntegerSchema, entry_id: z.string().uuid(), published_at: z.string().datetime(), artifact: z.object({ state: z.enum(['open', 'closed', 'discarded']), published_at: z.string().datetime(), accepted: RecordAcceptedWireSchema.nullable(), draft: RecordDraftWireSchema.nullable(), discarded: z.object({ discarded_at: z.string().datetime(), reason: z.string() }).strict().nullable() }).strict() }).strict();
-export const RecordDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema]).optional(), view: z.enum(['effective', 'accepted', 'draft']).optional() }).strict();
+const RecordHistoryListResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, versions: z.array(RecordHistoryVersionSchema), total: z.number().int().nonnegative() }).strict();
+const RecordVersionContentResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, version: positiveSafeIntegerSchema, entry_id: z.string().uuid(), published_at: z.string().datetime(), artifact: z.object({ state: z.enum(['open', 'closed', 'discarded']), published_at: z.string().datetime(), accepted: RecordAcceptedWireSchema.nullable(), draft: RecordDraftWireSchema.nullable(), discarded: z.object({ discarded_at: z.string().datetime(), reason: z.string() }).strict().nullable() }).strict() }).strict();
+const RecordDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema]).optional(), view: z.enum(['effective', 'accepted', 'draft']).optional() }).strict();
 const RecordDiffHunkSchema = z.object({ old_start: z.number().int().nonnegative(), old_lines: z.number().int().nonnegative(), new_start: z.number().int().nonnegative(), new_lines: z.number().int().nonnegative(), lines: z.array(z.string()) }).strict();
-export const RecordDiffResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, view: z.enum(['effective', 'accepted', 'draft']), hunks: z.array(RecordDiffHunkSchema) }).strict();
-export const RecordDiffViewUnavailableSchema = z.object({ error: z.literal('record_diff_view_unavailable'), card_id: cardIdSchema, name: recordNameSchema, side: z.enum(['from', 'to']), view: z.enum(['effective', 'accepted', 'draft']) }).strict();
-export const CardHistoryParamsSchema = z.object({ id: cardIdSchema }).strict();
-export const CardRecordVersionParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema, version: canonicalPositiveSafeIntegerStringSchema }).strict();
+const RecordDiffResponseSchema = z.object({ card_id: cardIdSchema, name: recordNameSchema, from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, view: z.enum(['effective', 'accepted', 'draft']), hunks: z.array(RecordDiffHunkSchema) }).strict();
+const RecordDiffViewUnavailableSchema = z.object({ error: z.literal('record_diff_view_unavailable'), card_id: cardIdSchema, name: recordNameSchema, side: z.enum(['from', 'to']), view: z.enum(['effective', 'accepted', 'draft']) }).strict();
+const CardHistoryParamsSchema = z.object({ id: cardIdSchema }).strict();
+const CardRecordVersionParamsSchema = z.object({ id: cardIdSchema, name: recordNameSchema, version: canonicalPositiveSafeIntegerStringSchema }).strict();
 export const CardHistoryEntryParamsSchema = z.object({ id: cardIdSchema, version: canonicalPositiveSafeIntegerStringSchema }).strict();
 const diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema]);
 export const CardDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() }).strict();
@@ -141,11 +141,11 @@ export const CardDiffRowSchema = z.object({
   after: cardDiffJsonValueSchema,
 }).strict();
 export const CardDiffResponseSchema = z.object({ diff: z.array(CardDiffRowSchema), from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema, card_id: cardIdSchema }).strict();
-export const InvalidCardDiffPivotsErrorSchema = z.object({ error: z.literal('Invalid diff pivots'), from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema }).strict();
-export const CardDiffBadRequestSchema = z.union([ValidationErrorSchema, InvalidCardDiffPivotsErrorSchema]);
+const InvalidCardDiffPivotsErrorSchema = z.object({ error: z.literal('Invalid diff pivots'), from: positiveSafeIntegerSchema, to: positiveSafeIntegerSchema }).strict();
+const CardDiffBadRequestSchema = z.union([ValidationErrorSchema, InvalidCardDiffPivotsErrorSchema]);
 
 
-export const RuntimeStatusResponseSchema = z.object({
+const RuntimeStatusResponseSchema = z.object({
   runtime: runtimeStatusSchema,
   currentCardId: cardIdSchema.nullable(),
   started_at: z.string().datetime(),
@@ -167,28 +167,18 @@ export const RuntimeStatusResponseSchema = z.object({
   serverAvailability: ServerAvailabilitySchema,
 }).strict();
 
-export const StopProjectResponseSchema = z.object({ status: z.literal('stopped'), contained: z.boolean() }).strict();
-export const RestartServerRequestSchema = z.object({ confirmation: z.literal('RESTART SERVER') }).strict();
-export const RestartServerResponseSchema = z.object({ status: z.literal('restart_scheduled') }).strict();
-export const RestartUnavailableErrorSchema = z.object({ code: z.literal('restart_unavailable'), message: z.literal('restart unavailable: operator authentication disabled') }).strict();
+const StopProjectResponseSchema = z.object({ status: z.literal('stopped'), contained: z.boolean() }).strict();
+const RestartServerRequestSchema = z.object({ confirmation: z.literal('RESTART SERVER') }).strict();
+const RestartServerResponseSchema = z.object({ status: z.literal('restart_scheduled') }).strict();
+const RestartUnavailableErrorSchema = z.object({ code: z.literal('restart_unavailable'), message: z.literal('restart unavailable: operator authentication disabled') }).strict();
 
-export type HealthLivenessResponse = z.infer<typeof HealthLivenessResponseSchema>;
-export type HealthReadinessResponse = z.infer<typeof HealthReadinessResponseSchema>;
-export type RuntimeGetStateResponse = z.infer<typeof RuntimeGetStateResponseSchema>;
 export type ContentPolicyRuntimeResponse = z.infer<typeof ContentPolicyRuntimeResponseSchema>;
 export type CardHierarchyParent = z.infer<typeof CardHierarchyParentSchema>;
 export type CardHierarchyChildSummary = z.infer<typeof CardHierarchyChildSummarySchema>;
 export type CardDetail = z.infer<typeof CardDetailSchema>;
-export type CardChildrenResponse = z.infer<typeof CardChildrenResponseSchema>;
-export type CardDetailResponse = z.infer<typeof CardDetailResponseSchema>;
 export type CardRecordDescriptor = z.infer<typeof CardRecordDescriptorSchema>;
-export type CardRecordListResponse = z.infer<typeof CardRecordListResponseSchema>;
-export type CardRecordContent = z.infer<typeof CardRecordContentSchema>;
-export type CardRecordContentResponse = z.infer<typeof CardRecordContentResponseSchema>;
 export type CardHistoryListResponse = z.infer<typeof CardHistoryListResponseSchema>;
-export type CardHistoryEntryResponse = z.infer<typeof CardHistoryEntryResponseSchema>;
 export type CardDiffRow = z.infer<typeof CardDiffRowSchema>;
-export type CardDiffResponse = z.infer<typeof CardDiffResponseSchema>;
 export type RuntimeStatusResponse = z.infer<typeof RuntimeStatusResponseSchema>;
 
 

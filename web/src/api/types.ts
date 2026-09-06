@@ -1,16 +1,10 @@
 import type {
-  AgentConversationEntry,
   AgentSessionSummary,
-  CardDetail,
   CardHierarchyParent,
   CardHierarchyChildSummary,
   CardDiffRow,
-  CardRecord,
-  ChatWorkspaceContext,
   McpToolsResponse as ContractMcpToolsResponse,
   OperatorApiSuccess,
-  ServerAvailability,
-  RestartChatAcknowledgement,
 } from './contracts';
 export type { CardDiffRow };
 
@@ -19,9 +13,7 @@ export type {
   ChatWorkspaceContext,
   CardStatus,
   CardType,
-  EntityLink,
   LiveSyncClientFrame,
-  LiveSyncCardInvalidateFrame,
   LiveSyncCardInvalidateTarget,
   LiveSyncCardRecordName,
   CardRecordDescriptor,

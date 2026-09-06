@@ -20,11 +20,11 @@ import {
 import { CardNotFoundErrorSchema } from './operator-api-runtime-cards.js';
 import { ConversationHistoricalVersionNotFoundSchema } from './historical-version-not-found.js';
 
-export const AgentSessionParamsSchema = z.object({ id: ConversationSessionIdSchema }).strict();
-export const AgentConversationParamsSchema = AgentSessionParamsSchema;
-export const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
-export const CardAgentSessionsParamsSchema = z.object({ id: cardIdSchema }).strict();
-export const AgentConversationQuerySchema = z
+const AgentSessionParamsSchema = z.object({ id: ConversationSessionIdSchema }).strict();
+const AgentConversationParamsSchema = AgentSessionParamsSchema;
+const AgentLlmExchangeParamsSchema = AgentSessionParamsSchema;
+const CardAgentSessionsParamsSchema = z.object({ id: cardIdSchema }).strict();
+const AgentConversationQuerySchema = z
   .union([z.object({ segment_version: z.undefined().optional(), since: z.undefined().optional() }).strict(), z.object({ segment_version: z.string().regex(/^[1-9][0-9]*$/).transform(Number).pipe(positiveSafeIntegerSchema), since: z.string().min(1) }).strict()]);
 const agentSessionBase = z
   .object({
@@ -93,7 +93,7 @@ export const CardAgentSessionsResponseSchema = z
           message: 'Session must belong to the requested card.',
         });
   });
-export const AgentSessionDetailSchema = AgentSessionSummarySchema;
+const AgentSessionDetailSchema = AgentSessionSummarySchema;
 export const AgentDetailResponseSchema = z
   .object({
     session: AgentSessionDetailSchema,
@@ -123,17 +123,17 @@ export const AgentLlmExchangeResponseSchema = z
     exchange: providerExchangePayloadSchema,
   })
   .strict();
-export const AgentSessionNotFoundErrorSchema = z.object({
+const AgentSessionNotFoundErrorSchema = z.object({
   error: z.literal('Agent session not found'),
 }).strict();
-export const AgentLlmExchangeNotFoundErrorSchema = z.object({
+const AgentLlmExchangeNotFoundErrorSchema = z.object({
   error: z.literal('No LLM exchange recorded for this session yet.'),
 }).strict();
-export const AgentConversationCursorNotFoundErrorSchema = z.object({
+const AgentConversationCursorNotFoundErrorSchema = z.object({
   error: z.literal('conversation_cursor_not_found'), session_id: ConversationSessionIdSchema, segment_version: positiveSafeIntegerSchema, since: z.string().min(1),
 }).strict();
-export const ConversationSegmentChangedErrorSchema = z.object({ error: z.literal('conversation_segment_changed'), session_id: ConversationSessionIdSchema, requested_segment_version: positiveSafeIntegerSchema, current_segment_version: positiveSafeIntegerSchema }).strict();
-export const ConversationVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), genesis_kind: z.enum(['ordinary','compacted']), source_version: positiveSafeIntegerSchema.nullable() }).strict();
+const ConversationSegmentChangedErrorSchema = z.object({ error: z.literal('conversation_segment_changed'), session_id: ConversationSessionIdSchema, requested_segment_version: positiveSafeIntegerSchema, current_segment_version: positiveSafeIntegerSchema }).strict();
+const ConversationVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), genesis_kind: z.enum(['ordinary','compacted']), source_version: positiveSafeIntegerSchema.nullable() }).strict();
 export const ConversationVersionListResponseSchema = z.object({ session_id: ConversationSessionIdSchema, versions: z.array(ConversationVersionMetadataSchema), total: z.number().int().safe().nonnegative() }).strict().superRefine((value, ctx) => {
   if (value.total !== value.versions.length) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['total'], message: 'Conversation version total must equal the catalog length.' });
   value.versions.forEach((entry, index) => {
@@ -141,27 +141,20 @@ export const ConversationVersionListResponseSchema = z.object({ session_id: Conv
     if ((entry.genesis_kind === 'ordinary') !== (entry.version === 1) || (entry.source_version === null) !== (entry.genesis_kind === 'ordinary') || (entry.source_version !== null && entry.source_version !== entry.version - 1)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['versions', index], message: 'Conversation version genesis metadata is inconsistent.' });
   });
 });
-export const ConversationVersionParamsSchema = z.object({ id: ConversationSessionIdSchema, version: z.string().regex(/^[1-9][0-9]*$/).transform(Number).pipe(positiveSafeIntegerSchema) }).strict();
+const ConversationVersionParamsSchema = z.object({ id: ConversationSessionIdSchema, version: z.string().regex(/^[1-9][0-9]*$/).transform(Number).pipe(positiveSafeIntegerSchema) }).strict();
 export const ConversationVersionContentResponseSchema = z.object({ session_id: ConversationSessionIdSchema, version: positiveSafeIntegerSchema, entry_id: z.string().uuid(), published_at: z.string().datetime(), segment_context: ConversationSegmentContextSchema, entries: z.array(AgentConversationEntrySchema) }).strict().superRefine((value, ctx) => {
   value.entries.forEach((entry, index) => { if (entry.session_id !== value.session_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['entries', index, 'session_id'], message: 'Conversation entry session must match the enclosing session.' }); });
   if ((value.version === 1) !== (value.segment_context === null)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['segment_context'], message: 'Conversation segment context must match the selected version.' });
 });
-export const ConversationHistoricalUnavailableSchema = z.object({ error: z.literal('historical_version_content_unavailable'), resource: z.literal('conversation'), owner_id: ConversationSessionIdSchema, version: positiveSafeIntegerSchema, reason: z.enum(['missing','corrupt','io_error']) }).strict();
+const ConversationHistoricalUnavailableSchema = z.object({ error: z.literal('historical_version_content_unavailable'), resource: z.literal('conversation'), owner_id: ConversationSessionIdSchema, version: positiveSafeIntegerSchema, reason: z.enum(['missing','corrupt','io_error']) }).strict();
 export const CurrentStateUnavailableSchema = z.object({ error: z.literal('current_state_unavailable'), resource: z.enum(['card', 'authored_record', 'conversation', 'provider_exchange_log']), owner_id: z.string().min(1), restart_required: z.literal(true) }).strict();
-export const AgentConversationBadRequestSchema = z.union([
+const AgentConversationBadRequestSchema = z.union([
   ValidationErrorSchema,
   AgentConversationCursorNotFoundErrorSchema,
 ]);
 
-export type AgentListResponse = z.infer<typeof AgentListResponseSchema>;
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
-export type AgentSessionDetail = z.infer<typeof AgentSessionDetailSchema>;
 export type AgentConversationEntry = z.infer<typeof AgentConversationEntrySchema>;
-export type CardAgentSessionsResponse = z.infer<typeof CardAgentSessionsResponseSchema>;
-export type AgentDetailResponse = z.infer<typeof AgentDetailResponseSchema>;
-export type AgentConversationResponse = z.infer<typeof AgentConversationResponseSchema>;
-export type AgentLlmExchangeResponse = z.infer<typeof AgentLlmExchangeResponseSchema>;
-
 export const agentOperatorApiContracts = {
   'agents.list': {
     operationId: 'agents.list',

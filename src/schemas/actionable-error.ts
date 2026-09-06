@@ -15,25 +15,3 @@ export const actionableErrorEnvelopeSchema = z.object({
   parentCardId: cardIdSchema.nullable().optional(),
   childCardId: cardIdSchema.nullable().optional(),
 }).strict();
-
-export type ActionableErrorEnvelope = z.infer<typeof actionableErrorEnvelopeSchema>;
-
-export function createActionableErrorEnvelope(input: ActionableErrorEnvelope): ActionableErrorEnvelope {
-  return actionableErrorEnvelopeSchema.parse(input);
-}
-
-export function actionableEnumError(
-  field: string,
-  value: unknown,
-  acceptedValues: readonly string[],
-  docsRef = 'docs/v3-planner-control-mcp-contract.md',
-): ActionableErrorEnvelope {
-  return createActionableErrorEnvelope({
-    code: 'invalid_enum_value',
-    message: `Invalid ${field} '${String(value)}'. Accepted values: ${acceptedValues.join(', ')}.`,
-    acceptedValues: [...acceptedValues],
-    currentState: { field, value },
-    nextAction: `Retry with one of: ${acceptedValues.join(', ')}.`,
-    docsRef,
-  });
-}
