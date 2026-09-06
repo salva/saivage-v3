@@ -226,18 +226,13 @@ ssh root@<ip> 'pkill -f "saivage.js start"; sleep 3; pgrep -fa "saivage.js" || e
 
 ### Network-Outage Failed Cards
 
-Transient host network loss produces repeating `TypeError: fetch failed`
-provider exchanges (no HTTP status) roughly every 70s. When retries exhaust,
-the active card goes terminal `failed` with `runtime-failure: "fetch failed"`
-and the runtime halts. Recovery: verify outbound connectivity
-(`curl -sS -o /dev/null -w '%{http_code}' https://chatgpt.com/...` expecting
-401), then ask the analyst to reopen and restart:
-
-1. Chat: `start_project` — if it answers `Project card in status 'failed'
-   cannot start`, also ask the analyst to `reopen_card` for the project card
-   (only valid while the runtime is stopped/settled), then `start_project`.
-2. Child cards that failed with `fetch failed` are usually re-planned
-   autonomously; reopen them explicitly only if the planner leaves them behind.
+Transient host network loss can exhaust provider retries and leave the root card
+failed with the runtime halted. First verify outbound connectivity. If the
+diagnosed incident is eligible for ordinary reopen followed by a new Run, follow
+the canonical [trusted failed-root reopening and restart](../../../docs/runbook/index.md#trusted-failed-root-reopening-and-restart)
+procedure. Its prerequisites derive the configured root-process sessions plus
+the configured global Analyst session; do not substitute default role names or
+an LXC-local call sequence.
 
 ## SSH Repair Fallback
 

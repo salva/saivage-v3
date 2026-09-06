@@ -63,7 +63,7 @@ const EXPECTED_MANIFEST = [
   ['availability-contract', ['vocabularies'], 'docs/spec/system-specification.md', '### Exact availability vocabulary', ['vocabulary.availability-state', 'vocabulary.availability-component-source']],
   ['app-log-contract', ['vocabularies'], 'docs/spec/system-specification.md', '### Exact app-log vocabularies', ['vocabulary.app-log-type', 'vocabulary.logged-event-kind']],
   ['context-limits', ['constants'], 'docs/spec/system-specification.md', '### Exact context and compaction limits', ['constant.analyst-orientation-max-bytes', 'constant.analyst-title-preview-max-bytes', 'constant.tool-result-envelope-max-bytes', 'constant.summarizer-completion-tokens']],
-  ['tool-identities', ['tools'], 'docs/spec/system-specification.md', '### Exact shipped tool identities', ['tools.shipped-role-inventories', 'tools.projector-presenter-equality', 'tools.exclusive-identities']],
+  ['tool-identities', ['tools'], 'docs/architecture/system-architecture.md', '### Exact shipped tool identities', ['tools.shipped-role-inventories', 'tools.projector-presenter-equality', 'tools.exclusive-identities']],
   ['operator-error-contracts', ['errors'], 'docs/spec/system-specification.md', '### Exact shared operator error contracts', ['error.analyst-turn-busy', 'error.unauthorized', 'error.unexpected-internal']],
   ['backend-card-history-diff', ['errors', 'pivots'], 'docs/spec/system-specification.md', '### Exact backend card history and diff contract', ['error.cards-history-404', 'error.cards-diff-404', 'pivot.cards-diff-from', 'pivot.cards-diff-to']],
   ['sync-debounce', ['constants'], 'docs/architecture/system-architecture.md', '### Exact SyncHub debounce policy', ['constant.sync-hub-debounce-ms']],
@@ -445,9 +445,9 @@ describe('documentation value contracts', () => {
     });
   });
 
-  it('applies exactly the fifteen focused before/after cutovers and preserves the reviewed clauses', () => {
-    expect(CUTOVERS).toHaveLength(15);
-    expect(new Set(CUTOVERS.map((cutover) => cutover.id)).size).toBe(15);
+  it('applies exactly the fourteen focused before/after cutovers and preserves the reviewed clauses', () => {
+    expect(CUTOVERS).toHaveLength(14);
+    expect(new Set(CUTOVERS.map((cutover) => cutover.id)).size).toBe(14);
     for (const cutover of CUTOVERS) {
       expect(cutover.before).toHaveLength(cutover.after.length);
       let local = cutover.before.join('\nfixture-separator\n');
@@ -463,9 +463,7 @@ describe('documentation value contracts', () => {
     const system = readFileSync(join(process.cwd(), 'docs/spec/system-specification.md'), 'utf8');
     const architecture = readFileSync(join(process.cwd(), 'docs/architecture/system-architecture.md'), 'utf8');
     const runbook = readFileSync(join(process.cwd(), 'docs/runbook/index.md'), 'utf8');
-    const readme = readFileSync(join(process.cwd(), 'README.md'), 'utf8');
     expect(system).toContain('one parent append adding the child to both `child_membership` and `active_child_order`');
-    expect(readme).toContain('one parent version appends the child to both monotonic `child_membership` and complete `active_child_order`');
     expect(architecture).toContain('`src/contracts/historical-version-not-found.ts` is the singular schema authority');
     expect(architecture).not.toContain("Card history entry not found");
     expect(runbook).toContain('For explicit event inspection, use the authenticated `/api/events` query or the Analyst `read_runtime_events` tool.');

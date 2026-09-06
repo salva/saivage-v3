@@ -15,7 +15,8 @@ rather than duplicating project policy.
 - `docs/spec/system-specification.md` for functional behavior.
 - `docs/spec/operator-ui.md` for operator UI behavior.
 - `docs/architecture/system-architecture.md` for system architecture.
-- `README.md` for validation profiles and documentation authority status.
+- `docs/runbook/index.md` for deployment, startup, lifecycle, recovery, reset, and operator procedures.
+- `README.md` for introduction, quick start, authority navigation, and validation profiles.
 
 Superseded and stale design documents are provenance available only through Git history, not implementation authority.
 

@@ -51,7 +51,14 @@ const retiredDiscriminators = /card-version-index|authored-record-version-index/
 const recordOwnerModules = new Set(['src/persistence/card-files.ts', 'src/persistence/authored-record-files.ts', 'src/persistence/canonical-card-artifacts.ts', 'src/persistence/canonical-record-artifacts.ts']);
 const pathConstructionFiles = new Set(['src/persistence/layout.ts', 'src/schemas/record-name.ts', 'src/persistence/card-files.ts', 'src/persistence/authored-record-files.ts']);
 
-const canonicalDocs = new Set(['README.md', 'README-IF-YOU-ARE-AN-AI.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md', 'docs/architecture/index.md', 'docs/runbook/index.md']);
+const cardRecordDocPaths = new Set(['README.md', 'README-IF-YOU-ARE-AN-AI.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md', 'docs/architecture/index.md', 'docs/runbook/index.md']);
+function isAllDocPath(path) {
+  return path === 'README.md'
+    || path === 'README-IF-YOU-ARE-AN-AI.md'
+    || path.startsWith('docs/spec/')
+    || path.startsWith('docs/architecture/')
+    || path.startsWith('docs/runbook/');
+}
 
 // Each rule names one obsolete assertion. A positive match is a violation unless one of the
 // rule's negated expressions overlaps that exact match span; the negation must therefore be
@@ -178,7 +185,7 @@ function uncoveredPositiveSpans(rule, line) {
 
 for (const path of paths) {
   if (!existsSync(path) || path.startsWith('docs/working/') || path === 'scripts/check-canonical-persistence-drift.js') continue;
-  if (!path.startsWith('src/') && !path.startsWith('docs/spec/') && !path.startsWith('docs/architecture/') && !path.startsWith('docs/runbook/') && path !== 'README.md' && path !== 'README-IF-YOU-ARE-AN-AI.md') continue;
+  if (!path.startsWith('src/') && !isAllDocPath(path)) continue;
   const content = readFileSync(path, 'utf8');
   if (path.startsWith('src/')) {
     for (const pattern of sourceForbidden) if (pattern.test(content)) violation(`${path}: forbidden obsolete persistence or model-tool contract`);
@@ -194,7 +201,7 @@ for (const path of paths) {
     }
     continue;
   }
-  const scopedRules = canonicalDocs.has(path) ? cardRecordDocRules : [];
+  const scopedRules = cardRecordDocPaths.has(path) ? cardRecordDocRules : [];
   for (const [offset, line] of content.split('\n').entries()) {
     for (const rule of [...scopedRules, ...allDocRules]) {
       for (const [start, end] of uncoveredPositiveSpans(rule, line)) violation(`${path}:${offset + 1}:${start + 1}-${end}: ${rule.label}`);
@@ -208,7 +215,6 @@ const recordName = existsSync('src/schemas/record-name.ts') ? readFileSync('src/
 if (!/function recordStreamFilename/u.test(recordName) || !recordName.includes('`record-${') || !recordName.includes('.jsonl`')) violation('src/schemas/record-name.ts: missing record-<stem>.jsonl stream filename helper');
 
 const requiredDocPhrases = [
-  ['README.md', ['card.jsonl', 'record-<stem>.jsonl']],
   ['docs/spec/system-specification.md', ['card.jsonl', 'record-<stem>.jsonl']],
   ['docs/architecture/system-architecture.md', ['card.jsonl', 'record-<stem>.jsonl']],
   ['docs/runbook/index.md', ['card.jsonl', 'record-<stem>.jsonl']],
@@ -221,7 +227,23 @@ for (const [doc, phrases] of requiredDocPhrases) {
 }
 
 const guide = existsSync('README-IF-YOU-ARE-AN-AI.md') ? readFileSync('README-IF-YOU-ARE-AN-AI.md', 'utf8') : '';
-for (const required of ['## Stage 4 — Initialize and configure', '## Stage 5 — Confine access, install, and start', '## Stage 6 — Verify and teach first use', '## Stage 7 — Hand off and present later options', 'card.jsonl', 'record-<stem>.jsonl', 'missing optional record stream', 'present empty canonical stream fails', 'tombstone terminates startup traversal', 'reset-only', 'whole-current-graph validation', 'card.json', 'record:///<name>?card=<id>', 'numeric `&v=N`', 'Never teach mutation URLs, head tokens', 'no live lifecycle owner', 'four generated roots wholesale']) {
+for (const required of [
+  '## Stage 4 — Initialize and configure',
+  '## Stage 5 — Confine access, install, and start',
+  '## Stage 6 — Verify and teach first use',
+  '## Stage 7 — Hand off and present later options',
+  'docs/spec/system-specification.md#9-direct-file-persistence',
+  'docs/runbook/index.md#storage-and-interruption',
+  'no live lifecycle owner',
+  'four generated roots wholesale',
+  'permanently destroys generated cards, records, conversations, and history',
+  'before the first listener',
+  'Requires=nftables.service',
+  'After that actual restart, prove all of the following again:',
+  'stop and disable',
+  'Authorization header',
+  'never in a URL',
+]) {
   if (!guide.includes(required)) violation(`README-IF-YOU-ARE-AN-AI.md: missing required Stage 4-7 assertion '${required}'`);
 }
 

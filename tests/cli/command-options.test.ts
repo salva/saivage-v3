@@ -99,8 +99,9 @@ describe('command-specific CLI parsing', () => {
 
   it.each([[[]], [['help']], [['--help']], [['-h']]])('accepts the help form %j without effects', async (command: string[]) => {
     const root = emptyProject();
-    jest.spyOn(console, 'log').mockImplementation(() => {});
+    const log = jest.spyOn(console, 'log').mockImplementation(() => {});
     await run(['node', 'saivage', ...command]);
+    expect(log.mock.calls.map(([line]) => line).join('\n')).toContain('--config <path>');
     expect(existsSync(join(root, '.saivage'))).toBe(false);
   });
 });

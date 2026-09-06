@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  activeOperatorDocPaths,
   discoverOperatorContractRouteSources,
   discoverOperatorContractSourceFiles,
   extractImplementedRoutes,
@@ -25,6 +26,15 @@ function withFixture(files, testFn) {
 }
 
 describe('verify-doc-routes operator contract discovery', () => {
+  it('scans exactly the four canonical operator authorities by default', () => {
+    expect(activeOperatorDocPaths(process.cwd())).toEqual([
+      'docs/spec/system-specification.md',
+      'docs/spec/operator-ui.md',
+      'docs/architecture/system-architecture.md',
+      'docs/runbook/index.md',
+    ]);
+  });
+
   it('discovers current operator contract route slices without a manually maintained route list', () => {
     const projectRoot = process.cwd();
     const routeSources = discoverOperatorContractRouteSources(projectRoot);

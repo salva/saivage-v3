@@ -1,5 +1,10 @@
 # Set Up Saivage as an AI Agent
 
+This is a subordinate setup procedure, not product, architecture, UI, persistence,
+or operational authority. Follow the current owners in the
+[documentation map](README.md#current-documentation) whenever this procedure
+links to them.
+
 Saivage turns a software goal into a visible tree of cards. Planners decompose
 work, executors perform terminal cards, reviewers assess results, and the
 runtime alone dispatches them. The Analyst is the ordinary operator and
@@ -37,7 +42,8 @@ alternative, not mandatory ceremony. In either case, never repeat secrets in
 reports, expose them in command arguments, tracing, or output, write them to a
 repository, place them in a host URL, or install them in broader host
 configuration. Provider configuration should refer to a container-local secret
-source rather than contain repository values.
+source rather than contain repository values. Send an enabled Saivage bearer
+token only in the Authorization header, never in a URL.
 
 ## Stage 1 — Explain and inspect
 
@@ -135,62 +141,19 @@ readability, and the successful runtime-user write/remove probe.
 **Objective.** Initialize current durable identity/state, then configure a real
 provider without destroying existing configuration or secrets.
 
-**Rationale.** Initialization and provider setup are separate. The generated
-default supplies all nine workflows, named model-route/profile scaffolding,
-enabled compaction, and a summarizer candidate, but `providers` is empty and no
-credential is supplied. Offline structural compilation does not contact a
-provider.
+**Rationale.** Initialization and provider setup are separate. The
+[functional persistence and initialization contract](docs/spec/system-specification.md#9-direct-file-persistence)
+and the runbook's [storage and interruption procedure](docs/runbook/index.md#storage-and-interruption)
+own the durable behavior; this stage only applies them.
 
 **Constraints and actions.** From `<TARGET_GUEST_PATH>`, run the current built
-`saivage init` as the runtime user. Explain its current initialization contract:
-
-1. read project identity before acquisition to select a bound or
-   bootstrap-unbound lock record;
-2. exclusively publish the init lifecycle lock;
-3. publish `.saivage/saivage.yaml` only when it is missing;
-4. load and validate the effective configuration and selected workflows;
-5. read identity again and, only when absent, create it and bind the held lock;
-6. classify generated state: all four generated roots absent permits current-format
-   first publication; required current-format project/card/bootstrap authorities
-   enter initialization; partial required publication and every old or mixed format
-   fail reset-required without compatibility probing;
-7. publish the root card's nonempty `card.jsonl` first envelope, the bootstrap
-   record's closed first row in its `record-<stem>.jsonl` stream, and the global
-   Analyst conversation through the singular bootstrap helper; then require one
-   nonempty canonical linked-card projection, validate active dependencies and
-   compiled parent/type admission read-only, and only afterward initialize exact
-   missing conversation indexes and strictly read current authority. A reached
-   tombstone terminates startup traversal before workflow, record, or
-   conversation initialization.
-
-The first identity read is non-mutating. A known-unsuccessful exclusive lock open
-publishes no new lock; failure after that open is outcome-unknown, halts, and may
-retain the lock. After successful acquisition, ordinary failure releases the
-exact current lock, whether bootstrap-unbound or bound, but does not roll back
-completed config, identity, or generated durable effects. If identity creation
-completes and lock binding fails, the identity remains. Publication uncertainty
-is fatal, may retain its target and lock, and authorizes no inspection, retry,
-repair, or rollback.
-
-Existing current state is derived only from the project, committed child links,
-configured record names, and configured active/global/retained-tombstone session
-identities—never directory enumeration. Cards and authored records persist to
-exact append-only streams (`card.jsonl` and one `record-<stem>.jsonl` per
-record), while conversations keep their unchanged index/immutable-segment
-model. Initialization creates no record stream: a missing optional record stream
-classifies empty, and a present empty canonical stream fails. Missing,
-malformed, unreadable, schema-invalid, or identity-mismatched complete
-card/record stream state fails directly without truncation or repair.
-Startup's conversation owner may truncate only bytes after the final newline
-after the retained nonempty complete prefix fully validates against its index,
-genesis, session, and semantics. Complete malformed data remains unchanged.
-App-log initialization admits only exact missing `app.jsonl`; a present
-zero-byte or malformed log fails. Noncanonical files remain ignored forever.
-
-`saivage reset` is a separate explicit destructive decision, run with the
-service confirmed stopped. It replaces the four generated roots wholesale;
-there is no `init --force` and no selective repair. Durable-format changes are
-reset-only: rollback is another wholesale reset that loses generated history.
+`saivage init` as the runtime user. Preserve existing configuration, identity,
+credentials, and generated state. Report whether configuration and identity were
+pre-existing or newly published, and report the selected lifecycle-lock kind.
+If initialization reports old, mixed, malformed, or partially published state,
+stop: do not inspect generated descendants, retry an uncertain publication,
+repair individual files, or improvise a reset. Follow the linked runbook owner
+only after the separate Stage 7 authorization gate.
 
 Preserve the complete generated topology. Ask now about authorized provider and
 cost constraints, choose a strong current tool-capable model by default, and
@@ -206,7 +169,7 @@ authorized, without exposing them. Keep `SAIVAGE_API_TOKEN` absent for this
 host-only baseline.
 
 **Outcome.** Report the pre-acquisition identity observation and selected lock
-record kind separately from the post-validation reread. Distinguish pre-existing
+record kind separately from the post-validation result. Distinguish pre-existing
 from newly published config, identity, and generated state. Report structurally
 valid routes/compaction and required credential names—not values—and confirm no
 secret entered repository or host-wide configuration.
@@ -223,13 +186,12 @@ loader must succeed before the enabled listener can start after reboot.
 **Constraints and actions.** This baseline applies only after inspection proves
 a clean Ubuntu guest with no operator or custom nftables policy and positively
 identifies the source address by which the deployment host reaches the guest.
-Before the first `systemctl enable --now`, require either all generated roots
-absent or an already current-format installation. Stop and reset an old, mixed,
-or partially published installation under Stage 7 first. `saivage start`
-completes strict required-card/bootstrap admission as its
-whole-current-graph validation boundary before constructing actors or opening
-the listener. Startup failure authorizes
-neither selective file edits nor a compatibility start.
+Before the first `systemctl enable --now`, require either a successfully
+initialized project or an already admitted current-format installation. The
+[startup contract](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
+and runbook [startup inputs](docs/runbook/index.md#startup-command-inputs) own
+admission and input precedence. A startup failure authorizes neither selective
+generated-state edits nor a compatibility start; use the Stage 7 decision gate.
 Never guess that address. If firewall state is existing or custom, stop this
 baseline and use the deliberate network-design option in Stage 7; do not merge,
 replace, or normalize it.
@@ -347,30 +309,24 @@ After that actual restart, prove all of the following again:
 - `saivage.service` is active with its required unit satisfied;
 - guest-loopback and deployment-host health/readiness/UI/API probes succeed;
 - any naturally available non-host probe is still rejected.
-- root current card/bootstrap content is available; a missing optional record
-  stream appears as absent current rather than missing authority; deterministic
-  configured sessions appear as known empty or populated catalogs; and no
-  current-state restart-required error exists.
+- root current card and configured records are available through supported
+  operator views; configured sessions are readable; and no current-state
+  restart-required error exists.
 
 If the restart cannot be performed, or any mandatory rule, dependency, or
 positive reachability check fails, use classic `lxc-attach` to stop and disable
 `saivage.service`. Report setup incomplete; never leave or describe an enabled
 tokenless service as durable.
 
-Require one real provider-backed Analyst interaction. Explain Dashboard runtime
-state, the root card and children, current-segment Analyst conversation, immutable
-segment/card/record history, semantic `card.json` Files views, and reusable current
-record URLs in the exact `record:///<name>?card=<id>` form. Explain that writing an
-absent current target creates it, repeated writes and edits keep using that URL,
-framework acceptance closes agent drafts, and only numeric `&v=N` URLs address
-immutable history. Physical card/record persistence is one exact append-only
-`card.jsonl` stream per card and one `record-<stem>.jsonl` stream per record,
-never separately stored versions. Never teach mutation URLs, head tokens, or
-`v=next`. The Analyst is
-the ordinary mutation surface. Inspect existing project
-authority and ask only the unresolved goal, constraint, and acceptance
-questions. Have the Analyst align the root brief to that accepted authority and
-obtain user approval before autonomous work begins.
+Require one real provider-backed Analyst interaction. Use the
+[operator UI specification](docs/spec/operator-ui.md) to explain the visible
+Dashboard, Cards, Agents, Files, and Debug surfaces, and the
+[functional specification](docs/spec/system-specification.md) for record and
+conversation behavior; do not restate those contracts here. The Analyst is the
+ordinary mutation surface. Inspect existing project authority and ask only the
+unresolved goal, constraint, and acceptance questions. Have the Analyst align
+the root brief to that accepted authority and obtain user approval before
+autonomous work begins.
 
 **Outcome.** Host-only tokenless reachability and successful firewall dependency
 are established before and after the guest restart; inspected semantics and
@@ -394,17 +350,16 @@ server process; classic LXC controls the guest. In tokenless mode, confirmed
 application-level `restart_server` is unavailable, so restart the server through
 `saivage.service`.
 
-For an incompatible-format reset, first stop the service and positively establish
-that no live lifecycle owner remains. Run the current built `saivage reset` to
-replace the complete four generated roots wholesale while preserving configuration,
-credentials, operator inputs, source, and documentation; then start only the
-current binary and repeat Stage 6 verification. Reset permanently destroys
-generated cards, records, conversations, and history. Rollback is another
-wholesale reset-only reset with the chosen binary that loses generated history.
-There is no migration, selective repair, stream reconstruction, orphan adoption,
-or mixed-version rollback. For retained malformed generated state, use the same
-stopped wholesale reset; there is no restart-time correction of card/record
-streams.
+For an incompatible-format reset, follow the runbook's
+[storage and interruption](docs/runbook/index.md#storage-and-interruption)
+procedure. First stop the service and positively establish that no live lifecycle owner
+remains. Obtain explicit destructive authorization, then run the
+current built `saivage reset` to replace the complete four generated roots wholesale
+while preserving configuration, credentials, operator inputs, source,
+and documentation; start only the current binary and repeat Stage 6
+verification. Reset permanently destroys generated cards, records, conversations, and history.
+There is no migration, selective repair, stream
+reconstruction, orphan adoption, or mixed-version rollback.
 
 Only now offer compact, deliberate alternatives: bearer authentication and
 remote access; custom firewall, bridge, proxy, or TLS design; guest SSH using

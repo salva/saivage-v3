@@ -13,7 +13,7 @@ const AGENT_TOOL_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`
 const CONFIG_ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*`([^`]*)`\s*\|\s*`([^`]+:\d+)`\s*\|\s*$/;
 
 const DEFAULT_REMOVED_ROUTES = new Set(['POST /api/runtime/dispatch']);
-const DEFAULT_OPERATOR_DOCS = new Set(['README.md', 'docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md']);
+const DEFAULT_OPERATOR_DOCS = new Set(['docs/spec/system-specification.md', 'docs/spec/operator-ui.md', 'docs/architecture/system-architecture.md', 'docs/runbook/index.md']);
 const STATIC_SOURCE_FILES = ['src/server/server.ts', 'src/server/composition/fastify-app.ts', 'src/server/composition/route-composition.ts', 'src/server/routes', 'src/server/routes/operator-contracts.ts', 'src/server/contract-runtime.ts', 'src/schemas/saivage-config.ts'];
 const OPERATION_DOC = 'docs/architecture/system-architecture.md';
 const AGENTS_DOC = 'docs/architecture/system-architecture.md';
@@ -1253,7 +1253,7 @@ export const VALUE_CONTRACT_MANIFEST = Object.freeze([
   { key: 'availability-contract', family: ['vocabularies'], file: 'docs/spec/system-specification.md', heading: '### Exact availability vocabulary', claims: ['vocabulary.availability-state', 'vocabulary.availability-component-source'] },
   { key: 'app-log-contract', family: ['vocabularies'], file: 'docs/spec/system-specification.md', heading: '### Exact app-log vocabularies', claims: ['vocabulary.app-log-type', 'vocabulary.logged-event-kind'] },
   { key: 'context-limits', family: ['constants'], file: 'docs/spec/system-specification.md', heading: '### Exact context and compaction limits', claims: ['constant.analyst-orientation-max-bytes', 'constant.analyst-title-preview-max-bytes', 'constant.tool-result-envelope-max-bytes', 'constant.summarizer-completion-tokens'] },
-  { key: 'tool-identities', family: ['tools'], file: 'docs/spec/system-specification.md', heading: '### Exact shipped tool identities', claims: ['tools.shipped-role-inventories', 'tools.projector-presenter-equality', 'tools.exclusive-identities'] },
+  { key: 'tool-identities', family: ['tools'], file: 'docs/architecture/system-architecture.md', heading: '### Exact shipped tool identities', claims: ['tools.shipped-role-inventories', 'tools.projector-presenter-equality', 'tools.exclusive-identities'] },
   { key: 'operator-error-contracts', family: ['errors'], file: 'docs/spec/system-specification.md', heading: '### Exact shared operator error contracts', claims: ['error.analyst-turn-busy', 'error.unauthorized', 'error.unexpected-internal'] },
   { key: 'backend-card-history-diff', family: ['errors', 'pivots'], file: 'docs/spec/system-specification.md', heading: '### Exact backend card history and diff contract', claims: ['error.cards-history-404', 'error.cards-diff-404', 'pivot.cards-diff-from', 'pivot.cards-diff-to'] },
   { key: 'sync-debounce', family: ['constants'], file: 'docs/architecture/system-architecture.md', heading: '### Exact SyncHub debounce policy', claims: ['constant.sync-hub-debounce-ms'] },
