@@ -16,7 +16,7 @@ function workflowResult(terminal: 'DONE' | 'BLOCKED' | 'FAILED', outcome: string
 
 export function rawCard(id: string, overrides: Partial<RawCardRecord> = {}): RawCardRecord {
   return cardRecordSchema.parse({
-    id, type: id === 'project' ? 'project' : 'code', children: [], title: id === 'project' ? 'Project' : 'Card',
+    id, type: id === 'project' ? 'project' : 'code', child_membership: [], active_child_order: [], title: id === 'project' ? 'Project' : 'Card',
     lifecycle: lifecycleFor('backlog'), subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst',
     created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', version_seq: 1,
     assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,

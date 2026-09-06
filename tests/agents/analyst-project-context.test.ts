@@ -46,6 +46,10 @@ describe('Analyst project context', () => {
     initProjectTree(projectRoot);
     const persisted = new CardService(projectRoot);
     const child = persisted.create({ type: 'goal', parent: 'project', title: 'Child', bootstrap_content: 'brief', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const retained = persisted.create({ type: 'goal', parent: 'project', title: 'Retained tombstone', bootstrap_content: 'brief', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const second = persisted.create({ type: 'goal', parent: 'project', title: 'Second', bootstrap_content: 'brief', tags: [], priority: 1, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    persisted.deleteSubtrees([retained.id], () => true, 'analyst');
+    persisted.reorderChildren('project', [second.id, child.id]);
     const listed = persisted.list();
     const list = jest.fn(() => listed);
     const getParent = jest.fn(() => { throw new Error('parent lookup must not run'); });
@@ -67,7 +71,7 @@ describe('Analyst project context', () => {
     expect(Buffer.byteLength(tree.content, 'utf8')).toBeLessThanOrEqual(ANALYST_ORIENTATION_MAX_BYTES);
     const snapshot = JSON.parse(tree.content) as { root: { id: string; children?: Array<{ id: string }> }; active_path: string[] };
     expect(snapshot.root.id).toBe('project');
-    expect(snapshot.root.children?.map((node) => node.id)).toEqual([child.id]);
+    expect(snapshot.root.children?.map((node) => node.id)).toEqual([second.id, child.id]);
     expect(snapshot.active_path).toEqual([]);
   });
 

@@ -200,6 +200,10 @@ Durable-format cutovers are reset-only. This includes the three-lane app log, na
 
 This ordinary reset-only rollout is not the exceptional manual reconstruction authorization in `AGENTS.md`. Do not inspect backup or generated descendants, reconstruct, selectively repair, merge, restore, migrate, or treat backup existence as reset authorization; the backup is a prerequisite and preserved record, not a workspace or authority.
 
+The current named card cutover is card stream format v3: envelope version 1, artifact row format 2, and required `child_membership` plus `active_child_order` in place of durable `children`. Artifact row format 1, the old one-array record, and mixed streams fail strict reads. Every affected deployment must use the stopped whole-generated-state procedure above; do not migrate, inspect, selectively restore, or start an old binary against v3 state. Rollback likewise requires another authorized stopped whole reset with the matching binary and loses generated history.
+
+The earlier `card stream v2` and complete parent-owned `children` phrases in the cumulative cutover inventory are historical cutover labels only, not descriptions of accepted current state. They authorize no artifact-row-format-1 or durable-`children` read path.
+
 Ordinary same-format deployment is not reset authority. Stop the old service, deploy and strictly start the new binary against retained current-format generated state, and verify strict reads. Release format knowledge determines that the deployment is same-format; startup never probes or normalizes old state to infer compatibility. If retained state is unsupported, mixed, or malformed, stop and report the blocker rather than resetting, migrating, repairing, or choosing another interpretation.
 ## Publication-outcome-unknown exit
 

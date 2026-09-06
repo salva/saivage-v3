@@ -67,6 +67,22 @@ function retitle(cards: CardService, title: string): CardRecord {
 }
 
 describe('CanonicalCardFilesReadModel virtual card documents', () => {
+  it('serves strict row-format-2 current and historical artifacts with both relationship arrays', () => {
+    const cards = fixture();
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const model = new CanonicalCardFilesReadModel(() => readerFor(cards));
+
+    const current = model.content(`${NAMESPACE}/card.json`);
+    const historical = model.content(`${NAMESPACE}/card.json?v=1`);
+    if ('statusCode' in current || 'statusCode' in historical) throw new Error('Expected card documents.');
+    const currentDocument = JSON.parse(current.body.content) as { format_version: number; card: Record<string, unknown> };
+    const historicalDocument = JSON.parse(historical.body.content) as { format_version: number; card: Record<string, unknown> };
+    expect(currentDocument).toMatchObject({ format_version: 2, card: { child_membership: [child.id], active_child_order: [child.id] } });
+    expect(historicalDocument).toMatchObject({ format_version: 2, card: { child_membership: [], active_child_order: [] } });
+    expect(currentDocument.card).not.toHaveProperty('children');
+    expect(historicalDocument.card).not.toHaveProperty('children');
+  });
+
   it('serves the small selected document of a cumulative stream over 1 MiB with exact bytes and committed_at', () => {
     const cards = fixture();
     retitle(cards, `huge-${'x'.repeat(1_100_000)}`);

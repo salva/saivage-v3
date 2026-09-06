@@ -25,7 +25,7 @@ export const smokeOperatorCard = {
   version_seq: 3,
 };
 const card = smokeOperatorCard;
-const rawCard = { id:smokeCardId,type:'code',children:[],title:card.title,lifecycle:card.lifecycle,subtype:null,tags:['smoke'],priority:90,urgency:'normal',created_by:'analyst',created_at:now,updated_at:now,version_seq:3,assigned_to:null,depends_on:[],related:[],metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:'synthetic result',status_text_updated_at:now,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[] };
+const rawCard = { id:smokeCardId,type:'code',child_membership:[],active_child_order:[],title:card.title,lifecycle:card.lifecycle,subtype:null,tags:['smoke'],priority:90,urgency:'normal',created_by:'analyst',created_at:now,updated_at:now,version_seq:3,assigned_to:null,depends_on:[],related:[],metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:'synthetic result',status_text_updated_at:now,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[] };
 const priorCard = {
   ...rawCard,
   lifecycle: { status: 'running' as const, result: null, error: null, completed_at: null },

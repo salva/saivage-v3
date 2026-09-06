@@ -79,6 +79,31 @@ describe('CardService scoped mutation-to-frame effects', () => {
     expect(flush()).toEqual(versionFrames(parent.id, 'project'));
   });
 
+  it('orders link and real-reorder effects strictly after their successful append', () => {
+    const events: string[] = [];
+    const freshness = {
+      cardProjectionChanged(effect: { scope: string }) { events.push(`effect:${effect.scope}`); },
+      runtimeChanged() { events.push('effect:runtime'); },
+      agentMembershipChanged() { events.push('effect:membership'); },
+    };
+    const io = {
+      open(path: string, flags: number, mode?: number) { events.push('publication:open'); return mode === undefined ? openSync(path, flags) : openSync(path, flags, mode); },
+      stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync,
+    } as unknown as GrowingFileIo;
+    const service = new CardService(root, freshness, io);
+
+    const first = service.create(input());
+    expect(events[0]).toBe('publication:open');
+    expect(events.slice(1)).toEqual(['effect:detail', 'effect:history', 'effect:diff', 'effect:children', 'effect:runtime', 'effect:membership']);
+
+    events.length = 0;
+    const second = service.create(input());
+    events.length = 0;
+    service.reorderChildren('project', [second.id, first.id]);
+    expect(events[0]).toBe('publication:open');
+    expect(events.slice(1)).toEqual(['effect:detail', 'effect:history', 'effect:diff', 'effect:children']);
+  });
+
   it('publishes exact detail, history, diff, own-children, and containing-parent scopes for a child patch', () => {
     const child = cards.create(input());
     flush(); clear();
@@ -124,8 +149,10 @@ describe('CardService scoped mutation-to-frame effects', () => {
 
   it('emits no hint for no-op and outcome-unknown append failure', () => {
     const child = cards.create(input());
+    const sibling = cards.create(input());
     flush(); clear();
     cards.editCard(child.id, {});
+    expect(cards.reorderChildren('project', [child.id, sibling.id])).toEqual({ ok: true, changed: 0 });
     expect(flush()).toEqual([]);
 
     const failure = new Error('injected append failure');
@@ -137,7 +164,22 @@ describe('CardService scoped mutation-to-frame effects', () => {
       close: closeSync,
     };
     const failingCards = new CardService(root, hub, failingIo);
-    expect(() => failingCards.editCard(child.id, { title: 'version publication failed' })).toThrow(PublicationOutcomeUnknownError);
+    expect(() => failingCards.reorderChildren('project', [sibling.id, child.id])).toThrow(PublicationOutcomeUnknownError);
+    expect(flush()).toEqual([]);
+  });
+
+  it('emits no link or membership effects when the parent append is outcome-unknown', () => {
+    const failure = new Error('injected link append failure');
+    const failingIo: GrowingFileIo = {
+      open: openSync,
+      stat: fstatSync,
+      write: writeSync,
+      fsync(fd) { fsyncSync(fd); throw failure; },
+      close: closeSync,
+    };
+    const failingCards = new CardService(root, hub, failingIo);
+
+    expect(() => failingCards.create(input())).toThrow(PublicationOutcomeUnknownError);
     expect(flush()).toEqual([]);
   });
 

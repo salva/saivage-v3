@@ -13,7 +13,7 @@ export class CardIndex {
 
   childrenOf(parentId: string): string[] {
     const parent = this._cards.get(parentId);
-    return parent ? parent.children.filter((id) => this._cards.has(id)) : [];
+    return parent ? parent.active_child_order.filter((id) => this._cards.has(id)) : [];
   }
 
   descendantsOf(parentId: string): string[] {

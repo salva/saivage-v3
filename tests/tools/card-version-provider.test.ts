@@ -49,6 +49,34 @@ function childInput(title: string, tags: string[] = []) {
 }
 
 describe('card version provider', () => {
+  it("returns the selected row's complete carrier from the historical children section", async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-children-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const first = cards.create(childInput('first'));
+    const second = cards.create(childInput('second'));
+    const parentVersion = cards.read('project')!.version_seq;
+    cards.reorderChildren('project', [second.id, first.id]);
+    cards.deleteSubtrees([first.id], () => true, 'planner');
+    writeFileSync(cardStreamFile(root, first.id), 'child liveness must not be read\n');
+    writeFileSync(cardStreamFile(root, second.id), 'child liveness must not be read\n');
+    const surface = surfaceFor(cards);
+
+    const execution = await invokeTool(surface, 'get_card_version', {
+      card_id: 'project', version: parentVersion, section: 'children', response_bytes: 2048,
+    });
+    const settled = settleExecution(surface, 'get_card_version', execution);
+    const result = settled.providerResult as { data: { entry_id: string; artifact_sha256: string; content: { items: string[] } } };
+    expect(result.data.content.items).toEqual([first.id, second.id]);
+    expect(settled.evidence).toEqual({
+      kind: 'canonical_locator',
+      locator: `card:///project?v=${parentVersion}#entry=${result.data.entry_id}`,
+      sha256: result.data.artifact_sha256,
+    });
+
+    const summary = settleExecution(surface, 'get_card_version', await invokeTool(surface, 'get_card_version', { card_id: 'project', version: parentVersion, section: 'summary' }));
+    expect(summary.evidence).toEqual(settled.evidence);
+  });
+
   it('rejects an immutable summary that cannot fit the 512-byte final envelope', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-summary-reject-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);

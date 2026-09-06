@@ -24,7 +24,7 @@ export const discoveryReadPositionSchema = z.discriminatedUnion('kind', [
 export const cardSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'notifications', 'children', 'records'])
   .describe('Exactly one current-card section per call.');
 export const cardVersionSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'notifications', 'children'])
-  .describe('Exactly one card-artifact-owned section per call.');
+  .describe("Exactly one card-artifact-owned section per call. The children section is the selected immutable row's complete active_child_order carrier and may include retained tombstoned links.");
 
 const cardTypeEnum = (cardTypeVocabulary: readonly CardTypeName[]) => z.enum(cardTypeVocabulary as [CardTypeName, ...CardTypeName[]]);
 

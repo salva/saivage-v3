@@ -80,7 +80,7 @@ function proveCommittedCardFoldFromBase(realProjectRoot: string, targetId: strin
   if (current.tombstone) throw new Error('The project card cannot be tombstoned.');
   for (const [position, segment] of segments.entries()) {
     const nextId = childCardId(currentId, segment);
-    if (!current.current.card.children.includes(nextId)) return null;
+    if (!current.current.card.child_membership.includes(nextId)) return null;
     proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, currentId));
     proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, nextId));
     if (position === segments.length - 1) return readExactCard(realProjectRoot, nextId, instrumentation);
@@ -95,7 +95,7 @@ function proveActiveCardPathFromBase(realProjectRoot: string, targetId: string, 
   const segments = cardIdSegments(targetId); let currentId = 'project'; let current = readExactCard(realProjectRoot, currentId, instrumentation);
   if (current.tombstone) throw new Error('The project card cannot be tombstoned.');
   for (const segment of segments) {
-    const nextId = childCardId(currentId, segment); if (!current.current.card.children.includes(nextId)) return null;
+    const nextId = childCardId(currentId, segment); if (!current.current.card.child_membership.includes(nextId)) return null;
     proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, currentId)); proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, nextId));
     current = readExactCard(realProjectRoot, nextId, instrumentation); if (current.tombstone) return null; currentId = nextId;
   }
@@ -123,16 +123,20 @@ export interface CanonicalCardFilesMetadataProjection { readonly card: Canonical
 
 function canonicalProjection(fold: CardStreamFold): CanonicalCardProjection { return { card: fold.current.card, artifact: fold.head }; }
 function readCanonicalChildrenOfReached(realProjectRoot: string, parentId: string, parent: CardStreamFold, instrumentation?: CanonicalReadInstrumentation): CardStreamFold[] {
-  const active: CardStreamFold[] = [];
-  for (const id of parent.current.card.children) {
+  const byId = new Map<string, CardStreamFold>();
+  for (const id of parent.current.card.child_membership) {
     const segment = cardIdSegments(id).at(-1)!;
     if (childCardId(parentId, segment) !== id) throw new Error(`Card '${parentId}' has invalid direct child '${id}'.`);
     proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, parentId));
     proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, id));
     const child = readExactCard(realProjectRoot, id, instrumentation);
-    if (!child.tombstone) active.push(child);
+    byId.set(id, child);
   }
-  return active;
+  return parent.current.card.active_child_order.flatMap((id) => {
+    const child = byId.get(id);
+    if (!child) throw new Error(`Card '${parentId}' has unresolved active child order member '${id}'.`);
+    return child.tombstone ? [] : [child];
+  });
 }
 
 export function readCanonicalCard(projectRoot: string, cardId: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CanonicalCardProjection> { const target = proveActiveCardPath(projectRoot, cardId, instrumentation); return target ? { kind: 'found', value: canonicalProjection(target) } : { kind: 'card-not-found' }; }
@@ -171,7 +175,7 @@ export function readCanonicalLinkedCardHistoryTree(projectRoot: string, instrume
   const visit = (cardId: string, current: CardStreamFold): void => {
     reached.push(Object.freeze({ current: current.current.card, tombstone: current.tombstone, rows: current.rows }));
     if (current.tombstone) return;
-    for (const childId of current.current.card.children) { proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, cardId)); proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, childId)); visit(childId, readExactCard(realProjectRoot, childId, instrumentation)); }
+    for (const childId of current.current.card.child_membership) { proveCanonicalDirectory(realProjectRoot, cardChildrenRoot(realProjectRoot, cardId)); proveCanonicalDirectory(realProjectRoot, cardNamespace(realProjectRoot, childId)); visit(childId, readExactCard(realProjectRoot, childId, instrumentation)); }
   };
   visit('project', readExactCard(realProjectRoot, 'project', instrumentation)); return Object.freeze(reached);
 }
@@ -218,14 +222,14 @@ function claimChildNamespace(projectRoot: string, parentId: string): string { co
 export function publishInitialChildCard(projectRoot: string, input: NewChildCardInput, workflow: CompiledCardTypeWorkflow, temporary?: PublicationTemporaryIdFactory): CardRecord {
   if (workflow.cardType !== input.type) throw new Error(`Compiled workflow '${workflow.cardType}' does not match child type '${input.type}'.`);
   const id = claimChildNamespace(projectRoot, input.parent); if (cardParentId(id) !== input.parent) throw new Error(`Claimed card '${id}' does not belong to requested parent '${input.parent}'.`);
-  const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id, type: input.type, children: [], title: input.title, subtype: null, tags: input.tags, priority: input.priority, urgency: input.urgency, created_by: input.created_by, created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: input.depends_on, related: input.related, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
+  const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id, type: input.type, child_membership: [], active_child_order: [], title: input.title, subtype: null, tags: input.tags, priority: input.priority, urgency: input.urgency, created_by: input.created_by, created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: input.depends_on, related: input.related, lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
   const definitions = [...workflow.records.values()].map((record): RecordDefinition => ({ filename: record.name, format: record.format, schema: record.schema, bootstrap: record.bootstrap,declared:true }));
   mkdirSync(cardConversationsRoot(projectRoot, id)); initializeCardConversations(projectRoot, card, workflow, temporary); publishInitialStreams(projectRoot, card, input.bootstrap_content, definitions, temporary); return card;
 }
 
 export function publishInitialProjectCard(projectRoot: string, input: InitialProjectCardInput, workflow: CompiledCardTypeWorkflow, temporary?: PublicationTemporaryIdFactory): void {
   if (workflow.cardType !== 'project') throw new Error('Initial project publication requires the compiled project workflow.'); if (input.bootstrap_content.trim().length === 0) throw new Error('Project bootstrap_content must contain non-whitespace Markdown.');
-  const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id: 'project', type: 'project', children: [], title: input.title, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'runtime:bootstrap', created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
+  const stamp = new Date().toISOString(); const card = cardRecordSchema.parse({ id: 'project', type: 'project', child_membership: [], active_child_order: [], title: input.title, subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'runtime:bootstrap', created_at: stamp, updated_at: stamp, version_seq: 1, assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] });
   const definitions = [...workflow.records.values()].map((record): RecordDefinition => ({ filename: record.name, format: record.format, schema: record.schema, bootstrap: record.bootstrap,declared:true }));
   mkdirSync(cardNamespace(projectRoot, 'project')); mkdirSync(cardConversationsRoot(projectRoot, 'project')); mkdirSync(saivageAgentsRoot(projectRoot)); mkdirSync(globalAgentConversationsRoot(projectRoot)); initializeCardConversations(projectRoot, card, workflow, temporary); publishInitialStreams(projectRoot, card, input.bootstrap_content, definitions, temporary);
 }
@@ -233,14 +237,14 @@ export function publishInitialProjectCard(projectRoot: string, input: InitialPro
 export function publishCardVersion(projectRoot: string, card: CardRecord, change: CardVersionChange | null, io?: GrowingFileIo, temporary?: PublicationTemporaryIdFactory): CardVersionArtifact {
   const path = cardStreamFile(projectRoot, card.id);
   if (change === null) {
-    const artifact = cardVersionArtifactSchema.parse({ format_version: 1, kind: 'card-version', entry_id: randomUUID(), card_id: card.id, version: 1, committed_at: card.created_at, card, change: null });
+    const artifact = cardVersionArtifactSchema.parse({ format_version: 2, kind: 'card-version', entry_id: randomUUID(), card_id: card.id, version: 1, committed_at: card.created_at, card, change: null });
     validateInitialCard(artifact.card, path);
     publishFirstEnvelope(path, serializeGrowingEnvelope([artifact], cardArtifactSchema), temporary);
     return artifact;
   }
   const fold = validateCardStream(readStrictCanonicalGrowingFile(path, cardArtifactSchema), path, card.id);
   if (fold.tombstone) throw new Error(`Card '${card.id}' is terminal.`);
-  const artifact = cardVersionArtifactSchema.parse({ format_version: 1, kind: 'card-version', entry_id: change.entry_id, card_id: card.id, version: fold.head.version + 1, committed_at: change.changed_at, card, change });
+  const artifact = cardVersionArtifactSchema.parse({ format_version: 2, kind: 'card-version', entry_id: change.entry_id, card_id: card.id, version: fold.head.version + 1, committed_at: change.changed_at, card, change });
   validateCardTransition(fold.current.card, artifact.card, artifact.change!, path);
   appendCardRow(path, artifact, io); return artifact;
 }
@@ -249,6 +253,6 @@ export function publishCardTombstone(projectRoot: string, cardId: string, finalC
   if (cardId === 'project') throw new Error('Cannot tombstone the project card.'); const fold = readCardArtifacts(projectRoot, cardId);
   if (fold.tombstone) throw new Error(`Card '${cardId}' is terminal.`);
   if (JSON.stringify(fold.current.card) !== JSON.stringify(finalCard)) throw new Error(`Card '${cardId}' tombstone final card must equal current.`);
-  const artifact = cardTombstoneArtifactSchema.parse({ format_version: 1, kind: 'card-tombstone', entry_id: change.entry_id, card_id: cardId, version: fold.head.version + 1, committed_at: change.changed_at, prior_card_version: finalCard.version_seq, final_card: finalCard, change });
+  const artifact = cardTombstoneArtifactSchema.parse({ format_version: 2, kind: 'card-tombstone', entry_id: change.entry_id, card_id: cardId, version: fold.head.version + 1, committed_at: change.changed_at, prior_card_version: finalCard.version_seq, final_card: finalCard, change });
   appendCardRow(cardStreamFile(projectRoot, cardId), artifact, io); return artifact;
 }

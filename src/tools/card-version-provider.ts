@@ -30,7 +30,7 @@ export interface CardVersionProviderContext {
 
 export const cardVersionToolBinders: readonly ToolBinder<CardVersionProviderContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'list_card_versions', description: 'List the committed card version catalog as a byte-bounded paged collection.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => listCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => listCardVersions(ctx, args)) }),
-  defineToolBinder({ name: 'get_card_version', description: 'Read exactly one committed immutable card version section.', resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => getCardVersion(ctx, args)) }),
+  defineToolBinder({ name: 'get_card_version', description: "Read exactly one committed immutable card version section. The 'children' section is that row's complete active_child_order carrier and may include retained tombstoned links.", resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => getCardVersion(ctx, args)) }),
   defineToolBinder({ name: 'diff_card_versions', description: 'Compare two exact committed card versions through a byte-sliced canonical JSON diff.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => diffCardVersionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => diffCardVersions(ctx, args)) }),
   defineToolBinder({ name: 'read_record_version', description: 'Read exactly one immutable authored-record version row by exact version.', resultPolicyTemplate: CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, inputSchema: () => readRecordVersionInputSchema, executor: (ctx, args) => executeCanonicalLocatorToolAction(() => readRecordVersion(ctx, args)) }),
 ]);
@@ -105,7 +105,7 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
   else if (params.section === 'dependencies') items = [...projected.depends_on];
   else if (params.section === 'related') items = [...projected.related];
   else if (params.section === 'notifications') items = projectCardNotificationItems(projected);
-  else items = [...projected.children];
+  else items = [...projected.active_child_order];
   const { data } = packCollectionData({
     cap: params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES,
     total: items.length,

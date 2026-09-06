@@ -15,7 +15,8 @@ function card(id: string, title: string, children: string[] = [], status: 'backl
   return {
     id,
     type: id === 'project' ? 'project' : id === goalId ? 'goal' : 'code',
-    children,
+    child_membership: children,
+    active_child_order: children,
     title,
     subtype: null,
     lifecycle: { status, result: status === 'blocked' ? { kind: 'workflow-result', terminal: 'BLOCKED', agent_name: 'executor', node_id: 'execute', outcome: 'blocked', summary: 'blocked', records: [] } : null, error: status === 'blocked' ? 'blocked' : null, completed_at: null },

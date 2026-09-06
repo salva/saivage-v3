@@ -427,14 +427,16 @@ export class AnalystSession {
   }
 
   private orientationCards(): readonly AnalystOrientationCard[] {
-    return this.#cardStore.list().map((card) => ({
+    const cards = this.#cardStore.list();
+    const activeIds = new Set(cards.map((card) => card.id));
+    return cards.map((card) => ({
       id: card.id,
       parent: cardParentId(card.id),
       type: card.type,
       status: card.lifecycle.status,
       title: card.title,
       version_seq: card.version_seq,
-      children: card.children,
+      children: card.active_child_order.filter((id) => activeIds.has(id)),
     }));
   }
 

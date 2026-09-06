@@ -26,7 +26,21 @@ describe('exact Card operator resources',()=>{
     expect(response.body).toEqual({parent:{id:'project',title:expect.any(String),type:'project',status:'backlog',permitted_child_types:['goal','architecture','code','test','doc','data','research','ops']},children:[{id:parent.id,title:'Parent',type:'goal',status:'backlog',permitted_child_types:['goal','architecture','code','test','doc','data','research','ops']}]});
     expect(Object.keys((response.body as {children:object[]}).children[0]!)).toEqual(['id','title','type','status','permitted_child_types']);
     expect(read.value).toContain(cardStreamFile(root,'project')); expect(read.value).toContain(cardStreamFile(root,parent.id)); expect(read.value).toContain(cardStreamFile(root,removed.id));
+    expect(read.value.filter((path)=>path===cardStreamFile(root,'project'))).toHaveLength(1);
+    expect(read.value.filter((path)=>path===cardStreamFile(root,parent.id))).toHaveLength(1);
+    expect(read.value.filter((path)=>path===cardStreamFile(root,removed.id))).toHaveLength(1);
     expect(read.value).not.toContain(cardStreamFile(root,grandchild.id));expect(read.value).not.toContain(cardStreamFile(root,removedDescendant.id));
+  });
+
+  it('proves an exact nested card through membership with one ancestor-chain read and no sibling reads',()=>{
+    const root=mkdtempSync(join(tmpdir(),'saivage-card-exact-path-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);
+    const parent=cards.create(input('project','Parent'));const sibling=cards.create(input('project','Sibling'));const target=cards.create(input(parent.id,'Target','code'));const other=cards.create(input(parent.id,'Other','code'));
+    const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});const read=paths();
+
+    expect(model.getCard(target.id,read.instrumentation).body).toMatchObject({card:{id:target.id}});
+    expect(read.value).toEqual([cardStreamFile(root,'project'),cardStreamFile(root,parent.id),cardStreamFile(root,target.id)]);
+    expect(read.value).not.toContain(cardStreamFile(root,sibling.id));
+    expect(read.value).not.toContain(cardStreamFile(root,other.id));
   });
 
   it('projects empty compiled child policy and fails fast when a card workflow is missing',()=>{

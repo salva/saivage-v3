@@ -14,7 +14,7 @@ const FIRST = 'card-a';
 const SECOND = 'card-a-b';
 
 function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): CardRecord {
-  const common = { id, type, children: [], title: id, subtype: null, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
+  const common = { id, type, child_membership: [], active_child_order: [], title: id, subtype: null, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
   switch (status) {
     case 'done': return { ...common, lifecycle: { status, result: workflowResult('DONE', 'done'), error: null, completed_at: '2026-07-20T00:00:00.000Z' } };
     case 'failed': return { ...common, lifecycle: { status, result: runtimeFailure('failed'), error: 'failed', completed_at: '2026-07-20T00:00:00.000Z' } };
@@ -145,6 +145,32 @@ describe('analyst child reorder propagation', () => {
     expect(test.getAncestors).not.toHaveBeenCalled();
     expect(test.setStatus).not.toHaveBeenCalled();
     expect(test.notifyCard).not.toHaveBeenCalled();
+  });
+
+  it('leaves a settled parent closed on retained-tombstone identity and reopens/notifies it once on a real reorder', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-analyst-reorder-propagation-'));
+    try {
+      initProjectTree(root);
+      const cards = new CardService(root);
+      const first = cards.create({ type: 'code', parent: 'project', title: 'first', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const tombstone = cards.create({ type: 'code', parent: 'project', title: 'retained', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      const second = cards.create({ type: 'code', parent: 'project', title: 'second', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      cards.deleteSubtrees([tombstone.id], () => true, 'analyst');
+      cards.setStatus('project', 'running');
+      cards.commitActivationOutcome('project', { status: 'done', summary: 'done', result: workflowResult('DONE', 'done') }, '2026-08-15T00:00:00.000Z');
+      const notifyCard = jest.fn<(cardId: string) => { ok: true; notificationId: string }>(() => ({ ok: true, notificationId: 'notification' }));
+      const mutations = testAnalystMutationServices(root, cards, notifyCard).cards;
+      const versionBeforeIdentity = cards.read('project')!.version_seq;
+
+      expect(mutations.reorder('project', [first.id, second.id])).toEqual({ kind: 'returned', success: true, data: { parent_id: 'project', changed: 0 } });
+      expect(cards.read('project')).toMatchObject({ version_seq: versionBeforeIdentity, lifecycle: { status: 'done' } });
+      expect(notifyCard).not.toHaveBeenCalled();
+
+      expect(mutations.reorder('project', [second.id, first.id])).toEqual({ kind: 'returned', success: true, data: { parent_id: 'project', changed: 2 } });
+      expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'changed' }, active_child_order: [second.id, first.id, tombstone.id] });
+      expect(notifyCard).toHaveBeenCalledTimes(1);
+      expect(notifyCard).toHaveBeenCalledWith('project', expect.objectContaining({ source: 'card_changed', content: 'Card changed: analyst reordered children of project' }));
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
 

@@ -30,6 +30,13 @@ function childInput(cardId: string, title: string) {
 }
 
 describe('card exact stream', () => {
+  it('publishes only row format 2 and rejects row format 1', () => {
+    const { root } = fixture();
+    const current = streamRows(root, 'project')[0]!;
+    expect(current.format_version).toBe(2);
+    expect(cardArtifactSchema.safeParse({ ...current, format_version: 1 }).success).toBe(false);
+  });
+
   it.each(['blocked', 'failed'] as const)('retains strict changed-status then metadata-update history for a real %s correction', (status) => {
     const { root, cards } = fixture();
     const child = cards.create(childInput('project', 'before'));
@@ -102,7 +109,7 @@ describe('card exact stream', () => {
     const rows = streamRows(root, child.id);
     expect(rows.map(({ kind }) => kind)).toEqual(['card-version', 'card-tombstone']);
     expect(cards.read(child.id)).toBeNull();
-    expect(cards.read('project')?.children).toContain(child.id);
+    expect(cards.read('project')?.child_membership).toContain(child.id);
     expect(cards.readCardVersion(child.id, 1)).toMatchObject({ kind: 'found', value: { kind: 'card-version' } });
     expect(cards.readCardVersion(child.id, 2)).toMatchObject({ kind: 'found', value: { kind: 'card-tombstone', prior_card_version: 1 } });
     expect(() => cards.editCard(child.id, { title: 'x' }, 'planner')).toThrow();

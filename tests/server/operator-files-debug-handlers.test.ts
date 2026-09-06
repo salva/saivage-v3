@@ -308,7 +308,9 @@ describe('operator files and debug contract handlers', () => {
     for (const [response,version] of [[current,2],[historical,1]] as const) {
       expect(response.statusCode).toBe(200); const body=response.json(); const document=JSON.parse(body.content);
       expect(body).toMatchObject({contentType:'application/json',redacted:true,sensitivity:'sensitive-redacted',version});
-      expect(document).toMatchObject({format_version:1,kind:'card-version',card_id:'project',version});
+      expect(document).toMatchObject({format_version:2,kind:'card-version',card_id:'project',version});
+      expect(document.card).toMatchObject({ child_membership: expect.any(Array), active_child_order: expect.any(Array) });
+      expect(document.card).not.toHaveProperty('children');
       expect(body.content.endsWith('\n')).toBe(true); expect(body.content).not.toContain('filename');
     }
   });

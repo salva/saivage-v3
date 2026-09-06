@@ -261,10 +261,10 @@ export class CardService {
     const card = publishInitialChildCard(this.projectRoot, input,childWorkflow);
     if (cardParentId(card.id) !== parentBeforeClaim.id || cardDepth(card.id) !== depth) throw new Error(`Claimed card '${card.id}' does not belong to requested parent '${parentBeforeClaim.id}'.`);
     const freshParent = this.read(parent.id);
-    if (!freshParent || freshParent.children.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
+    if (!freshParent || freshParent.child_membership.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
     assertChildParentAdmission(freshParent,input.type, 'Cannot link a child under', this.workflows);
-    const linked = cardRecordSchema.parse({ ...freshParent, children: [...freshParent.children, card.id], version_seq: freshParent.version_seq + 1, updated_at: new Date().toISOString() });
-    const linkChange = versionChange(freshParent, linked, 'child_link', ['children'], `linked child ${card.id}`, 'child linked');
+    const linked = cardRecordSchema.parse({ ...freshParent, child_membership: [...freshParent.child_membership, card.id], active_child_order: [...freshParent.active_child_order, card.id], version_seq: freshParent.version_seq + 1, updated_at: new Date().toISOString() });
+    const linkChange = versionChange(freshParent, linked, 'child_link', ['child_membership', 'active_child_order'], `linked child ${card.id}`, 'child linked');
     publishCardVersion(this.projectRoot, linked, linkChange, this.cardAppendIo);
     this.publishCardVersionEffects(linkChange, cardParentId(freshParent.id), true);
     this.freshness.agentMembershipChanged({ scope: 'card', cardId: card.id });
@@ -348,16 +348,16 @@ export class CardService {
     if (actual.length !== orderedChildIds.length || requestedSet.size !== orderedChildIds.length || actual.some((id) => !requestedSet.has(id))) {
       return { ok: false, reason: 'ordered child ids do not match current children', missing: actual.filter((id) => !requestedSet.has(id)), extra: orderedChildIds.filter((id) => !actualSet.has(id)) };
     }
-    const retained = parent.children.filter((id) => !actualSet.has(id));
+    const retained = parent.active_child_order.filter((id) => !actualSet.has(id));
     const fullOrder = [...orderedChildIds, ...retained];
-    const changed = fullOrder.reduce((count, id, index) => count + (parent.children[index] === id ? 0 : 1), 0);
+    const changed = orderedChildIds.reduce((count, id, index) => count + (actual[index] === id ? 0 : 1), 0);
     if (changed === 0) return { ok: true, changed: 0 };
     this.publishExactChildReorder(parent, fullOrder);
     return { ok: true, changed };
   }
 
   private publishExactChildReorder(parent: CardRecord, fullOrder: string[]): CardRecord {
-    return this.publishVersion(parent, { ...parent, children: fullOrder, version_seq: parent.version_seq + 1, updated_at: new Date().toISOString() }, 'reorder', ['children'], 'children reordered', 'children reordered');
+    return this.publishVersion(parent, { ...parent, active_child_order: fullOrder, version_seq: parent.version_seq + 1, updated_at: new Date().toISOString() }, 'reorder', ['active_child_order'], 'children reordered', 'children reordered');
   }
 
   deleteSubtrees(requestedIds: readonly string[], allowed: (card: CardRecord) => boolean,agentName:AgentName): { deleted: string[]; requested: string[] } {

@@ -66,7 +66,7 @@ function rows(root: string, cardId: string): CardArtifact[] {
 describe('card field ordering policy', () => {
   it('exports the exact complete card-record order', () => {
     expect(CARD_RECORD_FIELDS).toEqual([
-      'id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at',
+      'id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at',
       'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate',
       'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id',
       'latest_self_report', 'metadata', 'pending_notifications',
@@ -85,6 +85,22 @@ describe('card field ordering policy', () => {
     cards.enqueueNotification(cancelled.id, { id: 'cancel-note', content: 'note', created_at: '2026-09-02T00:00:00.000Z' });
     cards.setStatus(cancelled.id, 'cancelled');
     expect(rows(root, cancelled.id).at(-1)!.change?.changed_fields).toEqual(['lifecycle', 'pending_notifications']);
+  });
+
+  it('derives exact relationship deltas from the centralized field inventory', () => {
+    const { root, cards } = fixture();
+    const first = cards.create(childInput('project', 'first'));
+    const second = cards.create(childInput('project', 'second'));
+    expect(rows(root, 'project').at(-1)!.change?.changed_fields).toEqual(['child_membership', 'active_child_order']);
+    cards.reorderChildren('project', [second.id, first.id]);
+    expect(rows(root, 'project').at(-1)!.change?.changed_fields).toEqual(['active_child_order']);
+
+    const linkedDiff = cards.diffCardVersions('project', { fromVersion: 1, toVersion: 3 });
+    expect(linkedDiff.kind).toBe('found');
+    if (linkedDiff.kind === 'found') expect(linkedDiff.diff.map(({ field }) => field)).toEqual(['child_membership', 'active_child_order', 'updated_at', 'version_seq']);
+    const reorderDiff = cards.diffCardVersions('project', { fromVersion: 3, toVersion: 4 });
+    expect(reorderDiff.kind).toBe('found');
+    if (reorderDiff.kind === 'found') expect(reorderDiff.diff.map(({ field }) => field)).toEqual(['active_child_order', 'updated_at', 'version_seq']);
   });
 
   it('retains synthetic deleted and lifecycle-special version-diff order', () => {
@@ -157,8 +173,20 @@ describe('reorder publication boundary', () => {
     return cardVersionChangeSchema.parse({
       entry_id: randomUUID(), kind: 'reorder', card_id: parent.id, resulting_version: parent.version_seq + 1,
       changed_at: '2026-09-03T00:00:00.000Z', changed_by_actor: 'runtime', changed_by_surface: 'runtime',
-      changed_fields: ['children'], change_summary: 'children reordered', change_reason: 'children reordered', terminal_summary: null,
+      changed_fields: ['active_child_order'], change_summary: 'children reordered', change_reason: 'children reordered', terminal_summary: null,
     });
+  }
+
+  function linkChange(parent: CardRecord, linked: string) {
+    return cardVersionChangeSchema.parse({
+      entry_id: randomUUID(), kind: 'child_link', card_id: parent.id, resulting_version: parent.version_seq + 1,
+      changed_at: '2026-09-03T00:00:00.000Z', changed_by_actor: 'runtime', changed_by_surface: 'runtime',
+      changed_fields: ['child_membership', 'active_child_order'], change_summary: `linked child ${linked}`, change_reason: 'child linked', terminal_summary: null,
+    });
+  }
+
+  function expectNoAppendIo(calls: ReturnType<typeof appendIo>['calls']): void {
+    for (const call of Object.values(calls)) expect(call).not.toHaveBeenCalled();
   }
 
   it('rejects a schema-valid membership-changing reorder before append I/O', () => {
@@ -166,11 +194,40 @@ describe('reorder publication boundary', () => {
     const first = cards.create(childInput('project', 'first'));
     cards.create(childInput('project', 'second'));
     const parent = cards.read('project')!;
-    const candidate = cardRecordSchema.parse({ ...parent, children: [first.id, 'card-c'], version_seq: parent.version_seq + 1, updated_at: '2026-09-03T00:00:00.000Z' });
+    const candidate = cardRecordSchema.parse({ ...parent, child_membership: [first.id, 'card-c'], active_child_order: [first.id, 'card-c'], version_seq: parent.version_seq + 1, updated_at: '2026-09-03T00:00:00.000Z' });
     const { calls, io } = appendIo();
 
     expect(() => publishCardVersion(root, candidate, reorderChange(parent), io)).toThrow('has an invalid child reorder');
-    for (const call of Object.values(calls)) expect(call).not.toHaveBeenCalled();
+    expectNoAppendIo(calls);
+  });
+
+  it('rejects non-runtime reorder provenance before append I/O', () => {
+    const { root, cards } = fixture();
+    const first = cards.create(childInput('project', 'first'));
+    const second = cards.create(childInput('project', 'second'));
+    const parent = cards.read('project')!;
+    const candidate = cardRecordSchema.parse({ ...parent, active_child_order: [second.id, first.id], version_seq: parent.version_seq + 1, updated_at: '2026-09-03T00:00:00.000Z' });
+    const change = { ...reorderChange(parent), changed_by_actor: 'planner' as const };
+    const { calls, io } = appendIo();
+
+    expect(() => publishCardVersion(root, candidate, change, io)).toThrow(/change actor/i);
+    expectNoAppendIo(calls);
+  });
+
+  it.each([
+    { label: 'identity', order: (ids: string[]) => ids },
+    { label: 'duplicate', order: (ids: string[]) => [ids[0]!, ids[0]!] },
+    { label: 'incomplete', order: (ids: string[]) => [ids[0]!] },
+  ])('rejects a $label reorder candidate before append I/O', ({ order }) => {
+    const { root, cards } = fixture();
+    const first = cards.create(childInput('project', 'first'));
+    const second = cards.create(childInput('project', 'second'));
+    const parent = cards.read('project')!;
+    const candidate = { ...parent, active_child_order: order([first.id, second.id]), version_seq: parent.version_seq + 1, updated_at: '2026-09-03T00:00:00.000Z' } as CardRecord;
+    const { calls, io } = appendIo();
+
+    expect(() => publishCardVersion(root, candidate, reorderChange(parent), io)).toThrow();
+    expectNoAppendIo(calls);
   });
 
   it('rejects a schema-valid reorder piggyback before append I/O', () => {
@@ -178,10 +235,65 @@ describe('reorder publication boundary', () => {
     const first = cards.create(childInput('project', 'first'));
     const second = cards.create(childInput('project', 'second'));
     const parent = cards.read('project')!;
-    const candidate = cardRecordSchema.parse({ ...parent, children: [second.id, first.id], title: 'piggyback', version_seq: parent.version_seq + 1, updated_at: '2026-09-03T00:00:00.000Z' });
+    const candidate = cardRecordSchema.parse({ ...parent, active_child_order: [second.id, first.id], title: 'piggyback', version_seq: parent.version_seq + 1, updated_at: '2026-09-03T00:00:00.000Z' });
     const { calls, io } = appendIo();
 
     expect(() => publishCardVersion(root, candidate, reorderChange(parent), io)).toThrow('has a reorder piggyback change');
-    for (const call of Object.values(calls)) expect(call).not.toHaveBeenCalled();
+    expectNoAppendIo(calls);
+  });
+
+  it.each([
+    { changed_fields: ['child_membership'], change_reason: 'children reordered', change_summary: 'children reordered' },
+    { changed_fields: ['active_child_order'], change_reason: 'wrong', change_summary: 'children reordered' },
+    { changed_fields: ['active_child_order'], change_reason: 'children reordered', change_summary: 'wrong' },
+  ])('rejects noncanonical reorder metadata before append I/O', (metadata) => {
+    const { root, cards } = fixture();
+    const first = cards.create(childInput('project', 'first'));
+    const second = cards.create(childInput('project', 'second'));
+    const parent = cards.read('project')!;
+    const candidate = cardRecordSchema.parse({ ...parent, active_child_order: [second.id, first.id], version_seq: parent.version_seq + 1, updated_at: '2026-09-03T00:00:00.000Z' });
+    const change = { ...reorderChange(parent), ...metadata };
+    const { calls, io } = appendIo();
+
+    expect(() => publishCardVersion(root, candidate, change, io)).toThrow();
+    expectNoAppendIo(calls);
+  });
+
+  it('rejects a link that does not append the new child to both arrays', () => {
+    const { root, cards } = fixture();
+    const first = cards.create(childInput('project', 'first'));
+    const second = cards.create(childInput('project', 'second'));
+    const parent = cards.read('project')!;
+    const linked = 'card-c';
+    const candidate = cardRecordSchema.parse({
+      ...parent,
+      child_membership: [...parent.child_membership, linked],
+      active_child_order: [first.id, linked, second.id],
+      version_seq: parent.version_seq + 1,
+      updated_at: '2026-09-03T00:00:00.000Z',
+    });
+    const { calls, io } = appendIo();
+
+    expect(() => publishCardVersion(root, candidate, linkChange(parent, linked), io)).toThrow('has an invalid child link');
+    expectNoAppendIo(calls);
+  });
+
+  it('rejects noncanonical link metadata before append I/O', () => {
+    const { root, cards } = fixture();
+    const first = cards.create(childInput('project', 'first'));
+    const parent = cards.read('project')!;
+    const linked = 'card-b';
+    const candidate = cardRecordSchema.parse({
+      ...parent,
+      child_membership: [first.id, linked],
+      active_child_order: [first.id, linked],
+      version_seq: parent.version_seq + 1,
+      updated_at: '2026-09-03T00:00:00.000Z',
+    });
+    const change = { ...linkChange(parent, linked), change_summary: 'wrong' };
+    const { calls, io } = appendIo();
+
+    expect(() => publishCardVersion(root, candidate, change, io)).toThrow('has invalid reason or summary');
+    expectNoAppendIo(calls);
   });
 });

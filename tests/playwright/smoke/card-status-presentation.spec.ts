@@ -19,7 +19,8 @@ function card(id: string, title: string, status: FixtureStatus, children: string
   return {
     id,
     type: id === 'project' ? 'project' : id === goalId ? 'goal' : 'code',
-    children,
+    child_membership: children,
+    active_child_order: children,
     title,
     subtype: null,
     lifecycle: {

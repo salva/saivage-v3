@@ -72,7 +72,7 @@ function sortJson(value: unknown): unknown {
 function projectCardDocument(artifact: CardArtifact): unknown {
   if (artifact.kind === 'card-version') {
     return {
-      format_version: 1,
+      format_version: 2,
       kind: artifact.kind,
       entry_id: artifact.entry_id,
       card_id: artifact.card_id,
@@ -83,7 +83,7 @@ function projectCardDocument(artifact: CardArtifact): unknown {
     };
   }
   return {
-    format_version: 1,
+    format_version: 2,
     kind: artifact.kind,
     entry_id: artifact.entry_id,
     card_id: artifact.card_id,

@@ -16,7 +16,8 @@ export function credentialShapedCard(overrides: Partial<CardRecord> = {}): CardR
   return {
     id: 'card-token',
     type: 'code',
-    children: ['card-token-a'],
+    child_membership: ['card-token-a'],
+    active_child_order: ['card-token-a'],
     title: `title ${OUTBOUND_TEXT_MARKER}`,
     lifecycle: {
       status: 'blocked',

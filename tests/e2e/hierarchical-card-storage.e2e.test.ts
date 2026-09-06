@@ -8,6 +8,8 @@ import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layo
 import { testRecordDefinition } from '../helpers/record-definitions.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { parseConversationSessionId, type ConversationSessionId } from '../../src/schemas/index.js';
+import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from '../../src/application/read-models/canonical-card-files-read-model.js';
+import { toCardView } from '../../src/application/read-models/card-view.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -22,6 +24,7 @@ describe('reset-only hierarchical card storage', () => {
     const goal = cards.create(input('project', 'goal'));
     const dependency = cards.create(input(goal.id));
     const dependent = cards.create(input(goal.id, 'code', [dependency.id]));
+    const retainedTombstone = cards.create(input(goal.id));
     const survivor = cards.create(input('project', 'code', [dependency.id]));
     expect(readFileSync(cardStreamFile(root, goal.id), 'utf8')).toContain('"kind":"card-version"');
     expect(readFileSync(cardRecordStreamFile(root, dependency.id, testRecordDefinition('brief.md')), 'utf8')).toContain('"kind":"authored-record-version"');
@@ -31,14 +34,53 @@ describe('reset-only hierarchical card storage', () => {
     const dependencyStreamBefore = readFileSync(cardStreamFile(root, dependency.id), 'utf8');
     const dependentStreamBefore = readFileSync(cardStreamFile(root, dependent.id), 'utf8');
     const goalVersionBefore = cards.read(goal.id)!.version_seq;
+    expect(cards.reorderChildren(goal.id, [dependency.id, retainedTombstone.id, dependent.id])).toEqual({ ok: true, changed: 2 });
+    cards.deleteSubtrees([retainedTombstone.id], () => true, 'analyst');
+    const parentBeforeIdentity = readFileSync(cardStreamFile(root, goal.id));
+    expect(cards.reorderChildren(goal.id, [dependency.id, dependent.id])).toEqual({ ok: true, changed: 0 });
+    expect(readFileSync(cardStreamFile(root, goal.id))).toEqual(parentBeforeIdentity);
     expect(cards.reorderChildren(goal.id, [dependent.id, dependency.id])).toEqual({ ok: true, changed: 2 });
     expect(readFileSync(cardStreamFile(root, dependency.id), 'utf8')).toBe(dependencyStreamBefore);
     expect(readFileSync(cardStreamFile(root, dependent.id), 'utf8')).toBe(dependentStreamBefore);
     const reordered = new CardService(root);
-    expect(reordered.read(goal.id)).toMatchObject({ version_seq: goalVersionBefore + 1, children: [dependent.id, dependency.id] });
+    expect(reordered.read(goal.id)).toMatchObject({
+      version_seq: goalVersionBefore + 2,
+      child_membership: [dependency.id, dependent.id, retainedTombstone.id],
+      active_child_order: [dependent.id, dependency.id, retainedTombstone.id],
+    });
     expect(reordered.read(dependency.id)?.version_seq).toBe(dependency.version_seq);
     expect(reordered.read(dependent.id)?.version_seq).toBe(dependent.version_seq);
     expect(reordered.listChildren(goal.id)).toEqual([dependent.id, dependency.id]);
+    expect(toCardView(reordered, reordered.read(dependent.id)!).logical_path).toBe('1.1');
+    expect(toCardView(reordered, reordered.read(dependency.id)!).logical_path).toBe('1.2');
+    const files = new CanonicalCardFilesReadModel(() => ({
+      current: (cardId, filename) => reordered.readCurrentRecord(cardId, filename),
+      historical: (cardId, filename, version) => reordered.readHistoricalRecord(cardId, filename, version),
+      definition: (cardId, filename) => reordered.recordReader.definition(cardId, filename),
+      getCanonicalCard: (cardId) => reordered.getCanonicalCard(cardId),
+      getCanonicalCardChildren: (cardId) => reordered.getCanonicalCardChildren(cardId),
+      getCanonicalCardFilesMetadata: (cardId) => reordered.getCanonicalCardFilesMetadata(cardId),
+      readCardVersion: (cardId, version) => reordered.readCardVersion(cardId, version),
+    } satisfies CanonicalCardFilesReader));
+    const childrenPath = `.saivage/cards/project/children/${goal.id.split('-').at(-1)!}/children`;
+    const filesResult = files.list(childrenPath);
+    if ('statusCode' in filesResult) throw new Error('Expected Files child directory.');
+    expect(filesResult.body.files.map(({ name }) => name)).toEqual([dependent.id.split('-').at(-1), dependency.id.split('-').at(-1)]);
+    const parentRows = readFileSync(cardStreamFile(root, goal.id), 'utf8').trimEnd().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ format_version: number; card: { child_membership: string[]; active_child_order: string[] }; change: { kind: string; changed_fields: string[] } | null }> }).rows);
+    expect(parentRows.every((artifact) => artifact.format_version === 2)).toBe(true);
+    const linkRows = parentRows.filter((artifact) => artifact.change?.kind === 'child_link');
+    expect(linkRows.map((artifact) => artifact.card.child_membership)).toEqual([
+      [dependency.id], [dependency.id, dependent.id], [dependency.id, dependent.id, retainedTombstone.id],
+    ]);
+    expect(linkRows.every((artifact) => artifact.change?.changed_fields.join(',') === 'child_membership,active_child_order')).toBe(true);
+    const reorderRows = parentRows.filter((artifact) => artifact.change?.kind === 'reorder');
+    expect(reorderRows.map((artifact) => artifact.card.child_membership)).toEqual([
+      [dependency.id, dependent.id, retainedTombstone.id], [dependency.id, dependent.id, retainedTombstone.id],
+    ]);
+    expect(reorderRows.map((artifact) => artifact.card.active_child_order)).toEqual([
+      [dependency.id, retainedTombstone.id, dependent.id], [dependent.id, dependency.id, retainedTombstone.id],
+    ]);
+    expect(reorderRows.every((artifact) => artifact.change?.changed_fields.join(',') === 'active_child_order')).toBe(true);
     expect(() => cards.deleteSubtrees([goal.id], () => true)).toThrow(new RegExp(survivor.id));
     const deleted = cards.deleteSubtrees([dependency.id, dependent.id, survivor.id], () => true);
     expect(deleted.deleted.indexOf(dependent.id)).toBeLessThan(deleted.deleted.indexOf(dependency.id));

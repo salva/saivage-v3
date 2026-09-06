@@ -79,7 +79,7 @@ describe('SyncHub semantic hints', () => {
 
       const child = cards.create({ type: 'code', parent: parent.id, title: 'sync child', bootstrap_content: 'sync', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       expect(child.id).toBe('card-a-a');
-      expect(cards.read(parent.id)?.children).toEqual([child.id]);
+      expect(cards.read(parent.id)?.active_child_order).toEqual([child.id]);
       expect(cards.listChildren(parent.id)).toEqual([child.id]);
       expect(cards.list().map(({ id }) => id)).toEqual(['project', parent.id, child.id]);
       expect(cards.read(child.id)?.id).toBe(child.id);

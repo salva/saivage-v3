@@ -17,7 +17,7 @@ import { plannerControlToolBinders } from '../../src/tools/planner-control-provi
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
 
 const DEFAULT_TYPES=['project','goal','architecture','code','test','doc','data','research','ops'] as const;
-function card(id:string,type:string,children:string[]=[]):CardRecord{return {id,type,title:id,children,subtype:null,tags:[],priority:0,urgency:'normal',created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,assigned_to:null,depends_on:[],related:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:null,status_text_updated_at:null,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[]};}
+function card(id:string,type:string,children:string[]=[]):CardRecord{return {id,type,title:id,child_membership:children,active_child_order:children,subtype:null,tags:[],priority:0,urgency:'normal',created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,assigned_to:null,depends_on:[],related:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:null,status_text_updated_at:null,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[]};}
 
 function surfaces(vocabulary:readonly string[],read:ReturnType<typeof jest.fn>){
   const tool=(scope:'global'|'card')=>new BoundAgentToolSet([resolveRuntimeTool(scope,'list_cards')]);

@@ -27,7 +27,7 @@ export interface CardNotification {
 
 export interface CardRecord {
   id: string; type: CardTypeName; title: string;
-  children: string[];
+  child_membership: string[]; active_child_order: string[];
   subtype: null; tags: string[]; priority: number; urgency: Urgency; created_by: CreatedBy;
   created_at: string; updated_at: string; version_seq: number; assigned_to: null; depends_on: string[]; related: string[];
   lifecycle: CardLifecycleState; metrics: null;
@@ -38,7 +38,7 @@ export interface CardRecord {
 }
 
 export const CARD_RECORD_FIELDS = [
-  'id', 'type', 'children', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at',
+  'id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at',
   'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate',
   'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id',
   'latest_self_report', 'metadata', 'pending_notifications',

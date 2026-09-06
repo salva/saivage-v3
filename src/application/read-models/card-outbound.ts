@@ -17,7 +17,8 @@ export function projectCardRecordForOutbound(card: CardRecord): CardRecord {
   return cardRecordSchema.parse({
     id: parsed.id,
     type: parsed.type,
-    children: [...parsed.children],
+    child_membership: [...parsed.child_membership],
+    active_child_order: [...parsed.active_child_order],
     title: redactTextForOutbound(parsed.title),
     lifecycle: projectLifecycle(parsed.lifecycle),
     subtype: parsed.subtype,
@@ -129,7 +130,8 @@ function projectDiffValue(field: string, value: unknown): unknown {
     case 'pending_notifications': return cardNotificationSchema.array().parse(value).map(projectNotification);
     case 'id':
     case 'type':
-    case 'children':
+    case 'child_membership':
+    case 'active_child_order':
     case 'subtype':
     case 'tags':
     case 'priority':

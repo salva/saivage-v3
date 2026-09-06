@@ -26,8 +26,8 @@ function input(parent: string, type: 'goal' | 'code' = 'code', depends_on: strin
 
 function link(root: string, parent: CardRecord, childId: string): CardRecord {
   const changedAt = new Date().toISOString();
-  const next = cardRecordSchema.parse({ ...parent, children: [...parent.children, childId], version_seq: parent.version_seq + 1, updated_at: changedAt });
-  const change = cardVersionChangeSchema.parse({ entry_id: randomUUID(), kind: 'child_link', card_id: parent.id, resulting_version: next.version_seq, changed_at: changedAt, changed_by_actor: 'runtime', changed_by_surface: 'runtime', changed_fields: ['children'], change_summary: `linked child ${childId}`, change_reason: 'child linked', terminal_summary: null });
+  const next = cardRecordSchema.parse({ ...parent, child_membership: [...parent.child_membership, childId], active_child_order: [...parent.active_child_order, childId], version_seq: parent.version_seq + 1, updated_at: changedAt });
+  const change = cardVersionChangeSchema.parse({ entry_id: randomUUID(), kind: 'child_link', card_id: parent.id, resulting_version: next.version_seq, changed_at: changedAt, changed_by_actor: 'runtime', changed_by_surface: 'runtime', changed_fields: ['child_membership', 'active_child_order'], change_summary: `linked child ${childId}`, change_reason: 'child linked', terminal_summary: null });
   publishCardVersion(root, next, change);
   return next;
 }
@@ -45,6 +45,63 @@ function corruptCurrent(root: string, id: string): void {
 }
 
 describe('CardService scoped relationship reads', () => {
+  it('treats filtered active-order identity as a byte-stable no-op and counts only active displacement', () => {
+    const { root, cards } = project();
+    const first = cards.create(input('project'));
+    const second = cards.create(input('project'));
+    const tombstoned = cards.create(input('project'));
+    expect(cards.reorderChildren('project', [first.id, tombstoned.id, second.id])).toEqual({ ok: true, changed: 2 });
+    cards.deleteSubtrees([tombstoned.id], () => true, 'analyst');
+    const path = cardStreamFile(root, 'project');
+    const before = readFileSync(path);
+    const version = cards.read('project')!.version_seq;
+
+    expect(cards.reorderChildren('project', [first.id, second.id])).toEqual({ ok: true, changed: 0 });
+    expect(readFileSync(path)).toEqual(before);
+    expect(cards.read('project')!.version_seq).toBe(version);
+
+    expect(cards.reorderChildren('project', [second.id, first.id])).toEqual({ ok: true, changed: 2 });
+    expect(cards.read('project')).toMatchObject({
+      child_membership: [first.id, second.id, tombstoned.id],
+      active_child_order: [second.id, first.id, tombstoned.id],
+    });
+  });
+
+  it('counts only active ordinals with three active children and multiple retained tombstones', () => {
+    const { root, cards } = project();
+    const [first, firstTombstone, second, secondTombstone, third] = Array.from({ length: 5 }, () => cards.create(input('project')));
+    cards.deleteSubtrees([firstTombstone.id, secondTombstone.id], () => true, 'analyst');
+    const path = cardStreamFile(root, 'project');
+    const beforeIdentity = readFileSync(path);
+
+    expect(cards.reorderChildren('project', [first.id, second.id, third.id])).toEqual({ ok: true, changed: 0 });
+    expect(readFileSync(path)).toEqual(beforeIdentity);
+    expect(cards.reorderChildren('project', [third.id, first.id, second.id])).toEqual({ ok: true, changed: 3 });
+    expect(cards.read('project')).toMatchObject({
+      child_membership: [first.id, firstTombstone.id, second.id, secondTombstone.id, third.id],
+      active_child_order: [third.id, first.id, second.id, firstTombstone.id, secondTombstone.id],
+    });
+  });
+
+  it.each([
+    { requested: ['card-a'], missing: ['card-b'], extra: [] },
+    { requested: ['card-a', 'card-a'], missing: ['card-b'], extra: [] },
+    { requested: ['card-a', 'card-z'], missing: ['card-b'], extra: ['card-z'] },
+  ])('returns the exact mismatch shape without changed for $requested', ({ requested, missing, extra }) => {
+    const { cards } = project();
+    const first = cards.create(input('project'));
+    const second = cards.create(input('project'));
+    const aliases = new Map([['card-a', first.id], ['card-b', second.id]]);
+    const expanded = requested.map((id) => aliases.get(id) ?? id);
+
+    expect(cards.reorderChildren('project', expanded)).toEqual({
+      ok: false,
+      reason: 'ordered child ids do not match current children',
+      missing: missing.map((id) => aliases.get(id) ?? id),
+      extra: extra.map((id) => aliases.get(id) ?? id),
+    });
+  });
+
   it('preserves relationship semantics and committed preorder', () => {
     const { cards } = project();
     const goal = cards.create(input('project', 'goal'));
@@ -95,7 +152,7 @@ describe('CardService scoped relationship reads', () => {
     expect(cards.getAncestors(goalPublished.child.id)).toEqual(['project']);
     expect(cards.getDescendantIds(goalPublished.child.id)).toEqual([childPublished.child.id]);
     expect(() => cards.list()).toThrow(/depends_on missing card 'card-z'/);
-    expect(rootCard.children).toContain(goalPublished.child.id);
+    expect(rootCard.child_membership).toContain(goalPublished.child.id);
   });
 
   it('does not validate reached dependency cycles while full projections reject them', () => {

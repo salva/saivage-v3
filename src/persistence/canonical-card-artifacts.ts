@@ -9,7 +9,7 @@ import { uuidV4Schema } from './version-index.js';
 export { cardVersionChangeSchema } from '../schemas/card-version-change.js';
 
 export const cardVersionArtifactSchema = z.object({
-  format_version: z.literal(1),
+  format_version: z.literal(2),
   kind: z.literal('card-version'),
   entry_id: uuidV4Schema,
   card_id: cardIdSchema,
@@ -24,7 +24,7 @@ export const cardVersionArtifactSchema = z.object({
 });
 
 export const cardTombstoneArtifactSchema = z.object({
-  format_version: z.literal(1),
+  format_version: z.literal(2),
   kind: z.literal('card-tombstone'),
   entry_id: uuidV4Schema,
   card_id: nonRootCardIdSchema,
@@ -104,7 +104,7 @@ function requireChange(path: string, change: CardVersionChange, fields: string[]
 }
 
 export function validateInitialCard(card: CardRecord, path: string): void {
-  const common = card.children.length === 0 && card.version_seq === 1 && card.created_at === card.updated_at && card.subtype === null && card.assigned_to === null && card.metrics === null && card.estimate === null && card.started_at === null && card.duration_ms === null && card.status_text === null && card.status_text_updated_at === null && card.status_text_author_session_id === null && card.latest_self_report === null && card.metadata === null && card.pending_notifications.length === 0 && card.lifecycle.status === 'backlog';
+  const common = card.child_membership.length === 0 && card.active_child_order.length === 0 && card.version_seq === 1 && card.created_at === card.updated_at && card.subtype === null && card.assigned_to === null && card.metrics === null && card.estimate === null && card.started_at === null && card.duration_ms === null && card.status_text === null && card.status_text_updated_at === null && card.status_text_author_session_id === null && card.latest_self_report === null && card.metadata === null && card.pending_notifications.length === 0 && card.lifecycle.status === 'backlog';
   if (!common) fail(path, 'has an invalid initial card');
   if (card.id === 'project') {
     if (card.type !== 'project' || card.created_by !== 'runtime:bootstrap' || card.tags.length !== 0 || card.priority !== 0 || card.urgency !== 'normal' || card.depends_on.length !== 0 || card.related.length !== 0) fail(path, 'has an invalid initial project card');
@@ -159,8 +159,8 @@ export function validateCardTransition(prior: CardRecord, next: CardRecord, chan
       requireChange(path, change, fields, reason); requireSame(path, actualDelta(prior, next), fields, 'has a status piggyback change'); break;
     }
     case 'terminal': validateTerminal(path, prior, next, change); break;
-    case 'child_link': { const linked = next.children.at(-1); if (!linked || prior.children.includes(linked) || !valuesEqual(next.children.slice(0, -1), prior.children)) fail(path, 'has an invalid child link'); requireChange(path, change, ['children'], 'child linked', `linked child ${linked}`); requireSame(path, actualDelta(prior, next), ['children'], 'has a child-link piggyback change'); break; }
-    case 'reorder': if (valuesEqual(prior.children, next.children) || next.children.length !== prior.children.length || new Set(next.children).size !== next.children.length || prior.children.some((id) => !next.children.includes(id))) fail(path, 'has an invalid child reorder'); else { requireChange(path, change, ['children'], 'children reordered', 'children reordered'); requireSame(path, actualDelta(prior, next), ['children'], 'has a reorder piggyback change'); } break;
+    case 'child_link': { const linked = next.child_membership.at(-1); if (!linked || prior.child_membership.includes(linked) || prior.active_child_order.includes(linked) || !valuesEqual(next.child_membership.slice(0, -1), prior.child_membership) || !valuesEqual(next.active_child_order.slice(0, -1), prior.active_child_order) || next.active_child_order.at(-1) !== linked) fail(path, 'has an invalid child link'); requireChange(path, change, ['child_membership', 'active_child_order'], 'child linked', `linked child ${linked}`); requireSame(path, actualDelta(prior, next), ['child_membership', 'active_child_order'], 'has a child-link piggyback change'); break; }
+    case 'reorder': if (!valuesEqual(prior.child_membership, next.child_membership) || valuesEqual(prior.active_child_order, next.active_child_order) || next.active_child_order.length !== prior.active_child_order.length || new Set(next.active_child_order).size !== next.active_child_order.length || prior.active_child_order.some((id) => !next.active_child_order.includes(id))) fail(path, 'has an invalid child reorder'); else { requireChange(path, change, ['active_child_order'], 'children reordered', 'children reordered'); requireSame(path, actualDelta(prior, next), ['active_child_order'], 'has a reorder piggyback change'); } break;
     case 'delete': fail(path, 'uses delete change on an ordinary version');
   }
 }
