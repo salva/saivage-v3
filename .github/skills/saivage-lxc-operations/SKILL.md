@@ -1,6 +1,6 @@
 ---
 name: saivage-lxc-operations
-description: 'Operate local LXC deployments that matter to Saivage v3: the v2-on-v3 harness, Saivage v3 running against GetRich v2, Pueblicos, and jsqlite. Use when checking Saivage v3 deployment health, inspecting/restarting those services, verifying bind mounts, reading systemd units, diagnosing target-project runtime state, confirming container IPs, or recovering instances after host power loss, hard reboots, abandoned runtime.lock crash loops, or network-outage failed cards.'
+description: 'Operate local LXC deployments that matter to Saivage v3: the v2-on-v3 harness, Saivage v3 running against GetRich v2, Pueblicos, and jsqlite. Use when checking deployment health, inspecting or restarting exact services, verifying bind mounts and units, confirming container IPs, diagnosing lifecycle-lock startup blockers, manually repairing a lock after positive dead-owner classification and no-owner verification, or handling network-outage failed cards.'
 ---
 
 # Saivage v3 LXC Operations
@@ -28,6 +28,7 @@ the target projects it manages. It is not the general workspace LXC playbook.
 - Secret-bearing files such as `.saivage/saivage.yaml`, `.saivage/auth-profiles.json`, env files, shell history, or token files may be inspected or edited when needed. Do not print secret values in chat or logs.
 - API bearer tokens must not be placed in URLs.
 - Use `/home/salva/g/ml/tmp/` for temporary artifacts.
+- A crash loop, reboot history, failed health probe, elapsed time, stopped unit, process list, or listener observation does not classify a lifecycle lock. Use only the current installed or bind-mounted Saivage CLI's five-way classifier. Never remove a lock or take over automatically; `indeterminate`, `malformed`, and every ambiguous observation fail closed.
 
 ## Saivage v3-Relevant Deployments
 
@@ -150,79 +151,201 @@ cards, records, and conversations. Runtime lifecycle and provider availability a
 process-local; there is no durable runtime-state, snapshot, or availability file.
 Avoid printing provider configs or auth profiles.
 
-## Power-Outage / Hard-Reboot Recovery
+## Lifecycle-Lock Classification And Manual Repair
 
-After the host loses power or is hard-rebooted (battery drain, crash), the
-containers autostart but the in-container Saivage services crash-loop with:
+Use this singular fail-closed sequence when a power outage, hard reboot,
+startup failure, port conflict, or service crash loop suggests a lifecycle-lock
+blocker. Those symptoms do not prove abandonment. This procedure prevents
+likely wrong-project or overlapping-owner accidents; it is not containment of a
+trusted root-capable agent.
 
-```text
-Fatal error: Runtime lock owner is positively dead. Verify that no Saivage
-process owns '<project>', then remove the abandoned lock manually with:
-rm -- '<project>/.saivage/locks/runtime.lock'; rerun the command.
-```
+Pueblicos examples use unit `saivage-pueblicos.service`, project
+`/work/pueblicos`, and port 8080. For jsqlite, resolve and use its exact current
+values, normally unit `saivage-jsqlite.service`, project `/work/jsqlite`, and
+port 8081.
 
-Recovery per instance (pueblicos shown; jsqlite uses service
-`saivage-jsqlite.service`, project `/work/jsqlite`, port 8081):
+1. **Resolve the exact deployment identity.** Record the current container IP,
+   canonical target-project root, exact systemd unit, current installed or
+   bind-mounted CLI entry point, Node executable, expected host/port, and unit
+   command. Verify rather than infer these from an old incident:
 
-1. Resolve current container IPs first (they change across reboots):
+   ```bash
+   ssh root@localhost 'lxc-ls --fancy'
+   ssh root@<ip> 'systemctl cat <exact-unit>'
+   ```
 
-```bash
-ssh root@localhost 'lxc-ls --fancy'
-```
+2. **Stop only the exact unit, then inspect it separately.** Do not combine
+   observation with lock deletion or service startup:
 
-2. Stop the crash-looping service, verify no Saivage process remains, remove
-the exact abandoned lock path, and start exactly one instance via systemd:
+   ```bash
+   ssh root@<ip> 'systemctl stop <exact-unit>'
+   ssh root@<ip> 'systemctl show <exact-unit> --property=ActiveState --property=SubState --property=MainPID --no-pager'
+   ```
 
-```bash
-ssh -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@<ip> '
-  systemctl stop saivage-pueblicos.service
-  ps aux | grep -E "saivage" | grep -v grep || echo NO_PROCESS
-  rm -f -- /work/pueblicos/.saivage/locks/runtime.lock
-  systemctl start saivage-pueblicos.service
-  systemctl is-active saivage-pueblicos.service'
-```
+   Require `MainPID=0` and an inactive or failed, non-restarting state. An owner
+   PID, activation/restart in progress, unknown state, or ambiguous output
+   stops recovery.
 
-3. Wait patiently for health. Startup validates the whole card tree on the
-bind-mounted host disk: ~100-150s for pueblicos (~970+ cards) and ~120-150s for
-jsqlite (~1500+ cards). Poll every 5s; do not restart during validation.
+3. **Collect positive project-bound no-owner evidence.** With the unit still
+   stopped, list candidate Node/Saivage server PIDs with full argv and inspect
+   the expected port with process identities:
 
-4. After health returns OK, the runtime sits idle in `stopped` by design.
-Restart autonomous work through the analyst chat (auth is disabled on both
-instances):
+   ```bash
+   ssh root@<ip> 'ps -ww -eo pid=,args='
+   ssh root@<ip> 'ss -ltnp "sport = :<exact-port>"'
+   ssh root@<ip> 'readlink -- /proc/<candidate-pid>/cwd'
+   ```
 
-```bash
-node -e "
-(async()=>{
-  const r=await fetch('http://<ip>:<port>/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({content:'The host lost power; the service just restarted cleanly from the preserved state. Please start the project now (start_project) and resume autonomous work from where it stood.'})});
-  console.log(r.status, (await r.text()).slice(0,180));
-})()"
-```
+   Record PID and full argv for every plausible candidate, including an
+   unexpected systemd PID or a process naming the installed Saivage entry
+   point. Inspect `/proc/<pid>/cwd` wherever it exists and whenever cwd is
+   needed to establish the implicit project root. Conclusively bind every
+   candidate and every listener PID/argv/cwd to this project, another known
+   project, or a non-owner. A target-project owner forbids deletion. A process
+   that disappears during inspection, unreadable cwd, truncated or ambiguous
+   argv, unowned/unreadable listener, or any candidate that cannot be accounted
+   for also stops recovery. Do not inspect process environments or
+   secret-bearing unit environment.
 
-5. Confirm dispatch via `/api/runtime/status` (`runtime: running` with active
-cards) and a fresh provider exchange in the project's
-`.saivage/logs/app.jsonl`.
+   The unit/process/listener evidence never replaces CLI classification and
+   never authorizes deletion by itself. Do not use broad kill patterns. If an
+   actual surviving owner is identified, stop that exact process through its
+   actual service or process authority, then restart this complete procedure at
+   the stopped-unit step.
 
-### Orphaned-Instance Port/Lock Races
+4. **Run only current CLI `status` from the exact project root.** Use the exact
+   Node executable and CLI entry point resolved above. Keep stdout/stderr
+   visible, preserve and print the remote exit status, and return that status.
+   Do not use a pipeline, command substitution, `|| true`, or append deletion or
+   startup:
 
-Symptom: the service starts, consumes ~2min CPU, then exits cleanly (exit 0,
-`Deactivated successfully`) with zero output, or dies with
-`EADDRINUSE 0.0.0.0:8080`. Cause: overlapping orphaned server instances from
-manual foreground/PTY/nohup diagnostic runs still hold the port or recreate the
-lock while systemd's instance boots.
+   ```bash
+   ssh root@<ip> 'cd -- "/exact/canonical-project-root" || exit; "/exact/node-executable" "/exact/current-cli-entry" status; status=$?; printf "CLI_EXIT_STATUS=%s\n" "$status"; exit "$status"'
+   ```
 
-Rules:
+5. **Apply the complete result table.** Inspect the exit status and the full
+   output together; never infer dead ownership from one text fragment.
 
-- Never leave manual `saivage.js start` processes running; always run the
-  service through its systemd unit.
-- Before starting the unit, kill every stray instance and free the port:
+   | Current CLI observation | Required action |
+   | --- | --- |
+   | Exit 0 and exactly `Service: stopped (no live owner)`, `Runtime status: stopped`, and `Current card: (none)`, in that order, with no repair sentence | `missing`. Delete nothing. Continue only toward fresh no-owner reconfirmation and exact replacement-service startup. This authorizes no project Run. |
+   | Exit 0 and those exact three lines followed by the exact canonical repair sentence below | Positive `dead` predicate only. Enter the manual-deletion branch only if the project-bound no-owner evidence is also fresh and conclusive. This authorizes no project Run. |
+   | Exit 0 with delegated live-status JSON or any other live/delegation output | Never delete. The verified live owner remains authoritative. |
+   | Nonzero labeled `Lifecycle lock indeterminate` or `Lifecycle lock malformed`, even when the error embeds repair text | Fail closed. Do not delete, start, or take over; resolve or escalate under canonical policy. |
+   | Null-endpoint, auth, network, response, schema, or any other delegation failure | Never delete. Failure to control or contact a verified live authority is not death. |
+   | Any other exit/output combination | Unmatched: stop. Do not delete, start, or reinterpret it. |
 
-```bash
-ssh root@<ip> 'pkill -f "saivage.js start"; sleep 3; pgrep -fa "saivage.js" || echo CLEAN; ss -ltn | grep -E ":8080|:8081" || echo PORTS_FREE; rm -f -- /work/<project>/.saivage/locks/runtime.lock'
-```
+   The exact three stopped/no-live lines are:
 
-- Beware `pkill -f "port 8080"`: the pattern matches the invoking wrapper shell
-  and kills your own SSH command. Match on `saivage.js start` instead.
+   ```text
+   Service: stopped (no live owner)
+   Runtime status: stopped
+   Current card: (none)
+   ```
+
+   The positive-dead repair sentence must exactly name the resolved canonical
+   project root and canonical lock path:
+
+   ```text
+   Verify that no Saivage process owns '<canonical-project-root>', then remove the abandoned lock manually with: rm -- '<canonical-lock-path>'; rerun the command.
+   ```
+
+   The exact missing predicate is the same zero exit and three lines without
+   that sentence. The repair sentence is not sufficient: fatal results labeled
+   `Lifecycle lock malformed` or `Lifecycle lock indeterminate` also embed it
+   but exit nonzero.
+
+6. **For positive dead only, recollect evidence and manually repair.** Repeat
+   the exact-unit `ActiveState`/`SubState`/`MainPID`, full candidate PID/argv/cwd,
+   and process-bearing expected-listener checks immediately before deletion.
+   Both gates—the exact CLI positive-dead predicate and fresh conclusive
+   project-bound no-owner evidence—are mandatory; neither substitutes for the
+   other. Any changed or inconclusive result stops recovery.
+
+   After explicit operator authorization for abandoned-lock repair, execute
+   only the CLI-displayed exact command as one standalone shell command:
+
+   ```bash
+   rm -- '<canonical-lock-path>'
+   ```
+
+   Do not use `-f`, a glob, an alternate or derived path, a sibling scan, a
+   second deletion, or a chained command.
+
+7. **Prove the repaired result is missing.** In a separate invocation, repeat
+   the exact CLI `status` observation from step 4. Require exit 0 and exactly
+   the three stopped/no-live lines, with no repair sentence. Every other result
+   stops recovery. The original `missing` branch skips deletion and this
+   repeated classification, but not final no-owner reconfirmation.
+
+8. **Start and verify only the exact replacement service.** From either
+   qualifying `missing` path, freshly reconfirm the stopped unit and conclusive
+   absence of a project-bound process/listener. Start the exact unit as a
+   separate action, inspect its state separately, and verify the matching exact
+   health endpoint reaches ready health:
+
+   ```bash
+   ssh root@<ip> 'systemctl start <exact-unit>'
+   ssh root@<ip> 'systemctl show <exact-unit> --property=ActiveState --property=SubState --property=MainPID --no-pager'
+   curl -fsS http://<ip>:<exact-port>/health
+   ```
+
+   Startup strictly validates the whole generated card tree and may take
+   minutes on a large bind-mounted project. After one valid start, allow that
+   validation to finish before judging health; do not repeatedly restart merely
+   because validation is slow. Mandatory recovery ends at healthy exact-service
+   readiness. It restores only the server lifecycle and never authorizes
+   project execution.
+
+### Unexpected Surviving Instance Or Listener
+
+A clean service exit after startup or `EADDRINUSE` is evidence to diagnose, not
+proof of an abandoned lock. Keep manual foreground, PTY, or nohup
+`saivage.js start` processes out of normal service operation. Do not kill all
+matching processes or free a port broadly. Stop an identified survivor only
+through its exact service/process authority. Then use the singular
+[Lifecycle-Lock Classification And Manual Repair](#lifecycle-lock-classification-and-manual-repair)
+sequence from its stopped-unit step; there is no second lock-removal path.
+
+### Separately Authorized Ordinary Project Run
+
+Do not submit `start_project` as part of lifecycle-lock or service recovery and
+do not present it as the default next step. Outage history, dead classification,
+manual deletion, replacement startup, a newly acquired lock, and healthy
+service readiness confer no authority to execute the project; it may have been
+intentionally stopped before the outage.
+
+Only a current operator instruction or explicit incident-recovery objective can
+independently authorize considering ordinary Run. At that later point, follow
+the applicable canonical [runbook](../../../docs/runbook/index.md), including
+the [trusted failed-root reopening and restart](../../../docs/runbook/index.md#trusted-failed-root-reopening-and-restart)
+procedure when the root is failed. Establish the exact healthy lifecycle owner
+and control authority, inspect current runtime status and strict current
+card/root state, and require the current procedure's admission conditions. Do
+not infer eligibility from preserved state, outage history, or server health.
+
+If and only if those current checks admit the independently authorized action,
+send a separate fresh current Analyst submission requiring exactly one bodyless
+`start_project` call and final prose. Verify its exact settled tool result and
+the canonical runtime/card/dispatch evidence required by that procedure. This
+is a fresh ordinary Run that can perform full-chain stopped recovery, not
+continuation of an old execution node and not CLI `resume`. Missing
+authorization, an ineligible state, a failed check, or ambiguity means do not
+submit `start_project`.
+
+Keep these boundaries exact:
+
+- `systemctl stop/start <exact-unit>` disposes or creates the server process and
+  therefore the lifecycle owner.
+- CLI `resume` delegates through a verified live owner to a paused project. It
+  cannot recover a missing/dead owner and is not a post-restart action.
+- CLI `stop` delegates to bodyless REST `stop_project`; there is no CLI
+  `stop_project` alias. It halts project execution while leaving the server and
+  lifecycle lock alive.
+- Current Analyst `start_project` initiates ordinary Run only under the separate
+  authorization and current-state checks above.
+- Authenticated confirmed `restart_server` is a separate public server
+  operation and is not part of dead-lock repair.
 
 ### Network-Outage Failed Cards
 
