@@ -3,7 +3,6 @@ import { describe, expect, it } from '@jest/globals';
 import { testRecordDefinition, testRecordDefinitions } from '../helpers/record-definitions.js';
 import { resolveRecordReadTarget, resolveRecordWriteTarget, scopedPathResolvers, type ResolveScopedPathContext } from '../../src/workspace/scoped-path-schemes.js';
 import { resolveScopedPath } from '../../src/workspace/vfs.js';
-import { AuthoredRecordNotFoundError } from '../../src/persistence/authored-record-files.js';
 
 function fail(message: string): Error {
   const error = new Error(message);
@@ -16,7 +15,7 @@ function ctx(): ResolveScopedPathContext {
     projectRoot: '/tmp/saivage-workspace-resolver-test',
     agent: { cardId: 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa', agentName: 'planner' },
     fail,
-    records:{currentOrNull:()=>null,historical:()=>{throw new AuthoredRecordNotFoundError();},definition:(_cardId,filename)=>testRecordDefinition(filename)},
+    records:{readRecordCurrent:(_cardId,filename)=>({kind:'found',value:{card:{} as never,definition:testRecordDefinition(filename),projection:null}}),readRecordVersion:(_cardId,filename,version)=>({kind:'version-not-found',version})},
   };
 }
 
@@ -45,7 +44,7 @@ describe('scoped path resolvers', () => {
   it('classifies unsupported read record slots through the fail callback', async () => {
     await expectWorkspaceToolInputError(() => resolveRecordReadTarget(ctx(), 'record:///bogus.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=latest'));
     await expectWorkspaceToolInputError(() => resolveRecordReadTarget(ctx(), 'record:///card.json?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=latest'));
-    const vfsContext = {...ctx(),records:{...ctx().records!,definitions:()=>testRecordDefinitions()}};
+    const vfsContext = {...ctx(),records:{...ctx().records!,listDeclaredRecordMetadata:()=>({kind:'found' as const,value:{card:{} as never,definitions:testRecordDefinitions().map((definition)=>({definition,classification:{kind:'empty' as const}}))}})}};
     await expectWorkspaceToolInputError(() => resolveScopedPath(vfsContext, 'record:///bogus.md', 'read'));
     await expectWorkspaceToolInputError(() => resolveScopedPath(vfsContext, 'record:///card.json', 'read'));
   });
@@ -107,7 +106,7 @@ describe('scoped path resolvers', () => {
   it('translates only concrete authored-record absence into a tool-facing rejection', async () => {
     expect(resolveRecordReadTarget(ctx(),'record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa')).toMatchObject({projection:null,parsed:{version:null}});
     await expectWorkspaceToolInputError(()=>resolveRecordReadTarget(ctx(),'record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=1'));
-    for (const suffix of ['', '&v=1']) {const hostile=new Error(`HOSTILE_STRICT_READ_${suffix}`);const failed={...ctx(),records:{...ctx().records!,currentOrNull:()=>{throw hostile;},historical:()=>{throw hostile;}}};expect(()=>resolveRecordReadTarget(failed,`record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa${suffix}`)).toThrow(hostile);}
+    for (const suffix of ['', '&v=1']) {const hostile=new Error(`HOSTILE_STRICT_READ_${suffix}`);const failed={...ctx(),records:{...ctx().records!,readRecordCurrent:()=>{throw hostile;},readRecordVersion:()=>{throw hostile;}}};expect(()=>resolveRecordReadTarget(failed,`record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa${suffix}`)).toThrow(hostile);}
     for (const selector of ['latest', 'next', 'open']) await expectWorkspaceToolInputError(() => resolveRecordReadTarget(ctx(), `record:///brief.md?card=card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa&v=${selector}`));
   });
 });

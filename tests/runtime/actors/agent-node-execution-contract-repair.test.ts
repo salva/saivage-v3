@@ -110,7 +110,7 @@ function harness(args: {
     cardId: 'project',
     store: {
       read: (id: string) => id === 'card-a' ? { id, lifecycle: { status: 'running' } } : card,
-      readCurrentRecord: (_cardId: string, name: string) => { events.push(`read-record:${name}`); return { headVersion: 1, currentUrl: `record:///${name}?card=project`, versionUrl: `record:///${name}?card=project&v=1`, artifact: { state: 'open', accepted: null, draft: { content: 'draft' } } }; },
+      readRecordCurrent: (_cardId: string, name: string) => { events.push(`read-record:${name}`); return { kind: 'found', value: { projection: { headVersion: 1, currentUrl: `record:///${name}?card=project`, versionUrl: `record:///${name}?card=project&v=1`, artifact: { state: 'open', accepted: null, draft: { content: 'draft' } } } } }; },
       discardRecord: (_cardId: string, name: string) => { events.push(`discard-record:${name}`); if (name === 'beta.md' && args.discardError) throw args.discardError; },
       listChildren: args.terminalVariant === 'incomplete' ? jest.fn().mockReturnValueOnce(['card-a']).mockReturnValue([]) : () => [],
     },

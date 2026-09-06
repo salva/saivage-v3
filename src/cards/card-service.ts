@@ -15,29 +15,30 @@ import {
   discardOpenAuthoredRecord,
   openAuthoredRecord,
   readCurrentAuthoredRecord,
-  readHistoricalAuthoredRecord,
   editOpenAuthoredRecord,
   classifyCurrentAuthoredRecord,
+  projectAuthoredRecordArtifact,
+  AuthoredRecordNotFoundError,
+  listAuthoredRecordVersions,
   type CurrentAuthoredRecordClassification,
   type RecordProjection,
 } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-import { AuthoredRecordNotFoundError, listAuthoredRecordVersions } from '../persistence/authored-record-files.js';
+import { effectiveRecordContent } from '../persistence/canonical-record-artifacts.js';
 import { genericRecordDefinition,type CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 import {
-  listCards,
+  listActiveCardTraversal,
   publishCardTombstone,
   publishCardVersion,
   publishInitialChildCard,
   readCard,
   readCanonicalCard,
   readCanonicalCardHierarchy,
-  readCanonicalCardFilesMetadata,
   readCardDetail,
   readCardHierarchy,
-  readCardVersion,
-  readCurrentCardArtifact,
-  listCardVersions,
+  readCommittedCardArtifactCatalog,
+  readActiveCardPath,
+  readActiveCardSubtree,
   cardDiffValue,
   readLinkedChildren,
   readLinkedChildrenProjection,
@@ -45,7 +46,6 @@ import {
   type CanonicalCardProjection,
   type CanonicalLinkedChildrenProjection,
   type CanonicalCardFileSlot,
-  type CanonicalCardFilesMetadataProjection,
 } from '../persistence/card-files.js';
 import { cardVersionChangeSchema, type CardArtifact, type CardVersionChange, type CardVersionListEntry } from '../persistence/canonical-card-artifacts.js';
 import type { CanonicalReadInstrumentation, GrowingFileIo } from '../persistence/growing-file.js';
@@ -81,9 +81,9 @@ export type CardActivationAdmissionProjection = {
 export interface CardDiffEntry { field: string; before: unknown; after: unknown }
 export type CardVersionListResult = CardTargetRead<readonly CardVersionListEntry[]>;
 export type { CanonicalCardFileSlot };
-export type CardVersionContentResult = ReturnType<typeof readCardVersion>;
+export type CardVersionContentResult = CardTargetRead<CardArtifact>|{readonly kind:'version-not-found';readonly version:number};
 export type CardVersionDiffResult =
-  | { readonly kind: 'found'; readonly from: number; readonly to: number; readonly diff: CardDiffEntry[] }
+  | { readonly kind: 'found'; readonly from: number; readonly to: number; readonly fromArtifact:CardArtifact;readonly toArtifact:CardArtifact;readonly diff: CardDiffEntry[] }
   | { readonly kind: 'card-not-found' }
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
   | { readonly kind: 'version-not-found'; readonly version: number; readonly side: 'from' | 'to' };
@@ -127,26 +127,33 @@ function versionChange(prior: CardRecord, next: CardRecord | null, kind: CardVer
   return cardVersionChangeSchema.parse({ entry_id: randomUUID(), kind, card_id: prior.id, resulting_version: kind === 'delete' ? prior.version_seq + 1 : next!.version_seq, changed_at: changedAt, ...provenance, change_reason: reason, changed_fields: fields, change_summary: summary, terminal_summary: terminalSummary });
 }
 
-function assertChildParentAdmission(parent: CardRecord, childType: string | null, message: string, workflows:CompiledProjectWorkflows): void {
-  const workflow=workflows.cardTypes.get(parent.type);if(!workflow)throw new Error(`No compiled workflow exists for card type '${parent.type}'.`);if (workflow.permittedChildTypes.size===0 || !canCreateChildInStatus(parent.lifecycle.status) || (childType!==null&&!workflow.permittedChildTypes.has(childType))) throw new Error(`${message} '${parent.id}'.`);
+function admitChildParent(parent:CardRecord,message:string,workflows:CompiledProjectWorkflows){const workflow=workflows.cardTypes.get(parent.type);if(!workflow)throw new Error(`No compiled workflow exists for card type '${parent.type}'.`);if(workflow.permittedChildTypes.size===0||!canCreateChildInStatus(parent.lifecycle.status))throw new Error(`${message} '${parent.id}'.`);return workflow;}
+function assertPermittedChildType(parent:CardRecord,childType:string,message:string,workflow:ReturnType<typeof admitChildParent>):void{
+  if(!workflow.permittedChildTypes.has(childType))throw new Error(`${message} '${parent.id}'.`);
 }
+
+export type CardRecordCurrentResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly projection:RecordProjection|null}>;
+export type CardRecordHistoryResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly catalog:ReturnType<typeof listAuthoredRecordVersions>}>;
+export type CardRecordVersionResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly projection:RecordProjection}>|{readonly kind:'version-not-found';readonly version:number};
+export type CardRecordDiffSelectionResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly from:RecordProjection;readonly to:RecordProjection}>|{readonly kind:'invalid-pivots';readonly from:number;readonly to:number}|{readonly kind:'version-not-found';readonly version:number;readonly side:'from'|'to'};
+export type CardDeclaredRecordMetadataResult=CardTargetRead<{readonly card:CardRecord;readonly definitions:readonly {readonly definition:RecordDefinition;readonly classification:CurrentAuthoredRecordClassification}[]}>;
+export interface CanonicalCardFilesMetadataProjection{readonly card:CanonicalCardProjection;readonly active:boolean;readonly recordFiles:readonly {readonly slot:import('../schemas/index.js').RecordName;readonly size:number;readonly modifiedAt:string}[]}
+export interface CardInspectionListRow{readonly card:CardRecord;readonly parentId:string|null;readonly activeChildrenCount:number}
+export interface CardInspectionTreeRow extends CardInspectionListRow{readonly relativeDepth:number;readonly activeDescendantCount:number}
 
 export class CardService {
   constructor(readonly projectRoot: string, readonly workflows: CompiledProjectWorkflows, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged' | 'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
 
-  private recordDefinition(cardId:string,filename:string):RecordDefinition {
-    const card = this.read(cardId);
-    if (!card) throw new AuthoredRecordNotFoundError();
+  private recordDefinitionFor(card:CardRecord,filename:string):RecordDefinition {
     const name=parseRecordName(filename);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow exists for card type '${card.type}'.`);const definition = workflow.records.get(name)??genericRecordDefinition(name);
     return { filename: definition.name, format: definition.format, schema: definition.schema, bootstrap: definition.bootstrap,declared:definition.declared };
   }
-  recordDefinitions(cardId:string):RecordDefinition[]{const card=this.read(cardId);if(!card)throw new Error(`Card '${cardId}' not found.`);const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap,declared:true}));}
-
-  get recordReader() { return { current: (cardId: string, filename: string) => this.readCurrentRecord(cardId, filename),currentOrNull:(cardId:string,filename:string)=>this.readCurrentRecordOrNull(cardId,filename), historical: (cardId: string, filename: string, version: number) => this.readHistoricalRecord(cardId, filename, version),definition:(cardId:string,filename:string)=>this.recordDefinition(cardId,filename),definitions:(cardId:string)=>this.recordDefinitions(cardId) }; }
+  private recordDefinitionsFor(card:CardRecord):RecordDefinition[]{const workflow=this.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No workflow for '${card.type}'.`);return [...workflow.records.values()].map((definition)=>({filename:definition.name,format:definition.format,schema:definition.schema,bootstrap:definition.bootstrap,declared:true}));}
+  private admittedRecord(cardId:string,filename:string,instrumentation?:CanonicalReadInstrumentation){const reached=readActiveCardPath(this.projectRoot,cardId,instrumentation);if(!reached)return null;const card=reached.fold.current.card;return{card,definition:this.recordDefinitionFor(card,filename)};}
 
   private buildFullIndex(): CardIndex {
     const state = new CardIndex();
-    for (const card of listCards(this.projectRoot).sort((left, right) => cardDepth(left.id) - cardDepth(right.id))) state.upsert(card);
+    for (const {card} of [...listActiveCardTraversal(this.projectRoot)].sort((left, right) => cardDepth(left.card.id) - cardDepth(right.card.id))) state.upsert(card);
     return state;
   }
 
@@ -177,34 +184,22 @@ export class CardService {
   listChildren(parentId: string): string[] { return readLinkedChildren(this.projectRoot, parentId).map((card) => card.id); }
   getParent(id: string): string | null { return readCanonicalCard(this.projectRoot, id).kind === 'found' ? cardParentId(id) : null; }
   getAncestors(id: string): string[] { if (readCanonicalCard(this.projectRoot, id).kind === 'card-not-found') return []; const out: string[] = []; let parent = cardParentId(id); while (parent) { out.unshift(parent); parent = cardParentId(parent); } return out; }
-  getDescendantIds(id: string): string[] {
-    const root = readCanonicalCardHierarchy(this.projectRoot, id);
-    if (root.kind === 'card-not-found') return [];
-    const out: string[] = [];
-    const visit = (children: readonly CanonicalCardProjection[]): void => {
-      for (const child of children) {
-        out.push(child.card.id);
-        const hierarchy = readCanonicalCardHierarchy(this.projectRoot, child.card.id);
-        if (hierarchy.kind === 'card-not-found') throw new CardServiceInvariantError(`Reached active card '${child.card.id}' became unavailable during descendant traversal.`);
-        visit(hierarchy.value.activeChildren);
-      }
-    };
-    visit(root.value.activeChildren);
-    return out;
-  }
-  readCurrentRecord(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection { const current = readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); if (!current) throw new AuthoredRecordNotFoundError(); return current; }
-  readCurrentRecordOrNull(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation): RecordProjection | null { return readCurrentAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), instrumentation); }
-  classifyCurrentRecord(cardId:string,filename:string,instrumentation?:CanonicalReadInstrumentation):CurrentAuthoredRecordClassification{return classifyCurrentAuthoredRecord(this.projectRoot,cardId,this.recordDefinition(cardId,filename),instrumentation);}
-  readHistoricalRecord(cardId: string, filename: string, version: number, instrumentation?: CanonicalReadInstrumentation): RecordProjection { return readHistoricalAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), version, instrumentation); }
-  listRecordVersions(cardId: string, filename: string, instrumentation?: CanonicalReadInstrumentation) { return listAuthoredRecordVersions(this.projectRoot, cardId, this.recordDefinition(cardId, filename), instrumentation); }
-  openRecord(cardId: string, filename: string): RecordProjection { return openAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), this.cardAppendIo); }
-  editRecord(cardId: string, filename: string, content: string): RecordProjection { return editOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), content, this.cardAppendIo); }
+  getDescendantIds(id: string): string[] {const result=readActiveCardSubtree(this.projectRoot,id);return result.kind==='card-not-found'?[]:result.value.slice(1).map(({card})=>card.id);}
+  readRecordCurrent(cardId:string,filename:string,instrumentation?:CanonicalReadInstrumentation):CardRecordCurrentResult{const admitted=this.admittedRecord(cardId,filename,instrumentation);if(!admitted)return{kind:'card-not-found'};const projection=readCurrentAuthoredRecord(this.projectRoot,admitted.card,admitted.definition,instrumentation);if(!projection&&admitted.definition.bootstrap)throw new Error(`Card '${cardId}' required bootstrap record '${filename}' is unavailable.`);return{kind:'found',value:{...admitted,projection}};}
+  readRecordHistory(cardId:string,filename:string,instrumentation?:CanonicalReadInstrumentation):CardRecordHistoryResult{const admitted=this.admittedRecord(cardId,filename,instrumentation);if(!admitted)return{kind:'card-not-found'};const catalog=listAuthoredRecordVersions(this.projectRoot,admitted.card,admitted.definition,instrumentation);if(catalog.versions.length===0&&admitted.definition.bootstrap)throw new Error(`Card '${cardId}' required bootstrap record '${filename}' is unavailable.`);return{kind:'found',value:{...admitted,catalog}};}
+  readRecordVersion(cardId:string,filename:string,version:number,instrumentation?:CanonicalReadInstrumentation):CardRecordVersionResult{positiveSafeIntegerSchema.parse(version);const history=this.readRecordHistory(cardId,filename,instrumentation);if(history.kind==='card-not-found')return history;const row=history.value.catalog.versions[version-1];if(!row||row.version!==version)return{kind:'version-not-found',version};return{kind:'found',value:{card:history.value.card,definition:history.value.definition,projection:projectAuthoredRecordArtifact(history.value.definition,row)}};}
+  diffRecordVersions(cardId:string,filename:string,pivots:{from:number;to?:number|'current'},instrumentation?:CanonicalReadInstrumentation):CardRecordDiffSelectionResult{positiveSafeIntegerSchema.parse(pivots.from);if(typeof pivots.to==='number')positiveSafeIntegerSchema.parse(pivots.to);const history=this.readRecordHistory(cardId,filename,instrumentation);if(history.kind==='card-not-found')return history;const to=typeof pivots.to==='number'?pivots.to:history.value.catalog.versions.at(-1)?.version??0;if(pivots.from>to)return{kind:'invalid-pivots',from:pivots.from,to};const select=(version:number,side:'from'|'to')=>{const artifact=history.value.catalog.versions[version-1];return !artifact||artifact.version!==version?{kind:'version-not-found' as const,version,side}:projectAuthoredRecordArtifact(history.value.definition,artifact);};const from=select(pivots.from,'from');if('kind'in from)return from;const toProjection=select(to,'to');if('kind'in toProjection)return toProjection;return{kind:'found',value:{card:history.value.card,definition:history.value.definition,from,to:toProjection}};}
+  listDeclaredRecordMetadata(cardId:string,instrumentation?:CanonicalReadInstrumentation):CardDeclaredRecordMetadataResult{const reached=readActiveCardPath(this.projectRoot,cardId,instrumentation);if(!reached)return{kind:'card-not-found'};const card=reached.fold.current.card;return{kind:'found',value:{card,definitions:this.recordDefinitionsFor(card).map((definition)=>{const classification=classifyCurrentAuthoredRecord(this.projectRoot,card,definition,instrumentation);if(classification.kind!=='present'&&definition.bootstrap)throw new Error(`Card '${cardId}' required bootstrap record '${definition.filename}' is unavailable.`);return{definition,classification};})}};}
+  classifyCurrentRecord(card:CardRecord,filename:string,instrumentation?:CanonicalReadInstrumentation):CurrentAuthoredRecordClassification{return classifyCurrentAuthoredRecord(this.projectRoot,card,this.recordDefinitionFor(card,filename),instrumentation);}
+  private admitWrite(cardId:string,filename:string){const admitted=this.admittedRecord(cardId,filename);if(!admitted)throw new AuthoredRecordNotFoundError();return admitted;}
+  openRecord(cardId: string, filename: string): RecordProjection {const a=this.admitWrite(cardId,filename);return openAuthoredRecord(this.projectRoot,a.card,a.definition,this.cardAppendIo); }
+  editRecord(cardId: string, filename: string, content: string): RecordProjection {const a=this.admitWrite(cardId,filename);return editOpenAuthoredRecord(this.projectRoot,a.card,a.definition,content,this.cardAppendIo); }
   closeRecord(cardId: string, filename: string, agentName: AgentName): RecordProjection {
-    const closed = closeOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), agentName, this.cardAppendIo);
+    const a=this.admitWrite(cardId,filename);const closed = closeOpenAuthoredRecord(this.projectRoot,a.card,a.definition,agentName,this.cardAppendIo);
     this.freshness.cardProjectionChanged({ resource: 'cards', scope: 'record', card_id: cardId, record_name: filename as never });
     return closed;
   }
-  discardRecord(cardId: string, filename: string, reason: string): RecordProjection { return discardOpenAuthoredRecord(this.projectRoot, cardId, this.recordDefinition(cardId,filename), reason, this.cardAppendIo); }
+  discardRecord(cardId: string, filename: string, reason: string): RecordProjection {const a=this.admitWrite(cardId,filename);return discardOpenAuthoredRecord(this.projectRoot,a.card,a.definition,reason,this.cardAppendIo); }
 
   getCardDetail(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<CardRecord> {
     return clone(readCardDetail(this.projectRoot, id, instrumentation));
@@ -216,32 +211,33 @@ export class CardService {
     return readCanonicalCardHierarchy(this.projectRoot, id, instrumentation);
   }
   getCanonicalCardFilesMetadata(id: string): CardTargetRead<CanonicalCardFilesMetadataProjection> {
-    if(!this.read(id))return {kind:'card-not-found'};
-    return readCanonicalCardFilesMetadata(this.projectRoot, id,this.recordDefinitions(id));
+    const catalog=readCommittedCardArtifactCatalog(this.projectRoot,id);if(catalog.kind==='card-not-found')return catalog;const head=catalog.value.head;const card=head.kind==='card-version'?head.card:head.final_card;if(head.kind==='card-tombstone')return{kind:'found',value:{card:{card,artifact:head},active:false,recordFiles:[]}};const definitions=this.recordDefinitionsFor(card);const recordFiles=definitions.flatMap((definition)=>{const classification=classifyCurrentAuthoredRecord(this.projectRoot,card,definition);if(classification.kind!=='present'){if(definition.bootstrap)throw new Error(`Card '${id}' required bootstrap record '${definition.filename}' is unavailable.`);return[];}const effective=effectiveRecordContent(classification.projection.artifact);return effective?[{slot:definition.filename,size:Buffer.byteLength(effective.content),modifiedAt:effective.modifiedAt}]:[];});return{kind:'found',value:{card:{card,artifact:head},active:true,recordFiles}};
   }
   getCardChildren(id: string, instrumentation?: CanonicalReadInstrumentation): CardTargetRead<{ parent: CardRecord; activeChildren: CardRecord[] }> {
     return clone(readCardHierarchy(this.projectRoot, id, instrumentation));
   }
   listCardVersions(id: string, instrumentation?: CanonicalReadInstrumentation): CardVersionListResult {
-    return clone(listCardVersions(this.projectRoot, id, instrumentation));
+    const catalog=readCommittedCardArtifactCatalog(this.projectRoot,id,instrumentation);return catalog.kind==='card-not-found'?catalog:{kind:'found',value:clone(catalog.value.versions)};
   }
   readCardVersion(id: string, version: number, instrumentation?: CanonicalReadInstrumentation): CardVersionContentResult {
     positiveSafeIntegerSchema.parse(version);
-    return clone(readCardVersion(this.projectRoot, id, version, instrumentation));
+    const catalog = readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation);
+    if (catalog.kind === 'card-not-found') return catalog;
+    const row = catalog.value.rows[version - 1];
+    return row && row.version === version
+      ? { kind: 'found', value: clone(row) }
+      : { kind: 'version-not-found', version };
   }
   diffCardVersions(id: string, pivots: { fromVersion: number; toVersion?: number | 'current' }, instrumentation?: CanonicalReadInstrumentation): CardVersionDiffResult {
     positiveSafeIntegerSchema.parse(pivots.fromVersion); if (pivots.toVersion !== undefined && pivots.toVersion !== 'current') positiveSafeIntegerSchema.parse(pivots.toVersion);
-    const listed = listCardVersions(this.projectRoot, id, instrumentation); if (listed.kind === 'card-not-found') return listed;
-    const to = typeof pivots.toVersion === 'number' ? pivots.toVersion : listed.value.at(-1)?.version ?? 0; const from = pivots.fromVersion;
+    const catalog = readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation); if (catalog.kind === 'card-not-found') return catalog;
+    const to = typeof pivots.toVersion === 'number' ? pivots.toVersion : catalog.value.head.version; const from = pivots.fromVersion;
     if (from > to) return { kind: 'invalid-pivots', from, to };
-    const readSide = (version: number, side: 'from' | 'to') => { const result = readCardVersion(this.projectRoot, id, version, instrumentation); return result.kind === 'version-not-found' ? { kind: 'version-not-found' as const, version, side } : result; };
-    const fromResult = readSide(from, 'from'); if (fromResult.kind !== 'found') return fromResult;
-    const toResult = pivots.toVersion === undefined || pivots.toVersion === 'current'
-      ? readCurrentCardArtifact(this.projectRoot, id, instrumentation)
-      : readSide(to, 'to');
-    if (toResult.kind !== 'found') return toResult;
-    return { kind: 'found', from, to, diff: clone(diffArtifacts(fromResult.value, toResult.value)) };
+    const select=(version:number,side:'from'|'to')=>{const row=catalog.value.rows[version-1];return row&&row.version===version?row:{kind:'version-not-found' as const,version,side};};const fromArtifact=select(from,'from');if('side'in fromArtifact)return fromArtifact;const toArtifact=pivots.toVersion===undefined||pivots.toVersion==='current'?catalog.value.head:select(to,'to');if('side'in toArtifact)return toArtifact;return { kind: 'found', from, to,fromArtifact:clone(fromArtifact),toArtifact:clone(toArtifact), diff: clone(diffArtifacts(fromArtifact,toArtifact)) };
   }
+  readCommittedCardHead(id:string,instrumentation?:CanonicalReadInstrumentation):CardTargetRead<CardArtifact>{const catalog=readCommittedCardArtifactCatalog(this.projectRoot,id,instrumentation);return catalog.kind==='card-not-found'?catalog:{kind:'found',value:clone(catalog.value.head)};}
+  listCardInspectionRows(instrumentation?:CanonicalReadInstrumentation):readonly CardInspectionListRow[]{return listActiveCardTraversal(this.projectRoot,instrumentation).map(({card,parentId,activeChildrenCount})=>clone({card,parentId,activeChildrenCount}));}
+  readCardInspectionTree(rootId:string,maxDepth:number,instrumentation?:CanonicalReadInstrumentation):CardTargetRead<readonly CardInspectionTreeRow[]>{const result=readActiveCardSubtree(this.projectRoot,rootId,instrumentation);return result.kind==='card-not-found'?result:{kind:'found',value:result.value.filter(({relativeDepth})=>relativeDepth<=maxDepth).map((row)=>clone(row))};}
 
   create(input: NewChildCardInput): CardRecord {
     if(input.bootstrap_content.trim().length===0)throw new Error('Child bootstrap_content must contain non-whitespace Markdown.');
@@ -250,19 +246,19 @@ export class CardService {
     if (!parent) throw new Error(`Parent card '${input.parent}' does not exist.`);
     const depth = cardDepth(parent.id) + 1;
     if (depth > MAX_CARD_DEPTH) throw new Error(`Cannot create card at depth ${depth}. Maximum allowed depth is ${MAX_CARD_DEPTH}.`);
-    assertChildParentAdmission(parent,null, 'Cannot create a child under', this.workflows);
+    const parentWorkflow=admitChildParent(parent,'Cannot create a child under',this.workflows);
     const childWorkflow=this.workflows.cardTypes.get(input.type);if(!childWorkflow)throw new Error(`No workflow for child type '${input.type}'.`);
-    assertChildParentAdmission(parent,input.type, 'Cannot create a child under', this.workflows);
+    assertPermittedChildType(parent,input.type,'Cannot create a child under',parentWorkflow);
     if(depth===MAX_CARD_DEPTH&&childWorkflow.permittedChildTypes.size!==0)throw new Error(`Cannot create non-leaf child type '${input.type}' at maximum card depth ${MAX_CARD_DEPTH}.`);
     for (const dependencyId of input.depends_on) if (!this.read(dependencyId)) throw new Error(`Dependency card '${dependencyId}' does not exist.`);
     const parentBeforeClaim = this.read(parent.id);
     if (!parentBeforeClaim) throw new Error(`Parent '${parent.id}' changed before child namespace claim.`);
-    assertChildParentAdmission(parentBeforeClaim,input.type, 'Cannot claim a child namespace under', this.workflows);
+    assertPermittedChildType(parentBeforeClaim,input.type,'Cannot claim a child namespace under',admitChildParent(parentBeforeClaim,'Cannot claim a child namespace under',this.workflows));
     const card = publishInitialChildCard(this.projectRoot, input,childWorkflow);
     if (cardParentId(card.id) !== parentBeforeClaim.id || cardDepth(card.id) !== depth) throw new Error(`Claimed card '${card.id}' does not belong to requested parent '${parentBeforeClaim.id}'.`);
     const freshParent = this.read(parent.id);
     if (!freshParent || freshParent.child_membership.includes(card.id)) throw new Error(`Parent '${parent.id}' changed during child publication.`);
-    assertChildParentAdmission(freshParent,input.type, 'Cannot link a child under', this.workflows);
+    assertPermittedChildType(freshParent,input.type,'Cannot link a child under',admitChildParent(freshParent,'Cannot link a child under',this.workflows));
     const linked = cardRecordSchema.parse({ ...freshParent, child_membership: [...freshParent.child_membership, card.id], active_child_order: [...freshParent.active_child_order, card.id], version_seq: freshParent.version_seq + 1, updated_at: new Date().toISOString() });
     const linkChange = versionChange(freshParent, linked, 'child_link', ['child_membership', 'active_child_order'], `linked child ${card.id}`, 'child linked');
     publishCardVersion(this.projectRoot, linked, linkChange, this.cardAppendIo);

@@ -33,7 +33,7 @@ describe('AgentNodeExecution LLM options', () => {
 
     const store = {
       workflows: { cardTypes: new Map([['project', { bootstrapRecord: { name: 'brief.md' } }]]) },
-      readCurrentRecord: () => ({ artifact: { accepted: { content: 'brief' } } }),
+      readRecordCurrent: () => ({ kind: 'found', value: { projection: { artifact: { accepted: { content: 'brief' } } } } }),
       listChildren: () => [],
     };
     let renderedVariables: Record<string, unknown> | undefined;

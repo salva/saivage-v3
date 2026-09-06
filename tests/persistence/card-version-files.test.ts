@@ -10,9 +10,10 @@ import { cardStreamFile } from '../../src/persistence/layout.js';
 import { buildContentPolicyReadModel } from '../../src/application/read-models/content-policy-read-model.js';
 import { CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY } from '../../src/schemas/index.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
-import { readCanonicalLinkedCardHistoryTree, readCard, readCardVersion, listCardVersions } from '../../src/persistence/card-files.js';
+import { readCanonicalLinkedCardHistoryTree, readCard,readCommittedCardArtifactCatalog } from '../../src/persistence/card-files.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 import type { GrowingFileIo } from '../../src/persistence/growing-file.js';
+import type { CanonicalReadInstrumentation } from '../../src/persistence/growing-file.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -85,7 +86,7 @@ describe('card exact stream', () => {
     const rows = streamRows(root, child.id);
     expect(rows.map(({ version }) => version)).toEqual([1, 2]);
     expect(readFileSync(path).subarray(0, initial.byteLength)).toEqual(initial);
-    expect(listCardVersions(root, child.id)).toMatchObject({ kind: 'found', value: [{ version: 1, artifact_kind: 'card-version' }, { version: 2, artifact_kind: 'card-version' }] });
+    expect(readCommittedCardArtifactCatalog(root,child.id)).toMatchObject({ kind: 'found', value:{versions: [{ version: 1, artifact_kind: 'card-version' }, { version: 2, artifact_kind: 'card-version' }] }});
     expect(cards.read(child.id)?.title).toBe('after');
   });
 
@@ -116,6 +117,7 @@ describe('card exact stream', () => {
     const tree = readCanonicalLinkedCardHistoryTree(root);
     expect(tree.map(({ current }) => current.id)).toEqual(['project', child.id]);
     expect(tree.at(-1)!.tombstone).toMatchObject({ kind: 'card-tombstone' });
+    for(const read of [(i:CanonicalReadInstrumentation)=>cards.listCardVersions(child.id,i),(i:CanonicalReadInstrumentation)=>cards.readCardVersion(child.id,2,i),(i:CanonicalReadInstrumentation)=>cards.readCommittedCardHead(child.id,i),(i:CanonicalReadInstrumentation)=>cards.diffCardVersions(child.id,{fromVersion:1,toVersion:'current'},i)]){const paths:string[]=[];read({onRead:(path)=>paths.push(path)});expect(paths).toEqual([cardStreamFile(root,'project'),cardStreamFile(root,child.id)]);}
   });
 
   it.each(['malformed', 'empty', 'empty-rows', 'unterminated'] as const)('fails fast on a %s card stream without fallback or mutation', (fault) => {

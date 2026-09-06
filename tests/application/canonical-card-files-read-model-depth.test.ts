@@ -45,15 +45,7 @@ function fixture(): CardService {
 }
 
 function readerFor(cards: CardService): CanonicalCardFilesReader {
-  return {
-    current: (cardId, filename) => cards.readCurrentRecord(cardId, filename),
-    historical: (cardId, filename, version) => cards.readHistoricalRecord(cardId, filename, version),
-    definition: (cardId, filename) => cards.recordReader.definition(cardId, filename),
-    getCanonicalCard: (cardId) => cards.getCanonicalCard(cardId),
-    getCanonicalCardChildren: (cardId) => cards.getCanonicalCardChildren(cardId),
-    getCanonicalCardFilesMetadata: (cardId) => cards.getCanonicalCardFilesMetadata(cardId),
-    readCardVersion: (cardId, version) => cards.readCardVersion(cardId, version),
-  };
+  return cards;
 }
 
 function lastRow(cards: CardService): CardArtifact {
@@ -67,6 +59,11 @@ function retitle(cards: CardService, title: string): CardRecord {
 }
 
 describe('CanonicalCardFilesReadModel virtual card documents', () => {
+  it('exposes only terminal card.json for a directly addressed retained tombstone',()=>{
+    const cards=fixture();const child=cards.create({type:'code',parent:'project',title:'deleted',bootstrap_content:'brief',tags:[],priority:0,urgency:'normal',created_by:'analyst',depends_on:[],related:[]});cards.deleteSubtrees([child.id],()=>true,'analyst');const model=new CanonicalCardFilesReadModel(()=>cards);const namespace=`${NAMESPACE}/children/a`;
+    expect(model.list(namespace)).toMatchObject({body:{files:[{name:'card.json'}]}});const current=model.content(`${namespace}/card.json`);expect(current).toMatchObject({body:{version:2}});if('statusCode'in current)throw new Error('expected tombstone head');expect(JSON.parse(current.body.content)).toMatchObject({kind:'card-tombstone',card_id:child.id});expect(model.content(`${namespace}/card.json?v=1`)).toMatchObject({body:{version:1}});expect(model.list(`${namespace}/children`)).toMatchObject({statusCode:404});expect(model.content(`${namespace}/brief.md`)).toMatchObject({statusCode:404});
+  });
+
   it('serves strict row-format-2 current and historical artifacts with both relationship arrays', () => {
     const cards = fixture();
     const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });

@@ -39,7 +39,7 @@ export function admitRecordMutation(store: CardService, request: RecordMutationR
   if (request.requiredTools.some((name) => !configured.tools.some((tool) => tool.name === name))) return denied(parsed, request.operation, 'tool_not_authorized');
   if (request.surface === 'analyst' && analystRecordEditEffect(card.lifecycle.status) === null) return denied(parsed, request.operation, 'lifecycle_unsupported');
   let classification: ReturnType<CardService['classifyCurrentRecord']>;
-  try { classification = store.classifyCurrentRecord(parsed.cardId, parsed.name); }
+  try { classification = store.classifyCurrentRecord(card, parsed.name); }
   catch { return failure({ kind: 'rejected', error: 'Current record state unavailable; restart required.', data: { code: 'current_state_unavailable', resource: 'authored_record', owner_id: `${parsed.cardId}/${parsed.name}`, operation: request.operation, restart_required: true } }); }
   const current = classification.kind === 'present' ? classification.projection : null;
   if (request.surface === 'analyst' && current?.artifact.state === 'open') return failure({ kind: 'rejected', error: 'Record already has an open workflow draft.', data: { code: 'record_open_conflict', card_id: parsed.cardId, name: parsed.name as never, current_head: current.headVersion, operation: request.operation } });

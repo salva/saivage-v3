@@ -6,10 +6,8 @@ import { hasParentPathSegment, isReadBlocked, isRedacted, resolveContainedProjec
 import { redactForOutbound, redactTextForOutbound } from '../../redaction/index.js';
 import { SAIVAGE_CARDS_RELATIVE_DIR, SAIVAGE_WORK_RELATIVE_DIR } from '../../persistence/layout.js';
 import { CanonicalCardFilesReadModel, type CanonicalCardFilesReader } from './canonical-card-files-read-model.js';
-import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../../persistence/authored-record-files.js';
 import { cardIdSchema } from '../../schemas/index.js';
 import type { ResolvedConfigAuthority } from '../../config/index.js';
-import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 
 const MAX_FILE_SIZE_BYTES = 1_048_576;
 const BINARY_SAMPLE_BYTES = 4096;
@@ -71,7 +69,7 @@ function isBinaryBuffer(buffer: Buffer): boolean {
   return suspicious / length > 0.3;
 }
 
-function parseRecordContentRequest(requestedPath: string,records:CanonicalCardFilesReader): RecordContentRequest {
+function parseRecordContentRequest(requestedPath: string): RecordContentRequest {
   let parsed: ReturnType<typeof parseScopedPathUrl>;
   try { parsed = parseScopedPathUrl(requestedPath, 'record'); }
   catch { return { kind: 'invalid', error: 'Invalid record URL.' }; }
@@ -83,12 +81,6 @@ function parseRecordContentRequest(requestedPath: string,records:CanonicalCardFi
   if (!rawCardId) return { kind: 'invalid', error: 'Record URL requires card.' };
   const parsedCardId = cardIdSchema.safeParse(rawCardId);
   if (!parsedCardId.success) return { kind: 'invalid', error: 'Invalid record URL.' };
-  try { records.definition(parsedCardId.data, filename); }
-  catch (error) {
-    throwIfPublicationOutcomeUnknown(error);
-    if (error instanceof AuthoredRecordDefinitionNotFoundError) return { kind: 'invalid', error: 'Invalid record URL.' };
-    if (!(error instanceof AuthoredRecordNotFoundError)) throw error;
-  }
   const rawVersion = parsed.query.get('v');
   if (rawVersion === null) return { kind: 'valid', cardId: parsedCardId.data, filename, version: null };
   if (!/^[1-9]\d*$/u.test(rawVersion)) return { kind: 'invalid', error: 'Invalid record version.' };
@@ -314,18 +306,14 @@ export class WorkspaceFileReadModelService {
   readFileContent(requestedPath: string | undefined): WorkspaceFileContentResult {
     if (!requestedPath) return { statusCode: 400, body: { error: 'Path query parameter is required.' } };
     if (requestedPath.startsWith('record:///')) {
-      const request = parseRecordContentRequest(requestedPath,this.records());
+      const request = parseRecordContentRequest(requestedPath);
       if (request.kind === 'invalid') return { statusCode: 400, body: { error: request.error, path: requestedPath } };
-      try {
-        const record = request.version===null?this.records().current(request.cardId, request.filename):this.records().historical(request.cardId,request.filename,request.version);
+      {
+        const result=request.version===null?this.records().readRecordCurrent(request.cardId,request.filename):this.records().readRecordVersion(request.cardId,request.filename,request.version);
+        if(result.kind!=='found'||!result.value.projection)return request.version===null?{statusCode:404,body:{error:'Closed record not found.',path:requestedPath}}:{statusCode:404,body:{error:'workspace_historical_version_not_found',path:requestedPath,historical:{error:'historical_version_not_found',resource:'authored_record',owner_id:`${request.cardId}/${request.filename}`,version:request.version}}};
+        const record=result.value.projection;
         const effective=record.artifact.state==='open'?record.artifact.draft:record.artifact.accepted;if(!effective)return { statusCode: 404, body: { error: 'Record content not found.', path: requestedPath } };
         return { body: { path: request.version===null?record.currentUrl:record.versionUrl, size: Buffer.byteLength(effective.content), contentType: 'text/markdown', content: effective.content, redacted: false, sensitivity: 'normal', version: request.version??record.headVersion, modifiedAt: record.artifact.state==='open'?record.artifact.draft!.updated_at:record.artifact.accepted!.committed_at } };
-      } catch (error) {
-        throwIfPublicationOutcomeUnknown(error);
-        if (error instanceof AuthoredRecordNotFoundError) return request.version === null
-          ? { statusCode: 404, body: { error: 'Closed record not found.', path: requestedPath } }
-          : { statusCode: 404, body: { error: 'workspace_historical_version_not_found', path: requestedPath, historical: { error: 'historical_version_not_found', resource: 'authored_record', owner_id: `${request.cardId}/${request.filename}`, version: request.version } } };
-        throw error;
       }
     }
     const admission = this.admitRequestedPath(requestedPath);

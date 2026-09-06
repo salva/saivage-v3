@@ -110,21 +110,21 @@ describe('exact Card operator resources',()=>{
 
   it('does not normalize an unexpected record-reader absence',()=>{
     const card={id:'card-a',type:'goal'};
-    const store={getCardDetail:()=>({kind:'found',value:card}),recordReader:{definition:()=>({filename:'brief.md',format:'markdown',schema:'x',bootstrap:true,declared:true})},readCurrentRecord:()=>{throw new AuthoredRecordNotFoundError();}};
+    const store={readRecordCurrent:()=>{throw new AuthoredRecordNotFoundError();}};
     const model=new CardsReadModelService('/work',store as never,{getRuntimeState:()=>null});
     expect(()=>model.getRecord('card-a','brief.md')).toThrow(AuthoredRecordNotFoundError);
   });
 
   it('rethrows publication uncertainty by identity before record absence classification',()=>{
     const fatal=new PublicationOutcomeUnknownError();const card={id:'card-a',type:'goal'};
-    const store={getCardDetail:()=>({kind:'found',value:card}),recordReader:{definition:()=>({filename:'status.md',format:'markdown',schema:'x',bootstrap:false,declared:true})},readCurrentRecord:()=>{throw fatal;}};
+    const store={readRecordCurrent:()=>{throw fatal;}};
     const model=new CardsReadModelService('/work',store as never,{getRuntimeState:()=>null});
     try{model.getRecord('card-a','status.md');throw new Error('expected publication uncertainty');}catch(error){expect(error).toBe(fatal);}
   });
 
   it('rethrows publication uncertainty before definition absence classification',()=>{
     const fatal=new PublicationOutcomeUnknownError();const card={id:'card-a',type:'goal'};
-    const store={getCardDetail:()=>({kind:'found',value:card}),recordReader:{definition:()=>{throw fatal;}}};
+    const store={readRecordCurrent:()=>{throw fatal;}};
     const model=new CardsReadModelService('/work',store as never,{getRuntimeState:()=>null});
     try{model.getRecord('card-a','status.md');throw new Error('expected publication uncertainty');}catch(error){expect(error).toBe(fatal);}
   });
@@ -132,7 +132,6 @@ describe('exact Card operator resources',()=>{
   it('propagates complete card-stream failures and typed not-found without availability branches', () => {
     const store = {
       getCardDetail: () => ({ kind: 'found', value: { id: 'card-a', type: 'goal' } }),
-      recordReader: { definition: () => ({}) },
       readCardVersion: () => ({ kind: 'version-not-found', version: 2 }),
     };
     const model = new CardsReadModelService('/work', store as never, { getRuntimeState: () => null });

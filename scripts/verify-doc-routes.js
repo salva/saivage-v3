@@ -807,8 +807,8 @@ function selectCardNotFoundUnion(projectRoot, unionName, operation) {
   const service = 'src/cards/card-service.ts';
   const { ast: serviceAst } = sourceAst(projectRoot, service);
   requireNodeFragments(namedFunction(serviceAst, operation === 'cards.history.get' ? 'readCardVersion' : 'diffCardVersions', service), serviceAst, operation === 'cards.history.get'
-    ? ['readCardVersion(this.projectRoot, id, version, instrumentation)']
-    : ["{ kind: 'version-not-found' as const, version, side }"], `${operation} CardService selection`);
+    ? ['readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)', "if (catalog.kind === 'card-not-found') return catalog", 'catalog.value.rows[version - 1]', 'row.version === version', "{ kind: 'version-not-found', version }"]
+    : ["kind:'version-not-found' as const,version,side"], `${operation} CardService selection`);
   return errorValue([card, historical]);
 }
 
@@ -1171,7 +1171,7 @@ function selectBackendPivot(projectRoot, side) {
   requireSourceFragments(projectRoot, contract, ['canonicalPositiveSafeIntegerStringSchema = z.string().regex(/^[1-9][0-9]*$/)', '.superRefine((raw, ctx)', 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', '.transform(Number)', "diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema])", 'CardDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() }).strict()'], 'backend diff query');
   requireSourceFragments(projectRoot, 'src/server/routes/operator-runtime-card-handlers.ts', ["'cards.diff': ({ params, query }) => getCardsReadModel().diffCard(params.id, query)"], 'backend diff handler');
   requireSourceFragments(projectRoot, 'src/application/read-models/cards-read-model.ts', ['diffCard(id: string, query:', 'fromVersion: query.from, toVersion: query.to'], 'backend diff read-model mapping');
-  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ["toVersion?: number | 'current'", "typeof pivots.toVersion === 'number' ? pivots.toVersion : listed.value.at(-1)?.version ?? 0", "pivots.toVersion === undefined || pivots.toVersion === 'current'", 'readCurrentCardArtifact(this.projectRoot, id, instrumentation)'], 'backend diff service meanings');
+  requireSourceFragments(projectRoot, 'src/cards/card-service.ts', ["toVersion?: number | 'current'", 'readCommittedCardArtifactCatalog(this.projectRoot, id, instrumentation)', "typeof pivots.toVersion === 'number' ? pivots.toVersion : catalog.value.head.version", "pivots.toVersion===undefined||pivots.toVersion==='current'?catalog.value.head"], 'backend diff service meanings');
   return side === 'from'
     ? { field: 'from', presence: 'required', variants: [{ kind: 'canonical-positive-safe-integer' }], mapping: 'fromVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number' }
     : { field: 'to', presence: 'optional', variants: [{ kind: 'literal', value: 'current' }, { kind: 'canonical-positive-safe-integer' }], mapping: 'toVersion', regex: '^[1-9][0-9]*$', refinement: 'positiveSafeIntegerSchema.safeParse(Number(raw)).success', transform: 'Number', meanings: { numeric: 'historical-version', omitted: 'current-artifact', current: 'current-artifact' } };

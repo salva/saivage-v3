@@ -144,13 +144,13 @@ describe('dependency-completion activation admission E2E', () => {
     expect(selectLinkedRunningChain(cards).map(({ id }) => id)).toEqual(['project', parent.id]);
     expect(dependentCalls).toBe(0);
     expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual([]);
-    expect(() => cards.readCurrentRecord(dependent.id, 'status.md')).toThrow();
+    expect(cards.readRecordCurrent(dependent.id,'status.md')).toMatchObject({kind:'found',value:{projection:null}});
     expect(processRunner.list({ cardId: dependent.id })).toEqual([]);
 
     allowDependency.resolve();
     await settleWithin(dependencyDoneBeforeSecondRequest.promise, 'A completion');
     expect(cards.read(dependency.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'A complete.' } } });
-    expect(cards.readCurrentRecord(dependency.id, 'status.md').artifact.accepted?.content).toBe('A completed first.');
+    expect(cards.readRecordCurrent(dependency.id,'status.md')).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'A completed first.'}}}}});
     expect(dependencyCalls).toBe(2);
     expect(cards.read(dependent.id)?.lifecycle.status).toBe('backlog');
 
@@ -165,7 +165,7 @@ describe('dependency-completion activation admission E2E', () => {
 
     allowDependentTool.resolve();
     await settleWithin(dependentToolCompleted.promise, 'B tool completion');
-    expect(cards.readCurrentRecord(dependent.id, 'status.md').artifact.draft?.content).toBe('B admitted after A.');
+    expect(cards.readRecordCurrent(dependent.id,'status.md')).toMatchObject({kind:'found',value:{projection:{artifact:{draft:{content:'B admitted after A.'}}}}});
     expect(readConversation(projectRoot, `agent:executor:${dependent.id}`).physicalRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'tool_call', tool: 'write', tool_call_id: 'write-b' }),
       expect.objectContaining({ kind: 'tool_result', tool: 'write', tool_call_id: 'write-b' }),
@@ -174,7 +174,7 @@ describe('dependency-completion activation admission E2E', () => {
     allowDependentCompletion.resolve();
     await waitUntil(() => cards.read(dependent.id)?.lifecycle.status === 'done');
     expect(cards.read(dependent.id)).toMatchObject({ lifecycle: { status: 'done', result: { kind: 'workflow-result', summary: 'B complete.' } } });
-    expect(cards.readCurrentRecord(dependent.id, 'status.md').artifact.accepted?.content).toBe('B admitted after A.');
+    expect(cards.readRecordCurrent(dependent.id,'status.md')).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'B admitted after A.'}}}}});
     expect(dependentCalls).toBe(2);
     expect(ownership.activationOwners.has(dependent.id)).toBe(false);
     await waitUntil(() => supervisor.getStatus().status === 'stopped');

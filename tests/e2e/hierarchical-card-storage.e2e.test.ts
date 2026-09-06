@@ -53,15 +53,7 @@ describe('reset-only hierarchical card storage', () => {
     expect(reordered.listChildren(goal.id)).toEqual([dependent.id, dependency.id]);
     expect(toCardView(reordered, reordered.read(dependent.id)!).logical_path).toBe('1.1');
     expect(toCardView(reordered, reordered.read(dependency.id)!).logical_path).toBe('1.2');
-    const files = new CanonicalCardFilesReadModel(() => ({
-      current: (cardId, filename) => reordered.readCurrentRecord(cardId, filename),
-      historical: (cardId, filename, version) => reordered.readHistoricalRecord(cardId, filename, version),
-      definition: (cardId, filename) => reordered.recordReader.definition(cardId, filename),
-      getCanonicalCard: (cardId) => reordered.getCanonicalCard(cardId),
-      getCanonicalCardChildren: (cardId) => reordered.getCanonicalCardChildren(cardId),
-      getCanonicalCardFilesMetadata: (cardId) => reordered.getCanonicalCardFilesMetadata(cardId),
-      readCardVersion: (cardId, version) => reordered.readCardVersion(cardId, version),
-    } satisfies CanonicalCardFilesReader));
+    const files = new CanonicalCardFilesReadModel(() => reordered satisfies CanonicalCardFilesReader);
     const childrenPath = `.saivage/cards/project/children/${goal.id.split('-').at(-1)!}/children`;
     const filesResult = files.list(childrenPath);
     if ('statusCode' in filesResult) throw new Error('Expected Files child directory.');
@@ -89,7 +81,7 @@ describe('reset-only hierarchical card storage', () => {
     const restarted = new CardService(root);
     expect(restarted.read(goal.id)).not.toBeNull();
     expect(restarted.read(dependency.id)).toBeNull();
-    expect(restarted.readHistoricalRecord(goal.id, 'brief.md', 1).versionUrl).toContain('&v=1');
+    const historical=restarted.readRecordVersion(goal.id,'brief.md',1);expect(historical.kind).toBe('found');if(historical.kind==='found')expect(historical.value.projection.versionUrl).toContain('&v=1');
     expect(restarted.read('card-z')).toBeNull();
     expect(restarted.list().map(({ id }) => id)).not.toContain('card-z');
     expect(readConversation(root, dependencySession).physicalRows.map(({ id }) => id)).toEqual(['message']);

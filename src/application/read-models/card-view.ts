@@ -24,33 +24,6 @@ function siblingDisplayRank(store: CardService, card: CardRecord): number {
   return index + 1;
 }
 
-export function orderedCardsForTree(store: { list(): CardRecord[]; listChildren(cardId: string): string[] }): CardRecord[] {
-  const all = store.list();
-  const byId = new Map(all.map((card) => [card.id, card]));
-  const result: CardRecord[] = [];
-  const visited = new Set<string>();
-
-  const visit = (id: string) => {
-    if (visited.has(id)) return;
-    const card = byId.get(id);
-    if (!card) throw new Error(`Card topology corruption: missing card ${id} during tree ordering`);
-    visited.add(id);
-    result.push(card);
-    for (const childId of store.listChildren(id)) visit(childId);
-  };
-
-  if (byId.has(PROJECT_CARD_ID)) visit(PROJECT_CARD_ID);
-  else for (const childId of store.listChildren(PROJECT_CARD_ID)) visit(childId);
-  for (const card of all) {
-    if (visited.has(card.id)) continue;
-    const parent = cardParentId(card.id);
-    if (parent && parent !== PROJECT_CARD_ID && !byId.has(parent)) throw new Error(`Card topology corruption: missing parent ${parent} for card ${card.id}`);
-    if (parent === null) visit(card.id);
-  }
-  if (result.length !== all.length) throw new Error('Card topology corruption: tree ordering did not visit every card');
-  return result;
-}
-
 export function toCardView(store: CardService, card: CardRecord): CardView {
   return { card, logical_path: computeCardLogicalPath(store, card), status: card.lifecycle.status, parent: cardParentId(card.id), operator_summary: toCardOperatorSummary(card) };
 }

@@ -111,7 +111,7 @@ function isSaivageInternalDestination(projectRoot: string, destination: string):
 }
 
 function vfsCtx(ctx: WorkspaceContext) {
-  return { projectRoot: ctx.projectRoot, records: ctx.store?.recordReader, agent: { cardId: ctx.cardId, agentName: ctx.agentName }, fail: toolInputError };
+  return { projectRoot: ctx.projectRoot, records: ctx.store, agent: { cardId: ctx.cardId, agentName: ctx.agentName }, fail: toolInputError };
 }
 
 function assertScopedReadable(ctx: WorkspaceContext, resolved: VfsResolved): ResolvedToolPath {

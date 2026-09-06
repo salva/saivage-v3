@@ -116,6 +116,11 @@ describe('CardService scoped relationship reads', () => {
     expect(cards.list().map((card) => card.id)).toEqual(['project', goal.id, first.id, second.id, nested.id]);
   });
 
+  it('visits each reached descendant membership fold once',()=>{
+    const {root,cards}=project();const parent=cards.create(input('project','goal'));const first=cards.create(input(parent.id,'goal'));const nested=cards.create(input(first.id));const second=cards.create(input(parent.id));const paths:string[]=[];
+    const tree=cards.readCardInspectionTree(parent.id,1,{onRead:(path)=>paths.push(path)});expect(tree).toMatchObject({kind:'found',value:[{card:{id:parent.id},activeDescendantCount:3},{card:{id:first.id},activeDescendantCount:1},{card:{id:second.id},activeDescendantCount:0}]});for(const id of ['project',parent.id,first.id,nested.id,second.id])expect(paths.filter((path)=>path===cardStreamFile(root,id))).toHaveLength(1);
+  });
+
   it('returns operation-specific absence for well-formed inactive targets and rejects every malformed ID', () => {
     const { cards } = project();
     expect(cards.getParent('card-z')).toBeNull();

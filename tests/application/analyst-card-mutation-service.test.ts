@@ -12,6 +12,8 @@ import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-
 
 const FIRST = 'card-a';
 const SECOND = 'card-a-b';
+function current(cards:CardService,id:string,name:string){const result=cards.readRecordCurrent(id,name);if(result.kind!=='found'||!result.value.projection)throw new Error('missing record');return result.value.projection;}
+function historical(cards:CardService,id:string,name:string,version:number){const result=cards.readRecordVersion(id,name,version);if(result.kind!=='found')throw new Error('missing record version');return result.value.projection;}
 
 function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): CardRecord {
   const common = { id, type, child_membership: [], active_child_order: [], title: id, subtype: null, tags: [], priority: 0, urgency: 'normal' as const, created_by: 'analyst' as const, created_at: '2026-07-20T00:00:00.000Z', updated_at: '2026-07-20T00:00:00.000Z', version_seq: 1, assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [] };
@@ -309,9 +311,9 @@ describe('Analyst record publication', () => {
       const finalContent = '# Goal\nFinal\n# Instructions\nFinal\n# Acceptance Criteria\nFinal';
       const result = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations.edit(`record:///brief.md?card=${target.id}`, 'Original', 'Final', true);
       expect(result).toMatchObject({ kind: 'returned', success: true, data: { card_id: target.id, name: 'brief.md', state: 'closed', head_version: 4, current_url: `record:///brief.md?card=${target.id}`, version_url: `record:///brief.md?card=${target.id}&v=4`, bytes: Buffer.byteLength(finalContent), written: true, surface: 'analyst', propagation: { ok: true } } });
-      expect(cards.readCurrentRecord(target.id, 'brief.md').artifact.accepted?.content).toBe(finalContent);
-      expect(cards.readHistoricalRecord(target.id, 'brief.md', 2).artifact.state).toBe('open');
-      expect(cards.readHistoricalRecord(target.id, 'brief.md', 3).artifact.draft?.content).toBe(finalContent);
+      expect(current(cards,target.id,'brief.md').artifact.accepted?.content).toBe(finalContent);
+      expect(historical(cards,target.id,'brief.md',2).artifact.state).toBe('open');
+      expect(historical(cards,target.id,'brief.md',3).artifact.draft?.content).toBe(finalContent);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -324,7 +326,7 @@ describe('Analyst record publication', () => {
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
       const open = cards.openRecord(target.id, 'brief.md');
       expect(service.write(`record:///brief.md?card=${target.id}`, 'New')).toMatchObject({ success: false, data: { code: 'record_open_conflict', current_head: open.headVersion } });
-      expect(cards.readCurrentRecord(target.id, 'brief.md').headVersion).toBe(open.headVersion);
+      expect(current(cards,target.id,'brief.md').headVersion).toBe(open.headVersion);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
@@ -357,8 +359,8 @@ describe('other Analyst mutation facets', () => {
       const closed = cards.closeRecord(card.id, 'brief.md', 'analyst');
       const service = testAnalystMutationServices(root, cards, (_cardId, notification) => ({ ok: true, notificationId: notification.id })).recordMutations;
       expect(service.edit(`record:///brief.md?card=${card.id}`, 'Fresh current', 'Newest', true)).toMatchObject({ kind: 'returned', success: true });
-      expect(cards.readCurrentRecord(card.id, 'brief.md').artifact.accepted?.content).toContain('Newest');
-      expect(cards.readCurrentRecord(card.id, 'brief.md').artifact.accepted?.content).not.toContain('Fresh current');
+      expect(current(cards,card.id,'brief.md').artifact.accepted?.content).toContain('Newest');
+      expect(current(cards,card.id,'brief.md').artifact.accepted?.content).not.toContain('Fresh current');
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -377,27 +379,27 @@ describe('other Analyst mutation facets', () => {
       const fullReplacement = `${initial}\nRecovery note.`;
       expect(service.edit(target, initial, fullReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { card_id: child.id, name: 'brief.md', bytes: Buffer.byteLength(fullReplacement), written: true, propagation: { ok: true } } });
       expect(cards.read(child.id)!.lifecycle.status).toBe('changed');
-      expect(cards.readCurrentRecord(child.id, 'brief.md').artifact.accepted?.content).toBe(fullReplacement);
+      expect(current(cards,child.id,'brief.md').artifact.accepted?.content).toBe(fullReplacement);
 
       const terminalCard = cards.create({ type: 'code', parent: 'project', title: 'Terminal edit', bootstrap_content: initial, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       const terminalTarget = `record:///brief.md?card=${terminalCard.id}`;
       const terminalReplacement = 'Recovery note.\nSecond note.';
       expect(service.edit(terminalTarget, 'Terminal', terminalReplacement, false)).toMatchObject({ kind: 'returned', success: true, data: { propagation: { ok: true } } });
-      const settled = cards.readCurrentRecord(terminalCard.id, 'brief.md').artifact.accepted?.content;
+      const settled = current(cards,terminalCard.id,'brief.md').artifact.accepted?.content;
       expect(settled?.endsWith(terminalReplacement)).toBe(true);
 
       const freshTarget = `record:///brief.md?card=${terminalCard.id}`;
       expect(service.edit(freshTarget, 'stale missing value', 'no', false)).toMatchObject({ kind: 'returned', success: false, data: { code: 'record_edit_old_string_not_found' } });
-      expect(cards.readCurrentRecord(terminalCard.id, 'brief.md').artifact.accepted?.content).toBe(settled);
+      expect(current(cards,terminalCard.id,'brief.md').artifact.accepted?.content).toBe(settled);
       expect(service.edit(freshTarget, '#', 'changed', false)).toMatchObject({ kind: 'returned', success: false, data: { code: 'record_edit_old_string_multiple_matches' } });
-      expect(cards.readCurrentRecord(terminalCard.id, 'brief.md').artifact.accepted?.content).toBe(settled);
+      expect(current(cards,terminalCard.id,'brief.md').artifact.accepted?.content).toBe(settled);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('classifies strict current read failures as restart-required without publication', () => {
     const targetCard = card('backlog');
     const openRecord = jest.fn();
-    const store = { read: () => targetCard, workflows: TEST_WORKFLOWS, recordReader: { definition: () => ({ filename: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, declared: true }) }, readCurrentRecordOrNull: () => { throw new Error('HOSTILE_STRICT_READ'); }, openRecord } as unknown as CardService;
+    const store = { read: () => targetCard, workflows: TEST_WORKFLOWS, classifyCurrentRecord: () => { throw new Error('HOSTILE_STRICT_READ'); }, openRecord } as unknown as CardService;
     expect(services(store).recordMutations.write(`record:///brief.md?card=${FIRST}`, 'New')).toMatchObject({ kind: 'returned', success: false, data: { code: 'current_state_unavailable', restart_required: true } });
     expect(openRecord).not.toHaveBeenCalled();
   });

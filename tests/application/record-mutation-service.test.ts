@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { mutateRecord } from '../../src/application/record-mutation-service.js';
+import { admitRecordMutation,mutateRecord } from '../../src/application/record-mutation-service.js';
 import { cardRecordStreamFile } from '../../src/persistence/layout.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
@@ -17,8 +17,24 @@ function setup() {
   return { root, cards: new CardService(root) };
 }
 const dynamicDefinition = (filename: string) => ({ filename, format: 'markdown' as const, schema: 'authored-record.v1', bootstrap: false, declared: false });
+const DENIAL_CASES:Array<[string,'active'|'cancelled'|null,'analyst'|'card_agent',string|undefined,boolean,boolean]>=[
+  ['card_not_active',null,'analyst',undefined,true,true],
+  ['cross_card_scope','active','card_agent','card-a',true,true],
+  ['writer_not_authorized','active','analyst',undefined,false,true],
+  ['tool_not_authorized','active','analyst',undefined,true,false],
+  ['lifecycle_unsupported','cancelled','analyst',undefined,true,true],
+];
 
 describe('card-agent record mutation', () => {
+  it.each(DENIAL_CASES)('returns %s before definition or record classification', (reason,state,surface,cardId,writerAllowed,toolAllowed) => {
+    const {cards}=setup();const reached=cards.read('project')!;const card=state==='cancelled'?{...reached,lifecycle:{status:'cancelled' as const,result:null,error:null,completed_at:null}}:reached;
+    const classifyCurrentRecord=jest.fn(()=>{throw new Error('CLASSIFIER_MUST_NOT_RUN');});
+    const configured={recordWrites:writerAllowed?[{matcher:/^brief\.md$/u}]:[],tools:toolAllowed?[{name:'write'}]:[]};
+    const store={read:jest.fn(()=>state===null?null:card),classifyCurrentRecord,workflows:{analyst:configured,agents:new Map([['planner',configured]])}} as never;
+    const result=admitRecordMutation(store,{path:'record:///brief.md?card=project',operation:'write',surface,agentName:surface==='analyst'?'analyst':'planner',...(cardId?{cardId}:{}),requiredTools:['write']});
+    expect(result).toMatchObject({kind:'rejected',data:{code:'record_mutation_denied',reason}});expect(classifyCurrentRecord).not.toHaveBeenCalled();
+  });
+
   it('creates and repeatedly edits a glob-authorized free record independently of requirements', () => {
     const { cards } = setup();
     const written = jest.fn();
@@ -27,7 +43,7 @@ describe('card-agent record mutation', () => {
     expect(first).toMatchObject({ kind: 'applied', data: { state: 'open', head_version: 2, current_url: path } });
     const second = mutateRecord(cards, { path, operation: 'edit', oldString: 'first', newString: 'second', surface: 'card_agent', agentName: 'reviewer', cardId: 'project', requiredTools: ['edit'], onRecordWritten: written });
     expect(second).toMatchObject({ kind: 'applied', data: { state: 'open', head_version: 3, current_url: path } });
-    expect(cards.readCurrentRecord('project', 'review-notes-1.md').artifact.draft?.content).toBe('second');
+    const current=cards.readRecordCurrent('project','review-notes-1.md');expect(current.kind==='found'&&current.value.projection?.artifact.draft?.content).toBe('second');
     expect(written).toHaveBeenNthCalledWith(1, 'review-notes-1.md');
     expect(written).toHaveBeenNthCalledWith(2, 'review-notes-1.md');
   });
@@ -47,7 +63,7 @@ describe('card-agent record mutation', () => {
     const { cards } = setup();
     const path='record:///brief.md?card=project';
     expect(mutateRecord(cards,{path,operation:'write',content:'interrupted draft',surface:'card_agent',agentName:'planner',cardId:'project',requiredTools:['write']})).toMatchObject({kind:'applied',data:{state:'open'}});
-    expect(cards.readCurrentRecord('project','brief.md').artifact.draft?.content).toBe('interrupted draft');
+    const current=cards.readRecordCurrent('project','brief.md');expect(current.kind==='found'&&current.value.projection?.artifact.draft?.content).toBe('interrupted draft');
     expect(mutateRecord(cards,{path,operation:'write',content:'analyst replacement',surface:'analyst',agentName:'analyst',requiredTools:['write']})).toMatchObject({kind:'rejected',data:{code:'record_open_conflict'}});
     const resumed=mutateRecord(cards,{path,operation:'edit',oldString:'interrupted',newString:'resumed',surface:'card_agent',agentName:'planner',cardId:'project',requiredTools:['edit']});
     expect(resumed).toMatchObject({kind:'applied',data:{state:'open'}});

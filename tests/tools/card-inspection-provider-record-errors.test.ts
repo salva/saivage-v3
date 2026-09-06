@@ -31,7 +31,7 @@ describe('card inspection authored-record summaries', () => {
     expect(brief.version_url).toBe(`record:///brief.md?card=project&v=1`);
 
     const hostile = new Error('HOSTILE_CARD_INSPECTION_READ');
-    cards.readCurrentRecord = (() => { throw hostile; }) as CardService['readCurrentRecord'];
+    cards.listDeclaredRecordMetadata = (() => { throw hostile; }) as CardService['listDeclaredRecordMetadata'];
     const surface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('card-inspection', cardInspectionToolBinders, { store: cards, cardTypeVocabulary: ['project', 'goal', 'architecture', 'code', 'test', 'doc', 'data', 'research', 'ops'] })]);
 
     await expect(invokeTestTool(surface, 'get_card', { id: 'project', section: 'records' })).rejects.toBe(hostile);

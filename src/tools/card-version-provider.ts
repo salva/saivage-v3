@@ -8,7 +8,6 @@ import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersion
 import { projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/read-models/card-outbound.js';
 import type { CardArtifact } from '../persistence/canonical-card-artifacts.js';
 import { recordContentSha256 } from '../persistence/canonical-record-artifacts.js';
-import { AuthoredRecordDefinitionNotFoundError, AuthoredRecordNotFoundError } from '../persistence/authored-record-files.js';
 import {
   boundedToolError,
   DISCOVERY_RESPONSE_MAX_BYTES,
@@ -121,13 +120,8 @@ function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
   if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
   if (result.kind === 'invalid-pivots') return Promise.resolve(failure('Invalid card version pivots.', { code: 'invalid_card_version_pivots', card_id: params.card_id, from_version: result.from, to_version: result.to }));
   if (result.kind === 'version-not-found') return Promise.resolve(failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: result.version, side: result.side }));
-  const identityOf = (version: number): { entry_id: string; artifact_sha256: string } | null => {
-    const side = ctx.store.readCardVersion(params.card_id, version);
-    return side.kind === 'found' ? { entry_id: side.value.entry_id, artifact_sha256: observationSha256(cardArtifactProjection(side.value)) } : null;
-  };
-  const fromIdentity = identityOf(params.from_version);
-  const toIdentity = identityOf(params.to_version);
-  if (!fromIdentity || !toIdentity) throw new Error('Compared card versions disappeared between the diff and identity reads.');
+  const fromIdentity={entry_id:result.fromArtifact.entry_id,artifact_sha256:observationSha256(cardArtifactProjection(result.fromArtifact))};
+  const toIdentity={entry_id:result.toArtifact.entry_id,artifact_sha256:observationSha256(cardArtifactProjection(result.toArtifact))};
   const projectedDiff = redactForOutbound({ source: 'card-diff', value: result.diff });
   const observation = observationSha256({ surface: 'diff_card_versions', card_id: params.card_id, from_version: params.from_version, to_version: params.to_version, from_sha256: fromIdentity.artifact_sha256, to_sha256: toIdentity.artifact_sha256, diff: projectedDiff });
   const diffJson = JSON.stringify(projectedDiff);
@@ -150,16 +144,9 @@ function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
 }
 
 function readRecordVersion(ctx: CardVersionProviderContext, params: z.infer<typeof readRecordVersionInputSchema>): Promise<{ outcome: ToolActionOutcome; locator: string; sha256: string }> {
-  const reader = ctx.store.recordReader;
-  let projection: ReturnType<typeof reader.historical>;
-  try {
-    reader.definition(params.card_id, params.record_name);
-    projection = reader.historical(params.card_id, params.record_name, params.version);
-  } catch (error) {
-    if (error instanceof AuthoredRecordNotFoundError || error instanceof AuthoredRecordDefinitionNotFoundError)
-      return Promise.resolve({ outcome: failure('Record version not found.', { code: 'record_version_not_found', card_id: params.card_id, record_name: params.record_name, version: params.version }), locator: '', sha256: '' });
-    throw error;
-  }
+  const result=ctx.store.readRecordVersion(params.card_id,params.record_name,params.version);
+  if(result.kind!=='found')return Promise.resolve({outcome:failure('Record version not found.',{code:'record_version_not_found',card_id:params.card_id,record_name:params.record_name,version:params.version}),locator:'',sha256:''});
+  const projection=result.value.projection;
   const artifact = projection.artifact;
   const selected = (() => {
     if (artifact.state === 'open') return { content: artifact.draft!.content, content_source: 'draft' as const, content_sha256: artifact.draft!.content_sha256 };

@@ -302,13 +302,12 @@ export class AgentNodeExecution {
     for (const requirement of node.requirements) {
       if (requirement.mode === 'continue') continue;
       const name = requirement.definition.name;
-      const classification = this.deps.store.classifyCurrentRecord(this.deps.cardId, name);
-      const current = classification.kind === 'present' ? classification.projection : null;
+      const result=this.deps.store.readRecordCurrent(this.deps.cardId,name);if(result.kind==='card-not-found')throw new Error(`Card '${this.deps.cardId}' not found.`);const current=result.value.projection;
       if (current?.artifact.state === 'open') this.deps.store.discardRecord(this.deps.cardId, name, 'clean_node_entry');
       this.deps.store.openRecord(this.deps.cardId, name);
     }
   }
-  private captureRecordHead(filename: string): number | null { return this.deps.store.readCurrentRecordOrNull(this.deps.cardId, filename)?.headVersion ?? null; }
+  private captureRecordHead(filename: string): number | null {const result=this.deps.store.readRecordCurrent(this.deps.cardId,filename);return result.kind==='found'?result.value.projection?.headVersion??null:null;}
   private validateRecords(node: CompiledNodeContract, baseline: ReadonlyMap<string, number | null>): { candidates: Map<string, RecordProjection> } | { violations: string[] } {
     const candidates = new Map<string, RecordProjection>(); const violations: string[] = [];
     for (const required of node.requirements) {
@@ -340,13 +339,13 @@ export class AgentNodeExecution {
     }
     for(const filename of [...writtenRecords].filter((name)=>!requiredNames.has(name)).sort()){
       if(!agentCanWriteRecord(node.agent, filename as never))throw new Error(`Compiled node agent '${node.agent.name}' cannot accept record '${filename}'.`);
-      const current=this.deps.store.readCurrentRecord(this.deps.cardId,filename);
+      const result=this.deps.store.readRecordCurrent(this.deps.cardId,filename);if(result.kind!=='found'||!result.value.projection)throw new Error(`Written record '${this.deps.cardId}/${filename}' is missing.`);const current=result.value.projection;
       if(current.artifact.state!=='open'||!current.artifact.draft||current.artifact.draft.content.trim().length===0)throw new Error(`Written record '${this.deps.cardId}/${filename}' is not a non-empty open draft.`);
       this.deps.store.closeRecord(this.deps.cardId,filename,node.agent.name);
     }
     return accepted;
   }
-  private discardWrittenRecords(writtenRecords: Set<string>, reason: string): void { const names=[...writtenRecords].sort();writtenRecords.clear();for(const filename of names){const current=this.deps.store.readCurrentRecord(this.deps.cardId,filename);if(current.artifact.state==='open')this.deps.store.discardRecord(this.deps.cardId,filename,reason);} }
+  private discardWrittenRecords(writtenRecords: Set<string>, reason: string): void { const names=[...writtenRecords].sort();writtenRecords.clear();for(const filename of names){const result=this.deps.store.readRecordCurrent(this.deps.cardId,filename);const current=result.kind==='found'?result.value.projection:null;if(current?.artifact.state==='open')this.deps.store.discardRecord(this.deps.cardId,filename,reason);} }
   private directChildren(cardId: string): CardRecord[] { return this.deps.store.listChildren(cardId).map((id) => this.deps.store.read(id)).filter((card): card is CardRecord => card !== null); }
   private descendants(cardId: string): CardRecord[] { return this.directChildren(cardId).flatMap((child) => [child, ...this.descendants(child.id)]); }
   private captureReviewerPair(cardId: string,records:readonly string[]): ReviewerContextPair { const snapshot = this.captureReviewerSnapshot(cardId,records); return { exactContext: this.reviewerContext(cardId, snapshot), snapshot }; }
@@ -357,7 +356,7 @@ export class AgentNodeExecution {
 
 function terminalCleanupStatus(port: 'DONE' | 'BLOCKED' | 'FAILED'): 'done' | 'blocked' | 'failed' { return port === 'DONE' ? 'done' : port === 'BLOCKED' ? 'blocked' : 'failed'; }
 function errorMessage(error: unknown): string { return error instanceof Error ? error.message : String(error); }
-function readCandidate(store: CardService, cardId: string, filename: string): RecordProjection | null { try { const current=store.readCurrentRecord(cardId,filename);const selected=current.artifact.state==='open'?current.artifact.draft?.content:current.artifact.accepted?.content;return selected?.trim()?current:null;}catch(error){if(error instanceof AuthoredRecordNotFoundError)return null;throw error;} }
+function readCandidate(store: CardService, cardId: string, filename: string): RecordProjection | null {const result=store.readRecordCurrent(cardId,filename);if(result.kind==='card-not-found'||!result.value.projection)return null;const current=result.value.projection;const selected=current.artifact.state==='open'?current.artifact.draft?.content:current.artifact.accepted?.content;return selected?.trim()?current:null;}
 function firstIncompleteDescendant(cardId: string, store: CardService): { id: string; status: string } | null { for (const childId of store.listChildren(cardId)) { const child = store.read(childId); if (!child) throw new Error(`Child '${childId}' was listed but not found.`); if (child.lifecycle.status !== 'done' && child.lifecycle.status !== 'cancelled') return { id: child.id, status: child.lifecycle.status }; const nested = firstIncompleteDescendant(childId, store); if (nested) return nested; } return null; }
-function acceptedRecordVersion(store: CardService, cardId: string,filename:string): ReviewerSnapshot['includedRecordVersions'][number] { try { const record = store.readCurrentRecord(cardId, filename);return { cardId, filename, sourceVersion: record.artifact.accepted?.source_version??null }; } catch (error) { if (error instanceof AuthoredRecordNotFoundError) return { cardId, filename, sourceVersion: null }; throw error; } }
+function acceptedRecordVersion(store: CardService, cardId: string,filename:string): ReviewerSnapshot['includedRecordVersions'][number] {const result=store.readRecordCurrent(cardId,filename);const record=result.kind==='found'?result.value.projection:null;return {cardId,filename,sourceVersion:record?.artifact.accepted?.source_version??null};}
 function promptText(process: CompiledCardTypeWorkflow, promptId: ProcessPromptId): string { const prompt=process.processPrompts.get(promptId);if(!prompt)throw new Error(`Compiled workflow '${process.cardType}' has no process prompt '${promptId}'.`);return prompt.text; }

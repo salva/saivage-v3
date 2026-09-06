@@ -1,13 +1,13 @@
 import { relative, resolve } from 'node:path';
 
 import type { AgentName } from '../schemas/index.js';
-import { AuthoredRecordNotFoundError, type RecordProjection } from '../persistence/authored-record-files.js';
+import type { RecordProjection } from '../persistence/authored-record-files.js';
 import type { RecordDefinition } from '../records/record-definition.js';
-export type AuthoredRecordReader = { currentOrNull(cardId:string,filename:string):RecordProjection|null; historical(cardId: string, filename: string, version: number): RecordProjection;definition(cardId:string,filename:string):RecordDefinition };
+import type { CardService } from '../cards/card-api.js';
+type CompleteRecordReader=Pick<CardService,'readRecordCurrent'|'readRecordVersion'>;
 import { resolveContainedProjectPath } from './file-access-security.js';
 import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/layout.js';
-import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { parseRecordUrl, type ParsedRecordUrl } from '../contracts/record-mutation.js';
 
 export type ScopedPathMode = 'read' | 'write' | 'search';
@@ -20,7 +20,7 @@ export interface ResolveScopedPathContext {
   projectRoot: string;
   agent?: ScopedAgentContext;
   fail: ScopedPathErrorFactory;
-  records?: AuthoredRecordReader;
+  records?: CompleteRecordReader;
 }
 
 export function validRecordSegment(value: string, label: string, raw: string, fail: ScopedPathErrorFactory): string {
@@ -48,46 +48,27 @@ function toolFacingErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function readRecordOrNotFound(ctx: ResolveScopedPathContext, read: () => RecordProjection): RecordProjection {
-  try { return read(); }
-  catch (error) {
-    throwIfPublicationOutcomeUnknown(error);
-    if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
-    throw error;
-  }
-}
-
-function recordDefinitionOrNotFound(ctx: ResolveScopedPathContext, cardId: string, filename: string): RecordDefinition {
-  try { return ctx.records!.definition(cardId, filename); }
-  catch (error) {
-    throwIfPublicationOutcomeUnknown(error);
-    if (error instanceof AuthoredRecordNotFoundError) throw ctx.fail('Record not found.');
-    throw error;
-  }
-}
-
 export function assertRecordWrite(currentCardId: string | undefined, cardId: string, fail: ScopedPathErrorFactory): void {
   if (!currentCardId) throw fail('Record writes require an active card context.');
   if (cardId !== currentCardId) throw fail('Agents may write records only for their current card.');
 }
 
-export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: string): ParsedRecordUrl & { agent: ScopedAgentContext; filename: string; recordUrl: string } {
+export function resolveRecordWriteTarget(ctx: ResolveScopedPathContext, raw: string): ParsedRecordUrl & { agent: ScopedAgentContext; filename: string; recordUrl: string;definition:RecordDefinition } {
   const agent = requireAgent(ctx, 'record:///');
   let parsed: ParsedRecordUrl; try { parsed = parseRecordUrl(raw); } catch (error) { throw ctx.fail(toolFacingErrorMessage(error)); }
   if(parsed.version!==null)throw ctx.fail('Historical record URLs cannot be mutated.');
   const filename = parsed.name; const cardId = parsed.cardId;
   if(!ctx.records)throw ctx.fail('Record writes require an injected persistence reader.');
-  recordDefinitionOrNotFound(ctx, cardId, filename);
-  return { ...parsed, agent, filename, recordUrl: parsed.currentUrl };
+  const result=ctx.records.readRecordCurrent(cardId,filename);if(result.kind==='card-not-found')throw ctx.fail('Record not found.');
+  return { ...parsed, agent, filename, recordUrl: parsed.currentUrl,definition:result.value.definition };
 }
 
 export function resolveRecordReadTarget(ctx: ResolveScopedPathContext, raw: string): ResolvedRecordReadTarget {
   if (!ctx.records) throw ctx.fail('Record reads require an injected persistence reader.');
   requireAgent(ctx, 'record:///');
   let parsed:ParsedRecordUrl;try{parsed=parseRecordUrl(raw);}catch(error){throw ctx.fail(toolFacingErrorMessage(error));}
-  const definition=recordDefinitionOrNotFound(ctx,parsed.cardId,parsed.name);
-  if(parsed.version===null){let projection:RecordProjection|null;try{projection=ctx.records.currentOrNull(parsed.cardId,parsed.name);}catch(error){throwIfPublicationOutcomeUnknown(error);if(error instanceof AuthoredRecordNotFoundError)projection=null;else throw error;}return Object.freeze({parsed,definition,projection});}
-  return Object.freeze({parsed,definition,projection:readRecordOrNotFound(ctx,()=>ctx.records!.historical(parsed.cardId,parsed.name,parsed.version!))});
+  const result=parsed.version===null?ctx.records.readRecordCurrent(parsed.cardId,parsed.name):ctx.records.readRecordVersion(parsed.cardId,parsed.name,parsed.version);
+  if(result.kind!=='found')throw ctx.fail('Record not found.');return Object.freeze({parsed,definition:result.value.definition,projection:result.value.projection});
 }
 
 export const scopedPathResolvers = {

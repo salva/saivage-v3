@@ -325,8 +325,7 @@ describe('failed child activation lifecycle E2E', () => {
 
     expect(cards.read(child.id)).toMatchObject({ version_seq: initialVersion + 2, lifecycle: { status: 'failed', result: { kind: 'runtime-failure', summary: 'cleanup: unconfirmed: cleanup exploded' }, error: 'cleanup: unconfirmed: cleanup exploded' } });
     expect(history(cards, child.id).filter((entry) => entry.change_reason === 'terminal lifecycle commit')).toHaveLength(1);
-    expect(cards.readCurrentRecord(child.id, 'status.md').artifact.accepted?.content).toBe('Accepted output.');
-    expect(cards.readCurrentRecord(child.id, 'status.md').artifact.state).toBe('closed');
+    expect(cards.readRecordCurrent(child.id,'status.md')).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Accepted output.'},state:'closed'}}}});
     const terminalRows = readConversation(projectRoot, `agent:executor:${child.id}`).physicalRows.filter((row) => row.tool_call_id === 'accepted');
     expect(terminalRows).toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'tool_result', content: '{"data":{"accepted":true},"success":true}' })]));
     expect((supervisor as unknown as RuntimeOwnership).activationOwners.has(child.id)).toBe(false);

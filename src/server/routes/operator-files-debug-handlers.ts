@@ -8,18 +8,7 @@ import { defineOperatorContractHandlers, type OperatorProjectContext } from './o
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 
 export function buildFilesDebugOperatorContractHandlers(options: OperatorProjectContext & { cardServiceProvider: () => CardService; configAuthority: ResolvedConfigAuthority; workflows: CompiledRuntimeWorkflows }) {
-  const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, () => {
-    const cards = options.cardServiceProvider();
-    return {
-      current: cards.recordReader.current,
-      historical: cards.recordReader.historical,
-      definition: cards.recordReader.definition,
-      getCanonicalCard: (cardId: string) => cards.getCanonicalCard(cardId),
-      getCanonicalCardChildren: (cardId: string) => cards.getCanonicalCardChildren(cardId),
-      getCanonicalCardFilesMetadata: (cardId: string) => cards.getCanonicalCardFilesMetadata(cardId),
-      readCardVersion: (cardId, version) => cards.readCardVersion(cardId, version),
-    };
-  }, options.configAuthority);
+  const fileReadModel = new WorkspaceFileReadModelService(options.projectRoot, options.cardServiceProvider, options.configAuthority);
   const eventQueries = new EventQueryService(options.projectRoot);
 
   return defineOperatorContractHandlers({

@@ -271,7 +271,7 @@ describe('disposable production-composition smoke', () => {
       else if (reviewerCalls === 2) toolCall(response, 401, 'emit_result', { outcome: 'approved', summary: 'Verifier summary must not be promoted.' });
       else if (reviewerCalls === 3) {
         const cards = app!.server.runtimeApplication.cardStore;
-        rootStatusClosedBeforeReview = cards.readCurrentRecord('project', 'status.md').artifact.accepted?.content === 'Recovered plan with closed child evidence.';
+        const status=cards.readRecordCurrent('project','status.md');rootStatusClosedBeforeReview = status.kind==='found'&&status.value.projection?.artifact.accepted?.content === 'Recovered plan with closed child evidence.';
         toolCall(response, 402, 'write', { path: 'record:///review.md?card=project', content: 'Root review after closed plan status.' });
       } else if (reviewerCalls === 4) toolCall(response, 403, 'emit_result', { outcome: 'approved', summary: 'Root review approved.' });
       else throw new Error(`Unexpected Reviewer call ${reviewerCalls}.`);
@@ -302,7 +302,7 @@ describe('disposable production-composition smoke', () => {
         throw new Error(`Missing Analyst tool invocation: ${JSON.stringify(edited)} conversation=${JSON.stringify(conversation.body)} urls=${JSON.stringify(providerUrls)} offered=${JSON.stringify([...offeredTools])} counts=${JSON.stringify({ analystPlan, executorCalls, reviewerCalls })}`);
       }
       expect(edited.toolInvocations[0].result.success).toBe(true);
-      expect(app.server.runtimeApplication.cardStore.readCurrentRecord('project', 'brief.md').artifact.accepted?.content).toBe('Disposable Analyst bootstrap edit.');
+      expect(app.server.runtimeApplication.cardStore.readRecordCurrent('project','brief.md')).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Disposable Analyst bootstrap edit.'}}}}});
       await chat(app, 'Create the permitted code child under project.');
       expect(app.server.runtimeApplication.cardStore.read('card-a')).toMatchObject({ type: 'code', lifecycle: { status: 'backlog' } });
       const narrowed = await chat(app, 'Attempt a goal under the code parent; it must be narrowed away.');

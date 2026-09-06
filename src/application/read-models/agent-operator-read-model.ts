@@ -10,7 +10,7 @@ import {
 } from '../../contracts/operator-api-agents.js';
 import { ConversationHistoricalVersionNotFoundError, ConversationHistoricalVersionUnavailableError, readConversationCatalog, readHistoricalConversationSegment } from '../../persistence/conversation-file.js';
 import { ConversationCursorNotFoundError, ConversationSegmentChangedError, foldConversation, foldHistoricalConversationRows, segmentContext } from './agent-conversation-read-model.js';
-import { listCards, readCard, readCurrentCardArtifact } from '../../persistence/card-files.js';
+import { listCards, readCard, readCommittedCardArtifactCatalog } from '../../persistence/card-files.js';
 import {
   cardAgentSessionId,
   conversationSessionIdentity,
@@ -129,14 +129,14 @@ export class AgentOperatorReadModelService {
       return 'active';
     }
     let cardResult;
-    try { cardResult = readCurrentCardArtifact(this.projectRoot, identity.cardId); }
+    try { cardResult = readCommittedCardArtifactCatalog(this.projectRoot, identity.cardId); }
     catch (error) { throw new AgentCurrentStateUnavailableError('card', identity.cardId, { cause: error }); }
     if (cardResult.kind === 'card-not-found') throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
-    const card = cardResult.value.kind === 'card-version' ? cardResult.value.card : cardResult.value.final_card;
+    const head=cardResult.value.head;const card = head.kind === 'card-version' ? head.card : head.final_card;
     const workflow = this.workflows.cardTypes.get(card.type); if (!workflow) throw new Error(`No compiled workflow for '${card.type}'.`);
     const configured = [...workflow.states.values()].some((state) => state.kind === 'node' && state.agent.session === 'card' && state.agent.name === identity.agentName);
     if (!configured) throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
-    return cardResult.value.kind === 'card-tombstone' ? 'retained_tombstone' : 'active';
+    return head.kind === 'card-tombstone' ? 'retained_tombstone' : 'active';
   }
 
   private summaries(candidates: readonly ConversationSessionId[], liveSessionIds: ReadonlySet<ConversationSessionId>): AgentSessionSummary[] {

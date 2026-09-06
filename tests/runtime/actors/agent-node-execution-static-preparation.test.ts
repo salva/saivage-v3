@@ -61,15 +61,18 @@ function harness(failure: FailureMode) {
     notificationDelivery: { selectNotifications, removeNotifications },
     claimResult: () => { events.push('claim-result'); },
   };
+  let statusRecordOpened = false;
   const store = {
     read: (id: string) => card,
     workflows: { cardTypes: new Map([['project', { bootstrapRecord: { name: 'brief.md' } }]]) },
-    readCurrentRecord: jest.fn(() => { events.push('read-record'); return { headVersion: 1, currentUrl: 'record:///status.md?card=project', artifact: { state: 'open', accepted: { content: 'brief' }, draft: { content: 'draft' } } }; }),
-    readCurrentRecordOrNull: jest.fn(() => null),
-    classifyCurrentRecord: jest.fn(() => { events.push('classify-record'); return { kind: 'unclaimed' }; }),
+    readRecordCurrent: jest.fn((_cardId: string, name: string) => {
+      events.push('read-record');
+      if (name === 'brief.md') return { kind: 'found', value: { projection: { headVersion: 1, currentUrl: 'record:///brief.md?card=project', artifact: { state: 'open', accepted: { content: 'brief' }, draft: { content: 'draft' } } } } };
+      return { kind: 'found', value: { projection: statusRecordOpened ? { headVersion: 1, currentUrl: 'record:///status.md?card=project', artifact: { state: 'open', accepted: null, draft: null } } : null } };
+    }),
 
     discardRecord: jest.fn(() => { events.push('discard-record'); }),
-    openRecord: jest.fn(() => { events.push('open-record'); }),
+    openRecord: jest.fn(() => { events.push('open-record'); statusRecordOpened = true; }),
     listChildren: () => [],
   };
   const llm = { turn: jest.fn(async () => { events.push('turn'); throw new Error('turn sentinel'); }) };
@@ -103,7 +106,7 @@ describe('AgentNodeExecution static preparation', () => {
     await expect(test.run()).rejects.toThrow(/does not fit the compaction budget/u);
 
     expect(readConversation(test.projectRoot, test.sessionId).sourceRows).toEqual([]);
-    expect(test.store.classifyCurrentRecord).not.toHaveBeenCalled();
+    expect(test.store.discardRecord).not.toHaveBeenCalled();
     expect(test.store.discardRecord).not.toHaveBeenCalled();
     expect(test.store.openRecord).not.toHaveBeenCalled();
     expect(test.removeNotifications).not.toHaveBeenCalled();
@@ -119,7 +122,7 @@ describe('AgentNodeExecution static preparation', () => {
     await expect(test.run()).rejects.toBe(renderFailure);
 
     expect(readConversation(test.projectRoot, test.sessionId).sourceRows).toEqual([]);
-    expect(test.store.classifyCurrentRecord).not.toHaveBeenCalled();
+    expect(test.store.discardRecord).not.toHaveBeenCalled();
     expect(test.store.openRecord).not.toHaveBeenCalled();
     expect(test.removeNotifications).not.toHaveBeenCalled();
     expect(test.llm.turn).not.toHaveBeenCalled();
@@ -132,7 +135,7 @@ describe('AgentNodeExecution static preparation', () => {
 
     await expect(test.run()).rejects.toThrow('turn sentinel');
 
-    expect(test.events).toEqual(['read-record', 'classify-record', 'open-record', 'turn', 'cleanup']);
+    expect(test.events).toEqual(['read-record', 'read-record', 'open-record', 'read-record', 'turn', 'cleanup']);
     expect(readConversation(test.projectRoot, test.sessionId).sourceRows.length).toBeGreaterThan(0);
     expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'failed' }]);
   });

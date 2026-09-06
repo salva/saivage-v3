@@ -65,7 +65,7 @@ export function initializeAndValidateCurrentGeneratedState(projectRoot: string, 
       truncateCurrentConversationUnterminatedSuffix(projectRoot, sessionId);
     }
     for (const definition of definitions(workflow)) {
-      const current = readCurrentAuthoredRecord(projectRoot, card.id, definition);
+      const current = readCurrentAuthoredRecord(projectRoot, card, definition);
       if (definition.bootstrap && !current?.artifact.accepted) throw new Error(`Card '${card.id}' required bootstrap record '${definition.filename}' is unavailable.`);
     }
   }

@@ -10,7 +10,7 @@ const definition = { filename: 'status.md', bootstrap: false, declared: true, fo
 describe('publication uncertainty across scoped record projections', () => {
   it('preserves the same instance before scoped-path not-found conversion', () => {
     const publication = new PublicationOutcomeUnknownError();
-    const records = { definition: () => definition, currentOrNull: () => { throw publication; }, historical: () => { throw publication; } };
+    const records = { readRecordCurrent: () => { throw publication; }, readRecordVersion: () => { throw publication; } };
     let thrown: unknown;
     try { resolveRecordReadTarget({ projectRoot: '/', records, agent: { cardId: 'project', agentName: 'planner' }, fail: (message) => new Error(message) }, 'record:///status.md?card=project'); }
     catch (error) { thrown = error; }
@@ -19,13 +19,13 @@ describe('publication uncertainty across scoped record projections', () => {
 
   it('preserves the same instance before VFS latest-record null projection', async () => {
     const publication = new PublicationOutcomeUnknownError();
-    const records = { definitions: () => [definition], definition: () => definition, currentOrNull: () => { throw publication; }, historical: () => { throw publication; } };
+    const records = { readRecordCurrent: () => { throw publication; }, readRecordVersion: () => { throw publication; },listDeclaredRecordMetadata:()=>{throw publication;} };
     await expect(listScopedPath({ projectRoot: '/', records, agent: { cardId: 'project', agentName: 'planner' }, fail: (message) => new Error(message) }, 'record:///project')).rejects.toBe(publication);
   });
 
   it('preserves the same instance before operator Files record response conversion', () => {
     const publication = new PublicationOutcomeUnknownError();
-    const records = { definition: () => { throw publication; } };
+    const records = { readRecordCurrent: () => { throw publication; } };
     const service = new WorkspaceFileReadModelService('/', () => records as never, { path: '/config' } as never);
     let thrown: unknown;
     try { service.readFileContent('record:///status.md?card=project'); } catch (error) { thrown = error; }

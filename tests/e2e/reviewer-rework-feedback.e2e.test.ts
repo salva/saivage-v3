@@ -75,7 +75,7 @@ describe('reviewer rework completion E2E', () => {
         if (reviewerCalls === 1) return complete(tool('reviewer-write-rework', 'write', { path: 'record:///review.md?card=project', content: 'Rework required: add explicit remediation evidence.' }));
         if (reviewerCalls === 2) return complete(tool('reviewer-request-rework', 'emit_result', { outcome: 'revision_required', summary: REVIEW_SUMMARY }));
         if (reviewerCalls === 3) {
-          if (cards.readCurrentRecord('project', 'status.md').artifact.accepted?.content !== REVISED_EVIDENCE) throw new Error('Reviewer did not observe revised remediation evidence.');
+          const status=cards.readRecordCurrent('project','status.md');if(status.kind!=='found'||status.value.projection?.artifact.accepted?.content !== REVISED_EVIDENCE) throw new Error('Reviewer did not observe revised remediation evidence.');
           return complete(tool('reviewer-write-free-notes', 'write', { path: 'record:///review-notes-1.md?card=project', content: 'Initial wildcard note.' }));
         }
         if (reviewerCalls === 4) return complete(tool('reviewer-edit-free-notes', 'edit', { path: 'record:///review-notes-1.md?card=project', old_string: 'Initial wildcard note.', new_string: 'Repeatedly edited wildcard note.' }));
@@ -131,9 +131,9 @@ describe('reviewer rework completion E2E', () => {
     expect(remediationProjection!.messages.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
     const plannerRows = readConversation(projectRoot, 'agent:planner:project').physicalRows;
     expect(plannerRows.filter((row) => row.role === 'user' && row.kind === 'text' && row.content === FEEDBACK)).toHaveLength(1);
-    expect(cards.readHistoricalRecord('project', 'status.md', 6).artifact.accepted?.content).toBe(REVISED_EVIDENCE);
-    expect(cards.readHistoricalRecord('project', 'review.md', 2)).toMatchObject({ versionUrl: 'record:///review.md?card=project&v=2', artifact: { draft: { content: 'Rework required: add explicit remediation evidence.' } } });
-    expect(cards.readHistoricalRecord('project', 'review.md', 6)).toMatchObject({ versionUrl: 'record:///review.md?card=project&v=6', artifact: { accepted: { content: 'Approved after concrete remediation.' } } });
-    expect(cards.readCurrentRecord('project', 'review-notes-1.md')).toMatchObject({ artifact: { state: 'closed', accepted: { content: 'Repeatedly edited wildcard note.', writer_agent: 'reviewer' } } });
+    expect(cards.readRecordVersion('project','status.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:REVISED_EVIDENCE}}}}});
+    expect(cards.readRecordVersion('project','review.md',2)).toMatchObject({kind:'found',value:{projection:{versionUrl:'record:///review.md?card=project&v=2',artifact:{draft:{content:'Rework required: add explicit remediation evidence.'}}}}});
+    expect(cards.readRecordVersion('project','review.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Approved after concrete remediation.'}}}}});
+    expect(cards.readRecordCurrent('project','review-notes-1.md')).toMatchObject({kind:'found',value:{projection:{artifact:{state:'closed',accepted:{content:'Repeatedly edited wildcard note.',writer_agent:'reviewer'}}}}});
   });
 });
