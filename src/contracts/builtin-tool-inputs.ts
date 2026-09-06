@@ -14,9 +14,6 @@ export const discoveryCollectionPositionSchema = z.object({
   item_index: z.number().int().min(0).describe('Zero-based canonical-order item index from the previously emitted next position; omit for the first page.'),
   item_byte_offset: z.number().int().min(0).describe('Byte offset into the item when continuing an oversized item slice; zero for whole items.'),
 }).strict().describe('Stateless continuation position for a byte-packed collection page.');
-export const discoveryBytePositionSchema = z.object({
-  byte_offset: z.number().int().min(0).describe('UTF-8 byte offset from the previously emitted next_offset_bytes; omit or zero for the first slice.'),
-}).strict().describe('Stateless continuation position for a text or JSON byte slice.');
 export const discoveryReadPositionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('collection'), item_index: z.number().int().min(0), item_byte_offset: z.number().int().min(0) }).strict(),
   z.object({ kind: z.literal('text'), byte_offset: z.number().int().min(0) }).strict(),

@@ -6,7 +6,6 @@ export interface ClassifierContext {
   model: string;
 }
 
-export type KnownProvider = 'openai-codex' | 'opencode-go' | 'openai-chat' | 'opencode' | 'github-copilot' | 'nvidia-nim';
 export type LlmHttpTransport = 'chat' | 'responses' | 'codex';
 
 export function parseFiniteRetryAfterMs(value: unknown, millisecondsPerUnit: number): number | undefined {

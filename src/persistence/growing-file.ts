@@ -9,14 +9,7 @@ import { writeAllExact } from './write-all-exact.js';
 export interface GrowingFileIo {
   open: typeof openSync; stat: (descriptor: number) => Stats; write: typeof writeSync; fsync: typeof fsyncSync; close: typeof closeSync;
 }
-export interface CanonicalGrowingFileSnapshot<Row> {
-  readonly bytes: Buffer;
-  readonly rows: readonly Row[];
-  readonly size: number;
-  readonly modifiedAt: string;
-}
 export interface CanonicalReadInstrumentation { readonly onRead: (path: string) => void }
-export interface GrowingFileRowCheckpoint { readonly rowOrdinal: number }
 const growingFileIo: GrowingFileIo = { open: openSync, stat: fstatSync, write: writeSync, fsync: fsyncSync, close: closeSync };
 const DEFAULT_READ_CHUNK_BYTES = 64 * 1024;
 
@@ -26,7 +19,6 @@ const envelopeSchema = z.object({
   rows: z.array(z.unknown()).min(1),
 }).strict();
 
-export type GrowingEnvelope<Row> = Readonly<{ version: 1; type: 'rows'; rows: readonly Row[] }>;
 export type PreparedGrowingEnvelope<Row> = Readonly<{ rows: readonly Row[]; bytes: Buffer }>;
 
 export function prepareGrowingEnvelope<Row>(rows: readonly unknown[], rowSchema: z.ZodType<Row>): PreparedGrowingEnvelope<Row> {

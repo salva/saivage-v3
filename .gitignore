@@ -1,15 +1,7 @@
 .saivage/*
-!.saivage/stages/
-.saivage/stages/*
-!.saivage/stages/await-operator-clearance-smoketest-escalation-06/
-.saivage/stages/await-operator-clearance-smoketest-escalation-06/*
-!.saivage/stages/await-operator-clearance-smoketest-escalation-06/reports/
-.saivage/stages/await-operator-clearance-smoketest-escalation-06/reports/*
-!.saivage/stages/await-operator-clearance-smoketest-escalation-06/reports/t1b-sanitized-clearance-report-validate.json
 /node_modules/
 /dist/
 /docs/.vitepress/dist/
-/docs/old/.vitepress/dist/
 /docs/working/
 /tmp/
 /old-documents/

@@ -53,8 +53,6 @@ function refineRecordState(value: { state: 'open' | 'closed' | 'discarded'; acce
 function fail(path: string, message: string): never { throw new Error(`Authored-record stream '${path}' ${message}.`); }
 
 export type AcceptedRecordSnapshot = z.infer<typeof acceptedRecordSnapshotSchema>;
-export type OpenRecordDraft = z.infer<typeof openRecordDraftSchema>;
-export type DiscardedRecordState = z.infer<typeof discardedRecordStateSchema>;
 export type AuthoredRecordVersionArtifact = z.infer<typeof authoredRecordVersionArtifactSchema>;
 export type RecordArtifactDefinition = Readonly<{ filename: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
 

@@ -303,4 +303,3 @@ export type ProviderAccount = z.infer<typeof providerAccountSchema>;
 export type ProviderCapabilities = z.infer<typeof providerCapabilitySchema>;
 export type CardTypesSource = z.infer<typeof cardTypesSchema>;
 export type CardTypeSource = NonNullable<CardTypesSource[keyof CardTypesSource]>;
-export type CardProcessSource = CardTypeSource['workflow'];

@@ -63,7 +63,6 @@ export type ChatWorkspaceContext = z.infer<typeof ChatWorkspaceContextSchema>;
 export type ChatSendRequest = z.infer<typeof ChatSendRequestSchema>;
 export type ChatIdentityResponse = z.infer<typeof ChatIdentityResponseSchema>;
 export type RestartChatAcknowledgement = z.infer<typeof RestartChatAcknowledgementSchema>;
-export type ChatToolInvocation = z.infer<typeof ChatToolInvocationSchema>;
 export type ChatSendResponse = z.infer<typeof ChatSendResponseSchema>;
 
 export type AnalystTurnBusyErrorResponse = z.infer<typeof AnalystTurnBusyErrorSchema>;

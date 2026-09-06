@@ -41,7 +41,6 @@ export const conversationSegmentEnvelopeSchema = z.object({ version: z.literal(1
 export type ConversationVersionEntry = z.infer<typeof conversationVersionEntrySchema>;
 export type ConversationVersionIndex = z.infer<typeof conversationVersionIndexSchema>;
 export type ConversationSegmentGenesis = z.infer<typeof conversationSegmentGenesisSchema>;
-export type CompactedConversationGenesis = z.infer<typeof compactedConversationGenesisSchema>;
 export type ConversationContinuation = z.infer<typeof conversationContinuationSchema>;
 
 export function conversationSha256(bytes: Uint8Array | string): string { return createHash('sha256').update(bytes).digest('hex'); }

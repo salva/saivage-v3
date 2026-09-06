@@ -15,7 +15,6 @@ const IGNORED_DIRS = new Set([
   '.vitepress/dist',
   'web/dist',
   'old-documents',
-  'docs-old',
   'docs/working',
   'SPEC/v1/review-2026-05',
   'SPEC/v0.2/review-2026-05-agent-autonomy',

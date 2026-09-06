@@ -17,7 +17,7 @@ rather than duplicating project policy.
 - `docs/architecture/system-architecture.md` for system architecture.
 - `README.md` for validation profiles and documentation authority status.
 
-See historical: docs under `docs-old/` and stale design docs are provenance, not implementation authority.
+Superseded and stale design documents are provenance available only through Git history, not implementation authority.
 
 ## Project Owner Overrides
 

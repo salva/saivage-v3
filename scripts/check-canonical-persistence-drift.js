@@ -177,7 +177,7 @@ function uncoveredPositiveSpans(rule, line) {
 }
 
 for (const path of paths) {
-  if (!existsSync(path) || path.startsWith('docs-old/') || path.startsWith('docs/working/') || path === 'scripts/check-canonical-persistence-drift.js') continue;
+  if (!existsSync(path) || path.startsWith('docs/working/') || path === 'scripts/check-canonical-persistence-drift.js') continue;
   if (!path.startsWith('src/') && !path.startsWith('docs/spec/') && !path.startsWith('docs/architecture/') && !path.startsWith('docs/runbook/') && path !== 'README.md' && path !== 'README-IF-YOU-ARE-AN-AI.md') continue;
   const content = readFileSync(path, 'utf8');
   if (path.startsWith('src/')) {

@@ -18,10 +18,6 @@ export type OperatorContractHandler<K extends OperatorApiOperationId> = (
 export type OperatorContractHandlerMap = {
   [K in OperatorApiOperationId]: OperatorContractHandler<K>;
 };
-export type OperatorContractHandlerSubset = {
-  [K in OperatorApiOperationId]?: OperatorContractHandler<K>;
-};
-
 export function defineOperatorContractHandlers<const TOperationId extends OperatorApiOperationId>(
   handlers: { [K in TOperationId]: OperatorContractHandler<K> },
 ): { [K in TOperationId]: OperatorContractHandler<K> } {

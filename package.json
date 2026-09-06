@@ -76,7 +76,6 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@jest/types": "^29.6.3",
     "@playwright/test": "1.60.0",
     "@types/node": "24.12.4",
     "@types/ws": "^8.18.1",

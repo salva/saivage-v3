@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
+const DOCS_OLD_REF_RE = /docs-old\//i;
 const HISTORICAL_REF_RE = /(?:docs\/historical|\.\.?\/historical|\/historical\/|\]\([^)]*historical\/|\]\([^)]*historical-artifacts)/i;
 const PREFIX_RE = /See historical:/i;
 
@@ -19,6 +21,7 @@ function parseArgs(argv) {
   const options = {
     root: process.cwd(),
     docs: [],
+    selfTest: false,
     expectFailure: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
@@ -27,6 +30,8 @@ function parseArgs(argv) {
       options.root = argv[++index];
     } else if (arg === '--doc') {
       options.docs.push(argv[++index]);
+    } else if (arg === '--self-test') {
+      options.selfTest = true;
     } else if (arg === '--expect-failure') {
       options.expectFailure = true;
     } else if (arg === '--help' || arg === '-h') {
@@ -40,7 +45,7 @@ function parseArgs(argv) {
 }
 
 function printHelp() {
-  console.log(`Usage: node scripts/check-historical-isolation.js [options]\n\nOptions:\n  --root <path>        Repository root (default: cwd)\n  --doc <path>         Current-doc path to scan; repeatable. Defaults to the canonical current docs.\n  --expect-failure     Negative-test mode: pass only if an unprefixed historical reference is found.\n`);
+  console.log(`Usage: node scripts/check-historical-isolation.js [options]\n\nOptions:\n  --root <path>        Repository root (default: cwd)\n  --doc <path>         Current-doc path to scan; repeatable. Defaults to the canonical current docs.\n  --self-test          Run the built-in three-case hermetic fixture test.\n  --expect-failure     Negative-test mode: pass only if a prohibited historical reference is found.\n`);
 }
 
 function inventoryCurrentDocs(root) {
@@ -93,11 +98,23 @@ function checkHistoricalIsolation({ root, docs }) {
     }
     const lines = readFileSync(fullPath, 'utf8').split('\n');
     lines.forEach((line, lineIndex) => {
+      DOCS_OLD_REF_RE.lastIndex = 0;
+      const docsOldMatch = DOCS_OLD_REF_RE.exec(line);
+      if (docsOldMatch) {
+        failures.push({
+          category: 'git-history-only',
+          file: docPath,
+          line: lineIndex + 1,
+          message: `${docPath}:${lineIndex + 1} references docs-old/; superseded provenance is available only through Git history`,
+        });
+        return;
+      }
       HISTORICAL_REF_RE.lastIndex = 0;
       const match = HISTORICAL_REF_RE.exec(line);
       if (!match) return;
       if (!lineHasAllowedPrefix(line, match.index)) {
         failures.push({
+          category: 'missing-prefix',
           file: docPath,
           line: lineIndex + 1,
           message: `${docPath}:${lineIndex + 1} references historical docs without a 'See historical:' prefix`,
@@ -108,8 +125,40 @@ function checkHistoricalIsolation({ root, docs }) {
   return { ok: failures.length === 0, failures, scanned };
 }
 
+function runSelfTest() {
+  const root = mkdtempSync(path.join(os.tmpdir(), 'saivage-historical-isolation-'));
+  try {
+    writeFileSync(path.join(root, 'docs-old-reference.md'), 'See historical: docs-old/reference.md\n');
+    writeFileSync(path.join(root, 'unprefixed-reference.md'), 'Read docs/historical/reference.md.\n');
+    writeFileSync(path.join(root, 'prefixed-reference.md'), 'See historical: docs/historical/reference.md.\n');
+
+    const docsOld = checkHistoricalIsolation({ root, docs: ['docs-old-reference.md'] });
+    if (docsOld.failures.length !== 1 || docsOld.failures[0].category !== 'git-history-only') {
+      throw new Error('self-test did not reject a prefixed docs-old/ reference as Git-history-only provenance');
+    }
+
+    const unprefixed = checkHistoricalIsolation({ root, docs: ['unprefixed-reference.md'] });
+    if (unprefixed.failures.length !== 1 || unprefixed.failures[0].category !== 'missing-prefix') {
+      throw new Error('self-test did not reject an unprefixed historical reference');
+    }
+
+    const prefixed = checkHistoricalIsolation({ root, docs: ['prefixed-reference.md'] });
+    if (!prefixed.ok) {
+      throw new Error(`self-test rejected a prefixed historical reference: ${prefixed.failures.map((failure) => failure.message).join('; ')}`);
+    }
+
+    console.log('✓ historical isolation checker self-test passed');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.selfTest) {
+    runSelfTest();
+    return;
+  }
   const result = checkHistoricalIsolation(options);
   if (options.expectFailure) {
     if (!result.ok) {
