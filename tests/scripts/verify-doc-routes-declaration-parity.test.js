@@ -43,6 +43,33 @@ describe('verify-doc-routes.d.ts declaration parity', () => {
     }
   });
 
+  it('declares the complete value-contract public surface and request-only UI pivot', () => {
+    for (const name of [
+      'VALUE_CONTRACT_MANIFEST',
+      'serializeValueContractClaim',
+      'verifyErrorShapeDocs',
+      'verifyClosedVocabularyDocs',
+      'verifySourceConstantDocs',
+      'verifyToolContractDocs',
+      'verifyIdentityGrammarDocs',
+      'verifyCardDiffPivotDocs',
+    ]) expect(DTS).toMatch(new RegExp(`export (?:const|function) ${name}\\b`));
+    expect(JS).not.toMatch(/^export const VALUE_CONTRACT_CLAIMS\b/m);
+    expect(DTS).not.toContain('export const VALUE_CONTRACT_CLAIMS');
+
+    const aggregate = interfaceBody('DocSourceContractsResult', DTS);
+    for (const field of ['errorShapeResult', 'closedVocabularyResult', 'sourceConstantResult', 'toolContractResult', 'identityGrammarResult', 'cardDiffPivotResult']) {
+      expect(aggregate).toContain(`${field}: ValueContractFamilyResult`);
+    }
+    const uiPivot = interfaceBody('DisplayedCurrentDiffPivotClaimValue', DTS);
+    expect(uiPivot).toContain('key:');
+    expect(uiPivot).toContain('selection:');
+    expect(uiPivot).toContain('request:');
+    expect(uiPivot).toContain('currentness:');
+    expect(uiPivot).toContain('reuse:');
+    expect(uiPivot).not.toContain('response:');
+  });
+
   it('removed runtime-control declarations are absent from the .d.ts', () => {
     for (const token of ['runtimeControlResult', 'verifyRuntimeControlDocs', 'RuntimeControlDocRow', 'RuntimeControlVerificationOptions']) {
       expect(DTS).not.toContain(token);

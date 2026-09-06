@@ -7,7 +7,7 @@ set -euo pipefail
 # Guard bundle:
 #   - VitePress docs build (vitepress build docs).
 #   - VitePress dist artifact policy: docs/.vitepress/dist is ignored generated output.
-#   - Operator route, internal-debug route, agent-tool, config-schema, and anchor parity against canonical docs.
+#   - Operator route, internal-debug route, agent-tool, config-schema, anchor, strict-error, closed-vocabulary, source-constant, shipped-tool, identity-grammar, and card-diff-pivot parity against canonical docs.
 #   - Architecture-doc allowed-link boundaries.
 #   - Historical-link isolation for canonical current docs.
 #   - Fixture-backed operator API response contract checks.
@@ -49,7 +49,7 @@ node scripts/check-validation-cadence.js || ALL_OK=false
 
 echo ""
 if $ALL_OK; then
-  echo "✓ docs:verify passed — VitePress docs build, dist artifact policy, route/debug-route/agent/config anchors, architecture links, canonical-doc historical isolation, operator API response contracts, named-agent tool docs/source parity, global Markdown links, README.md/docs source anchors, and validation cadence are valid"
+  echo "✓ docs:verify passed — VitePress docs build, dist artifact policy, route/debug-route/agent/config anchors plus strict-error/closed-vocabulary/source-constant/shipped-tool/identity/card-diff value contracts, architecture links, canonical-doc historical isolation, operator API response contracts, named-agent tool docs/source parity, global Markdown links, README.md/docs source anchors, and validation cadence are valid"
 else
   echo "✗ docs:verify FAILED — one or more documentation build or drift guards failed"
   exit 1

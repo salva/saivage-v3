@@ -1,0 +1,92 @@
+[
+  {
+    "id": "system-child-creation",
+    "file": "docs/spec/system-specification.md",
+    "before": ["After basic input validation it exact-reads and validates the parent, computes resulting child depth, and rejects depth above twelve before ordinary parent workflow/lifecycle admission, child-workflow lookup, dependency reads, fresh-parent reads, namespace claim, or any write. The exact error is `Cannot create card at depth <n>. Maximum allowed depth is 12.` In-limit creation next performs ordinary parent admission, resolves the selected child workflow (retaining `No workflow for child type '<type>'.` precedence), and at resulting depth twelve requires that workflow's compiled `permitted_child_types` be empty; otherwise it rejects with `Cannot create non-leaf child type '<type>' at maximum card depth 12.`"],
+    "after": ["After basic input validation it exact-reads and validates the parent, computes resulting child depth, and applies the [exact card identity contract](#exact-card-identity-contract) maximum before ordinary parent workflow/lifecycle admission, child-workflow lookup, dependency reads, fresh-parent reads, namespace claim, or any write. The over-limit error reports the attempted depth and that source-derived maximum. In-limit creation next performs ordinary parent admission, resolves the selected child workflow (retaining `No workflow for child type '<type>'.` precedence), and at the [maximum card depth](#exact-card-identity-contract) requires that workflow's compiled `permitted_child_types` be empty; otherwise it rejects with the selected type and source-derived maximum."]
+  },
+  {
+    "id": "system-orientation",
+    "file": "docs/spec/system-specification.md",
+    "before": ["The Analyst project orientation is exactly one `activation_local` `latest_snapshot` block keyed `analyst.project_tree`: a deterministic bounded compact tree rendered under an 8,192-byte hard cap as compact JSON serialization with 128-byte UTF-8-safe title previews, running-branch expansion, the exact active path, deterministic wide-parent aggregates, an explicit fresh-observation query marker, and a mandatory root/active-path skeleton whose overflow fails preparation; its constants are sized so the mandatory skeleton of the maximal structural running chain — the project root plus the full twelve-segment card depth — fits at allocation-derived identifiers, schema-bounded type-name length, and ordinary config-defined type cardinality."],
+    "after": ["The Analyst project orientation is exactly one `activation_local` `latest_snapshot` block keyed `analyst.project_tree`: a deterministic bounded compact tree rendered under the orientation and title-preview byte limits in the [exact context and compaction limits](#exact-context-and-compaction-limits) as compact JSON serialization with UTF-8-safe title previews, running-branch expansion, the exact active path, deterministic wide-parent aggregates, an explicit fresh-observation query marker, and a mandatory root/active-path skeleton whose overflow fails preparation; its constants are sized so the mandatory skeleton of the maximal structural running chain — the project root plus the full depth in the [exact card identity contract](#exact-card-identity-contract) — fits at allocation-derived identifiers, schema-bounded type-name length, and ordinary config-defined type cardinality."]
+  },
+  {
+    "id": "system-backend-history-diff",
+    "file": "docs/spec/system-specification.md",
+    "before": ["Unknown, unlinked, tombstoned, or tombstoned-ancestor targets return exactly `{ error: 'Card not found', cardId }`. History entry additionally admits exactly `{ error: 'Card history entry not found', cardId, version_seq }`; diff additionally admits exactly `{ error: 'Card diff source not found', cardId, from, to, missing_version_seq }`, choosing `from` when both source versions are absent. These strict 404 unions contain no generic error member or optional fields. Every numeric history sequence uses one positive JavaScript safe-integer contract. HTTP accepts only canonical ASCII decimal `/^[1-9][0-9]*$/` through `9007199254740991`, with no sign, leading zero, fraction, suffix, whitespace, exponent, or non-ASCII digit, and transforms it to a number; diff alone also accepts `last` and `current`."],
+    "after": ["Card history and diff use the [exact backend card history and diff contract](#exact-backend-card-history-and-diff-contract)."]
+  },
+  {
+    "id": "ui-displayed-current-diff",
+    "file": "docs/spec/operator-ui.md",
+    "before": ["Every displayed **Diff vs current** uses request identity `{cardId,fromSeq,to:'current'}` and literal query `to=current`, regardless of selected-detail version or completion order. The numeric response `to` is evidence only."],
+    "after": ["Every displayed **Diff vs current** request follows the source-derived request identity and currentness contract in the exact block below."]
+  },
+  {
+    "id": "architecture-backend-history-diff",
+    "file": "docs/architecture/system-architecture.md",
+    "before": ["Inputs use canonical positive integers and diff accepts only numeric versions or literal `current`.", "All card-target absences use strict `{ error: 'Card not found', cardId }`. Card history-entry and diff 404 unions contain only that target variant and the shared card `historical_version_not_found` variant; they have no generic member."],
+    "after": ["Inputs use the [exact backend card history and diff contract](../spec/system-specification.md#exact-backend-card-history-and-diff-contract).", "Card history-entry and diff absence contracts use the [exact backend card history and diff contract](../spec/system-specification.md#exact-backend-card-history-and-diff-contract)."]
+  },
+  {
+    "id": "runbook-app-log",
+    "file": "docs/runbook/index.md",
+    "before": ["The current app log contains only strict `{type,data}` rows for `event`, `control_action`, and `provider_exchange`. Do not restore logs with outer identity/time fields, old lanes, or old event kinds. Current events are only `runtime_diagnostic`, `runtime_actionable_error`, and `mcp_tool_invocation`; use Debug > Errors for durable failures derived from both runtime kinds plus failed MCP invocations."],
+    "after": ["The current app log and event filters use the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies). Do not restore logs with outer identity/time fields or obsolete lanes or event kinds."]
+  },
+  {
+    "id": "readme-card-identity",
+    "file": "README.md",
+    "before": ["Current card IDs are `project` or `card-<segment>[-<segment>...]` with one to twelve lowercase alphabetic segments, allocated from parent-local spreadsheet segments (`card-a`, `card-b`, ..., `card-z`, `card-aa`; nested parents restart at `a`). A card at the final depth twelve must select a card type whose compiled permitted-child set is empty. Every creation starts at `a` and directly attempts exclusive creation of each exact candidate namespace, advancing only when that `mkdir` returns `EEXIST` and never inspecting or enumerating the collision. A successful namespace claim remains consumed even if publication or linking later fails; membership begins only after complete initial publication and the parent's single relationship append. Widening the unchanged ID field grammar from five to twelve segments is a same-format forward deployment and requires no reset; after deeper cards are created, do not roll back to a binary that accepts only five segments."],
+    "after": ["Current card IDs and their depth ceiling follow the [exact card identity contract](docs/spec/system-specification.md#exact-card-identity-contract), with segments allocated from a parent-local spreadsheet sequence and nested parents restarting that sequence. A card at the final permitted depth must select a card type whose compiled permitted-child set is empty. Every creation starts at the first segment and directly attempts exclusive creation of each exact candidate namespace, advancing only when that `mkdir` returns `EEXIST` and never inspecting or enumerating the collision. A successful namespace claim remains consumed even if publication or linking later fails; membership begins only after complete initial publication and one parent version appends the child to both monotonic `child_membership` and complete `active_child_order`. Widening the unchanged ID field grammar from the former bound to the current source-derived bound is a same-format forward deployment and requires no reset; after deeper cards are created, do not roll back to a binary that accepts only the former bound."]
+  },
+  {
+    "id": "system-availability",
+    "file": "docs/spec/system-specification.md",
+    "before": ["Runtime-status observation failure produces a `degraded` runtime component rather than an unavailable server. Availability states are exactly `available | degraded | idle | unknown`, and component sources are exactly `health-check | runtime-application | mcp-manager`."],
+    "after": ["Runtime-status observation failure produces the degraded member of the [exact availability vocabulary](#exact-availability-vocabulary) rather than an unavailable server. The complete state and component-source lists are declaration-level contracts in that block."]
+  },
+  {
+    "id": "system-reset-depth",
+    "file": "docs/spec/system-specification.md",
+    "before": ["The current widening of the unchanged card-ID field grammar from five to twelve segments is instead a same-format forward deployment"],
+    "after": ["The current widening of the unchanged card-ID field grammar from the former bound of five to the maximum in the [exact card identity contract](#exact-card-identity-contract) is instead a same-format forward deployment"]
+  },
+  {
+    "id": "ui-availability",
+    "file": "docs/spec/operator-ui.md",
+    "before": ["Components display the producer's exact current states `available | degraded | idle | unknown`;"],
+    "after": ["Components display the producer's declaration-level [exact availability vocabulary](system-specification.md#exact-availability-vocabulary);"]
+  },
+  {
+    "id": "architecture-availability",
+    "file": "docs/architecture/system-architecture.md",
+    "before": ["Its states are exactly `available | degraded | idle | unknown`, and sources are exactly `health-check | runtime-application | mcp-manager`;"],
+    "after": ["Its declaration-level states and component sources are the [exact availability vocabulary](../spec/system-specification.md#exact-availability-vocabulary);"]
+  },
+  {
+    "id": "architecture-app-log-lanes",
+    "file": "docs/architecture/system-architecture.md",
+    "before": ["`contracts/app-log.ts` owns the strict three-lane `{type,data}` union for event, control-action, and provider-exchange rows."],
+    "after": ["`contracts/app-log.ts` owns the strict union described by the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies)."]
+  },
+  {
+    "id": "architecture-logged-events",
+    "file": "docs/architecture/system-architecture.md",
+    "before": ["The inferred strict `LoggedEvent` union and runtime event schema agree on exactly `runtime_diagnostic`, `runtime_actionable_error`, and `mcp_tool_invocation`."],
+    "after": ["The inferred strict `LoggedEvent` union and runtime event schema agree on the event-kind list in the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies)."]
+  },
+  {
+    "id": "system-displayed-current-diff",
+    "file": "docs/spec/system-specification.md",
+    "before": ["Every displayed “Diff vs current” request has the singular identity `{cardId,fromSeq,to:'current'}` and serializes literal `?from=<positive-safe-integer>&to=current`. The numeric response `to` records which authoritative current version was compared; it never becomes a later request pivot. Diff refresh is therefore independent of detail completion order or failure."],
+    "after": ["Displayed “Diff vs current” browser requests follow the [exact source-derived request identity and currentness contract](operator-ui.md#exact-displayed-current-diff-request-contract)."]
+  },
+  {
+    "id": "architecture-displayed-current-diff",
+    "file": "docs/architecture/system-architecture.md",
+    "before": ["The displayed diff's complete shared request key is `{cardId,fromSeq,to:'current'}`. Every initial load, invalidation refresh, reconnect refresh, and Retry serializes literal `to=current`; a numeric response `to` is evidence, never the next request pivot. Diff and detail remain independent authorities."],
+    "after": ["The displayed diff follows the [exact source-derived request identity and currentness contract](../spec/operator-ui.md#exact-displayed-current-diff-request-contract). Diff and detail remain independent authorities."]
+  }
+]

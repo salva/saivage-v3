@@ -77,15 +77,15 @@ describe('verify-doc-routes operator contract discovery', () => {
     expect(result.routeResult.routeInventoryRows.map((row) => row.key)).not.toEqual(expect.arrayContaining(debugRoutes));
   });
 
-  it('reports discovered route-bearing contract sources in docs verification output', () => {
+  it('reports discovered route-bearing and value-contract sources in docs verification output', () => {
     const projectRoot = process.cwd();
     const output = formatVerificationResult(verifyDocSourceContracts({ projectRoot }), projectRoot);
 
     expect(output).toContain('src/contracts/operator-api-events.ts');
     expect(output).toContain('src/contracts/operator-api-processes.ts');
     expect(output).toContain('src/contracts/operator-api-config.ts');
-    expect(output).not.toContain('src/contracts/operator-api-core.ts');
-    expect(output).not.toContain('src/contracts/operator-api-availability.ts');
+    expect(output).toContain('src/contracts/operator-api-core.ts');
+    expect(output).toContain('src/contracts/operator-api-availability.ts');
   });
 
   it('discovers future operator-api slices and ignores helper slices without route literals', () => {
