@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { eventKindValues, loggedEventSchema } from '../schemas/index.js';
+import { cardIdSchema, eventKindValues, loggedEventSchema } from '../schemas/index.js';
 import {
   operatorSessionContract,
   UnauthorizedErrorSchema,
@@ -10,7 +10,7 @@ import {
 
 export const EventsQuerySchema = z.object({
   kind: z.enum(eventKindValues).optional(),
-  card_id: z.string().optional(),
+  card_id: cardIdSchema.optional(),
   selection: z.enum(['oldest_page', 'newest_tail']).optional(),
   limit: z.string().regex(/^[1-9][0-9]*$/).transform(Number).refine((value) => Number.isSafeInteger(value) && value <= 1000).optional(),
   offset: z.string().regex(/^(0|[1-9][0-9]*)$/).transform(Number).refine(Number.isSafeInteger).optional(),

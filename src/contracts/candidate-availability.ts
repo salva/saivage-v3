@@ -1,9 +1,9 @@
 /**
- * CandidateAvailability — on-disk availability substrate for LLM provider candidates.
+ * CandidateAvailability — process-local, in-memory availability contract for
+ * LLM provider candidates.
  *
- * Replaces the in-memory `ProviderRegistry` health surface. Decisions about
- * cooldown / blocking come from the invocation recovery policy as
- * `AvailabilityDecision` values that this substrate persists.
+ * Invocation recovery supplies cooldown and blocking decisions. Those
+ * decisions remain process-local and reset on restart.
  */
 
 import type { Candidate } from './provider-candidate.js';

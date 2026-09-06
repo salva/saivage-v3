@@ -621,8 +621,13 @@ describe('operator API runtime contract without runtime ledgers', () => {
     expect(() => parseOperatorResponse('providers.list', 200, { providers: {} })).toThrow();
   });
 
-  it('requires present event pagination parameters to be non-negative integer strings', () => {
+  it('validates event card identity and pagination parameters', () => {
     expect(EventsQuerySchema.safeParse({}).success).toBe(true);
+    expect(EventsQuerySchema.safeParse({ card_id: 'project' }).success).toBe(true);
+    expect(EventsQuerySchema.safeParse({ card_id: 'card-a-b' }).success).toBe(true);
+    expect(EventsQuerySchema.safeParse({ card_id: 'not-a-card' }).success).toBe(false);
+    expect(EventsQuerySchema.safeParse({ card_id: 'card-a-b-c-d-e-f-g-h-i-j-k-l-m' }).success).toBe(false);
+    expect(EventsQuerySchema.safeParse({ card_id: 'card-a--b' }).success).toBe(false);
     expect(EventsQuerySchema.safeParse({ limit: '1', offset: '10' }).success).toBe(true);
     expect(EventsQuerySchema.safeParse({ limit: '0' }).success).toBe(false);
     expect(EventsQuerySchema.safeParse({ limit: '1.5' }).success).toBe(false);

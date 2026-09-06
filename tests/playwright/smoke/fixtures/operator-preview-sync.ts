@@ -1,16 +1,18 @@
 import { expect, type Page } from '@playwright/test';
 
-export type Phase = 'full-document-navigation' | 'auth-reconfiguration';
+export type RuntimeCancellationPhase = 'full-document-navigation' | 'auth-reconfiguration';
+type FilesEntryPhase = 'full-document-navigation' | 'files-entry';
+type ObservationPhase = RuntimeCancellationPhase | 'files-entry';
 export type Cancellation =
   | {
-      phase: Phase;
+      phase: RuntimeCancellationPhase;
       method: 'GET';
       origin: string;
       path: '/api/state' | '/api/runtime/status';
       error: 'net::ERR_ABORTED';
     }
   | {
-      phase: 'full-document-navigation';
+      phase: FilesEntryPhase;
       method: 'GET';
       origin: string;
       path: '/api/files';
@@ -39,7 +41,7 @@ export async function waitForRuntimePair<T>(page: Page, action: () => Promise<T>
 
 export function observePreviewRequestFailures(page: Page, baseURL: string) {
   const origin = new URL(baseURL).origin;
-  let phase: Phase | null = null;
+  let phase: ObservationPhase | null = null;
   const expected: Cancellation[] = [];
   const unexpected: string[] = [];
   page.on('requestfailed', (request) => {
@@ -47,11 +49,11 @@ export function observePreviewRequestFailures(page: Page, baseURL: string) {
     const error = request.failure()?.errorText ?? '';
     const path = url.pathname;
     if (phase && request.method() === 'GET' && url.origin === origin && error === 'net::ERR_ABORTED') {
-      if (path === '/api/state' || path === '/api/runtime/status') {
+      if ((phase === 'full-document-navigation' || phase === 'auth-reconfiguration') && (path === '/api/state' || path === '/api/runtime/status')) {
         expected.push({ phase, method: 'GET', origin, path, error });
         return;
       }
-      if (phase === 'full-document-navigation' && path === '/api/files' && url.search === '?path=.saivage') {
+      if ((phase === 'full-document-navigation' || phase === 'files-entry') && path === '/api/files' && url.search === '?path=.saivage') {
         expected.push({ phase, method: 'GET', origin, path, search: url.search, error });
         return;
       }
@@ -61,7 +63,7 @@ export function observePreviewRequestFailures(page: Page, baseURL: string) {
   return {
     expected,
     unexpected,
-    async during<T>(next: Phase, action: () => Promise<T>) {
+    async during<T>(next: ObservationPhase, action: () => Promise<T>) {
       if (phase) throw new Error(`phase active: ${phase}`);
       phase = next;
       try {
@@ -76,17 +78,17 @@ export function observePreviewRequestFailures(page: Page, baseURL: string) {
 export function assertPreviewRequestFailures(
   observations: FailureObservations,
   baseURL: string,
-  declaredPhases: readonly Phase[],
-  options: { filesMetadataListDisposal?: boolean } = {},
+  declaredPhases: readonly RuntimeCancellationPhase[],
+  options: { filesMetadataListSupersession?: FilesEntryPhase } = {},
 ) {
   const origin = new URL(baseURL).origin;
   const declared = declaredPhases.flatMap<Cancellation>((phase) => [
     { phase, method: 'GET', origin, path: '/api/state', error: 'net::ERR_ABORTED' },
     { phase, method: 'GET', origin, path: '/api/runtime/status', error: 'net::ERR_ABORTED' },
   ]);
-  if (options.filesMetadataListDisposal) {
+  if (options.filesMetadataListSupersession) {
     declared.push({
-      phase: 'full-document-navigation',
+      phase: options.filesMetadataListSupersession,
       method: 'GET',
       origin,
       path: '/api/files',
@@ -97,7 +99,7 @@ export function assertPreviewRequestFailures(
   for (const cancellation of observations.expected) {
     expect(declared).toContainEqual(cancellation);
   }
-  const filesMetadataListDisposals = observations.expected.filter((cancellation) => cancellation.path === '/api/files');
-  expect(filesMetadataListDisposals).toHaveLength(options.filesMetadataListDisposal ? 1 : 0);
+  const filesMetadataListSupersessions = observations.expected.filter((cancellation) => cancellation.path === '/api/files');
+  expect(filesMetadataListSupersessions).toHaveLength(options.filesMetadataListSupersession ? 1 : 0);
   expect(observations.unexpected).toEqual([]);
 }

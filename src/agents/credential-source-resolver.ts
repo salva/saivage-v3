@@ -56,10 +56,11 @@ interface ProfileCredentialResult {
  *
  * Precedence:
  * - base URL: account > provider > provider default > OpenAI default
- * - access credential: account apiKey > provider apiKey > explicit account
- *   authProfile > explicit provider authProfile > unambiguous provider/alias profile > none
- * Only apiKey carries secret material. Cache keys and errors are built from
- * source labels and provider/account/profile identifiers only.
+ * - access credential: explicit account authProfile > explicit provider
+ *   authProfile > explicit account apiKey > provider apiKey > one unambiguous
+ *   provider/alias auth profile > none
+ * Resolved apiKey values are secret-bearing. Errors use provider, account, and
+ * profile identifiers.
  */
 export class CredentialSourceResolver {
   private readonly loadAuthProfiles: () => Promise<AuthProfilesFile | null>;
