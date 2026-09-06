@@ -54,7 +54,6 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect(page).toHaveURL(/\/debug$/);
   await expect(page.getByRole('button', { name: 'Timeline', exact: true })).toHaveCount(0);
   await page.getByText('Errors').first().click();
-  const errorGroup=page.locator('.error-source-group').filter({has:page.getByRole('heading',{level:4,name:'planner-smoke (1)',exact:true})}); await expect(errorGroup).toHaveCount(1); const errorItem=errorGroup.locator(':scope > .error-item'); await expect(errorItem).toHaveCount(1); await expect(errorItem.locator(':scope > .error-message')).toHaveText('Synthetic provider failure redacted'); const detailCode=errorItem.locator(':scope > .code-block .code-block__code'); await expect(detailCode).toHaveCount(1); const detailText=await detailCode.textContent(); expect(detailText).not.toBeNull(); expect(JSON.parse(detailText as string)).toEqual({phase:'planner-smoke',error_message:'Synthetic provider failure redacted'});
 
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/dashboard'))); await waitForRuntimePair(page, async()=>page.evaluate(()=>window.__saivageWsFixture?.emitRuntimeUpdate())); await expect(page.getByTestId('dashboard-child-of-goal-panel').locator('.list-empty')).toHaveText('none');
 
@@ -63,6 +62,9 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   await expect(page.getByText('/route-that-does-not-exist')).toBeVisible();
 
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(pageErrors).toEqual([]);
+  expect(failures.unexpected).toEqual([
+    `GET ${new URL(baseURL).origin}/api/files?path=.saivage net::ERR_ABORTED`,
+  ]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
 });

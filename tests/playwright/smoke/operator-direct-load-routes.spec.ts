@@ -72,6 +72,26 @@ test('production browser direct loads initialize router and render route-owned b
     expect((await routerState(page)).matchedCount, `${routeCase.path} router matched records`).toBeGreaterThan(0);
   }
 
+  expect(rest.unknown).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation'], { filesMetadataListDisposal: true });
+  expect(consoleErrors).toEqual([]);
+  expect(pageErrors).toEqual([]);
+});
+
+test('production browser directly loads Debug and preserves tab-owned resources', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required'); const failures=observePreviewRequestFailures(page,baseURL);
+  const consoleErrors: string[] = [];
+  const pageErrors: string[] = [];
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text());
+  });
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+
+  await seedTokenBeforeNavigation(page, syntheticToken);
+  await installOperatorWebSocketShim(page);
+  const rest = await installOperatorRestRoutes(page);
+
   const beforeDefaultDebug = new Map(debugTabResources.map((key) => [key, rest.counts.get(key) ?? 0]));
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug', { waitUntil: 'networkidle' })));
   await expect(page.getByTestId('route-debug')).toContainText(/Runtime State|Errors|Processes/i);
@@ -102,6 +122,18 @@ test('production browser direct loads initialize router and render route-owned b
       const expected = (before.get(key) ?? 0) + (key === selected.resource ? 1 : 0);
       expect(rest.counts.get(key) ?? 0, `${selected.label} tab request ownership for ${key}`).toBe(expected);
     }
+    if (selected.tab === 'errors') {
+      const errorGroup = page.locator('.error-source-group').filter({ has: page.getByRole('heading', { level: 4, name: 'planner-smoke (1)', exact: true }) });
+      await expect(errorGroup).toHaveCount(1);
+      const errorItem = errorGroup.locator(':scope > .error-item');
+      await expect(errorItem).toHaveCount(1);
+      await expect(errorItem.locator(':scope > .error-message')).toHaveText('Synthetic provider failure redacted');
+      const detailCode = errorItem.locator(':scope > .code-block .code-block__code');
+      await expect(detailCode).toHaveCount(1);
+      const detailText = await detailCode.textContent();
+      expect(detailText).not.toBeNull();
+      expect(JSON.parse(detailText as string)).toEqual({ phase: 'planner-smoke', error_message: 'Synthetic provider failure redacted' });
+    }
   }
 
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug?tab=graphs', { waitUntil: 'networkidle' })));
@@ -114,7 +146,7 @@ test('production browser direct loads initialize router and render route-owned b
   await expect(page.getByText('Permitted children').locator('..')).toContainText('code');
   expect(rest.counts.get('GET /api/debug/graphs')).toBe(1);
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation'], { filesMetadataListDisposal: true });
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
 });
