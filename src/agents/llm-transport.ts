@@ -116,7 +116,6 @@ async function refreshOpenAICodexProfile(
   abortSignal?: AbortSignal,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
-  let refreshed: AuthProfile;
   let response: Response;
   try {
     response = await fetch(OPENAI_CODEX_TOKEN_URL, {
@@ -144,7 +143,7 @@ async function refreshOpenAICodexProfile(
   const data = await response.json().catch(() => null);
   abortSignal?.throwIfAborted();
   if (typeof data?.access_token !== 'string') return null;
-  refreshed = {
+  const refreshed: AuthProfile = {
     ...profile,
     accessToken: data.access_token,
     refreshToken:
@@ -165,7 +164,6 @@ async function refreshGitHubCopilotProfile(
   abortSignal?: AbortSignal,
 ): Promise<AuthProfile | null> {
   if (!profile.refreshToken) return null;
-  let refreshed: AuthProfile;
   let response: Response;
   try {
     response = await fetch('https://api.github.com/copilot_internal/v2/token', {
@@ -191,7 +189,7 @@ async function refreshGitHubCopilotProfile(
   const data = await response.json().catch(() => null);
   abortSignal?.throwIfAborted();
   if (typeof data?.token !== 'string') return null;
-  refreshed = {
+  const refreshed: AuthProfile = {
     ...profile,
     accessToken: data.token,
     expiresAt:

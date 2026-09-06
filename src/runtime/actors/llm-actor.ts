@@ -705,4 +705,3 @@ function parseToolArguments(raw: string): unknown { try { return JSON.parse(raw)
 function asError(error: unknown): Error { return error instanceof Error ? error : new Error(String(error)); }
 function observe<T>(promise: Promise<T>): void { void promise.catch(() => undefined); }
 function rejected(error: Error): Promise<LLMActorOutcome> { const promise = Promise.reject<LLMActorOutcome>(error); observe(promise); return promise; }
-function rejectedVoid(error: Error): Promise<void> { const promise = Promise.reject<void>(error); observe(promise); return promise; }

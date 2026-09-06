@@ -48,19 +48,15 @@ export const ModelRecordTargetWireSchema = z.object({
   }
   if (value.head_version === null || value.version_url !== `${currentUrl}&v=${value.head_version}`) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Populated record target must identify its head artifact.' });
 });
-const AnalystPreNetworkAdmissionSchema = z.union([
-  z.object({ ok: z.literal(true) }).strict(),
-  z.object({ ok: z.literal(false), result: z.union([RecordMutationDeniedSchema, RecordMutationStateFailureSchema, RecordMutationCurrentUnavailableSchema]), audit_outcome: z.enum(['denied', 'error']) }).strict().superRefine((value, ctx) => {
-    if ((value.result.data.code === 'record_mutation_denied') !== (value.audit_outcome === 'denied')) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Pre-network audit outcome must match admission result.' });
-    if (value.result.data.code !== 'record_mutation_denied' && value.result.data.code !== 'record_open_conflict' && value.result.data.code !== 'current_state_unavailable') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Pre-network admission returned a content-dependent failure.' });
-  }),
-]);
-
 export type RecordMutationFailure = z.infer<typeof RecordMutationFailureSchema>;
 export type RecordMutationSuccess = z.infer<typeof RecordMutationSuccessSchema>;
 export type RecordMutationResult = z.infer<typeof RecordMutationResultSchema>;
 export type ModelRecordTargetWire = z.infer<typeof ModelRecordTargetWireSchema>;
-export type AnalystPreNetworkAdmission = z.infer<typeof AnalystPreNetworkAdmissionSchema>;
+export type RecordMutationDenialReason = Extract<RecordMutationFailure, { data: { code: 'record_mutation_denied' } }>['data']['reason'];
+export type AnalystPreNetworkAdmission =
+  | { ok: true }
+  | { ok: false; result: Extract<RecordMutationFailure, { data: { code: 'record_mutation_denied' } }>; audit_outcome: 'denied' }
+  | { ok: false; result: Extract<RecordMutationFailure, { data: { code: 'record_open_conflict' | 'current_state_unavailable' } }>; audit_outcome: 'error' };
 
 export interface ParsedRecordUrl { cardId: string; name: string; version: number|null; currentUrl: string }
 

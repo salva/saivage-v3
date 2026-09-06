@@ -1,4 +1,3 @@
-import { z } from 'zod';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
 import { canonicalJson, cardAgentSessionId, type AgentName, type CardRecord, type ContentPolicyRefusalBlockedResult, type ConversationSessionId } from '../../schemas/index.js';

@@ -67,7 +67,7 @@ function readAt(read: typeof readSync, descriptor: number, position: number, len
 function readAll(descriptor: number): Buffer {
   const chunks: Buffer[] = [];
   let position = 0;
-  while (true) {
+  for (;;) {
     const chunk = readAt(readSync, descriptor, position, DEFAULT_READ_CHUNK_BYTES);
     if (chunk.byteLength === 0) break;
     chunks.push(chunk);

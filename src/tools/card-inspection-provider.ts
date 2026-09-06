@@ -15,7 +15,6 @@ import {
   DISCOVERY_TEXT_PREVIEW_MAX_BYTES,
   observationSha256,
   packCollectionData,
-  utf8ByteLength,
   utf8SafePreview,
   type CollectionPage,
   type CollectionPosition,

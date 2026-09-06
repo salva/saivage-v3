@@ -192,7 +192,7 @@ function abortError(signal: AbortSignal): Error {
   return new Error(typeof reason === 'string' ? reason : 'Tool invocation was interrupted.');
 }
 
-export function llmToolDefinition(tool: ToolSpecification<any>): LlmToolDefinition {
+export function llmToolDefinition(tool: ToolSpecification<unknown>): LlmToolDefinition {
   return {
     type: 'function',
     function: {

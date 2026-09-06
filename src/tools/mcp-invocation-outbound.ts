@@ -3,7 +3,6 @@ import {
   type McpToolCallArguments,
 } from '../contracts/mcp-invocation.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
-import { redactTextForOutbound } from '../redaction/text.js';
 import type { ToolResult } from '../contracts/tool-result.js';
 import { projectHistoricalToolResultForOutbound } from './tool-result-settlement.js';
 

@@ -1,6 +1,6 @@
 import type { CardService } from '../cards/card-service.js';
 import { analystRecordEditEffect } from '../cards/status-api.js';
-import { parseRecordUrl, RecordMutationFailureSchema, RecordMutationSuccessSchema, type AnalystPreNetworkAdmission, type RecordMutationFailure, type RecordMutationResult, type RecordMutationSuccess } from '../contracts/record-mutation.js';
+import { parseRecordUrl, RecordMutationFailureSchema, RecordMutationSuccessSchema, type AnalystPreNetworkAdmission, type RecordMutationDenialReason, type RecordMutationFailure, type RecordMutationResult, type RecordMutationSuccess } from '../contracts/record-mutation.js';
 import { effectiveRecordContent, isEmptyRecordContent } from '../persistence/canonical-record-artifacts.js';
 import type { RecordProjection } from '../persistence/authored-record-files.js';
 import type { AgentName } from '../schemas/index.js';
@@ -22,11 +22,9 @@ export interface RecordMutationRequest {
 type Admission = { parsed: ReturnType<typeof parseRecordUrl>; current: RecordProjection | null };
 
 function failure(value: RecordMutationFailure): RecordMutationFailure { return RecordMutationFailureSchema.parse(value); }
-function denied(parsed: ReturnType<typeof parseRecordUrl>, operation: 'write' | 'edit', reason: z.infer<typeof reasonSchema>): RecordMutationFailure {
+function denied(parsed: ReturnType<typeof parseRecordUrl>, operation: 'write' | 'edit', reason: RecordMutationDenialReason): RecordMutationFailure {
   return failure({ kind: 'rejected', error: 'Record mutation is not authorized.', data: { code: 'record_mutation_denied', card_id: parsed.cardId, name: parsed.name as never, operation, reason } });
 }
-import { z } from 'zod';
-const reasonSchema = z.enum(['card_not_active', 'writer_not_authorized', 'tool_not_authorized', 'cross_card_scope', 'lifecycle_unsupported']);
 
 export function admitRecordMutation(store: CardService, request: RecordMutationRequest): Admission | RecordMutationFailure {
   const parsed = parseRecordUrl(request.path);
@@ -50,7 +48,12 @@ export function admitRecordMutation(store: CardService, request: RecordMutationR
 
 export function preflightAnalystRecordWrite(store: CardService, request: Omit<RecordMutationRequest, 'content' | 'oldString' | 'newString' | 'replaceAll'>): AnalystPreNetworkAdmission {
   const admitted = admitRecordMutation(store, request);
-  if ('kind' in admitted) return { ok: false, result: admitted, audit_outcome: admitted.data.code === 'record_mutation_denied' ? 'denied' : 'error' } as AnalystPreNetworkAdmission;
+  if ('kind' in admitted) {
+    if (admitted.error === 'Record mutation is not authorized.') return { ok: false, result: admitted, audit_outcome: 'denied' };
+    if (admitted.error === 'Record already has an open workflow draft.') return { ok: false, result: admitted, audit_outcome: 'error' };
+    if (admitted.error === 'Current record state unavailable; restart required.') return { ok: false, result: admitted, audit_outcome: 'error' };
+    throw new Error('Pre-network admission returned a content-dependent failure.');
+  }
   return { ok: true };
 }
 
@@ -67,9 +70,7 @@ export function mutateRecord(store: CardService, request: RecordMutationRequest,
   } else nextContent = request.content!;
   if (isEmptyRecordContent(nextContent)) return failure({ kind: 'rejected', error: 'Record content must not be empty.', data: { code: 'record_result_content_empty', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead, operation: request.operation } });
   if (effective?.content === nextContent) return failure({ kind: 'rejected', error: 'Record content is unchanged.', data: { code: 'record_content_unchanged', card_id: parsed.cardId, name: parsed.name as never, current_head: currentHead!, operation: request.operation } });
-  let open: RecordProjection;
-  if (current?.artifact.state === 'open') open = current;
-  else open = store.openRecord(parsed.cardId, parsed.name);
+  if (current?.artifact.state !== 'open') store.openRecord(parsed.cardId, parsed.name);
   const edited = store.editRecord(parsed.cardId, parsed.name, nextContent);
   const result = request.surface === 'analyst' ? store.closeRecord(parsed.cardId, parsed.name, request.agentName) : edited;
   const success: RecordMutationSuccess = { kind: 'applied', data: { card_id: parsed.cardId, name: parsed.name as never, state: request.surface === 'analyst' ? 'closed' : 'open', head_version: result.headVersion, head_entry_id: result.artifact.entry_id, current_url: result.currentUrl, version_url: result.versionUrl, bytes: Buffer.byteLength(nextContent), written: true, surface: request.surface, ...(request.surface === 'analyst' ? { propagation: propagate ? propagate() : { ok: true as const } } : {}) } };
