@@ -113,7 +113,7 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
     this.closeApplicationAdmission();
     if (!this.applicationCleanupTask) {
       let termination: Promise<import('../process-runner.js').ProcessStopReport>;
-      try { termination = this.#processRunner.terminateScopeTree({ rootScope: this.#runtimeProcessRootScope, categories: ['runtime_card'], reason: 'application stopping', graceMs: 5000 }); }
+      try { termination = this.#processRunner.terminateScopeTree({ rootScope: this.#runtimeProcessRootScope, categories: ['runtime_card'], reason: 'application stopping' }); }
       catch (error) { termination = Promise.reject(error); }
       return termination.then((report) => { if (report.failed.length) throw new Error('Runtime application cleanup failed.'); });
     }
@@ -489,7 +489,6 @@ export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFa
         rootScope: this.#runtimeProcessRootScope,
         categories: ['runtime_card'],
         reason: trigger === 'application_close' ? 'application stopping' : 'runtime stop',
-        graceMs: 5000,
       }).then((report) => { if (report.failed.length !== 0) throw new Error('Runtime process-scope termination failed.'); });
     } catch (error) { processTermination = Promise.reject(error); }
 

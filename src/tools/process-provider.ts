@@ -154,7 +154,7 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
               await (invocation ? invocation.waits.waitProcess(record.id, pending) : pending);
             } catch (err) {
               throwIfPublicationOutcomeUnknown(err);
-              await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted', graceMs: 5000 });
+              await ctx.processRunner.kill(record.id, { directScope: ctx.directScope, category: ctx.category, reason: 'tool invocation interrupted' });
               if (isAbortError(err, signal)) return executedToolOutcome('none', toolSucceeded(processResult(ctx, record.id)));
               throw err;
             }
@@ -209,6 +209,6 @@ export const processToolBinders: readonly ToolBinder<ProcessProviderContext, any
 
 export async function cleanupProcessProvider(ctx: ProcessProviderContext, reason: ToolProviderCleanupReason): Promise<void> {
   const label = cleanupReasonLabel(reason);
-  const report = await ctx.processRunner.closeAndTerminateDirectScope({ directScope: ctx.directScope, category: ctx.category, reason: label, graceMs: 5000 });
+  const report = await ctx.processRunner.closeAndTerminateDirectScope({ directScope: ctx.directScope, category: ctx.category, reason: label });
   if (report.failed.length > 0) throw new Error(report.failed.map((failure) => `${failure.groupId}: ${failure.state}: ${failure.diagnostic}`).join('; '));
 }

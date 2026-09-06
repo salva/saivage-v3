@@ -221,7 +221,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         directScope,
         category: 'operator_session',
         reason: 'session closed',
-        graceMs: 5_000,
       });
       if (report.failed.length > 0)
         throw new Error(
@@ -261,7 +260,6 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       rootScope: services.analystProcessRootScope,
       categories: ['operator_session'],
       reason,
-      graceMs: 5_000,
     });
   const captureExecutingLlmSessionIds = (): ReadonlySet<ConversationSessionId> => {
     const sessionIds = new Set(runtimeSupervisor.captureAutonomousExecutingLlmSessionIds());

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { SyncHub } from '../../src/server/sync-hub.js';
+import { SYNC_HUB_DEBOUNCE_MS, SyncHub } from '../../src/server/sync-hub.js';
 import { LiveSyncSocket } from '../../src/server/live-sync-socket.js';
 import { CardService } from '../helpers/canonical-project.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
@@ -105,11 +105,13 @@ describe('SyncHub semantic hints', () => {
     jest.useFakeTimers();
     const live = new LiveSyncSocket();
     const invalidate = jest.spyOn(live, 'invalidate');
-    const hub = new SyncHub(live, 25);
+    const hub = new SyncHub(live);
     hub.runtimeChanged();
     expect(invalidate).not.toHaveBeenCalled();
 
-    jest.advanceTimersByTime(25);
+    jest.advanceTimersByTime(SYNC_HUB_DEBOUNCE_MS - 1);
+    expect(invalidate).not.toHaveBeenCalled();
+    jest.advanceTimersByTime(1);
 
     expect(invalidate.mock.calls).toEqual([[{ resource: 'runtime' }]]);
     hub.dispose();

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { DEFAULT_SAIVAGE_CONFIG,resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
-import { bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows } from '../../../src/runtime/card-process/card-process-config.js';
+import { EMIT_RESULT_SUMMARY_MAX_CHARS,bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows,describeNodeResultContract,nodeResultSchema,processNodeOutcomes } from '../../../src/runtime/card-process/card-process-config.js';
 import { effectiveSaivageConfigSchema,saivageConfigSchema,type SaivageConfig } from '../../../src/schemas/saivage-config.js';
 import type { CardStatus } from '../../../src/schemas/index.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
@@ -18,6 +18,14 @@ function failure(change:(value:SaivageConfig)=>void,message:RegExp):void{const v
 const roots:string[]=[];afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
 describe('named-agent card-type workflow compilation',()=>{
+  it('uses the terminal-result summary character limit in validation and generated text',()=>{
+    const process=compileProjectWorkflows(source()).cardTypes.get('project')!;
+    const [stateId]=[...process.states].find(([,candidate])=>candidate.kind==='node')!;
+    const outcome=processNodeOutcomes(process,stateId)[0]!;
+    expect(nodeResultSchema(process,stateId).safeParse({outcome,summary:'x'.repeat(EMIT_RESULT_SUMMARY_MAX_CHARS)}).success).toBe(true);
+    expect(nodeResultSchema(process,stateId).safeParse({outcome,summary:'x'.repeat(EMIT_RESULT_SUMMARY_MAX_CHARS+1)}).success).toBe(false);
+    expect(describeNodeResultContract(process,stateId)).toContain(`at most ${EMIT_RESULT_SUMMARY_MAX_CHARS} characters`);
+  });
   it('compiles the classic template source and the derived default identically',()=>{
     const fromTemplate=compileProjectWorkflows(effectiveSaivageConfigSchema.parse(structuredClone(resolveSystemTemplate('classic').config)));
     const derived=compileProjectWorkflows(source());

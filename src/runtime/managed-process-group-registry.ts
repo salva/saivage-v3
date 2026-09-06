@@ -2,6 +2,8 @@ import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
 
 export type ProcessCategory = 'runtime_card' | 'operator_session' | 'service_infrastructure';
 export type ManagedGroupState = 'active' | 'terminating' | 'unverifiable';
+export const MANAGED_PROCESS_TERM_GRACE_MS = 5000;
+export const MANAGED_PROCESS_POST_KILL_VERIFICATION_MS = 2000;
 
 declare const managedProcessScopeBrand: unique symbol;
 export interface ManagedProcessScope {
@@ -162,7 +164,7 @@ export class ManagedProcessGroupRegistry {
     if (group.directScope !== input.directScope || group.category !== input.category) {
       throw new Error(`Managed process group '${input.groupId}' is not bound to the invoking direct scope and category.`);
     }
-    return this.terminateRecords([group], input.reason, input.graceMs ?? 5_000);
+    return this.terminateRecords([group], input.reason, input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS);
   }
 
   closeAndTerminateDirectScope(input: { directScope: ManagedProcessScope; category: ProcessCategory; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
@@ -174,14 +176,14 @@ export class ManagedProcessGroupRegistry {
       this.retireDirectScope(scope);
       return Promise.resolve({ selected: [], stopped: [], failed: [] });
     }
-    return this.terminateRecords(selected, input.reason, input.graceMs ?? 5_000);
+    return this.terminateRecords(selected, input.reason, input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS);
   }
 
   terminateScopeTree(input: { rootScope: ManagedProcessScope; categories: readonly ProcessCategory[]; reason: string; graceMs?: number }): Promise<ProcessStopReport> {
     this.requireKnownScope(input.rootScope);
     const categories = new Set(input.categories);
     const selected = [...this.groups.values()].filter((group) => categories.has(group.category) && this.isDescendant(group.directScope, input.rootScope));
-    return this.terminateRecords(selected, input.reason, input.graceMs ?? 5_000);
+    return this.terminateRecords(selected, input.reason, input.graceMs ?? MANAGED_PROCESS_TERM_GRACE_MS);
   }
 
   private allocateScope(parent: ManagedProcessScope | null, kind: 'container', label: string, category: null): ManagedProcessScope;
@@ -356,7 +358,7 @@ export class ManagedProcessGroupRegistry {
     }
     const afterKill = await Promise.all(killCandidates.map(async (record) => {
       if (record.state === 'unverifiable') return 'ambiguous' as const;
-      return this.waitForAbsence(record, 2_000);
+      return this.waitForAbsence(record, MANAGED_PROCESS_POST_KILL_VERIFICATION_MS);
     }));
     afterKill.forEach((result, index) => {
       const record = killCandidates[index]!;

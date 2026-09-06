@@ -53,9 +53,9 @@ describe('process provider', () => {
     await cleanupProcessProvider(context, { kind: 'runtime_shutdown' });
 
     expect(terminate.mock.calls.map(([options]) => options)).toEqual([
-      { directScope, category: 'runtime_card', reason: 'activation settled: done', graceMs: 5000 },
-      { directScope, category: 'runtime_card', reason: 'session closed', graceMs: 5000 },
-      { directScope, category: 'runtime_card', reason: 'runtime shutdown', graceMs: 5000 },
+      { directScope, category: 'runtime_card', reason: 'activation settled: done' },
+      { directScope, category: 'runtime_card', reason: 'session closed' },
+      { directScope, category: 'runtime_card', reason: 'runtime shutdown' },
     ]);
   }));
 
@@ -224,6 +224,7 @@ describe('process provider', () => {
 
   it('returns a killed partial result when a foreground command is aborted', async () => withRoot(async (root) => {
     const processRunner = createTestProcessRunner(root);
+    const kill = jest.spyOn(processRunner.processRunner, 'kill');
     const surface = buildInvocationSurfaceFixture('executor', [executorProvider(root, processRunner)]);
     const controller = new AbortController();
     const pending = invokeTestTool(surface, 'run_command', { command: `exec ${process.execPath} -e 'process.stdout.write("before"); setInterval(() => {}, 1000)'`, timeout_ms: 10_000 }, controller.signal);
@@ -236,6 +237,11 @@ describe('process provider', () => {
       expectUnifiedProcessResult(result.data);
       expect(result.data).toEqual(expect.objectContaining({ status: 'killed' }));
     }
+    expect(kill).toHaveBeenCalledWith(expect.any(String), {
+      directScope: expect.anything(),
+      category: 'runtime_card',
+      reason: 'tool invocation interrupted',
+    });
   }));
 
   it('rejects process control from a same-owner sibling scope', async () => withRoot(async (root) => {

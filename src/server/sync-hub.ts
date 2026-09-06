@@ -4,6 +4,8 @@ import type { ConversationSessionId } from '../schemas/index.js';
 import type { AgentMembershipFreshnessTarget, ConversationFreshnessTarget } from '../application/freshness-effects.js';
 import type { LiveSyncSocket } from './live-sync-socket.js';
 
+export const SYNC_HUB_DEBOUNCE_MS = 75;
+
 function targetKey(target: LiveSyncInvalidateTarget): string {
   if (target.resource === 'conversation' || target.resource === 'llm-exchange')
     return `${target.resource}\u0000${target.id}`;
@@ -23,7 +25,7 @@ export class SyncHub implements FreshnessEffects {
   #timer: ReturnType<typeof setTimeout> | null = null;
   constructor(
     private readonly liveSyncSocket: LiveSyncSocket,
-    private readonly debounceMs = 75,
+    private readonly debounceMs = SYNC_HUB_DEBOUNCE_MS,
   ) {}
   dispose(): void {
     if (this.#timer) clearTimeout(this.#timer);

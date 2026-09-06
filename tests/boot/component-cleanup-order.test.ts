@@ -38,7 +38,6 @@ describe('termination-first component cleanup', () => {
       rootScope,
       categories: [component === 'runtime' ? 'runtime_card' : 'service_infrastructure'],
       reason: 'application stopping',
-      graceMs: 5000,
     });
     termination.resolve(failedReport);
     await expect(cleanup).rejects.toThrow(`${component === 'mcp' ? 'MCP' : component[0]!.toUpperCase() + component.slice(1)} application cleanup failed.`);

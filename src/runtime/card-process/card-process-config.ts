@@ -58,6 +58,7 @@ const OUTCOME_IDENTIFIER = /^[a-z][a-z0-9_-]{0,63}$/u;
 const ENTRY_PORTS = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
 const TERMINAL_PORTS = ['DONE', 'BLOCKED', 'FAILED'] as const;
 export const GENERIC_RECORD_SCHEMA = 'authored-record.v1';
+export const EMIT_RESULT_SUMMARY_MAX_CHARS = 2000;
 
 class ImmutableMap<K, V> implements ReadonlyMap<K, V> { readonly #values: Map<K,V>; constructor(entries: Iterable<readonly [K,V]>) { this.#values = new Map(entries); Object.freeze(this); } get size(){return this.#values.size;} get(key:K){return this.#values.get(key);} has(key:K){return this.#values.has(key);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:V,key:K,map:ReadonlyMap<K,V>)=>void,thisArg?:unknown){for(const [k,v] of this.#values) callbackfn.call(thisArg,v,k,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableMap';} }
 class ImmutableSet<T> implements ReadonlySet<T> { readonly #values:Set<T>; constructor(values:Iterable<T>){this.#values=new Set(values);Object.freeze(this);} get size(){return this.#values.size;} has(value:T){return this.#values.has(value);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:T,value2:T,set:ReadonlySet<T>)=>void,thisArg?:unknown){for(const value of this.#values)callbackfn.call(thisArg,value,value,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableSet';} }
@@ -699,7 +700,7 @@ export function processNodeOutcomes(
   );
 }
 export function nodeResultSchema(process: CompiledCardTypeWorkflow, stateId: string) {
-  return z.object({ outcome: z.enum(processNodeOutcomes(process, stateId) as [string, ...string[]]), summary: z.string().trim().min(1).max(2000) }).strict();
+  return z.object({ outcome: z.enum(processNodeOutcomes(process, stateId) as [string, ...string[]]), summary: z.string().trim().min(1).max(EMIT_RESULT_SUMMARY_MAX_CHARS) }).strict();
 }
 export function nodeResultToolDefinition(process: CompiledCardTypeWorkflow, stateId: string): LlmToolDefinition {
   return { type: 'function', function: { name: TERMINAL_RESULT_TOOL_NAME, description: 'Emit the configured process-node result as the final action of this turn.', parameters: zodToJsonSchemaMini(nodeResultSchema(process, stateId)) as Record<string, unknown> } };
@@ -710,5 +711,5 @@ export function describeNodeResultContract(
 ): string {
   const node=process.states.get(stateId);if(!node||node.kind!=='node')throw new Error(`Workflow '${process.cardType}' has no node state '${stateId}'.`);
   const requirements=node.requirements.length===0?'':` Required record gates: ${node.requirements.map(({definition,mode,gate})=>`${definition.name} (${mode} + ${gate})`).join(', ')}.`;
-  return `Call emit_result with exactly two fields: outcome (one of: ${processNodeOutcomes(process, stateId).join(' | ')}) and summary (a trimmed non-empty string of at most 2000 characters).${requirements}`;
+  return `Call emit_result with exactly two fields: outcome (one of: ${processNodeOutcomes(process, stateId).join(' | ')}) and summary (a trimmed non-empty string of at most ${EMIT_RESULT_SUMMARY_MAX_CHARS} characters).${requirements}`;
 }
