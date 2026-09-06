@@ -1,11 +1,20 @@
 #!/usr/bin/env node
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { compileScript, parse as parseSfc } from '@vue/compiler-sfc';
+import { SourceMapConsumer } from 'source-map-js';
 import ts from 'typescript';
 
 export const GOVERNED_ROOTS = Object.freeze(['src/contracts', 'src/schemas']);
+export const COMPLETE_PRODUCTION_ROOTS = Object.freeze(['src', 'web/src']);
+const TS_EXTENSIONS = /\.(?:ts|tsx|mts|cts)$/;
+const DECLARATION_SUFFIX = /\.d\.(?:ts|mts|cts)$/;
+const JS_EXTENSIONS = /\.(?:js|mjs|cjs)$/;
+const SFC_EXTENSION = /\.vue$/;
+const SFC_VIRTUAL_SUFFIX = '.__export_consumer__.ts';
 const ALLOWLIST_KEYS = ['consumer', 'export', 'kind', 'module', 'reason'];
 const ALLOWLIST_KINDS = new Set(['unobservable-entrypoint', 'reflective-consumer']);
 
@@ -22,19 +31,29 @@ function splitSurfaceKey(key) {
   return { module: key.slice(0, separator), export: key.slice(separator + 1) };
 }
 
-function isGovernedModule(file) {
-  return GOVERNED_ROOTS.some((root) => file.startsWith(`${root}/`)) && file.endsWith('.ts');
+function isGovernedModule(file, candidates) {
+  return candidates ? candidates.has(file) : GOVERNED_ROOTS.some((root) => file.startsWith(`${root}/`)) && file.endsWith('.ts');
 }
 
 function isTestModule(file) {
   return file.startsWith('tests/') ||
     file.includes('/__tests__/') ||
-    (/^web\/src\//.test(file) && /\.(?:test|spec)\.ts$/.test(file));
+    /\.(?:test|spec)\.(?:ts|tsx|mts|cts|js|mjs|cjs|vue)$/.test(file) ||
+    /(?:^|\/)vitest\.config\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/.test(file);
 }
 
-function location(root, sourceFile, node) {
+function location(root, sourceFile, node, virtualData) {
   const point = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
-  return `${canonical(root, sourceFile.fileName)}:${point.line + 1}:${point.character + 1}`;
+  const generated = canonical(root, sourceFile.fileName);
+  const consumer = virtualData?.virtualToCanonical.get(generated) ?? generated;
+  const synthetic = ts.isIdentifier(node) ? virtualData?.syntheticLocations.get(generated)?.get(node.text) : null;
+  if (synthetic) return `${consumer}:${synthetic.line}:${synthetic.column}`;
+  const map = virtualData?.sourceMaps.get(generated);
+  if (map) {
+    const original = map.originalPositionFor({ line: point.line + 1, column: point.character });
+    if (original.line != null && original.column != null) return `${consumer}:${original.line}:${original.column + 1}`;
+  }
+  return `${consumer}:${point.line + 1}:${point.character + 1}`;
 }
 
 function readConfig(root, relativeConfig) {
@@ -48,19 +67,170 @@ function readConfig(root, relativeConfig) {
   return parsed;
 }
 
-function createPrograms(root) {
+function exactBrowserRootTarget(specifier, tracked) {
+  if (!specifier.startsWith('/')) return null;
+  if (!/^\/src\/(?:[^./?#\\][^/?#\\]*\/)*[^./?#\\][^/?#\\]*\.ts$/.test(specifier)) return false;
+  const target = `web${specifier}`;
+  const matches = [...tracked].filter((file) => file.replaceAll('\\', '/') === target);
+  return matches.length === 1 ? target : false;
+}
+
+function originalScriptImportUses(file, content) {
+  const sourceName = path.resolve(`/${file}.original-script.ts`);
+  const options = { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022, noResolve: true };
+  const host = ts.createCompilerHost(options);
+  const originalGetSourceFile = host.getSourceFile.bind(host);
+  host.fileExists = (name) => path.resolve(name) === sourceName;
+  host.readFile = (name) => path.resolve(name) === sourceName ? content : undefined;
+  host.getSourceFile = (name, languageVersion) => path.resolve(name) === sourceName
+    ? ts.createSourceFile(sourceName, content, languageVersion, true, ts.ScriptKind.TS)
+    : originalGetSourceFile(name, languageVersion);
+  const program = ts.createProgram({ rootNames: [sourceName], options, host });
+  const sourceFile = program.getSourceFile(sourceName);
+  const checker = program.getTypeChecker();
+  const uses = [];
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !statement.importClause) continue;
+    const typeOnlyClause = statement.importClause.isTypeOnly;
+    if (statement.importClause.name && bindingReferences(checker, statement.importClause.name).length > 0) uses.push({ name: statement.importClause.name.text, offset: statement.importClause.name.getStart(sourceFile), typeOnly: typeOnlyClause });
+    const bindings = statement.importClause.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) {
+      if (bindingReferences(checker, element.name).length > 0) uses.push({ name: element.name.text, offset: element.name.getStart(sourceFile), typeOnly: typeOnlyClause || element.isTypeOnly });
+    }
+  }
+  return uses;
+}
+
+function compileSfcModules(root, sfcFiles, failures) {
+  const virtualSources = new Map();
+  const virtualToCanonical = new Map();
+  const explicitExports = new Map();
+  const sourceMaps = new Map();
+  const syntheticLocations = new Map();
+  for (const file of sfcFiles) {
+    const absolute = path.join(root, file);
+    const source = readFileSync(absolute, 'utf8');
+    const parsed = parseSfc(source, { filename: absolute, sourceMap: true });
+    for (const error of parsed.errors) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: `SFC parse failed: ${typeof error === 'string' ? error : error.message}` });
+    const descriptor = parsed.descriptor;
+    if (descriptor.script?.src || descriptor.scriptSetup?.src || descriptor.template?.src) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'external SFC blocks are unsupported' });
+    if (!descriptor.script && !descriptor.scriptSetup) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'SFC must contain a script block' });
+    for (const block of [descriptor.script, descriptor.scriptSetup].filter(Boolean)) if (block.lang !== 'ts') failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'SFC scripts must use lang="ts"' });
+    if (descriptor.scriptSetup && /\bexport\s/.test(descriptor.scriptSetup.content)) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'script-setup exports are unsupported' });
+    if (parsed.errors.length || failures.some((item) => item.module === file && item.category === 'unsupported')) continue;
+    let compiled;
+    try {
+      compiled = compileScript(descriptor, {
+        id: createHash('sha256').update(source).digest('hex').slice(0, 16),
+        fs: {
+          fileExists: (fileName) => existsSync(fileName),
+          readFile: (fileName) => readFileSync(fileName, 'utf8'),
+        },
+        inlineTemplate: true,
+        sourceMap: true,
+      });
+    } catch (error) {
+      failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: `SFC compilation failed: ${error.message}` });
+      continue;
+    }
+    const originalScript = [descriptor.script?.content, descriptor.scriptSetup?.content].filter(Boolean).join('\n');
+    const originalUses = originalScriptImportUses(file, originalScript);
+    const useTuple = originalUses.length === 0 ? '' : `\ntype __SaivageOriginalScriptImportUses = [${originalUses.map((use) => use.typeOnly ? use.name : `typeof ${use.name}`).join(', ')}];\n`;
+    const virtual = `${file}${SFC_VIRTUAL_SUFFIX}`;
+    virtualSources.set(path.join(root, virtual), `${compiled.content}${useTuple}`);
+    virtualToCanonical.set(virtual, file);
+    const originalSourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    const ordinaryLength = descriptor.script?.content.length ?? 0;
+    const locations = new Map();
+    for (const use of originalUses) {
+      const absoluteOffset = descriptor.script && use.offset < ordinaryLength
+        ? descriptor.script.loc.start.offset + use.offset
+        : descriptor.scriptSetup.loc.start.offset + use.offset - (descriptor.script ? ordinaryLength + 1 : 0);
+      const point = originalSourceFile.getLineAndCharacterOfPosition(absoluteOffset);
+      locations.set(use.name, { line: point.line + 1, column: point.character + 1 });
+    }
+    syntheticLocations.set(virtual, locations);
+    if (compiled.map) sourceMaps.set(virtual, new SourceMapConsumer(compiled.map));
+    const names = new Set();
+    if (descriptor.script) {
+      const ordinary = ts.createSourceFile(`${file}.script.ts`, descriptor.script.content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+      for (const statement of ordinary.statements) {
+        if (!statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+        if (statement.name && ts.isIdentifier(statement.name)) names.add(statement.name.text);
+        if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) if (ts.isIdentifier(declaration.name)) names.add(declaration.name.text);
+      }
+    }
+    explicitExports.set(file, names);
+  }
+  return { explicitExports, sourceMaps, syntheticLocations, virtualSources, virtualToCanonical };
+}
+
+function createProgramContext(root, rootFiles, options, tracked, candidates, virtualData, kind) {
+  const host = ts.createCompilerHost(options);
+  const originalFileExists = host.fileExists.bind(host);
+  const originalReadFile = host.readFile.bind(host);
+  host.fileExists = (fileName) => virtualData.virtualSources.has(path.resolve(fileName)) || originalFileExists(fileName);
+  host.readFile = (fileName) => virtualData.virtualSources.get(path.resolve(fileName)) ?? originalReadFile(fileName);
+  host.resolveModuleNameLiterals = (literals, containingFile) => literals.map(({ text }) => {
+    const browserTarget = exactBrowserRootTarget(text, tracked);
+    if (browserTarget) return { resolvedModule: { resolvedFileName: path.join(root, browserTarget), extension: ts.Extension.Ts, isExternalLibraryImport: false } };
+    if (text.endsWith('.vue')) {
+      let target;
+      if (text.startsWith('@/')) target = `web/src/${text.slice(2)}`;
+      else if (text.startsWith('.')) target = canonical(root, path.resolve(path.dirname(containingFile.replace(SFC_VIRTUAL_SUFFIX, '')), text));
+      if (target && tracked.has(target)) return { resolvedModule: { resolvedFileName: path.join(root, `${target}${SFC_VIRTUAL_SUFFIX}`), extension: ts.Extension.Ts, isExternalLibraryImport: false } };
+    }
+    if (kind === 'javascript' && text.startsWith('.')) {
+      const absolute = path.resolve(path.dirname(containingFile), text);
+      const relative = canonical(root, absolute);
+      const match = /^dist\/src\/(.+)\.js$/.exec(relative);
+      if (match) {
+        const target = `src/${match[1]}.ts`;
+        if (candidates.has(target)) return { resolvedModule: { resolvedFileName: path.join(root, target), extension: ts.Extension.Ts, isExternalLibraryImport: false } };
+      }
+    }
+    const resolved = ts.resolveModuleName(text, containingFile.replace(SFC_VIRTUAL_SUFFIX, ''), options, host).resolvedModule;
+    return resolved ? { resolvedModule: resolved } : { resolvedModule: undefined };
+  });
+  const program = ts.createProgram({ rootNames: rootFiles.map((file) => path.join(root, file)), options, host });
+  return { checker: program.getTypeChecker(), kind, options, program, roots: rootFiles, virtualData };
+}
+
+function createCompletePrograms(root, tracked, candidates, failures) {
+  const tsFiles = [...tracked].filter((file) => TS_EXTENSIONS.test(file)).sort();
+  const sfcFiles = [...tracked].filter((file) => SFC_EXTENSION.test(file) && file.startsWith('web/src/')).sort();
+  const jsFiles = [...tracked].filter((file) => JS_EXTENSIONS.test(file)).sort();
+  const rootFiles = tsFiles.filter((file) => file.startsWith('src/') || file.startsWith('tests/') || file.startsWith('scripts/'));
+  const webFiles = tsFiles.filter((file) => file.startsWith('web/'));
+  const docsFiles = tsFiles.filter((file) => file === 'docs/.vitepress/config.ts');
+  const assigned = new Set([...rootFiles, ...webFiles, ...docsFiles]);
+  for (const file of tsFiles) if (!assigned.has(file)) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'tracked TypeScript-family consumer has no semantic host' });
+  const virtualData = compileSfcModules(root, sfcFiles, failures);
+  const rootOptions = readConfig(root, 'tsconfig.json').options;
+  const webOptions = readConfig(root, 'web/tsconfig.json').options;
+  const rootContext = createProgramContext(root, rootFiles, rootOptions, tracked, candidates, virtualData, 'root');
+  const webContext = createProgramContext(root, [...webFiles, ...sfcFiles.map((file) => `${file}${SFC_VIRTUAL_SUFFIX}`)], webOptions, tracked, candidates, virtualData, 'web');
+  const docsContext = createProgramContext(root, docsFiles, rootOptions, tracked, candidates, virtualData, 'docs');
+  const jsOptions = { ...rootOptions, allowJs: true, checkJs: false, noEmit: true, declaration: false, outDir: undefined };
+  const jsContext = createProgramContext(root, jsFiles, jsOptions, tracked, candidates, virtualData, 'javascript');
+  return { contexts: [rootContext, webContext, docsContext, jsContext], declarationFiles: tsFiles.filter((file) => DECLARATION_SUFFIX.test(file)), jsFiles, sfcFiles, tsFiles, virtualData };
+}
+
+function createPhaseOnePrograms(root) {
   return ['tsconfig.json', 'web/tsconfig.json'].map((config) => {
     const parsed = readConfig(root, config);
     const program = ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options });
-    return { checker: program.getTypeChecker(), options: parsed.options, program };
+    return { checker: program.getTypeChecker(), kind: 'phase-one', options: parsed.options, program, roots: parsed.fileNames.map((file) => canonical(root, file)), virtualData: { virtualToCanonical: new Map(), sourceMaps: new Map(), syntheticLocations: new Map() } };
   });
 }
 
-function modulePath(root, checker, specifier) {
+function modulePath(root, checker, specifier, virtualData) {
   const symbol = checker.getSymbolAtLocation(specifier);
   const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
   const sourceFile = declaration && (ts.isSourceFile(declaration) ? declaration : declaration.getSourceFile());
-  return sourceFile ? canonical(root, sourceFile.fileName) : null;
+  if (!sourceFile) return null;
+  const found = canonical(root, sourceFile.fileName);
+  return virtualData?.virtualToCanonical.get(found) ?? found;
 }
 
 function exportedName(element) {
@@ -97,7 +267,11 @@ function bindingReferences(checker, binding) {
   if (!symbol) return [];
   const references = [];
   const visit = (node) => {
-    if (ts.isIdentifier(node) && node !== binding && checker.getSymbolAtLocation(node) === symbol) references.push(node);
+    if (ts.isIdentifier(node) && node !== binding) {
+      const direct = checker.getSymbolAtLocation(node);
+      const value = ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node ? checker.getShorthandAssignmentValueSymbol(node.parent) : direct;
+      if (value === symbol) references.push(node);
+    }
     ts.forEachChild(node, visit);
   };
   visit(binding.getSourceFile());
@@ -118,15 +292,14 @@ function ultimateSymbol(checker, symbol) {
 
 function localUse(checker, sourceFile, exportSymbol) {
   const target = ultimateSymbol(checker, exportSymbol);
-  if (!target) return false;
-  let used = false;
+  if (!target) return [];
+  const used = [];
   const visit = (node) => {
-    if (used) return;
     if (ts.isIdentifier(node) && !directExportDeclarationName(node)) {
       const symbol = ultimateSymbol(checker, checker.getSymbolAtLocation(node));
-      if (symbol === target) used = true;
+      if (symbol === target) used.push(node);
     }
-    if (!used) ts.forEachChild(node, visit);
+    ts.forEachChild(node, visit);
   };
   visit(sourceFile);
   return used;
@@ -176,15 +349,36 @@ function isStringOnlyNegativeAssertion(node) {
   return text.includes('toBeUndefined(') || (text.includes('.not.') && (text.includes('toHaveProperty(') || text.includes('toContain(') || text.includes('toBeDefined(')));
 }
 
-function collectRouteDeclarations(root, tracked, context, routes, failures) {
-  const { checker, program } = context;
+function isKnownNonConsumingReflection(node) {
+  let current = node;
+  for (let depth = 0; depth < 8 && current.parent; depth += 1) {
+    current = current.parent;
+    if (ts.isCallExpression(current) && current.expression.getText().includes('toHaveProperty')) return true;
+    if (ts.isStatement(current)) return /expect\([^)]*\)\.toBe\(false\)/.test(current.getText()) && current.getText().includes(' in ');
+  }
+  return false;
+}
+
+function isImportOriginalType(node) {
+  let current = node;
+  for (let depth = 0; depth < 6 && current.parent; depth += 1) {
+    current = current.parent;
+    if (ts.isCallExpression(current) && ts.isIdentifier(current.expression) && current.expression.text === 'importOriginal') return true;
+  }
+  return false;
+}
+
+function collectRouteDeclarations(root, tracked, candidates, context, routes, failures) {
+  const { checker, program, virtualData } = context;
+  const owned = new Set(context.roots.map((file) => file.endsWith(SFC_VIRTUAL_SUFFIX) ? file.slice(0, -SFC_VIRTUAL_SUFFIX.length) : file));
   for (const sourceFile of program.getSourceFiles()) {
-    const fromModule = canonical(root, sourceFile.fileName);
-    if (!tracked.has(fromModule)) continue;
+    const generated = canonical(root, sourceFile.fileName);
+    const fromModule = virtualData.virtualToCanonical.get(generated) ?? generated;
+    if (!tracked.has(fromModule) || !owned.has(fromModule)) continue;
     const localImports = new Map();
     for (const statement of sourceFile.statements) {
       if (!ts.isImportDeclaration(statement) || !statement.importClause || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
-      const targetModule = modulePath(root, checker, statement.moduleSpecifier);
+      const targetModule = modulePath(root, checker, statement.moduleSpecifier, virtualData);
       if (!targetModule) continue;
       if (statement.importClause.name) localImports.set(statement.importClause.name.text, surfaceKey(targetModule, 'default'));
       const bindings = statement.importClause.namedBindings;
@@ -193,9 +387,9 @@ function collectRouteDeclarations(root, tracked, context, routes, failures) {
     for (const statement of sourceFile.statements) {
       if (!ts.isExportDeclaration(statement)) continue;
       if (statement.moduleSpecifier && ts.isStringLiteralLike(statement.moduleSpecifier)) {
-        const targetModule = modulePath(root, checker, statement.moduleSpecifier);
+        const targetModule = modulePath(root, checker, statement.moduleSpecifier, virtualData);
         if (!targetModule) {
-          if (isGovernedModule(fromModule)) failures.push({ category: 'unresolved-edge', module: fromModule, export: '*', consumer: location(root, sourceFile, statement.moduleSpecifier), message: `cannot resolve export edge ${statement.moduleSpecifier.text}` });
+          if (isGovernedModule(fromModule, candidates)) failures.push({ category: 'unresolved-edge', module: fromModule, export: '*', consumer: location(root, sourceFile, statement.moduleSpecifier, virtualData), message: `cannot resolve export edge ${statement.moduleSpecifier.text}` });
           continue;
         }
         if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
@@ -204,7 +398,7 @@ function collectRouteDeclarations(root, tracked, context, routes, failures) {
           const targetFile = program.getSourceFile(path.resolve(root, targetModule));
           if (targetFile) for (const name of exportedNames(checker, targetFile).filter((name) => name !== 'default')) addRoute(routes, surfaceKey(fromModule, name), surfaceKey(targetModule, name));
         } else {
-          failures.push({ category: 'unsupported', module: fromModule, export: '*', consumer: location(root, sourceFile, statement), message: 'namespace re-export is unsupported' });
+          failures.push({ category: 'unsupported', module: fromModule, export: '*', consumer: location(root, sourceFile, statement, virtualData), message: 'namespace re-export is unsupported' });
         }
       } else if (statement.exportClause && ts.isNamedExports(statement.exportClause)) {
         for (const element of statement.exportClause.elements) {
@@ -217,11 +411,13 @@ function collectRouteDeclarations(root, tracked, context, routes, failures) {
   }
 }
 
-function collectImports(root, tracked, context, routes, governedKeys, uses, failures, unsupported) {
-  const { checker, options, program } = context;
+function collectImports(root, tracked, candidates, context, routes, governedKeys, uses, failures, unsupported) {
+  const { checker, options, program, virtualData } = context;
+  const owned = new Set(context.roots.map((file) => file.endsWith(SFC_VIRTUAL_SUFFIX) ? file.slice(0, -SFC_VIRTUAL_SUFFIX.length) : file));
   for (const sourceFile of program.getSourceFiles()) {
-    const consumer = canonical(root, sourceFile.fileName);
-    if (!tracked.has(consumer)) continue;
+    const generated = canonical(root, sourceFile.fileName);
+    const consumer = virtualData.virtualToCanonical.get(generated) ?? generated;
+    if (!tracked.has(consumer) || !owned.has(consumer)) continue;
     const kind = isTestModule(consumer) ? 'test' : 'production';
     const observe = (start, node) => {
       const pending = [start];
@@ -230,15 +426,15 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
         const key = pending.pop();
         if (visited.has(key)) continue;
         visited.add(key);
-        if (governedKeys.has(key)) addUse(uses, key, kind, location(root, sourceFile, node));
+        if (governedKeys.has(key)) addUse(uses, key, kind, location(root, sourceFile, node, virtualData));
         for (const target of routes.get(key) ?? []) pending.push(target);
       }
     };
     const unsupportedUse = (module, exportName, node, message) => {
       if (exportName === '*') {
         const routedNames = [...routes.keys()].filter((key) => splitSurfaceKey(key).module === module);
-        if (!isGovernedModule(module) && !routedNames.some((key) => reachesGoverned(key, routes, governedKeys).size > 0)) return;
-        const item = { category: 'unsupported', module, export: '*', consumer: location(root, sourceFile, node), message };
+        if (!isGovernedModule(module, candidates) && !routedNames.some((key) => reachesGoverned(key, routes, governedKeys).size > 0)) return;
+        const item = { category: 'unsupported', module, export: '*', consumer: location(root, sourceFile, node, virtualData), message };
         failures.push(item);
         unsupported.push(item);
         return;
@@ -248,21 +444,77 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
         : [surfaceKey(module, exportName)];
       const reached = new Set(startKeys.flatMap((key) => [...reachesGoverned(key, routes, governedKeys)]));
       for (const key of reached) {
-        const item = { category: 'unsupported', ...splitSurfaceKey(key), consumer: location(root, sourceFile, node), message };
+        const item = { category: 'unsupported', ...splitSurfaceKey(key), consumer: location(root, sourceFile, node, virtualData), message };
         failures.push(item);
         unsupported.push(item);
       }
     };
 
     const visit = (node) => {
+      if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length === 1) {
+        const argument = node.arguments[0];
+        if (ts.isStringLiteralLike(argument) && argument.text.startsWith('/') && exactBrowserRootTarget(argument.text, tracked) === false) {
+          const item = { category: 'unsupported', module: argument.text, export: '*', consumer: location(root, sourceFile, argument, virtualData), message: 'invalid or unresolved root-relative module specifier' };
+          failures.push(item);
+          unsupported.push(item);
+          return;
+        }
+        if (!ts.isStringLiteralLike(argument) && ts.isIdentifier(argument)) {
+          const symbol = checker.getSymbolAtLocation(argument);
+          const declaration = symbol?.valueDeclaration;
+          const initializer = declaration && ts.isVariableDeclaration(declaration) ? declaration.initializer : null;
+          if (initializer && ts.isStringLiteralLike(initializer) && initializer.text.startsWith('/')) {
+            const item = { category: 'unsupported', module: initializer.text, export: '*', consumer: location(root, sourceFile, argument, virtualData), message: 'computed root-relative dynamic import is unsupported' };
+            failures.push(item);
+            unsupported.push(item);
+            return;
+          }
+        }
+        if (!ts.isStringLiteralLike(argument)) {
+          const item = { category: 'unsupported', module: '<computed-import>', export: '*', consumer: location(root, sourceFile, argument, virtualData), message: 'computed dynamic import is unsupported' };
+          failures.push(item);
+          unsupported.push(item);
+          return;
+        }
+      }
+
+      if (context.kind === 'javascript' && ts.isExportDeclaration(node) && node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) {
+        const targetModule = modulePath(root, checker, node.moduleSpecifier, virtualData) ?? resolveQueriedModule(root, sourceFile, node.moduleSpecifier, options).module;
+        if (targetModule && isGovernedModule(targetModule, candidates)) {
+          unsupportedUse(targetModule, '*', node, 'JavaScript re-exports from governed modules are unsupported');
+          return;
+        }
+      }
+
+      if (context.kind === 'javascript' && ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'require' && node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0])) {
+        const targetModule = resolveQueriedModule(root, sourceFile, node.arguments[0], options).module;
+        if (targetModule && isGovernedModule(targetModule, candidates)) unsupportedUse(targetModule, '*', node, 'CommonJS require of a governed module is unsupported');
+        return;
+      }
+
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'glob' && node.expression.expression.getText(sourceFile) === 'import.meta') {
+        const text = node.getText(sourceFile);
+        const exactRaw = /^import\.meta\.glob\(['"]\.\.\/components\/debug\/\*Panel\.vue['"],\s*\{[\s\S]*eager:\s*true,[\s\S]*query:\s*['"]\?raw['"],[\s\S]*import:\s*['"]default['"][\s\S]*\}\)$/.test(text);
+        if (!exactRaw && text.includes('.vue')) {
+          const item = { category: 'unsupported', module: 'web/src/**/*.vue', export: '*', consumer: location(root, sourceFile, node, virtualData), message: 'unsupported import.meta.glob form intersects governed SFC modules' };
+          failures.push(item);
+          unsupported.push(item);
+        }
+        return;
+      }
+
       if (ts.isImportDeclaration(node) && ts.isStringLiteralLike(node.moduleSpecifier)) {
         const queried = resolveQueriedModule(root, sourceFile, node.moduleSpecifier, options);
-        const resolvedModule = modulePath(root, checker, node.moduleSpecifier) ?? queried.module;
+         const resolvedModule = modulePath(root, checker, node.moduleSpecifier, virtualData) ?? queried.module;
         if (queried.query) {
-          if (resolvedModule && queried.query !== 'raw' && isGovernedModule(resolvedModule)) unsupportedUse(resolvedModule, '*', node.moduleSpecifier, `unsupported query transform ?${queried.query}`);
+           if (resolvedModule && queried.query !== 'raw' && isGovernedModule(resolvedModule, candidates)) unsupportedUse(resolvedModule, '*', node.moduleSpecifier, `unsupported query transform ?${queried.query}`);
           return;
         }
         if (!resolvedModule || !node.importClause) return;
+        if (context.kind === 'javascript' && isGovernedModule(resolvedModule, candidates) && (node.importClause.name || (node.importClause.namedBindings && ts.isNamespaceImport(node.importClause.namedBindings)))) {
+          unsupportedUse(resolvedModule, '*', node, 'JavaScript default and namespace imports from governed modules are unsupported');
+          return;
+        }
         const routedLocalNames = new Set();
         for (const statement of sourceFile.statements) {
           if (!ts.isExportDeclaration(statement) || statement.moduleSpecifier || !statement.exportClause || !ts.isNamedExports(statement.exportClause)) continue;
@@ -272,7 +524,7 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
           const key = surfaceKey(resolvedModule, 'default');
           const governed = reachesGoverned(key, routes, governedKeys);
           const references = bindingReferences(checker, node.importClause.name);
-          if (governed.size > 0 && references.length === 0 && !routedLocalNames.has(node.importClause.name.text)) failures.push({ category: 'stale-import', ...splitSurfaceKey(key), consumer: location(root, sourceFile, node.importClause.name), message: 'unused default import' });
+           if (governed.size > 0 && references.length === 0 && !routedLocalNames.has(node.importClause.name.text)) failures.push({ category: 'stale-import', ...splitSurfaceKey(key), consumer: location(root, sourceFile, node.importClause.name, virtualData), message: 'unused default import' });
           for (const reference of references) observe(key, reference);
         }
         const bindings = node.importClause.namedBindings;
@@ -280,17 +532,21 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
           for (const element of bindings.elements) {
             const key = surfaceKey(resolvedModule, importedName(element));
             const governed = reachesGoverned(key, routes, governedKeys);
-            if (isGovernedModule(resolvedModule) && !governedKeys.has(key) && governed.size === 0) failures.push({ category: 'unresolved-edge', module: resolvedModule, export: importedName(element), consumer: location(root, sourceFile, element), message: 'governed import names no export' });
+             if (isGovernedModule(resolvedModule, candidates) && !governedKeys.has(key) && governed.size === 0) failures.push({ category: 'unresolved-edge', module: resolvedModule, export: importedName(element), consumer: location(root, sourceFile, element, virtualData), message: 'governed import names no export' });
             const references = bindingReferences(checker, element.name);
-            if (governed.size > 0 && references.length === 0 && !routedLocalNames.has(element.name.text)) failures.push({ category: 'stale-import', ...splitSurfaceKey(key), consumer: location(root, sourceFile, element), message: 'import binding is never referenced' });
+             if (governed.size > 0 && references.length === 0 && !routedLocalNames.has(element.name.text)) failures.push({ category: 'stale-import', ...splitSurfaceKey(key), consumer: location(root, sourceFile, element, virtualData), message: 'import binding is never referenced' });
             for (const reference of references) observe(key, reference);
           }
         } else if (bindings && ts.isNamespaceImport(bindings)) {
           const names = new Set([...governedKeys].map((key) => splitSurfaceKey(key)).filter((part) => part.module === resolvedModule).map((part) => part.export));
-          for (const reference of bindingReferences(checker, bindings.name)) {
+          const references = bindingReferences(checker, bindings.name);
+          if (names.size > 0 && references.length === 0) failures.push({ category: 'stale-import', module: resolvedModule, export: '*', consumer: location(root, sourceFile, bindings.name, virtualData), message: 'namespace import binding is never referenced' });
+          for (const reference of references) {
             const parent = reference.parent;
             if (ts.isPropertyAccessExpression(parent) && parent.expression === reference) {
               observe(surfaceKey(resolvedModule, parent.name.text), parent.name);
+            } else if (ts.isQualifiedName(parent) && parent.left === reference) {
+              observe(surfaceKey(resolvedModule, parent.right.text), parent.right);
             } else if (ts.isElementAccessExpression(parent) && parent.expression === reference && parent.argumentExpression && ts.isStringLiteralLike(parent.argumentExpression)) {
               observe(surfaceKey(resolvedModule, parent.argumentExpression.text), parent.argumentExpression);
             } else if (ts.isVariableDeclaration(parent) && parent.initializer === reference && ts.isObjectBindingPattern(parent.name)) {
@@ -309,7 +565,7 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
               collectLiterals(evidenceNode);
               const literals = allLiterals.filter((name) => names.has(name));
               if (literals.length > 0) for (const name of literals) unsupportedUse(resolvedModule, name, parent, 'reflective namespace use does not establish semantic consumption');
-              else if (allLiterals.length === 0 && !isStringOnlyNegativeAssertion(parent)) unsupportedUse(resolvedModule, '*', parent, 'whole-module namespace use is unsupported');
+              else if (allLiterals.length === 0 && !isStringOnlyNegativeAssertion(parent) && !isKnownNonConsumingReflection(parent)) unsupportedUse(resolvedModule, '*', parent, 'whole-module namespace use is unsupported');
             }
           }
         }
@@ -317,7 +573,8 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
       }
 
       if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteralLike(node.argument.literal)) {
-        const targetModule = modulePath(root, checker, node.argument.literal) ?? resolveQueriedModule(root, sourceFile, node.argument.literal, options).module;
+        if (isImportOriginalType(node)) return;
+         const targetModule = modulePath(root, checker, node.argument.literal, virtualData) ?? resolveQueriedModule(root, sourceFile, node.argument.literal, options).module;
         if (targetModule && node.qualifier) {
           let qualifier = node.qualifier;
           while (ts.isQualifiedName(qualifier)) qualifier = qualifier.left;
@@ -330,7 +587,7 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
         const expression = node.expression;
         const specifier = dynamicImportSpecifier(expression);
         if (specifier) {
-          const targetModule = modulePath(root, checker, specifier) ?? resolveQueriedModule(root, sourceFile, specifier, options).module;
+           const targetModule = modulePath(root, checker, specifier, virtualData) ?? resolveQueriedModule(root, sourceFile, specifier, options).module;
           const name = ts.isPropertyAccessExpression(node) ? node.name.text : node.argumentExpression && ts.isStringLiteralLike(node.argumentExpression) ? node.argumentExpression.text : null;
           if (targetModule && name) observe(surfaceKey(targetModule, name), node);
           else if (targetModule) unsupportedUse(targetModule, '*', node, 'computed dynamic-import member is unsupported');
@@ -338,18 +595,40 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
         }
       }
 
+      if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression) && node.expression.name.text === 'then') {
+        const specifier = dynamicImportSpecifier(node.expression.expression);
+        const callback = node.arguments[0];
+        if (specifier && callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && callback.parameters.length === 1 && ts.isIdentifier(callback.parameters[0].name)) {
+          const targetModule = modulePath(root, checker, specifier, virtualData) ?? resolveQueriedModule(root, sourceFile, specifier, options).module;
+          if (targetModule) {
+            for (const reference of bindingReferences(checker, callback.parameters[0].name)) {
+              const parent = reference.parent;
+              if (ts.isPropertyAccessExpression(parent) && parent.expression === reference) observe(surfaceKey(targetModule, parent.name.text), parent.name);
+              else if (ts.isElementAccessExpression(parent) && parent.expression === reference && parent.argumentExpression && ts.isStringLiteralLike(parent.argumentExpression)) observe(surfaceKey(targetModule, parent.argumentExpression.text), parent.argumentExpression);
+              else unsupportedUse(targetModule, '*', parent, 'dynamic-import callback must select an exact literal member');
+            }
+          }
+        }
+      }
+
       if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword && node.arguments.length === 1 && ts.isStringLiteralLike(node.arguments[0])) {
         let parent = node.parent;
         while (ts.isParenthesizedExpression(parent) || ts.isAwaitExpression(parent) || ts.isAsExpression(parent) || ts.isTypeAssertionExpression(parent)) parent = parent.parent;
-        const targetModule = modulePath(root, checker, node.arguments[0]) ?? resolveQueriedModule(root, sourceFile, node.arguments[0], options).module;
+         const targetModule = modulePath(root, checker, node.arguments[0], virtualData) ?? resolveQueriedModule(root, sourceFile, node.arguments[0], options).module;
         if (targetModule && ts.isVariableDeclaration(parent) && parent.initializer && parent.name && ts.isObjectBindingPattern(parent.name)) {
           for (const element of parent.name.elements) {
             const name = element.propertyName && ts.isIdentifier(element.propertyName) ? element.propertyName.text : ts.isIdentifier(element.name) ? element.name.text : null;
             if (name) observe(surfaceKey(targetModule, name), element);
           }
         } else if (targetModule && ts.isVariableDeclaration(parent) && parent.initializer && parent.name && ts.isIdentifier(parent.name)) {
+          if (context.kind === 'javascript') {
+            unsupportedUse(targetModule, '*', parent, 'JavaScript dynamic-import namespace bindings are unsupported');
+            return;
+          }
           const exported = new Set([...governedKeys].map(splitSurfaceKey).filter((part) => part.module === targetModule).map((part) => part.export));
-          for (const reference of bindingReferences(checker, parent.name)) {
+          const references = bindingReferences(checker, parent.name);
+          if (references.length === 0) failures.push({ category: 'stale-import', module: targetModule, export: '*', consumer: location(root, sourceFile, parent.name, virtualData), message: 'dynamic-import namespace binding is never referenced' });
+          for (const reference of references) {
             const referenceParent = reference.parent;
             if (ts.isPropertyAccessExpression(referenceParent) && referenceParent.expression === reference) observe(surfaceKey(targetModule, referenceParent.name.text), referenceParent.name);
             else if (ts.isElementAccessExpression(referenceParent) && referenceParent.expression === reference && referenceParent.argumentExpression && ts.isStringLiteralLike(referenceParent.argumentExpression)) observe(surfaceKey(targetModule, referenceParent.argumentExpression.text), referenceParent.argumentExpression);
@@ -366,8 +645,6 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
               if (literal) unsupportedUse(targetModule, literal.text, referenceParent, 'reflective dynamic-import use does not establish semantic consumption');
             }
           }
-        } else if (targetModule && !ts.isPropertyAccessExpression(parent) && !ts.isElementAccessExpression(parent) && !isStringOnlyNegativeAssertion(parent)) {
-          unsupportedUse(targetModule, '*', node, 'bare dynamic import is unsupported');
         }
         return;
       }
@@ -377,7 +654,7 @@ function collectImports(root, tracked, context, routes, governedKeys, uses, fail
   }
 }
 
-function parseAllowlist(root, allowlistPath, tracked, surfaces, classifications, unsupported) {
+function parseAllowlist(root, allowlistPath, tracked, candidates, surfaces, classifications, unsupported) {
   let value;
   try {
     value = JSON.parse(readFileSync(path.join(root, allowlistPath), 'utf8'));
@@ -403,7 +680,7 @@ function parseAllowlist(root, allowlistPath, tracked, surfaces, classifications,
     seen.add(key);
     const classification = classifications.get(key);
     if (!surfaces.has(key)) failures.push({ category: 'allowlist-stale', module: entry.module, export: entry.export, consumer: entry.consumer, message: 'allowlisted export does not exist' });
-    else if (!tracked.has(entry.consumer) || isGovernedModule(entry.consumer)) failures.push({ category: 'allowlist-stale', module: entry.module, export: entry.export, consumer: entry.consumer, message: 'consumer must be an exact tracked non-governed file' });
+    else if (!tracked.has(entry.consumer) || isGovernedModule(entry.consumer, candidates)) failures.push({ category: 'allowlist-stale', module: entry.module, export: entry.export, consumer: entry.consumer, message: 'consumer must be an exact tracked non-governed file' });
     else if (entry.reason.length < 20 || /(?:baseline|generic|test.only)/i.test(entry.reason)) failures.push({ category: 'allowlist', module: entry.module, export: entry.export, consumer: entry.consumer, message: 'reason must be concrete and cannot describe a baseline or test-only use' });
     else if (classification === 'production-consumed' || classification === 'test-only') failures.push({ category: 'allowlist-stale', module: entry.module, export: entry.export, consumer: entry.consumer, message: 'export has a compiler-visible external consumer' });
     else {
@@ -426,41 +703,85 @@ export function discoverGovernedFiles(trackedFiles) {
   return { byRoot, files: GOVERNED_ROOTS.flatMap((root) => byRoot[root]).sort() };
 }
 
-export function checkExportConsumers({ root = process.cwd(), trackedFiles, allowlistPath = 'scripts/export-consumer-allowlist.json' } = {}) {
+export function discoverCompleteOwnership(trackedFiles) {
+  const tracked = [...new Set(trackedFiles.map((file) => file.replaceAll('\\', '/')))];
+  const typescriptCandidates = tracked.filter((file) =>
+    TS_EXTENSIONS.test(file) &&
+    !DECLARATION_SUFFIX.test(file) &&
+    (file.startsWith('src/') || file.startsWith('web/src/')) &&
+    !isTestModule(file));
+  const sfcCandidates = tracked.filter((file) => file.startsWith('web/src/') && SFC_EXTENSION.test(file) && !isTestModule(file));
+  if (typescriptCandidates.filter((file) => file.startsWith('src/')).length === 0) throw new Error('production root src must contain at least one tracked TypeScript-family module');
+  if (typescriptCandidates.filter((file) => file.startsWith('web/src/')).length === 0 && sfcCandidates.length === 0) throw new Error('production root web/src must contain at least one tracked module');
+  return {
+    files: [...typescriptCandidates, ...sfcCandidates].sort(),
+    sfcCandidates: sfcCandidates.sort(),
+    typescriptCandidates: typescriptCandidates.sort(),
+  };
+}
+
+function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistPath = 'scripts/export-consumer-allowlist.json', complete = false } = {}) {
   const repositoryRoot = path.resolve(root);
   const tracked = new Set(trackedFiles ?? execFileSync('git', ['ls-files', '-z'], { cwd: repositoryRoot }).toString().split('\0').filter(Boolean));
-  const discovery = discoverGovernedFiles([...tracked]);
-  const programs = createPrograms(repositoryRoot);
+  const phaseDiscovery = discoverGovernedFiles([...tracked]);
+  const completeDiscovery = complete ? discoverCompleteOwnership([...tracked]) : null;
+  const discovery = completeDiscovery ?? phaseDiscovery;
+  const candidates = new Set(discovery.files);
   const surfaces = new Map();
   const local = new Map();
   const failures = [];
+  const ownership = complete ? createCompletePrograms(repositoryRoot, tracked, candidates, failures) : null;
+  const programs = ownership?.contexts ?? createPhaseOnePrograms(repositoryRoot);
   for (const module of discovery.files) {
-    const context = programs.find(({ program }) => program.getSourceFile(path.join(repositoryRoot, module)));
-    if (!context) throw new Error(`governed module is absent from TypeScript programs: ${module}`);
-    const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, module));
-    for (const symbol of getModuleExports(context.checker, sourceFile)) {
+    const lookup = module.endsWith('.vue') ? `${module}${SFC_VIRTUAL_SUFFIX}` : module;
+    const context = programs.find(({ program }) => program.getSourceFile(path.join(repositoryRoot, lookup)));
+    if (!context) {
+      if (module.endsWith('.vue') && failures.some((item) => item.module === module && item.category === 'unsupported')) continue;
+      throw new Error(`governed module is absent from TypeScript programs: ${module}`);
+    }
+    const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, lookup));
+    const exported = getModuleExports(context.checker, sourceFile);
+    let selected = exported;
+    if (module.endsWith('.vue')) {
+      const expected = new Set(['default', ...(ownership.virtualData.explicitExports.get(module) ?? [])]);
+      selected = exported.filter((symbol) => expected.has(symbol.getName()));
+      const actual = new Set(selected.map((symbol) => symbol.getName()));
+      if (actual.size !== expected.size || [...expected].some((name) => !actual.has(name))) failures.push({ category: 'unsupported', module, export: '*', consumer: module, message: 'SFC effective export parity failed' });
+    }
+    for (const symbol of selected) {
       const key = surfaceKey(module, symbol.getName());
       surfaces.set(key, { module, export: symbol.getName() });
-      local.set(key, localUse(context.checker, sourceFile, symbol));
+      const nodes = module.endsWith('.vue') && symbol.getName() === 'default' ? [] : localUse(context.checker, sourceFile, symbol);
+      local.set(key, nodes.map((node) => location(repositoryRoot, sourceFile, node, context.virtualData)));
+    }
+  }
+  if (complete) {
+    for (const context of programs.filter((item) => item.kind !== 'javascript')) {
+      for (const file of context.roots.filter((item) => TS_EXTENSIONS.test(item) && !item.endsWith(SFC_VIRTUAL_SUFFIX))) {
+        const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, file));
+        if (!sourceFile) throw new Error(`tracked TypeScript-family root is absent from assigned host: ${file}`);
+        if (sourceFile.isDeclarationFile !== DECLARATION_SUFFIX.test(file)) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'compiler declaration status disagrees with exact declaration suffix partition' });
+      }
     }
   }
   const governedKeys = new Set(surfaces.keys());
   const routes = new Map();
   for (const key of governedKeys) if (!routes.has(key)) routes.set(key, new Set());
-  for (const context of programs) collectRouteDeclarations(repositoryRoot, tracked, context, routes, failures);
+  for (const context of programs) collectRouteDeclarations(repositoryRoot, tracked, candidates, context, routes, failures);
   const uses = new Map();
   const unsupported = [];
-  for (const context of programs) collectImports(repositoryRoot, tracked, context, routes, governedKeys, uses, failures, unsupported);
+  for (const context of programs) collectImports(repositoryRoot, tracked, candidates, context, routes, governedKeys, uses, failures, unsupported);
 
   const classifications = new Map();
   const records = [...surfaces.entries()].map(([key, surface]) => {
     const use = uses.get(key) ?? { production: new Set(), test: new Set() };
-    const classification = use.production.size > 0 ? 'production-consumed' : use.test.size > 0 ? 'test-only' : local.get(key) ? 'local-only' : 'zero-use';
+    const localLocations = local.get(key) ?? [];
+    const classification = use.production.size > 0 ? 'production-consumed' : use.test.size > 0 ? 'test-only' : localLocations.length > 0 ? 'local-only' : 'zero-use';
     classifications.set(key, classification);
-    return { ...surface, classification, productionLocations: [...use.production].sort(), testLocations: [...use.test].sort() };
+    return { ...surface, classification, localLocations: [...new Set(localLocations)].sort(), productionLocations: [...use.production].sort(), testLocations: [...use.test].sort() };
   }).sort((a, b) => a.module.localeCompare(b.module) || a.export.localeCompare(b.export));
 
-  const allowlist = parseAllowlist(repositoryRoot, allowlistPath, tracked, governedKeys, classifications, unsupported);
+  const allowlist = parseAllowlist(repositoryRoot, allowlistPath, tracked, candidates, governedKeys, classifications, unsupported);
   failures.push(...allowlist.failures);
   const excepted = new Set(allowlist.entries.map((entry) => surfaceKey(entry.module, entry.export)));
   for (const record of records) {
@@ -475,7 +796,37 @@ export function checkExportConsumers({ root = process.cwd(), trackedFiles, allow
   const uniqueFailures = [...new Map(activeFailures.map((failure) => [`${failure.module}\0${failure.export}\0${failure.category}\0${failure.consumer}\0${failure.message}`, failure])).values()];
   const sortedFailures = uniqueFailures.sort((a, b) => a.module.localeCompare(b.module) || a.export.localeCompare(b.export) || a.category.localeCompare(b.category) || a.consumer.localeCompare(b.consumer));
   const totals = Object.fromEntries(['production-consumed', 'test-only', 'local-only', 'zero-use'].map((name) => [name, records.filter((record) => record.classification === name).length]));
-  return { ok: sortedFailures.length === 0, governedFiles: discovery.files, governedByRoot: discovery.byRoot, records, failures: sortedFailures, totals, staleImports: sortedFailures.filter((failure) => failure.category === 'stale-import').length, unsupported: sortedFailures.filter((failure) => failure.category === 'unsupported').length };
+  return {
+    ok: sortedFailures.length === 0,
+    governedFiles: discovery.files,
+    governedByRoot: discovery.byRoot ?? {
+      src: discovery.typescriptCandidates.filter((file) => file.startsWith('src/')),
+      'web/src': discovery.files.filter((file) => file.startsWith('web/src/')),
+    },
+    records,
+    failures: sortedFailures,
+    totals,
+    staleImports: sortedFailures.filter((failure) => failure.category === 'stale-import').length,
+    unsupported: sortedFailures.filter((failure) => failure.category === 'unsupported').length,
+    ownership: complete ? {
+      candidateFiles: discovery.files,
+      declarationFiles: ownership.declarationFiles,
+      jsConsumerFiles: ownership.jsFiles,
+      sfcCandidateFiles: discovery.sfcCandidates,
+      sfcConsumerFiles: ownership.sfcFiles,
+      typescriptConsumerFiles: ownership.tsFiles,
+      typescriptOrdinaryFiles: ownership.tsFiles.filter((file) => !DECLARATION_SUFFIX.test(file)),
+      hostAssignments: Object.fromEntries(programs.map((context) => [context.kind, context.roots])),
+    } : null,
+  };
+}
+
+export function checkExportConsumers(options = {}) {
+  return analyzeExportConsumers({ ...options, complete: false });
+}
+
+export function analyzeCompleteExportConsumers(options = {}) {
+  return analyzeExportConsumers({ ...options, complete: true });
 }
 
 function parseArgs(argv) {

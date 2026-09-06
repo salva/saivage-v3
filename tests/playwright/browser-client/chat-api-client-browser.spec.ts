@@ -48,8 +48,8 @@ test('production chat API client emits only canonical Analyst requests', async (
 
   await page.goto('/src/api/types.ts');
   await page.evaluate(async () => {
-    const clientModulePath = '/src/api/client.ts';
-    const client = await import(/* @vite-ignore */ clientModulePath);
+    // @ts-expect-error The callback runs in Vite's browser root; NodeNext cannot resolve this URL.
+    const client = await import('/src/api/client.ts');
     const workspaceContext = {
       view: 'cards',
       entityId: 'project',

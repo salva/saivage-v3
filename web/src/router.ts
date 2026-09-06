@@ -1,11 +1,11 @@
 import { createRouter, createWebHistory, type Router, type RouterHistory, type RouteRecordRaw } from 'vue-router';
 
-const Dashboard = () => import('./views/DashboardView.vue');
-const Cards = () => import('./views/CardsView.vue');
-const Agents = () => import('./views/AgentsView.vue');
-const Files = () => import('./views/FilesView.vue');
-const Debug = () => import('./views/DebugView.vue');
-const NotFound = () => import('./views/NotFound.vue');
+const Dashboard = () => import('./views/DashboardView.vue').then((module) => module.default);
+const Cards = () => import('./views/CardsView.vue').then((module) => module.default);
+const Agents = () => import('./views/AgentsView.vue').then((module) => module.default);
+const Files = () => import('./views/FilesView.vue').then((module) => module.default);
+const Debug = () => import('./views/DebugView.vue').then((module) => module.default);
+const NotFound = () => import('./views/NotFound.vue').then((module) => module.default);
 
 export const operatorRoutes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },

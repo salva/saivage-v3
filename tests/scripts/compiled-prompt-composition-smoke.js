@@ -17,7 +17,7 @@
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const distRoot = join(repositoryRoot, 'dist');
@@ -25,43 +25,21 @@ const compiledRoot = join(distRoot, 'src');
 
 const walk = (root, current = root) => readdirSync(current, { withFileTypes: true }).flatMap((entry) => entry.isDirectory() ? walk(root, join(current, entry.name)) : [join(current, entry.name).slice(root.length + 1)]).sort();
 
-function compiledModule(relativePath) {
-  return pathToFileURL(join(compiledRoot, relativePath)).href;
-}
-
-const [
-  { saivageConfigSchema },
-  { DEFAULT_SAIVAGE_CONFIG, SYSTEM_TEMPLATES, resolveSystemTemplate },
-  { compileProjectWorkflows, bindRuntimeWorkflows },
-  { ProviderRegistry },
-  { ModelRouter },
-  { createRuntimeApplication },
-  { NO_FRESHNESS_EFFECTS },
-  { CardService },
-  { createResolvedConfigAuthority },
-  { createEventLog },
-  { ManagedProcessGroupRegistry },
-  { ProcessRunner },
-  { renderCompiledPrompt },
-  { createApplicationFatalPort },
-  { globalAgentSessionId },
-] = await Promise.all([
-  import(compiledModule('schemas/saivage-config.js')),
-  import(compiledModule('config/system-templates/registry.js')),
-  import(compiledModule('runtime/card-process/card-process-config.js')),
-  import(compiledModule('agents/provider.js')),
-  import(compiledModule('agents/model-router.js')),
-  import(compiledModule('application/runtime-composition.js')),
-  import(compiledModule('application/freshness-effects.js')),
-  import(compiledModule('cards/card-service.js')),
-  import(compiledModule('config/index.js')),
-  import(compiledModule('observability/index.js')),
-  import(compiledModule('runtime/managed-process-group-registry.js')),
-  import(compiledModule('runtime/process-runner.js')),
-  import(compiledModule('utils/prompt-api.js')),
-  import(compiledModule('contracts/index.js')),
-  import(compiledModule('schemas/conversation-session-id.js')),
-]);
+const { saivageConfigSchema } = await import('../../dist/src/schemas/saivage-config.js');
+const { DEFAULT_SAIVAGE_CONFIG, SYSTEM_TEMPLATES, resolveSystemTemplate } = await import('../../dist/src/config/system-templates/registry.js');
+const { compileProjectWorkflows, bindRuntimeWorkflows } = await import('../../dist/src/runtime/card-process/card-process-config.js');
+const { ProviderRegistry } = await import('../../dist/src/agents/provider.js');
+const { ModelRouter } = await import('../../dist/src/agents/model-router.js');
+const { createRuntimeApplication } = await import('../../dist/src/application/runtime-composition.js');
+const { NO_FRESHNESS_EFFECTS } = await import('../../dist/src/application/freshness-effects.js');
+const { CardService } = await import('../../dist/src/cards/card-service.js');
+const { createResolvedConfigAuthority } = await import('../../dist/src/config/index.js');
+const { createEventLog } = await import('../../dist/src/observability/index.js');
+const { ManagedProcessGroupRegistry } = await import('../../dist/src/runtime/managed-process-group-registry.js');
+const { ProcessRunner } = await import('../../dist/src/runtime/process-runner.js');
+const { renderCompiledPrompt } = await import('../../dist/src/utils/prompt-api.js');
+const { createApplicationFatalPort } = await import('../../dist/src/contracts/index.js');
+const { globalAgentSessionId } = await import('../../dist/src/schemas/conversation-session-id.js');
 
 for (const template of SYSTEM_TEMPLATES) {
   const packagedRoot = join(distRoot, 'src', 'config', 'system-templates', template.name, 'prompts');

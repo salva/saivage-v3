@@ -18,6 +18,7 @@ const routeSmokeCases = [
   { path: '/agents', root: '[data-testid="route-agents"]', bodyText: /Could not load agents|No agent sessions recorded yet/i },
   { path: '/files', root: '[data-testid="route-files"]', bodyText: /Metadata/i },
   { path: '/debug', root: '[data-testid="route-debug"]', bodyText: /State|Errors|Processes/i },
+  { path: '/missing', root: '.not-found-view', bodyText: /404 — Not found/i },
 ] as const;
 
 function jsonResponse(body: unknown): Response {

@@ -10,7 +10,10 @@
  * imported from a wrapper).
  */
 
-import('../dist/src/cli.js').then((mod) => mod.run(process.argv)).catch((err) => {
+try {
+  const { run } = await import('../dist/src/cli.js');
+  await run(process.argv);
+} catch (err) {
   console.error(`Fatal error: ${err?.message ?? String(err)}`);
   process.exit(1);
-});
+}
