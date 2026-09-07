@@ -8,7 +8,7 @@ import { appendConversationBatch, readConversation } from '../../../src/persiste
 import { validateConversation } from '../../../src/contracts/conversation-validation.js';
 import { canonicalJson, type AgentMessage, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { appendLlmTurnToolCallBatch, appendProviderVisibleSyntheticFailedToolResult, appendToolResult, InvocationResultPolicy, selectInvocationResultPolicy, settleToolResultForConversation } from '../../../src/runtime/actors/llm-delivery-log.js';
-import type { CanonicalLlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
+import type { PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { compileInvocationToolContract, buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { prepareCompaction } from '../../../src/runtime/actors/compaction/compactor.js';
 import { executedNoneSettlement, executedToolOutcome, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, syntheticToolSettlement, UNSUPPORTED_TOOL_RESULT_POLICY_TEMPLATE } from '../../../src/tools/invocation.js';

@@ -39,7 +39,7 @@ export async function executeAdmittedTurn(service: InvocationService, input: Llm
   }
 }
 
-export function invocationRequest(input: LlmInvocationInput, signal: AbortSignal): InvocationRequest {
+function invocationRequest(input: LlmInvocationInput, signal: AbortSignal): InvocationRequest {
   const common = {
     inputId: input.inputId, agentName: input.agentName, sessionId: input.sessionId, systemPrompt: input.systemPrompt,
     providerConversation: input.providerConversation,

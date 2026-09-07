@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 import { initializeAndValidateCurrentGeneratedState } from '../../src/persistence/current-generated-graph.js';
 import { appendConversationBatch, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { appLogFile, cardConversationVersionFile, cardConversationVersionIndexFile, cardRecordStreamFile, cardStreamFile, globalAgentConversationVersionFile, saivageCardsRoot } from '../../src/persistence/layout.js';
+import { appLogFile, cardConversationVersionFile, cardRecordStreamFile, cardStreamFile, globalAgentConversationVersionFile, saivageCardsRoot } from '../../src/persistence/layout.js';
 import type { CompiledProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { agentMessageSchema, cardAgentSessionId, cardRecordSchema, conversationSessionIdentity, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import { publishCardVersion, publishInitialChildCard } from '../../src/persistence/card-files.js';

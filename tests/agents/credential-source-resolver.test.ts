@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import type { AuthProfile, AuthProfilesFile } from '../../src/auth/oauth-profiles.js';
+import type { AuthProfile, AuthProfilesFile } from '../../src/auth/auth-profile-file.js';
 import { CredentialSourceResolver } from '../../src/agents/credential-source-resolver.js';
 import { Provider } from '../../src/agents/provider.js';
 

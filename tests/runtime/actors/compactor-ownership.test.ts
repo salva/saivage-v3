@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { ConversationLLMActor, type CompactorPort, type LLMProviderPort } from '../../../src/runtime/actors/llm-actor.js';
+import { ConversationLLMActor, type CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
 import { prepareCompaction, type AutonomousCompactionPolicy } from '../../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';

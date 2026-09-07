@@ -1,6 +1,6 @@
 import type { ToolDefinition } from './llm-contracts.js';
 
-export type RuntimeToolEntry = ToolDefinition;
+type RuntimeToolEntry = ToolDefinition;
 
 export interface WireToolDefinitionChat {
   readonly type: 'function';

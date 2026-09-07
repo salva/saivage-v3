@@ -3,7 +3,6 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { createTestProcessRunner } from '../helpers/test-process-runner.js';
 import { EventQueryService } from '../../src/application/event-query-service.js';
 import { createEventLog } from '../../src/observability/event-logger.js';

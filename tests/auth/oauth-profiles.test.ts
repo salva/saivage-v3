@@ -1,6 +1,7 @@
 import { describe, expect, it } from '@jest/globals';
 
-import { isProfileExpired, type AuthProfile } from '../../src/auth/oauth-profiles.js';
+import type { AuthProfile } from '../../src/auth/auth-profile-file.js';
+import { isProfileExpired } from '../../src/auth/oauth-profiles.js';
 import { isReadBlocked } from '../../src/workspace/file-access-security.js';
 
 function profile(expiresAt?: number): AuthProfile {

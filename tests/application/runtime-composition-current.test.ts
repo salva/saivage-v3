@@ -3,10 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRuntimeApplication } from '../../src/application/runtime-composition.js';
-import {
-  createInvocationServiceProvider,
-  invocationRequest,
-} from '../../src/application/invocation-service-provider.js';
+import { createInvocationServiceProvider } from '../../src/application/invocation-service-provider.js';
 import { InvocationService } from '../../src/agents/invocation-service.js';
 import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
@@ -100,11 +97,10 @@ describe('current runtime composition', () => {
       routePass: { kind: 'ordinary', candidateChain },
       episodeContext: {},
     };
-    const request = invocationRequest(input, signal);
+    const admission = provider.preparePrimaryRequestAdmission(input as never, signal);
+    const request = prepareAdmission.mock.calls[0]![0];
     expect(request.routePass).toEqual({ kind: 'ordinary', candidateChain });
     expect(request.routePass).not.toBe(input.routePass);
-    const admission = provider.preparePrimaryRequestAdmission(input as never, signal);
-    expect(prepareAdmission).toHaveBeenCalledWith(request);
     await provider.executeAdmittedWithRecovery(admission as never, signal);
     expect(admittedExecution).toHaveBeenCalledWith(admission, signal);
     const context = { assistantOutputIds: [], terminalConversationOutputId: null };

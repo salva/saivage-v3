@@ -1,12 +1,12 @@
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { InvocationRecoveryPolicy } from '../../src/agents/invocation-recovery-policy.js';
+import { defaultInvocationRecoveryPolicy } from '../../src/agents/invocation-recovery-policy.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import { parseOpenAIResponsesJson } from '../../src/agents/llm-openai-responses-parser.js';
 
 const candidate: Candidate = { provider: 'openai-compatible', account: 'primary', model: 'gpt-test' };
-const policy = new InvocationRecoveryPolicy();
+const policy = defaultInvocationRecoveryPolicy;
 const baseContext = { candidate, recoveryDelayMs: 25 };
 
 describe('InvocationRecoveryPolicy', () => {

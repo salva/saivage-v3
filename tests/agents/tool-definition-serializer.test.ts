@@ -3,8 +3,10 @@ import { describe, expect, it } from '@jest/globals';
 import {
   serializeToolsForChat,
   serializeToolsForCodex,
-  type RuntimeToolEntry,
 } from '../../src/agents/tool-definition-serializer.js';
+import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
+
+type RuntimeToolEntry = ToolDefinition;
 
 function tool(name: string, description: string, properties: Record<string, unknown> = {}): RuntimeToolEntry {
   return {

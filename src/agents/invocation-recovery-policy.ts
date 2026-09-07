@@ -25,7 +25,7 @@ function assertNever(x: never): never {
   throw new Error('Unhandled failure kind: ' + JSON.stringify(x));
 }
 
-export class InvocationRecoveryPolicy {
+class InvocationRecoveryPolicy {
   private classify(error: unknown): LlmTransportFailure {
     const failure = unwrapFailure(error);
     if (failure.kind === 'unknown' && error instanceof Error && (error.name === 'ZodError' || error.name === 'SyntaxError')) {
