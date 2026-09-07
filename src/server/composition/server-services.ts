@@ -22,7 +22,7 @@ import type { ApplicationFatalPort } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
 import { validateConfiguredAnalystConversation } from '../../application/analyst-startup-validation.js';
 
-export interface ServerServices {
+interface ServerServices {
   projectRoot: string;
   config: SaivageConfig;
   fastify: FastifyInstance;

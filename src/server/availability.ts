@@ -4,7 +4,7 @@ import { redactOperatorErrorMessage } from '../workspace/index.js';
 import { redactSnippetForOutbound } from '../redaction/index.js';
 import type { ServerAvailability } from '../contracts/index.js';
 
-export interface ServerAvailabilityInputs {
+interface ServerAvailabilityInputs {
   projectRoot: string;
   runtimeApplication: RuntimeApplication;
   mcpManager: McpStatusProvider;

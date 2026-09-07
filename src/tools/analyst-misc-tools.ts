@@ -60,7 +60,7 @@ export const ReadAgentSessionToolDataSchema = z
         });
   });
 
-export async function queue_notification(
+async function queue_notification(
   ctx: ToolContext,
   params: { card_id: string; kind: string; body: string },
   signal?: AbortSignal,
@@ -93,7 +93,7 @@ export async function show_config(
   }
 }
 
-export async function reconfigure(
+async function reconfigure(
   ctx: ToolContext,
   params: ReconfigureParams,
   signal?: AbortSignal,
@@ -148,7 +148,7 @@ function targetId(input: ReconfigureParams): string {
   }
 }
 
-export async function mcp_reconcile(
+async function mcp_reconcile(
   ctx: ToolContext,
   _params: Record<string, never> = {},
 ): Promise<AnalystToolOutcome> {

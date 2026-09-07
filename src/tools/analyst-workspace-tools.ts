@@ -5,12 +5,12 @@ import { navigateWorkspaceInputSchema, type NavigateWorkspaceInput } from '../co
 import type { WorkspaceNavigationIntent } from '../contracts/workspace-navigation.js';
 import { toolSucceeded } from '../contracts/tool-result.js';
 
-export async function navigate_workspace(_ctx: ToolContext, params: NavigateWorkspaceInput): Promise<AnalystToolOutcome> {
+async function navigate_workspace(_ctx: ToolContext, params: NavigateWorkspaceInput): Promise<AnalystToolOutcome> {
   const data = { intent: 'navigate_workspace', target: params.target } satisfies WorkspaceNavigationIntent;
   return toolSucceeded(data);
 }
 
-export async function navigate_back(_ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
+async function navigate_back(_ctx: ToolContext, _params: Record<string, never> = {}): Promise<AnalystToolOutcome> {
   const data = { intent: 'navigate_back' } satisfies WorkspaceNavigationIntent;
   return toolSucceeded(data);
 }

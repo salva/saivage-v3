@@ -2,7 +2,7 @@ import { canonicalJson } from '../schemas/index.js';
 import { ToolResultSchema, assertToolActionOutcome, toolSucceeded, type ToolActionOutcome, type ToolResult } from '../contracts/tool-result.js';
 import { projectDynamicForOutbound } from '../redaction/dynamic.js';
 
-export interface SettledToolResultProjection {
+interface SettledToolResultProjection {
   readonly providerResult: ToolResult;
   readonly settledResultBytes: string;
 }

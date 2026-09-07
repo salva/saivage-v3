@@ -23,7 +23,7 @@ export function defineOperatorContractHandlers<const TOperationId extends Operat
 ): { [K in TOperationId]: OperatorContractHandler<K> } {
   return handlers;
 }
-export type OperatorServerAvailabilityProvider = () => ReturnType<typeof buildServerAvailability>;
+type OperatorServerAvailabilityProvider = () => ReturnType<typeof buildServerAvailability>;
 
 export interface OperatorProjectContext {
   projectRoot: string;

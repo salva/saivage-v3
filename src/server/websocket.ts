@@ -46,7 +46,7 @@ function rejectUnauthorizedWebSocket(ws: WebSocket): void {
   ws.close(1008, 'Authentication failed');
 }
 
-export interface RegisterWebSocketOptions {
+interface RegisterWebSocketOptions {
   authPolicy: AuthPolicy;
   liveSyncSocket: LiveSyncSocket;
   runtimeApplication: RuntimeApplication;

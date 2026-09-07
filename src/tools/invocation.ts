@@ -9,9 +9,9 @@ import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-insta
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { toolFailed, type ToolActionOutcome } from '../contracts/tool-result.js';
 
-export type ToolEvidenceMode = ToolResultPolicyTemplate['evidenceMode'];
+type ToolEvidenceMode = ToolResultPolicyTemplate['evidenceMode'];
 
-export type ToolExecutionEvidenceInput<M extends ToolEvidenceMode> =
+type ToolExecutionEvidenceInput<M extends ToolEvidenceMode> =
   M extends 'canonical_locator'
     ? { kind: 'canonical_locator'; locator: string; sha256: string }
     : M extends 'observational_query'
@@ -26,8 +26,8 @@ export type ToolExecutionResult<M extends ToolEvidenceMode> =
     }>;
 
 export type ExecutedToolSettlement = Readonly<{ kind: 'executed'; execution: ToolExecutionResult<ToolEvidenceMode> }>;
-export type SyntheticToolSettlementOrigin = 'rejected_before_execution' | 'unsupported_tool' | 'execution_failed';
-export type SyntheticToolSettlement = Readonly<{ kind: SyntheticToolSettlementOrigin; providerOutcome: ToolActionOutcome }>;
+type SyntheticToolSettlementOrigin = 'rejected_before_execution' | 'unsupported_tool' | 'execution_failed';
+type SyntheticToolSettlement = Readonly<{ kind: SyntheticToolSettlementOrigin; providerOutcome: ToolActionOutcome }>;
 export type ToolSettlementInput = ExecutedToolSettlement | SyntheticToolSettlement;
 
 export function syntheticToolSettlement(kind: SyntheticToolSettlementOrigin, error: string, data?: unknown): SyntheticToolSettlement {
@@ -84,7 +84,7 @@ export interface ToolDefinition<Args = unknown, M extends ToolEvidenceMode = Too
   readonly executor: (args: Args, signal: AbortSignal, context?: LlmToolInvocationContext) => Promise<ToolExecutionResult<M>>;
 }
 
-export interface ToolSpecification<Args = unknown> {
+interface ToolSpecification<Args = unknown> {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: z.ZodType<Args>;

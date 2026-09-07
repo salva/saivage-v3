@@ -141,7 +141,7 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
   return toolSucceeded(data);
 }
 
-export function recordMetadataItems(entries:Extract<CardDeclaredRecordMetadataResult,{kind:'found'}>['value']['definitions']): Array<Record<string, unknown>> {
+function recordMetadataItems(entries:Extract<CardDeclaredRecordMetadataResult,{kind:'found'}>['value']['definitions']): Array<Record<string, unknown>> {
   return [...entries].map(({definition,classification}) => {
       const record=classification.kind==='present'?classification.projection:null;
       if(record)

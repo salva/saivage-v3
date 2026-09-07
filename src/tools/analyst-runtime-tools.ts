@@ -50,7 +50,7 @@ export async function read_runtime_errors(ctx: ToolContext, params: { limit?: nu
   catch (err) { return toolFailureFromError(err); }
 }
 
-export async function read_control_actions(ctx: ToolContext, params: { limit?: number; since?: string }): Promise<AnalystToolOutcome> {
+async function read_control_actions(ctx: ToolContext, params: { limit?: number; since?: string }): Promise<AnalystToolOutcome> {
   try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), EVENT_QUERY_MAX_LIMIT); const all = listControlActions(ctx.projectRoot, params.since ? { since: params.since } : undefined); const tail = all.slice(-limit); return toolSucceeded({ total_lines: all.length, returned: tail.length, actions: tail }); }
   catch (err) { return toolFailureFromError(err); }
 }

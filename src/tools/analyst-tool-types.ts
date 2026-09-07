@@ -13,7 +13,7 @@ import type { RestartCapability } from '../contracts/index.js';
 
 export type AnalystToolOutcome = ToolActionOutcome;
 
-export type SafeToolDataValue =
+type SafeToolDataValue =
   | string
   | number
   | boolean

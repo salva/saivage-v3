@@ -11,7 +11,7 @@ import { ANALYST_PROCESSING_FAILED_ERROR } from '../contracts/operator-events.js
 import { ANALYST_TURN_BUSY_ERROR } from '../contracts/operator-api-chats.js';
 import type { GlobalConversationSessionId } from '../schemas/index.js';
 
-export interface AnalystWsHandlerOptions {
+interface AnalystWsHandlerOptions {
   liveSyncSocket: LiveSyncSocket;
   runtimeApplication: RuntimeApplication;
   restartCapability: RestartCapability;

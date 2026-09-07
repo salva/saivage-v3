@@ -29,7 +29,7 @@ import {
   type ToolProviderCleanupReason,
 } from './invocation.js';
 
-export type RuntimeToolScope = 'global' | 'card';
+type RuntimeToolScope = 'global' | 'card';
 
 export interface CardToolBindingContext {
   readonly scope: 'card';
@@ -65,7 +65,7 @@ export interface GlobalToolBindingContext {
 
 export type RuntimeToolBindingContext = CardToolBindingContext | GlobalToolBindingContext;
 
-export type RuntimeToolProviderGroup<Context> = Readonly<{
+type RuntimeToolProviderGroup<Context> = Readonly<{
   key: string;
   providerName: string;
   scope: RuntimeToolScope;

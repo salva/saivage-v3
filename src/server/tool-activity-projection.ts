@@ -3,7 +3,7 @@ import { ClassifiedToolInvocationActivityContentSchema, type ClassifiedToolInvoc
 import type { ToolResult as ToolInvocationResult } from '../contracts/tool-result.js';
 import { projectLiveToolInvocation } from '../tools/tool-invocation-outbound.js';
 
-export interface AnalystToolInvocationActivityInput {
+interface AnalystToolInvocationActivityInput {
   tool: string;
   params: unknown;
   sourceInputId: string;

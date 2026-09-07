@@ -39,16 +39,16 @@ export interface ContractPreSendReply {
   header(name: string, value: string | number | string[] | undefined): void;
 }
 
-export type ContractHandler<TContract extends OperatorRouteContract = OperatorRouteContract> = (
+type ContractHandler<TContract extends OperatorRouteContract = OperatorRouteContract> = (
   context: ContractRequestContext<TContract>,
 ) => Promise<ContractHandlerResult> | ContractHandlerResult;
 
-export interface ContractHandlerResult {
+interface ContractHandlerResult {
   statusCode?: number;
   body?: unknown;
 }
 
-export interface ContractRuntimeOptions {
+interface ContractRuntimeOptions {
   eventLogger: EventLog;
   authPolicy: AuthPolicy;
   fatalPort: ApplicationFatalPort;

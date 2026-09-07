@@ -8,7 +8,7 @@ import { settledSuccessBytes } from './tool-result-settlement.js';
 
 export { DISCOVERY_RESPONSE_MAX_BYTES, DISCOVERY_RESPONSE_MIN_BYTES };
 
-export const DISCOVERY_FAILURE_ERROR_MAX_BYTES = 512;
+const DISCOVERY_FAILURE_ERROR_MAX_BYTES = 512;
 export const DISCOVERY_TEXT_PREVIEW_MAX_BYTES = 512;
 
 export type TextSlice = Readonly<{
@@ -74,7 +74,7 @@ function makeTextSlice(text: string, offsetBytes: number, maxBytes: number): Tex
   });
 }
 
-export interface PackedTextData {
+interface PackedTextData {
   readonly data: unknown;
   readonly slice: TextSlice;
 }
@@ -101,7 +101,7 @@ export function packTextSliceData(input: Readonly<{
   return { data: input.render(slice), slice };
 }
 
-export interface PackedCollectionData {
+interface PackedCollectionData {
   readonly data: unknown;
   readonly page: CollectionPage;
 }

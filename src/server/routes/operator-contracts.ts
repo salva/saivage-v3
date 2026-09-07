@@ -25,7 +25,7 @@ import { ContractRuntime } from '../contract-runtime.js';
 import type { EventLog } from '../../observability/index.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 
-export interface OperatorContractRouteRegistrationOptions
+interface OperatorContractRouteRegistrationOptions
   extends
     OperatorProjectContext,
     OperatorAvailabilityContext,

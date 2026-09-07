@@ -1,7 +1,9 @@
 import { describe, expect, it } from '@jest/globals';
 
 import { ServerAvailabilitySchema } from '../../src/contracts/index.js';
-import { buildServerAvailability, type ServerAvailabilityInputs } from '../../src/server/availability.js';
+import { buildServerAvailability } from '../../src/server/availability.js';
+
+type ServerAvailabilityInputs = Parameters<typeof buildServerAvailability>[0];
 
 describe('buildServerAvailability', () => {
   it('publishes a bounded normalized redacted runtime failure diagnostic', () => {

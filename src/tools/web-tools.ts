@@ -37,7 +37,7 @@ export interface WebProviderContext extends WorkspaceContext {
 }
 
 const websearchSchema = websearchInputSchema;
-export const webfetchSchema = WebfetchInvocationSchema.extend({ save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
+const webfetchSchema = WebfetchInvocationSchema.extend({ save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
 
 function parseHttpUrl(raw: string): URL {
   const url = new URL(raw);

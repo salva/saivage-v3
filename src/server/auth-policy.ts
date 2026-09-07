@@ -1,22 +1,22 @@
 import { randomBytes as nodeRandomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyRequest } from 'fastify';
 
-export interface AuthPolicyOptions {
+interface AuthPolicyOptions {
   apiToken?: string;
   wsTicketTtlMs?: number;
   now?: () => number;
   randomBytes?: (bytes: number) => Buffer;
 }
 
-export type HttpAuthResult =
+type HttpAuthResult =
   | { ok: true; mode: 'disabled' | 'bearer' }
   | { ok: false; statusCode: 401; reason: 'missing' | 'malformed' | 'invalid' | 'query-token-prohibited' };
 
-export type WebSocketAuthResult =
+type WebSocketAuthResult =
   | { ok: true; mode: 'disabled' | 'ticket' }
   | { ok: false; closeCode: 1008; reason: 'missing' | 'invalid' | 'expired' | 'used' | 'api-token-prohibited' };
 
-export interface IssuedWebSocketTicket {
+interface IssuedWebSocketTicket {
   ticket: string;
   expiresAt: string;
 }

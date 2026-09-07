@@ -3,11 +3,11 @@ import { join, relative, resolve, sep } from 'node:path';
 
 import { skillIndexSchema, type SkillIndexEntry, type AgentName } from '../schemas/index.js';
 
-export interface SkillCatalogItem {
+interface SkillCatalogItem {
   readonly name: string;
 }
 
-export interface SkillCatalogContent {
+interface SkillCatalogContent {
   readonly name: string;
   readonly content: string;
 }
