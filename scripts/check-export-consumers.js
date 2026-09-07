@@ -8,8 +8,7 @@ import { compileScript, parse as parseSfc } from '@vue/compiler-sfc';
 import { SourceMapConsumer } from 'source-map-js';
 import ts from 'typescript';
 
-export const GOVERNED_ROOTS = Object.freeze(['src/contracts', 'src/schemas']);
-export const COMPLETE_PRODUCTION_ROOTS = Object.freeze(['src', 'web/src']);
+const GOVERNED_ROOTS = Object.freeze(['src/contracts', 'src/schemas']);
 const TS_EXTENSIONS = /\.(?:ts|tsx|mts|cts)$/;
 const DECLARATION_SUFFIX = /\.d\.(?:ts|mts|cts)$/;
 const JS_EXTENSIONS = /\.(?:js|mjs|cjs)$/;
@@ -193,7 +192,7 @@ function createProgramContext(root, rootFiles, options, tracked, candidates, vir
     return resolved ? { resolvedModule: resolved } : { resolvedModule: undefined };
   });
   const program = ts.createProgram({ rootNames: rootFiles.map((file) => path.join(root, file)), options, host });
-  return { checker: program.getTypeChecker(), kind, options, program, roots: rootFiles, virtualData };
+  return { checker: program.getTypeChecker(), host, kind, options, program, roots: rootFiles, virtualData };
 }
 
 function createCompletePrograms(root, tracked, candidates, failures) {
@@ -696,14 +695,264 @@ function parseAllowlist(root, allowlistPath, tracked, candidates, surfaces, clas
   return { entries, failures };
 }
 
-export function discoverGovernedFiles(trackedFiles) {
+function declarationOptions(options) {
+  return {
+    ...options,
+    composite: false,
+    declaration: true,
+    declarationMap: false,
+    emitDeclarationOnly: true,
+    incremental: false,
+    noEmit: false,
+    noEmitOnError: false,
+    sourceMap: false,
+    tsBuildInfoFile: undefined,
+  };
+}
+
+function diagnosticLocation(root, diagnostic, outputOwners) {
+  if (!diagnostic.file || diagnostic.start == null) return null;
+  const outputOwner = outputOwners.get(path.resolve(diagnostic.file.fileName));
+  if (outputOwner) {
+    const point = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+    return `${outputOwner.module}#declaration:${point.line + 1}:${point.character + 1}`;
+  }
+  const point = diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start);
+  return `${canonical(root, diagnostic.file.fileName)}:${point.line + 1}:${point.character + 1}`;
+}
+
+function declarationDiagnosticFailure(root, diagnostic, contextKey, unit, outputOwners) {
+  const primary = diagnosticLocation(root, diagnostic, outputOwners);
+  const related = (diagnostic.relatedInformation ?? []).map((item) => diagnosticLocation(root, item, outputOwners)).filter(Boolean).sort();
+  const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
+  return {
+    category: 'declaration-diagnostic',
+    module: unit ?? `@declaration-context/${contextKey}`,
+    export: '*',
+    consumer: primary ?? (unit ? `${unit}#declaration-emit` : `@declaration-context/${contextKey}`),
+    message: `TS${diagnostic.code}: ${message}${related.length > 0 ? ` (related: ${related.join(', ')})` : ''}`,
+  };
+}
+
+function diagnosticKey(root, diagnostic, outputOwners) {
+  return [diagnostic.code, ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'), diagnosticLocation(root, diagnostic, outputOwners) ?? '',
+    ...(diagnostic.relatedInformation ?? []).map((item) => diagnosticLocation(root, item, outputOwners) ?? '').sort()].join('\0');
+}
+
+function declarationMemberName(node) {
+  if (ts.isConstructorDeclaration(node)) return 'constructor';
+  if (ts.isCallSignatureDeclaration(node)) return 'call';
+  if (ts.isConstructSignatureDeclaration(node)) return 'construct';
+  if (ts.isIndexSignatureDeclaration(node)) return 'index';
+  if (ts.isGetAccessorDeclaration(node)) return `get:${node.name.getText()}`;
+  if (ts.isSetAccessorDeclaration(node)) return `set:${node.name.getText()}`;
+  if ((ts.isMethodDeclaration(node) || ts.isMethodSignature(node)) && node.name) return `method:${node.name.getText()}`;
+  if ((ts.isPropertyDeclaration(node) || ts.isPropertySignature(node)) && node.name) return `property:${node.name.getText()}`;
+  if (ts.isParameter(node)) return `parameter:${node.name.getText()}`;
+  if (ts.isTypeParameterDeclaration(node)) return `type-parameter:${node.name.text}`;
+  return null;
+}
+
+function hasPrivateModifier(node) {
+  return Boolean(node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.PrivateKeyword));
+}
+
+function firstEntityName(name) {
+  let current = name;
+  while (current && ts.isQualifiedName(current)) current = current.left;
+  return current && ts.isIdentifier(current) ? current.text : null;
+}
+
+function createDeclarationClosure(root, tracked, candidates, ownership, surfaces, directClassifications, failures) {
+  const ordinaryCandidates = [...candidates].filter((file) => TS_EXTENSIONS.test(file) && !DECLARATION_SUFFIX.test(file)).sort();
+  const rootCandidates = ordinaryCandidates.filter((file) => file.startsWith('src/'));
+  const webCandidates = ordinaryCandidates.filter((file) => file.startsWith('web/src/'));
+  const rootOptions = declarationOptions(readConfig(root, 'tsconfig.json').options);
+  const webOptions = declarationOptions(readConfig(root, 'web/tsconfig.json').options);
+  const contexts = [
+    createProgramContext(root, rootCandidates, rootOptions, tracked, candidates, ownership.virtualData, 'declaration-root'),
+    createProgramContext(root, webCandidates, webOptions, tracked, candidates, ownership.virtualData, 'declaration-web'),
+  ];
+  const outputs = new Map();
+  const outputOwners = new Map();
+  const units = new Map();
+  const diagnosticSeen = new Set();
+
+  for (const context of contexts) {
+    const contextKey = context.kind.replace('declaration-', '');
+    for (const diagnostic of [...context.program.getOptionsDiagnostics(), ...context.program.getGlobalDiagnostics()].filter((item) => item.category === ts.DiagnosticCategory.Error)) {
+      const key = `${contextKey}\0${diagnosticKey(root, diagnostic, outputOwners)}`;
+      if (diagnosticSeen.has(key)) continue;
+      diagnosticSeen.add(key);
+      failures.push(declarationDiagnosticFailure(root, diagnostic, contextKey, null, outputOwners));
+    }
+    for (const module of context.roots) {
+      const sourceFile = context.program.getSourceFile(path.join(root, module));
+      if (!sourceFile) throw new Error(`ordinary declaration candidate is absent from owning program: ${module}`);
+      const unitOutputs = [];
+      const emit = context.program.emit(sourceFile, (fileName, text, _bom, _errors, sourceFiles) => {
+        const absolute = path.resolve(fileName);
+        const attributable = sourceFiles?.some((item) => path.resolve(item.fileName) === path.resolve(sourceFile.fileName)) ?? false;
+        if (!attributable) return;
+        unitOutputs.push({ absolute, fileName, text });
+      }, undefined, true);
+      const primary = unitOutputs.filter((item) => DECLARATION_SUFFIX.test(item.fileName));
+      if (unitOutputs.some((item) => !DECLARATION_SUFFIX.test(item.fileName)) || primary.length !== 1) {
+        failures.push({ category: 'declaration-diagnostic', module, export: '*', consumer: `${module}#declaration-emit`, message: `ordinary candidate emit produced ${primary.length} primary declaration outputs and ${unitOutputs.length - primary.length} unexpected outputs` });
+      }
+      if (primary.length === 1) {
+        outputs.set(primary[0].absolute, primary[0].text);
+        const owner = { context, module, sourceFile };
+        outputOwners.set(primary[0].absolute, owner);
+        units.set(module, { ...owner, output: primary[0].absolute });
+      }
+      const diagnostics = [
+        ...context.program.getSyntacticDiagnostics(sourceFile),
+        ...context.program.getSemanticDiagnostics(sourceFile),
+        ...context.program.getDeclarationDiagnostics(sourceFile),
+        ...emit.diagnostics,
+      ].filter((item) => item.category === ts.DiagnosticCategory.Error);
+      for (const diagnostic of diagnostics) {
+        const locations = [diagnostic, ...(diagnostic.relatedInformation ?? [])].map((item) => item.file && path.resolve(item.file.fileName));
+        const attributed = diagnostic.file == null || locations.includes(path.resolve(sourceFile.fileName)) || locations.some((file) => file && outputOwners.get(file)?.module === module);
+        if (!attributed) continue;
+        const key = `${module}\0${diagnosticKey(root, diagnostic, outputOwners)}`;
+        if (diagnosticSeen.has(key)) continue;
+        diagnosticSeen.add(key);
+        failures.push(declarationDiagnosticFailure(root, diagnostic, contextKey, module, outputOwners));
+      }
+    }
+  }
+
+  const graphOptions = { ...rootOptions, noEmit: true, emitDeclarationOnly: false, allowJs: false };
+  const graphHost = ts.createCompilerHost(graphOptions);
+  const originalFileExists = graphHost.fileExists.bind(graphHost);
+  const originalReadFile = graphHost.readFile.bind(graphHost);
+  graphHost.fileExists = (fileName) => outputs.has(path.resolve(fileName)) || originalFileExists(fileName);
+  graphHost.readFile = (fileName) => outputs.get(path.resolve(fileName)) ?? originalReadFile(fileName);
+  graphHost.resolveModuleNameLiterals = (literals, containingFile) => literals.map(({ text }) => {
+    const owner = outputOwners.get(path.resolve(containingFile));
+    if (owner) {
+      const resolved = owner.context.host.resolveModuleNameLiterals([{ text }], owner.sourceFile.fileName)[0]?.resolvedModule;
+      if (resolved) {
+        const generated = canonical(root, resolved.resolvedFileName);
+        const sourceModule = ownership.virtualData.virtualToCanonical.get(generated) ?? generated;
+        const targetOutput = units.get(sourceModule)?.output;
+        if (targetOutput) return { resolvedModule: { resolvedFileName: targetOutput, extension: ts.Extension.Dts, isExternalLibraryImport: false } };
+      }
+    }
+    const resolved = ts.resolveModuleName(text, containingFile, graphOptions, graphHost).resolvedModule;
+    return { resolvedModule: resolved };
+  });
+  const declarationProgram = ts.createProgram({ rootNames: [...outputs.keys()].sort(), options: graphOptions, host: graphHost });
+  const checker = declarationProgram.getTypeChecker();
+  const outgoing = new Map([...surfaces.keys()].map((key) => [key, []]));
+
+  const resolveSpecifier = (owner, specifier, exportName) => {
+    const resolved = owner.context.host.resolveModuleNameLiterals([{ text: specifier }], owner.sourceFile.fileName)[0]?.resolvedModule;
+    if (!resolved) return null;
+    const generated = canonical(root, resolved.resolvedFileName);
+    const module = ownership.virtualData.virtualToCanonical.get(generated) ?? generated;
+    const key = surfaceKey(module, exportName);
+    return surfaces.has(key) ? key : null;
+  };
+
+  for (const [sourceKey, sourceSurface] of surfaces) {
+    const unit = units.get(sourceSurface.module);
+    if (!unit) continue;
+    const declarationFile = declarationProgram.getSourceFile(unit.output);
+    if (!declarationFile) throw new Error(`in-memory declaration output is absent from declaration graph: ${sourceSurface.module}`);
+    const moduleSymbol = checker.getSymbolAtLocation(declarationFile);
+    const exportSymbol = moduleSymbol && checker.getExportsOfModule(moduleSymbol).find((symbol) => symbol.getName() === sourceSurface.export);
+    if (!exportSymbol) {
+      failures.push({ category: 'declaration-diagnostic', module: sourceSurface.module, export: sourceSurface.export, consumer: `${sourceSurface.module}#declaration-emit`, message: 'emitted declaration does not contain the governed export surface' });
+      continue;
+    }
+    const imports = new Map();
+    for (const statement of declarationFile.statements) {
+      if (!ts.isImportDeclaration(statement) || !statement.importClause || !ts.isStringLiteralLike(statement.moduleSpecifier)) continue;
+      const specifier = statement.moduleSpecifier.text;
+      if (statement.importClause.name) imports.set(statement.importClause.name.text, { exportName: 'default', specifier });
+      const bindings = statement.importClause.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) imports.set(element.name.text, { exportName: importedName(element), specifier });
+      if (bindings && ts.isNamespaceImport(bindings)) imports.set(bindings.name.text, { exportName: '*', specifier });
+    }
+    const edgeIdentities = new Set();
+    const addEdge = (targetKey, memberPath) => {
+      if (!targetKey || targetKey === sourceKey) return;
+      const identity = `${targetKey}\0${memberPath}`;
+      if (edgeIdentities.has(identity)) return;
+      edgeIdentities.add(identity);
+      outgoing.get(sourceKey).push({
+        sourceSurface,
+        targetSurface: splitSurfaceKey(targetKey),
+        memberPath,
+      });
+    };
+    const walk = (node, memberPath, visitedDeclarations) => {
+      if (hasPrivateModifier(node)) return;
+      const label = declarationMemberName(node);
+      const nextPath = label ? `${memberPath}.${label}` : memberPath;
+      if (ts.isImportTypeNode(node) && ts.isLiteralTypeNode(node.argument) && ts.isStringLiteralLike(node.argument.literal)) {
+        let exportName = firstEntityName(node.qualifier);
+        if (!exportName && ts.isIndexedAccessTypeNode(node.parent) && node.parent.objectType === node && ts.isLiteralTypeNode(node.parent.indexType) && ts.isStringLiteralLike(node.parent.indexType.literal)) exportName = node.parent.indexType.literal.text;
+        if (exportName) addEdge(resolveSpecifier(unit, node.argument.literal.text, exportName), nextPath);
+      }
+      if (ts.isIdentifier(node)) {
+        const imported = imports.get(node.text);
+        if (imported) {
+          let exportName = imported.exportName;
+          if (exportName === '*' && ts.isQualifiedName(node.parent) && node.parent.left === node) exportName = node.parent.right.text;
+          if (exportName !== '*') addEdge(resolveSpecifier(unit, imported.specifier, exportName), nextPath);
+        } else if (node.parent?.name !== node) {
+          const symbol = checker.getSymbolAtLocation(node);
+          for (const declaration of symbol?.declarations ?? []) {
+            if (declaration.getSourceFile() !== declarationFile || visitedDeclarations.has(declaration)) continue;
+            if (directExportDeclarationName(node) && declaration === node.parent) continue;
+            walk(declaration, nextPath, new Set([...visitedDeclarations, declaration]));
+          }
+        }
+      }
+      ts.forEachChild(node, (child) => walk(child, nextPath, visitedDeclarations));
+    };
+    for (const declaration of exportSymbol.declarations ?? []) {
+      walk(declaration, sourceSurface.export, new Set([declaration]));
+    }
+    outgoing.get(sourceKey).sort((a, b) => surfaceKey(a.targetSurface.module, a.targetSurface.export).localeCompare(surfaceKey(b.targetSurface.module, b.targetSurface.export)) || a.memberPath.localeCompare(b.memberPath));
+  }
+
+  const declarationPaths = new Map([...surfaces.keys()].map((key) => [key, []]));
+  for (const [seedKey, classification] of directClassifications) {
+    if (classification !== 'production-consumed' && classification !== 'test-only') continue;
+    const seed = { ...splitSurfaceKey(seedKey), classification };
+    const expanded = new Set([seedKey]);
+    const visit = (currentKey, edges) => {
+      for (const edge of outgoing.get(currentKey) ?? []) {
+        const targetKey = surfaceKey(edge.targetSurface.module, edge.targetSurface.export);
+        const pathRecord = { seed, edges: [...edges, edge] };
+        declarationPaths.get(targetKey).push(pathRecord);
+        if (expanded.has(targetKey)) continue;
+        expanded.add(targetKey);
+        visit(targetKey, pathRecord.edges);
+      }
+    };
+    visit(seedKey, []);
+  }
+  for (const paths of declarationPaths.values()) {
+    const unique = new Map(paths.map((item) => [JSON.stringify(item), item]));
+    paths.splice(0, paths.length, ...[...unique.values()].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))));
+  }
+  return { declarationPaths, declarationUnitFiles: ordinaryCandidates, outgoing };
+}
+
+function discoverGovernedFiles(trackedFiles) {
   const normalized = [...new Set(trackedFiles.map((file) => file.replaceAll('\\', '/')))];
   const byRoot = Object.fromEntries(GOVERNED_ROOTS.map((root) => [root, normalized.filter((file) => file.startsWith(`${root}/`) && file.endsWith('.ts')).sort()]));
   for (const root of GOVERNED_ROOTS) if (byRoot[root].length === 0) throw new Error(`governed root ${root} must contain at least one tracked .ts module`);
   return { byRoot, files: GOVERNED_ROOTS.flatMap((root) => byRoot[root]).sort() };
 }
 
-export function discoverCompleteOwnership(trackedFiles) {
+function discoverCompleteOwnership(trackedFiles) {
   const tracked = [...new Set(trackedFiles.map((file) => file.replaceAll('\\', '/')))];
   const typescriptCandidates = tracked.filter((file) =>
     TS_EXTENSIONS.test(file) &&
@@ -772,13 +1021,29 @@ function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistP
   const unsupported = [];
   for (const context of programs) collectImports(repositoryRoot, tracked, candidates, context, routes, governedKeys, uses, failures, unsupported);
 
+  const directClassifications = new Map();
+  for (const [key] of surfaces) {
+    const use = uses.get(key) ?? { production: new Set(), test: new Set() };
+    const localLocations = local.get(key) ?? [];
+    const classification = use.production.size > 0 ? 'production-consumed' : use.test.size > 0 ? 'test-only' : localLocations.length > 0 ? 'local-only' : 'zero-use';
+    directClassifications.set(key, classification);
+  }
+  const closure = complete ? createDeclarationClosure(repositoryRoot, tracked, candidates, ownership, surfaces, directClassifications, failures) : null;
   const classifications = new Map();
   const records = [...surfaces.entries()].map(([key, surface]) => {
     const use = uses.get(key) ?? { production: new Set(), test: new Set() };
     const localLocations = local.get(key) ?? [];
-    const classification = use.production.size > 0 ? 'production-consumed' : use.test.size > 0 ? 'test-only' : localLocations.length > 0 ? 'local-only' : 'zero-use';
+    const declarationPaths = closure?.declarationPaths.get(key) ?? [];
+    const declarationProduction = declarationPaths.some((item) => item.seed.classification === 'production-consumed');
+    const declarationTest = declarationPaths.some((item) => item.seed.classification === 'test-only');
+    const directClassification = directClassifications.get(key);
+    const classification = directClassification === 'production-consumed' || declarationProduction
+      ? 'production-consumed'
+      : directClassification === 'test-only' || declarationTest
+        ? 'test-only'
+        : directClassification;
     classifications.set(key, classification);
-    return { ...surface, classification, localLocations: [...new Set(localLocations)].sort(), productionLocations: [...use.production].sort(), testLocations: [...use.test].sort() };
+    return { ...surface, classification, directClassification, declarationPaths, localLocations: [...new Set(localLocations)].sort(), productionLocations: [...use.production].sort(), testLocations: [...use.test].sort() };
   }).sort((a, b) => a.module.localeCompare(b.module) || a.export.localeCompare(b.export));
 
   const allowlist = parseAllowlist(repositoryRoot, allowlistPath, tracked, candidates, governedKeys, classifications, unsupported);
@@ -808,6 +1073,7 @@ function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistP
     totals,
     staleImports: sortedFailures.filter((failure) => failure.category === 'stale-import').length,
     unsupported: sortedFailures.filter((failure) => failure.category === 'unsupported').length,
+    allowlistEntries: allowlist.entries.length,
     ownership: complete ? {
       candidateFiles: discovery.files,
       declarationFiles: ownership.declarationFiles,
@@ -816,6 +1082,7 @@ function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistP
       sfcConsumerFiles: ownership.sfcFiles,
       typescriptConsumerFiles: ownership.tsFiles,
       typescriptOrdinaryFiles: ownership.tsFiles.filter((file) => !DECLARATION_SUFFIX.test(file)),
+      declarationUnitFiles: closure.declarationUnitFiles,
       hostAssignments: Object.fromEntries(programs.map((context) => [context.kind, context.roots])),
     } : null,
   };
@@ -825,7 +1092,7 @@ export function checkExportConsumers(options = {}) {
   return analyzeExportConsumers({ ...options, complete: false });
 }
 
-export function analyzeCompleteExportConsumers(options = {}) {
+function analyzeCompleteExportConsumers(options = {}) {
   return analyzeExportConsumers({ ...options, complete: true });
 }
 
