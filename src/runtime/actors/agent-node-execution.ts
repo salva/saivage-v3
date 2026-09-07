@@ -17,7 +17,7 @@ import { buildPreparedInvocationContext, compileInvocationToolContract, type Con
 import { BoundAgentToolSet, effectiveCardNodeToolReferences, surfaceToolContracts } from '../../tools/runtime-tool-catalog.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
-import { AuthoredRecordNotFoundError, type RecordProjection } from '../../persistence/authored-record-files.js';
+import type { RecordProjection } from '../../persistence/authored-record-files.js';
 import { PublicationOutcomeUnknownError, throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import { toolFailed, toolSucceeded } from '../../contracts/tool-result.js';
 
@@ -36,7 +36,7 @@ type NodeResult = { outcome: string; summary: string };
 type ReviewerSnapshot = { cards: Array<{ id: string; versionSeq: number }>; includedRecordVersions: Array<{ cardId: string; filename: string; sourceVersion: number | null }> };
 type ReviewerContextPair = { exactContext: ProviderVisibleUserContextMessage; snapshot: ReviewerSnapshot };
 
-export interface AgentNodeExecutionHost {
+interface AgentNodeExecutionHost {
   createLlm(agentId: string): ConversationLLMActor;
   selectLlm(llm: ConversationLLMActor): void;
   freshInputId(): string;

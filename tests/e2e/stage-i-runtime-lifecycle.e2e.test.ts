@@ -8,7 +8,7 @@ import { workflowResult } from '../helpers/workflow-result.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents/llm-contracts.js';
 import { appendConversationBatch, readConversation } from '../../src/persistence/conversation-file.js';
@@ -29,10 +29,10 @@ function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { 
 function tool(id: string, name: string, args: object): LlmCompleteResult { return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }; }
 async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
 
-function supervisor(projectRoot: string, cards: CardService, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort): SupervisorRuntimeApi {
+function supervisor(projectRoot: string, cards: CardService, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort): ReturnType<typeof createSupervisorRuntimeApi> {
   const registry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
-  return new SupervisorRuntimeApi({
+  return createSupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),
@@ -67,7 +67,7 @@ function appendInvalidRootPlannerContinuation(projectRoot: string): void {
   }]);
 }
 
-function installRootSettlementOwner(runtime: SupervisorRuntimeApi, root: NonNullable<ReturnType<CardService['read']>>) {
+function installRootSettlementOwner(runtime: ReturnType<typeof createSupervisorRuntimeApi>, root: NonNullable<ReturnType<CardService['read']>>) {
   const processor = {
     start() {}, activate: async () => new Promise<never>(() => undefined), disposeActivation() {},
     suppressContinuationAndPrepareJoin() {}, joinActivation: async () => [],

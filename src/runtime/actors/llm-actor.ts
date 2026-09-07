@@ -104,9 +104,9 @@ type ConversationPhase =
   | { kind: 'retained_text'; operation: RetainedOperation }
   | { kind: 'repairing_text'; operation: RepairOperation };
 
-export type ConversationDisposalDisposition = 'revoked_before_owned_completion' | 'joining_owned_completion';
-export type LLMToolContinuationContextHook = (continuationInputId: string) => { messages: readonly ProviderVisibleUserContextMessage[]; afterAppend?: () => void } | undefined;
-export type ConversationLLMActorPurpose = Readonly<
+type ConversationDisposalDisposition = 'revoked_before_owned_completion' | 'joining_owned_completion';
+type LLMToolContinuationContextHook = (continuationInputId: string) => { messages: readonly ProviderVisibleUserContextMessage[]; afterAppend?: () => void } | undefined;
+type ConversationLLMActorPurpose = Readonly<
   { kind: 'autonomous-card'; cardId: CardId } | { kind: 'analyst' }
 >;
 type ConversationLLMActorCommonArgs = Readonly<{ agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void; fatalPort: ApplicationFatalPort }>;

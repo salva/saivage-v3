@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 
 export type ProcessCategory = 'runtime_card' | 'operator_session' | 'service_infrastructure';
-export type ManagedGroupState = 'active' | 'terminating' | 'unverifiable';
-export const MANAGED_PROCESS_TERM_GRACE_MS = 5000;
-export const MANAGED_PROCESS_POST_KILL_VERIFICATION_MS = 2000;
+type ManagedGroupState = 'active' | 'terminating' | 'unverifiable';
+const MANAGED_PROCESS_TERM_GRACE_MS = 5000;
+const MANAGED_PROCESS_POST_KILL_VERIFICATION_MS = 2000;
 
 declare const managedProcessScopeBrand: unique symbol;
 export interface ManagedProcessScope {
@@ -55,7 +55,7 @@ export interface ProcessStopReport {
   }>;
 }
 
-export interface ManagedProcessLaunch {
+interface ManagedProcessLaunch {
   groupId: string;
   directScope: ManagedProcessScope;
   category: ProcessCategory;

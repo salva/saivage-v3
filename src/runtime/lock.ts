@@ -33,20 +33,20 @@ interface RuntimeLockOwnerBase {
   readonly canonical_root_hash: string;
 }
 
-export type RuntimeLockOwnerRecord = RuntimeLockOwnerBase & (
+type RuntimeLockOwnerRecord = RuntimeLockOwnerBase & (
   | { readonly lock_state: 'bootstrap_unbound'; readonly project_identity: null; readonly control_endpoint: null }
   | { readonly lock_state: 'bound'; readonly project_identity: string; readonly control_endpoint: RuntimeControlEndpoint | null }
 );
 
-export type RuntimeLockBlocker =
+type RuntimeLockBlocker =
   | { readonly kind: 'live'; readonly record: RuntimeLockOwnerRecord }
   | { readonly kind: 'dead'; readonly record: RuntimeLockOwnerRecord; readonly repairInstruction: string }
   | { readonly kind: 'indeterminate'; readonly repairInstruction: string; readonly detail: string }
   | { readonly kind: 'malformed'; readonly repairInstruction: string; readonly detail: string };
 
-export type RuntimeLockStatus = { readonly kind: 'missing' } | RuntimeLockBlocker;
+type RuntimeLockStatus = { readonly kind: 'missing' } | RuntimeLockBlocker;
 
-export interface RuntimeLockConfig {
+interface RuntimeLockConfig {
   readonly lockFilePath?: string;
   readonly readProcessStartIdentity?: (pid: number) => string;
   readonly probeProcess?: (pid: number) => 'live' | 'dead' | 'indeterminate';

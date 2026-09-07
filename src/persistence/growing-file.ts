@@ -19,7 +19,7 @@ const envelopeSchema = z.object({
   rows: z.array(z.unknown()).min(1),
 }).strict();
 
-export type PreparedGrowingEnvelope<Row> = Readonly<{ rows: readonly Row[]; bytes: Buffer }>;
+type PreparedGrowingEnvelope<Row> = Readonly<{ rows: readonly Row[]; bytes: Buffer }>;
 
 export function prepareGrowingEnvelope<Row>(rows: readonly unknown[], rowSchema: z.ZodType<Row>): PreparedGrowingEnvelope<Row> {
   const parsedRows = rows.map((row) => rowSchema.parse(row));
@@ -102,7 +102,7 @@ export function publishFirstEnvelope(
   throw new Error(`Growing file '${target}' is already published.`);
 }
 
-export type AppendEnvelopeResult =
+type AppendEnvelopeResult =
   | { readonly kind: 'appended' }
   | { readonly kind: 'missing' };
 

@@ -3,7 +3,7 @@ import { closeSync, existsSync, fstatSync, fsyncSync, mkdtempSync, mkdirSync, op
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { AuthoredRecordNotFoundError, classifyCurrentAuthoredRecord, initializeAuthoredRecord, openAuthoredRecord, readCurrentAuthoredRecord, readHistoricalAuthoredRecord } from '../../src/persistence/authored-record-files.js';
+import { AuthoredRecordNotFoundError, classifyCurrentAuthoredRecord, initializeAuthoredRecord, openAuthoredRecord, readCurrentAuthoredRecord } from '../../src/persistence/authored-record-files.js';
 import { readStrictCanonicalGrowingFile } from '../../src/persistence/growing-file.js';
 import { authoredRecordVersionArtifactSchema, type AuthoredRecordVersionArtifact } from '../../src/persistence/canonical-record-artifacts.js';
 import { cardRecordStreamFile, cardStreamFile } from '../../src/persistence/layout.js';
@@ -145,8 +145,6 @@ describe('authored record exact streams', () => {
     expect(() => openAuthoredRecord(root, card, definition)).toThrow(/bootstrap/);
     const bootstrap = initializeAuthoredRecord(root, card.id, definition, 'bootstrap content');
     expect(bootstrap?.headVersion).toBe(1);
-    expect(() => readHistoricalAuthoredRecord(root, card, definition, 2)).toThrow(AuthoredRecordNotFoundError);
-
     const wrongIdentity = statusDefinition({ filename: 'status.md' });
     writeFileSync(streamPath(root, card.id, 'status.md'), '');
     expect(() => classifyCurrentAuthoredRecord(root, card, wrongIdentity)).toThrow(/empty/);

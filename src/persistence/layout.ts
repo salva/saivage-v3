@@ -2,7 +2,7 @@ import { join } from 'node:path';
 import { cardIdSegments } from '../schemas/card-id.js';
 import { recordStreamFilename, type RecordName } from '../schemas/record-name.js';
 
-export const SAIVAGE_RELATIVE_DIR = '.saivage';
+const SAIVAGE_RELATIVE_DIR = '.saivage';
 export const SAIVAGE_CARDS_RELATIVE_DIR = '.saivage/cards';
 export const SAIVAGE_WORK_RELATIVE_DIR = '.saivage/work';
 

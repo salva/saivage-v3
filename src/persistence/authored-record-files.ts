@@ -22,10 +22,9 @@ export interface RecordProjection {
   readonly versionUrl: string;
   readonly artifact: AuthoredRecordVersionArtifact;
 }
-export interface RecordVersionCatalog { readonly cardId: string; readonly filename: string; readonly versions: readonly AuthoredRecordVersionArtifact[]; readonly current: RecordProjection | null }
+interface RecordVersionCatalog { readonly cardId: string; readonly filename: string; readonly versions: readonly AuthoredRecordVersionArtifact[]; readonly current: RecordProjection | null }
 
 export class AuthoredRecordNotFoundError extends Error { constructor() { super('Authored record not found.'); this.name = 'AuthoredRecordNotFoundError'; } }
-export class AuthoredRecordDefinitionNotFoundError extends Error { constructor() { super('Authored record definition not found.'); this.name = 'AuthoredRecordDefinitionNotFoundError'; } }
 export type CurrentAuthoredRecordClassification = Readonly<{ kind:'unclaimed'|'empty' }> | Readonly<{kind:'present';projection:RecordProjection}>;
 
 export function projectAuthoredRecordArtifact(definition: RecordDefinition, artifact: AuthoredRecordVersionArtifact): RecordProjection {
@@ -64,24 +63,12 @@ export function readCurrentAuthoredRecord(projectRoot: string, card: CardRecord,
   const classified=classifyCurrentAuthoredRecord(projectRoot,card,definition,instrumentation);return classified.kind==='present'?classified.projection:null;
 }
 
-function requireRecordStream(projectRoot: string, card: CardRecord, definition: RecordDefinition, instrumentation?: CanonicalReadInstrumentation): readonly AuthoredRecordVersionArtifact[] {
-  const rows = readStreamRows(projectRoot,card.id,definition,instrumentation);
-  if(rows===null)throw new AuthoredRecordNotFoundError();
-  return rows;
-}
-
 export function listAuthoredRecordVersions(projectRoot: string, card: CardRecord, definition: RecordDefinition, instrumentation?: CanonicalReadInstrumentation): RecordVersionCatalog {
   const rows = readStreamRows(projectRoot, card.id, definition, instrumentation);
   if (rows === null) {
     return Object.freeze({ cardId:card.id, filename: definition.filename, versions: [], current: null });
   }
   return Object.freeze({ cardId:card.id, filename: definition.filename, versions: rows, current: null });
-}
-
-export function readHistoricalAuthoredRecord(projectRoot: string, card: CardRecord, definition: RecordDefinition, version: number, instrumentation?: CanonicalReadInstrumentation): RecordProjection {
-  const rows = requireRecordStream(projectRoot, card, definition, instrumentation); const row = rows[version - 1];
-  if (!row || row.version !== version) throw new AuthoredRecordNotFoundError();
-  return projectAuthoredRecordArtifact(definition, row);
 }
 
 function publishRow(path: string, rows: readonly AuthoredRecordVersionArtifact[] | null, artifact: AuthoredRecordVersionArtifact, cardId: string, definition: RecordDefinition, io?: GrowingFileIo, temporary?: PublicationTemporaryIdFactory): void {

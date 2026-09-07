@@ -1,5 +1,5 @@
 import { CardService } from '../helpers/canonical-project.js';
-import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
@@ -13,7 +13,7 @@ if (!projectRoot) throw new Error('project root is required');
 const cards = new CardService(projectRoot);
 const processRegistry = new ManagedProcessGroupRegistry();
 const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
-const runtime = new SupervisorRuntimeApi({
+const runtime = createSupervisorRuntimeApi({
   fatalPort: testApplicationFatalPort,
   ...testAutonomousCompaction,
   runtimeGate: new RuntimeGate(),

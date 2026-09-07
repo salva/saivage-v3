@@ -2,7 +2,7 @@ import type { ClassifiedRound } from './round-classifier.js';
 
 export type SnapPolicy = 'keep_straddler_verbatim' | 'compact_straddler';
 
-export type SlidingBandConfig = { tail_budget_tokens: number; middle_budget_tokens: number; snap: SnapPolicy };
+type SlidingBandConfig = { tail_budget_tokens: number; middle_budget_tokens: number; snap: SnapPolicy };
 export type SlidingBandPartitions = { merge_rounds: ClassifiedRound[]; summary_rounds: ClassifiedRound[]; tail_rounds: ClassifiedRound[] };
 
 /** Partitions closed rounds backward from the newest closed round. Only the explicit open round and closed rounds above the budgets stay verbatim. */

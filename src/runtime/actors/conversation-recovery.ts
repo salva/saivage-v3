@@ -13,7 +13,7 @@ import {
   validateConversation, type ValidatedConversation,
 } from '../../contracts/conversation-validation.js';
 
-export type ConversationImplicitState =
+type ConversationImplicitState =
   | 'empty'
   | 'awaiting_tool_result'
   | 'settled_terminal'
@@ -35,7 +35,7 @@ const recoveryVisibilityByKind = {
   provider_private: 'ignored',
 } as const satisfies Record<MessageKind, RecoveryVisibility>;
 
-export function classifyConversation(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>,
+function classifyConversation(messages: readonly AgentMessage[], terminalToolNames: ReadonlySet<string>,
   unmatchedToolCall: AgentMessage | null,
 ): ConversationImplicitState {
   const recoveryVisibilities = messages.map((message) => recoveryVisibility(message.kind));
@@ -59,7 +59,7 @@ function recoveryVisibility(kind: MessageKind): RecoveryVisibility {
   return recoveryVisibilityByKind[kind];
 }
 
-export type AgentSessionStabilization =
+type AgentSessionStabilization =
   | { disposition: 'clean'; messages: readonly AgentMessage[] }
   | { disposition: 'ordinary_interruption'; messages: readonly AgentMessage[] };
 

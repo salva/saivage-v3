@@ -14,9 +14,9 @@ export interface CardActivationInput {
   claimResult(): void;
 }
 
-export type CardActivationCaller = { readonly kind: 'root' } | { readonly kind: 'parent'; readonly cardId: string; readonly sessionId: string };
-export interface CardNotificationDeliveryPort { selectNotifications(): CardNotification[]; removeNotifications(ids: readonly string[]): void }
-export interface CardCancelReason { reason: string; cancelled_at?: string }
+type CardActivationCaller = { readonly kind: 'root' } | { readonly kind: 'parent'; readonly cardId: string; readonly sessionId: string };
+interface CardNotificationDeliveryPort { selectNotifications(): CardNotification[]; removeNotifications(ids: readonly string[]): void }
+interface CardCancelReason { reason: string; cancelled_at?: string }
 export interface CardCancellationResult { readonly card_id: string; readonly status: 'cancelled'; readonly cancelled_card_ids: string[] }
 
 export interface PlannerChildControlPort {
@@ -24,10 +24,10 @@ export interface PlannerChildControlPort {
   cancelChild(request: { childCardId: string; reason: string }): Promise<CardCancellationResult>;
 }
 
-export type CardActivationOwnerPhase = 'prepared_root' | 'child_admission' | 'active' | 'settling';
-export type TerminalWinner = 'open' | 'result' | 'cancel';
+type CardActivationOwnerPhase = 'prepared_root' | 'child_admission' | 'active' | 'settling';
+type TerminalWinner = 'open' | 'result' | 'cancel';
 
-export interface ParentActivationRelationship {
+interface ParentActivationRelationship {
   readonly parentCardId: string;
   readonly invocation: ChildInvocationLease;
 }

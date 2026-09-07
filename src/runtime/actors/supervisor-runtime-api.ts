@@ -30,7 +30,7 @@ import { cardParentId } from '../../schemas/card-id.js';
 import { deferred } from './deferred.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
 
-export interface SupervisorRuntimeApiOptions {
+interface SupervisorRuntimeApiOptions {
   projectRoot: string; now?: () => string;
   actorStore: CardService; provider: LLMProviderPort;
   conversations: ConversationFileContext; freshness: Pick<FreshnessEffects, 'runtimeChanged' | 'agentMembershipChanged'>;
@@ -52,7 +52,7 @@ interface RuntimeHalt {
 
 type SupervisorStatus = RuntimeStatus | 'uninitialized';
 
-export class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
+class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   private readonly behavior: Omit<SupervisorRuntimeApiOptions, 'processRunner' | 'runtimeProcessRootScope'>;
   readonly #processRunner: ProcessRunner;
   readonly #runtimeProcessRootScope: ManagedProcessScope;

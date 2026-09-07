@@ -1,6 +1,6 @@
 import { CardActivationOwner } from '../../src/runtime/actors/card-activation-owner.js';
 import type { CardProcessActor } from '../../src/runtime/actors/card-process-actor.js';
-import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { CardRecord } from '../../src/schemas/index.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
@@ -21,7 +21,7 @@ interface Internals {
   activationOwners: Map<string, CardActivationOwner>;
   activateProcessor(owner: CardActivationOwner): void;
 }
-const supervisor = new SupervisorRuntimeApi({ actorStore: store, runtimeGate: new RuntimeGate() } as never);
+const supervisor = createSupervisorRuntimeApi({ actorStore: store, runtimeGate: new RuntimeGate() } as never);
 const internals = supervisor as unknown as Internals;
 internals.activationOwners.set('project', owner);
 internals.activateProcessor(owner);

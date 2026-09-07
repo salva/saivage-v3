@@ -11,7 +11,7 @@ import type { ProviderExchangeAttempt } from '../../src/contracts/provider-excha
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
-import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import type { LlmCompleteResult } from '../../src/agents/llm-contracts.js';
 import { selectLinkedRunningChain } from '../../src/runtime/running-card-chain.js';
@@ -35,11 +35,11 @@ type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
 };
 
-function runtime(projectRoot: string, cards: CardService, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort, processes?: { processRunner: ProcessRunner; runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope }): SupervisorRuntimeApi {
+function runtime(projectRoot: string, cards: CardService, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort, processes?: { processRunner: ProcessRunner; runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope }): ReturnType<typeof createSupervisorRuntimeApi> {
   const registry = processes ? null : new ManagedProcessGroupRegistry();
   const processRunner = processes?.processRunner ?? new ProcessRunner(projectRoot, registry!, testApplicationFatalPort);
   const runtimeProcessRootScope = processes?.runtimeProcessRootScope ?? registry!.createContainerScope(registry!.rootScope, 'runtime-cards');
-  return new SupervisorRuntimeApi({
+  return createSupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),

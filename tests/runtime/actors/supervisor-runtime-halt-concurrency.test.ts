@@ -7,7 +7,7 @@ import { CardActivationOwner } from '../../../src/runtime/actors/card-activation
 import type { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
 import { ChildInvocationLease } from '../../../src/runtime/actors/child-invocation-wait.js';
 import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-stopped-interruption.js';
-import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import type { CardRecord, ConversationSessionId } from '../../../src/schemas/index.js';
 import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
 import type { ProcessStopReport } from '../../../src/runtime/managed-process-group-registry.js';
@@ -93,8 +93,8 @@ function harness(withChild = false) {
   };
   const runtimeChanged = jest.fn();
   const membershipRecords: Array<{ target: { scope: 'card'; cardId: string }; liveIds: ConversationSessionId[]; ownersCleared: boolean }> = [];
-  let supervisor!: SupervisorRuntimeApi;
-  supervisor = new SupervisorRuntimeApi({
+  let supervisor!: ReturnType<typeof createSupervisorRuntimeApi>;
+  supervisor = createSupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),
@@ -252,7 +252,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-halt-prefix-')); roots.push(projectRoot); initProjectTree(projectRoot);
     const cards = new CardService(projectRoot);
     const processes = createTestProcessRunner(projectRoot);
-    const supervisor = new SupervisorRuntimeApi({
+    const supervisor = createSupervisorRuntimeApi({
       fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
       runtimeGate: new RuntimeGate(),

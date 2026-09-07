@@ -1,4 +1,4 @@
-export type ExactWrite = (
+type ExactWrite = (
   descriptor: number,
   bytes: Uint8Array,
   offset: number,

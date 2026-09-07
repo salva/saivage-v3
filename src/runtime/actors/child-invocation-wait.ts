@@ -2,7 +2,7 @@ import type { CardActivationOutcome } from '../../contracts/tool-api.js';
 import type { StructuralChildRelationship, ToolInvocationIdentity } from './executing-llm-snapshot.js';
 import { deferred, type Deferred } from './deferred.js';
 
-export type ChildInvocationLeasePhase =
+type ChildInvocationLeasePhase =
   | 'reserved'
   | 'admitted'
   | 'settling'

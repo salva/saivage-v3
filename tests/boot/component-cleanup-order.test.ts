@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { AnalystRuntime } from '../../src/agents/analyst-handler.js';
 import { McpManager } from '../../src/mcp/mcp-manager.js';
-import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { ProcessStopReport } from '../../src/runtime/process-runner.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
 
@@ -22,7 +22,7 @@ describe('termination-first component cleanup', () => {
     const rootScope = {};
     let cleanup: Promise<void>;
     if (component === 'runtime') {
-      const runtime = new SupervisorRuntimeApi({
+      const runtime = createSupervisorRuntimeApi({
         runtimeGate: new RuntimeGate(),
         processRunner: runner,
         runtimeProcessRootScope: rootScope,
@@ -47,7 +47,7 @@ describe('termination-first component cleanup', () => {
     const runner = { terminateScopeTree: jest.fn(async () => emptyReport) };
     const rootScope = {};
     const cleanup = component === 'runtime'
-      ? new SupervisorRuntimeApi({ runtimeGate: new RuntimeGate(), processRunner: runner, runtimeProcessRootScope: rootScope } as never).cleanupForApplicationStop()
+      ? createSupervisorRuntimeApi({ runtimeGate: new RuntimeGate(), processRunner: runner, runtimeProcessRootScope: rootScope } as never).cleanupForApplicationStop()
       : new McpManager({ configAuthority: {}, processRunner: runner, mcpProcessRootScope: rootScope, eventLogger: { appendEvent() {} } } as never).cleanupForApplicationStop();
     await expect(cleanup).resolves.toBeUndefined();
   });

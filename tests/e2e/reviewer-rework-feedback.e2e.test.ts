@@ -12,7 +12,7 @@ import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
 import type { LLMProviderPort } from '../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { scriptedAdmissionProvider, testAutonomousCompaction } from '../helpers/llm-test-helpers.js';
 import { RuntimeGate } from '../../src/runtime/runtime-gate.js';
@@ -87,8 +87,8 @@ describe('reviewer rework completion E2E', () => {
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
     const membershipRecords: Array<{ target: AgentMembershipFreshnessTarget; liveIds: string[] }> = [];
-    let runtime!: SupervisorRuntimeApi;
-    runtime = new SupervisorRuntimeApi({
+    let runtime!: ReturnType<typeof createSupervisorRuntimeApi>;
+    runtime = createSupervisorRuntimeApi({
       fatalPort: testApplicationFatalPort,
       ...testAutonomousCompaction,
       runtimeGate: new RuntimeGate(),

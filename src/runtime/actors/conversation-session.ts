@@ -10,7 +10,7 @@ import { appendConversationBatch, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
 
-export type UserContextMessageCategory =
+type UserContextMessageCategory =
   | 'notification' | 'reviewer_descendant' | 'process_transition' | 'process_node' | 'continuation_hook';
 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
@@ -105,7 +105,7 @@ export function buildAnalystRestartRows(
   ];
 }
 
-export function buildAnalystActivationMarker(
+function buildAnalystActivationMarker(
   sessionId: ConversationSessionId,
   inputId: string,
 ): AgentMessage {
@@ -168,7 +168,7 @@ export function isExactRecoveryNotice(
   );
 }
 
-export function buildContextTextMessage(
+function buildContextTextMessage(
   sessionId: ConversationSessionId,
   role: Extract<MessageRole, 'user' | 'system'>,
   content: string,

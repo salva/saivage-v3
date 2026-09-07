@@ -9,11 +9,11 @@ import type { NotifyCardResult } from './runtime-api.js';
 const FLIPPABLE_RESTING: ReadonlySet<CardStatus> = new Set(['done', 'failed', 'blocked']);
 const ANALYST_RECORD_FLIPPABLE: ReadonlySet<CardStatus> = new Set(['blocked', 'done', 'failed']);
 
-export type ChangeOrigin =
+type ChangeOrigin =
   | { kind: 'analyst_edit'; summary: string }
   | { kind: 'analyst_correction'; issues: AnalystIssue[]; note?: string };
 
-export interface ChangedPropagation {
+interface ChangedPropagation {
   flipped: Array<{ card_id: string; previous_status: CardStatus }>;
 }
 

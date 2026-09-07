@@ -23,6 +23,8 @@ describe('availability and auth ownership inventory', () => {
 
   it('contains no auth repository, revision, mode, health, or refresh service', () => {
     expect(filesContaining(/AuthProfileRepository|AuthProfileProjection|AuthProfileConflictError|authProfileRevision|AUTH_PROFILE_FILE_MODE|replaceRefreshedAuthProfile/u)).toEqual([]);
-    expect(readFileSync(join(root, 'src/auth/index.ts'), 'utf8')).toMatch(/readAuthProfile, readAuthProfiles, replaceAuthProfiles/u);
+    const authBarrel = readFileSync(join(root, 'src/auth/index.ts'), 'utf8');
+    expect(authBarrel).toMatch(/export \{ readAuthProfiles, replaceAuthProfiles \} from '\.\/auth-profile-file\.js';/u);
+    expect(authBarrel).not.toMatch(/\breadAuthProfile\b/u);
   });
 });

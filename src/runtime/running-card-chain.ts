@@ -1,7 +1,7 @@
 import type { CardRecord } from '../schemas/index.js';
 import { cardParentId } from '../schemas/card-id.js';
 
-export interface LinkedCardReader {
+interface LinkedCardReader {
   read(cardId: string): CardRecord | null;
   listChildren(cardId: string): string[];
 }

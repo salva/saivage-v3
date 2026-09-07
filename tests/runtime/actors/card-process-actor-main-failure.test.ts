@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createAppTerminalCoordinator } from '../../../src/boot/app.js';
-import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import type { CardActivationOwner } from '../../../src/runtime/actors/card-activation-owner.js';
 import { CardProcessActor } from '../../../src/runtime/actors/card-process-actor.js';
@@ -41,7 +41,7 @@ function harness(provider: LLMProviderPort = scriptedAdmissionProvider(async (_i
   const actorFailure = new Error('actor-main invariant failure');
   let armed = false;
   let failureDelivered = false;
-  const supervisor = new SupervisorRuntimeApi({
+  const supervisor = createSupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),
@@ -85,13 +85,13 @@ async function within<T>(promise: Promise<T>): Promise<T> {
   finally { clearTimeout(timer); }
 }
 
-async function waitForError(supervisor: SupervisorRuntimeApi): Promise<void> {
+async function waitForError(supervisor: ReturnType<typeof createSupervisorRuntimeApi>): Promise<void> {
   await within((async () => {
     while (supervisor.getStatus().status !== 'error') await new Promise((resolve) => setTimeout(resolve, 5));
   })());
 }
 
-function fatalNotificationSpy(supervisor: SupervisorRuntimeApi) {
+function fatalNotificationSpy(supervisor: ReturnType<typeof createSupervisorRuntimeApi>) {
   return jest.spyOn(supervisor as never, 'onProcessorActorMainFailure' as never);
 }
 

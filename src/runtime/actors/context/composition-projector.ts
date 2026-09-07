@@ -17,7 +17,7 @@ import { classifyConversationRowPolicy, settledToolBundlePolicy, type SettledToo
 
 const EPOCH_TIMESTAMP = '1970-01-01T00:00:00.000Z';
 
-export type EffectiveRequiredModelFacts = Readonly<{
+type EffectiveRequiredModelFacts = Readonly<{
   latestRecovery: Readonly<{ sourceMessageId: string; activationInputId: string }> | null;
   latestContentPolicyRefusal: Readonly<{ markerId: string; activationInputId: string }> | null;
 }>;
@@ -29,9 +29,9 @@ export type EffectiveCompactedHistoryFacts = Readonly<{
   requiredModelFacts: EffectiveRequiredModelFacts;
 }>;
 
-export type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice' | 'retry_notice';
+type ProjectedCanonicalSemantic = 'direct' | 'recovery_notice' | 'refusal_notice' | 'retry_notice';
 
-export type PrimaryContextEntry =
+type PrimaryContextEntry =
   | Readonly<{ origin: 'history_summary'; content: string; messageId: string; timestamp: string }>
   | Readonly<{ origin: 'dynamic'; block: ContextBlock }>
   | Readonly<{ origin: 'canonical'; row: AgentMessage; semantic: ProjectedCanonicalSemantic }>;
@@ -233,7 +233,7 @@ function syntheticProjectionRow(row: AgentMessage, role: 'system' | 'user', cont
   return agentMessageSchema.parse({ ...row, role, kind: 'text', content, context_policy: DURABLE_PRIMARY_CONTENT_POLICY });
 }
 
-export function recoveryNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestRecovery']>): AgentMessage {
+function recoveryNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestRecovery']>): AgentMessage {
   if (slot.sourceMessageId !== `${slot.activationInputId}:model-recovered`) throw new Error(`Inherited recovery fact '${slot.sourceMessageId}' does not match its activation identity.`);
   return agentMessageSchema.parse({
     id: slot.sourceMessageId,
@@ -249,7 +249,7 @@ export function recoveryNoticeFromInheritedSlot(sourceSessionId: ConversationSes
   });
 }
 
-export function refusalNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestContentPolicyRefusal']>): AgentMessage {
+function refusalNoticeFromInheritedSlot(sourceSessionId: ConversationSessionId, slot: NonNullable<EffectiveRequiredModelFacts['latestContentPolicyRefusal']>): AgentMessage {
   return agentMessageSchema.parse({
     id: slot.markerId,
     session_id: sourceSessionId,

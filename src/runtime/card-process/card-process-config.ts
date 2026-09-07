@@ -17,24 +17,24 @@ import { zodToJsonSchemaMini } from '../../agents/zod-to-jsonschema-mini.js';
 import type { ToolDefinition as LlmToolDefinition } from '../../agents/llm-contracts.js';
 
 export type CardProcessEntry = 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED';
-export type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';
+type CardProcessTerminal = 'DONE' | 'BLOCKED' | 'FAILED';
 export type ProcessPromptId = string & { readonly __processPromptId: unique symbol };
-export type RecordRequirementMode = 'clean' | 'continue';
-export type RecordRequirementGate = 'exists' | 'updated';
-export type PromptArtifactSource = 'override-card'|'override-shared'|'bundled-card'|'bundled-shared';
-export type PromptArtifactObservation = Readonly<{ source: PromptArtifactSource; path: string }>;
-export type CompiledAgentPrompt = Readonly<{ source:PromptArtifactSource; reference:string; path:string; compiled:CompiledPromptTemplate }>;
-export type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source:PromptArtifactSource; path:string; text:string }>;
+type RecordRequirementMode = 'clean' | 'continue';
+type RecordRequirementGate = 'exists' | 'updated';
+type PromptArtifactSource = 'override-card'|'override-shared'|'bundled-card'|'bundled-shared';
+type PromptArtifactObservation = Readonly<{ source: PromptArtifactSource; path: string }>;
+type CompiledAgentPrompt = Readonly<{ source:PromptArtifactSource; reference:string; path:string; compiled:CompiledPromptTemplate }>;
+type CompiledProcessPrompt = Readonly<{ reference:ProcessPromptId; source:PromptArtifactSource; path:string; text:string }>;
 export interface WorkflowCompileOptions { readonly projectRoot?:string; readonly defaultPromptRoot?:string; readonly artifactObserver?:(artifact:PromptArtifactObservation)=>void }
 type PromptRoots = Readonly<{ defaultRoot:string; overrideRoot:string|undefined; artifactObserver:((artifact:PromptArtifactObservation)=>void)|undefined; agentCache:Map<string,CompiledAgentPrompt> }>;
 
-export type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
-export type CompiledRecordWritePattern = Readonly<{ source: string; matcher: RegExp }>;
-export type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly CompiledToolReference[]; recordWrites: readonly CompiledRecordWritePattern[]; modelRoute: string; model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
-export type CompiledRecordRequirement = Readonly<{ definition: CompiledRecordDefinition; mode: RecordRequirementMode; gate: RecordRequirementGate }>;
-export type CompiledDescendantContext = Readonly<{ records: readonly CompiledRecordDefinition[]; requireUnchangedUntilAccept: boolean }>;
-export type CompiledTerminalBehavior = Readonly<{ promotion: Readonly<{ kind: 'current' } | { kind: 'latest-node'; nodeId: string }>; exportRecords: readonly CompiledRecordDefinition[] }>;
-export type ProcessTransitionSemantic =
+type CompiledRecordDefinition = Readonly<{ name: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
+type CompiledRecordWritePattern = Readonly<{ source: string; matcher: RegExp }>;
+type CompiledAgentContract = Readonly<{ name: AgentName; prompt: string; tools: readonly CompiledToolReference[]; recordWrites: readonly CompiledRecordWritePattern[]; modelRoute: string; model: Readonly<{ orderedModelIds: readonly string[]; temperature: number; maxTokens: number }>; skills: boolean; session: 'global' | 'card'; canCreateChildren: boolean }>;
+type CompiledRecordRequirement = Readonly<{ definition: CompiledRecordDefinition; mode: RecordRequirementMode; gate: RecordRequirementGate }>;
+type CompiledDescendantContext = Readonly<{ records: readonly CompiledRecordDefinition[]; requireUnchangedUntilAccept: boolean }>;
+type CompiledTerminalBehavior = Readonly<{ promotion: Readonly<{ kind: 'current' } | { kind: 'latest-node'; nodeId: string }>; exportRecords: readonly CompiledRecordDefinition[] }>;
+type ProcessTransitionSemantic =
   | Readonly<{ kind: 'activation' }>
   | Readonly<{ kind: 'entry-route'; promptId: ProcessPromptId | null }>
   | Readonly<{ kind: 'configured-outcome'; outcome: string; promptId: ProcessPromptId | null; terminalBehavior: CompiledTerminalBehavior | null }>
@@ -42,7 +42,7 @@ export type ProcessTransitionSemantic =
 export type CompiledProcessTransition = Readonly<{ targetStateId: string; reenter: boolean; semantic: ProcessTransitionSemantic }>;
 type ProcessStateBase = Readonly<{ on: ReadonlyMap<string, CompiledProcessTransition>; isTerminal: boolean; isParked: boolean }>;
 export type CompiledNodeContract = ProcessStateBase & Readonly<{ kind: 'node'; nodeId: string; agent: CompiledAgentContract; selectedAgentPrompt:CompiledAgentPrompt; promptId: ProcessPromptId; correctionPromptId: ProcessPromptId; requirements: readonly CompiledRecordRequirement[]; descendantContext: CompiledDescendantContext | null; childCreationTypes: ReadonlySet<CardTypeName>; childActivationTypes: ReadonlySet<CardTypeName>; readableRecords: ReadonlyMap<RecordName, CompiledRecordDefinition> }>;
-export type CompiledProcessState =
+type CompiledProcessState =
   | (ProcessStateBase & Readonly<{ kind: 'ready' }>)
   | (ProcessStateBase & Readonly<{ kind: 'entry'; entry: CardProcessEntry }>)
   | CompiledNodeContract
@@ -57,7 +57,7 @@ const IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
 const OUTCOME_IDENTIFIER = /^[a-z][a-z0-9_-]{0,63}$/u;
 const ENTRY_PORTS = ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'] as const;
 const TERMINAL_PORTS = ['DONE', 'BLOCKED', 'FAILED'] as const;
-export const GENERIC_RECORD_SCHEMA = 'authored-record.v1';
+const GENERIC_RECORD_SCHEMA = 'authored-record.v1';
 export const EMIT_RESULT_SUMMARY_MAX_CHARS = 2000;
 
 class ImmutableMap<K, V> implements ReadonlyMap<K, V> { readonly #values: Map<K,V>; constructor(entries: Iterable<readonly [K,V]>) { this.#values = new Map(entries); Object.freeze(this); } get size(){return this.#values.size;} get(key:K){return this.#values.get(key);} has(key:K){return this.#values.has(key);} entries(){return this.#values.entries();} keys(){return this.#values.keys();} values(){return this.#values.values();} forEach(callbackfn:(value:V,key:K,map:ReadonlyMap<K,V>)=>void,thisArg?:unknown){for(const [k,v] of this.#values) callbackfn.call(thisArg,v,k,this);} [Symbol.iterator](){return this.#values[Symbol.iterator]();} get [Symbol.toStringTag](){return 'ImmutableMap';} }

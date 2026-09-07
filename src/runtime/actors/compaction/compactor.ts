@@ -126,7 +126,7 @@ export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
+type CompactionStrategy = 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
 export type CompactionResult =
   | {
       kind: 'compacted';

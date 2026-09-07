@@ -19,7 +19,7 @@ export const SUMMARY_REDUCTION_INSTRUCTION =
   'Merge the ordered labeled Saivage summary sections below into one concise historical prose summary. Do not include recoverable-evidence pointer sections.';
 export const EMPTY_COVERAGE_SUMMARY = 'These rounds contained no provider-visible conversation content.';
 
-export type SummaryMaterialBudget = Readonly<{
+type SummaryMaterialBudget = Readonly<{
   inputBudgetTokens: number;
   completionReserveTokens: number;
 }>;
@@ -31,7 +31,7 @@ type MaterializationContext = Readonly<{
   signal: AbortSignal;
 }>;
 
-export type IncrementalSummaryMaterializer = Readonly<{
+type IncrementalSummaryMaterializer = Readonly<{
   materializedThrough: number;
   materializeThrough(cutoffCount: number): Promise<string>;
 }>;

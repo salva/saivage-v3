@@ -150,7 +150,7 @@ export function appendLlmTurnError(conversations: ConversationFileContext, input
   return message;
 }
 
-export interface ToolSettlementAppendRecord {
+interface ToolSettlementAppendRecord {
   readonly session_id: ConversationSessionId;
   readonly source_input_id: string;
   readonly tool_call_id: string;

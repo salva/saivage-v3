@@ -6,7 +6,7 @@ export interface InvocationLease {
   readonly [INVOCATION_LEASE]: true;
 }
 
-export class InvocationInterruptedError extends Error {
+class InvocationInterruptedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'InvocationInterruptedError';

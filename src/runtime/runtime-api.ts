@@ -3,7 +3,7 @@ import type { ActorRuntimeReadModel } from '../application/read-models/actor-run
 import type { CardNotification } from '../schemas/index.js';
 import type { CardCancellationResult } from './actors/card-activation-owner.js';
 
-export interface RuntimeControlStateResult {
+interface RuntimeControlStateResult {
   runtime: RuntimeState | null;
   status: RuntimeStatus;
   started: boolean;

@@ -13,7 +13,7 @@ export class InternalActorError extends Error {
   }
 }
 
-export class InvalidActorDefinitionError extends Error {
+class InvalidActorDefinitionError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'InvalidActorDefinitionError';

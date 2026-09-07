@@ -10,7 +10,7 @@ import { publishInitialProjectRuntime } from '../../src/boot/project-runtime-boo
 import { CardService } from '../../src/cards/card-service.js';
 import { createProjectIdentity } from '../../src/persistence/project-identity.js';
 import { bindRuntimeWorkflows, compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
-import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
@@ -33,7 +33,7 @@ function harness(type:'code'|'architecture',provider:(input:LlmInvocationInput)=
   const structural=compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot});const workflows=bindRuntimeWorkflows(structural,new ModelRouter(new ProviderRegistry(config)));publishInitialProjectRuntime(root,structural);
   const cards=new CardService(root,structural);const child=cards.create({type,parent:'project',title:`${type} flow`,bootstrap_content:`Exercise ${type}.`,tags:[],priority:0,urgency:'normal',created_by:'planner',depends_on:[],related:[]});
   const registry=new ManagedProcessGroupRegistry();const runtimeProcessRootScope=registry.createContainerScope(registry.rootScope,'runtime-cards');
-  const supervisor=new SupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider:scriptedAdmissionProvider(jest.fn(async(input:LlmInvocationInput)=>provider(input))),conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner:new ProcessRunner(root,registry,testApplicationFatalPort),runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
+  const supervisor=createSupervisorRuntimeApi({...testAutonomousCompaction,workflows,projectRoot:root,actorStore:cards,provider:scriptedAdmissionProvider(jest.fn(async(input:LlmInvocationInput)=>provider(input))),conversations:{projectRoot:root},freshness:{runtimeChanged(){},agentMembershipChanged(){}},processRunner:new ProcessRunner(root,registry,testApplicationFatalPort),runtimeProcessRootScope,promptTemplates:createPromptTemplateRegistry(workflows),runtimeGate:new RuntimeGate(),fatalPort:testApplicationFatalPort});
   return{root,cards,child,supervisor};
 }
 
@@ -41,7 +41,7 @@ function transitionRows(input:LlmInvocationInput){return input.providerConversat
 
 describe('specialized production card-type flows',()=>{
   it('re-enters code green with increasing ordinals and versioned status evidence before refactor completion',async()=>{
-    let plannerCalls=0;let executorCalls=0;const ordinals:number[]=[];const transitions:string[]=[];let supervisor!:SupervisorRuntimeApi;let childId='';
+    let plannerCalls=0;let executorCalls=0;const ordinals:number[]=[];const transitions:string[]=[];let supervisor!:ReturnType<typeof createSupervisorRuntimeApi>;let childId='';
     const run=harness('code',async(input)=>{
       if(input.agentName==='planner'){
         plannerCalls+=1;if(plannerCalls===1)return complete(tool('activate','activate_card',{card_id:childId}));if(plannerCalls===2)return complete(tool('parent-write','write',{path:'record:///status.md?card=project',content:'Code child complete.'}));if(plannerCalls===3)return complete(tool('parent-done','emit_result',{outcome:'complete_direct',summary:'Code child accepted.'}));throw new Error(`Unexpected planner call ${plannerCalls}`);
@@ -63,7 +63,7 @@ describe('specialized production card-type flows',()=>{
   });
 
   it('cycles clean architecture reviews, redrafts after system revision, and promotes the latest draft while exporting final review evidence',async()=>{
-    let plannerCalls=0;let executorCalls=0;let reviewerCalls=0;let supervisor!:SupervisorRuntimeApi;let childId='';const nodeStarts:Array<{node:string;input:LlmInvocationInput}>=[];
+    let plannerCalls=0;let executorCalls=0;let reviewerCalls=0;let supervisor!:ReturnType<typeof createSupervisorRuntimeApi>;let childId='';const nodeStarts:Array<{node:string;input:LlmInvocationInput}>=[];
     const run=harness('architecture',async(input)=>{
       if(input.agentName==='planner'){
         plannerCalls+=1;if(plannerCalls===1)return complete(tool('activate','activate_card',{card_id:childId}));if(plannerCalls===2)return complete(tool('parent-write','write',{path:'record:///status.md?card=project',content:'Architecture child complete.'}));if(plannerCalls===3)return complete(tool('parent-done','emit_result',{outcome:'complete_direct',summary:'Architecture child accepted.'}));throw new Error(`Unexpected planner call ${plannerCalls}`);

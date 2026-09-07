@@ -36,9 +36,9 @@ export interface ConversationFileContext {
     agentMembershipChanged(target: { readonly scope: 'card'; readonly cardId: Exclude<ReturnType<typeof conversationSessionIdentity>['cardId'], null> } | { readonly scope: 'global-session'; readonly sessionId: ConversationSessionId }): void;
   };
 }
-export interface ConversationAppendOptions { readonly publicationTemporaryId?: PublicationTemporaryIdFactory; readonly io?: GrowingFileIo }
+interface ConversationAppendOptions { readonly publicationTemporaryId?: PublicationTemporaryIdFactory; readonly io?: GrowingFileIo }
 interface ConversationTruncationIo { open(path: string, flags: number): number; ftruncate(fd: number, length: number): void; fsync(fd: number): void; close(fd: number): void }
-export interface ConversationCatalog { readonly sessionId: ConversationSessionId; readonly createdAt: string; readonly versions: readonly ConversationVersionEntry[]; readonly currentVersion: number | null }
+interface ConversationCatalog { readonly sessionId: ConversationSessionId; readonly createdAt: string; readonly versions: readonly ConversationVersionEntry[]; readonly currentVersion: number | null }
 export interface ConversationSegment { readonly index: ConversationVersionIndex; readonly entry: ConversationVersionEntry; readonly genesis: ConversationSegmentGenesis; readonly rows: readonly AgentMessage[]; readonly bytes: Buffer; readonly conversation: ValidatedConversation }
 export class ConversationHistoricalVersionNotFoundError extends Error {}
 export class ConversationHistoricalVersionUnavailableError extends Error { constructor(readonly version: number, readonly reason: 'missing'|'corrupt'|'io_error') { super('Historical conversation segment unavailable.'); } }
@@ -145,7 +145,7 @@ export function appendConversationBatch(conversations: ConversationFileContext, 
   if (!current) { const identity = conversationSessionIdentity(sessionId); conversations.changes?.agentMembershipChanged(identity.cardId === null ? { scope: 'global-session', sessionId } : { scope: 'card', cardId: identity.cardId }); }
 }
 
-export interface ConversationCompactionPublication {
+interface ConversationCompactionPublication {
   readonly identity: CompactionSuccessorIdentity;
   readonly history: CompactedHistory;
   readonly cutoffSourceIndex: number;
@@ -161,7 +161,7 @@ export type CompactionSuccessorIdentity = Readonly<{
   readonly filename: string;
 }>;
 
-export interface CompactionPublicationIo {
+interface CompactionPublicationIo {
   readonly createImmutableVersionFile: typeof createImmutableVersionFile;
   readonly replaceFile: typeof replaceFile;
 }

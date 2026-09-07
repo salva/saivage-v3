@@ -17,7 +17,7 @@ import {
   type ProcessStopReport,
 } from './managed-process-group-registry.js';
 
-export interface ProcessSpawnSpec {
+interface ProcessSpawnSpec {
   command: string;
   directScope: ManagedProcessScope;
   category: ProcessCategory;
@@ -29,7 +29,7 @@ export interface ProcessSpawnSpec {
   agentSessionId?: string;
 }
 
-export interface InteractiveProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command' | 'env'> {
+interface InteractiveProcessSpawnSpec extends Omit<ProcessSpawnSpec, 'command' | 'env'> {
   file: string;
   args: readonly string[];
   stdio: SpawnOptions['stdio'];
@@ -53,12 +53,12 @@ export interface ProcessRecord {
   stderr_path: string;
 }
 
-export interface InteractiveProcessLaunch {
+interface InteractiveProcessLaunch {
   record: ProcessRecord;
   process: ChildProcess;
 }
 
-export interface ProcessWaitResult {
+interface ProcessWaitResult {
   id: string;
   status: ProcessStatus;
   exitCode: number | null;
@@ -66,7 +66,7 @@ export interface ProcessWaitResult {
   waitDurationMs: number;
 }
 
-export interface ProcessListFilter {
+interface ProcessListFilter {
   cardId?: string;
   status?: ProcessStatus | ProcessStatus[];
 }

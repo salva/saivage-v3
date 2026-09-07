@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { SupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import { CardService, initProjectTree } from '../../helpers/canonical-project.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 
@@ -17,8 +17,8 @@ function projectCard() {
   return new CardService(projectRoot).read('project')!;
 }
 
-function supervisor(read: () => unknown): SupervisorRuntimeApi {
-  return new SupervisorRuntimeApi({
+function supervisor(read: () => unknown): ReturnType<typeof createSupervisorRuntimeApi> {
+  return createSupervisorRuntimeApi({
     actorStore: { read },
     processIdentity: { pid: 42, startedAt: '2026-08-10T00:00:00.000Z' },
     runtimeGate: new RuntimeGate(),

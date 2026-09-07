@@ -7,7 +7,7 @@ import { isConversationBudgetVisible } from '../conversation-session.js';
 import { projectedCanonicalRowContent } from '../context/composition-projector.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
 
-export type ClassifiedMessage = {
+type ClassifiedMessage = {
   message: AgentMessage;
   estimated_tokens: number;
 };
@@ -19,7 +19,7 @@ export type ClassifiedRound = {
   estimated_tokens: number;
 };
 
-export type ClassifiedConversation = {
+type ClassifiedConversation = {
   preamble: ClassifiedMessage[];
   rounds: ClassifiedRound[];
 };

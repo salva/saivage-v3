@@ -22,17 +22,17 @@ const acceptedRecordSnapshotShape = {
   content_sha256: sha256Schema,
   size_bytes: nonNegativeSafeIntegerSchema,
 } as const;
-export const acceptedRecordSnapshotSchema = z.object(acceptedRecordSnapshotShape).strict().superRefine((accepted, ctx) => {
+const acceptedRecordSnapshotSchema = z.object(acceptedRecordSnapshotShape).strict().superRefine((accepted, ctx) => {
   if (isEmptyRecordContent(accepted.content)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted record content must not be empty.', path: ['content'] });
   if (recordContentSha256(accepted.content) !== accepted.content_sha256) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted content hash does not match content.', path: ['content_sha256'] });
   if (Buffer.byteLength(accepted.content, 'utf8') !== accepted.size_bytes) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Accepted content size does not match content.', path: ['size_bytes'] });
 });
 
 const openRecordDraftShape = { opened_at: z.string().datetime(), updated_at: z.string().datetime(), content: z.string(), content_sha256: sha256Schema } as const;
-export const openRecordDraftSchema = z.object(openRecordDraftShape).strict().superRefine((draft, ctx) => {
+const openRecordDraftSchema = z.object(openRecordDraftShape).strict().superRefine((draft, ctx) => {
   if (recordContentSha256(draft.content) !== draft.content_sha256) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Draft content hash does not match content.', path: ['content_sha256'] });
 });
-export const discardedRecordStateSchema = z.object({ discarded_at: z.string().datetime(), reason: nonEmptyStringSchema }).strict();
+const discardedRecordStateSchema = z.object({ discarded_at: z.string().datetime(), reason: nonEmptyStringSchema }).strict();
 
 export const authoredRecordVersionArtifactSchema = z.object({
   format_version: z.literal(1), kind: z.literal('authored-record-version'), entry_id: uuidV4Schema,
@@ -54,9 +54,9 @@ function fail(path: string, message: string): never { throw new Error(`Authored-
 
 export type AcceptedRecordSnapshot = z.infer<typeof acceptedRecordSnapshotSchema>;
 export type AuthoredRecordVersionArtifact = z.infer<typeof authoredRecordVersionArtifactSchema>;
-export type RecordArtifactDefinition = Readonly<{ filename: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
+type RecordArtifactDefinition = Readonly<{ filename: RecordName; format: 'markdown'; schema: string; bootstrap: boolean; declared: boolean }>;
 
-export interface RecordStreamFold {
+interface RecordStreamFold {
   readonly rows: readonly AuthoredRecordVersionArtifact[];
   readonly head: AuthoredRecordVersionArtifact;
 }

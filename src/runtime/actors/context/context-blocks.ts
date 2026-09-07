@@ -4,8 +4,8 @@ import { conversationSha256 } from '../../../persistence/canonical-conversation-
 import type { ContextAudience, ContextEvidence, ContextReplacement, ToolResultPolicyTemplate } from '../../../schemas/index.js';
 import type { PreparedCompaction } from '../llm-invocation.js';
 
-export type ContextStorage = 'durable' | 'activation_local';
-export type { ContextAudience, ContextEvidence, ContextReplacement, ToolResultPolicyTemplate } from '../../../schemas/index.js';
+type ContextStorage = 'durable' | 'activation_local';
+export type { ContextEvidence, ToolResultPolicyTemplate } from '../../../schemas/index.js';
 
 export type ContextBlock = Readonly<{
   id: string;
@@ -25,7 +25,7 @@ export type CompiledInvocationToolContract = Readonly<{
   resultPolicyTemplateBytes: string;
   resultPolicyTemplateSha256: string;
 }>;
-export type StaticInvocationPrefix = Readonly<{
+type StaticInvocationPrefix = Readonly<{
   instructionText: string;
   terminalToolNames: readonly string[];
   immutablePrefixBytes: string;

@@ -7,7 +7,7 @@ import type { LlmCompleteResult, ProviderTurnCompletion } from '../../src/agents
 import { CardService } from '../helpers/canonical-project.js';
 import { readConversation } from '../../src/persistence/conversation-file.js';
 import type { LlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
-import { SupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
+import { createSupervisorRuntimeApi } from '../../src/runtime/actors/supervisor-runtime-api.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
@@ -33,8 +33,8 @@ type RuntimeOwnership = {
   activationOwners: Map<string, { readonly cardId: string }>;
 };
 
-function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort): SupervisorRuntimeApi {
-  return new SupervisorRuntimeApi({
+function runtime(projectRoot: string, cards: CardService, processRunner: ProcessRunner, runtimeProcessRootScope: import('../../src/runtime/managed-process-group-registry.js').ManagedProcessScope, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort): ReturnType<typeof createSupervisorRuntimeApi> {
+  return createSupervisorRuntimeApi({
     fatalPort: testApplicationFatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),

@@ -5,28 +5,28 @@ function assertNever(value: never): never {
   throw new Error(`Unhandled exhaustive conversation row kind '${String(value)}'.`);
 }
 
-export type StructuralRowProjection =
+type StructuralRowProjection =
   | Readonly<{ behavior: 'activation_boundary'; primaryVisible: false; summaryEligible: false; note: 'opens rounds and is omitted from primary/summarizer prose' }>
   | Readonly<{ behavior: 'provider_failure'; primaryVisible: false; summaryEligible: false; note: 'following model-facing recovery text owns semantics' }>
   | Readonly<{ behavior: 'model_recovery_notice'; primaryVisible: true; summaryEligible: true; rendering: 'synthetic_system_notice'; note: 'model-facing recovery notice, never evidence-only' }>
   | Readonly<{ behavior: 'content_policy_refusal'; primaryVisible: true; summaryEligible: true; rendering: 'synthetic_refusal_text'; note: 'raw provider response is never replayed' }>
   | Readonly<{ behavior: 'responses_private'; primaryVisible: false; summaryEligible: false; rendering: 'paired_with_marked_visible_mate'; note: 'selectable only with its one marked visible mate' }>;
 
-export type ContentRowProjection = Readonly<{
+type ContentRowProjection = Readonly<{
   audience: ContextAudience;
   primaryVisible: true;
   summaryEligible: true;
   rendering: 'direct' | 'code_owned_retry_text';
 }>;
 
-export type ToolExchangeRowProjection = Readonly<{
+type ToolExchangeRowProjection = Readonly<{
   primaryVisible: true;
   summaryEligible: true;
   bundle: 'call_template_only' | 'settled_pair';
   note: 'uncovered bundle remains primary-visible; an unmatched call is never coverable';
 }>;
 
-export type ConversationRowPolicy =
+type ConversationRowPolicy =
   | Readonly<{ kind: 'content'; row: AgentMessage; projection: ContentRowProjection }>
   | Readonly<{ kind: 'structural'; row: AgentMessage; projection: StructuralRowProjection }>
   | Readonly<{ kind: 'tool_exchange'; row: AgentMessage; projection: ToolExchangeRowProjection }>;
