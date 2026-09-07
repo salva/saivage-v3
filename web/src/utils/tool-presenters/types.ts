@@ -3,7 +3,7 @@ export type InlinePart =
   | { kind: 'file'; root: 'meta' | 'output'; path: string; label?: string }
   | { kind: 'card'; id: string; fallbackLabel?: string };
 
-export type ToolStatus = 'ok' | 'error';
+type ToolStatus = 'ok' | 'error';
 
 export interface ToolCallPresentation {
   icon: string;
@@ -29,7 +29,7 @@ export interface ToolCallMessage {
   args: Record<string, unknown>;
 }
 
-export interface CallPresenterResult {
+interface CallPresenterResult {
   icon: string;
   headline: InlinePart[];
   detail?: InlinePart[];
@@ -42,13 +42,13 @@ export interface ResultPresenterContext {
   dataRecord: Record<string, unknown> | null;
 }
 
-export interface ResultPresenterResult {
+interface ResultPresenterResult {
   headline: InlinePart[];
   detail?: InlinePart[];
 }
 
-export type CallPresenter = (args: Record<string, unknown>) => CallPresenterResult;
-export type ResultPresenter = (ctx: ResultPresenterContext) => ResultPresenterResult;
+type CallPresenter = (args: Record<string, unknown>) => CallPresenterResult;
+type ResultPresenter = (ctx: ResultPresenterContext) => ResultPresenterResult;
 
 export interface ToolPresenter {
   readonly action: string;

@@ -63,7 +63,7 @@ type PendingMessage = {
   entry: AgentConversationEntry;
 };
 
-export type AnalystIdentityState =
+type AnalystIdentityState =
   | { kind: 'pending' }
   | { kind: 'resolved'; sessionId: ConversationSessionId }
   | { kind: 'failed'; error: DetailErrorState };

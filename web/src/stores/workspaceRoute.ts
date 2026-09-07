@@ -6,9 +6,9 @@ import type { WorkspaceNavigationIntent, WorkspaceNavigationTarget } from '../ap
 
 const BACK_STACK_LIMIT = 16;
 
-export type WorkspaceView = 'dashboard' | 'cards' | 'agents' | 'files' | 'debug' | null;
+type WorkspaceView = 'dashboard' | 'cards' | 'agents' | 'files' | 'debug' | null;
 
-export interface WorkspaceContext {
+interface WorkspaceContext {
   view: WorkspaceView;
   entityId: string | null;
   refinement: Record<string, string> | null;

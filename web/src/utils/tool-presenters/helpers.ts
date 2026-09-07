@@ -13,7 +13,7 @@ export function str(value: unknown): string {
   return typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value);
 }
 
-export function truncate(text: string, max: number): string {
+function truncate(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(0, Math.max(0, max - 1)) + '…';
 }
@@ -30,7 +30,7 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export function shortPath(path: string): string { return path ? truncate(path, 64) : ''; }
+function shortPath(path: string): string { return path ? truncate(path, 64) : ''; }
 
 export function argKeys(args: unknown): string {
   const record = asRecord(args);
@@ -47,7 +47,7 @@ export function cardPart(idValue: unknown, fallbackLabel?: string): InlinePart[]
   return id ? [{ kind: 'card', id, fallbackLabel: fallbackLabel ?? `card ${id}` }] : [];
 }
 
-export function filePart(pathValue: unknown, label?: string): InlinePart | null {
+function filePart(pathValue: unknown, label?: string): InlinePart | null {
   const path = str(pathValue);
   if (path.startsWith('.saivage/work/')) return { kind: 'file', root: 'output', path, label: label ?? shortPath(path) };
   if (path.startsWith('.saivage/')) return { kind: 'file', root: 'meta', path, label: label ?? shortPath(path) };

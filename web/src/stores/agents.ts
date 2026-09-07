@@ -19,8 +19,8 @@ import { createConversationFetch } from './conversation-fetch';
 const abortError = (error: unknown) => error instanceof DOMException && error.name === 'AbortError';
 declare const conversationBrand: unique symbol;
 declare const exchangeBrand: unique symbol;
-export type ConversationSelectionToken = object & { readonly [conversationBrand]: true };
-export type LlmExchangeSelectionToken = object & { readonly [exchangeBrand]: true };
+type ConversationSelectionToken = object & { readonly [conversationBrand]: true };
+type LlmExchangeSelectionToken = object & { readonly [exchangeBrand]: true };
 
 export const useAgentStore = defineStore('agents', () => {
   const sessions = ref<AgentSession[]>([]);

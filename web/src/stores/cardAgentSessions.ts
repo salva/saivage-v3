@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { markRaw, reactive } from 'vue';
 import { OperatorApiError, getCardAgentSessions } from '../api/client';
 import type { AgentSession } from '../api/types';
-export interface CardAgentSessionsState {
+interface CardAgentSessionsState {
   sessions: AgentSession[];
   loading: boolean;
   refreshing: boolean;

@@ -84,7 +84,7 @@ export const TOOL_PRESENTERS = {
   write: { action: 'Write', call: (a) => ({ icon: '✏️', headline: pathParts(a.path), detail: textPart(`${str(a.content).length} chars`) }), result: (ctx) => ({ headline: textPart(typeof ctx.dataRecord?.bytes === 'number' ? `wrote ${formatBytes(ctx.dataRecord.bytes)}` : 'wrote file') }) },
 } as const satisfies Readonly<Record<string, ToolPresenter>>;
 
-export type BuiltInToolName = keyof typeof TOOL_PRESENTERS;
+type BuiltInToolName = keyof typeof TOOL_PRESENTERS;
 
 export function getToolPresenter(name: string): ToolPresenter | undefined {
   return Object.hasOwn(TOOL_PRESENTERS, name) ? TOOL_PRESENTERS[name as BuiltInToolName] : undefined;

@@ -1,6 +1,6 @@
 import { parseConversationSessionId, type ConversationSessionId } from '../api/contracts';
 
-export type AgentSessionRouteResult =
+type AgentSessionRouteResult =
   | { kind: 'none' }
   | { kind: 'valid'; sessionId: ConversationSessionId }
   | { kind: 'invalid' };

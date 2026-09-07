@@ -47,5 +47,3 @@ export function highlight(code: string, language?: string): string {
   }
   return escapeHtml(code);
 }
-
-export { hljs };

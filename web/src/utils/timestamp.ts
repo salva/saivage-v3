@@ -1,6 +1,6 @@
-export type TimestampMode = 'absolute' | 'relative' | 'timeOnly';
+type TimestampMode = 'absolute' | 'relative' | 'timeOnly';
 
-export interface TimestampFormatOptions {
+interface TimestampFormatOptions {
   now?: Date | number | string;
 }
 

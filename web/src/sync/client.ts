@@ -15,8 +15,8 @@ import {
 import { useAnalystChat } from '../stores/analystChat';
 import { createLogger } from '../utils/logger';
 
-export type ReconnectResourceKey = LiveSyncUnscopedResource | 'files';
-export type SyncResourceKey = ReconnectResourceKey | 'cards';
+type ReconnectResourceKey = LiveSyncUnscopedResource | 'files';
+type SyncResourceKey = ReconnectResourceKey | 'cards';
 type LeaseResource = 'agents' | 'card-agent-sessions' | 'conversation' | 'llm-exchange';
 export type LeaseInvalidation = Extract<
   LiveSyncInvalidateFrame,

@@ -30,12 +30,9 @@ export type {
   RestartChatAcknowledgement,
   ChatWorkspaceContext,
   McpToolsResponse,
-  ProcessView,
-  ContentPolicyRuntimeResponse,
 } from '@saivage/contracts/operator-api';
 
 export {
-  LiveSyncClientFrameSchema,
   LiveSyncInvalidateFrameSchema,
   LiveSyncSubscribedFrameSchema,
   buildConnectedEnvelope,
@@ -46,12 +43,10 @@ export {
 
 export type {
   ServerEgressWsEnvelope,
-  LiveSyncClientFrame,
   LiveSyncCardInvalidateTarget,
   LiveSyncCardRecordName,
   LiveSyncInvalidateFrame,
   LiveSyncSubscribedFrame,
-  LiveSyncInvalidateTarget,
   LiveSyncUnscopedResource,
 } from '@saivage/contracts/operator-events';
 
@@ -66,12 +61,8 @@ export type {
 } from '@saivage/contracts/workspace-navigation';
 
 export type {
-  CardHistoryHeader,
-  CardHistoryEntry,
-  CardRecord,
   CardStatus,
   RuntimeState,
   RuntimeStatus,
-  Urgency,
 } from '@saivage/schemas';
 export type { CardTypeName as CardType } from '@saivage/schemas';

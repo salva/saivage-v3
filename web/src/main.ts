@@ -21,7 +21,7 @@ async function initializeRouterFromBrowserLocation(router: Router): Promise<void
   await router.isReady();
 }
 
-export async function startOperatorApp(): Promise<void> {
+async function startOperatorApp(): Promise<void> {
   const router = createOperatorRouter();
 
   // Expose router for keyboard shortcut navigation in AppShell and browser smoke inspection.

@@ -39,14 +39,14 @@ import {
 } from './keyed-containers';
 import { cardIdSchema, cardIdSegments } from '@saivage/schemas';
 
-export type ChildrenLoadStatus =
+type ChildrenLoadStatus =
   | 'undiscovered'
   | 'loading'
   | 'error'
   | 'loaded-nonempty'
   | 'confirmed-leaf';
-export type StaleReason = 'invalidated' | 'reconnect' | 'refresh-failed';
-export interface FreshnessState {
+type StaleReason = 'invalidated' | 'reconnect' | 'refresh-failed';
+interface FreshnessState {
   refreshing: boolean;
   stale: boolean;
   staleReason: StaleReason | null;
@@ -56,19 +56,19 @@ export interface ChildrenLoadState extends FreshnessState {
   status: ChildrenLoadStatus;
   error: string | null;
 }
-export interface HierarchySlice {
+interface HierarchySlice {
   readonly parent: CardHierarchyRecord;
   readonly children: readonly CardHierarchyRecord[];
 }
-export interface RequestOwner {
+interface RequestOwner {
   readonly controller: AbortController;
   promise: Promise<void>;
 }
-export interface SelectedCardDetail {
+interface SelectedCardDetail {
   readonly cardId: string;
   readonly card: CardDetail;
 }
-export type RecordAccepted =
+type RecordAccepted =
   | { kind: 'content'; version: number; committedAt: string; content: string }
   | { kind: 'empty' };
 export interface RecordSlotState extends FreshnessState {
@@ -141,7 +141,7 @@ function sameDescriptor(left: CardRecordDescriptor, right: CardRecordDescriptor)
   );
 }
 
-export function buildDetailError(err: unknown, fallback: string): DetailErrorState {
+function buildDetailError(err: unknown, fallback: string): DetailErrorState {
   if (err instanceof OperatorApiError) {
     if (err.isUnauthorized)
       return { kind: 'unauthorized', status: err.status, message: err.message || 'Unauthorized.' };

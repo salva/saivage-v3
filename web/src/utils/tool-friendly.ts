@@ -83,7 +83,7 @@ export function buildToolDisplay(pair: ToolPair): ToolDisplayModel {
   return { action, toolName: callPres.name, target, links, status: statusParts, statusTone, known };
 }
 
-export function isGroupable(pair: ToolPair): boolean {
+function isGroupable(pair: ToolPair): boolean {
   if (presentPairResult(pair)?.status !== 'ok') return false;
   const name = pair.call.tool ?? '';
   return getToolPresenter(name)?.group !== undefined;

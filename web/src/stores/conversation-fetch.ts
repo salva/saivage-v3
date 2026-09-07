@@ -2,13 +2,13 @@ import { ref, shallowRef, type Ref, type ShallowRef } from 'vue';
 import type { AgentConversationEntry, AgentConversationResponse } from '../api/types';
 import { isOperatorApiError } from '../api/client';
 
-export type ConversationCursor = AgentConversationResponse['cursor'];
+type ConversationCursor = AgentConversationResponse['cursor'];
 export type ConversationFrame = {
   segment_version: number;
   visible_message_id: string | null;
 };
 
-export interface ConversationAcceptance<Metadata> {
+interface ConversationAcceptance<Metadata> {
   responseEntries: AgentConversationEntry[];
   acceptedEntries: AgentConversationEntry[];
   response: AgentConversationResponse;
@@ -26,7 +26,7 @@ interface ConversationFetchOptions<Metadata, ErrorState> {
   onAccepted(acceptance: ConversationAcceptance<Metadata>): void;
 }
 
-export interface ConversationFetch<ErrorState> {
+interface ConversationFetch<ErrorState> {
   entries: Ref<AgentConversationEntry[]>;
   baselineAccepted: Ref<boolean>;
   cursor: Ref<ConversationCursor | null>;

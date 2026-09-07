@@ -12,13 +12,8 @@
 
 import type { WsConnectionState } from './types';
 import { issueWebSocketTicket } from './client';
-import { getAuthToken } from './auth';
 import { LiveSyncInvalidateFrameSchema, LiveSyncSubscribedFrameSchema, parseServerEgressWsEnvelope, type ServerEgressWsEnvelope, type LiveSyncInvalidateFrame, type LiveSyncSubscribedFrame } from './contracts';
 import { createLogger } from '../utils/logger';
-
-// ── Re-export auth helper ────────────────────────────────────
-
-export { getAuthToken };
 
 // ── Types ─────────────────────────────────────────────────────
 

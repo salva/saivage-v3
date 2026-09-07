@@ -1,4 +1,4 @@
-export interface AbortableRequestOwner {
+interface AbortableRequestOwner {
   readonly controller: AbortController;
 }
 

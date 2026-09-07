@@ -1,7 +1,7 @@
 export const API_AUTH_REQUIRED_EVENT = 'saivage:api-auth-required';
 export const API_AUTH_DISMISSED_SESSION_KEY = 'saivage:api-auth-banner-dismissed';
 
-export interface ApiAuthRequiredDetail {
+interface ApiAuthRequiredDetail {
   status: number;
   path?: string;
 }

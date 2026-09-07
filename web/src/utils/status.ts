@@ -29,7 +29,7 @@ export const cardStatusTone: Record<CardStatus, Tone> = {
   cancelled: 'neutral',
 };
 
-export const cardTypeLabel: Partial<Record<CardType, string>> = {
+const cardTypeLabel: Partial<Record<CardType, string>> = {
   project: 'Project',
   goal: 'Goal',
   architecture: 'Architecture',
@@ -41,7 +41,7 @@ export const cardTypeLabel: Partial<Record<CardType, string>> = {
   ops: 'Ops',
 };
 
-export function toneForCardStatus(status: CardStatus): Tone {
+function toneForCardStatus(status: CardStatus): Tone {
   return cardStatusTone[status] ?? 'neutral';
 }
 
@@ -58,7 +58,7 @@ export function labelForCardType(type: CardType): string {
   return cardTypeLabel[type] ?? type;
 }
 
-export const runtimeStatusTone: Record<string, Tone> = {
+const runtimeStatusTone: Record<string, Tone> = {
   running: 'success',
   stopped: 'offline',
   paused: 'warning',

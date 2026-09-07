@@ -1,7 +1,7 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
 
-export type FeedbackTone = 'neutral' | 'success' | 'warning' | 'danger';
+type FeedbackTone = 'neutral' | 'success' | 'warning' | 'danger';
 
 export interface FeedbackToast {
   id: string;

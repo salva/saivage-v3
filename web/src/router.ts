@@ -7,7 +7,7 @@ const Files = () => import('./views/FilesView.vue').then((module) => module.defa
 const Debug = () => import('./views/DebugView.vue').then((module) => module.default);
 const NotFound = () => import('./views/NotFound.vue').then((module) => module.default);
 
-export const operatorRoutes: RouteRecordRaw[] = [
+const operatorRoutes: RouteRecordRaw[] = [
   { path: '/', redirect: '/dashboard' },
   { path: '/dashboard', name: 'dashboard', component: Dashboard },
   { path: '/cards', name: 'cards', component: Cards },

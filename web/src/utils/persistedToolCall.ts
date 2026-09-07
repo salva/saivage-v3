@@ -1,6 +1,6 @@
 // Web-owned read-only parser; malformed input raises a plain Error.
 
-export interface PersistedToolCall {
+interface PersistedToolCall {
   id: string;
   name: string;
   args: Record<string, unknown>;
