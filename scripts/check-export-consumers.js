@@ -8,7 +8,6 @@ import { compileScript, parse as parseSfc } from '@vue/compiler-sfc';
 import { SourceMapConsumer } from 'source-map-js';
 import ts from 'typescript';
 
-const GOVERNED_ROOTS = Object.freeze(['src/contracts', 'src/schemas']);
 const TS_EXTENSIONS = /\.(?:ts|tsx|mts|cts)$/;
 const DECLARATION_SUFFIX = /\.d\.(?:ts|mts|cts)$/;
 const JS_EXTENSIONS = /\.(?:js|mjs|cjs)$/;
@@ -31,7 +30,7 @@ function splitSurfaceKey(key) {
 }
 
 function isGovernedModule(file, candidates) {
-  return candidates ? candidates.has(file) : GOVERNED_ROOTS.some((root) => file.startsWith(`${root}/`)) && file.endsWith('.ts');
+  return candidates.has(file);
 }
 
 function isTestModule(file) {
@@ -195,7 +194,7 @@ function createProgramContext(root, rootFiles, options, tracked, candidates, vir
   return { checker: program.getTypeChecker(), host, kind, options, program, roots: rootFiles, virtualData };
 }
 
-function createCompletePrograms(root, tracked, candidates, failures) {
+function createPrograms(root, tracked, candidates, failures) {
   const tsFiles = [...tracked].filter((file) => TS_EXTENSIONS.test(file)).sort();
   const sfcFiles = [...tracked].filter((file) => SFC_EXTENSION.test(file) && file.startsWith('web/src/')).sort();
   const jsFiles = [...tracked].filter((file) => JS_EXTENSIONS.test(file)).sort();
@@ -213,14 +212,6 @@ function createCompletePrograms(root, tracked, candidates, failures) {
   const jsOptions = { ...rootOptions, allowJs: true, checkJs: false, noEmit: true, declaration: false, outDir: undefined };
   const jsContext = createProgramContext(root, jsFiles, jsOptions, tracked, candidates, virtualData, 'javascript');
   return { contexts: [rootContext, webContext, docsContext, jsContext], declarationFiles: tsFiles.filter((file) => DECLARATION_SUFFIX.test(file)), jsFiles, sfcFiles, tsFiles, virtualData };
-}
-
-function createPhaseOnePrograms(root) {
-  return ['tsconfig.json', 'web/tsconfig.json'].map((config) => {
-    const parsed = readConfig(root, config);
-    const program = ts.createProgram({ rootNames: parsed.fileNames, options: parsed.options });
-    return { checker: program.getTypeChecker(), kind: 'phase-one', options: parsed.options, program, roots: parsed.fileNames.map((file) => canonical(root, file)), virtualData: { virtualToCanonical: new Map(), sourceMaps: new Map(), syntheticLocations: new Map() } };
-  });
 }
 
 function modulePath(root, checker, specifier, virtualData) {
@@ -945,14 +936,7 @@ function createDeclarationClosure(root, tracked, candidates, ownership, surfaces
   return { declarationPaths, declarationUnitFiles: ordinaryCandidates, outgoing };
 }
 
-function discoverGovernedFiles(trackedFiles) {
-  const normalized = [...new Set(trackedFiles.map((file) => file.replaceAll('\\', '/')))];
-  const byRoot = Object.fromEntries(GOVERNED_ROOTS.map((root) => [root, normalized.filter((file) => file.startsWith(`${root}/`) && file.endsWith('.ts')).sort()]));
-  for (const root of GOVERNED_ROOTS) if (byRoot[root].length === 0) throw new Error(`governed root ${root} must contain at least one tracked .ts module`);
-  return { byRoot, files: GOVERNED_ROOTS.flatMap((root) => byRoot[root]).sort() };
-}
-
-function discoverCompleteOwnership(trackedFiles) {
+function discoverOwnership(trackedFiles) {
   const tracked = [...new Set(trackedFiles.map((file) => file.replaceAll('\\', '/')))];
   const typescriptCandidates = tracked.filter((file) =>
     TS_EXTENSIONS.test(file) &&
@@ -969,18 +953,16 @@ function discoverCompleteOwnership(trackedFiles) {
   };
 }
 
-function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistPath = 'scripts/export-consumer-allowlist.json', complete = false } = {}) {
+export function checkExportConsumers({ root = process.cwd(), trackedFiles, allowlistPath = 'scripts/export-consumer-allowlist.json' } = {}) {
   const repositoryRoot = path.resolve(root);
   const tracked = new Set(trackedFiles ?? execFileSync('git', ['ls-files', '-z'], { cwd: repositoryRoot }).toString().split('\0').filter(Boolean));
-  const phaseDiscovery = discoverGovernedFiles([...tracked]);
-  const completeDiscovery = complete ? discoverCompleteOwnership([...tracked]) : null;
-  const discovery = completeDiscovery ?? phaseDiscovery;
+  const discovery = discoverOwnership([...tracked]);
   const candidates = new Set(discovery.files);
   const surfaces = new Map();
   const local = new Map();
   const failures = [];
-  const ownership = complete ? createCompletePrograms(repositoryRoot, tracked, candidates, failures) : null;
-  const programs = ownership?.contexts ?? createPhaseOnePrograms(repositoryRoot);
+  const ownership = createPrograms(repositoryRoot, tracked, candidates, failures);
+  const programs = ownership.contexts;
   for (const module of discovery.files) {
     const lookup = module.endsWith('.vue') ? `${module}${SFC_VIRTUAL_SUFFIX}` : module;
     const context = programs.find(({ program }) => program.getSourceFile(path.join(repositoryRoot, lookup)));
@@ -1004,13 +986,11 @@ function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistP
       local.set(key, nodes.map((node) => location(repositoryRoot, sourceFile, node, context.virtualData)));
     }
   }
-  if (complete) {
-    for (const context of programs.filter((item) => item.kind !== 'javascript')) {
-      for (const file of context.roots.filter((item) => TS_EXTENSIONS.test(item) && !item.endsWith(SFC_VIRTUAL_SUFFIX))) {
-        const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, file));
-        if (!sourceFile) throw new Error(`tracked TypeScript-family root is absent from assigned host: ${file}`);
-        if (sourceFile.isDeclarationFile !== DECLARATION_SUFFIX.test(file)) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'compiler declaration status disagrees with exact declaration suffix partition' });
-      }
+  for (const context of programs.filter((item) => item.kind !== 'javascript')) {
+    for (const file of context.roots.filter((item) => TS_EXTENSIONS.test(item) && !item.endsWith(SFC_VIRTUAL_SUFFIX))) {
+      const sourceFile = context.program.getSourceFile(path.join(repositoryRoot, file));
+      if (!sourceFile) throw new Error(`tracked TypeScript-family root is absent from assigned host: ${file}`);
+      if (sourceFile.isDeclarationFile !== DECLARATION_SUFFIX.test(file)) failures.push({ category: 'unsupported', module: file, export: '*', consumer: file, message: 'compiler declaration status disagrees with exact declaration suffix partition' });
     }
   }
   const governedKeys = new Set(surfaces.keys());
@@ -1028,12 +1008,12 @@ function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistP
     const classification = use.production.size > 0 ? 'production-consumed' : use.test.size > 0 ? 'test-only' : localLocations.length > 0 ? 'local-only' : 'zero-use';
     directClassifications.set(key, classification);
   }
-  const closure = complete ? createDeclarationClosure(repositoryRoot, tracked, candidates, ownership, surfaces, directClassifications, failures) : null;
+  const closure = createDeclarationClosure(repositoryRoot, tracked, candidates, ownership, surfaces, directClassifications, failures);
   const classifications = new Map();
   const records = [...surfaces.entries()].map(([key, surface]) => {
     const use = uses.get(key) ?? { production: new Set(), test: new Set() };
     const localLocations = local.get(key) ?? [];
-    const declarationPaths = closure?.declarationPaths.get(key) ?? [];
+    const declarationPaths = closure.declarationPaths.get(key) ?? [];
     const declarationProduction = declarationPaths.some((item) => item.seed.classification === 'production-consumed');
     const declarationTest = declarationPaths.some((item) => item.seed.classification === 'test-only');
     const directClassification = directClassifications.get(key);
@@ -1063,18 +1043,13 @@ function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistP
   const totals = Object.fromEntries(['production-consumed', 'test-only', 'local-only', 'zero-use'].map((name) => [name, records.filter((record) => record.classification === name).length]));
   return {
     ok: sortedFailures.length === 0,
-    governedFiles: discovery.files,
-    governedByRoot: discovery.byRoot ?? {
-      src: discovery.typescriptCandidates.filter((file) => file.startsWith('src/')),
-      'web/src': discovery.files.filter((file) => file.startsWith('web/src/')),
-    },
     records,
     failures: sortedFailures,
     totals,
     staleImports: sortedFailures.filter((failure) => failure.category === 'stale-import').length,
     unsupported: sortedFailures.filter((failure) => failure.category === 'unsupported').length,
     allowlistEntries: allowlist.entries.length,
-    ownership: complete ? {
+    ownership: {
       candidateFiles: discovery.files,
       declarationFiles: ownership.declarationFiles,
       jsConsumerFiles: ownership.jsFiles,
@@ -1084,16 +1059,8 @@ function analyzeExportConsumers({ root = process.cwd(), trackedFiles, allowlistP
       typescriptOrdinaryFiles: ownership.tsFiles.filter((file) => !DECLARATION_SUFFIX.test(file)),
       declarationUnitFiles: closure.declarationUnitFiles,
       hostAssignments: Object.fromEntries(programs.map((context) => [context.kind, context.roots])),
-    } : null,
+    },
   };
-}
-
-export function checkExportConsumers(options = {}) {
-  return analyzeExportConsumers({ ...options, complete: false });
-}
-
-function analyzeCompleteExportConsumers(options = {}) {
-  return analyzeExportConsumers({ ...options, complete: true });
 }
 
 function parseArgs(argv) {
@@ -1104,6 +1071,8 @@ function parseArgs(argv) {
     else if (argument === '--report-test-only') reportTestOnly = true;
     else if (argument === '--help' || argument === '-h') {
       console.log('Usage: node scripts/check-export-consumers.js [--self-test | --report-test-only]');
+      console.log('Checks the fixed complete repository export boundary; no scope option is supported.');
+      console.log('--report-test-only prints sorted direct and declaration-path evidence for test-only surfaces.');
       process.exit(0);
     } else throw new Error(`Unknown argument: ${argument}`);
   }
@@ -1112,25 +1081,30 @@ function parseArgs(argv) {
 }
 
 function runSelfTest() {
-  if (GOVERNED_ROOTS.length !== 2 || GOVERNED_ROOTS[0] !== 'src/contracts' || GOVERNED_ROOTS[1] !== 'src/schemas') throw new Error('fixed governed roots changed');
-  const discovery = discoverGovernedFiles(['src/contracts/a.ts', 'src/schemas/b.ts', 'src/other/c.ts']);
-  if (discovery.files.join(',') !== 'src/contracts/a.ts,src/schemas/b.ts') throw new Error('fixed-root discovery failed');
-  try {
-    parseArgs(['--root', 'elsewhere']);
-    throw new Error('scope-changing argument was accepted');
-  } catch (error) {
-    if (!error.message.includes('Unknown argument')) throw error;
+  const discovery = discoverOwnership(['src/a.ts', 'src/a.test.ts', 'src/a.d.ts', 'web/src/b.ts', 'web/src/C.vue', 'web/src/C.test.vue']);
+  if (discovery.files.join(',') !== 'src/a.ts,web/src/C.vue,web/src/b.ts') throw new Error('fixed complete candidate discovery failed');
+  for (const argument of ['--scope=phase-one', '--phase-one', '--complete', '--root']) {
+    try {
+      parseArgs([argument]);
+      throw new Error(`scope-changing argument was accepted: ${argument}`);
+    } catch (error) {
+      if (!error.message.includes('Unknown argument')) throw error;
+    }
   }
-  console.log('✓ export-consumer checker self-test passed');
+  console.log('✓ complete repository export-consumer checker self-test passed');
 }
 
 function printResult(result, reportTestOnly) {
   console.log(`Export classifications: production-consumed=${result.totals['production-consumed']} test-only=${result.totals['test-only']} local-only=${result.totals['local-only']} zero-use=${result.totals['zero-use']}`);
-  console.log(`Governed modules: src/contracts=${result.governedByRoot['src/contracts'].length} src/schemas=${result.governedByRoot['src/schemas'].length} total=${result.governedFiles.length}`);
+  console.log(`Complete export boundary: candidates=${result.ownership.candidateFiles.length} TypeScript-family consumers=${result.ownership.typescriptConsumerFiles.length} SFC consumers=${result.ownership.sfcConsumerFiles.length} JavaScript-family consumers=${result.ownership.jsConsumerFiles.length}`);
   if (reportTestOnly) {
     for (const record of result.records.filter((item) => item.classification === 'test-only')) {
       console.log(`TEST-ONLY ${record.module} :: ${record.export}`);
       for (const consumer of record.testLocations) console.log(`  ${consumer}`);
+      for (const declarationPath of record.declarationPaths.filter((item) => item.seed.classification === 'test-only')) {
+        const edges = declarationPath.edges.map((edge) => `${edge.sourceSurface.module}::${edge.sourceSurface.export}.${edge.memberPath} -> ${edge.targetSurface.module}::${edge.targetSurface.export}`).join(' -> ');
+        console.log(`  DECLARATION ${declarationPath.seed.module} :: ${declarationPath.seed.export} [test-only] ${edges}`);
+      }
     }
   } else if (result.totals['test-only'] > 0) console.log('Run with --report-test-only for exact test-only consumers.');
   if (!result.ok) {

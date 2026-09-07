@@ -74,6 +74,8 @@ const WEB_PACKAGE_JSON = JSON.stringify({
 
 const VALID_PROFILE_DOCS = '```bash\nnpm run check:export-consumers\nnpm run validate:docs\nnpm run validate:routine\nnpm run validate:ui-smoke\nnpm run validate:ui\nnpm run validate:release\nnpm run audit:security\nnpm run deps:review\n```\n`npm run validate:docs` intentionally runs docs verification only and does not run `npm test` or the Vitest smoke guard.\n';
 
+const VALID_EXPORT_CONSUMER_DOCS = '`npm run check:export-consumers` is the singular complete semantic external-consumer guard; its function and CLI expose no scope selector or alternate phase. The candidate boundary is every tracked, non-test, non-declaration TypeScript-family module under `src/**` and `web/src/**` plus Vue SFCs. The consumer boundary is all tracked TypeScript-family files, all tracked Vue SFCs, and all tracked JavaScript-family files. Every explicit compiler-semantic cross-module source reference is immutable direct evidence, and each actual governed barrel or re-export route remains a distinct surface. For ordinary TypeScript-family candidate owners, the checker adds a strictly additive, seeded emitter-only declaration closure. Every genuinely production- or test-consumed exported surface seeds traversal of its complete compiler-emitted public/protected declaration contract. Declaration emit and checking are candidate-owner-scoped and in memory only; they create no artifact. Production reachability outranks test reachability. The dead-outer non-rescue rule means an unconsumed outer export never seeds emitter-only dependencies. SFCs do not originate declaration units or emitter-only edges; `npm run web:typecheck` remains the authoritative Vue type gate. The classes are production-consumed, test-only, local-only, and zero-use. `scripts/export-consumer-allowlist.json` remains an empty array.\n';
+
 const VALID_TERMINAL_CHILD_DOCS = 'Root `npm test` is the complete non-E2E backend authority: ordinary parallel Jest is followed by the exact serial real-terminal-child suite. Use `npm run test:terminal-child` for that suite. The `test:direct` helper covers ordinary Jest and excludes the terminal-child suite.\n';
 
 const VALID_PLAYWRIGHT_DOCS = `
@@ -129,7 +131,7 @@ function expectWorkflowFailure(workflow, expected) {
 function validFiles(overrides = {}) {
   return {
     'package.json': PACKAGE_JSON,
-    'README.md': 'Use Node.js 24 with `node >=24 <25` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_TERMINAL_CHILD_DOCS + VALID_PLAYWRIGHT_DOCS,
+    'README.md': 'Use Node.js 24 with `node >=24 <25` and `npm >=10 <12`, matching package.json engines and GitHub Actions CI.\n```bash\nnpm run docs:verify\nnpm run typecheck\nnpm run build\nnpm test\nnpm run web:test:operator-smoke\n```\n' + VALID_PROFILE_DOCS + VALID_EXPORT_CONSUMER_DOCS + VALID_TERMINAL_CHILD_DOCS + VALID_PLAYWRIGHT_DOCS,
     'web/package.json': WEB_PACKAGE_JSON,
     'docs/architecture/system-architecture.md': 'Run Saivage with Node.js 24; package.json engines require `node >=24 <25` and `npm >=10 <12`, matching CI.\nCanonical commands include `npm run web:test:analyst-ui` and `npm run web:test:operator-smoke`.\n```bash\nnpm run docs:build\nnpm run web:test:sweep\n```\n' + VALID_PROFILE_DOCS,
     '.github/workflows/validation.yml': VALID_WORKFLOW,
@@ -165,6 +167,7 @@ describe('validation cadence guard', () => {
       expect(result.validationProfilesChecked).toContain('package.json profile validate:release');
       expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json validate:routine export-consumer order');
       expect(result.exportConsumerCadenceEntriesChecked).toContain('package.json lint export-consumer order');
+      expect(result.exportConsumerCadenceEntriesChecked).toContain('README.md singular complete export-consumer contract');
       expect(result.canonicalWebTestNamespaceEntriesChecked).toContain('package.json singular canonical web-test namespace');
       expect(result.runtimeEngineEntriesChecked).toContain('package.json engines');
       expect(result.runtimeEngineEntriesChecked).toContain('web/package.json engines');
@@ -193,6 +196,27 @@ describe('validation cadence guard', () => {
 
     it('rejects a drifted checker script edge', () => {
       expectPackageFailure(packageJson({ scripts: { ...PACKAGE_SCRIPTS, 'check:export-consumers': 'node scripts/other.js' } }), 'check:export-consumers" must be exactly');
+    });
+
+    it('rejects stale phase-limited README semantics', () => {
+      const readme = validFiles()['README.md'].replace('singular complete semantic external-consumer guard', 'phase-1 contracts-only semantic external-consumer guard');
+      withFixture(validFiles({ 'README.md': readme }), (root) => {
+        const result = verifyValidationCadence({ root });
+        expect(result.failures).toContain('README.md must document the export-consumer singular complete export-consumer contract');
+      });
+    });
+
+    it.each([
+      ['immutable direct evidence and distinct route surfaces', 'immutable direct evidence', 'ordinary source evidence'],
+      ['seeded complete in-memory declaration closure', 'strictly additive, seeded emitter-only declaration closure', 'declaration inspection'],
+      ['production precedence and dead-outer non-rescue', 'dead-outer non-rescue rule means an unconsumed outer export never seeds emitter-only dependencies', 'unconsumed exports are considered separately'],
+    ])('rejects README text missing %s', (label, claim, replacement) => {
+      const readme = validFiles()['README.md'].replace(claim, replacement);
+      expect(readme).not.toBe(validFiles()['README.md']);
+      withFixture(validFiles({ 'README.md': readme }), (root) => {
+        const result = verifyValidationCadence({ root });
+        expect(result.failures).toContain(`README.md must document the export-consumer ${label}`);
+      });
     });
   });
 

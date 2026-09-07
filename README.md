@@ -63,15 +63,36 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/pro
 
 ## Verification
 
-`npm run check:export-consumers` is the phase-1 semantic external-consumer guard
-for tracked TypeScript modules under `src/contracts/**` and `src/schemas/**`, not
-whole-repository dead-export coverage. A production or test external consumer is
-a supported TypeScript module outside the declaration module that semantically
-references the exact export. Local-only and zero-use exports fail, as do stale or
-unresolved edges and unsupported reflective uses. Run
+`npm run check:export-consumers` is the singular complete semantic
+external-consumer guard. Its candidate boundary is every tracked, non-test,
+non-declaration TypeScript-family module under `src/**` and `web/src/**`, plus
+every tracked, non-test Vue SFC under `web/src/**`. Its consumer boundary is all
+tracked TypeScript-family files, including declarations and out-of-config
+tooling, all tracked Vue SFCs under `web/src/**`, and all tracked
+JavaScript-family files. Effective SFC defaults and explicit ordinary-script
+exports are governed surfaces. Exact `dist/src/**/*.js` JavaScript mappings and
+canonical browser `/src/<path>.ts` mappings participate in the same fixed
+analysis; the function and CLI expose no scope selector or alternate phase.
+
+Every explicit compiler-semantic cross-module source reference is immutable
+direct evidence, including references in type and declaration contexts. Each
+actual governed barrel or re-export route remains a distinct surface. For
+ordinary TypeScript-family candidate owners, the checker adds a strictly
+additive, seeded emitter-only declaration closure. Every genuinely production-
+or test-consumed exported surface seeds traversal of its complete
+compiler-emitted public/protected declaration contract. Declaration emit and
+checking are candidate-owner-scoped and in memory only: they create no artifact.
+Production reachability outranks test reachability. The dead-outer non-rescue
+rule means an unconsumed outer export never seeds emitter-only dependencies.
+SFCs remain complete
+surface and semantic-consumer owners but do not originate declaration units or
+emitter-only edges; `npm run web:typecheck` remains the authoritative Vue type
+gate. The four reported classes are `production-consumed`, `test-only`,
+`local-only`, and `zero-use`; the latter two fail, as do stale or unresolved
+edges and unsupported consumer forms. Run
 `node scripts/check-export-consumers.js --report-test-only` for the sorted
 test-only report. `scripts/export-consumer-allowlist.json` is the strict
-exceptional allowlist; its expected value is an empty array.
+exceptional allowlist and remains an empty array.
 
 `npm run lint` runs the export-consumer guard before stamp-producer, ESLint,
 backend import-boundary, and web-component boundary checks. Backend

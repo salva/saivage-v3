@@ -42,7 +42,7 @@ const REQUIRED_VALIDATION_SCRIPTS = [
   {
     name: 'check:export-consumers',
     mustInclude: [EXPORT_CONSUMER_SCRIPT],
-    description: 'phase-1 contracts/schemas semantic external-consumer guard',
+    description: 'complete repository semantic external-consumer guard',
   },
   {
     name: 'web:test:operator-smoke',
@@ -1175,7 +1175,7 @@ function validateValidationProfiles({ scripts, documentedCommands, markdownByFil
   return { checked, failures };
 }
 
-function validateExportConsumerCadence({ scripts }) {
+function validateExportConsumerCadence({ scripts, markdownByFile }) {
   const failures = [];
   const checked = [
     'package.json exact export-consumer script edge',
@@ -1206,6 +1206,45 @@ function validateExportConsumerCadence({ scripts }) {
     return index === -1 || exportConsumerIndexes[0] >= index;
   })) {
     failures.push(`package.json script "lint" must invoke ${EXPORT_CONSUMER_COMMAND} exactly once before ESLint and both boundary guards`);
+  }
+
+  const readme = (markdownByFile.get('README.md') ?? '').replace(/\s+/g, ' ');
+  const documentationRequirements = [
+    ['singular complete export-consumer contract', [
+      /check:export-consumers.*is the singular complete semantic external-consumer guard/i,
+      /function and CLI expose no scope selector or alternate phase/i,
+    ]],
+    ['complete candidate and consumer boundaries', [
+      /candidate boundary is every tracked, non-test, non-declaration TypeScript-family module/i,
+      /src\/\*\*.*web\/src\/\*\*/i,
+      /consumer boundary is all tracked TypeScript-family files/i,
+      /all tracked Vue SFCs.*all tracked JavaScript-family files/i,
+    ]],
+    ['immutable direct evidence and distinct route surfaces', [
+      /explicit compiler-semantic cross-module source reference is immutable direct evidence/i,
+      /actual governed barrel or re-export route remains a distinct surface/i,
+    ]],
+    ['seeded complete in-memory declaration closure', [
+      /ordinary TypeScript-family candidate owners.*strictly additive, seeded emitter-only declaration closure/i,
+      /genuinely production- or test-consumed exported surface seeds traversal of its complete compiler-emitted public\/protected declaration contract/i,
+      /Declaration emit and checking are candidate-owner-scoped and in memory only.*create no artifact/i,
+    ]],
+    ['production precedence and dead-outer non-rescue', [
+      /Production reachability outranks test reachability/i,
+      /dead-outer non-rescue rule means an unconsumed outer export never seeds emitter-only dependencies/i,
+    ]],
+    ['SFC declaration boundary and Vue authority', [
+      /SFCs.*do not originate declaration units or emitter-only edges/i,
+      /web:typecheck.*authoritative Vue type gate/i,
+    ]],
+    ['four classifications and empty allowlist', [
+      /production-consumed.*test-only.*local-only.*zero-use/i,
+      /export-consumer-allowlist\.json.*remains an empty array/i,
+    ]],
+  ];
+  for (const [label, patterns] of documentationRequirements) {
+    checked.push(`README.md ${label}`);
+    if (!patterns.every((pattern) => pattern.test(readme))) failures.push(`README.md must document the export-consumer ${label}`);
   }
 
   return { checked, failures };
@@ -1305,7 +1344,7 @@ export function verifyValidationCadence(options = {}) {
     documentedCommands: documented.checked,
     markdownByFile: documented.markdownByFile,
   });
-  const exportConsumerCadence = validateExportConsumerCadence({ scripts });
+  const exportConsumerCadence = validateExportConsumerCadence({ scripts, markdownByFile: documented.markdownByFile });
   const forbiddenDocumentedWebTestNamespace = validateForbiddenDocumentedWebTestNamespace({ root, files: options.documentedCommandFiles ?? DEFAULT_DOCUMENTED_COMMAND_FILES });
   const canonicalWebTestNamespace = validateCanonicalWebTestNamespace({ scripts });
   const runtimeEngines = validateRuntimeEngines({ root, workflowFiles: workflow.workflowFilesChecked, markdownByFile: documented.markdownByFile });

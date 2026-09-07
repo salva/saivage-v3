@@ -5,10 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as exportConsumerModule from '../../scripts/check-export-consumers.js';
-import { runCompleteExportConsumers } from './export-consumers-complete-runner.js';
 
 const { checkExportConsumers } = exportConsumerModule;
-const GOVERNED_ROOTS = ['src/contracts', 'src/schemas'];
 
 function write(root, relativePath, content) {
   const fullPath = path.join(root, relativePath);
@@ -44,39 +42,29 @@ function runFixture(files, allowlist) {
   }
 }
 
-async function runCompleteFixture(files, allowlist) {
-  const current = fixture(files, allowlist);
-  try {
-    return await runCompleteExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
-  } finally {
-    current.close();
-  }
-}
-
 function record(result, module, name) {
   return result.records.find((item) => item.module === module && item.export === name);
 }
 
 describe('export consumer checker', () => {
-  it('exports only the fixed phase-one checker and fails absent or empty roots', () => {
+  it('exports only the fixed complete checker and rejects every CLI scope selector', () => {
     expect(Object.keys(exportConsumerModule)).toEqual(['checkExportConsumers']);
-    const runnerPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 'export-consumers-complete-runner.js');
-    expect(() => execFileSync(process.execPath, [runnerPath, '--root'], { env: { ...process.env, NODE_OPTIONS: '--experimental-vm-modules' }, stdio: 'pipe' })).toThrow();
-    const runnerSource = readFileSync(runnerPath, 'utf8');
-    expect(runnerSource).not.toMatch(/(?:src|web\/src)\/[\w./-]+/);
-    expect(runnerSource).not.toContain('trackedFiles.filter');
-    expect(() => checkExportConsumers({ root: '/', trackedFiles: ['src/contracts/a.ts'] })).toThrow('src/schemas');
-    expect(() => checkExportConsumers({ root: '/', trackedFiles: ['src/contracts/a.ts', 'src/schemas/readme.md'] })).toThrow('src/schemas');
+    const checkerPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../scripts/check-export-consumers.js');
+    const checkerSource = readFileSync(checkerPath, 'utf8');
+    expect(checkerSource).not.toMatch(/node:vm|SourceTextModule/);
+    expect(checkerSource).not.toMatch(/\bcomplete\s*[=:]/);
+    const help = execFileSync(process.execPath, [checkerPath, '--help'], { encoding: 'utf8' });
+    expect(help).toContain('fixed complete repository export boundary');
+    for (const argument of ['--scope=phase-one', '--phase-one', '--complete', '--root']) {
+      expect(() => execFileSync(process.execPath, [checkerPath, argument], { stdio: 'pipe' })).toThrow();
+    }
     const current = fixture({
       'src/contracts/a.ts': 'export const contract = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'src/runtime/c.ts': 'export const runtime = 1;\n',
     });
     const result = checkExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
-    expect(result.governedFiles).toEqual([
-      'src/contracts/a.ts',
-      'src/schemas/b.ts',
-    ]);
+    expect(result.ownership.candidateFiles).toEqual(['src/contracts/a.ts', 'src/runtime/c.ts', 'src/schemas/b.ts', 'web/src/fixture.ts']);
     current.close();
   });
 
@@ -197,16 +185,16 @@ describe('export consumer checker', () => {
     const reflective = runFixture({
       'src/contracts/a.ts': 'export const entry = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
-      'src/reflection.ts': [
-        "import * as contracts from './contracts/a.js';",
+      'src/consumer.ts': "import { schema } from './schemas/b.js'; void schema;\n",
+      'tests/reflection.test.ts': [
+        "import * as contracts from '../src/contracts/a.js';",
         "// exact reflective evidence: src/contracts/a.ts entry",
         "void Object.keys(contracts).includes('entry');",
-        "import { schema } from './schemas/b.js'; void schema;",
       ].join('\n'),
     }, [{
-      module: 'src/contracts/a.ts', export: 'entry', kind: 'reflective-consumer', consumer: 'src/reflection.ts', reason: 'Exact external reflection intentionally observes this named export',
+      module: 'src/contracts/a.ts', export: 'entry', kind: 'reflective-consumer', consumer: 'tests/reflection.test.ts', reason: 'Exact external reflection intentionally observes this named export',
     }]);
-    expect(reflective.ok).toBe(true);
+    expect(reflective.failures).toEqual([]);
 
     const invalid = fixture(files);
     try {
@@ -228,9 +216,9 @@ describe('export consumer checker', () => {
   });
 });
 
-describe('complete export analysis behind phase-one enforcement', () => {
-  it('adds inferred ordinary declaration dependencies from whole live contracts but not dead outers', async () => {
-    const result = await runCompleteFixture({
+describe('complete export analysis', () => {
+  it('adds inferred ordinary declaration dependencies from whole live contracts but not dead outers', () => {
+    const result = runFixture({
       'src/contracts/phase.ts': 'export const phase = 1;\n',
       'src/schemas/schema.ts': 'export const schema = 1;\n',
       'src/hidden.ts': [
@@ -293,8 +281,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(multiMemberPaths.every((item) => item.edges[0].sourceSurface.export === 'MultiMember' && item.edges[0].targetSurface.export === 'Hidden')).toBe(true);
   });
 
-  it('keeps explicit source references direct in every declaration context', async () => {
-    const result = await runCompleteFixture({
+  it('keeps explicit source references direct in every declaration context', () => {
+    const result = runFixture({
       'src/contracts/phase.ts': 'export const phase = 1;\n',
       'src/schemas/schema.ts': 'export const schema = 1;\n',
       'src/target.ts': 'export interface Target { value: string } export interface SignatureOnly { dead: true } export class SignatureAndBody {}\n',
@@ -321,7 +309,7 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(record(result, 'src/target.ts', 'SignatureAndBody').productionLocations.length).toBeGreaterThanOrEqual(3);
   });
 
-  it('retains exact barrel routes, aliases, cycles, same-module support, and production precedence', async () => {
+  it('retains exact barrel routes, aliases, cycles, same-module support, and production precedence', () => {
     const files = {
       'src/contracts/phase.ts': 'export const phase = 1;\n',
       'src/schemas/schema.ts': 'export const schema = 1;\n',
@@ -337,8 +325,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
       'tests/target.test.ts': 'import type { Target } from "../src/target.js"; void (null as unknown as Target);\n',
       'tests/test-service.test.ts': 'import { TestService } from "../src/test-service.js"; void TestService;\n',
     };
-    const result = await runCompleteFixture(files);
-    const repeated = await runCompleteFixture(files);
+    const result = runFixture(files);
+    const repeated = runFixture(files);
     for (const module of ['src/target.ts', 'src/a.ts', 'src/b.ts']) expect(record(result, module, 'Target').classification).toBe('production-consumed');
     const target = record(result, 'src/target.ts', 'Target');
     expect(target.testLocations).toEqual([expect.stringMatching(/^tests\/target\.test\.ts:/)]);
@@ -355,8 +343,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(repeated.records.map((item) => item.declarationPaths)).toEqual(result.records.map((item) => item.declarationPaths));
   });
 
-  it('retains both distinct declaration paths when branches converge on one target', async () => {
-    const result = await runCompleteFixture({
+  it('retains both distinct declaration paths when branches converge on one target', () => {
+    const result = runFixture({
       'src/contracts/phase.ts': 'export const phase = 1;\n',
       'src/schemas/schema.ts': 'export const schema = 1;\n',
       'src/deep.ts': 'export interface Deep { value: string } export function makeDeep() { return { value: "deep" } as Deep; }\n',
@@ -379,8 +367,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(downstreamRootPaths).toHaveLength(1);
   });
 
-  it('attributes ordinary candidate TS4023, TS4053, and TS4058 declaration failures', async () => {
-    const result = await runCompleteFixture({
+  it('attributes ordinary candidate TS4023, TS4053, and TS4058 declaration failures', () => {
+    const result = runFixture({
       'src/contracts/phase.ts': 'export const phase = 1;\n',
       'src/schemas/schema.ts': 'export const schema = 1;\n',
       'src/private-factory.ts': 'const privateKey: unique symbol = Symbol("private"); export function makePrivate() { return { [privateKey]: true }; }\n',
@@ -398,7 +386,7 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(diagnostics.every((item) => !item.module.startsWith('tests/'))).toBe(true);
   });
 
-  it('reports fileless global errors under deterministic context keys and never writes declaration output', async () => {
+  it('reports fileless global errors under deterministic context keys and never writes declaration output', () => {
     const current = fixture({
       'src/contracts/phase.ts': 'export const phase = 1;\n',
       'src/schemas/schema.ts': 'export const schema = 1;\n',
@@ -410,8 +398,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
       config.compilerOptions.checkJs = true;
       write(current.root, 'tsconfig.json', JSON.stringify(config));
       const before = readdirSync(current.root, { recursive: true }).map(String).sort();
-      const first = await runCompleteExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
-      const second = await runCompleteExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
+      const first = checkExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
+      const second = checkExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
       const after = readdirSync(current.root, { recursive: true }).map(String).sort();
       const contextFailures = first.failures.filter((item) => item.category === 'declaration-diagnostic' && item.module === '@declaration-context/root');
       expect(contextFailures.length).toBeGreaterThan(0);
@@ -423,8 +411,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     }
   });
 
-  it('keeps SFCs semantic-only while ordinary web candidates resolve them as declaration targets', async () => {
-    const result = await runCompleteFixture({
+  it('keeps SFCs semantic-only while ordinary web candidates resolve them as declaration targets', () => {
+    const result = runFixture({
       'src/contracts/phase.ts': 'export const phase = 1;\n',
       'src/schemas/schema.ts': 'export interface Prop { value: string }\n',
       'web/src/Child.vue': '<script lang="ts">export type ChildKind = "child";</script><script setup lang="ts">import type { Prop } from "../../src/schemas/schema.js"; const props = defineProps<Prop>(); const maybe: { value: string } | null = null;</script><template><span>{{ props.value }} {{ maybe.value }}</span></template>\n',
@@ -441,7 +429,7 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(result.failures.filter((item) => item.category === 'declaration-diagnostic' && item.consumer.includes('.vue'))).toEqual([]);
   });
 
-  it('discovers every production TypeScript spelling, excludes only declarations and tests, and hosts all consumers', async () => {
+  it('discovers every production TypeScript spelling, excludes only declarations and tests, and hosts all consumers', () => {
     const current = fixture({
       'src/contracts/a.ts': 'export interface Governed { ok: true } export interface TestGoverned { test: true } export interface SfcTestOnly { sfc: true }\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
@@ -463,7 +451,7 @@ describe('complete export analysis behind phase-one enforcement', () => {
       'web/src/__tests__/Widget.vue': '<script setup lang="ts">import type { SfcTestOnly } from "../../../src/contracts/a.js"; const value = null as unknown as SfcTestOnly; void value;</script>\n',
     });
     try {
-      const result = await runCompleteExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
+      const result = checkExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
       expect(result.ownership.candidateFiles).toEqual(expect.arrayContaining([
         'src/owner.ts', 'src/owner.tsx', 'src/owner.mts', 'src/owner.cts', 'src/consumer.d.tsx', 'web/src/Widget.vue',
       ]));
@@ -484,8 +472,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     }
   });
 
-  it('maps canonical browser-root literals identically across TS, SFC, JS, arbitrary receivers, and fake page objects', async () => {
-    const result = await runCompleteFixture({
+  it('maps canonical browser-root literals identically across TS, SFC, JS, arbitrary receivers, and fake page objects', () => {
+    const result = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'web/src/api/client.ts': 'export const testA = 1; export const testB = 2; export const webUse = 3; export const sfcUse = 4; export const jsUse = 5; export const untouched = 6;\n',
@@ -505,12 +493,12 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(record(result, 'web/src/api/client.ts', 'testA').testLocations).toHaveLength(1);
   });
 
-  it('rejects computed browser-root imports regardless of receiver spelling', async () => {
+  it('rejects computed browser-root imports regardless of receiver spelling', () => {
     for (const source of [
       'const root = "/src/api/client.ts"; await import(root);',
       'const page = { evaluate: async (fn: () => unknown) => fn() }; page.evaluate(async () => { const root = "/src/api/client.ts"; await import(root); });',
     ]) {
-      const result = await runCompleteFixture({
+      const result = runFixture({
         'src/contracts/a.ts': 'export const phase = 1;\n',
         'src/schemas/b.ts': 'export const schema = 1;\n',
         'web/src/api/client.ts': 'export const value = 1;\n',
@@ -532,8 +520,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     '/web/api/client.ts',
     '/src/api/client.js',
     '/src/api/missing.ts',
-  ])('rejects malformed or unresolved root-relative literal %s', async (specifier) => {
-    const result = await runCompleteFixture({
+  ])('rejects malformed or unresolved root-relative literal %s', (specifier) => {
+    const result = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'web/src/api/client.ts': 'export const value = 1;\n',
@@ -542,7 +530,7 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(result.failures).toContainEqual(expect.objectContaining({ category: 'unsupported', module: specifier }));
   });
 
-  it('fails an ambiguous canonical browser-root target', async () => {
+  it('fails an ambiguous canonical browser-root target', () => {
     const current = fixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
@@ -551,15 +539,15 @@ describe('complete export analysis behind phase-one enforcement', () => {
     });
     try {
       current.trackedFiles.push('web\\src\\api\\client.ts');
-      const result = await runCompleteExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
+      const result = checkExportConsumers({ root: current.root, trackedFiles: current.trackedFiles });
       expect(result.failures).toContainEqual(expect.objectContaining({ category: 'unsupported', module: '/src/api/client.ts' }));
     } finally {
       current.close();
     }
   });
 
-  it('uses exact explicit SFC lazy defaults, not bare imports, and fails malformed SFCs', async () => {
-    const explicit = await runCompleteFixture({
+  it('uses exact explicit SFC lazy defaults, not bare imports, and fails malformed SFCs', () => {
+    const explicit = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'web/src/Widget.vue': '<script setup lang="ts">const value = 1; void value;</script>\n',
@@ -567,7 +555,7 @@ describe('complete export analysis behind phase-one enforcement', () => {
     });
     expect(record(explicit, 'web/src/Widget.vue', 'default').classification).toBe('production-consumed');
 
-    const bare = await runCompleteFixture({
+    const bare = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'web/src/Widget.vue': '<script setup lang="ts">const value = 1; void value;</script>\n',
@@ -575,7 +563,7 @@ describe('complete export analysis behind phase-one enforcement', () => {
     });
     expect(record(bare, 'web/src/Widget.vue', 'default').classification).toBe('zero-use');
 
-    const malformed = await runCompleteFixture({
+    const malformed = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'web/src/Broken.vue': '<template src="./elsewhere.html"/><script setup lang="js">export const bad = 1;</script>\n',
@@ -583,8 +571,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(malformed.failures).toContainEqual(expect.objectContaining({ category: 'unsupported', module: 'web/src/Broken.vue' }));
   });
 
-  it('composes ordinary/setup/template SFC semantics with exact bindings and canonical source locations', async () => {
-    const result = await runCompleteFixture({
+  it('composes ordinary/setup/template SFC semantics with exact bindings and canonical source locations', () => {
+    const result = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'web/src/support.ts': 'export const helper = 1; export const vFocus = {}; export const stale = 3; export interface Props { value: string }\n',
@@ -617,8 +605,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     '<template><span/></template>',
     '<template/><script setup lang="ts">export const invalid = 1;</script>',
     '<script setup lang="ts">const a = 1;</script><script setup lang="ts">const b = 2;</script>',
-  ])('fails unsupported SFC descriptor form %#', async (source) => {
-    const result = await runCompleteFixture({
+  ])('fails unsupported SFC descriptor form %#', (source) => {
+    const result = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'web/src/Broken.vue': source,
@@ -626,8 +614,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(result.failures).toContainEqual(expect.objectContaining({ category: 'unsupported', module: 'web/src/Broken.vue' }));
   });
 
-  it('maps clean-tree dist JS imports and keeps symbol use binding-aware', async () => {
-    const result = await runCompleteFixture({
+  it('maps clean-tree dist JS imports and keeps symbol use binding-aware', () => {
+    const result = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'src/cli.ts': 'export const run = () => 1; export const other = 2;\n',
@@ -647,8 +635,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     'const specifier = "../src/owner.js"; await import(specifier);',
     'const values = await import("../src/owner.js"); void values[name];',
     'import { value } from "../src/owner.ts?custom"; void value;',
-  ])('fails closed on unsupported JavaScript governed form %#', async (source) => {
-    const result = await runCompleteFixture({
+  ])('fails closed on unsupported JavaScript governed form %#', (source) => {
+    const result = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'src/owner.ts': 'export default 1; export const value = 2;\n',
@@ -657,8 +645,8 @@ describe('complete export analysis behind phase-one enforcement', () => {
     expect(result.failures).toContainEqual(expect.objectContaining({ category: 'unsupported' }));
   });
 
-  it('treats the exact raw SFC glob as source-text loading without component consumption', async () => {
-    const result = await runCompleteFixture({
+  it('treats the exact raw SFC glob as source-text loading without component consumption', () => {
+    const result = runFixture({
       'src/contracts/a.ts': 'export const phase = 1;\n',
       'src/schemas/b.ts': 'export const schema = 1;\n',
       'web/src/components/debug/StatePanel.vue': '<script setup lang="ts">const value = 1; void value;</script>\n',
@@ -669,25 +657,11 @@ describe('complete export analysis behind phase-one enforcement', () => {
   });
 });
 
-describe('repository governed export scope', () => {
-  it('equals the independently derived tracked paths and pins 35/22/57', () => {
+describe('repository complete export boundary', () => {
+  it('reproduces complete candidate/consumer parity and the cleanup-complete inventory', () => {
     const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
     const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: repositoryRoot }).toString().split('\0').filter(Boolean);
-    const independentlyDerived = tracked.filter((file) => file.endsWith('.ts') && GOVERNED_ROOTS.some((root) => file.startsWith(`${root}/`))).sort();
-    const discovered = checkExportConsumers({ root: repositoryRoot, trackedFiles: tracked });
-
-    expect(discovered.governedFiles).toEqual(independentlyDerived);
-    expect(discovered.governedByRoot['src/contracts']).toHaveLength(35);
-    expect(discovered.governedByRoot['src/schemas']).toHaveLength(22);
-    expect(discovered.governedFiles).toHaveLength(57);
-  });
-
-  it('reproduces complete candidate/consumer parity and the authoritative pre-cleanup inventory', async () => {
-    const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-    const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: repositoryRoot }).toString().split('\0').filter(Boolean);
-    expect(tracked.filter((file) => file === 'tests/scripts/export-consumers-complete-runner.js')).toHaveLength(1);
-    const result = await runCompleteExportConsumers({ root: repositoryRoot, trackedFiles: tracked });
-    const withoutRunner = await runCompleteExportConsumers({ root: repositoryRoot, trackedFiles: tracked.filter((file) => file !== 'tests/scripts/export-consumers-complete-runner.js') });
+    const result = checkExportConsumers({ root: repositoryRoot, trackedFiles: tracked });
     const testPath = (file) => file.startsWith('tests/') || file.includes('/__tests__/') || /\.(?:test|spec)\.(?:ts|tsx|mts|cts|js|mjs|cjs|vue)$/.test(file) || /(?:^|\/)vitest\.config\.(?:ts|tsx|mts|cts|js|mjs|cjs)$/.test(file);
     const tsFamily = tracked.filter((file) => /\.(?:ts|tsx|mts|cts)$/.test(file)).sort();
     const declarations = tsFamily.filter((file) => /\.d\.(?:ts|mts|cts)$/.test(file));
@@ -706,33 +680,16 @@ describe('repository governed export scope', () => {
     const assignedTs = ['root', 'web', 'docs'].flatMap((host) => result.ownership.hostAssignments[host]).filter((file) => !file.endsWith('.vue.__export_consumer__.ts')).sort();
     expect(assignedTs).toEqual(tsFamily);
     expect(new Set(assignedTs)).toHaveProperty('size', tsFamily.length);
-    expect(result.ownership.candidateFiles).toHaveLength(391);
-    expect(result.ownership.typescriptConsumerFiles).toHaveLength(734);
-    expect(result.ownership.typescriptOrdinaryFiles).toHaveLength(732);
     expect(result.ownership.declarationFiles).toEqual(['scripts/verify-doc-routes.d.ts', 'web/env.d.ts']);
-    expect(result.ownership.sfcCandidateFiles).toHaveLength(51);
-    expect(result.ownership.sfcConsumerFiles).toHaveLength(51);
-    expect(result.ownership.jsConsumerFiles).toHaveLength(26);
-    expect(withoutRunner.ownership.candidateFiles).toEqual(result.ownership.candidateFiles);
-    expect(withoutRunner.ownership.typescriptConsumerFiles).toEqual(result.ownership.typescriptConsumerFiles);
-    expect(withoutRunner.ownership.sfcConsumerFiles).toEqual(result.ownership.sfcConsumerFiles);
-    expect(withoutRunner.ownership.jsConsumerFiles).toHaveLength(25);
-    expect(withoutRunner.records).toEqual(result.records);
-    expect(withoutRunner.failures).toEqual(result.failures);
+    expect(result.ownership.typescriptOrdinaryFiles).toEqual(tsFamily.filter((file) => !declarations.includes(file)));
     expect(Object.fromEntries(['production-consumed', 'test-only', 'local-only', 'zero-use'].map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]))).toEqual({
-      'production-consumed': 1668, 'test-only': 218, 'local-only': 331, 'zero-use': 165,
+      'production-consumed': 1668, 'test-only': 206, 'local-only': 2, 'zero-use': 0,
     });
-    expect(result.totals).toEqual({ 'production-consumed': 1670, 'test-only': 218, 'local-only': 329, 'zero-use': 165 });
-    const phaseOne = result.records.filter((item) => GOVERNED_ROOTS.some((root) => item.module.startsWith(`${root}/`)));
-    expect(Object.fromEntries(['production-consumed', 'test-only', 'local-only', 'zero-use'].map((classification) => [classification, phaseOne.filter((item) => item.classification === classification).length]))).toEqual({
-      'production-consumed': 543, 'test-only': 100, 'local-only': 0, 'zero-use': 0,
-    });
-    const remaining = result.records.filter((item) => !GOVERNED_ROOTS.some((root) => item.module.startsWith(`${root}/`)));
-    expect(remaining).toHaveLength(1739);
-    expect(Object.fromEntries(['production-consumed', 'test-only', 'local-only', 'zero-use'].map((classification) => [classification, remaining.filter((item) => item.classification === classification).length]))).toEqual({
-      'production-consumed': 1127, 'test-only': 118, 'local-only': 329, 'zero-use': 165,
-    });
-    expect(result.staleImports).toBe(5);
+    expect(result.records).toHaveLength(1876);
+    expect(result.totals).toEqual({ 'production-consumed': 1670, 'test-only': 206, 'local-only': 0, 'zero-use': 0 });
+    expect(result.ok).toBe(true);
+    expect(result.failures).toEqual([]);
+    expect(result.staleImports).toBe(0);
     expect(result.unsupported).toBe(0);
     expect(result.allowlistEntries).toBe(0);
     expect(result.failures.filter((failure) => failure.category === 'declaration-diagnostic')).toEqual([]);
@@ -762,15 +719,7 @@ describe('repository governed export scope', () => {
       const identities = item.declarationPaths.map((declarationPath) => JSON.stringify(declarationPath));
       expect(new Set(identities).size).toBe(identities.length);
     }
-    expect(record(result, 'src/application/read-models/agent-conversation-read-model.ts', 'ConversationSegmentContext').classification).toBe('local-only');
     expect(result.records.filter((item) => item.directClassification === 'test-only' && item.classification === 'production-consumed')).toEqual([]);
-    expect(result.failures.filter((failure) => failure.category === 'stale-import').map(({ module, export: name }) => `${module}::${name}`)).toEqual([
-      'src/persistence/authored-record-files.ts::AuthoredRecordNotFoundError',
-      'src/persistence/layout.ts::cardConversationVersionIndexFile',
-      'src/runtime/actors/llm-actor.ts::LLMProviderPort',
-      'src/runtime/actors/llm-invocation.ts::CanonicalLlmInvocationInput',
-      'src/runtime/process-runner.ts::ProcessRunner',
-    ]);
 
     const sfcReclassified = [
       'web/src/components/nav/types.ts::NavItem',

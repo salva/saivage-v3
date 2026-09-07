@@ -234,7 +234,7 @@ export async function visitScopedFiles(ctx: VfsContext, raw: string, visitor: (e
   if (resolved === null) throw ctx.fail(`Expected a scoped path, got '${raw}'.`);
 
   if (resolved.kind === 'record') {
-    const metadata=ctx.records!.listDeclaredRecordMetadata(resolved.cardId);if(metadata.kind==='card-not-found')throw ctx.fail('Card not found.');for (const {definition,classification} of metadata.value.definitions) {
+    const metadata=ctx.records!.listDeclaredRecordMetadata(resolved.cardId);if(metadata.kind==='card-not-found')throw ctx.fail('Card not found.');for (const {classification} of metadata.value.definitions) {
       const latest=classification.kind==='present'?classification.projection:null;
       if (latest === null) continue;
       const effective = effectiveRecordContent(latest.artifact); if (!effective) continue;
