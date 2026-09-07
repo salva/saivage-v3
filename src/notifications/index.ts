@@ -1,1 +1,1 @@
-export { queueNotification, type QueueNotificationResult } from './notification-triggers.js';
+export { queueNotification } from './notification-triggers.js';

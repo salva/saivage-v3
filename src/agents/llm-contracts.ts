@@ -10,7 +10,7 @@ export interface BuiltCandidateRequest {
   requestHash: string;
 }
 
-export interface ToolFunctionDefinition {
+interface ToolFunctionDefinition {
   name: string;
   description: string;
   parameters: Record<string, unknown>;

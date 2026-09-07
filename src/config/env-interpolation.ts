@@ -1,6 +1,6 @@
 const ENV_PATTERN = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
-export interface EnvInterpolationResult {
+interface EnvInterpolationResult {
   value: string;
   warnings: string[];
 }
@@ -12,7 +12,7 @@ export type EnvironmentSource = Readonly<Record<string, string | undefined>>;
  * Unknown variables are replaced with an empty string and recorded as warnings;
  * secret values are never included in warning text.
  */
-export function interpolateString(raw: string, env: EnvironmentSource): EnvInterpolationResult {
+function interpolateString(raw: string, env: EnvironmentSource): EnvInterpolationResult {
   const warnings: string[] = [];
   const value = raw.replace(ENV_PATTERN, (_match, name: string) => {
     const envVal = env[name];

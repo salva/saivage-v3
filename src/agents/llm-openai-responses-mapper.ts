@@ -3,7 +3,7 @@ import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.j
 import { sourceInputIdFromToolCallMessageId, sourceInputIdFromToolResultMessageId } from '../schemas/message-identity.js';
 import type { ProviderConversationProjection } from './llm-contracts.js';
 
-export interface OpenAIResponsesPrivateRowContent {
+interface OpenAIResponsesPrivateRowContent {
   transport: 'openai-responses';
   source_input_id: string;
   projection_message_id: string;

@@ -31,10 +31,9 @@ export {
   SECRET_REDACTION_PLACEHOLDER,
   redactSnippetForOutbound,
   redactTextForOutbound,
-  redactUrl,
 } from './text.js';
 
-export type OutboundRedactionRequest =
+type OutboundRedactionRequest =
   | { source: 'provider-exchange'; value: ProviderExchangePayload }
   | { source: 'logged-event'; value: LoggedEvent }
   | { source: 'control-action'; value: ControlActionAuditEntry }
@@ -47,7 +46,7 @@ export type OutboundRedactionRequest =
   | { source: 'mcp-tools'; value: InternalMcpToolsReadModel }
   | { source: 'dynamic'; value: unknown };
 
-export type OutboundRedactionResult<Request extends OutboundRedactionRequest> = Request extends {
+type OutboundRedactionResult<Request extends OutboundRedactionRequest> = Request extends {
   source: 'provider-exchange';
 }
   ? ProviderExchangePayload

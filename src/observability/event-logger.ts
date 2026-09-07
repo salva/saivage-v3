@@ -26,7 +26,7 @@ function nextEventId(): string {
  * matching an EventKind, plus optional overrides for id/timestamp
  * and any other fields the specific event variant needs.
  */
-export type AppendEventInput = LoggedEvent extends infer Event
+type AppendEventInput = LoggedEvent extends infer Event
   ? Event extends LoggedEvent
     ? Omit<Event, 'id' | 'timestamp'> & Partial<Pick<Event, 'id' | 'timestamp'>>
     : never

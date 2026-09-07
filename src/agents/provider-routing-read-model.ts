@@ -3,7 +3,7 @@ import type { OperatorApiSuccess } from '../contracts/index.js';
 import type { ProviderRegistry } from './provider.js';
 
 export type ProviderRoutingReadModel = OperatorApiSuccess<'providers.list'>;
-export type ProviderRoutingSummary = ProviderRoutingReadModel['providers'][string];
+type ProviderRoutingSummary = ProviderRoutingReadModel['providers'][string];
 
 export function buildProviderRoutingReadModel(input: {
   registry: ProviderRegistry;

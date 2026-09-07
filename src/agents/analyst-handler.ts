@@ -39,7 +39,7 @@ import { cardParentId } from '../schemas/card-id.js';
 import type { RuntimeStatus } from '../schemas/index.js';
 
 
-export interface WorkspaceContext {
+interface WorkspaceContext {
   view: string | null;
   entityId: string | null;
   refinement: Record<string, string> | null;
@@ -71,7 +71,7 @@ export function buildWorkspaceContextNote(workspaceContext?: WorkspaceContext): 
   return lines.join('\n');
 }
 
-export interface AnalystResponse {
+interface AnalystResponse {
   sessionId: GlobalConversationSessionId;
   restart: RestartChatAcknowledgement | null;
   toolInvocations?: Array<{
@@ -88,7 +88,7 @@ export interface AnalystTurnInput {
   workspaceContext?: WorkspaceContext;
 }
 
-export type AnalystTurnResult = AnalystResponse;
+type AnalystTurnResult = AnalystResponse;
 
 type AnalystToolInvocations = NonNullable<AnalystResponse['toolInvocations']>;
 

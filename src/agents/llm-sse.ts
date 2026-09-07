@@ -1,5 +1,5 @@
 export const SSE_DONE = Symbol('sse-done');
-export type SseEvent = Readonly<{ event: string; dataText: string }>;
+type SseEvent = Readonly<{ event: string; dataText: string }>;
 export type SseOutput = SseEvent | typeof SSE_DONE;
 
 export class IncrementalSseReader {

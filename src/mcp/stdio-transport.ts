@@ -4,9 +4,9 @@ import { CLIENT_NAME, CLIENT_VERSION, MCP_DISCOVERY_TIMEOUT_MS, MCP_PROTOCOL_VER
 import type { McpServerHandle } from './server-registry.js';
 import { mapToolsCallResponse } from './tools-call-response.js';
 
-export interface MessageIdSource { next(): number | string }
+interface MessageIdSource { next(): number | string }
 
-export function safeWrite(stream: NodeJS.WritableStream, data: string, serverName: string): void {
+function safeWrite(stream: NodeJS.WritableStream, data: string, serverName: string): void {
   if (stream.writable) {
     try { stream.write(data); }
     catch (err) { throw new TransportError(serverName, `stdio write failed (process may have exited early): ${err instanceof Error ? err.message : String(err)}`); }
@@ -15,7 +15,7 @@ export function safeWrite(stream: NodeJS.WritableStream, data: string, serverNam
   }
 }
 
-export function readJsonRpcResponse(rl: readline.Interface, requestId: number | string, signal: AbortSignal): Promise<Record<string, unknown> | null> {
+function readJsonRpcResponse(rl: readline.Interface, requestId: number | string, signal: AbortSignal): Promise<Record<string, unknown> | null> {
   return new Promise((resolve) => {
     const onAbort = () => { cleanup(); resolve(null); };
     let lineHandler: ((line: string) => void) | null = null;

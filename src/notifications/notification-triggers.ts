@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 
-export type QueueNotificationResult = NotifyCardResult & { notificationId?: string };
+type QueueNotificationResult = NotifyCardResult & { notificationId?: string };
 
 export function queueNotification(
   cardId: string,

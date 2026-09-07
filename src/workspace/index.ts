@@ -1,6 +1,4 @@
 export {
-  SecretPathError,
-  assertNotSecretPath,
   looksLikeSecretPath,
 } from './secret-paths.js';
 export {
@@ -17,17 +15,11 @@ export {
   assertRecordWrite,
   parseScopedPathScheme,
   resolveRecordWriteTarget,
-  scopedPathResolvers,
-  validRecordSegment,
   workUrlFromAbsolutePath,
-  type ResolvedScopedPath,
-  type ScopedPathMode,
-  type ScopedPathScheme,
 } from './scoped-path-schemes.js';
 export {
   displayPathForResolved,
   globScopedPath,
-  globSegmentToRegExp,
   globToRegExp,
   isHiddenPath,
   listScopedPath,
@@ -37,12 +29,5 @@ export {
   walkFiles,
   visitFiles,
   visitScopedFiles,
-  workRootOf,
-  type RecordSummary,
-  type ScopedFileEntry,
-  type VfsContext,
-  type VfsEntry,
-  type VfsListing,
-  type VfsMode,
   type VfsResolved,
 } from './vfs.js';

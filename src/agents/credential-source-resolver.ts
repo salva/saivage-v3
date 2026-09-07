@@ -3,29 +3,29 @@ import type { AuthProfile, AuthProfilesFile } from '../auth/index.js';
 import { localSetupFailure } from '../contracts/llm-failure.js';
 import type { Account, Provider } from './provider.js';
 
-export const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com';
+const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com';
 
-export const PROVIDER_DEFAULT_BASE_URLS: Record<string, string> = {
+const PROVIDER_DEFAULT_BASE_URLS: Record<string, string> = {
   'github-copilot': 'https://api.individual.githubcopilot.com',
   'openai-codex': 'https://chatgpt.com/backend-api',
   opencode: 'https://opencode.ai/zen/v1',
   'opencode-go': 'https://opencode.ai/zen/go/v1',
 };
 
-export const PROVIDER_AUTH_PROFILE_ALIASES: Record<string, string[]> = {
+const PROVIDER_AUTH_PROFILE_ALIASES: Record<string, string[]> = {
   copilot: ['github-copilot'],
   'github-copilot': ['github-copilot', 'copilot'],
   'openai-codex': ['openai-codex'],
   openai: ['openai'],
 };
 
-export type BaseUrlSource =
+type BaseUrlSource =
   | 'account-base-url'
   | 'provider-base-url'
   | 'provider-default'
   | 'openai-default';
 
-export type CredentialSource =
+type CredentialSource =
   | 'account-api-key'
   | 'provider-api-key'
   | 'explicit-account-auth-profile'
@@ -33,13 +33,13 @@ export type CredentialSource =
   | 'provider-alias-auth-profile'
   | 'none';
 
-export interface ResolvedCredentialSources {
+interface ResolvedCredentialSources {
   baseUrl: string;
   apiKey?: string;
   openAICodexAccountId?: string;
 }
 
-export interface CredentialSourceResolverOptions {
+interface CredentialSourceResolverOptions {
   loadAuthProfiles: () => Promise<AuthProfilesFile | null>;
   usableProfileAccessToken: (profileName: string, profile: AuthProfile, abortSignal?: AbortSignal) => Promise<string | undefined>;
 }
@@ -185,7 +185,7 @@ export class CredentialSourceResolver {
 
 const OPENAI_CODEX_JWT_CLAIM = 'https://api.openai.com/auth';
 
-export function deriveOpenAICodexAccountId(token: string, providerName = 'openai-codex', accountName?: string): string {
+function deriveOpenAICodexAccountId(token: string, providerName = 'openai-codex', accountName?: string): string {
   try {
     const [, payload] = token.split('.');
     if (!payload) throw new Error('invalid token');

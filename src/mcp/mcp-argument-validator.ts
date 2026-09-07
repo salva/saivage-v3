@@ -2,12 +2,12 @@ import { createHash } from 'node:crypto';
 import { Ajv } from 'ajv';
 import type { AnySchema, ErrorObject, ValidateFunction } from 'ajv';
 
-export interface McpArgumentValidationFailure {
+interface McpArgumentValidationFailure {
   type: 'schema_missing' | 'schema_unsupported' | 'schema_compile_error' | 'validation_error';
   diagnostics: Array<Record<string, unknown>>;
 }
 
-export type McpArgumentValidationResult =
+type McpArgumentValidationResult =
   | { ok: true }
   | ({ ok: false } & McpArgumentValidationFailure);
 

@@ -9,7 +9,7 @@ import { createApplicationFatalPort, PublicationOutcomeUnknownError } from '../c
 
 export const APP_CLEANUP_LEAF_TIMEOUT_MS = 10_000;
 
-export type ShutdownComponent =
+type ShutdownComponent =
   | 'http-admission'
   | 'websocket-admission'
   | 'fastify'
@@ -22,7 +22,7 @@ export type ShutdownComponent =
   | 'signal-handlers'
   | 'lifecycle-lock';
 
-export interface SafeCleanupWarning {
+interface SafeCleanupWarning {
   readonly component: ShutdownComponent;
   readonly code: 'closer_failed' | 'cleanup_failed' | 'cleanup_timeout';
 }
@@ -37,7 +37,7 @@ export interface AppTerminalRegistration {
 
 type CleanupSettlement = 'fulfilled' | 'rejected' | 'timeout';
 
-export async function settleCleanupLeafWithTimeout(cleanup: () => void | Promise<void>, timeoutMs: number): Promise<CleanupSettlement> {
+async function settleCleanupLeafWithTimeout(cleanup: () => void | Promise<void>, timeoutMs: number): Promise<CleanupSettlement> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<'timeout'>((resolveTimeout) => {
     timer = setTimeout(() => resolveTimeout('timeout'), timeoutMs);
@@ -103,7 +103,7 @@ export interface App {
   stop(): Promise<ShutdownReport>;
 }
 
-export interface StartAppOptions extends StartInputs {
+interface StartAppOptions extends StartInputs {
   env?: Readonly<Record<string, string | undefined>>;
 }
 

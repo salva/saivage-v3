@@ -1,8 +1,8 @@
 import type { ProviderCapabilities } from '../schemas/saivage-config.js';
 
 export type TransportProtocol = NonNullable<ProviderCapabilities['transportProtocol']>;
-export type ToolsModeCapability = NonNullable<ProviderCapabilities['toolsMode']>;
-export type ExclusiveToolChoiceCapability = NonNullable<ProviderCapabilities['exclusiveToolChoiceSupport']>;
+type ToolsModeCapability = NonNullable<ProviderCapabilities['toolsMode']>;
+type ExclusiveToolChoiceCapability = NonNullable<ProviderCapabilities['exclusiveToolChoiceSupport']>;
 
 export interface EffectiveProviderCapabilities {
   transportProtocol: TransportProtocol;
@@ -29,7 +29,7 @@ export type CapabilityMatch =
   | { supported: true }
   | { supported: false; reasons: CapabilitySkipReason[] };
 
-export const GLOBAL_DEFAULT_CAPABILITIES: EffectiveProviderCapabilities = {
+const GLOBAL_DEFAULT_CAPABILITIES: EffectiveProviderCapabilities = {
   transportProtocol: 'openai-chat-completions',
   toolsMode: 'native',
   exclusiveToolChoiceSupport: 'native',

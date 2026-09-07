@@ -73,22 +73,21 @@ import { CardServiceInvariantError } from './errors.js';
 import { cardDepth, cardParentId, MAX_CARD_DEPTH } from '../schemas/card-id.js';
 import type { CardActivationOutcome } from '../contracts/tool-api.js';
 
-export type CardActivationAdmissionProjection = {
+type CardActivationAdmissionProjection = {
   child: CardRecord;
   dependencies: Array<{ id: string; status: CardStatus }>;
 };
 
 export interface CardDiffEntry { field: string; before: unknown; after: unknown }
-export type CardVersionListResult = CardTargetRead<readonly CardVersionListEntry[]>;
+type CardVersionListResult = CardTargetRead<readonly CardVersionListEntry[]>;
 export type { CanonicalCardFileSlot };
-export type CardVersionContentResult = CardTargetRead<CardArtifact>|{readonly kind:'version-not-found';readonly version:number};
-export type CardVersionDiffResult =
+type CardVersionContentResult = CardTargetRead<CardArtifact>|{readonly kind:'version-not-found';readonly version:number};
+type CardVersionDiffResult =
   | { readonly kind: 'found'; readonly from: number; readonly to: number; readonly fromArtifact:CardArtifact;readonly toArtifact:CardArtifact;readonly diff: CardDiffEntry[] }
   | { readonly kind: 'card-not-found' }
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
   | { readonly kind: 'version-not-found'; readonly version: number; readonly side: 'from' | 'to' };
 
-export type { CardEditPatch, NewChildCardInput, RecordProjection, SetStatusTarget };
 type TerminalActivationOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
 type TerminalPublication = {
   lifecycle: Extract<CardRecord['lifecycle'], { status: 'done' | 'failed' | 'blocked' }>;
@@ -132,14 +131,14 @@ function assertPermittedChildType(parent:CardRecord,childType:string,message:str
   if(!workflow.permittedChildTypes.has(childType))throw new Error(`${message} '${parent.id}'.`);
 }
 
-export type CardRecordCurrentResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly projection:RecordProjection|null}>;
-export type CardRecordHistoryResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly catalog:ReturnType<typeof listAuthoredRecordVersions>}>;
-export type CardRecordVersionResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly projection:RecordProjection}>|{readonly kind:'version-not-found';readonly version:number};
-export type CardRecordDiffSelectionResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly from:RecordProjection;readonly to:RecordProjection}>|{readonly kind:'invalid-pivots';readonly from:number;readonly to:number}|{readonly kind:'version-not-found';readonly version:number;readonly side:'from'|'to'};
+type CardRecordCurrentResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly projection:RecordProjection|null}>;
+type CardRecordHistoryResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly catalog:ReturnType<typeof listAuthoredRecordVersions>}>;
+type CardRecordVersionResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly projection:RecordProjection}>|{readonly kind:'version-not-found';readonly version:number};
+type CardRecordDiffSelectionResult=CardTargetRead<{readonly card:CardRecord;readonly definition:RecordDefinition;readonly from:RecordProjection;readonly to:RecordProjection}>|{readonly kind:'invalid-pivots';readonly from:number;readonly to:number}|{readonly kind:'version-not-found';readonly version:number;readonly side:'from'|'to'};
 export type CardDeclaredRecordMetadataResult=CardTargetRead<{readonly card:CardRecord;readonly definitions:readonly {readonly definition:RecordDefinition;readonly classification:CurrentAuthoredRecordClassification}[]}>;
-export interface CanonicalCardFilesMetadataProjection{readonly card:CanonicalCardProjection;readonly active:boolean;readonly recordFiles:readonly {readonly slot:import('../schemas/index.js').RecordName;readonly size:number;readonly modifiedAt:string}[]}
-export interface CardInspectionListRow{readonly card:CardRecord;readonly parentId:string|null;readonly activeChildrenCount:number}
-export interface CardInspectionTreeRow extends CardInspectionListRow{readonly relativeDepth:number;readonly activeDescendantCount:number}
+interface CanonicalCardFilesMetadataProjection{readonly card:CanonicalCardProjection;readonly active:boolean;readonly recordFiles:readonly {readonly slot:import('../schemas/index.js').RecordName;readonly size:number;readonly modifiedAt:string}[]}
+interface CardInspectionListRow{readonly card:CardRecord;readonly parentId:string|null;readonly activeChildrenCount:number}
+interface CardInspectionTreeRow extends CardInspectionListRow{readonly relativeDepth:number;readonly activeDescendantCount:number}
 
 export class CardService {
   constructor(readonly projectRoot: string, readonly workflows: CompiledProjectWorkflows, private readonly freshness: Pick<FreshnessEffects, 'cardProjectionChanged' | 'runtimeChanged' | 'agentMembershipChanged'> = NO_FRESHNESS_EFFECTS, private readonly cardAppendIo?: GrowingFileIo) {}
@@ -372,5 +371,3 @@ export class CardService {
     return { deleted: order, requested: roots };
   }
 }
-
-export { CardServiceInvariantError } from './errors.js';

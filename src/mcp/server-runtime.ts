@@ -10,9 +10,9 @@ import { buildMcpServerStatus } from './status-projection.js';
 import { discoverStreamableHttpTools, healthStreamableHttpServer, invokeStreamableHttpTool, probeStreamableHttpStartup } from './streamable-http-transport.js';
 import { discoverStdioTools, invokeStdioTool } from './stdio-transport.js';
 
-export interface McpJsonRpcIdProvider { next(): number | string }
+interface McpJsonRpcIdProvider { next(): number | string }
 
-export interface McpServerRuntimeOptions {
+interface McpServerRuntimeOptions {
   name: string;
   config: McpServerConfig;
   revision: string;

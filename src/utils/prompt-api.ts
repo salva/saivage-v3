@@ -6,14 +6,14 @@ export type PromptHost =
   | Readonly<{ kind: 'process'; cardType: CardTypeName }>;
 export type AgentPromptHost = Extract<PromptHost, { kind: 'global-agent' | 'workflow-agent' }>;
 export type ProcessPromptHost = Extract<PromptHost, { kind: 'process' }>;
-export interface PromptTemplateVariables { readonly [key: string]: string }
+interface PromptTemplateVariables { readonly [key: string]: string }
 export interface PromptTemplateRegistry {
   render(host: AgentPromptHost, agentName: AgentName, variables: PromptTemplateVariables): string;
 }
-export type CompiledPromptToken = Readonly<{ kind: 'literal'; text: string } | { kind: 'placeholder'; key: string }>;
+type CompiledPromptToken = Readonly<{ kind: 'literal'; text: string } | { kind: 'placeholder'; key: string }>;
 export type CompiledPromptTemplate = Readonly<{ tokens: readonly CompiledPromptToken[] }>;
-export type ResolvedPromptFragment = Readonly<{ path: string; text: string }>;
-export type PromptFragmentResolver = (id: string) => ResolvedPromptFragment;
+type ResolvedPromptFragment = Readonly<{ path: string; text: string }>;
+type PromptFragmentResolver = (id: string) => ResolvedPromptFragment;
 
 const PLACEHOLDERS: Readonly<Record<PromptHost['kind'], ReadonlySet<string>>> = Object.freeze({
   'global-agent': new Set(['vocabularySnippet']),
@@ -23,7 +23,7 @@ const PLACEHOLDERS: Readonly<Record<PromptHost['kind'], ReadonlySet<string>>> = 
 const FRAGMENT_IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
 const hostContext = (host: PromptHost): string => host.kind === 'global-agent' ? host.kind : `${host.kind}:${host.cardType}`;
 
-export class PromptTemplateRenderError extends Error {
+class PromptTemplateRenderError extends Error {
   constructor(readonly host: PromptHost, readonly templateName: string, readonly token: string, readonly reason: string) {
     super(`Prompt template error for ${hostContext(host)}/${templateName}: ${reason}: ${token}`);
     this.name = 'PromptTemplateRenderError';

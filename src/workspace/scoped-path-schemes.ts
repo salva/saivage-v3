@@ -10,11 +10,11 @@ import { buildScopedPathUrl, parseScopedPathUrl, type ParsedScopedPathUrl } from
 import { cardTmpRelativePath, saivageWorkRelativePath, saivageWorkRoot } from '../persistence/layout.js';
 import { parseRecordUrl, type ParsedRecordUrl } from '../contracts/record-mutation.js';
 
-export type ScopedPathMode = 'read' | 'write' | 'search';
-export type ScopedPathErrorFactory = (message: string) => Error;
-export type ScopedAgentContext = { cardId?: string; agentName?: AgentName };
-export type ResolvedRecordReadTarget=Readonly<{parsed:ParsedRecordUrl;definition:RecordDefinition;projection:RecordProjection|null}>;
-export type ResolvedScopedPath = { kind: 'project' | 'tmp' | 'system' | 'work'; absolutePath: string; relativePath: string; workRoot?: string } | ({ kind: 'record' } & ResolvedRecordReadTarget);
+type ScopedPathMode = 'read' | 'write' | 'search';
+type ScopedPathErrorFactory = (message: string) => Error;
+type ScopedAgentContext = { cardId?: string; agentName?: AgentName };
+type ResolvedRecordReadTarget=Readonly<{parsed:ParsedRecordUrl;definition:RecordDefinition;projection:RecordProjection|null}>;
+type ResolvedScopedPath = { kind: 'project' | 'tmp' | 'system' | 'work'; absolutePath: string; relativePath: string; workRoot?: string } | ({ kind: 'record' } & ResolvedRecordReadTarget);
 
 export interface ResolveScopedPathContext {
   projectRoot: string;

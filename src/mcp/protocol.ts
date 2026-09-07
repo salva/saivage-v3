@@ -2,7 +2,7 @@
 
 import { SAIVAGE_VERSION } from '../version.js';
 
-export interface McpToolAnnotations {
+interface McpToolAnnotations {
   title?: string;
   readOnlyHint?: boolean;
   destructiveHint?: boolean;
@@ -27,36 +27,7 @@ export interface McpJsonRpcRequest {
   params?: Record<string, unknown>;
 }
 
-export interface McpJsonRpcResponse {
-  jsonrpc: '2.0';
-  id: number | string;
-  result: unknown;
-}
-
-export interface McpJsonRpcError {
-  jsonrpc: '2.0';
-  id: number | string;
-  error: { code: number; message: string; data?: unknown };
-}
-
-export interface ListToolsResult {
-  tools: McpToolDefinition[];
-  nextCursor?: string;
-}
-
-export interface McpInitializeParams {
-  protocolVersion: string;
-  capabilities: Record<string, unknown>;
-  clientInfo: { name: string; version: string };
-}
-
-export interface ToolsCallResult {
-  content: Array<{ type: string; [key: string]: unknown }>;
-  isError?: boolean;
-  structuredContent?: Record<string, unknown>;
-}
-
-export type McpTransport = 'stdio' | 'streamable-http';
+type McpTransport = 'stdio' | 'streamable-http';
 export type McpStatus = 'running' | 'stopped' | 'error';
 
 export interface McpServerStatus {

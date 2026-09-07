@@ -3,7 +3,7 @@ import type {
   ProviderExchangeOkPayload,
 } from '../contracts/provider-exchange.js';
 
-export interface ProviderExchangeHandle {
+interface ProviderExchangeHandle {
   recordResponse(
     meta: {
       status: number;
@@ -15,7 +15,7 @@ export interface ProviderExchangeHandle {
   recordError(meta: { errorName: string; message: string; status?: number }): Promise<void>;
 }
 
-export interface BeginProviderExchangeInput {
+interface BeginProviderExchangeInput {
   transport: 'generic' | 'codex' | 'openai-responses';
   contract_id: string;
   contractName: string;
@@ -24,7 +24,7 @@ export interface BeginProviderExchangeInput {
   sourceInputId: string;
 }
 
-export interface ProviderExchangeRecorder {
+interface ProviderExchangeRecorder {
   beginExchange(meta: BeginProviderExchangeInput): Promise<ProviderExchangeHandle>;
   settledAttempts(): ProviderExchangeAttempt[];
 }

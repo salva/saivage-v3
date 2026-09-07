@@ -29,7 +29,7 @@ export interface CreateAnalystCardInput {
   related?: string[];
 }
 
-export interface AnalystCardMutationService {
+interface AnalystCardMutationService {
   create(input: CreateAnalystCardInput): AnalystMutationOutcome;
   delete(ids: readonly string[]): AnalystMutationOutcome;
   cancel(cardId: string, reason?: string): Promise<AnalystMutationOutcome>;
@@ -37,11 +37,11 @@ export interface AnalystCardMutationService {
   reopen(cardId: string): AnalystMutationOutcome;
 }
 
-export interface AnalystConfigMutationService {
+interface AnalystConfigMutationService {
   apply(mutation: ConfigMutation): AnalystMutationOutcome;
 }
 
-export interface AnalystNotificationMutationService {
+interface AnalystNotificationMutationService {
   queue(cardId: string, kind: string, body: string): AnalystMutationOutcome;
 }
 

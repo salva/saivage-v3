@@ -1,7 +1,7 @@
 import type { AgentName } from '../schemas/index.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
-export interface AgentProtocolViolation {
+interface AgentProtocolViolation {
   kind: 'agent_protocol_violation';
   session_id: string;
   agent_name: AgentName;

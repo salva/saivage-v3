@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as YAML from 'yaml';
 
-import { McpManager, ServerNotRunningError } from '../../src/mcp/mcp-manager.js';
+import { McpManager } from '../../src/mcp/mcp-manager.js';
+import { ServerNotRunningError } from '../../src/mcp/errors.js';
 import { McpServerRuntime } from '../../src/mcp/server-runtime.js';
 import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';

@@ -18,7 +18,7 @@ export interface FoldedConversation {
   readonly segmentContext: ConversationSegmentContext;
 }
 
-export type ConversationSegmentContext = null | {
+type ConversationSegmentContext = null | {
   readonly kind: 'compacted';
   readonly source_version: number;
   readonly covered_through_message_id: string;

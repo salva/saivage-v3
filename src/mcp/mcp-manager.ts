@@ -10,24 +10,19 @@ import { loadMcpServersFromConfig, type McpServerConfig } from './server-registr
 import { McpServerRuntime } from './server-runtime.js';
 import { buildMcpToolsReadModel } from './status-projection.js';
 
-export type { McpServerConfig, McpServerHandle } from './server-registry.js';
-export type { McpTransport, McpStatus, McpServerStatus, McpToolAnnotations, McpToolDefinition, McpJsonRpcRequest, McpJsonRpcResponse, McpJsonRpcError, ListToolsResult, McpInitializeParams, ToolsCallResult } from './protocol.js';
-export { MCP_INVOKE_TIMEOUT_MS } from './protocol.js';
-export { McpInvokeError, ServerNotRunningError, ToolNotFoundError, InvalidArgumentsError, TimeoutError, TransportError } from './errors.js';
-
 export interface McpStatusProvider { getStatus(): McpServerStatus[] }
 export interface McpToolsReadModelProvider { getToolsReadModel(): ReturnType<typeof buildMcpToolsReadModel> }
-export type McpToolCapability = McpToolDefinition & { serverName: string };
+type McpToolCapability = McpToolDefinition & { serverName: string };
 export interface McpToolInvocationPort { getServerTools(name: string): McpToolDefinition[] | undefined; findToolCapability(serverName: string, toolName: string): McpToolCapability | null; invokeTool(serverName: string, toolName: string, args: Record<string, unknown>, options?: { timeoutMs?: number }): Promise<unknown> }
 
-export interface McpReconciliationReport {
+interface McpReconciliationReport {
   converged: boolean;
   desired: Array<{ name: string; revision: string; shouldRun: boolean }>;
   active: Array<{ name: string; revision: string; state: 'running' | 'stopped' }>;
   pending: Array<{ name: string; operation: 'add' | 'remove' | 'replace' | 'start' | 'stop'; diagnostic: string }>;
 }
-export interface McpReconciliationPort { reconcilePersistedConfig(): Promise<McpReconciliationReport> }
-export interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner; mcpProcessRootScope: ManagedProcessScope; eventLogger: EventLog }
+interface McpReconciliationPort { reconcilePersistedConfig(): Promise<McpReconciliationReport> }
+interface McpManagerOptions { configAuthority: ResolvedConfigAuthority; processRunner: ProcessRunner; mcpProcessRootScope: ManagedProcessScope; eventLogger: EventLog }
 
 interface DesiredServer { name: string; config: McpServerConfig; revision: string; shouldRun: boolean }
 

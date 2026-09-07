@@ -2,7 +2,7 @@ import type { RuntimeApi } from '../../runtime/runtime-api.js';
 import type { RuntimeStatusResponse, ServerAvailability } from '../../contracts/index.js';
 import type { RestartCapability } from '../../contracts/index.js';
 
-export type RuntimeStatusReadModel = RuntimeStatusResponse;
+type RuntimeStatusReadModel = RuntimeStatusResponse;
 
 export interface RuntimeStatusInputs {
   runtimeApi: Pick<RuntimeApi, 'getStatus' | 'getActorRuntimeReadModel'>;

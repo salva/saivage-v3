@@ -12,9 +12,9 @@ import { parseScopedPathScheme, resolveRecordReadTarget, resolveRecordWriteTarge
 import { SAIVAGE_WORK_RELATIVE_DIR, saivageWorkRoot } from '../persistence/layout.js';
 import { ModelRecordTargetWireSchema, type ModelRecordTargetWire } from '../contracts/record-mutation.js';
 
-export type VfsMode = 'read' | 'write' | 'search';
+type VfsMode = 'read' | 'write' | 'search';
 
-export interface VfsContext {
+interface VfsContext {
   projectRoot: string;
   agent?: { cardId?: string; agentName?: AgentName };
   fail: (message: string) => Error;
@@ -28,18 +28,18 @@ export type VfsResolved =
     | { recordKind: 'document'; filename: string; format:'markdown'; schema:string; state:'absent'|'open'|'closed'|'discarded'; headVersion:number|null; version: number|null; versionUrl:string|null; recordUrl: string; currentSelection: boolean; content: string; committedAt: string | null; size: number }
   ));
 
-export type VfsEntry = { name: string; type: 'dir' | 'file' };
+type VfsEntry = { name: string; type: 'dir' | 'file' };
 
-export type RecordSummary = ModelRecordTargetWire;
+type RecordSummary = ModelRecordTargetWire;
 
-export interface ScopedFileEntry {
+interface ScopedFileEntry {
   absolutePath?: string;
   content?: string;
   displayPath: string;
   matchPath: string;
 }
 
-export type VfsListing =
+type VfsListing =
   | { kind: 'entries'; entries: VfsEntry[] }
   | { kind: 'records'; records: RecordSummary[] };
 
@@ -57,7 +57,7 @@ export function isHiddenPath(projectRoot: string, absolutePath: string, relative
   return isReadBlocked(relativePath) || looksLikeSecretPath(absolutePath) || relativePath.split('/').some((part) => SKIPPED_DIRS.has(part));
 }
 
-export function workRootOf(resolved: { kind?: string; workRoot?: unknown }): string | undefined {
+function workRootOf(resolved: { kind?: string; workRoot?: unknown }): string | undefined {
   return resolved.kind === 'work' && typeof resolved.workRoot === 'string' ? resolved.workRoot : undefined;
 }
 
@@ -77,7 +77,7 @@ export function listVisibleDirectoryEntries(ctx: { projectRoot: string }, resolv
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export function globSegmentToRegExp(segment: string): string {
+function globSegmentToRegExp(segment: string): string {
   return segment.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*').replace(/\?/g, '[^/]');
 }
 

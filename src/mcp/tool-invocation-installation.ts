@@ -17,7 +17,7 @@ export class McpToolInvocationAlreadyInstalledError extends Error {
   }
 }
 
-export class McpToolInvocationInstaller {
+class McpToolInvocationInstaller {
   constructor(private readonly installAuthority: (port: McpToolInvocationPort) => void) {}
 
   install(port: McpToolInvocationPort): void {
@@ -25,7 +25,7 @@ export class McpToolInvocationInstaller {
   }
 }
 
-export interface McpToolInvocationInstallation {
+interface McpToolInvocationInstallation {
   readonly port: McpToolInvocationPort;
   readonly installer: McpToolInvocationInstaller;
 }

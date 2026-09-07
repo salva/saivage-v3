@@ -14,7 +14,7 @@ import type { McpServerHandle } from './server-registry.js';
 import { mapToolsCallResponse } from './tools-call-response.js';
 
 interface StreamableHttpReadContext { serverName: string; operation: string; expectedId: number | string; signal?: AbortSignal }
-export interface MessageIdSource { next(): number | string }
+interface MessageIdSource { next(): number | string }
 
 function getContentType(resp: Response): string { return resp.headers?.get?.('content-type')?.toLowerCase() ?? ''; }
 
@@ -98,7 +98,7 @@ export async function readStreamableHttpJsonRpcResponse(resp: Response, context:
   throw new TransportError(context.serverName, `Stream ended before JSON-RPC response for ${context.operation}`);
 }
 
-export async function readStreamableHttpNotificationError(resp: Response, serverName: string): Promise<string | undefined> {
+async function readStreamableHttpNotificationError(resp: Response, serverName: string): Promise<string | undefined> {
   if (resp.status === 202 || resp.status === 204) return undefined;
   const contentType = getContentType(resp);
   if (contentType.includes('application/json')) {

@@ -14,7 +14,7 @@ export interface AuthProfile {
 
 export interface AuthProfilesFile { version: number; profiles: Record<string, AuthProfile> }
 
-export const AUTH_FILE_REL = '.saivage/auth-profiles.json';
+const AUTH_FILE_REL = '.saivage/auth-profiles.json';
 
 const rawProfileSchema = z.object({
   type: z.string().min(1), provider: z.string().min(1), accessToken: z.string().min(1), refreshToken: z.string().min(1).optional(), expiresAt: z.number().finite().optional(),
@@ -26,7 +26,7 @@ const SAFE_INVALID_SCHEMA_MESSAGE = 'auth profiles do not match the expected sch
 
 export function authProfilePath(projectRoot: string): string { return join(projectRoot, AUTH_FILE_REL); }
 
-export function serializeAuthProfiles(file: AuthProfilesFile): string {
+function serializeAuthProfiles(file: AuthProfilesFile): string {
   return `${JSON.stringify(file, null, 2)}\n`;
 }
 

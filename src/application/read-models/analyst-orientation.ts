@@ -2,7 +2,7 @@ import type { CardStatus, RuntimeStatus } from '../../schemas/index.js';
 import { canonicalJson } from '../../schemas/index.js';
 import { conversationSha256 } from '../../persistence/canonical-conversation-artifacts.js';
 
-export const ANALYST_ORIENTATION_KEY = 'analyst.project_tree';
+const ANALYST_ORIENTATION_KEY = 'analyst.project_tree';
 export const ANALYST_ORIENTATION_MAX_BYTES = 8192;
 export const ANALYST_ORIENTATION_TITLE_PREVIEW_BYTES = 128;
 export const ANALYST_ORIENTATION_OMISSION_MARKER = 'Details omitted from orientation; query get_tree, list_cards, or get_card.';

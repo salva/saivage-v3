@@ -11,14 +11,14 @@ import type { CapabilityRequest, CapabilityMatch, EffectiveProviderCapabilities 
 import type { InvocationRoutePass } from '../runtime/actors/llm-invocation.js';
 import { utf8SafeSlice } from '../tools/response-packer.js';
 
-export type CandidateIdentity = Candidate;
+type CandidateIdentity = Candidate;
 
 const sha256 = (value: string): string => createHash('sha256').update(value, 'utf8').digest('hex');
 
 export const candidateIdentitySha256 = (identity: CandidateIdentity): string => sha256(canonicalJson({ provider: identity.provider, account: identity.account, model: identity.model }));
 export const capabilityRequestSha256 = (request: Readonly<CapabilityRequest>): string => sha256(canonicalJson(request));
 
-export type CandidateIneligibleReason =
+type CandidateIneligibleReason =
   | Readonly<{ kind: 'capability_mismatch'; reasons: readonly CapabilitySkipReason[] }>
   | Readonly<{ kind: 'missing_context_window' }>
   | Readonly<{ kind: 'missing_max_output' }>
@@ -158,9 +158,9 @@ export type AdmittedCandidateAttemptState =
   | Readonly<{ kind: 'context_failed'; attempts: number; failure: ProviderTurnFailure }>
   | Readonly<{ kind: 'exhausted'; attempts: number; lastFailure: unknown | null }>;
 
-export type AdmittedCandidateAttemptStateKind = AdmittedCandidateAttemptState['kind'];
+type AdmittedCandidateAttemptStateKind = AdmittedCandidateAttemptState['kind'];
 
-export type AdmittedCandidateExecutionRecord = {
+type AdmittedCandidateExecutionRecord = {
   readonly identity: CandidateIdentity;
   readonly routeIndex: number;
   state: AdmittedCandidateAttemptState;
@@ -212,7 +212,7 @@ export class AdmittedProviderTurnFailure extends Error {
   }
 }
 
-export type AdmissionCandidateDiagnostic = Readonly<{
+type AdmissionCandidateDiagnostic = Readonly<{
   routeIndex: number;
   candidateIdentitySha256: string;
   providerPreview: string;
@@ -222,7 +222,7 @@ export type AdmissionCandidateDiagnostic = Readonly<{
   ineligibleReason: CandidateIneligibleReason | null;
 }>;
 
-export type AdmissionDiagnostics = Readonly<{
+type AdmissionDiagnostics = Readonly<{
   verdictCounts: Readonly<{ admitted: number; projection_too_large: number; candidate_ineligible: number }>;
   reasonCounts: Readonly<{ capability_mismatch: number; missing_context_window: number; missing_max_output: number; max_output_too_small: number }>;
   verdictSummarySha256: string;
@@ -286,7 +286,7 @@ const STATE_KINDS: readonly AdmittedCandidateAttemptStateKind[] = [
   'exhausted',
 ];
 
-export type RetainedAdmissionStateDiagnostics = Readonly<{
+type RetainedAdmissionStateDiagnostics = Readonly<{
   candidate_scope: 'retained_original_admission_state';
   admittedCandidateCount: number;
   admittedCandidateIdentitiesSha256: string;

@@ -6,8 +6,8 @@ import { createResolvedConfigAuthority, type ResolvedConfigAuthority } from './r
 import { realpathSync } from 'node:fs';
 import type { CompiledProjectWorkflows } from '../runtime/card-process/card-process-config.js';
 
-export type NodeEnvironment = 'development' | 'production' | 'test';
-export type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
+type NodeEnvironment = 'development' | 'production' | 'test';
+type LogLevel = 'fatal' | 'error' | 'warn' | 'info' | 'debug' | 'trace' | 'silent';
 
 export interface Environment {
   readonly nodeEnv: NodeEnvironment;
@@ -26,7 +26,7 @@ export interface Environment {
   };
 }
 
-export class EnvironmentLoadError extends Error {
+class EnvironmentLoadError extends Error {
   readonly field: string;
   readonly expected: string;
   readonly received: string;

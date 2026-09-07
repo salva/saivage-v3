@@ -16,13 +16,13 @@ export interface AnalystMutationReadContext {
   readonly services: NonNullable<ToolContext['analystPreparation']>;
 }
 
-export interface AnalystMutationContext {
+interface AnalystMutationContext {
   readonly actor: ToolContext['actor'];
   readonly surface: ToolContext['surface'];
   readonly services: NonNullable<ToolContext['analystMutations']>;
 }
 
-export type AnalystLifecycleChecks = { kind: 'runtime_cancellation' } | { kind: 'intervention_ready'; timing: 'immediate_before_mutation' } | { kind: 'intervention_ready'; timing: 'before_pre_network_admission_and_immediate_before_mutation' };
+type AnalystLifecycleChecks = { kind: 'runtime_cancellation' } | { kind: 'intervention_ready'; timing: 'immediate_before_mutation' } | { kind: 'intervention_ready'; timing: 'before_pre_network_admission_and_immediate_before_mutation' };
 interface MutatingSpecBase<P, Prepared> {
   readonly action: string;
   readonly safety_class: NonNullable<ControlActionAuditEntry['safety_class']>;
@@ -32,7 +32,7 @@ interface MutatingSpecBase<P, Prepared> {
   readonly mutate: (prepared: Prepared, params: P, ctx: AnalystMutationContext) => AnalystMutationOutcome | Promise<AnalystMutationOutcome>;
   readonly successSummary?: string;
 }
-export type MutatingSpec<P, Prepared = undefined> =
+type MutatingSpec<P, Prepared = undefined> =
   | (MutatingSpecBase<P, Prepared> & { lifecycle: { kind: 'intervention_ready'; timing: 'before_pre_network_admission_and_immediate_before_mutation' }; prepare: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>; admitBeforePrepare: (params: P, ctx: AnalystMutationReadContext) => AnalystPreNetworkAdmission })
   | (MutatingSpecBase<P, Prepared> & { lifecycle: { kind: 'intervention_ready'; timing: 'immediate_before_mutation' } | { kind: 'runtime_cancellation' }; prepare?: (params: P, ctx: AnalystMutationReadContext) => Promise<Prepared>; admitBeforePrepare?: never });
 

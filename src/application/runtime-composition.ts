@@ -58,7 +58,7 @@ export interface RuntimeApplication {
   getProviderRoutingReadModel(): ProviderRoutingReadModel;
 }
 
-export interface RuntimeApplicationServices {
+interface RuntimeApplicationServices {
   projectRoot: string;
   processIdentity: RuntimeProcessIdentity;
   config: SaivageConfig;

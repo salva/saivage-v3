@@ -1,7 +1,7 @@
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import { redactTextForOutbound } from '../redaction/index.js';
 
-export interface ClassifierContext {
+interface ClassifierContext {
   provider: string;
   model: string;
 }
@@ -19,7 +19,7 @@ function detail(bodyText: string): string {
   return `: ${redactTextForOutbound(bodyText.slice(0, 500))}`;
 }
 
-export function parseRetryAfterMs(headers: Headers): number | undefined {
+function parseRetryAfterMs(headers: Headers): number | undefined {
   const raw = headers.get('retry-after');
   if (!raw) return undefined;
   const seconds = Number(raw);
@@ -33,7 +33,7 @@ export function parseRetryAfterMs(headers: Headers): number | undefined {
   return undefined;
 }
 
-export function parseResetsAt(headers: Headers): string | undefined {
+function parseResetsAt(headers: Headers): string | undefined {
   const raw = headers.get('x-ratelimit-reset') ?? headers.get('x-ratelimit-reset-requests');
   if (!raw) return undefined;
   if (Number.isFinite(Date.parse(raw))) return raw;
@@ -55,13 +55,13 @@ function directToken(error: Record<string, unknown>, tokens: ReadonlySet<string>
   return [directText(error, 'code'), directText(error, 'type')].some((value) => value !== undefined && tokens.has(value.toLowerCase()));
 }
 
-export function hasContentPolicyEvidence(error: Record<string, unknown>): boolean {
+function hasContentPolicyEvidence(error: Record<string, unknown>): boolean {
   if (directToken(error, CONTENT_POLICY_TOKENS)) return true;
   const message = directText(error, 'message')?.toLowerCase();
   return message !== undefined && CONTENT_POLICY_PHRASES.some((phrase) => message.includes(phrase));
 }
 
-export type DirectProviderFailureSource =
+type DirectProviderFailureSource =
   | { kind: 'non_ok_http_response'; responseStatus: number }
   | {
       kind: 'opened_response_terminal';
@@ -129,7 +129,7 @@ export function classifyHttpFailure(
   };
 }
 
-export function isInputContextErrorObject(
+function isInputContextErrorObject(
   error: Record<string, unknown>,
   allowedParams: readonly string[],
 ): boolean {

@@ -16,7 +16,7 @@ export type ConfigMutation =
   | { readonly kind: 'set_server_setting'; readonly key: 'port'; readonly value: number }
   | { readonly kind: 'set_server_setting'; readonly key: 'host'; readonly value: string };
 
-export type ConfigMutationResult =
+type ConfigMutationResult =
   | { readonly success: true; readonly config: SaivageConfig; readonly warnings: readonly string[]; readonly requires_restart: true }
   | { readonly success: false; readonly fieldPath: string; readonly message: string };
 

@@ -5,7 +5,7 @@ import { effectiveRecordContent, isEmptyRecordContent } from '../persistence/can
 import type { RecordProjection } from '../persistence/authored-record-files.js';
 import type { AgentName } from '../schemas/index.js';
 
-export interface RecordMutationRequest {
+interface RecordMutationRequest {
   path: string;
   operation: 'write' | 'edit';
   content?: string;

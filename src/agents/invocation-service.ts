@@ -83,7 +83,7 @@ export type InvocationRequest = InvocationRequestBase &
     | { preparedCompaction?: never; preparedContext?: never; modelParams: { temperature: number; maxTokens: number } }
   );
 
-export interface InvocationServiceConfig {
+interface InvocationServiceConfig {
   projectRoot: string;
   registry: ProviderRegistry;
   candidateAvailability: CandidateAvailability;

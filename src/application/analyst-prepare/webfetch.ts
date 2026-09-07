@@ -5,7 +5,7 @@ import type { AnalystRecordMutationService } from '../analyst-mutation-services.
 
 export interface PreparedFetchedRecord { readonly content: string; readonly metadata: WebfetchMetadata; }
 
-export interface AnalystWebReadClient {
+interface AnalystWebReadClient {
   fetchText(input: { url: string; read_mode?: 'auto' | 'text'; max_bytes?: number }, signal?: AbortSignal): Promise<PreparedFetchedRecord>;
 }
 
@@ -16,7 +16,7 @@ export interface AnalystPreparationReadServices {
 
 export function admitAnalystRecordWebfetch(input: AnalystWebfetchRecordInput, ctx: AnalystMutationReadContext): AnalystPreNetworkAdmission { return ctx.services.records.admitWrite(input.save_as); }
 
-export interface AnalystWebfetchRecordInput {
+interface AnalystWebfetchRecordInput {
   readonly url: string;
   readonly read_mode?: 'auto' | 'text';
   readonly max_bytes?: number;

@@ -1,7 +1,7 @@
 import type { CardRecord } from '../schemas/index.js';
 import { CardServiceInvariantError } from './errors.js';
 
-export interface ValidateParsedCardsInput {
+interface ValidateParsedCardsInput {
   cards: CardRecord[];
 }
 

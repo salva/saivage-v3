@@ -17,7 +17,7 @@ export interface NewChildCardInput {
 
 export type CardEditPatch = Partial<Pick<CardRecord, 'title' | 'tags' | 'priority' | 'urgency' | 'related'>>;
 export type SetStatusTarget = 'running' | 'changed' | 'cancelled';
-export type SetStatusLifecycle = Extract<CardLifecycleState, { status: SetStatusTarget }>;
+type SetStatusLifecycle = Extract<CardLifecycleState, { status: SetStatusTarget }>;
 
 const EDIT_FIELDS = ['title', 'tags', 'priority', 'urgency', 'related'] as const satisfies ReadonlyArray<keyof CardEditPatch>;
 const SET_STATUS_SOURCES: Record<SetStatusTarget, readonly CardStatus[]> = {

@@ -4,7 +4,7 @@
 
 import { candidatesEqual, type Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
-export type { AvailabilityDecision, CandidateAvailability, CandidateAvailabilityEntry } from '../contracts/candidate-availability.js';
+export type { AvailabilityDecision, CandidateAvailability } from '../contracts/candidate-availability.js';
 
 /** Availability intentionally resets whenever the process restarts. */
 export class MemoryCandidateAvailability implements CandidateAvailability {

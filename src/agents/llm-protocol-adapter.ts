@@ -14,7 +14,7 @@ import { openAICodexAdapter } from './llm-openai-codex-adapter.js';
 
 export type LlmCredentialRequirement = 'standard' | 'openai_responses_api_key';
 
-export interface LlmAdapterRequestInput {
+interface LlmAdapterRequestInput {
   candidate: Candidate;
   systemPrompt: string;
   providerConversation: ProviderConversationProjection;
@@ -22,14 +22,14 @@ export interface LlmAdapterRequestInput {
   capabilities: EffectiveProviderCapabilities;
 }
 
-export interface LlmAdapterWire {
+interface LlmAdapterWire {
   endpoint: string;
   headers: Record<string, string>;
   requestParams: Record<string, unknown>;
   transport: 'generic' | 'codex' | 'openai-responses';
 }
 
-export interface LlmAdapterSuccess {
+interface LlmAdapterSuccess {
   result: LlmCompleteResult;
   privateContext?: ProviderPrivateContext;
   finishReason?: string | null;

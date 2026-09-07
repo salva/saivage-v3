@@ -10,7 +10,7 @@ import {
 } from '../runtime/lock.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 
-export interface DirectMutationComposition {
+interface DirectMutationComposition {
   readonly projectRoot: string;
   readonly lifecycleLock: RuntimeLifecycleLockHandle;
   createAndBindProjectIdentity(): ReturnType<typeof createProjectIdentity>;

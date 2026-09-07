@@ -4,8 +4,8 @@ import { redactForOutbound } from '../redaction/index.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../contracts/builtin-tool-inputs.js';
 
 export { EVENT_QUERY_MAX_LIMIT } from '../contracts/builtin-tool-inputs.js';
-export type EventSelection = 'oldest_page' | 'newest_tail';
-export interface EventQuery {
+type EventSelection = 'oldest_page' | 'newest_tail';
+interface EventQuery {
   kind?: EventKind;
   card_id?: string;
   offset?: number;

@@ -1,6 +1,6 @@
 import { basename, normalize, resolve } from 'node:path';
 
-export const SECRET_BASENAMES: readonly RegExp[] = [
+const SECRET_BASENAMES: readonly RegExp[] = [
   /^auth-profiles(?:\.[^/]+)?$/i,
   /^id_rsa(?:\.pub)?$/i,
   /^id_ed25519(?:\.pub)?$/i,
@@ -12,7 +12,7 @@ export const SECRET_BASENAMES: readonly RegExp[] = [
   /^\.pypirc$/i,
 ];
 
-export const SECRET_PATH_FRAGMENTS: readonly string[] = [
+const SECRET_PATH_FRAGMENTS: readonly string[] = [
   '/.saivage/auth-profiles',
   '/.ssh',
   '/.aws',
@@ -24,7 +24,7 @@ export const SECRET_PATH_FRAGMENTS: readonly string[] = [
   '/.pypirc',
 ];
 
-export class SecretPathError extends Error {
+class SecretPathError extends Error {
   constructor(path: string) {
     super(`Access denied: secret-bearing path is off-limits (${path}). Use safer inspection paths that do not touch secrets.`);
     this.name = 'SecretPathError';

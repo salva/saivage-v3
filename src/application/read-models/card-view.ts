@@ -2,7 +2,7 @@ import { PROJECT_CARD_ID, type CardService } from '../../cards/card-api.js';
 import type { CardOperatorSummary, CardRecord, CardView } from '../../schemas/index.js';
 import { cardParentId } from '../../schemas/card-id.js';
 
-export function computeCardLogicalPath(store: CardService, card: CardRecord): string | null {
+function computeCardLogicalPath(store: CardService, card: CardRecord): string | null {
   if (card.id === PROJECT_CARD_ID) return null;
   const segments = [String(siblingDisplayRank(store, card))];
   let parentId: string | null = cardParentId(card.id);
@@ -28,7 +28,7 @@ export function toCardView(store: CardService, card: CardRecord): CardView {
   return { card, logical_path: computeCardLogicalPath(store, card), status: card.lifecycle.status, parent: cardParentId(card.id), operator_summary: toCardOperatorSummary(card) };
 }
 
-export function toCardOperatorSummary(card: CardRecord): CardOperatorSummary {
+function toCardOperatorSummary(card: CardRecord): CardOperatorSummary {
   const lifecycle = card.lifecycle;
   return {
     blocked: lifecycle.status === 'blocked',

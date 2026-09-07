@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export type JsonSchema =
+type JsonSchema =
   | { type: 'string'; enum?: string[]; minLength?: number; description?: string }
   | { type: 'number'; description?: string }
   | { type: 'integer'; description?: string }
