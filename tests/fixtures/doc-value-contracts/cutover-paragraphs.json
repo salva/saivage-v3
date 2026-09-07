@@ -3,7 +3,7 @@
     "id": "system-child-creation",
     "file": "docs/spec/system-specification.md",
     "before": ["After basic input validation it exact-reads and validates the parent, computes resulting child depth, and rejects depth above twelve before ordinary parent workflow/lifecycle admission, child-workflow lookup, dependency reads, fresh-parent reads, namespace claim, or any write. The exact error is `Cannot create card at depth <n>. Maximum allowed depth is 12.` In-limit creation next performs ordinary parent admission, resolves the selected child workflow (retaining `No workflow for child type '<type>'.` precedence), and at resulting depth twelve requires that workflow's compiled `permitted_child_types` be empty; otherwise it rejects with `Cannot create non-leaf child type '<type>' at maximum card depth 12.`"],
-    "after": ["After basic input validation it exact-reads and validates the parent, computes resulting child depth, and applies the [exact card identity contract](#exact-card-identity-contract) maximum before ordinary parent workflow/lifecycle admission, child-workflow lookup, dependency reads, fresh-parent reads, namespace claim, or any write. The over-limit error reports the attempted depth and that source-derived maximum. In-limit creation next performs ordinary parent admission, resolves the selected child workflow (retaining `No workflow for child type '<type>'.` precedence), and at the [maximum card depth](#exact-card-identity-contract) requires that workflow's compiled `permitted_child_types` be empty; otherwise it rejects with the selected type and source-derived maximum."]
+    "after": ["After basic input validation it exact-reads and validates the parent, computes resulting child depth, and applies the [exact card identity contract](#exact-card-identity-contract) maximum before ordinary parent workflow/lifecycle admission, child-workflow lookup, dependency reads, fresh-parent reads, namespace claim, or any write.\nThe over-limit error reports the attempted depth and that source-derived maximum.\nIn-limit creation next performs ordinary parent admission, resolves the selected child workflow (retaining `No workflow for child type '<type>'.` precedence), and at the [maximum card depth](#exact-card-identity-contract) requires that workflow's compiled `permitted_child_types` be empty; otherwise it rejects with the selected type and source-derived maximum."]
   },
   {
     "id": "system-orientation",
@@ -39,7 +39,7 @@
     "id": "system-availability",
     "file": "docs/spec/system-specification.md",
     "before": ["Runtime-status observation failure produces a `degraded` runtime component rather than an unavailable server. Availability states are exactly `available | degraded | idle | unknown`, and component sources are exactly `health-check | runtime-application | mcp-manager`."],
-    "after": ["Runtime-status observation failure produces the degraded member of the [exact availability vocabulary](#exact-availability-vocabulary) rather than an unavailable server. The complete state and component-source lists are declaration-level contracts in that block."]
+    "after": ["Runtime-status observation failure produces the degraded member of the [exact availability vocabulary](#exact-availability-vocabulary) rather than an unavailable server.\nThe complete state and component-source lists are declaration-level contracts in that block."]
   },
   {
     "id": "system-reset-depth",
@@ -81,6 +81,6 @@
     "id": "architecture-displayed-current-diff",
     "file": "docs/architecture/system-architecture.md",
     "before": ["The displayed diff's complete shared request key is `{cardId,fromSeq,to:'current'}`. Every initial load, invalidation refresh, reconnect refresh, and Retry serializes literal `to=current`; a numeric response `to` is evidence, never the next request pivot. Diff and detail remain independent authorities."],
-    "after": ["The displayed diff follows the [exact source-derived request identity and currentness contract](../spec/operator-ui.md#exact-displayed-current-diff-request-contract). Diff and detail remain independent authorities."]
+    "after": ["The displayed diff follows the [exact source-derived request identity and currentness contract](../spec/operator-ui.md#exact-displayed-current-diff-request-contract).\nDiff and detail remain independent authorities."]
   }
 ]
