@@ -5,8 +5,9 @@ import {
   readCurrentConversationSegment,
   type ConversationSegment,
 } from '../../persistence/conversation-file.js';
-import type { ConversationContinuation, ConversationSegmentGenesis } from '../../persistence/canonical-conversation-artifacts.js';
-import { type AgentMessage, type CompactedHistory, type ConversationSessionId, type RequiredModelFactSlots } from '../../schemas/index.js';
+import type { ConversationSegmentGenesis } from '../../persistence/canonical-conversation-artifacts.js';
+import { type AgentMessage, type ConversationSessionId } from '../../schemas/index.js';
+import type { ConversationSegmentContext } from '../../contracts/index.js';
 import { projectToolInvocation } from '../../tools/tool-invocation-outbound.js';
 
 export interface FoldedConversation {
@@ -17,21 +18,6 @@ export interface FoldedConversation {
   readonly segmentVersion: number;
   readonly segmentContext: ConversationSegmentContext;
 }
-
-type ConversationSegmentContext = null | {
-  readonly kind: 'compacted';
-  readonly source_version: number;
-  readonly covered_through_message_id: string;
-  readonly summary_text: string;
-  readonly source_kind: 'current_rows' | 'prior_genesis_plus_current_rows';
-  readonly prior_genesis_id: string | null;
-  readonly prior_history_hash: string | null;
-  readonly covered_group_count: number;
-  readonly dispositions: CompactedHistory['dispositionCommitment'];
-  readonly coverage: CompactedHistory['coverageCommitment'];
-  readonly required_model_facts: RequiredModelFactSlots;
-  readonly continuation: ConversationContinuation;
-};
 
 export class ConversationSegmentChangedError extends Error {
   constructor(readonly requestedVersion: number, readonly currentVersion: number) {
@@ -95,8 +81,20 @@ export function segmentContext(genesis: ConversationSegmentGenesis): Conversatio
         prior_genesis_id: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorGenesisId : null,
         prior_history_hash: genesis.compaction.source.kind === 'prior_genesis_plus_current_rows' ? genesis.compaction.source.priorHistoryHash : null,
         covered_group_count: genesis.compaction.source.groups.length,
-        dispositions: genesis.compaction.dispositionCommitment,
-        coverage: genesis.compaction.coverageCommitment,
+        dispositions: {
+          sha256: genesis.compaction.dispositionCommitment.sha256,
+          count: genesis.compaction.dispositionCommitment.count,
+          summarized: genesis.compaction.dispositionCommitment.summarized,
+          evidence_only: genesis.compaction.dispositionCommitment.evidenceOnly,
+          superseded: genesis.compaction.dispositionCommitment.superseded,
+        },
+        coverage: {
+          source_session_id: genesis.compaction.coverageCommitment.sourceSessionId,
+          source_version: genesis.compaction.coverageCommitment.sourceVersion,
+          covered_through_message_id: genesis.compaction.coverageCommitment.coveredThroughMessageId,
+          covered_source_groups_sha256: genesis.compaction.coverageCommitment.coveredSourceGroupsSha256,
+          accumulated_summary_sha256: genesis.compaction.coverageCommitment.accumulatedSummarySha256,
+        },
         required_model_facts: genesis.compaction.requiredModelFacts,
         continuation: genesis.continuation,
       });

@@ -683,10 +683,10 @@ describe('repository complete export boundary', () => {
     expect(result.ownership.declarationFiles).toEqual(['scripts/verify-doc-routes.d.ts', 'web/env.d.ts']);
     expect(result.ownership.typescriptOrdinaryFiles).toEqual(tsFamily.filter((file) => !declarations.includes(file)));
     expect(Object.fromEntries(['production-consumed', 'test-only', 'local-only', 'zero-use'].map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]))).toEqual({
-      'production-consumed': 1668, 'test-only': 206, 'local-only': 2, 'zero-use': 0,
+      'production-consumed': 1671, 'test-only': 206, 'local-only': 2, 'zero-use': 0,
     });
-    expect(result.records).toHaveLength(1876);
-    expect(result.totals).toEqual({ 'production-consumed': 1670, 'test-only': 206, 'local-only': 0, 'zero-use': 0 });
+    expect(result.records).toHaveLength(1879);
+    expect(result.totals).toEqual({ 'production-consumed': 1673, 'test-only': 206, 'local-only': 0, 'zero-use': 0 });
     expect(result.ok).toBe(true);
     expect(result.failures).toEqual([]);
     expect(result.staleImports).toBe(0);

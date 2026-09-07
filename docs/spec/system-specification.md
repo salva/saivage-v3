@@ -658,7 +658,7 @@ A failed halt retains its owner graph and emits no successful-removal freshness.
 One canonical durable conversation state machine owns exact session and message identity, source classification, tool call/result settlement and ordering, source rounds/segments, provider bundles, compaction coverage/hashes/static IDs, and the zero-or-one final-source unmatched-call rule.
 Its in-memory adapter returns immutable `ValidatedConversation` physical/source rows and derived durable facts.
 Append admission, `readConversation`, complete Agent transcripts, bounded `read_agent_session`, compaction source selection, ordinary provider source selection, and card Run recovery consume this grammar or its facts.
-`GET /api/agents/:id/conversation` returns `{session_id,entries,cursor}` only after complete exact validation.
+`GET /api/agents/:id/conversation` returns exactly `{session_id,segment_version,segment_context,entries,cursor:{segment_version,message_id}}` only after complete exact validation. Selected conversation history returns exactly `{session_id,version,entry_id,published_at,segment_context,entries}`. Ordinary v1 has `segment_context:null`; each compacted version has a strict separately projected context.
 Optional `since` is an opaque equality token.
 An absent token alone is `400`; later outward rows are selected only after complete validation, and the cursor advances over filtered provider-private rows.
 A sole final unmatched call has no active, waiting, pending, or snapshot meaning.
@@ -669,7 +669,7 @@ Successful `GET /api/agents/:id/llm-exchange` returns exactly `{session_id,excha
 Current providers and executors return only constructor-created nominal action outcomes; they do not construct wire ToolResults.
 One settlement authority validates the nominal token, outbound-projects/redacts the fields, creates the strict success/failure ToolResult, and returns that exact result together with its canonical JSON bytes.
 All failed outcomes receive no evidence.
-Successful `list_agent_sessions` data is `{sessions: AgentSessionSummary[]}`, and successful `read_agent_session` data is `{session,total_messages,returned,messages}`.
+Successful `list_agent_sessions` data is `{sessions: AgentSessionSummary[]}`, and successful `read_agent_session` data is `{session,ownership,segment_version,segment_context,total_visible_entries,returned_visible_entries,messages}`.
 A failure is the one top-level `{success:false,error,data?}` ToolResult.
 Persisted result `data` remains opaque unknown JSON.
 
@@ -1645,7 +1645,7 @@ The UI displays title/hierarchy labels and preserves immutable hierarchical card
 It exposes Stop project with delegated `contained:true` and no-runtime `contained:false` results; concurrent application close joins the same halt rather than returning a conflict.
 Restart server appears only when required `restart_server_available` is true and requires confirmation.
 No UI action optimistically writes a running card cancelled.
-Raw conversations preserve canonical compaction JSON while rendered views show one synthetic system context.
+Public conversation reads project compacted genesis separately from entries rather than returning durable compaction JSON verbatim. The strict projection intentionally mixes naming: disposition and coverage commitments use their declared snake_case wire keys, required-model-fact members retain their declared camelCase keys, and inherited-continuation activation uses its declared snake_case keys. Projection is explicit at this owner boundary; no recursive key conversion occurs.
 Files route schemas, authorization, and client presentation remain unchanged; canonical card traversal is the virtual behavior above rather than generic physical browsing.
 
 ## 12. Reset And Failure Consequences

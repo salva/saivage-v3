@@ -559,7 +559,7 @@ The browser is the effect-admission owner: immediately before route application 
 Invalid or cross-wired data fails before any route effect; failed and unrelated tool results remain non-navigation outcomes.
 
 The canonical-row leaf imports neither the Agent read owner nor the invocation switch and requires a concrete invocation-projector callback; no default, stub, or fallback callback exists.
-`agent-conversation-read-model.ts` supplies that concrete tool projector and owns visible folding, covered-fact reconstruction for compacted segments, provider-private omission, provider-decoration stripping, canonical outbound projection, segment context, cursor selection, and bounded tails.
+`agent-conversation-read-model.ts` supplies that concrete tool projector and owns visible folding, covered-fact reconstruction for compacted segments, provider-private omission, provider-decoration stripping, canonical outbound projection, the shared strict segment-context projection, cursor selection, and bounded tails. It projects only segment context at the shared boundary: `AgentOperatorReadModelService` owns the outer current and historical HTTP DTOs, while `read_agent_session` owns its distinct outer tool DTO. No public read returns the durable compaction object verbatim.
 `ValidatedConversation` is the immutable durable-fact result of the singular state machine: physical/source rows, classifications, rounds/segments, compactions, call settlements, and its optional sole final unmatched call.
 Complete conversations derive validity solely from durable physical order.
 Every result has one earlier exact matching call; zero or one unmatched call is permitted only when it is the final source row.

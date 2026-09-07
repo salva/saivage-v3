@@ -155,6 +155,7 @@ const AgentConversationBadRequestSchema = z.union([
 
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
 export type AgentConversationEntry = z.infer<typeof AgentConversationEntrySchema>;
+export type ConversationSegmentContext = z.infer<typeof ConversationSegmentContextSchema>;
 export const agentOperatorApiContracts = {
   'agents.list': {
     operationId: 'agents.list',

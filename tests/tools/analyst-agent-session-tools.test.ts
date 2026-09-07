@@ -9,6 +9,7 @@ import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helper
 import {
   ListAgentSessionsToolDataSchema,
   ReadAgentSessionToolDataSchema,
+  analystMiscToolBinders,
   list_agent_sessions,
   read_agent_session,
 } from '../../src/tools/analyst-misc-tools.js';
@@ -21,6 +22,7 @@ import {
   OUTBOUND_REDACTED_URL,
   OUTBOUND_URL,
 } from '../helpers/outbound-identity-fixtures.js';
+import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-18T00:00:00.000Z';
@@ -97,6 +99,99 @@ function rows(): AgentMessage[] {
 }
 
 describe('Analyst agent-session tools', () => {
+  it('returns a strict compacted current session through the production binder and executor', async () => {
+    const projectRoot = setup();
+    const sessionId = await publishThreeGenerationCompactedConversation(projectRoot);
+    const binder = analystMiscToolBinders.find((candidate) => candidate.name === 'read_agent_session');
+    if (!binder) throw new Error('Expected production read_agent_session binder.');
+    const bound = binder.bind(context(projectRoot));
+    const args = bound.inputSchema.parse({ session_id: sessionId });
+    const execution = await bound.executor(args, new AbortController().signal);
+
+    expect(execution.evidence).toEqual({ kind: 'observational_result_bytes' });
+    expect(execution.providerOutcome.kind).toBe('succeeded');
+    if (execution.providerOutcome.kind !== 'succeeded')
+      throw new Error(execution.providerOutcome.error);
+    const data = ReadAgentSessionToolDataSchema.parse(execution.providerOutcome.data);
+    expect(Object.keys(data).sort()).toEqual([
+      'messages',
+      'ownership',
+      'returned_visible_entries',
+      'segment_context',
+      'segment_version',
+      'session',
+      'total_visible_entries',
+    ]);
+    expect(data.segment_version).toBe(3);
+    expect(data.segment_context).not.toBeNull();
+    const segmentContext = data.segment_context;
+    if (segmentContext === null) throw new Error('Expected compacted segment context.');
+    expect(Object.keys(segmentContext).sort()).toEqual([
+      'continuation',
+      'coverage',
+      'covered_group_count',
+      'covered_through_message_id',
+      'dispositions',
+      'kind',
+      'prior_genesis_id',
+      'prior_history_hash',
+      'required_model_facts',
+      'source_kind',
+      'source_version',
+      'summary_text',
+    ]);
+    expect(Object.keys(segmentContext.dispositions).sort()).toEqual([
+      'count',
+      'evidence_only',
+      'sha256',
+      'summarized',
+      'superseded',
+    ]);
+    expect(segmentContext.dispositions).not.toHaveProperty('evidenceOnly');
+    expect(Object.keys(segmentContext.coverage).sort()).toEqual([
+      'accumulated_summary_sha256',
+      'covered_source_groups_sha256',
+      'covered_through_message_id',
+      'source_session_id',
+      'source_version',
+    ]);
+    for (const domainKey of [
+      'accumulatedSummarySha256',
+      'coveredSourceGroupsSha256',
+      'coveredThroughMessageId',
+      'sourceSessionId',
+      'sourceVersion',
+    ]) expect(segmentContext.coverage).not.toHaveProperty(domainKey);
+    expect(Object.keys(segmentContext.required_model_facts).sort()).toEqual([
+      'latestContentPolicyRefusal',
+      'latestRecovery',
+    ]);
+    expect(segmentContext.required_model_facts.latestRecovery).not.toBeNull();
+    expect(Object.keys(segmentContext.required_model_facts.latestRecovery!).sort()).toEqual([
+      'activationInputId',
+      'sourceMessageId',
+    ]);
+    expect(segmentContext.required_model_facts.latestContentPolicyRefusal).not.toBeNull();
+    expect(Object.keys(segmentContext.required_model_facts.latestContentPolicyRefusal!).sort()).toEqual([
+      'activationInputId',
+      'markerId',
+    ]);
+    expect(segmentContext.source_kind).toBe('prior_genesis_plus_current_rows');
+    expect(segmentContext.prior_genesis_id).not.toBeNull();
+    expect(segmentContext.prior_history_hash).not.toBeNull();
+    expect(segmentContext.continuation.kind).toBe('inherited_open_round');
+    if (segmentContext.continuation.kind !== 'inherited_open_round')
+      throw new Error('Expected inherited open-round continuation.');
+    expect(Object.keys(segmentContext.continuation).sort()).toEqual([
+      'activation',
+      'active_segment_kind',
+      'kind',
+    ]);
+    expect(Object.keys(segmentContext.continuation.activation).sort()).toEqual(['input_id', 'marker_id']);
+    expect(segmentContext.continuation.activation).not.toHaveProperty('inputId');
+    expect(segmentContext.continuation.activation).not.toHaveProperty('markerId');
+  });
+
   it('returns the exact direct and nested durable call-only tail', async () => {
     const projectRoot = setup();
     appendConversationBatch({ projectRoot }, rows());
