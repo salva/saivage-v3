@@ -923,12 +923,13 @@ Publication uncertainty authorizes no reread, retry, predecessor inspection, or 
 The compactor is the single sequential admission owner for one `compact()` call.
 It has no worker pool, queue, semaphore, generic scheduler, or compaction retry owner, and admits at most one summarizer provider call at a time; abort or first failure admits nothing later.
 The materializer derives each advance as the disjoint source-row slice between its committed cutoff and the requested larger cutoff, so each current source summary item enters leaf materialization at most once.
-It owns a genuine nullable accumulator separately from candidate projection: initial structural-only advances without inherited history return `EMPTY_COVERAGE_SUMMARY` but never store or reduce that sentinel; content-bearing advances reduce only the non-null genuine accumulator, newly superseded inherited fact meanings, and new leaf outputs.
-Structural-only advances after genuine current-segment material carry it without a provider call, while inherited history before any current-segment material cannot by itself establish new coverage.
+It owns semantic accumulator change separately from exact canonical coverage advance: a structural-only increment performs zero provider I/O, leaves the genuine nullable accumulator unchanged, advances the committed cutoff, and returns that accumulator or `EMPTY_COVERAGE_SUMMARY` when it is null; the sentinel is never stored or reduced.
+Content-bearing increments reduce only the non-null genuine accumulator, newly superseded inherited fact meanings, and new leaf outputs.
+Materializer coverage advance does not accept or publish a candidate; candidate construction and prospective validation plus the compactor strategy own acceptance, and only the strategy-selected candidate is published.
 Required-model-fact slots are derived newest-only from inherited slots plus newly covered rows, a superseded slot's meaning is folded before replacement, and unchanged slots are carried without re-summarization.
 
 Every summary-eligible leaf body and reduction request is materialized through the one exact serialized-request estimator/packer that accounts instructions, labels, wrappers, the genuine nullable prior accumulator, the exact semantic projection of selected recovery/refusal facts, protocol bytes, and the completion reserve in the [exact context and compaction limits](../spec/system-specification.md#exact-context-and-compaction-limits); oversized leaf/prior/reduction inputs are chunked deterministically with provable per-level progress.
-An advance computes the next accumulator, current-segment-material flag, inherited-fact fold markers, and cutoff in locals and commits them together only after all leaf and reduction work succeeds.
+An advance computes the next accumulator, inherited-fact fold markers, and cutoff in locals and commits them together only after all leaf and reduction work succeeds.
 Abort, malformed success, provider failure, summary-evidence projection/publication failure, or invariant failure leaves the preceding call-local state unchanged and terminates candidate admission.
 Summary evidence uses the internal `internal:compaction-summary:<source-session-hash>` namespace and label, never a configured agent identity or Agent inventory entry.
 

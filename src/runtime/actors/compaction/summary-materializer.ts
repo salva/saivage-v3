@@ -51,7 +51,6 @@ export function createIncrementalSummaryMaterializer(args: {
   };
   let materializedThrough = 0;
   let accumulatedSummaryText = args.inheritedHistory?.summaryText ?? null;
-  let hasCurrentSegmentSummaryMaterial = false;
   let inheritedRecoveryFolded = false;
   let inheritedRefusalFolded = false;
 
@@ -74,8 +73,6 @@ export function createIncrementalSummaryMaterializer(args: {
       });
       const leafItems = buildLeafItems(args.conversation, incrementRows);
       if (leafItems.length === 0) {
-        if (accumulatedSummaryText !== null && !hasCurrentSegmentSummaryMaterial)
-          throw new Error('Compaction found no newly covered conversation content.');
         materializedThrough = cutoffCount;
         return accumulatedSummaryText ?? EMPTY_COVERAGE_SUMMARY;
       }
@@ -88,7 +85,6 @@ export function createIncrementalSummaryMaterializer(args: {
       const nextSummaryText = await reduceToFinalSummary(context, reductionItems);
 
       accumulatedSummaryText = nextSummaryText;
-      hasCurrentSegmentSummaryMaterial = true;
       inheritedRecoveryFolded ||= newlySuperseded.recovery;
       inheritedRefusalFolded ||= newlySuperseded.refusal;
       materializedThrough = cutoffCount;

@@ -4,14 +4,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
-import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { foldConversation } from '../../src/application/read-models/agent-conversation-read-model.js';
 import { CompactionSummaryConstructionError, compact, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
-import { composeContextProjection, type ComposedContextProjection } from '../../src/runtime/actors/context/composition-projector.js';
+import { composeContextProjection, providerConversationFromComposedContext, type ComposedContextProjection } from '../../src/runtime/actors/context/composition-projector.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
 import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/content-policy-messages.js';
+import { canonicalValueSha256 } from '../../src/persistence/canonical-conversation-artifacts.js';
 import {
   contentPolicyRefusalProjectionText,
   MODEL_RECOVERY_NOTICE_TEXT,
@@ -21,12 +22,15 @@ import {
 import type { ValidatedConversation } from '../../src/contracts/conversation-validation.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
-import { SUMMARY_REDUCTION_INSTRUCTION } from '../../src/runtime/actors/compaction/summary-materializer.js';
+import { EMPTY_COVERAGE_SUMMARY, SUMMARY_REDUCTION_INSTRUCTION } from '../../src/runtime/actors/compaction/summary-materializer.js';
 import { SummaryResultValidationError } from '../../src/runtime/actors/compaction/summarizer.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
+import { classifyConversationRounds, estimateMessageTokens } from '../../src/runtime/actors/compaction/round-classifier.js';
+import { computeSlidingCompactionBands } from '../../src/runtime/actors/compaction/bands.js';
+import { deterministicRoundId } from '../../src/schemas/round-id-server.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
@@ -482,6 +486,203 @@ describe('accumulated compaction history generations', () => {
       const continuedProjection = providerConversationProjection(continued.conversation).messages;
       expect(continuedProjection.some((row) => row.content === 'repair directive after inherited open round')).toBe(true);
       expect(continuedProjection.some((row) => row.content === continued.conversation.effectiveCompactedHistory!.summaryText)).toBe(true);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('continues preventive repeat compaction past an inherited llm_turn_started-only first candidate', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-history-repeat-'));
+    initProjectTree(root);
+    try {
+      const inheritedInputId = '00000000-0000-4000-8000-000000000001';
+      appendConversationBatch({ projectRoot: root }, [
+        activation(1),
+        text('repeat-predecessor-text', BIG),
+        ...summarizerOnlyBundle(inheritedInputId, 'repeat-predecessor-call', 'REPEAT-PREDECESSOR'.concat('-history'.repeat(200))),
+      ]);
+      const predecessorCalls: SummaryCall[] = [];
+      const predecessorResult = await compactOnce(root, 'authoritative_context_recovery', predecessorCalls);
+      expect(predecessorResult.kind).toBe('compacted');
+      expect(predecessorCalls.length).toBeGreaterThan(0);
+
+      const predecessor = readCurrentConversationSegment(root, SESSION)!;
+      const predecessorGenesis = predecessor.genesis;
+      if (predecessorGenesis.kind !== 'compacted_segment_genesis') throw new Error('repeat fixture predecessor must be compacted');
+      expect(predecessorGenesis.continuation).toEqual({
+        kind: 'inherited_open_round',
+        activation: { marker_id: 'activation-1', input_id: inheritedInputId },
+        active_segment_kind: 'initial',
+      });
+      expect(predecessor.rows).toEqual([]);
+      expect(predecessorGenesis.retained_rows).toMatchObject({
+        row_count: 0,
+        first_message_id: null,
+        last_message_id: null,
+      });
+      const inheritedSummary = predecessor.conversation.effectiveCompactedHistory!.summaryText;
+      expect(inheritedSummary).not.toBe('');
+      expect(inheritedSummary).not.toBe(EMPTY_COVERAGE_SUMMARY);
+      const predecessorCatalog = readConversationCatalog(root, SESSION);
+      const repeatCalls: SummaryCall[] = [];
+      expect(repeatCalls).toEqual([]);
+
+      const started: AgentMessage = {
+        id: `${inheritedInputId}:started`,
+        session_id: SESSION,
+        role: 'system',
+        kind: 'activity',
+        context_policy: STRUCTURAL_ROW_POLICY.activation_boundary,
+        content: JSON.stringify({ event: 'llm_turn_started', inputId: inheritedInputId, agent_name: 'planner' }),
+        round_id: deterministicRoundId('pre', inheritedInputId),
+        message_index: 0,
+        block_index: 0,
+        timestamp: '2026-08-18T00:10:00.000Z',
+      } as AgentMessage;
+      appendConversationBatch({ projectRoot: root }, [started]);
+      expect(readConversation(root, SESSION).sourceRows[0]).toEqual(started);
+
+      const bundleMarker = 'INHERITED-LLM-TURN-STARTED-REPEAT-BUNDLE';
+      const bundleBody = '-fixture'.repeat(80).concat(bundleMarker, '-bulk'.repeat(7_000));
+      const resultContent = JSON.stringify({ success: true, data: { content: bundleBody } });
+      const bundlePolicies = toolRowPolicies({ content: resultContent, template: OPERATIONAL_RESULT_POLICY_TEMPLATE });
+      const callId = 'repeat-visible-call';
+      const bundle: AgentMessage[] = [
+        {
+          id: `${inheritedInputId}:tool-call:${callId}`,
+          session_id: SESSION,
+          role: 'assistant',
+          kind: 'tool_call',
+          tool: 'read',
+          tool_call_id: callId,
+          content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: 'read', arguments: '{}' } }] }),
+          context_policy: bundlePolicies.call,
+          round_id: deterministicRoundId('assistant', inheritedInputId),
+          message_index: 2,
+          block_index: 0,
+          timestamp: '2026-08-18T00:10:01.000Z',
+        } as AgentMessage,
+        {
+          id: `${inheritedInputId}:tool-result:${callId}`,
+          session_id: SESSION,
+          role: 'tool',
+          kind: 'tool_result',
+          tool: 'read',
+          tool_call_id: callId,
+          content: resultContent,
+          context_policy: bundlePolicies.result,
+          round_id: deterministicRoundId('assistant', inheritedInputId),
+          message_index: 3,
+          block_index: 0,
+          timestamp: '2026-08-18T00:10:02.000Z',
+        } as AgentMessage,
+      ];
+      appendConversationBatch({ projectRoot: root }, bundle);
+
+      const conversation = readConversation(root, SESSION);
+      expect(conversation.sourceRows.map((row) => row.id)).toEqual([started.id, ...bundle.map((row) => row.id)]);
+      const preparedInvocation = invocation(conversation);
+      expect(shouldCompact(preparedInvocation)).toBe(true);
+
+      const classified = classifyConversationRounds(conversation);
+      expect(classified.preamble).toEqual([]);
+      expect(classified.rounds).toHaveLength(1);
+      expect(classified.rounds[0]!.rows.map((row) => row.message.id)).toEqual([started.id, ...bundle.map((row) => row.id)]);
+      expect(conversation.rounds).toHaveLength(1);
+      expect(conversation.rounds[0]).toMatchObject({
+        state: 'open',
+        activation: { source: 'compacted_genesis', marker_id: 'activation-1', input_id: inheritedInputId },
+      });
+      expect(conversation.rounds.some((round) => round.activation.source === 'row')).toBe(false);
+      const normalBands = computeSlidingCompactionBands(classified.rounds, {
+        tail_budget_tokens: preparedInvocation.preparedCompaction.normalTailBudget,
+        middle_budget_tokens: preparedInvocation.preparedCompaction.normalMiddleBudget,
+        snap: preparedInvocation.preparedCompaction.snap,
+      });
+      expect(normalBands.merge_rounds).toEqual([]);
+      expect(normalBands.summary_rounds).toEqual([]);
+      const normalBaseCount = classified.preamble.length
+        + normalBands.merge_rounds.reduce((count, round) => count + round.rows.length, 0)
+        + normalBands.summary_rounds.reduce((count, round) => count + round.rows.length, 0);
+      expect(normalBaseCount).toBe(0);
+
+      expect(conversation.safeSourcePrefixEnds).toEqual([1, 3]);
+      expect(conversation.sourceRows.slice(0, conversation.safeSourcePrefixEnds[0]).map((row) => row.id)).toEqual([started.id]);
+      expect(conversation.safeSourcePrefixEnds).not.toContain(2);
+      expect(conversation.sourceRows.slice(1, conversation.safeSourcePrefixEnds[1]).map((row) => row.id)).toEqual(bundle.map((row) => row.id));
+      expect(conversation.calls).toHaveLength(1);
+      expect(conversation.calls[0]).toMatchObject({ sourceIndex: 1, resultSourceIndex: 2 });
+
+      const fullComposition = composedOf(conversation);
+      const omittedStructuralComposition = composeContextProjection({
+        sourceSessionId: conversation.sourceSessionId,
+        effectiveHistory: {
+          summaryText: inheritedSummary,
+          historyMessageId: `${predecessorGenesis.id}:compacted-history`,
+          historyTimestamp: predecessorGenesis.timestamp,
+          requiredModelFacts: predecessor.conversation.effectiveCompactedHistory!.requiredModelFacts,
+        },
+        dynamicBlocks: [],
+        uncoveredRows: conversation.sourceRows.slice(1),
+      });
+      expect(fullComposition.summarizer).toEqual(omittedStructuralComposition.summarizer);
+      expect(providerConversationFromComposedContext(fullComposition)).toEqual(providerConversationFromComposedContext(omittedStructuralComposition));
+      const rejectedTokens = preparedInvocation.providerConversation.messages.reduce((sum, row) => sum + estimateMessageTokens(row), 0);
+      expect(rejectedTokens).toBeGreaterThan(preparedInvocation.preparedCompaction.triggerMessageThreshold);
+      expect(readConversationCatalog(root, SESSION).versions).toEqual(predecessorCatalog.versions);
+
+      const result = await compact({
+        strategy: 'preventive',
+        conversations: { projectRoot: root },
+        input: preparedInvocation,
+        summarizerProvider: recordingSummarizer(repeatCalls),
+        signal: new AbortController().signal,
+      }).catch((error: unknown) => {
+        expect(repeatCalls).toEqual([]);
+        expect(readConversationCatalog(root, SESSION).versions).toEqual(predecessorCatalog.versions);
+        throw error;
+      });
+
+      expect(result.kind).toBe('compacted');
+      if (result.kind !== 'compacted') throw new Error('repeat fixture must publish a compacted successor');
+      expect(result.estimatedProviderMessageTokens).toBeLessThanOrEqual(preparedInvocation.preparedCompaction.triggerMessageThreshold);
+      expect(repeatCalls.length).toBeGreaterThan(0);
+      expect(repeatCalls[0]!.contents.some((content) => content.includes(bundleMarker))).toBe(true);
+      expect(JSON.stringify(repeatCalls[0])).not.toContain('llm_turn_started');
+      const repeatReductionContents = reductionCalls(repeatCalls).flatMap((call) => call.contents);
+      expect(repeatReductionContents.filter((content) => {
+        const [label, ...body] = content.split('\n');
+        return label?.includes('[kind=prior_accumulated_summary]') === true && body.join('\n') === inheritedSummary;
+      })).toHaveLength(1);
+      expect(repeatReductionContents.reduce(
+        (count, content) => count + content.split(inheritedSummary).length - 1,
+        0,
+      )).toBe(1);
+      expect(repeatCalls.flatMap((call) => call.contents).join('').split(bundleMarker)).toHaveLength(2);
+      expect(JSON.stringify(repeatCalls)).not.toContain(EMPTY_COVERAGE_SUMMARY);
+
+      const successorCatalog = readConversationCatalog(root, SESSION);
+      expect(successorCatalog.versions).toHaveLength(predecessorCatalog.versions.length + 1);
+      expect(successorCatalog.versions.slice(0, -1)).toEqual(predecessorCatalog.versions);
+      const successor = readCurrentConversationSegment(root, SESSION)!;
+      const successorGenesis = successor.genesis;
+      if (successorGenesis.kind !== 'compacted_segment_genesis') throw new Error('repeat fixture successor must be compacted');
+      expect(successor.entry.version).toBe(predecessor.entry.version + 1);
+      expect(successorGenesis.source.version).toBe(predecessor.entry.version);
+      expect(successorGenesis.compaction.source).toMatchObject({
+        kind: 'prior_genesis_plus_current_rows',
+        priorGenesisId: predecessorGenesis.id,
+        priorHistoryHash: canonicalValueSha256(predecessorGenesis.compaction),
+      });
+      expect(successorGenesis.compaction.coverageCommitment.coveredThroughMessageId).toBe(bundle[1]!.id);
+      expect(conversation.sourceRows.findIndex((row) => row.id === successorGenesis.compaction.coverageCommitment.coveredThroughMessageId) + 1).toBeGreaterThan(1);
+      expect(successorGenesis.compaction.source.groups.map((group) => group.message_ids)).toEqual([
+        [started.id],
+        bundle.map((row) => row.id),
+      ]);
+      expect(successorGenesis.compaction.summaryText).not.toContain(EMPTY_COVERAGE_SUMMARY);
+      expect(successor.rows).toEqual([]);
+      expect(result.providerConversation).toEqual(providerConversationProjection(successor.conversation));
+      expect(readHistoricalConversationSegment(root, SESSION, predecessor.entry.version).genesis).toEqual(predecessorGenesis);
+      expect(readConversation(root, SESSION).effectiveCompactedHistory).toEqual(successorGenesis.compaction);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

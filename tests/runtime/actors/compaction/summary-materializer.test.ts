@@ -217,9 +217,30 @@ describe('bounded summary materialization', () => {
     await expect(materializeAllRows(rows, provider)).resolves.toBe(EMPTY_COVERAGE_SUMMARY);
   });
 
-  it('rejects materialization with prior history but no newly covered conversation content', async () => {
-    const rows = [activation(1)];
-    await expect(materializeAllRows(rows, recordingProvider({ summaryOf: () => 'x' }), BUDGET, inheritedHistory('PRIOR'))).rejects.toThrow(/no newly covered conversation content/);
+  it('carries inherited history across structural-only coverage before materializing later content', async () => {
+    const rows = [activation(1), text('t1', 'LATER-CONTENT')];
+    const requests: RecordedRequest[] = [];
+    const summaries = createIncrementalSummaryMaterializer({
+      conversation: conversationOf(rows),
+      inheritedHistory: inheritedHistory('PRIOR-HISTORY'),
+      summarizerProvider: recordingProvider({
+        requests,
+        summaryOf: (request) => request.instruction === SUMMARY_LEAF_INSTRUCTION ? 'leaf-summary' : 'reduced-summary',
+      }),
+      budget: BUDGET,
+      signal: new AbortController().signal,
+    });
+
+    await expect(summaries.materializeThrough(1)).resolves.toBe('PRIOR-HISTORY');
+    expect(requests).toHaveLength(0);
+    expect(summaries.materializedThrough).toBe(1);
+
+    await expect(summaries.materializeThrough(2)).resolves.toBe('reduced-summary');
+    expect(requests.filter((request) => request.instruction === SUMMARY_LEAF_INSTRUCTION)).toHaveLength(1);
+    expect(requests.filter((request) => request.instruction === SUMMARY_REDUCTION_INSTRUCTION)).toHaveLength(1);
+    expect(requests.flatMap((request) => request.items).filter((item) => item.includes('PRIOR-HISTORY'))).toHaveLength(1);
+    expect(requests.flatMap((request) => request.items).join('\n')).toContain('LATER-CONTENT');
+    expect(summaries.materializedThrough).toBe(2);
   });
 
   it('keeps repeated structural candidates outside the accumulator and excludes the sentinel from later provider input', async () => {
@@ -262,15 +283,8 @@ describe('bounded summary materialization', () => {
     expect(requests.at(-1)!.instruction).toBe(SUMMARY_REDUCTION_INSTRUCTION);
   });
 
-  it('leaves inherited structural failure and provider failure uncommitted and never overlaps calls', async () => {
+  it('leaves provider failure uncommitted and never overlaps calls', async () => {
     const structuralRows = [activation(1), text('t1', 'later')];
-    const inherited = createIncrementalSummaryMaterializer({
-      conversation: conversationOf(structuralRows), inheritedHistory: inheritedHistory('PRIOR'),
-      summarizerProvider: recordingProvider({ summaryOf: () => 'unused' }), budget: BUDGET, signal: new AbortController().signal,
-    });
-    await expect(inherited.materializeThrough(1)).rejects.toThrow(/no newly covered conversation content/);
-    expect(inherited.materializedThrough).toBe(0);
-
     let active = 0;
     let maximumActive = 0;
     let attempts = 0;
