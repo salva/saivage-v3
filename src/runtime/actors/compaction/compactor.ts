@@ -23,20 +23,18 @@ import type { ProviderConversationProjection, ToolDefinition,
 } from '../../../agents/llm-contracts.js';
 import type { PreparedCompaction, PreparedLlmInvocationInput } from '../llm-invocation.js';
 import { providerConversationProjection } from '../conversation-session.js';
-import { assertEscalatedSuffixSubsets, computeSlidingCompactionBands, type SlidingBandPartitions, type SnapPolicy,
-} from './bands.js';
 import { classifyConversationRounds, estimateMessageTokens,
 } from './round-classifier.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
-import { createIncrementalSummaryMaterializer } from './summary-materializer.js';
+import { createSequentialRefineAccumulator, SummaryConstructionLimitError } from './refine-accumulator.js';
 import { SummaryResultValidationError, type SummarizerProviderPort } from './summarizer.js';
 import { versionFilename } from '../../../persistence/version-index.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
 
 export type AutonomousCompactionPolicy = {
   input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
-  merge_line_fraction: number; summary_line_fraction: number; escalate_merge_line_fraction: number; escalate_summary_line_fraction: number;
-  snap: SnapPolicy;
+  tail_fraction: number;
+  snap: 'keep_straddler_verbatim' | 'compact_straddler';
 };
 
 export function prepareCompaction(config: AutonomousCompactionPolicy, systemPrompt: string, tools: readonly ToolDefinition[], requestedCompletionTokens?: number,
@@ -44,24 +42,12 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
   const B = config.input_budget_tokens;
   if (!Number.isInteger(B) || B <= 0) throw new Error('compaction.input_budget_tokens must be a positive integer.');
   if (!(config.completion_reserve_fraction > 0 && config.completion_reserve_fraction <= 1)) throw new Error('compaction.completion_reserve_fraction must be > 0 and <= 1.');
-  if (!(0 <= config.merge_line_fraction && config.merge_line_fraction <= config.summary_line_fraction && config.summary_line_fraction <= config.trigger_fraction && config.trigger_fraction <= 1)) throw new Error('Compaction normal fractions must satisfy 0 <= merge <= summary <= trigger <= 1.',
-    );
-  if (!(0 <= config.escalate_merge_line_fraction && config.escalate_merge_line_fraction <= config.escalate_summary_line_fraction && config.escalate_summary_line_fraction <= config.trigger_fraction)) throw new Error('Compaction escalated fractions must satisfy 0 <= escalate_merge <= escalate_summary <= trigger.',
-    );
+  if (!(config.trigger_fraction > 0 && config.trigger_fraction <= 1)) throw new Error('compaction.trigger_fraction must be > 0 and <= 1.');
+  if (!(config.tail_fraction >= 0 && config.tail_fraction <= config.trigger_fraction)) throw new Error('compaction.tail_fraction must satisfy 0 <= tail_fraction <= trigger_fraction.');
   if (config.trigger_fraction + config.completion_reserve_fraction > 1) throw new Error('compaction trigger_fraction + completion_reserve_fraction must be <= 1.');
-  const normalTailWidth = config.trigger_fraction - config.summary_line_fraction;
-  const normalMiddleWidth = config.summary_line_fraction - config.merge_line_fraction;
-  const escalatedTailWidth = config.trigger_fraction - config.escalate_summary_line_fraction;
-  const escalatedMiddleWidth = config.escalate_summary_line_fraction - config.escalate_merge_line_fraction;
-  if (escalatedTailWidth > normalTailWidth) throw new Error(`Escalated compaction tail width must be <= normal tail width (trigger - summary): escalated=${JSON.stringify(escalatedTailWidth)}, normal=${JSON.stringify(normalTailWidth)}.`,
-    );
-  if (escalatedMiddleWidth > normalMiddleWidth)
-    throw new Error(
-      `Escalated compaction middle width must be <= normal middle width (summary - merge): escalated=${JSON.stringify(escalatedMiddleWidth)}, normal=${JSON.stringify(normalMiddleWidth)}.`,
-    );
   const reservedCompletionTokens = Math.floor(B * config.completion_reserve_fraction);
-  if (reservedCompletionTokens < 1)
-    throw new Error('compaction reservedCompletionTokens must be positive.');
+  if (reservedCompletionTokens < 2000)
+    throw new Error('compaction reservedCompletionTokens must be at least 2000.');
   const requested = requestedCompletionTokens ?? reservedCompletionTokens;
   if (!Number.isInteger(requested) || requested < 1)
     throw new Error('compaction requestedCompletionTokens must be a positive integer.');
@@ -69,10 +55,7 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
     throw new Error(
       `compaction requestedCompletionTokens (${requested}) must not exceed reservedCompletionTokens (${reservedCompletionTokens}).`,
     );
-  const normalTailBudget = Math.floor(B * normalTailWidth);
-  const normalMiddleBudget = Math.floor(B * normalMiddleWidth);
-  const escalatedTailBudget = Math.floor(B * escalatedTailWidth);
-  const escalatedMiddleBudget = Math.floor(B * escalatedMiddleWidth);
+  const tailBudgetTokens = Math.floor(B * config.tail_fraction);
   const triggerLineTokens = Math.floor(B * config.trigger_fraction);
   const estimatedStaticTokens = estimateCanonicalStaticTokens(systemPrompt, tools);
   const triggerMessageThreshold = triggerLineTokens - estimatedStaticTokens;
@@ -96,16 +79,10 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
     estimatedStaticTokens,
     triggerMessageThreshold,
     canonicalMessageHardCeiling,
-    normalTailBudget,
-    normalMiddleBudget,
-    escalatedTailBudget,
-    escalatedMiddleBudget,
+    tailBudgetTokens,
     triggerFraction: config.trigger_fraction,
     completionReserveFraction: config.completion_reserve_fraction,
-    normalMergeLineFraction: config.merge_line_fraction,
-    normalSummaryLineFraction: config.summary_line_fraction,
-    escalatedMergeLineFraction: config.escalate_merge_line_fraction,
-    escalatedSummaryLineFraction: config.escalate_summary_line_fraction,
+    tailFraction: config.tail_fraction,
     snap: config.snap,
   };
 }
@@ -120,13 +97,17 @@ function estimateCanonicalStaticTokens(
 export function shouldCompact(input: PreparedLlmInvocationInput): boolean {
   const budget = input.preparedCompaction;
   const estimatedMessageTokens = input.providerConversation.messages.reduce(
-    (sum, row) => sum + estimateMessageTokens(row),
+    (sum, item) => sum + estimateProviderItemTokens(item),
     0,
   );
   return estimatedMessageTokens >= budget.triggerMessageThreshold;
 }
 
-type CompactionStrategy = 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
+export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
+export type CompactionProgressCallbacks = Readonly<{
+  foldStarted(): void;
+  foldCompleted(): void;
+}>;
 export type CompactionResult =
   | {
       kind: 'compacted';
@@ -159,6 +140,7 @@ export type CompactArgs = {
   input: PreparedLlmInvocationInput;
   summarizerProvider: SummarizerProviderPort;
   signal: AbortSignal;
+  progress: CompactionProgressCallbacks;
   publication?: CompactionPublicationOptions;
 };
 type Candidate = {
@@ -195,28 +177,19 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   const classified = classifyConversationRounds(conversation);
   const successorIdentity = allocateSuccessorIdentity(segment.entry.version);
   let smallestCandidateEstimatedProviderMessageTokens: number | null = null;
-  const computedNormal = computeSlidingCompactionBands(classified.rounds, {
-    tail_budget_tokens: budget.normalTailBudget,
-    middle_budget_tokens: budget.normalMiddleBudget,
-    snap: budget.snap,
-  });
-  const computedEscalated = computeSlidingCompactionBands(classified.rounds, {
-    tail_budget_tokens: budget.escalatedTailBudget,
-    middle_budget_tokens: budget.escalatedMiddleBudget,
-    snap: budget.snap,
-  });
-  assertEscalatedSuffixSubsets(computedNormal, computedEscalated);
-  const summaries = createIncrementalSummaryMaterializer({
+  const endpoints = selectedCoverageEndpoints(conversation, classified, budget.tailBudgetTokens, budget.snap);
+  const summaries = createSequentialRefineAccumulator({
     conversation,
     inheritedHistory,
+    preparedBlocks: args.input.preparedContext.dynamicBlocks,
     summarizerProvider: args.summarizerProvider,
     budget: {
       inputBudgetTokens: budget.inputBudgetTokens,
       completionReserveTokens: budget.reservedCompletionTokens,
     },
     signal: args.signal,
+    progress: args.progress,
   });
-  const candidates = new Map<number, Candidate>();
 
   const accepted = (estimated: number): boolean =>
     args.strategy === 'preventive'
@@ -225,15 +198,13 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
 
   const candidateFor = async (cutoffCount: number): Promise<Candidate | null> => {
     if (cutoffCount === 0) return null;
-    const memoized = candidates.get(cutoffCount);
-    if (memoized) return memoized;
     if (cutoffCount <= summaries.materializedThrough)
       throw new Error(`Compaction candidate cutoff ${cutoffCount} moved backward from materialized cutoff ${summaries.materializedThrough}.`);
     let summaryText: string;
     try {
       summaryText = await summaries.materializeThrough(cutoffCount);
     } catch (error) {
-      if (error instanceof SummaryResultValidationError) throw new CompactionSummaryConstructionError(error);
+      if (error instanceof SummaryResultValidationError || error instanceof SummaryConstructionLimitError) throw new CompactionSummaryConstructionError(error);
       throw error;
     }
     args.signal.throwIfAborted();
@@ -245,7 +216,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     const seed: CompactedGenesisSeed = { id: successorIdentity.genesisId, timestamp: successorIdentity.timestamp, history: successor, sourceVersion };
     const { inherited } = successorContinuation(conversation, coveredRows);
     const prospective = validateConversation(sessionId, tail, inherited, seed);
-    const providerConversation = providerConversationProjection(prospective);
+    const providerConversation = providerConversationProjection(prospective, args.input.preparedContext.dynamicBlocks);
     const estimatedProviderMessageTokens = estimateProviderConversationTokens(providerConversation);
     smallestCandidateEstimatedProviderMessageTokens =
       smallestCandidateEstimatedProviderMessageTokens === null
@@ -259,43 +230,24 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       estimatedProviderMessageTokens,
       composedProviderConversationBytes: composedProviderConversationBytes(providerConversation),
     };
-    candidates.set(cutoffCount, candidate);
     return candidate;
-  };
-
-  const partitionBaseRows = (partition: SlidingBandPartitions): readonly AgentMessage[] => [
-    ...classified.preamble.map((row) => row.message),
-    ...partition.merge_rounds.flatMap(rawRoundRows),
-    ...partition.summary_rounds.flatMap(rawRoundRows),
-  ];
-
-  const evaluatePartition = async (partition: SlidingBandPartitions, mode: 'bounded' | 'all'): Promise<Candidate[]> => {
-    const baseRows = partitionBaseRows(partition);
-    const base = await candidateFor(baseRows.length);
-    if (mode === 'bounded' && base && accepted(base.estimatedProviderMessageTokens)) return [base];
-    const evaluated: Candidate[] = base ? [base] : [];
-    for (const cutoff of safeFallbackCutoffs(conversation, baseRows.length)) {
-      args.signal.throwIfAborted();
-      const candidate = await candidateFor(cutoff);
-      if (candidate) evaluated.push(candidate);
-    }
-    if (mode === 'bounded') {
-      const acceptedCandidates = evaluated.filter((entry) => accepted(entry.estimatedProviderMessageTokens));
-      return acceptedCandidates.length > 0 ? [acceptedCandidates[acceptedCandidates.length - 1]!] : [];
-    }
-    return evaluated;
   };
 
   let candidate: Candidate | null = null;
   if (args.strategy === 'preventive') {
-    candidate = (await evaluatePartition(computedNormal, 'bounded')).at(-1) ?? null;
-    if (!candidate) candidate = (await evaluatePartition(computedEscalated, 'bounded')).at(-1) ?? null;
+    for (const endpoint of endpoints) {
+      const evaluated = await candidateFor(endpoint);
+      if (evaluated && accepted(evaluated.estimatedProviderMessageTokens)) { candidate = evaluated; break; }
+    }
     if (!candidate)
       throw new Error(
-        'Compaction could not fit the residual context below the trigger threshold without splitting an indivisible provider bundle. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.',
+        'Compaction could not fit the residual context below the trigger threshold using the selected safe coverage endpoints. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.',
       );
   } else if (args.strategy === 'authoritative_context_recovery') {
-    candidate = (await evaluatePartition(computedEscalated, 'bounded')).at(-1) ?? null;
+    for (const endpoint of endpoints) {
+      const evaluated = await candidateFor(endpoint);
+      if (evaluated && accepted(evaluated.estimatedProviderMessageTokens)) { candidate = evaluated; break; }
+    }
     if (!candidate) {
       return {
         kind: 'no_smaller_projection',
@@ -304,7 +256,11 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
       };
     }
   } else {
-    const evaluated = await evaluatePartition(computedEscalated, 'all');
+    const evaluated: Candidate[] = [];
+    for (const endpoint of endpoints) {
+      const entry = await candidateFor(endpoint);
+      if (entry) evaluated.push(entry);
+    }
     const selected = evaluated
       .filter((entry) => entry.composedProviderConversationBytes < rejectedComposedProviderConversationBytes)
       .reduce<Candidate | null>(
@@ -339,7 +295,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     throwIfPublicationOutcomeUnknown(error);
     throw new CompactionAppendError(error);
   }
-  const providerConversation = providerConversationProjection(published);
+  const providerConversation = providerConversationProjection(published, args.input.preparedContext.dynamicBlocks);
   return {
     kind: 'compacted',
     providerConversation,
@@ -358,33 +314,34 @@ function allocateSuccessorIdentity(sourceVersion: number): CompactionSuccessorId
   };
 }
 
-function safeFallbackCutoffs(conversation: ValidatedConversation, baseCount: number): number[] {
-  const ordinals = new Map(conversation.sourceRows.map((row, index) => [row.id, index] as const));
-  const safeEnds = new Set(conversation.safeSourcePrefixEnds);
-  const cutoffs: number[] = [];
-  for (const round of conversation.rounds) {
-    const roundStart = ordinals.get(round.rows[0]!.id);
-    if (roundStart === undefined) throw new Error(`Compaction round '${round.label}' does not identify a source row.`);
-    const roundEnd = roundStart + round.rows.length;
-    if (roundEnd <= baseCount) continue;
-    if (round.state === 'open') {
-      for (const safeEnd of conversation.safeSourcePrefixEnds)
-        if (safeEnd > Math.max(roundStart, baseCount) && safeEnd <= roundEnd) cutoffs.push(safeEnd);
-    } else if (safeEnds.has(roundEnd)) {
-      cutoffs.push(roundEnd);
+function selectedCoverageEndpoints(
+  conversation: ValidatedConversation,
+  classified: ReturnType<typeof classifyConversationRounds>,
+  tailBudgetTokens: number,
+  snap: AutonomousCompactionPolicy['snap'],
+): readonly number[] {
+  const closed = classified.rounds.filter((round) => round.state === 'closed');
+  let retained = 0;
+  let firstRetained = closed.length;
+  for (let index = closed.length - 1; index >= 0; index--) {
+    const round = closed[index]!;
+    if (retained + round.estimated_tokens <= tailBudgetTokens) {
+      retained += round.estimated_tokens;
+      firstRetained = index;
+      continue;
     }
+    if (snap === 'keep_straddler_verbatim') firstRetained = index;
+    break;
   }
-  let previous = baseCount;
-  for (const cutoff of cutoffs) {
-    if (cutoff <= previous)
-      throw new Error(`Compaction safe fallback cutoffs must strictly increase above base ${baseCount}; received ${cutoff} after ${previous}.`);
-    previous = cutoff;
-  }
-  return cutoffs;
+  const desiredBase = classified.preamble.length + closed.slice(0, firstRetained).reduce((count, round) => count + round.rows.length, 0);
+  const base = conversation.safeSourcePrefixEnds.includes(desiredBase) ? desiredBase : 0;
+  const furthest = conversation.safeSourcePrefixEnds.at(-1) ?? 0;
+  const endpoints = [base, furthest].filter((value, index, values) => value > 0 && (index === 0 || value > values[index - 1]!));
+  return Object.freeze(endpoints);
 }
 
 function assertFreshCompactionProjection(input: PreparedLlmInvocationInput, conversation: ValidatedConversation): void {
-  const fresh = providerConversationProjection(conversation);
+  const fresh = providerConversationProjection(conversation, input.preparedContext.dynamicBlocks);
   if (providerConversationFingerprint(fresh) !== providerConversationFingerprint(input.providerConversation))
     throw new Error(
       `Compaction rejected provider projection is stale: it is not the exact effective projection of the freshly read conversation '${conversation.sourceSessionId}'.`,
@@ -394,12 +351,16 @@ function assertFreshCompactionProjection(input: PreparedLlmInvocationInput, conv
 function providerConversationFingerprint(projection: ProviderConversationProjection): string {
   return JSON.stringify([
     projection.sourceSessionId,
-    projection.messages.map((row) => [row.id, row.role, row.kind, row.content, row.tool ?? null, row.tool_call_id ?? null]),
+    projection.messages.map((item) => item.kind === 'synthetic_context'
+      ? [item.kind, item.origin, item.block_identity, item.role, item.content]
+      : [item.id, item.role, item.kind, item.content, item.tool ?? null, item.tool_call_id ?? null]),
   ]);
 }
 
 function composedProviderConversationBytes(projection: ProviderConversationProjection): number {
-  return Buffer.byteLength(JSON.stringify(projection.messages.map((row) => [row.id, row.role, row.kind, row.content])), 'utf8');
+  return Buffer.byteLength(JSON.stringify(projection.messages.map((item) => item.kind === 'synthetic_context'
+    ? [item.kind, item.origin, item.block_identity, item.role, item.content]
+    : [item.id, item.role, item.kind, item.content])), 'utf8');
 }
 
 function buildSuccessorHistory(args: {
@@ -461,10 +422,12 @@ function coveredSegmentKinds(round: SourceRound, coveredIds: ReadonlySet<string>
   return kinds;
 }
 
-function rawRoundRows(round: { rows: readonly { message: AgentMessage }[] }): AgentMessage[] {
-  return round.rows.map((row) => row.message);
+function estimateProviderConversationTokens(projection: ProviderConversationProjection): number {
+  return projection.messages.reduce((sum, item) => sum + estimateProviderItemTokens(item), 0);
 }
 
-function estimateProviderConversationTokens(projection: ProviderConversationProjection): number {
-  return projection.messages.reduce((sum, row) => sum + estimateMessageTokens(row), 0);
+function estimateProviderItemTokens(item: ProviderConversationProjection['messages'][number]): number {
+  return item.kind === 'synthetic_context'
+    ? Math.max(1, estimateUtf8Tokens(`${item.role} ${item.kind} ${item.origin} ${item.block_identity} ${item.content}`))
+    : estimateMessageTokens(item);
 }

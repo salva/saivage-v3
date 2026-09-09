@@ -37,7 +37,7 @@ describe('operator Agent publication uncertainty', () => {
     const handlers = buildAgentOperatorContractHandlers({
       projectRoot: root,
       workflows: {} as never,
-      captureExecutingLlmSessionIds: () => new Set(),
+      captureExecutingLlmSnapshots: () => new Map(),
     });
 
     const result = handlers['agents.llmExchange']!({

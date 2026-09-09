@@ -30,12 +30,20 @@ export type ExecutingLlmActivity =
   | { readonly mode: 'active'; readonly barrier: null }
   | { readonly mode: 'waiting'; readonly barrier: ExactWaitBarrier };
 
+export type CompactionProgress = Readonly<{
+  strategy: 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission';
+  startedAt: string;
+  foldsDone: number;
+  foldInFlight: boolean;
+}>;
+
 export interface ExecutingLlmSnapshot {
   readonly sessionId: ConversationSessionId;
   readonly agentId: string;
   readonly agentName: AgentName;
   readonly cardId: string | null;
   readonly activity: ExecutingLlmActivity;
+  readonly compaction: CompactionProgress | null;
 }
 
 export interface LlmToolInvocationContext extends ToolInvocationIdentity {

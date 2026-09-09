@@ -20,10 +20,7 @@ export const testCompactionPolicy: AutonomousCompactionPolicy = {
   input_budget_tokens: 100_000,
   trigger_fraction: 0.8,
   completion_reserve_fraction: 0.2,
-  merge_line_fraction: 0.3,
-  summary_line_fraction: 0.5,
-  escalate_merge_line_fraction: 0.4,
-  escalate_summary_line_fraction: 0.6,
+  tail_fraction: 0.25,
   snap: 'compact_straddler',
 };
 
@@ -96,6 +93,8 @@ export function scriptedAdmissionProvider<S extends LlmInvocationInput>(script: 
 export const testCompactor: CompactorPort = { shouldCompact, compact };
 export const unusedSummarizerProvider: SummarizerProviderPort = {
   candidate:{provider:'test',account:null,model:'test-model'},
+  contextWindowTokens: 100_000,
+  maxOutputTokens: 10_000,
   serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); },
   completeTurn: () => Promise.reject(new Error('Unexpected summarizer call in test.')),
   projectProviderExchanges: () => { throw new Error('Unexpected summarizer exchange projection in test.'); },

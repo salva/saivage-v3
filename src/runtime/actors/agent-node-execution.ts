@@ -282,7 +282,7 @@ export class AgentNodeExecution {
   }
 
   private enterNodeConversation(prepared: Omit<PreparedLlmInvocationInput, 'providerConversation'>): PreparedLlmInvocationInput {
-    return { ...prepared, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, prepared.sessionId)) };
+    return { ...prepared, providerConversation: providerConversationProjection(readConversation(this.deps.conversations.projectRoot, prepared.sessionId), prepared.preparedContext.dynamicBlocks) };
   }
 
   private buildSurface(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number, writtenRecords: Set<string>): InvocationSurface {

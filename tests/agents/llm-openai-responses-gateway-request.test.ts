@@ -52,16 +52,23 @@ describe('OpenAI Responses request shape', () => {
     expect(body.reasoning).toEqual({ effort: 'medium' });
   });
 
-  it('uses only the latest rendered context and never serializes raw compaction metadata or covered history', () => {
+  it('keeps static instructions singular and sends latest context plus suffix as ordered input without compaction metadata', () => {
     const opts: LlmCompleteOptions = { inputId: 'input-2', temperature: 0.3, max_tokens: 2345, contract_id: 'c', contractName: 'contract', terminalToolOffered: [], tools: [], tool_choice: 'auto' };
     const latest: AgentMessage = { ...MSG, id: 'c2:rendered', role: 'system', content: 'latest C2 rendered context' };
     const suffix: AgentMessage = { ...MSG, id: 'suffix', content: 'uncovered suffix' };
     const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: 'role prompt', providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [latest, suffix] }, options: opts, capabilities: CAPABILITIES }) as unknown as { instructions: string; input: unknown[] };
 
-    expect(body.instructions).toBe('role prompt\n\n--- system context ---\nlatest C2 rendered context');
+    expect(body.instructions).toBe('role prompt');
+    expect(body.input).toEqual([
+      { role: 'system', content: [{ type: 'input_text', text: 'latest C2 rendered context' }] },
+      { role: 'user', content: [{ type: 'input_text', text: 'uncovered suffix' }] },
+    ]);
     expect(JSON.stringify(body)).not.toContain('older C1 rendered context');
     expect(JSON.stringify(body)).not.toContain('context_compaction');
-    expect(JSON.stringify(body.input)).toContain('uncovered suffix');
+    expect(JSON.stringify(body).match(/role prompt/g)).toHaveLength(1);
+    expect(JSON.stringify(body)).not.toContain('sourceSessionId');
+    expect(JSON.stringify(body)).not.toContain('session_id');
+    expect(JSON.stringify(body)).not.toContain('context_policy');
     expect(body).not.toHaveProperty('tools');
     expect(body).not.toHaveProperty('tool_choice');
     expect(body).not.toHaveProperty('parallel_tool_calls');

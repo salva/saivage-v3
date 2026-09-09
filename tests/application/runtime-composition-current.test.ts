@@ -196,10 +196,10 @@ describe('current runtime composition', () => {
       fatalPort: testApplicationFatalPort,
       analystSessionId: 'agent:analyst:global',
     });
-    expect(app.captureExecutingLlmSessionIds()).toEqual(new Set());
+    expect(app.captureExecutingLlmSnapshots().size).toBe(0);
     expect(snapshot).not.toHaveBeenCalled();
     void app.analystRuntime;
-    expect(app.captureExecutingLlmSessionIds()).toEqual(new Set(['agent:analyst:global']));
+    expect([...app.captureExecutingLlmSnapshots().keys()]).toEqual(['agent:analyst:global']);
     expect(snapshot).toHaveBeenCalledTimes(1);
   });
 
@@ -245,7 +245,7 @@ describe('current runtime composition', () => {
       agentMembershipChanged: jest.fn((target: AgentMembershipFreshnessTarget) =>
         observations.push({
           target,
-          live: app.captureExecutingLlmSessionIds().has('agent:analyst:global'),
+          live: app.captureExecutingLlmSnapshots().has('agent:analyst:global'),
         }),
       ),
       conversationChanged: jest.fn(),
@@ -291,11 +291,11 @@ describe('current runtime composition', () => {
 
     const turn = app.analystRuntime.submit({ userContent: 'List project cards.' });
     await requested;
-    expect(app.captureExecutingLlmSessionIds()).toEqual(new Set(['agent:analyst:global']));
+    expect([...app.captureExecutingLlmSnapshots().keys()]).toEqual(['agent:analyst:global']);
     resolveFirst(toolCalls({ id: 'list-project', name: 'list_cards' }));
     await turn;
 
-    expect(app.captureExecutingLlmSessionIds()).toEqual(new Set());
+    expect(app.captureExecutingLlmSnapshots().size).toBe(0);
     expect(new Set(observations.map(({ target }) => target.scope))).toEqual(
       new Set(['global-session']),
     );

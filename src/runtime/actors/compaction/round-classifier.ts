@@ -12,7 +12,7 @@ type ClassifiedMessage = {
   estimated_tokens: number;
 };
 
-export type ClassifiedRound = {
+type ClassifiedRound = {
   round_id: string;
   state: 'closed' | 'open';
   rows: ClassifiedMessage[];

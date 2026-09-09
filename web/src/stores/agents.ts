@@ -37,6 +37,11 @@ export const useAgentStore = defineStore('agents', () => {
   const membershipGenerations = new Map<string, number>();
   const selectedConversationSessionId = ref<ConversationSessionId | null>(null);
   const currentSession = ref<AgentSession | null>(null);
+  const sessionSummaryLoading = ref(false);
+  const sessionSummaryRefreshing = ref(false);
+  const sessionSummaryError = ref<string | null>(null);
+  const sessionSummaryRefreshError = ref<string | null>(null);
+  const sessionSummaryUnauthorized = ref(false);
   const conversationWarning = ref<string | null>(null);
   const conversationUnauthorized = ref(false);
   const conversationSegmentContext = ref<AgentConversationResponse['segment_context']>(null);
@@ -48,31 +53,30 @@ export const useAgentStore = defineStore('agents', () => {
   const selectedConversationVersionError = ref<string | null>(null);
   let activeConversationToken: ConversationSelectionToken | null = null;
   const conversationIds = new WeakMap<object, ConversationSessionId>();
-  const conversation = createConversationFetch<{ session: AgentSession }, string>({
+  let sessionSummaryController: AbortController | null = null;
+  let sessionSummaryFlight: Promise<void> | null = null;
+  let sessionSummaryRefreshRequested = false;
+  const conversation = createConversationFetch<null, string>({
     isOwnerCurrent: () => activeConversationToken !== null,
     async request(signal, requestCursor) {
       const token = activeConversationToken;
       if (!token) throw new Error('Conversation request has no current selection owner.');
       const id = conversationIds.get(token);
       if (!id) throw new Error('Conversation selection owner has no session identity.');
-      const [detail, response] = await Promise.all([
-        getAgentSession(id, signal),
-        getAgentConversation(
+      const response = await getAgentConversation(
           id,
           signal,
           requestCursor?.message_id
             ? { segmentVersion: requestCursor.segment_version, messageId: requestCursor.message_id }
             : undefined,
-        ),
-      ]);
-      return { response, metadata: detail };
+        );
+      return { response, metadata: null };
     },
     projectError: (error) => error instanceof Error ? error.message : String(error),
     onFailure(error) {
       conversationUnauthorized.value = error instanceof OperatorApiError && error.isUnauthorized;
     },
-    onAccepted({ acceptedEntries, response, metadata }) {
-      currentSession.value = metadata.session;
+    onAccepted({ acceptedEntries, response }) {
       conversationSegmentContext.value = response.segment_context;
       conversationWarning.value = acceptedEntries.some((entry) => entry.kind === 'model_issue')
         ? 'Conversation includes model/tool recovery events; inspect for incomplete or repaired output.'
@@ -164,6 +168,7 @@ export const useAgentStore = defineStore('agents', () => {
     }
   }
   async function reconcileMembership(frame: LeaseInvalidation): Promise<void> {
+    void selectedSummaryHint(frame);
     if (!frame || frame.resource !== 'agent-membership') return void (await fetchSessions());
     const key = frame.scope === 'card' ? frame.card_id : 'global';
     const baselineGeneration = sessionsGeneration;
@@ -206,6 +211,17 @@ export const useAgentStore = defineStore('agents', () => {
       if (membershipGenerations.get(key) === requestGeneration) membershipControllers.delete(key);
     }
   }
+  function selectedSummaryHint(frame: LeaseInvalidation): Promise<void> {
+    const token = activeConversationToken;
+    if (!token || !frame || frame.resource !== 'agent-membership') return Promise.resolve();
+    const selectedId = conversationIds.get(token);
+    if (!selectedId) throw new Error('Conversation selection owner has no session identity.');
+    const known = currentSession.value;
+    const relevant = frame.scope === 'global-session'
+      ? frame.session_id === selectedId
+      : known === null || (known.session_scope === 'card' && known.card_id === frame.card_id);
+    return relevant ? fetchSelectedSession(token) : Promise.resolve();
+  }
   function releaseSessions() {
     ++sessionsGeneration;
     sessionsController?.abort();
@@ -222,6 +238,15 @@ export const useAgentStore = defineStore('agents', () => {
     activeConversationToken = token;
     selectedConversationSessionId.value = id;
     currentSession.value = null;
+    sessionSummaryController?.abort();
+    sessionSummaryController = null;
+    sessionSummaryFlight = null;
+    sessionSummaryRefreshRequested = false;
+    sessionSummaryLoading.value = false;
+    sessionSummaryRefreshing.value = false;
+    sessionSummaryError.value = null;
+    sessionSummaryRefreshError.value = null;
+    sessionSummaryUnauthorized.value = false;
     conversationWarning.value = null;
     conversationUnauthorized.value = false;
     conversationSegmentContext.value = null;
@@ -237,6 +262,49 @@ export const useAgentStore = defineStore('agents', () => {
     if (token !== activeConversationToken) return;
     if (frame) await conversation.onFrame(frame);
     else await conversation.fetch();
+  }
+  function fetchSelectedSession(token: ConversationSelectionToken): Promise<void> {
+    if (token !== activeConversationToken) return Promise.resolve();
+    if (sessionSummaryFlight) {
+      sessionSummaryRefreshRequested = true;
+      return sessionSummaryFlight;
+    }
+    const run = async () => {
+      do {
+        sessionSummaryRefreshRequested = false;
+        if (token !== activeConversationToken) return;
+        const id = conversationIds.get(token);
+        if (!id) throw new Error('Conversation selection owner has no session identity.');
+        const controller = new AbortController();
+        sessionSummaryController = controller;
+        currentSession.value ? (sessionSummaryRefreshing.value = true) : (sessionSummaryLoading.value = true);
+        try {
+          const response = await getAgentSession(id, controller.signal);
+          if (token !== activeConversationToken) return;
+          currentSession.value = response.session;
+          sessionSummaryError.value = null;
+          sessionSummaryRefreshError.value = null;
+          sessionSummaryUnauthorized.value = false;
+        } catch (error) {
+          if (token !== activeConversationToken || abortError(error)) return;
+          const message = error instanceof Error ? error.message : String(error);
+          currentSession.value ? (sessionSummaryRefreshError.value = message) : (sessionSummaryError.value = message);
+          sessionSummaryUnauthorized.value = error instanceof OperatorApiError && error.isUnauthorized;
+        } finally {
+          if (token === activeConversationToken) {
+            sessionSummaryLoading.value = false;
+            sessionSummaryRefreshing.value = false;
+            if (sessionSummaryController === controller) sessionSummaryController = null;
+          }
+        }
+      } while (token === activeConversationToken && sessionSummaryRefreshRequested);
+    };
+    let flight!: Promise<void>;
+    flight = run().finally(() => {
+      if (token === activeConversationToken && sessionSummaryFlight === flight) sessionSummaryFlight = null;
+    });
+    sessionSummaryFlight = flight;
+    return flight;
   }
   const refetchConversation = fetchConversation;
   async function fetchConversationVersions(token: ConversationSelectionToken): Promise<void> {
@@ -276,9 +344,18 @@ export const useAgentStore = defineStore('agents', () => {
   function clearConversationSelection(token: ConversationSelectionToken) {
     if (token !== activeConversationToken) return;
     conversation.reset();
+    sessionSummaryController?.abort();
+    sessionSummaryController = null;
+    sessionSummaryFlight = null;
+    sessionSummaryRefreshRequested = false;
     activeConversationToken = null;
     selectedConversationSessionId.value = null;
     currentSession.value = null;
+    sessionSummaryLoading.value = false;
+    sessionSummaryRefreshing.value = false;
+    sessionSummaryError.value = null;
+    sessionSummaryRefreshError.value = null;
+    sessionSummaryUnauthorized.value = false;
     conversationWarning.value = null;
     conversationUnauthorized.value = false;
     conversationError.value = null;
@@ -366,6 +443,11 @@ export const useAgentStore = defineStore('agents', () => {
     releaseSessions,
     selectedConversationSessionId,
     currentSession,
+    sessionSummaryLoading,
+    sessionSummaryRefreshing,
+    sessionSummaryError,
+    sessionSummaryRefreshError,
+    sessionSummaryUnauthorized,
     entries,
     conversationWarning,
     conversationLoading,
@@ -382,6 +464,8 @@ export const useAgentStore = defineStore('agents', () => {
     selectedConversationVersionError,
     beginConversationSelection,
     fetchConversation,
+    fetchSelectedSession,
+    selectedSummaryHint,
     refetchConversation,
     fetchConversationVersions,
     selectConversationVersion,

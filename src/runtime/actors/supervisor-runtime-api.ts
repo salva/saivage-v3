@@ -18,6 +18,7 @@ import type { InterventionReadinessFacet } from '../../application/intervention-
 import type { ProcessRunner } from '../process-runner.js';
 import type { ManagedProcessScope } from '../managed-process-group-registry.js';
 import type { PromptTemplateRegistry } from '../../utils/prompt-api.js';
+import type { ExecutingLlmSnapshot } from './executing-llm-snapshot.js';
 import type { ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { FreshnessEffects } from '../../application/freshness-effects.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
@@ -226,13 +227,13 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> { return this.cancelOwnedOrStored(cardId, reason, null); }
   getStatus() { return { status: this.publicRuntimeStatus(), currentCardId: this.currentCardId, pid: this.behavior.processIdentity.pid, startedAt: this.behavior.processIdentity.startedAt }; }
   getRuntimeState(): RuntimeState | null { return this.runtimeState(); }
-  captureAutonomousExecutingLlmSessionIds(): ReadonlySet<ConversationSessionId> {
-    const sessionIds = new Set<ConversationSessionId>();
+  captureAutonomousExecutingLlmSnapshots(): ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot> {
+    const snapshots = new Map<ConversationSessionId, ExecutingLlmSnapshot>();
     for (const owner of this.activationOwners.values()) {
       const snapshot = owner.processor.executingLlmSnapshot();
-      if (snapshot) sessionIds.add(snapshot.sessionId);
+      if (snapshot) snapshots.set(snapshot.sessionId, snapshot);
     }
-    return sessionIds;
+    return snapshots;
   }
   getActorRuntimeReadModel(): ActorRuntimeReadModel {
     const cards = [...this.activationOwners.values()].map((owner) => ({ cardId: owner.cardId, actorState: toPublicCardActorState(owner.cachedStatus), processState: owner.processor.processPosition() }));

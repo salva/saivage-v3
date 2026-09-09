@@ -82,10 +82,7 @@ const compactionSectionSchema = z.object({
   input_budget_tokens: z.number().int().positive(),
   trigger_fraction: z.number().positive().max(1).default(0.80),
   completion_reserve_fraction: z.number().positive().max(1).default(0.20),
-  merge_line_fraction: z.number().nonnegative().max(1).default(0.30),
-  summary_line_fraction: z.number().nonnegative().max(1).default(0.50),
-  escalate_merge_line_fraction: z.number().nonnegative().max(1).default(0.40),
-  escalate_summary_line_fraction: z.number().nonnegative().max(1).default(0.60),
+  tail_fraction: z.number().nonnegative().max(1).default(0.25),
   snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']).default('keep_straddler_verbatim'),
   summarizer_candidate: candidateSchema,
 }).strict().superRefine(validateCompaction);
@@ -94,23 +91,11 @@ function validateCompaction(value: {
   input_budget_tokens: number;
   trigger_fraction: number;
   completion_reserve_fraction: number;
-  merge_line_fraction: number;
-  summary_line_fraction: number;
-  escalate_merge_line_fraction: number;
-  escalate_summary_line_fraction: number;
+  tail_fraction: number;
 }, ctx: z.RefinementCtx): void {
-  if (value.merge_line_fraction > value.summary_line_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['merge_line_fraction'], message: 'merge_line_fraction must be <= summary_line_fraction' });
-  if (value.summary_line_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['summary_line_fraction'], message: 'summary_line_fraction must be <= trigger_fraction' });
-  if (value.escalate_merge_line_fraction > value.escalate_summary_line_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_merge_line_fraction'], message: 'escalate_merge_line_fraction must be <= escalate_summary_line_fraction' });
-  if (value.escalate_summary_line_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_summary_line_fraction'], message: 'escalate_summary_line_fraction must be <= trigger_fraction' });
+  if (value.tail_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tail_fraction'], message: 'tail_fraction must be <= trigger_fraction' });
   if (value.trigger_fraction + value.completion_reserve_fraction > 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'trigger_fraction + completion_reserve_fraction must be <= 1' });
-  const normalTailWidth = value.trigger_fraction - value.summary_line_fraction;
-  const normalMiddleWidth = value.summary_line_fraction - value.merge_line_fraction;
-  const escalatedTailWidth = value.trigger_fraction - value.escalate_summary_line_fraction;
-  const escalatedMiddleWidth = value.escalate_summary_line_fraction - value.escalate_merge_line_fraction;
-  if (escalatedTailWidth > normalTailWidth) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_summary_line_fraction'], message: `Escalated compaction tail width must be <= normal tail width (trigger - summary): escalated=${JSON.stringify(escalatedTailWidth)}, normal=${JSON.stringify(normalTailWidth)}.` });
-  if (escalatedMiddleWidth > normalMiddleWidth) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['escalate_merge_line_fraction'], message: `Escalated compaction middle width must be <= normal middle width (summary - merge): escalated=${JSON.stringify(escalatedMiddleWidth)}, normal=${JSON.stringify(normalMiddleWidth)}.` });
-  if (Math.floor(value.input_budget_tokens * value.completion_reserve_fraction) < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'compaction reservedCompletionTokens must be positive' });
+  if (Math.floor(value.input_budget_tokens * value.completion_reserve_fraction) < 2000) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'compaction reservedCompletionTokens must be at least 2000' });
 }
 
 function isHttpUrl(value: string): boolean {
@@ -236,10 +221,7 @@ const effectiveCompactionSectionSchema = z.object({
   input_budget_tokens: z.number().int().positive(),
   trigger_fraction: z.number().positive().max(1),
   completion_reserve_fraction: z.number().positive().max(1),
-  merge_line_fraction: z.number().nonnegative().max(1),
-  summary_line_fraction: z.number().nonnegative().max(1),
-  escalate_merge_line_fraction: z.number().nonnegative().max(1),
-  escalate_summary_line_fraction: z.number().nonnegative().max(1),
+  tail_fraction: z.number().nonnegative().max(1),
   snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']),
   summarizer_candidate: candidateSchema,
 }).strict().superRefine(validateCompaction);

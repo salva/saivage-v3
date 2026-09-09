@@ -8,7 +8,7 @@ export const TEST_SAIVAGE_CONFIG = effectiveSaivageConfigSchema.parse({
   compaction: {
     ...structuredClone(DEFAULT_SAIVAGE_CONFIG.compaction),
     enabled: true,
-    input_budget_tokens: 1000,
+    input_budget_tokens: 10_000,
     summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
   },
 });

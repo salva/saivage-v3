@@ -100,7 +100,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       actor: 'analyst',
       surface: 'web-chat',
       eventQueries: new EventQueryService(projectRoot),
-      captureExecutingLlmSessionIds: () => new Set(),
+      captureExecutingLlmSnapshots: () => new Map(),
     };
     const globalContext: GlobalToolBindingContext = {
       scope: 'global',

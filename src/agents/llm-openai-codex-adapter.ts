@@ -1,11 +1,10 @@
-import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import {
   sourceInputIdFromToolCallMessageId,
   sourceInputIdFromToolResultMessageId,
 } from '../schemas/message-identity.js';
-import type { LlmCompleteOptions, ProviderConversationProjection } from './llm-contracts.js';
+import type { LlmCompleteOptions, ProviderConversationItem, ProviderConversationProjection } from './llm-contracts.js';
 import { LlmRequestError } from '../contracts/llm-failure.js';
 import { classifyHttpFailure } from './llm-failure-classifiers.js';
 import { readOpenAICodexStream } from './llm-codex-parser.js';
@@ -81,9 +80,7 @@ function buildOpenAICodexRequest(
   providerConversation: ProviderConversationProjection,
   opts: LlmCompleteOptions,
 ): Record<string, unknown> {
-  const messages = providerConversation.messages.filter(
-    (message) => message.kind !== 'provider_private',
-  );
+  const messages = providerConversation.messages.filter((message) => message.kind !== 'provider_private');
   const input = codexMessages(messages);
   if (!input.length)
     input.push({
@@ -96,10 +93,7 @@ function buildOpenAICodexRequest(
     model: candidate.model,
     store: false,
     stream: true,
-    instructions: [
-      systemPrompt,
-      ...messages.filter((message) => message.role === 'system').map((message) => message.content),
-    ].join('\n\n--- system context ---\n'),
+    instructions: systemPrompt,
     input,
   };
   if (opts.tools.length) {
@@ -110,10 +104,11 @@ function buildOpenAICodexRequest(
   return body;
 }
 
-function codexMessages(messages: AgentMessage[]): CodexMessage[] {
+function codexMessages(messages: ProviderConversationItem[]): CodexMessage[] {
   const settled = new Set<string>();
   const seen = new Set<string>();
   for (const message of messages) {
+    if (message.kind === 'synthetic_context') continue;
     if (message.role === 'assistant' && message.kind === 'tool_call') {
       const call = parseToolCallMessageForModel(JSON.parse(message.content));
       seen.add(`${sourceInputIdFromToolCallMessageId(message.id, call.id)}\0${call.id}`);
@@ -126,8 +121,13 @@ function codexMessages(messages: AgentMessage[]): CodexMessage[] {
   }
   const out: CodexMessage[] = [];
   for (const message of messages) {
-    if (message.role === 'system') continue;
-    if (message.role === 'user')
+    if (message.kind === 'synthetic_context') {
+      if (message.role === 'assistant') out.push({ role: 'assistant', content: [{ type: 'output_text', text: message.content }] });
+      else if (message.role === 'system') out.push({ role: 'system', content: message.content });
+      else out.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
+    } else if (message.role === 'system')
+      out.push({ role: 'system', content: message.content });
+    else if (message.role === 'user')
       out.push({ role: 'user', content: [{ type: 'input_text', text: message.content }] });
     else if (message.role === 'assistant' && message.kind === 'tool_call') {
       const call = parseToolCallMessageForModel(JSON.parse(message.content));

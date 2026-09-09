@@ -14,6 +14,7 @@ import {
   read_agent_session,
 } from '../../src/tools/analyst-misc-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { CardService } from '../helpers/canonical-project.js';
 import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
@@ -38,7 +39,7 @@ function setup() {
   return root;
 }
 function context(projectRoot: string): ToolContext {
-  return { projectRoot, store: new CardService(projectRoot), captureExecutingLlmSessionIds: () => new Set(['agent:planner:project']) } as unknown as ToolContext;
+  return { projectRoot, store: new CardService(projectRoot), captureExecutingLlmSnapshots: () => executingLlmSnapshots(['agent:planner:project']) } as unknown as ToolContext;
 }
 function rows(): AgentMessage[] {
   return [
@@ -195,7 +196,7 @@ describe('Analyst agent-session tools', () => {
   it('returns the exact direct and nested durable call-only tail', async () => {
     const projectRoot = setup();
     appendConversationBatch({ projectRoot }, rows());
-    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Set(['agent:planner:project']));
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => executingLlmSnapshots(['agent:planner:project']));
     const expected = service.getConversation('agent:planner:project');
     const detail = service.getSession('agent:planner:project');
     const result = await read_agent_session(context(projectRoot), {

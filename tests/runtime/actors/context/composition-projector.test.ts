@@ -92,7 +92,7 @@ describe('composition projector selection pass', () => {
       { kind: 'message', sourceId: 'u1', role: 'user', content: 'question', semantic: 'direct', responsesPrivateMessageId: null },
       { kind: 'settled_tool_bundle', identity: { session_id: SESSION, source_input_id: INPUT_A, tool_call_id: 'call-1' }, toolName: 'get_card', callArguments: '{"id":"card-a"}', resultContent, policy: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'summarizer_only', evidence: { kind: 'observational_query', tool: 'get_card', arguments: { id: 'card-a' }, observed_sha256: observed } }, responsesPrivateMessageId: null },
     ]);
-    expect(providerConversationFromComposedContext(compose(rows)).messages.map((row) => row.id)).toEqual(['u1', `${INPUT_A}:tool-call:call-1`, `${INPUT_A}:tool-result:call-1`]);
+    expect(providerConversationFromComposedContext(compose(rows)).messages.map((row) => row.kind === 'synthetic_context' ? row.block_identity : row.id)).toEqual(['u1', `${INPUT_A}:tool-call:call-1`, `${INPUT_A}:tool-result:call-1`]);
   });
 
   it('drops superseded snapshots after verifying every represented-content hash', () => {
@@ -103,6 +103,19 @@ describe('composition projector selection pass', () => {
     expect(composed.primary[0]).toMatchObject({ origin: 'dynamic', block: { id: 'tree-2' } });
     const mismatch = dynamicBlock('tree-3', { content: 'tree-v3', replacement: { kind: 'latest_snapshot', key: 'analyst.project_tree', contentSha256: contextContentSha256('other') } });
     expect(() => compose([], { dynamicBlocks: [mismatch] })).toThrow(/replacement hash does not commit/);
+  });
+
+  it('reuses the exact frozen prepared block after its source state changes', () => {
+    let currentBrief = 'brief prepared at activation';
+    const prepared = Object.freeze(dynamicBlock('card-activation:project', { role: 'system', content: currentBrief }));
+    currentBrief = 'new card state that must wait for the next activation';
+
+    const first = providerConversationFromComposedContext(compose([], { dynamicBlocks: [prepared] }));
+    const continuation = providerConversationFromComposedContext(compose([row({ id: 'u2', role: 'user', kind: 'text', content: 'continue' })], { dynamicBlocks: [prepared] }));
+
+    expect(first.messages[0]).toMatchObject({ kind: 'synthetic_context', block_identity: prepared.id, content: 'brief prepared at activation' });
+    expect(continuation.messages[0]).toEqual(first.messages[0]);
+    expect(JSON.stringify(continuation)).not.toContain(currentBrief);
   });
 
   it('omits activation boundaries and provider failures from both projections', () => {

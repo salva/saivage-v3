@@ -18,6 +18,7 @@ describe('changeset C contracts', () => {
     id: 'agent:analyst:global',
     agent_name: 'analyst',
     session_scope: 'global',
+    compaction: null,
     card_id: null,
     started_at: '2026-07-24T00:00:00.000Z',
     status: 'active',
@@ -26,6 +27,10 @@ describe('changeset C contracts', () => {
   it('has singular strict live summaries and transcript cursors', () => {
     expect(AgentSessionSummarySchema.parse(summary)).toEqual(summary);
     expect(AgentSessionSummarySchema.safeParse({ ...summary, status: undefined }).success).toBe(false);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, compaction: undefined }).success).toBe(false);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, compaction: { strategy: 'preventive', started_at: summary.started_at, folds_done: 2, fold_in_flight: true } }).success).toBe(true);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, status: 'inactive', activity: 'idle', compaction: { strategy: 'preventive', started_at: summary.started_at, folds_done: 2, fold_in_flight: true } }).success).toBe(false);
+    expect(AgentSessionSummarySchema.safeParse({ ...summary, compaction: { strategy: 'preventive', startedAt: summary.started_at, foldsDone: 2, foldInFlight: true } }).success).toBe(false);
     expect(AgentSessionSummarySchema.safeParse({ ...summary, activity: undefined }).success).toBe(false);
     expect(AgentSessionSummarySchema.safeParse({ ...summary, status: 'inactive', activity: 'idle' }).success).toBe(true);
     expect(AgentSessionSummarySchema.safeParse({ ...summary, status: 'active', activity: 'idle' }).success).toBe(false);

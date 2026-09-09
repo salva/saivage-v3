@@ -11,7 +11,7 @@ const api = vi.hoisted(() => ({
   getAgentConversation: vi.fn(),
   getAgentLlmExchange: vi.fn(),
 }));
-const live = vi.hoisted(() => ({ openConversation: vi.fn(), openLlmExchange: vi.fn() }));
+const live = vi.hoisted(() => ({ openConversation: vi.fn(), openAgents: vi.fn(() => () => {}), openLlmExchange: vi.fn() }));
 vi.mock('../stores/sync', () => ({ useSyncStore: () => live }));
 vi.mock('../api/client', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/client')>()),
@@ -30,6 +30,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
         id: 'agent:executor:project',
         agent_name: 'executor',
         session_scope: 'card',
+        compaction: null,
         card_id: 'project',
         started_at: '2026-01-01T00:00:00Z',
         status: 'inactive', activity: 'idle',
@@ -118,6 +119,7 @@ describe('DebugAgentDetail keyed lifecycle', () => {
   });
 
   it('renders initial 401 as unavailable and refresh 401 as a warning beside accepted content', async () => {
+    const store = useAgentStore();
     const unauthorized = new OperatorApiError('agents.conversation', 401, {
       statusCode: 401,
       error: 'Unauthorized',
@@ -151,6 +153,9 @@ describe('DebugAgentDetail keyed lifecycle', () => {
     });
     await callback(null);
     await flushPromises();
+    expect(store.currentSession?.id).toBe('agent:executor:project');
+    expect(store.sessionSummaryError).toBeNull();
+    expect(store.sessionSummaryRefreshError).toBeNull();
     await expect(callback({
       t: 'invalidate',
       resource: 'conversation',
@@ -159,6 +164,8 @@ describe('DebugAgentDetail keyed lifecycle', () => {
       visible_message_id: 'next',
     })).rejects.toBe(unauthorized);
     await flushPromises();
+    expect(store.conversationError).toBeNull();
+    expect(store.conversationRefreshError).toBe('Unauthorized');
     expect(loaded.text()).toContain('Unauthorized');
     expect(loaded.text()).not.toContain('Conversation unavailable');
     expect(loaded.find('.agent-debug-conversation').exists()).toBe(true);

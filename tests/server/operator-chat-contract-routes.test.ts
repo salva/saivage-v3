@@ -334,7 +334,7 @@ describe('operator chat route request contracts', () => {
     const agentResult = new AgentOperatorReadModelService(
       projectRoot,
       TEST_WORKFLOWS,
-      () => new Set(),
+       () => new Map(),
     ).getConversation('agent:analyst:global');
     const agentRows = agentResult.entries.slice(-2);
     const got = await fastify.inject({ method: 'GET', url: '/api/chat', headers: authHeaders });
@@ -344,7 +344,7 @@ describe('operator chat route request contracts', () => {
       {
         projectRoot,
         store: new CardService(projectRoot),
-        captureExecutingLlmSessionIds: () => new Set(),
+        captureExecutingLlmSnapshots: () => new Map(),
       } as unknown as ToolContext,
       { session_id: 'agent:analyst:global', last_n: 2 },
     );

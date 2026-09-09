@@ -26,6 +26,7 @@ import { initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-pr
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import { readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
 import { cardConversationVersionFile } from '../../src/persistence/layout.js';
+import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 
 const invalid = ['global', 'analyst:test', 'analyst:telegram-42', 'analyst:other'] as const;
 const timestamp = '2026-07-17T00:00:00.000Z';
@@ -58,7 +59,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const root = projectRoot();
     initProjectTree(root);
     populatePlannerConversation(root);
-    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSessionIds: () => new Set(['agent:planner:project']) });
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => executingLlmSnapshots(['agent:planner:project']) });
     const list = await handlers['agents.list']!({} as never);
     const detail = await handlers['agents.detail']!({ params: { id: 'agent:planner:project' } } as never);
     expect(AgentListResponseSchema.parse(list.body).sessions).toContainEqual(expect.objectContaining({ id: 'agent:planner:project', status: 'active', activity: 'busy' }));
@@ -74,6 +75,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
       started_at: timestamp,
       status: 'inactive',
       activity: 'idle',
+      compaction: null,
     };
     expect(AgentListResponseSchema.parse({ sessions: [session] }).sessions[0]!.id).toBe(id);
     expect(AgentDetailResponseSchema.parse({ session }).session.id).toBe(id);
@@ -140,7 +142,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const handlers = buildAgentOperatorContractHandlers({
       projectRoot: root,
       workflows: TEST_RUNTIME_WORKFLOWS,
-      captureExecutingLlmSessionIds: () => new Set(),
+      captureExecutingLlmSnapshots: () => new Map(),
     });
 
     const result = await handlers['agents.cardSessions']!({ params: { id: 'card-a' } } as never);
@@ -191,7 +193,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
       const handlers = buildAgentOperatorContractHandlers({
         projectRoot: '/nonexistent',
         workflows: TEST_RUNTIME_WORKFLOWS,
-        captureExecutingLlmSessionIds: () => new Set(),
+        captureExecutingLlmSnapshots: () => new Map(),
       });
       new ContractRuntime({
         authPolicy: new AuthPolicy(),
@@ -235,7 +237,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
       const handlers = buildAgentOperatorContractHandlers({
         projectRoot: root,
         workflows: TEST_RUNTIME_WORKFLOWS,
-        captureExecutingLlmSessionIds: () => new Set(['agent:planner:project']),
+        captureExecutingLlmSnapshots: () => executingLlmSnapshots(['agent:planner:project']),
       });
 
       const result = await handlers['agents.llmExchange']!({
@@ -291,7 +293,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const handlers = buildAgentOperatorContractHandlers({
       projectRoot: root,
       workflows: TEST_RUNTIME_WORKFLOWS,
-      captureExecutingLlmSessionIds: () => new Set(),
+      captureExecutingLlmSnapshots: () => new Map(),
     });
 
     await expect(
@@ -310,7 +312,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     populatePlannerConversation(root);
     const segment = readCurrentConversationSegment(root, 'agent:planner:project')!;
     unlinkSync(cardConversationVersionFile(root, 'project', 'planner', segment.entry.filename));
-    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSessionIds: () => new Set() });
+    const handlers = buildAgentOperatorContractHandlers({ projectRoot: root, workflows: TEST_RUNTIME_WORKFLOWS, captureExecutingLlmSnapshots: () => new Map() });
 
     expect(handlers['agents.conversationVersions.get']!({ params: { id: 'agent:planner:project', version: 1 } } as never)).toEqual({
       statusCode: 404,
@@ -337,7 +339,7 @@ describe('operator Agent exact identity contracts and handlers', () => {
     const handlers = buildAgentOperatorContractHandlers({
       projectRoot: root,
       workflows: TEST_RUNTIME_WORKFLOWS,
-      captureExecutingLlmSessionIds: () => new Set(),
+      captureExecutingLlmSnapshots: () => new Map(),
     });
     const fastify = Fastify({ logger: false });
     new ContractRuntime({

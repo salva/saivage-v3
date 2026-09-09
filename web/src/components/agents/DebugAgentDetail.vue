@@ -27,20 +27,15 @@
       />
       <StatusBanner v-if="conversationRefreshing" tone="stale" message="Refreshing conversation…" />
       <StatusBanner v-if="conversationWarning" tone="warning" :message="conversationWarning" />
+      <CompactionProgressBanner v-if="currentSession?.compaction" :progress="currentSession.compaction" :last-known="sessionSummaryRefreshError !== null" />
+      <StatusBanner v-if="sessionSummaryRefreshError" tone="warning" :message="sessionSummaryRefreshError" />
+      <StatusBanner v-if="sessionSummaryRefreshing" tone="stale" message="Refreshing session status…" />
+      <StatusBanner v-if="sessionSummaryLoading && !currentSession" tone="stale" message="Loading session status…" />
+      <StatusBanner v-else-if="sessionSummaryUnauthorized && !currentSession" tone="warning" message="Session status unavailable: provide a valid API token." />
+      <StatusBanner v-else-if="sessionSummaryError && !currentSession" tone="warning" :message="sessionSummaryError" />
       <ViewState v-if="conversationLoading" state="loading" title="Loading agent conversation..." />
-      <ViewState
-        v-else-if="conversationUnauthorized && !currentSession"
-        state="unauthorized"
-        title="Conversation unavailable"
-        message="Provide a valid API token to load this conversation."
-      />
-      <ViewState
-        v-else-if="conversationError"
-        state="error"
-        title="Failed to load"
-        :message="conversationError"
-      />
-      <ViewState v-else-if="!currentSession" state="empty" title="No agent conversation recorded" />
+      <ViewState v-else-if="conversationUnauthorized && conversationError" state="unauthorized" title="Conversation unavailable" message="Provide a valid API token to load this conversation." />
+      <ViewState v-else-if="conversationError" state="error" title="Failed to load" :message="conversationError" />
       <div
         v-else
         ref="timelineControls.scrollAreaRef"
@@ -117,6 +112,7 @@ import CodeBlock from '../content/CodeBlock.vue';
 import ConversationTimeline from '../conversation/ConversationTimeline.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
+import CompactionProgressBanner from './CompactionProgressBanner.vue';
 
 import type { ConversationSessionId } from '../../api/contracts';
 const props = defineProps<{
@@ -127,6 +123,11 @@ const agentStore = useAgentStore();
 const liveSyncStore = useSyncStore();
 const {
   currentSession,
+  sessionSummaryLoading,
+  sessionSummaryRefreshing,
+  sessionSummaryError,
+  sessionSummaryRefreshError,
+  sessionSummaryUnauthorized,
   entries,
   conversationLoading,
   conversationRefreshing,

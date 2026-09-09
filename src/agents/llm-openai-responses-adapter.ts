@@ -94,12 +94,9 @@ function buildOpenAIResponsesRequest(
   opts: LlmCompleteOptions,
   capabilities?: Pick<EffectiveProviderCapabilities, 'responsesReasoning'>,
 ): OpenAIResponsesRequest {
-  const systemContext = providerConversation.messages
-    .filter((m) => m.role === 'system' && m.kind === 'text')
-    .map((m) => m.content);
   const body: OpenAIResponsesRequest = {
     model: candidate.model,
-    instructions: [systemPrompt, ...systemContext].join('\n\n--- system context ---\n'),
+    instructions: systemPrompt,
     input: responsesInputFromProviderConversation(providerConversation),
     store: false,
     include: ['reasoning.encrypted_content'],

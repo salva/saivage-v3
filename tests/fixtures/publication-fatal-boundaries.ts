@@ -79,9 +79,9 @@ if (mode === 'llm-conversation') {
     provider: scriptedAdmissionProvider(async () => { throw new PublicationOutcomeUnknownError(); }),
     conversations: { projectRoot: root },
     compactor: { shouldCompact: () => false, compact: async () => { throw new Error('not reached'); } },
-    summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},serializeSummaryRequest: () => { throw new Error('not reached'); },completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
+    summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: () => { throw new Error('not reached'); },completeTurn: async () => { throw new Error('not reached'); }, projectProviderExchanges() {} },
   });
-  const policy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' as const };
+  const policy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' as const };
   const preparedCompaction = prepareCompaction(policy, 'system', []);
   void actor.turn({ inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} }, undefined, () => { appendFileSync(path, 'terminal'); }).then(() => appendFileSync(path, 'after'));
 }

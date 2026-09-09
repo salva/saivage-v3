@@ -18,13 +18,19 @@ export function useSelectedConversation(sessionId: ConversationSessionId): {
     token = agentStore.beginConversationSelection(sessionId);
     close = syncStore.openConversation(sessionId, (frame) => {
       acknowledged = true;
-      return agentStore.refetchConversation(token, frame);
+      return Promise.all([
+        agentStore.refetchConversation(token, frame),
+        frame === null ? agentStore.fetchSelectedSession(token) : Promise.resolve(),
+      ]).then(() => undefined);
     });
   });
 
   async function reload(): Promise<void> {
     if (!acknowledged) return;
-    await agentStore.fetchConversation(token).catch(() => {});
+    await Promise.all([
+      agentStore.fetchConversation(token).catch(() => {}),
+      agentStore.fetchSelectedSession(token),
+    ]);
   }
 
   function fetchVersions(): Promise<void> {

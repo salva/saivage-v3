@@ -6,6 +6,7 @@ import { buildContentPolicyRefusalMessage } from '../../src/runtime/actors/conte
 import { DURABLE_PRIMARY_CONTENT_POLICY, MODEL_RECOVERY_NOTICE_TEXT, type AgentMessage, type ConversationSessionId } from '../../src/schemas/index.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { LlmCompleteOptions, ProviderConversationProjection } from '../../src/agents/llm-contracts.js';
+import type { ContextBlock } from '../../src/runtime/actors/context/context-blocks.js';
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const INPUT_A = '11111111-1111-4111-8111-111111111111';
@@ -29,37 +30,39 @@ describe('protocol adapters consume the composed projection', () => {
   const refusalB = buildContentPolicyRefusalMessage({ sessionId: SESSION, sourceInputId: INPUT_B, candidate: { provider: 'openai', account: null, model: 'gpt-5.6' }, providerResponse: 'RAW-B' });
   const composed = composeContextProjection({
     sourceSessionId: SESSION,
-    effectiveHistory: null,
-    dynamicBlocks: [],
+    effectiveHistory: { summaryText: 'prior summary', historyMessageId: 'history-block', historyTimestamp: TS, requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } },
+    dynamicBlocks: [{ id: 'prepared-card', role: 'system', content: '{"brief":"FULL-BRIEF"}', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock],
     uncoveredRows: [recoveryRow(INPUT_A), recoveryRow(INPUT_B), userRow('u1', 'first question'), refusalA, refusalB],
   });
   const providerConversation = providerConversationFromComposedContext(composed);
-  const ids = providerConversation.messages.map((row) => row.id);
+  const identities = providerConversation.messages.map((item) => item.kind === 'synthetic_context' ? item.block_identity : item.id);
 
   it('projects each repeated recovery and refusal semantic exactly once before adapter mapping', () => {
-    expect(ids).toEqual([`${INPUT_B}:model-recovered`, 'u1', refusalB.id]);
+    expect(identities).toEqual(['prepared-card', 'history-block', `${INPUT_B}:model-recovered`, refusalB.id, 'u1']);
   });
 
   it('Chat maps the prefix first and the projected system and user notices normally', () => {
     const chat = requestBody('openai-chat-completions', providerConversation) as unknown as { messages: Array<{ role: string; content: string }> };
     expect(chat.messages[0]).toEqual({ role: 'system', content: 'prefix-instructions' });
-    expect(chat.messages.slice(1).map((message) => message.role)).toEqual(['system', 'user', 'user']);
+    expect(chat.messages.slice(1).map((message) => message.role)).toEqual(['system', 'system', 'system', 'user', 'user']);
+    expect(chat.messages.filter((message) => message.content === '{"brief":"FULL-BRIEF"}')).toHaveLength(1);
+    expect(chat.messages.filter((message) => message.content === 'prefix-instructions')).toHaveLength(1);
     expect(chat.messages.filter((message) => message.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);
   });
 
-  it('Codex folds the prefix and system notice into instructions in order', () => {
-    const body = requestBody('openai-codex-backend', providerConversation) as unknown as { instructions: string; input: unknown[] };
-    expect(body.instructions.indexOf('prefix-instructions')).toBe(0);
-    expect(body.instructions).toContain(MODEL_RECOVERY_NOTICE_TEXT);
-    expect(body.instructions.match(new RegExp(MODEL_RECOVERY_NOTICE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
-    expect(JSON.stringify(body.input)).not.toContain(MODEL_RECOVERY_NOTICE_TEXT);
+  it('Codex keeps static instructions singular and maps ordered synthetic system context into input', () => {
+    const body = requestBody('openai-codex-backend', providerConversation) as unknown as { instructions: string; input: Array<{ role?: string; content?: unknown }> };
+    expect(body.instructions).toBe('prefix-instructions');
+    expect(body.input.slice(0, 3).map((item) => item.role)).toEqual(['system', 'system', 'system']);
+    expect(JSON.stringify(body.input).match(/FULL-BRIEF/g)).toHaveLength(1);
+    expect(JSON.stringify(body.input).match(new RegExp(MODEL_RECOVERY_NOTICE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
   });
 
-  it('Responses hoists the one projected recovery system notice into instructions and excludes it from input', () => {
+  it('Responses keeps static instructions singular and maps ordered synthetic system context into input', () => {
     const body = requestBody('openai-responses', providerConversation) as unknown as { instructions: string; input: unknown[] };
-    expect(body.instructions.indexOf('prefix-instructions')).toBe(0);
-    expect(body.instructions.match(new RegExp(MODEL_RECOVERY_NOTICE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
-    expect(JSON.stringify(body.input)).not.toContain(MODEL_RECOVERY_NOTICE_TEXT);
+    expect(body.instructions).toBe('prefix-instructions');
+    expect(JSON.stringify(body.input).match(/FULL-BRIEF/g)).toHaveLength(1);
+    expect(JSON.stringify(body.input).match(new RegExp(MODEL_RECOVERY_NOTICE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
     expect(JSON.stringify(body)).not.toContain('RAW-A');
     expect(JSON.stringify(body)).not.toContain('RAW-B');
   });

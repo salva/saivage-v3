@@ -20,6 +20,7 @@ import {
 import type { CardId } from '../../schemas/card-id.js';
 import type { CompiledProjectWorkflows } from '../../runtime/card-process/card-process-config.js';
 import { throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
+import type { ExecutingLlmSnapshot } from '../../runtime/actors/executing-llm-snapshot.js';
 
 export class AgentSessionNotFoundError extends Error {}
 export class CardAgentScopeNotFoundError extends Error {}
@@ -33,11 +34,11 @@ export class AgentOperatorReadModelService {
   constructor(
     private readonly projectRoot: string,
     private readonly workflows: CompiledProjectWorkflows,
-    private readonly captureExecutingLlmSessionIds: () => ReadonlySet<ConversationSessionId>,
+    private readonly captureExecutingLlmSnapshots: () => ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>,
   ) {}
 
   listSessions() {
-    const liveSessionIds = this.captureExecutingLlmSessionIds();
+    const snapshots = this.captureExecutingLlmSnapshots();
     const candidates: ConversationSessionId[] = [globalAgentSessionId(this.workflows.analyst.name)];
     for (const card of listCards(this.projectRoot))
       candidates.push(...this.cardCandidates(card.id, card.type));
@@ -47,7 +48,7 @@ export class AgentOperatorReadModelService {
       throw new AgentSessionNotFoundError(`Agent session '${candidates[0]}' not found.`);
     const sessions: AgentSessionSummary[] = [];
     for (const id of candidates) {
-      const summary = this.catalogSummary(id, liveSessionIds);
+      const summary = this.catalogSummary(id, snapshots);
       if (summary) sessions.push(summary);
     }
     sessions.sort((a, b) => a.id.localeCompare(b.id));
@@ -55,19 +56,19 @@ export class AgentOperatorReadModelService {
   }
 
   listCardSessions(cardId: CardId) {
-    const liveSessionIds = this.captureExecutingLlmSessionIds();
+    const snapshots = this.captureExecutingLlmSnapshots();
     const card = readCard(this.projectRoot, cardId);
     if (!card) throw new CardAgentScopeNotFoundError(`Card '${cardId}' not found.`);
     return CardAgentSessionsResponseSchema.parse({
       card_id: cardId,
-      sessions: this.summaries(this.cardCandidates(cardId, card.type), liveSessionIds),
+      sessions: this.summaries(this.cardCandidates(cardId, card.type), snapshots),
     });
   }
 
   getSession(sessionId: ConversationSessionId) {
-    const liveSessionIds = this.captureExecutingLlmSessionIds();
+    const snapshots = this.captureExecutingLlmSnapshots();
     this.admitSession(sessionId);
-    const summary = this.summary(sessionId, liveSessionIds);
+    const summary = this.summary(sessionId, snapshots);
     if (!summary) throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
     return AgentDetailResponseSchema.parse({ session: summary });
   }
@@ -101,12 +102,12 @@ export class AgentOperatorReadModelService {
   getConversationVersion(sessionId: ConversationSessionId, version: number) { this.admitSession(sessionId); let segment; try { segment = readHistoricalConversationSegment(this.projectRoot, sessionId, version); } catch (error) { if (error instanceof ConversationHistoricalVersionNotFoundError || error instanceof ConversationHistoricalVersionUnavailableError) throw error; throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); } return ConversationVersionContentResponseSchema.parse({ session_id: sessionId, version, entry_id: segment.entry.entry_id, published_at: segment.entry.created_at, segment_context: segmentContext(segment.genesis), entries: foldHistoricalConversationRows(segment.rows) }); }
 
   readCurrentSegmentTail(sessionId: ConversationSessionId, lastN: number) {
-    const liveSessionIds = this.captureExecutingLlmSessionIds();
+    const snapshots = this.captureExecutingLlmSnapshots();
     const catalog = this.admitConversationCatalog(sessionId);
     const identity = conversationSessionIdentity(sessionId);
     const ownership = catalog.ownership;
-    const live = liveSessionIds.has(sessionId);
-    const session = AgentSessionSummarySchema.parse({ id: sessionId, agent_name: identity.agentName, session_scope: identity.cardId === null ? 'global' : 'card', card_id: identity.cardId, started_at: catalog.createdAt, status: live ? 'active' : 'inactive', activity: live ? 'busy' : 'idle' });
+    const snapshot = snapshots.get(sessionId);
+    const session = AgentSessionSummarySchema.parse({ id: sessionId, agent_name: identity.agentName, session_scope: identity.cardId === null ? 'global' : 'card', card_id: identity.cardId, started_at: catalog.createdAt, status: snapshot ? 'active' : 'inactive', activity: snapshot ? 'busy' : 'idle', compaction: projectCompaction(snapshot) });
     if (catalog.currentVersion === null) return { kind: 'empty' as const, ownership, session };
     try { return { kind: 'populated' as const, ownership, session, conversation: foldConversation(this.projectRoot, sessionId, { lastN }) }; }
     catch (error) { throwIfPublicationOutcomeUnknown(error); throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
@@ -139,45 +140,52 @@ export class AgentOperatorReadModelService {
     return head.kind === 'card-tombstone' ? 'retained_tombstone' : 'active';
   }
 
-  private summaries(candidates: readonly ConversationSessionId[], liveSessionIds: ReadonlySet<ConversationSessionId>): AgentSessionSummary[] {
+  private summaries(candidates: readonly ConversationSessionId[], snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>): AgentSessionSummary[] {
     if (new Set(candidates).size !== candidates.length)
       throw new Error('Agent session candidate identities must be unique.');
     return candidates
-      .flatMap((id) => { const summary = this.summary(id, liveSessionIds); return summary ? [summary] : []; })
+      .flatMap((id) => { const summary = this.summary(id, snapshots); return summary ? [summary] : []; })
       .sort((a, b) => a.id.localeCompare(b.id));
   }
 
-  private catalogSummary(sessionId: ConversationSessionId, liveSessionIds: ReadonlySet<ConversationSessionId>): AgentSessionSummary | null {
+  private catalogSummary(sessionId: ConversationSessionId, snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>): AgentSessionSummary | null {
     let catalog;
     try { catalog = readConversationCatalog(this.projectRoot, sessionId); }
     catch (error) { throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
     if (catalog.currentVersion === null) return null;
     const identity = conversationSessionIdentity(sessionId);
-    const live = liveSessionIds.has(sessionId);
+    const snapshot = snapshots.get(sessionId);
     return AgentSessionSummarySchema.parse({
       id: sessionId,
       agent_name: identity.agentName,
       session_scope: identity.cardId === null ? 'global' : 'card',
       card_id: identity.cardId,
       started_at: catalog.createdAt,
-      status: live ? 'active' : 'inactive',
-      activity: live ? 'busy' : 'idle',
+      status: snapshot ? 'active' : 'inactive',
+      activity: snapshot ? 'busy' : 'idle',
+      compaction: projectCompaction(snapshot),
     });
   }
 
-  private summary(sessionId: ConversationSessionId, liveSessionIds: ReadonlySet<ConversationSessionId>): AgentSessionSummary | null {
+  private summary(sessionId: ConversationSessionId, snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>): AgentSessionSummary | null {
     this.admitSession(sessionId);
     const source = this.admitConversationCatalog(sessionId); if (source.currentVersion === null) return null;
     const identity = conversationSessionIdentity(sessionId);
-    const live = liveSessionIds.has(sessionId);
+    const snapshot = snapshots.get(sessionId);
     return AgentSessionSummarySchema.parse({
       id: sessionId,
       agent_name: identity.agentName,
       session_scope: identity.cardId === null ? 'global' : 'card',
       card_id: identity.cardId,
       started_at: source.createdAt,
-      status: live ? 'active' : 'inactive',
-      activity: live ? 'busy' : 'idle',
+      status: snapshot ? 'active' : 'inactive',
+      activity: snapshot ? 'busy' : 'idle',
+      compaction: projectCompaction(snapshot),
     });
   }
+}
+
+function projectCompaction(snapshot: ExecutingLlmSnapshot | undefined) {
+  const progress = snapshot?.compaction;
+  return progress ? { strategy: progress.strategy, started_at: progress.startedAt, folds_done: progress.foldsDone, fold_in_flight: progress.foldInFlight } : null;
 }

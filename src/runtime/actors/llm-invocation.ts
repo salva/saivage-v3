@@ -12,16 +12,10 @@ export type PreparedCompaction = {
   readonly estimatedStaticTokens: number;
   readonly triggerMessageThreshold: number;
   readonly canonicalMessageHardCeiling: number;
-  readonly normalTailBudget: number;
-  readonly normalMiddleBudget: number;
-  readonly escalatedTailBudget: number;
-  readonly escalatedMiddleBudget: number;
+  readonly tailBudgetTokens: number;
   readonly triggerFraction: number;
   readonly completionReserveFraction: number;
-  readonly normalMergeLineFraction: number;
-  readonly normalSummaryLineFraction: number;
-  readonly escalatedMergeLineFraction: number;
-  readonly escalatedSummaryLineFraction: number;
+  readonly tailFraction: number;
   readonly snap: 'keep_straddler_verbatim' | 'compact_straddler';
 };
 
@@ -36,7 +30,7 @@ interface LlmInvocationInputBase {
   /** Invocation/persistence owner. Ordinary actor turns require this to equal providerConversation.sourceSessionId. */
   sessionId: string;
   systemPrompt: string;
-  /** Current provider-eligible rows from one source-identified validated canonical conversation. */
+  /** Complete ordered request projection: frozen synthetic context plus current provider-eligible canonical rows. */
   providerConversation: ProviderConversationProjection;
   tools: ToolDefinition[];
   compiledToolContracts: readonly CompiledInvocationToolContract[];

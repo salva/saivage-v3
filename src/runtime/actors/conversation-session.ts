@@ -6,6 +6,7 @@ import type { ValidatedConversation } from '../../contracts/conversation-validat
 import type { ProviderConversationProjection } from '../../agents/llm-contracts.js';
 import { composeContextProjection, providerConversationFromComposedContext } from './context/composition-projector.js';
 import { classifyConversationRowPolicy } from './context/row-policy.js';
+import type { ContextBlock } from './context/context-blocks.js';
 import { appendConversationBatch, type ConversationFileContext,
 } from '../../persistence/conversation-file.js';
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
@@ -191,6 +192,7 @@ function buildContextTextMessage(
 
 export function providerConversationProjection(
   conversation: ValidatedConversation,
+  preparedDynamicBlocks: readonly ContextBlock[],
 ): ProviderConversationProjection {
   const genesis = conversation.compactedGenesis;
   const history = conversation.effectiveCompactedHistory;
@@ -204,7 +206,7 @@ export function providerConversationProjection(
           requiredModelFacts: history.requiredModelFacts,
         }
       : null,
-    dynamicBlocks: [],
+    dynamicBlocks: preparedDynamicBlocks,
     uncoveredRows: conversation.sourceRows,
   }));
 }

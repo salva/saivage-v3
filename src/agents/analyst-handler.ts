@@ -226,6 +226,7 @@ export class AnalystSession {
       agentName: this.#agentName,
       cardId: null,
       activity: this.#llm.executingActivity(),
+      compaction: this.#llm.compactionProgress(),
     });
   }
 
@@ -263,6 +264,7 @@ export class AnalystSession {
       ...preparedInput,
       providerConversation: providerConversationProjection(
         readConversation(this.#conversations.projectRoot, this.#sessionId),
+        preparedInput.preparedContext.dynamicBlocks,
       ),
     };
     operation.step = { kind: 'nested', input: invocationInput };

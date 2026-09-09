@@ -8,7 +8,9 @@ import { InvocationService, type InvocationRequest } from '../../src/agents/invo
 import { LocalExactAdmissionError, projectAdmissionDiagnostics } from '../../src/agents/invocation-admission.js';
 import { prepareCompaction } from '../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
-import { agentMessageSchema } from '../../src/schemas/index.js';
+import { composeContextProjection, providerConversationFromComposedContext } from '../../src/runtime/actors/context/composition-projector.js';
+import type { ContextBlock } from '../../src/runtime/actors/context/context-blocks.js';
+import { agentMessageSchema, canonicalJson } from '../../src/schemas/index.js';
 import type { SaivageConfig } from '../../src/schemas/saivage-config.js';
 import type { Candidate } from '../../src/contracts/provider-candidate.js';
 import type { ToolDefinition } from '../../src/agents/llm-contracts.js';
@@ -25,7 +27,7 @@ const TOOL: ToolDefinition = { type: 'function', function: { name: 'probe_tool',
 const roots: string[] = [];
 
 function preparedCompactionFixture() {
-  return prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', [TOOL], 2000);
+  return prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [TOOL], 2000);
 }
 
 afterEach(() => {
@@ -62,6 +64,43 @@ function service(candidates: readonly Candidate[], overrides: Record<string, Sai
 }
 
 describe('ordinary primary-request local admission', () => {
+  it('admits the exact production serialization with one full prepared block and retains those bytes', () => {
+    const full = 'FULL-PREPARED-CARD-BRIEF-'.repeat(40);
+    const block = Object.freeze({ id: 'card-activation:project', role: 'system', content: full, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock);
+    const providerConversation = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [block], uncoveredRows: [] }));
+    const base = request([A]);
+    if (!base.preparedCompaction) throw new Error('fixture requires prepared compaction');
+    const invocation: InvocationRequest = { ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [block], preparedCompaction: base.preparedCompaction }) };
+
+    const admission = service([A]).preparePrimaryRequestAdmission(invocation);
+    expect(admission.kind).toBe('admitted');
+    if (admission.kind !== 'admitted') throw new Error('unreachable');
+    const verdict = admission.candidates[0]!;
+    if (verdict.kind !== 'admitted') throw new Error('unreachable');
+    expect(verdict.plan.request.serializedBody.match(/FULL-PREPARED-CARD-BRIEF-/g)).toHaveLength(40);
+    expect(verdict.plan.request.serializedBody).not.toContain('card-activation:project');
+    expect(verdict.plan.request.serializedBody).not.toContain('synthetic_context');
+    expect(verdict.plan.request.serializedBody).not.toContain('block_identity');
+    expect(verdict.plan.request.serializedBody).not.toContain('"origin":"dynamic"');
+    expect(verdict.plan.request.serializedBody).not.toContain('activation_local');
+    expect(verdict.plan.request.serializedBody.match(/"content":"system"/g)).toHaveLength(1);
+    expect(verdict.plan.request.requestHash).toHaveLength(64);
+    expect(verdict.plan.request.serializedBody).toBe(canonicalJson(verdict.plan.request.body));
+  });
+
+  it('classifies an oversized full prepared block as capacity failure without shortening it', () => {
+    const full = `BEGIN-FULL-BLOCK:${'x'.repeat(20_000)}:END-FULL-BLOCK`;
+    const block = Object.freeze({ id: 'card-activation:project', role: 'system', content: full, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock);
+    const providerConversation = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [block], uncoveredRows: [] }));
+    expect(providerConversation.messages).toEqual([expect.objectContaining({ kind: 'synthetic_context', content: full })]);
+    const base = request([A]);
+    if (!base.preparedCompaction) throw new Error('fixture requires prepared compaction');
+    const admission = service([A], { 'cand-a': { contextWindowTokens: 1000 } }).preparePrimaryRequestAdmission({ ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [block], preparedCompaction: base.preparedCompaction }) });
+    expect(admission.kind).toBe('local_compaction_required');
+    if (admission.kind !== 'local_compaction_required') throw new Error('unreachable');
+    expect(admission.candidates[0]).toMatchObject({ kind: 'projection_too_large' });
+  });
+
   it('requests local compaction when a capability-ineligible fitting candidate cannot suppress a compatible oversized one', () => {
     const svc = service([A, B], { 'cand-a': { toolsMode: 'unsupported' }, 'cand-b': { contextWindowTokens: 10 } });
     const admission = svc.preparePrimaryRequestAdmission(request([A, B]));
@@ -145,7 +184,7 @@ describe('ordinary primary-request local admission', () => {
       agents: structuredClone(DEFAULT_SAIVAGE_CONFIG.agents) as unknown as SaivageConfig['agents'], analyst_agent: 'analyst',
       models: { routes: { planner: { candidates: ['model-x'], temperature: 0.2, max_tokens: 2000 } }, profiles: {}, equivalents: [], failover: {} },
       providers, server: { port: 8080, host: '127.0.0.1' },
-      compaction: { enabled: true, input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler', summarizer_candidate: chain[0]! },
+      compaction: { enabled: true, input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler', summarizer_candidate: chain[0]! },
       card_types: structuredClone(DEFAULT_SAIVAGE_CONFIG.card_types),
     });
     const svc = new InvocationService({ projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry, candidateAvailability: new MemoryCandidateAvailability() });

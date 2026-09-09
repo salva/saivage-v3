@@ -45,7 +45,7 @@ syncBuiltinESMExports();
 
 const { AgentOperatorReadModelService } = await import('../../src/application/read-models/agent-operator-read-model.js');
 const { TEST_WORKFLOWS } = await import('../helpers/canonical-project.js');
-new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Set()).listSessions();
+new AgentOperatorReadModelService(root, TEST_WORKFLOWS, () => new Map()).listSessions();
 
 const snapshot = {
   cardStreamOpens: {} as Record<string, number>,

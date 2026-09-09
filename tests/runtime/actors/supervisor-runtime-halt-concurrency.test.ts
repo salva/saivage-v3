@@ -102,7 +102,7 @@ function harness(withChild = false) {
     actorStore: store,
     provider: scriptedAdmissionProvider(async (_input: unknown, signal: AbortSignal) => new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }))),
     conversations: { projectRoot },
-    freshness: { runtimeChanged, agentMembershipChanged: (target: AgentMembershipFreshnessTarget) => membershipRecords.push({ target: target as { scope: 'card'; cardId: string }, liveIds: [...supervisor.captureAutonomousExecutingLlmSessionIds()], ownersCleared: (supervisor as unknown as SupervisorInternals).activationOwners.size === 0 }) },
+    freshness: { runtimeChanged, agentMembershipChanged: (target: AgentMembershipFreshnessTarget) => membershipRecords.push({ target: target as { scope: 'card'; cardId: string }, liveIds: [...supervisor.captureAutonomousExecutingLlmSnapshots().keys()], ownersCleared: (supervisor as unknown as SupervisorInternals).activationOwners.size === 0 }) },
     processRunner: { terminateScopeTree }, runtimeProcessRootScope: {}, processIdentity: { pid: 1, startedAt: 'now' },
     promptTemplates: createTestPromptTemplateRegistry(),
   } as never);
@@ -145,11 +145,11 @@ describe('Supervisor singular runtime halt concurrency', () => {
     const h = harness();
     const snapshot = jest.spyOn(h.rootProcessor.actor, 'executingLlmSnapshot');
     snapshot.mockReturnValueOnce({ sessionId: 'agent:planner:project' } as never);
-    expect(h.supervisor.captureAutonomousExecutingLlmSessionIds()).toEqual(new Set(['agent:planner:project']));
+    expect([...h.supervisor.captureAutonomousExecutingLlmSnapshots().keys()]).toEqual(['agent:planner:project']);
     snapshot.mockReturnValueOnce({ sessionId: 'agent:reviewer:project' } as never);
-    expect(h.supervisor.captureAutonomousExecutingLlmSessionIds()).toEqual(new Set(['agent:reviewer:project']));
+    expect([...h.supervisor.captureAutonomousExecutingLlmSnapshots().keys()]).toEqual(['agent:reviewer:project']);
     snapshot.mockReturnValueOnce(null);
-    expect(h.supervisor.captureAutonomousExecutingLlmSessionIds()).toEqual(new Set());
+    expect(h.supervisor.captureAutonomousExecutingLlmSnapshots().size).toBe(0);
   });
 
   it('reports a blocked durable parent before rejecting a durable running child as non-activatable and installs no work', () => {
@@ -346,7 +346,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
     const childSession = 'agent:executor:card-a' as const;
     jest.spyOn(h.rootProcessor.actor, 'executingLlmSnapshot').mockReturnValue({ sessionId: rootSession } as never);
     jest.spyOn(h.childProcessor!.actor, 'executingLlmSnapshot').mockReturnValue({ sessionId: childSession } as never);
-    expect([...h.supervisor.captureAutonomousExecutingLlmSessionIds()].sort()).toEqual([childSession, rootSession].sort());
+    expect([...h.supervisor.captureAutonomousExecutingLlmSnapshots().keys()].sort()).toEqual([childSession, rootSession].sort());
 
     const stop = h.supervisor.stopProject();
     expect(h.internals.activationOwners.size).toBe(2);
@@ -367,7 +367,7 @@ describe('Supervisor singular runtime halt concurrency', () => {
       expect(record.liveIds).not.toContain(rootSession);
       expect(record.liveIds).not.toContain(childSession);
     }
-    expect(h.supervisor.captureAutonomousExecutingLlmSessionIds()).toEqual(new Set());
+    expect(h.supervisor.captureAutonomousExecutingLlmSnapshots().size).toBe(0);
   });
 
   it('abandons a near-terminal result after its possible publication and performs no post-freeze natural release', async () => {

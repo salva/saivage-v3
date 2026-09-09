@@ -97,7 +97,7 @@ describe('Analyst project-context failure', () => {
     initProjectTree(projectRoot);
 
     const cardStore = new CompiledCardService(projectRoot);
-    const render = jest.fn(() => 'x'.repeat(8_000));
+    const render = jest.fn(() => 'x'.repeat(32_000));
     const completeTurn = jest.fn(async () => {
       throw new Error('provider must not run');
     });
@@ -123,7 +123,7 @@ describe('Analyst project-context failure', () => {
       restartCapability: { available: false },
       provider: scriptedAdmissionProvider(completeTurn),
       conversations: { projectRoot },
-      compactionPolicy: { input_budget_tokens: 1_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'keep_straddler_verbatim' },
+      compactionPolicy: { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'keep_straddler_verbatim' },
       compactor: {
         shouldCompact: () => false,
         compact: async () => { throw new Error('compaction must not run'); },

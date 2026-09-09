@@ -181,7 +181,7 @@ export class CardProcessActor extends BaseActor {
     if (!llm) return null;
     const identity = conversationSessionIdentity(parseConversationSessionId(llm.agentId));
     if (identity.cardId !== this.cardId) throw new Error(`Current LLM actor '${llm.agentId}' does not belong to processor '${this.cardId}'.`);
-    return Object.freeze({ sessionId: parseConversationSessionId(llm.agentId), agentId: llm.agentId, agentName: identity.agentName, cardId: identity.cardId, activity: llm.executingActivity() });
+    return Object.freeze({ sessionId: parseConversationSessionId(llm.agentId), agentId: llm.agentId, agentName: identity.agentName, cardId: identity.cardId, activity: llm.executingActivity(), compaction: llm.compactionProgress() });
   }
 
   protected onStateEntered(context: ActorLifecycleContext): void {

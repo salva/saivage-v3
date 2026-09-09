@@ -24,6 +24,7 @@ function session(id: AgentSession['id'], cardId: string): AgentSession {
     id,
     agent_name: 'executor',
     session_scope: 'card',
+    compaction: null,
     card_id: cardId,
     started_at: '2026-01-01T00:00:00.000Z',
     status: 'inactive',

@@ -1,23 +1,19 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { Buffer } from 'node:buffer';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion,
 } from '../../../agents/llm-contracts.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext,
 } from '../../../contracts/provider-exchange.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
-import {
-  agentMessageSchema,
-  DURABLE_PRIMARY_CONTENT_POLICY,
-  type AgentMessage,
-  type ConversationSessionId,
-} from '../../../schemas/index.js';
-import { deterministicRoundId } from '../../../schemas/round-id-server.js';
+import type { ConversationSessionId } from '../../../schemas/index.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { Candidate } from '../../../contracts/provider-candidate.js';
+import type { EffectiveProviderCapabilities } from '../../../agents/provider-capabilities.js';
 
 export const SUMMARY_COMPLETION_TOKENS = 2000;
+const SUMMARY_OUTPUT_MAX_BYTES = 12_000;
 
 const INTERNAL_SUMMARY_LABEL = 'internal-compaction-summary';
-const SUMMARY_REQUEST_EPOCH_TIMESTAMP = '1970-01-01T00:00:00.000Z';
 
 export function internalCompactionSummarySessionId(sourceSessionId: string): string {
   return `internal:compaction-summary:${createHash('sha256').update(sourceSessionId, 'utf8').digest('hex')}`;
@@ -31,6 +27,8 @@ export type SummaryRequestSerialization = Readonly<{
 
 export interface SummarizerProviderPort {
   readonly candidate: Candidate;
+  readonly contextWindowTokens: number;
+  readonly maxOutputTokens: number;
   serializeSummaryRequest(input: LlmInvocationInput): SummaryRequestSerialization;
   completeTurn(input: LlmInvocationInput, admitted: SummaryRequestSerialization, signal: AbortSignal): Promise<ProviderTurnCompletion>;
   projectProviderExchanges(sessionId: string, sourceInputId: string, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext,
@@ -51,13 +49,17 @@ export function admitSummaryRequest(args: {
   serialization: SummaryRequestSerialization;
   inputBudgetTokens: number;
   completionReserveTokens: number;
+  contextWindowTokens: number;
+  maxOutputTokens: number;
 }): SummaryRequestAdmission {
   if (SUMMARY_COMPLETION_TOKENS > args.completionReserveTokens)
     throw new Error(
       `The fixed ${SUMMARY_COMPLETION_TOKENS}-token summary completion request exceeds the configured completion reserve (${args.completionReserveTokens} tokens).`,
     );
+  if (SUMMARY_COMPLETION_TOKENS > args.maxOutputTokens)
+    throw new Error(`The fixed ${SUMMARY_COMPLETION_TOKENS}-token summary completion request exceeds the candidate output limit (${args.maxOutputTokens} tokens).`);
   const totalEstimatedTokens = args.serialization.estimatedInputTokens + SUMMARY_COMPLETION_TOKENS;
-  if (totalEstimatedTokens > args.inputBudgetTokens)
+  if (totalEstimatedTokens > Math.min(args.inputBudgetTokens, Math.floor(0.8 * args.contextWindowTokens)))
     return {
       kind: 'too_large',
       estimatedInputTokens: args.serialization.estimatedInputTokens,
@@ -76,7 +78,6 @@ export type SummaryRequestItem = Readonly<{
   label: string;
   role: 'system' | 'user' | 'assistant';
   content: string;
-  codeOwnedSemantic: string | null;
 }>;
 
 export function buildSummaryRequestInput(args: {
@@ -85,18 +86,13 @@ export function buildSummaryRequestInput(args: {
   instruction: string;
   items: readonly SummaryRequestItem[];
 }): LlmInvocationInput {
-  const messages: AgentMessage[] = args.items.map((item, index) =>
-    agentMessageSchema.parse({
-      id: `summary-item:${index + 1}`,
-      session_id: args.sourceSessionId,
+  const messages = args.items.map((item, index) =>
+    Object.freeze({
+      kind: 'synthetic_context' as const,
       role: item.role,
-      kind: 'text',
       content: `[order ${index + 1}/${args.items.length}] ${item.label}\n${item.content}`,
-      context_policy: DURABLE_PRIMARY_CONTENT_POLICY,
-      round_id: deterministicRoundId('user', `${args.sourceSessionId}:summary-item:${index + 1}:${item.label}`),
-      message_index: index,
-      block_index: 0,
-      timestamp: SUMMARY_REQUEST_EPOCH_TIMESTAMP,
+      origin: 'summary_material' as const,
+      block_identity: `${index + 1}:${item.label}`,
     }),
   );
   return {
@@ -110,7 +106,7 @@ export function buildSummaryRequestInput(args: {
     compiledToolContracts: [],
     terminalToolNames: [],
     modelParams: { temperature: 0, maxTokens: SUMMARY_COMPLETION_TOKENS },
-    capabilityRequest: { requiresTools: false, requiresExclusiveToolChoice: true },
+    capabilityRequest: { requiresTools: false },
     routePass: { kind: 'ordinary', candidateChain: [args.candidate] },
     episodeContext: { compaction: true },
   };
@@ -166,12 +162,23 @@ export class SummaryResultValidationError extends Error {
 
 function validateSummaryResult(result: LlmCompleteResult): string {
   if (result.kind !== 'message')
-    throw new SummaryResultValidationError('Summary reduction expected prose summary text, got tool calls.');
+    throw new SummaryResultValidationError('Summary refine expected prose summary text, got tool calls.');
   const text = result.content.trim();
-  if (!text) throw new SummaryResultValidationError('Summary reduction returned an empty summary.');
+  if (!text) throw new SummaryResultValidationError('Summary refine returned an empty summary.');
   if (/Recoverable evidence/i.test(text))
     throw new SummaryResultValidationError(
-      'Summary reduction output must be prose only; recoverable evidence is rendered by the compactor.',
+      'Summary refine output must be prose only; recoverable evidence is rendered by the compactor.',
     );
+  if (Buffer.byteLength(text, 'utf8') > SUMMARY_OUTPUT_MAX_BYTES)
+    throw new SummaryResultValidationError(`Summary refine output exceeds the ${SUMMARY_OUTPUT_MAX_BYTES}-byte UTF-8 limit.`);
   return text;
+}
+
+export function assertSummarizerCapabilities(capabilities: EffectiveProviderCapabilities): asserts capabilities is EffectiveProviderCapabilities & { contextWindowTokens: number; maxOutputTokens: number } {
+  if (!Number.isInteger(capabilities.contextWindowTokens) || capabilities.contextWindowTokens! <= 0)
+    throw new Error('The compaction summarizer candidate must declare a positive contextWindowTokens capability.');
+  if (!Number.isInteger(capabilities.maxOutputTokens) || capabilities.maxOutputTokens! <= 0)
+    throw new Error('The compaction summarizer candidate must declare a positive maxOutputTokens capability.');
+  if (capabilities.maxOutputTokens! < SUMMARY_COMPLETION_TOKENS)
+    throw new Error(`The compaction summarizer candidate must support at least ${SUMMARY_COMPLETION_TOKENS} output tokens.`);
 }

@@ -65,7 +65,7 @@ describe('Analyst project context', () => {
 
     expect(list).toHaveBeenCalledTimes(1);
     expect(getParent).not.toHaveBeenCalled();
-    const input = providerInputs[0] as { preparedContext: { dynamicBlocks: ReadonlyArray<{ id: string; content: string }> } };
+    const input = providerInputs[0] as { preparedContext: { dynamicBlocks: ReadonlyArray<{ id: string; content: string }> }; providerConversation: { messages: ReadonlyArray<{ kind: string; origin?: string; block_identity?: string; content: string }> } };
     const tree = input.preparedContext.dynamicBlocks[0]!;
     expect(tree.id).toBe('analyst.project_tree');
     expect(Buffer.byteLength(tree.content, 'utf8')).toBeLessThanOrEqual(ANALYST_ORIENTATION_MAX_BYTES);
@@ -73,6 +73,7 @@ describe('Analyst project context', () => {
     expect(snapshot.root.id).toBe('project');
     expect(snapshot.root.children?.map((node) => node.id)).toEqual([second.id, child.id]);
     expect(snapshot.active_path).toEqual([]);
+    expect(input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.origin === 'dynamic' && item.block_identity === tree.id && item.content === tree.content)).toHaveLength(1);
   });
 
   it('freezes the prepared invocation context with the project-tree dynamic block before ingress', async () => {
@@ -90,7 +91,7 @@ describe('Analyst project context', () => {
 
     await expect(buildSession(projectRoot, persisted, completeTurn, render).submit({ userContent: 'inspect cards' })).resolves.toMatchObject({ sessionId: 'agent:analyst:global' });
 
-    const input = providerInputs[0] as { systemPrompt: string; preparedContext: { prefix: { instructionText: string; terminalToolNames: readonly string[]; immutablePrefixSha256: string }; dynamicBlocks: ReadonlyArray<{ id: string; content: string; storage: string; replacement: { kind: string; key: string; contentSha256: string } }>; preparedCompaction: unknown; internalToolContractSha256: string } };
+    const input = providerInputs[0] as { systemPrompt: string; providerConversation: { messages: ReadonlyArray<{ kind: string; origin?: string; block_identity?: string; content: string }> }; preparedContext: { prefix: { instructionText: string; terminalToolNames: readonly string[]; immutablePrefixSha256: string }; dynamicBlocks: ReadonlyArray<{ id: string; content: string; storage: string; replacement: { kind: string; key: string; contentSha256: string } }>; preparedCompaction: unknown; internalToolContractSha256: string } };
     expect(input.systemPrompt).toBe('rendered prompt');
     expect(input.preparedContext.prefix.instructionText).toBe('rendered prompt');
     expect(input.preparedContext.prefix.terminalToolNames).toEqual([]);
@@ -103,5 +104,6 @@ describe('Analyst project context', () => {
     expect(tree.replacement.kind).toBe('latest_snapshot');
     expect(tree.replacement.key).toBe('analyst.project_tree');
     expect(tree.replacement.contentSha256).toBe(contextContentSha256(tree.content));
+    expect(input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.block_identity === tree.id && item.content === tree.content)).toHaveLength(1);
   });
 });

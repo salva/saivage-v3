@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
 
 import { appendConversationBatch, initializeConversation, readConversation, readConversationCatalog, readCurrentConversationSegment } from '../../src/persistence/conversation-file.js';
-import { compact, prepareCompaction, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
+import { CompactionSummaryConstructionError, compact as compactWithoutProgress, prepareCompaction, type AutonomousCompactionPolicy, type CompactArgs, type CompactionResult } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
 import { buildPreparedInvocationContext } from '../../src/runtime/actors/context/context-blocks.js';
@@ -17,10 +17,13 @@ import { replaceFile } from '../../src/persistence/replace-file.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
+import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
+
+const compact = (args: Omit<CompactArgs, 'progress'>): Promise<CompactionResult> => compactWithoutProgress({ ...args, progress: noCompactionProgress });
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
-const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
+const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' };
 const BIG = 'x'.repeat(12_000);
 
 type SummaryCall = { sessionId: string; systemPrompt: string; contents: string[] };
@@ -28,6 +31,8 @@ type SummaryCall = { sessionId: string; systemPrompt: string; contents: string[]
 function summarizer(args: { calls: SummaryCall[]; summaryOf: (call: SummaryCall) => string }): SummarizerProviderPort {
   return {
     candidate: CANDIDATE,
+    contextWindowTokens: 100_000,
+    maxOutputTokens: 10_000,
     serializeSummaryRequest: deterministicSummarySerialization,
     completeTurn: async (input): Promise<{ result: { kind: 'message'; content: string }; provider_exchanges: never[] }> => {
       const call: SummaryCall = { sessionId: input.sessionId, systemPrompt: input.systemPrompt, contents: input.providerConversation.messages.map((row) => row.content) };
@@ -48,7 +53,7 @@ function invocation(conversation: ValidatedConversation, overrides: Partial<Prep
     agentName: 'planner',
     sessionId: SESSION,
     systemPrompt: 'system',
-    providerConversation: providerConversationProjection(conversation),
+    providerConversation: providerConversationProjection(conversation, []),
     tools: [],
     compiledToolContracts: [],
     terminalToolNames: [],
@@ -137,27 +142,28 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('local_exact_admission evaluates all cutoffs in one call and publishes only the smallest composed projection', async () => {
+  it('local exact admission requires the selected fallback to succeed before publishing a usable base', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-local-exact-smallest-'));
     initProjectTree(root);
     try {
       const LOCAL_BIG = 'x'.repeat(9000);
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', `${LOCAL_BIG}T1-PLAIN`), activation(2), text('t2', `${LOCAL_BIG}T2-EXPLODE`), activation(3), text('t3', `${LOCAL_BIG}T3-PLAIN`)]);
       const calls: SummaryCall[] = [];
-      const result = await compactOnce(root, 'local_exact_admission', summarizer({
+      const conversation = readConversation(root, SESSION);
+      const localPolicy = { ...POLICY, tail_fraction: 0.5 };
+      const preparedCompaction = prepareCompaction(localPolicy, 'system', []);
+      const result = compact({ strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(conversation, {
+        preparedCompaction,
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+      }), summarizerProvider: summarizer({
         calls,
         summaryOf: (call) => (call.contents.some((content) => content.includes('T2-EXPLODE')) ? `T2-EXPLODE${'Q'.repeat(25_900)}` : 'Q'.repeat(200)),
-      }), readConversation(root, SESSION));
-      if (result.kind !== 'compacted') throw new Error('expected compacted');
-      const segment = readCurrentConversationSegment(root, SESSION)!;
-      expect(segment.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t1');
-      expect(segment.rows.map((row) => row.id)).toEqual(['activation-2', 't2', 'activation-3', 't3']);
-      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
-      expect(calls.length).toBeGreaterThan(2);
-      const rawInputs = calls.filter((call) => call.systemPrompt.includes('Summarize the labeled')).flatMap((call) => call.contents);
+      }), signal: new AbortController().signal });
+      await expect(result).rejects.toBeInstanceOf(CompactionSummaryConstructionError);
+      expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
+      const rawInputs = calls.flatMap((call) => call.contents);
       expect(rawInputs.filter((content) => content.includes('T1-PLAIN'))).toHaveLength(1);
       expect(rawInputs.filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
-      expect(rawInputs.filter((content) => content.includes('T3-PLAIN'))).toHaveLength(1);
     } finally { rmSync(root, { recursive: true, force: true }); }
 
     const rootFurthest = mkdtempSync(join(tmpdir(), 'compaction-local-exact-furthest-'));
@@ -171,12 +177,12 @@ describe('compaction fallback, successor identity, and internal summary identity
       const segment = readCurrentConversationSegment(rootFurthest, SESSION)!;
       expect(segment.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t3');
       expect(segment.rows).toEqual([]);
-      expect(furthestCalls.filter((call) => call.systemPrompt.includes('Summarize the labeled')).flatMap((call) => call.contents).filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
+      expect(furthestCalls.flatMap((call) => call.contents).filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
     } finally { rmSync(rootFurthest, { recursive: true, force: true }); }
   });
 
-  it('reuses normal/escalated overlap without resubmitting raw rows or publishing when no candidate is accepted', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'compaction-overlap-memo-'));
+  it('uses only the selected endpoints without resubmitting source or publishing when none is accepted', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'compaction-selected-endpoints-'));
     initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [
@@ -187,8 +193,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const conversation = readConversation(root, SESSION);
       const restrictivePolicy: AutonomousCompactionPolicy = {
         input_budget_tokens: 10_000, trigger_fraction: 0.3, completion_reserve_fraction: 0.2,
-        merge_line_fraction: 0.1, summary_line_fraction: 0.2,
-        escalate_merge_line_fraction: 0.15, escalate_summary_line_fraction: 0.25,
+        tail_fraction: 0.1,
         snap: 'compact_straddler',
       };
       const preparedCompaction = prepareCompaction(restrictivePolicy, 'system', []);
@@ -199,9 +204,9 @@ describe('compaction fallback, successor identity, and internal summary identity
       const calls: SummaryCall[] = [];
       await expect(compact({
         strategy: 'preventive', conversations: { projectRoot: root }, input,
-        summarizerProvider: summarizer({ calls, summaryOf: constantSummary('S'.repeat(13_000)) }), signal: new AbortController().signal,
+        summarizerProvider: summarizer({ calls, summaryOf: constantSummary('S'.repeat(11_900)) }), signal: new AbortController().signal,
       })).rejects.toThrow(/could not fit the residual context/);
-      const leafInputs = calls.filter((call) => call.systemPrompt.includes('Summarize the labeled')).flatMap((call) => call.contents);
+      const leafInputs = calls.flatMap((call) => call.contents);
       for (const marker of ['ROW-ONE', 'ROW-TWO', 'ROW-THREE'])
         expect(leafInputs.filter((content) => content.includes(marker))).toHaveLength(1);
       expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
@@ -209,7 +214,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const exactCalls: SummaryCall[] = [];
       const noSmaller = await compact({
         strategy: 'local_exact_admission', conversations: { projectRoot: root }, input,
-        summarizerProvider: summarizer({ calls: exactCalls, summaryOf: constantSummary('S'.repeat(13_000)) }), signal: new AbortController().signal,
+        summarizerProvider: summarizer({ calls: exactCalls, summaryOf: constantSummary('S'.repeat(11_900)) }), signal: new AbortController().signal,
       });
       expect(noSmaller.kind).toBe('no_smaller_projection');
       if (noSmaller.kind !== 'no_smaller_projection') throw new Error('expected no-smaller diagnostics');
@@ -226,7 +231,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
       const conversation = readConversation(root, SESSION);
       const stale = invocation(conversation, {
-        providerConversation: { sourceSessionId: SESSION, messages: providerConversationProjection(conversation).messages.slice(0, 1) },
+        providerConversation: { sourceSessionId: SESSION, messages: providerConversationProjection(conversation, []).messages.slice(0, 1) },
       });
       const calls: SummaryCall[] = [];
       await expect(compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: stale, summarizerProvider: summarizer({ calls, summaryOf: constantSummary('s') }), signal: new AbortController().signal })).rejects.toThrow(/stale/);
@@ -246,10 +251,10 @@ describe('compaction fallback, successor identity, and internal summary identity
       expect(segment.genesis.kind).toBe('compacted_segment_genesis');
       const genesis = segment.genesis.kind === 'compacted_segment_genesis' ? segment.genesis : null;
       expect(genesis).not.toBeNull();
-      const historyRow = result.providerConversation.messages.find((row) => row.id.endsWith(':compacted-history'))!;
-      expect(historyRow.id).toBe(`${genesis!.id}:compacted-history`);
-      expect(historyRow.timestamp).toBe(genesis!.timestamp);
-      expect(result.providerConversation).toEqual(providerConversationProjection(segment.conversation));
+      const historyRow = result.providerConversation.messages.find((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary');
+      if (!historyRow || historyRow.kind !== 'synthetic_context' || historyRow.origin !== 'history_summary') throw new Error('expected synthetic compacted history');
+      expect(historyRow.block_identity).toBe(`${genesis!.id}:compacted-history`);
+      expect(result.providerConversation).toEqual(providerConversationProjection(segment.conversation, []));
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -316,14 +321,14 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('materializes an arbitrarily large uncovered body through local_exact_admission into admitted compacted bytes', async () => {
+  it('materializes a large uncovered body within the refine ceiling into admitted compacted bytes', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-local-exact-large-'));
     initProjectTree(root);
     try {
       const body = 'MCP-SHAPED-'.repeat(20_000);
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), ...settledBundle('00000000-0000-4000-8000-000000000001', 'call-1', body), activation(2), text('t2', 'small')]);
       const conversation = readConversation(root, SESSION);
-      expect(providerConversationProjection(conversation).messages.some((row) => row.content.includes('MCP-SHAPED-'))).toBe(true);
+      expect(providerConversationProjection(conversation, []).messages.some((row) => row.content.includes('MCP-SHAPED-'))).toBe(true);
       const calls: SummaryCall[] = [];
       const result = await compactOnce(root, 'local_exact_admission', summarizer({ calls, summaryOf: (call) => `seg:${call.contents.length}` }), conversation);
       if (result.kind !== 'compacted') throw new Error('expected compacted');
@@ -336,7 +341,7 @@ describe('compaction fallback, successor identity, and internal summary identity
         providerConversation: { sourceSessionId: SESSION, messages: result.providerConversation.messages },
       } as never);
       expect(serialized.estimatedInputTokens).toBeLessThan(
-        deterministicSummarySerialization({ systemPrompt: 'probe', providerConversation: { sourceSessionId: SESSION, messages: providerConversationProjection(conversation).messages } } as never).estimatedInputTokens,
+        deterministicSummarySerialization({ systemPrompt: 'probe', providerConversation: { sourceSessionId: SESSION, messages: providerConversationProjection(conversation, []).messages } } as never).estimatedInputTokens,
       );
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

@@ -88,10 +88,10 @@ const doctorOk = parseOperatorResponse('debug.doctor', 200, {
 });
 
 const sessions = [
-  { id: 'agent:analyst:global', agent_name: 'analyst', session_scope: 'global', card_id: null, started_at: now, status: 'inactive', activity: 'idle' },
-  { id: `agent:executor:${smokeCardId}`, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy' },
-  { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', started_at: now, status: 'inactive', activity: 'idle' },
-  { id: 'agent:reviewer:project', agent_name: 'reviewer', session_scope: 'card', card_id: 'project', started_at: now, status: 'inactive', activity: 'idle' },
+  { id: 'agent:analyst:global', agent_name: 'analyst', session_scope: 'global', card_id: null, started_at: now, status: 'inactive', activity: 'idle', compaction: null },
+  { id: `agent:executor:${smokeCardId}`, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy', compaction: null },
+  { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', started_at: now, status: 'inactive', activity: 'idle', compaction: null },
+  { id: 'agent:reviewer:project', agent_name: 'reviewer', session_scope: 'card', card_id: 'project', started_at: now, status: 'inactive', activity: 'idle', compaction: null },
 ];
 
 const metaRoot = {

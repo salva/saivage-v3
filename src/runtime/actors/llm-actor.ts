@@ -20,15 +20,15 @@ import { appendLlmTurnError, appendLlmTurnMessageBatch, appendLlmTurnStarted, ap
 import { buildUserContextMessage, providerConversationProjection, type ProviderVisibleUserContextMessage } from './conversation-session.js';
 import { appendConversationBatch, readConversation, type ConversationFileContext } from '../../persistence/conversation-file.js';
 import type { ToolSettlementInput } from '../../tools/invocation.js';
-import { assertPreparedContextContinuity } from './context/context-blocks.js';
+import { assertPreparedContextContinuity, type ContextBlock } from './context/context-blocks.js';
 import { RuntimeGate } from '../runtime-gate.js';
 import { deferred, type Deferred } from './deferred.js';
 import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease } from './invocation-lifecycle.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../../contracts/provider-exchange.js';
-import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult } from './compaction/compactor.js';
+import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult, type CompactionStrategy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import { sanitizeRecoveryMessage } from '../../agents/invocation-recovery-policy.js';
-import type { ChildInvocationReservation, ExactWaitBarrier, ExecutingLlmActivity, ExternalAndProcessWaits, LlmToolInvocationContext, ToolInvocationIdentity } from './executing-llm-snapshot.js';
+import type { ChildInvocationReservation, CompactionProgress, ExactWaitBarrier, ExecutingLlmActivity, ExternalAndProcessWaits, LlmToolInvocationContext, ToolInvocationIdentity } from './executing-llm-snapshot.js';
 import { ChildInvocationLease } from './child-invocation-wait.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
 
@@ -43,6 +43,11 @@ export class LastChanceSummaryProviderUnavailableError extends Error {
     super('Provider unavailable while constructing the last-chance compaction summary.', { cause });
     this.name = 'LastChanceSummaryProviderUnavailableError';
   }
+}
+
+function requiredPreparedDynamicBlocks(input: CanonicalLlmInvocationInput): readonly ContextBlock[] {
+  if (!input.preparedCompaction) throw new Error(`Persisted LLM invocation '${input.inputId}' has no prepared dynamic context blocks.`);
+  return input.preparedContext.dynamicBlocks;
 }
 
 export interface LLMProviderPort {
@@ -128,6 +133,8 @@ export class ConversationLLMActor {
   readonly #invocations = new InvocationLifecycle();
   #phase: ConversationPhase = { kind: 'idle', disposition: { kind: 'open' } };
   #executingActivity: ExecutingLlmActivity = Object.freeze({ mode: 'active', barrier: null });
+  #compactionProgress: CompactionProgress | null = null;
+  #compactionOwner: InvocationOperation | null = null;
 
   constructor(args: ConversationLLMActorArgs) {
     this.agentId = parseConversationSessionId(args.agentId);
@@ -174,6 +181,8 @@ export class ConversationLLMActor {
     if (lease?.isWaitingBarrier()) return Object.freeze({ mode: 'waiting', barrier: Object.freeze({ kind: 'child', relationship: lease.relationship }) });
     return this.#executingActivity;
   }
+
+  compactionProgress(): CompactionProgress | null { return this.#compactionProgress; }
 
   resetExecutingActivity(): void {
     if (this.#executingActivity.mode === 'waiting' || this.#parkedOperation()?.childLease) throw new Error(`LLMActor '${this.agentId}' cannot reset activity while waiting.`);
@@ -250,7 +259,7 @@ export class ConversationLLMActor {
       this.#assertRepairOpen(repair);
       continuation?.afterAppend?.();
       this.#assertRepairOpen(repair);
-      const next = { ...input, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, input.sessionId)), episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id } };
+      const next = { ...input, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, input.sessionId), requiredPreparedDynamicBlocks(input)), episodeContext: { ...input.episodeContext, lastModelRepair: repairMessage.id } };
       this.#assertContinuationPreparedContext(retained.input, next);
       this.#assertRepairOpen(repair);
       repair.settlement.resolve();
@@ -293,6 +302,7 @@ export class ConversationLLMActor {
     }
     if (phase.kind === 'arming' || (phase.kind === 'invoking' && !phase.operation.completionPersistenceEntered)) {
       const operation = phase.operation;
+      this.#clearCompaction(operation);
       operation.disposition = { kind: 'disposed', reason };
       this.#invocations.revoke(reason); this.#phase = { kind: 'idle', disposition: { kind: 'disposed', reason } };
       operation.result.reject(asError(reason)); operation.settlement.reject(asError(reason));
@@ -360,14 +370,14 @@ export class ConversationLLMActor {
     if (!input.preparedCompaction) throw new Error(`LLMActor '${this.agentId}' admitted an invocation without prepared compaction.`);
     this.#assertPersistenceOwnership(input);
     if (this.compactor.shouldCompact(input)) {
-      const compacted = await this.compactor.compact({ strategy: 'preventive', conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal });
+      const compacted = await this.#compact(operation, 'preventive', input, signal);
       signal.throwIfAborted();
       if (compacted.kind !== 'compacted') throw new Error('Preventive compaction returned no_smaller_projection.');
       if (compacted.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compacted.providerConversation.sourceSessionId}'.`);
       input = { ...input, providerConversation: compacted.providerConversation }; operation.input = input;
     }
     this.#assertPersistenceOwnership(input);
-    const admission = await this.#admitPrimaryRequest(input, signal);
+    const admission = await this.#admitPrimaryRequest(operation, input, signal);
     appendLlmTurnStarted(this.conversations, input);
     await this.gate.waitUntilOpen(signal); this.#invocations.assertCurrent(operation.lease!); operation.providerBoundaryEntered = true;
     const completion = await this.#callProvider(operation, input, admission, signal); this.#invocations.assertCurrent(operation.lease!);
@@ -376,14 +386,14 @@ export class ConversationLLMActor {
     return this.#persistProviderCompletion(input, completion.completion);
   }
 
-  async #admitPrimaryRequest(input: PreparedLlmInvocationInput, signal: AbortSignal): Promise<OrdinaryAdmittedExecution> {
+  async #admitPrimaryRequest(operation: InvocationOperation, input: PreparedLlmInvocationInput, signal: AbortSignal): Promise<OrdinaryAdmittedExecution> {
     const first = this.provider.preparePrimaryRequestAdmission(input, signal);
     if (first.kind === 'admitted') return first;
     if (first.kind === 'local_admission_failed') throw new LocalExactAdmissionError({ localCompactionAttempted: false, diagnostics: projectAdmissionDiagnostics(first.candidates) });
     signal.throwIfAborted();
     let compacted: Extract<CompactionResult, { kind: 'compacted' }>;
     try {
-      const result = await this.compactor.compact({ strategy: 'local_exact_admission', conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal });
+      const result = await this.#compact(operation, 'local_exact_admission', input, signal);
       signal.throwIfAborted();
       if (result.kind === 'no_smaller_projection')
         throw new LocalExactAdmissionError({ localCompactionAttempted: true, diagnostics: projectAdmissionDiagnostics(first.candidates) });
@@ -463,7 +473,7 @@ export class ConversationLLMActor {
       if (operation.disposal) return this.#settleDisposedTool(operation);
       continuation?.afterAppend?.();
       if (operation.disposal) return this.#settleDisposedTool(operation);
-      continuationInput = { ...continuationInput, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, continuationInput.sessionId)) };
+      continuationInput = { ...continuationInput, providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, continuationInput.sessionId), requiredPreparedDynamicBlocks(continuationInput)) };
       this.#releaseChild(operation.parked); operation.settlement.resolve();
       const nested = this.#arm(continuationInput, signal, operation.parked.callbacks, operation.parked.disposition);
        nested.then((outcome) => operation.result.resolve({ outcome, settled: facts }), (error: unknown) => operation.result.reject(asError(error)));
@@ -574,7 +584,7 @@ export class ConversationLLMActor {
     let compaction: Extract<CompactionResult, { kind: 'compacted' }>;
     try {
       if (!input.preparedCompaction) throw new Error(`Context recovery for '${input.inputId}' requires prepared compaction.`);
-      const result = await this.compactor.compact({ strategy: 'authoritative_context_recovery', conversations: this.conversations, input: input as PreparedLlmInvocationInput, summarizerProvider: this.summarizerProvider, signal }); signal.throwIfAborted();
+      const result = await this.#compact(operation, 'authoritative_context_recovery', input as PreparedLlmInvocationInput, signal); signal.throwIfAborted();
       if (result.kind === 'no_smaller_projection') throw normalContextFailure('Provider input context exhausted; last-chance compaction found no strictly smaller safe provider projection, so no provider retry was attempted.', firstAttempts, firstFailure.originalFailure);
       compaction = result;
     } catch (error) {
@@ -620,7 +630,7 @@ export class ConversationLLMActor {
     appendConversationBatch(this.conversations, [buildContentPolicyRetryMessage(input.sessionId, input.inputId)]);
     const retryInput: CanonicalLlmInvocationInput = {
       ...input,
-      providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, input.sessionId)),
+      providerConversation: providerConversationProjection(readConversation(this.conversations.projectRoot, input.sessionId), requiredPreparedDynamicBlocks(input)),
       routePass: { kind: 'pinned-content-policy-retry', candidate: firstFailure.candidate },
     };
     operation.input = retryInput;
@@ -669,6 +679,50 @@ export class ConversationLLMActor {
     return { kind: 'tool_call', input, result, toolCallArguments: call.function.arguments, resultPolicy };
   }
   #projectProviderExchanges(input: CanonicalLlmInvocationInput, attempts: ProviderExchangeAttempt[], context: ProviderExchangePublicationContext): void { if (attempts.length === 0) return; if (!this.provider.projectProviderExchanges) throw new Error(`Provider for '${input.inputId}' returned provider exchanges without a projection capability.`); this.provider.projectProviderExchanges(input.sessionId, input.inputId, attempts, context); }
+  async #compact(operation: InvocationOperation, strategy: CompactionStrategy, input: PreparedLlmInvocationInput, signal: AbortSignal): Promise<CompactionResult> {
+    if (this.#phase.kind !== 'invoking' || this.#phase.operation !== operation || operation.lease === null) throw new Error(`LLMActor '${this.agentId}' cannot start compaction without current invocation ownership.`);
+    if (this.#compactionOwner !== null || this.#compactionProgress !== null) throw new Error(`LLMActor '${this.agentId}' already owns compaction progress.`);
+    this.#compactionOwner = operation;
+    this.#compactionProgress = Object.freeze({ strategy, startedAt: new Date().toISOString(), foldsDone: 0, foldInFlight: false });
+    this.runtimeProjectionChanged?.();
+    const current = (): boolean => this.#compactionOwner === operation && this.#phase.kind === 'invoking' && this.#phase.operation === operation && operation.lease !== null;
+    try {
+      const result = await this.compactor.compact({
+        strategy, conversations: this.conversations, input, summarizerProvider: this.summarizerProvider, signal,
+        progress: {
+          foldStarted: () => {
+            if (!current()) return;
+            const progress = this.#compactionProgress;
+            if (!progress || progress.foldInFlight) throw new Error(`LLMActor '${this.agentId}' received an invalid compaction fold start.`);
+            this.#compactionProgress = Object.freeze({ ...progress, foldInFlight: true });
+            this.runtimeProjectionChanged?.();
+          },
+          foldCompleted: () => {
+            if (!current()) return;
+            const progress = this.#compactionProgress;
+            if (!progress || !progress.foldInFlight) throw new Error(`LLMActor '${this.agentId}' received an invalid compaction fold completion.`);
+            this.#compactionProgress = Object.freeze({ ...progress, foldsDone: progress.foldsDone + 1, foldInFlight: false });
+            this.runtimeProjectionChanged?.();
+          },
+        },
+      });
+      this.#clearCompaction(operation);
+      return result;
+    } catch (error) {
+      if (error instanceof PublicationOutcomeUnknownError) {
+        this.#fatalPort.publicationOutcomeUnknown(error);
+        throw error;
+      }
+      this.#clearCompaction(operation);
+      throw error;
+    }
+  }
+  #clearCompaction(operation: InvocationOperation): void {
+    if (this.#compactionOwner !== operation) return;
+    this.#compactionOwner = null;
+    this.#compactionProgress = null;
+    this.runtimeProjectionChanged?.();
+  }
   #deliverPublicationFatal(error: unknown): void { if (error instanceof PublicationOutcomeUnknownError) this.#fatalPort.publicationOutcomeUnknown(error); }
   #outcomeFromPersisted(persisted: PersistedProviderCompletion): LLMActorOutcome {
     if (persisted.kind === 'content-policy-blocked') return { type: 'blocked', agentId: this.agentId, result: persisted.result };

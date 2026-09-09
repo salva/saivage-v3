@@ -28,7 +28,7 @@ const SESSION = 'agent:planner:project';
 const roots: string[] = [];
 
 function preparedCompactionFixture() {
-  return prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', [], 2000);
+  return prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [], 2000);
 }
 
 afterEach(() => {

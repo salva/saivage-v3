@@ -21,6 +21,7 @@ import {
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { currentConversationSegmentPath } from '../helpers/current-conversation-segment-path.js';
 import { cardConversationsRoot, cardStreamFile } from '../../src/persistence/layout.js';
+import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-24T00:00:00.000Z';
@@ -52,7 +53,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     for (const sessionId of [analyst, planner, reviewer, executor]) publishMarker(projectRoot, sessionId);
 
     appendFileSync(currentConversationSegmentPath(projectRoot, planner), '{malformed later envelope}\n');
-    const capture = jest.fn(() => new Set<ConversationSessionId>([analyst, planner, reviewer]));
+    const capture = jest.fn(() => executingLlmSnapshots([analyst, planner, reviewer]));
     const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, capture);
 
     const firstList = service.listSessions();
@@ -67,6 +68,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
       started_at: readConversationCatalog(projectRoot, executor).createdAt,
       status: 'inactive',
       activity: 'idle',
+      compaction: null,
     });
     expect(service.listSessions().sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: analyst, status: 'active', activity: 'busy' }),
@@ -99,7 +101,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const response = new AgentOperatorReadModelService(
       projectRoot,
       TEST_WORKFLOWS,
-      () => new Set([secondSession]),
+      () => executingLlmSnapshots([secondSession]),
     ).listCardSessions(first.id);
     expect(response).toEqual({ card_id: first.id, sessions: [expect.objectContaining({ id: firstSession, status: 'inactive', activity: 'idle' })] });
     expect(response.sessions).not.toContainEqual(expect.objectContaining({ id: secondSession }));
@@ -114,7 +116,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     });
     const sessionId = cardAgentSessionId('executor', child.id);
     publishMarker(projectRoot, sessionId);
-    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Set());
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Map());
     expect(service.listSessions().sessions).toContainEqual(expect.objectContaining({ id: sessionId }));
 
     cards.deleteSubtrees([child.id], () => true);
@@ -126,7 +128,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
 
   it('omits only exact ENOENT candidates and keeps exact missing detail distinct', () => {
     const projectRoot = createRoot();
-    const capture = jest.fn(() => new Set<ConversationSessionId>(['agent:analyst:global']));
+    const capture = jest.fn(() => executingLlmSnapshots(['agent:analyst:global']));
     const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, capture);
     expect(service.listSessions()).toEqual({ sessions: [] });
     expect(capture).toHaveBeenCalledTimes(1);
@@ -137,14 +139,28 @@ describe('AgentOperatorReadModelService granular resources', () => {
   it('captures live IDs exactly once for every summary-producing operation', () => {
     const projectRoot = createRoot();
     const sessionId = cardAgentSessionId('planner', 'project');
+    const inactiveSessionId = cardAgentSessionId('reviewer', 'project');
     publishMarker(projectRoot, sessionId);
-    const capture = jest.fn(() => new Set<ConversationSessionId>([sessionId]));
+    publishMarker(projectRoot, inactiveSessionId);
+    const capture = jest.fn(() => executingLlmSnapshots([sessionId]));
     const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, capture);
     service.listSessions();
     service.listCardSessions('project');
     service.getSession(sessionId);
     service.readCurrentSegmentTail(sessionId, 1);
     expect(capture).toHaveBeenCalledTimes(4);
+  });
+
+  it('decorates the exact executing session with ephemeral compaction progress', () => {
+    const projectRoot = createRoot();
+    const sessionId = cardAgentSessionId('planner', 'project');
+    const inactiveSessionId = cardAgentSessionId('reviewer', 'project');
+    publishMarker(projectRoot, sessionId);
+    publishMarker(projectRoot, inactiveSessionId);
+    const progress = { strategy: 'local_exact_admission' as const, startedAt: '2026-09-08T10:00:00.000Z', foldsDone: 3, foldInFlight: true };
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => executingLlmSnapshots([sessionId], progress));
+    expect(service.getSession(sessionId).session.compaction).toEqual({ strategy: 'local_exact_admission', started_at: progress.startedAt, folds_done: 3, fold_in_flight: true });
+    expect(service.listSessions().sessions.find((session) => session.id === inactiveSessionId)?.compaction).toBeNull();
   });
 
   it('reads each card stream exactly once and no conversation segments during the global list', () => {
@@ -176,7 +192,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
   it('throws the same session-not-found failure for a non-global analyst during the global list', () => {
     const projectRoot = createRoot();
     const nonGlobalAnalyst = { ...TEST_WORKFLOWS, analyst: { ...TEST_WORKFLOWS.analyst, session: 'card' as const } };
-    const service = new AgentOperatorReadModelService(projectRoot, nonGlobalAnalyst, () => new Set());
+    const service = new AgentOperatorReadModelService(projectRoot, nonGlobalAnalyst, () => new Map());
     expect(() => service.listSessions()).toThrow(AgentSessionNotFoundError);
     expect(() => service.listSessions()).toThrow(/Agent session 'agent:analyst:global' not found/);
   });
@@ -191,7 +207,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const cardTypes = new Map(TEST_WORKFLOWS.cardTypes);
     cardTypes.delete(child.type);
     const missingWorkflow = { ...TEST_WORKFLOWS, cardTypes };
-    const service = new AgentOperatorReadModelService(projectRoot, missingWorkflow as typeof TEST_WORKFLOWS, () => new Set());
+    const service = new AgentOperatorReadModelService(projectRoot, missingWorkflow as typeof TEST_WORKFLOWS, () => new Map());
     expect(() => service.listSessions()).toThrow(`No compiled workflow for '${child.type}'.`);
   });
 
@@ -205,7 +221,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     const sessionId = cardAgentSessionId('executor', child.id);
     publishMarker(projectRoot, sessionId);
     rmSync(cardConversationsRoot(projectRoot, child.id), { recursive: true, force: true });
-    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Set());
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Map());
     let thrown: unknown;
     try { service.listSessions(); }
     catch (error) { thrown = error; }

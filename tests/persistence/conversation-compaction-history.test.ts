@@ -6,7 +6,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 
 import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment, readHistoricalConversationSegment } from '../../src/persistence/conversation-file.js';
 import { foldConversation } from '../../src/application/read-models/agent-conversation-read-model.js';
-import { CompactionSummaryConstructionError, compact, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy } from '../../src/runtime/actors/compaction/compactor.js';
+import { CompactionSummaryConstructionError, compact as compactWithoutProgress, prepareCompaction, shouldCompact, type AutonomousCompactionPolicy, type CompactArgs, type CompactionResult } from '../../src/runtime/actors/compaction/compactor.js';
 import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
 import { composeContextProjection, providerConversationFromComposedContext, type ComposedContextProjection } from '../../src/runtime/actors/context/composition-projector.js';
 import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-invocation.js';
@@ -22,46 +22,61 @@ import {
 import type { ValidatedConversation } from '../../src/contracts/conversation-validation.js';
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
-import { EMPTY_COVERAGE_SUMMARY, SUMMARY_REDUCTION_INSTRUCTION } from '../../src/runtime/actors/compaction/summary-materializer.js';
-import { SummaryResultValidationError } from '../../src/runtime/actors/compaction/summarizer.js';
+import { EMPTY_COVERAGE_SUMMARY, SUMMARY_REFINE_INSTRUCTION, SummaryConstructionLimitError } from '../../src/runtime/actors/compaction/refine-accumulator.js';
+import { SummaryResultValidationError, type SummarizerProviderPort } from '../../src/runtime/actors/compaction/summarizer.js';
 import { ProviderTurnFailure } from '../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../src/contracts/llm-failure.js';
 import { initProjectTree } from '../helpers/canonical-project.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
 import { classifyConversationRounds, estimateMessageTokens } from '../../src/runtime/actors/compaction/round-classifier.js';
-import { computeSlidingCompactionBands } from '../../src/runtime/actors/compaction/bands.js';
 import { deterministicRoundId } from '../../src/schemas/round-id-server.js';
+import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
+
+const compact = (args: Omit<CompactArgs, 'progress'>): Promise<CompactionResult> => compactWithoutProgress({ ...args, progress: noCompactionProgress });
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
-const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
+const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' };
 const BIG = 'x'.repeat(12_000);
 
-type SummaryCall = { systemPrompt: string; contents: string[] };
+type SummaryCall = { systemPrompt: string; contents: string[]; result: string };
+type ParsedSummaryContent = Readonly<{ label: string; body: string }>;
+
+function parseSummaryContents(call: SummaryCall): ParsedSummaryContent[] {
+  return call.contents.map((content, index) => {
+    const match = /^\[order (\d+)\/(\d+)\] ([^\n]+)\n([\s\S]*)$/u.exec(content);
+    if (!match) throw new Error(`summary content ${index + 1} has an invalid wrapper`);
+    expect(Number(match[1])).toBe(index + 1);
+    expect(Number(match[2])).toBe(call.contents.length);
+    return { label: match[3]!, body: match[4]! };
+  });
+}
 
 function recordingSummarizer(calls: SummaryCall[]) {
   return {
     candidate: CANDIDATE,
+    contextWindowTokens: 100_000,
+    maxOutputTokens: 10_000,
     serializeSummaryRequest: deterministicSummarySerialization,
-    completeTurn: async (input: PreparedLlmInvocationInput) => {
-      calls.push({ systemPrompt: input.systemPrompt, contents: input.providerConversation.messages.map((row) => row.content) });
+    completeTurn: async (input: Parameters<SummarizerProviderPort['completeTurn']>[0]) => {
       const previews = input.providerConversation.messages.map((row) => row.content.split('\n').slice(1).join('\n').slice(0, 120)).join('|');
       const markers = [...new Set(input.providerConversation.messages.flatMap((row) => row.content.match(/OPERATIONAL-FINDINGS|BUNDLE-(?:TWO|FIVE)/g) ?? []))];
-      if (input.systemPrompt === SUMMARY_REDUCTION_INSTRUCTION) {
-        return { result: { kind: 'message' as const, content: `merge[${markers.join('|') || previews.slice(0, 40)}]` }, provider_exchanges: [] };
-      }
-      return { result: { kind: 'message' as const, content: `round[${markers.join('|') || previews.slice(0, 40)}]` }, provider_exchanges: [] };
+      const result = input.systemPrompt === SUMMARY_REFINE_INSTRUCTION
+        ? `merge[${markers.join('|') || previews.slice(0, 40)}]`
+        : `round[${markers.join('|') || previews.slice(0, 40)}]`;
+      calls.push({ systemPrompt: input.systemPrompt, contents: input.providerConversation.messages.map((row) => row.content), result });
+      return { result: { kind: 'message' as const, content: result }, provider_exchanges: [] };
     },
     projectProviderExchanges: jest.fn(),
   };
 }
 
-function reductionCalls(calls: readonly SummaryCall[]): SummaryCall[] {
-  return calls.filter((call) => call.systemPrompt === SUMMARY_REDUCTION_INSTRUCTION);
+function refineCalls(calls: readonly SummaryCall[]): SummaryCall[] {
+  return calls.filter((call) => call.systemPrompt === SUMMARY_REFINE_INSTRUCTION);
 }
 
 function invocation(conversation: ValidatedConversation): PreparedLlmInvocationInput {
-  const providerConversation = providerConversationProjection(conversation);
+  const providerConversation = providerConversationProjection(conversation, []);
   const preparedCompaction = prepareCompaction(POLICY, 'system', []);
   return {
     inputId: '00000000-0000-4000-8000-000000000001',
@@ -199,9 +214,9 @@ describe('accumulated compaction history generations', () => {
       appendConversationBatch({ projectRoot: root }, [activation(2), text('t2', 'small')]);
       const closedConversation = readConversation(root, SESSION);
       expect(shouldCompact(invocation(closedConversation))).toBe(false);
-      const beforeClose = providerConversationProjection(closedConversation).messages;
+      const beforeClose = providerConversationProjection(closedConversation, []).messages;
       expect(beforeClose.some((row) => row.content.includes(bundleBody))).toBe(true);
-      const afterLaterInvocation = providerConversationProjection(readConversation(root, SESSION)).messages;
+      const afterLaterInvocation = providerConversationProjection(readConversation(root, SESSION), []).messages;
       expect(afterLaterInvocation.some((row) => row.content.includes(bundleBody))).toBe(true);
       expect(readConversationCatalog(root, SESSION).versions).toHaveLength(1);
 
@@ -210,7 +225,7 @@ describe('accumulated compaction history generations', () => {
       expect(result.kind).toBe('compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.rows.some((row) => row.content.includes(bundleBody))).toBe(false);
-      const projected = providerConversationProjection(segment.conversation).messages;
+      const projected = providerConversationProjection(segment.conversation, []).messages;
       expect(projected.some((row) => row.content.includes(bundleBody))).toBe(false);
       expect(segment.conversation.effectiveCompactedHistory!.summaryText.includes('OPERATIONAL-FINDINGS')).toBe(true);
       expect(projected.some((row) => row.content === segment.conversation.effectiveCompactedHistory!.summaryText)).toBe(true);
@@ -230,6 +245,8 @@ describe('accumulated compaction history generations', () => {
       });
       const failing = {
         candidate: CANDIDATE,
+        contextWindowTokens: 100_000,
+        maxOutputTokens: 10_000,
         serializeSummaryRequest: deterministicSummarySerialization,
         completeTurn: async () => { throw failure; },
         projectProviderExchanges: jest.fn(),
@@ -239,7 +256,7 @@ describe('accumulated compaction history generations', () => {
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.genesis.kind).toBe('ordinary_segment_genesis');
       expect(segment.rows).toHaveLength(6);
-      expect(providerConversationProjection(segment.conversation).messages.some((row) => row.content === BIG)).toBe(true);
+      expect(providerConversationProjection(segment.conversation, []).messages.some((row) => row.content === BIG)).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -256,7 +273,7 @@ describe('accumulated compaction history generations', () => {
       const completeTurn = jest.fn(async () => ({ result: malformedResult, provider_exchanges: [] }));
       const operation = compact({
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
-        summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() },
+        summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() },
         signal: new AbortController().signal,
       });
       const failure = await operation.catch((error: unknown) => error);
@@ -279,7 +296,7 @@ describe('accumulated compaction history generations', () => {
       const neverCalled = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
       await expect(compact({
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
-        summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() }, signal: controller.signal,
+        summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() }, signal: controller.signal,
       })).rejects.toBe(abortReason);
       expect(neverCalled).not.toHaveBeenCalled();
 
@@ -287,7 +304,7 @@ describe('accumulated compaction history generations', () => {
       await expect(compact({
         strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation),
         summarizerProvider: {
-          candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization,
+          candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization,
           completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }),
           projectProviderExchanges: () => { throw publicationFailure; },
         }, signal: new AbortController().signal,
@@ -296,32 +313,29 @@ describe('accumulated compaction history generations', () => {
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('preserves an ordinary materializer invariant error without wrapping or publication', async () => {
+  it('wraps accumulator capacity failure as summary construction failure without publication', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-history-materializer-invariant-'));
     initProjectTree(root);
     try {
       appendConversationBatch({ projectRoot: root }, [activation(1), text('t1', BIG), activation(2), text('t2', BIG), activation(3), text('t3', BIG)]);
       const conversation = readConversation(root, SESSION);
+      const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
       const operation = compact({
         strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(conversation),
         summarizerProvider: {
-          candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization,
-          completeTurn: async (input) => ({
-            result: {
-              kind: 'message' as const,
-              content: input.systemPrompt === SUMMARY_REDUCTION_INSTRUCTION
-                ? input.providerConversation.messages.map((row) => row.content.split('\n').slice(1).join('\n')).join('')
-                : 'leaf',
-            },
-            provider_exchanges: [],
-          }),
+          candidate: CANDIDATE,
+          contextWindowTokens: 100_000,
+          maxOutputTokens: 10_000,
+          serializeSummaryRequest: () => ({ serializedRequest: 'oversized-summary-request', requestSha256: createHash('sha256').update('oversized-summary-request').digest('hex'), estimatedInputTokens: 100_000 }),
+          completeTurn,
           projectProviderExchanges: jest.fn(),
         }, signal: new AbortController().signal,
       });
       const failure = await operation.catch((error: unknown) => error);
-      expect(failure).toBeInstanceOf(Error);
-      expect(failure).not.toBeInstanceOf(CompactionSummaryConstructionError);
-      expect((failure as Error).message).toMatch(/did not reduce the measured aggregate/);
+      expect(failure).toBeInstanceOf(CompactionSummaryConstructionError);
+      expect((failure as Error & { cause: unknown }).cause).toBeInstanceOf(SummaryConstructionLimitError);
+      expect((failure as Error & { cause: SummaryConstructionLimitError }).cause).toMatchObject({ reason: 'request_context_capacity', invocationCount: 0 });
+      expect(completeTurn).not.toHaveBeenCalled();
       expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -346,7 +360,7 @@ describe('accumulated compaction history generations', () => {
       const refusal2 = history1.requiredModelFacts.latestContentPolicyRefusal!.markerId;
       expect(gen1.rows.map((row) => row.id)).toEqual(['activation-3', 't3']);
       expect(gen1.conversation.effectiveRequiredModelFacts).toEqual(history1.requiredModelFacts);
-      const primary1 = providerConversationProjection(gen1.conversation).messages;
+      const primary1 = providerConversationProjection(gen1.conversation, []).messages;
       expect(primary1.filter((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);
       expect(primary1.filter((row) => row.content === contentPolicyRefusalProjectionText(SESSION, refusal2))).toHaveLength(1);
       const summarizer1 = composedOf(gen1.conversation).summarizer;
@@ -357,7 +371,7 @@ describe('accumulated compaction history generations', () => {
 
       const bundleFiveBody = 'BUNDLE-FIVE'.concat('-five'.repeat(4000));
       appendConversationBatch({ projectRoot: root }, [activation(4), text('t4', BIG), text('eo-4', 'EVIDENCE-ROW-FOUR', 'evidence_only'), activation(5), ...summarizerOnlyBundle('00000000-0000-4000-8000-000000000005', 'call-5', bundleFiveBody), activation(6), text('t6', BIG)]);
-      const preSecond = providerConversationProjection(readConversation(root, SESSION)).messages;
+      const preSecond = providerConversationProjection(readConversation(root, SESSION), []).messages;
       expect(preSecond.some((row) => row.content.includes(bundleFiveBody))).toBe(true);
 
       generationCalls.push([]);
@@ -371,12 +385,12 @@ describe('accumulated compaction history generations', () => {
       expect(history2.requiredModelFacts).toEqual(history1.requiredModelFacts);
       expect(history2.dispositionCommitment.evidenceOnly).toBeGreaterThanOrEqual(1);
       expect(history2.dispositionCommitment.count).toBeGreaterThan(history1.dispositionCommitment.count);
-      const mergeInputs2 = reductionCalls(generationCalls[1]!);
+      const mergeInputs2 = refineCalls(generationCalls[1]!);
       expect(mergeInputs2.length).toBeGreaterThan(0);
       expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes(history1.summaryText)))).toBe(true);
       expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes('superseded_')))).toBe(false);
       expect(gen2.rows.map((row) => row.id)).toEqual(['activation-6', 't6']);
-      const projected2 = providerConversationProjection(gen2.conversation).messages;
+      const projected2 = providerConversationProjection(gen2.conversation, []).messages;
       expect(projected2.some((row) => row.content.includes(bundleFiveBody))).toBe(false);
       expect(projected2.filter((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);
       expect(history2.summaryText.includes('BUNDLE-FIVE')).toBe(true);
@@ -388,10 +402,10 @@ describe('accumulated compaction history generations', () => {
       const gen3 = readCurrentConversationSegment(root, SESSION)!;
       const history3 = gen3.conversation.effectiveCompactedHistory!;
       expect(history3.requiredModelFacts).toEqual(history1.requiredModelFacts);
-      const mergeInputs3 = reductionCalls(generationCalls[2]!);
+      const mergeInputs3 = refineCalls(generationCalls[2]!);
       expect(mergeInputs3.some((call) => call.contents.some((content) => content.includes(history2.summaryText)))).toBe(true);
       expect(mergeInputs3.some((call) => call.contents.some((content) => content.includes('superseded_')))).toBe(false);
-      const projected3 = providerConversationProjection(gen3.conversation).messages;
+      const projected3 = providerConversationProjection(gen3.conversation, []).messages;
       expect(projected3.some((row) => row.content.includes(bundleFiveBody))).toBe(false);
       expect(projected3.filter((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);
       expect(projected3.filter((row) => row.content === contentPolicyRefusalProjectionText(SESSION, refusal2))).toHaveLength(1);
@@ -422,10 +436,20 @@ describe('accumulated compaction history generations', () => {
       const marker2 = facts2.latestContentPolicyRefusal!.markerId;
       expect(marker2).not.toBe(marker1);
       expect(facts2.latestRecovery).toBeNull();
-      const mergeInputs2 = reductionCalls(calls2);
-      expect(mergeInputs2.some((call) => call.contents.some((content) => content.includes(`superseded_refusal_notice source=${marker1}`)))).toBe(true);
-      expect(mergeInputs2.flatMap((call) => call.contents).filter((content) => content.includes(`superseded_refusal_notice source=${marker1}`))).toHaveLength(1);
-      const projected = providerConversationProjection(gen2.conversation).messages;
+      const mergeInputs2 = refineCalls(calls2);
+      const supersededRefusalBody = `An earlier activation 00000000-0000-4000-8000-000000000001 ended after repeated provider content-policy refusal; its replanning notice read exactly: ${contentPolicyRefusalProjectionText(SESSION, marker1)}`;
+      const supersededRefusalBytes = Buffer.byteLength(supersededRefusalBody, 'utf8');
+      const supersededRefusalLabel = `[kind=new_source source=${marker1} source_kind=superseded_refusal_notice range=0:${supersededRefusalBytes} total_bytes=${supersededRefusalBytes} source_sha256=${createHash('sha256').update(supersededRefusalBody, 'utf8').digest('hex')} omitted_source_bytes=0]`;
+      const supersededRefusalInputs = mergeInputs2
+        .flatMap(parseSummaryContents)
+        .filter(({ label }) => label === supersededRefusalLabel);
+      expect(supersededRefusalInputs).toHaveLength(1);
+      expect(supersededRefusalInputs[0]!.body).toBe(supersededRefusalBody);
+      expect(mergeInputs2.flatMap(parseSummaryContents).reduce(
+        (count, { body }) => count + body.split(supersededRefusalBody).length - 1,
+        0,
+      )).toBe(1);
+      const projected = providerConversationProjection(gen2.conversation, []).messages;
       expect(projected.filter((row) => row.content === contentPolicyRefusalProjectionText(SESSION, marker2))).toHaveLength(1);
       expect(projected.some((row) => row.content === contentPolicyRefusalProjectionText(SESSION, marker1))).toBe(false);
 
@@ -464,7 +488,7 @@ describe('accumulated compaction history generations', () => {
       expect(segment.genesis.retained_rows.first_message_id).toBeNull();
       expect(segment.conversation.rounds[0]).toMatchObject({ state: 'open', activation: { source: 'compacted_genesis' } });
       expect(segment.conversation.effectiveValidatedCoverage).not.toBeNull();
-      const projected = providerConversationProjection(segment.conversation).messages;
+      const projected = providerConversationProjection(segment.conversation, []).messages;
       expect(projected.some((row) => row.content.includes(openRoundBody))).toBe(false);
       expect(projected.some((row) => row.content === segment.conversation.effectiveCompactedHistory!.summaryText)).toBe(true);
 
@@ -483,7 +507,7 @@ describe('accumulated compaction history generations', () => {
       appendConversationBatch({ projectRoot: root }, [repair]);
       const continued = readCurrentConversationSegment(root, SESSION)!;
       expect(continued.conversation.rounds[0]!.segments.map((segmentOfRound) => segmentOfRound.kind)).toEqual(['initial', 'repair']);
-      const continuedProjection = providerConversationProjection(continued.conversation).messages;
+      const continuedProjection = providerConversationProjection(continued.conversation, []).messages;
       expect(continuedProjection.some((row) => row.content === 'repair directive after inherited open round')).toBe(true);
       expect(continuedProjection.some((row) => row.content === continued.conversation.effectiveCompactedHistory!.summaryText)).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -592,18 +616,6 @@ describe('accumulated compaction history generations', () => {
         activation: { source: 'compacted_genesis', marker_id: 'activation-1', input_id: inheritedInputId },
       });
       expect(conversation.rounds.some((round) => round.activation.source === 'row')).toBe(false);
-      const normalBands = computeSlidingCompactionBands(classified.rounds, {
-        tail_budget_tokens: preparedInvocation.preparedCompaction.normalTailBudget,
-        middle_budget_tokens: preparedInvocation.preparedCompaction.normalMiddleBudget,
-        snap: preparedInvocation.preparedCompaction.snap,
-      });
-      expect(normalBands.merge_rounds).toEqual([]);
-      expect(normalBands.summary_rounds).toEqual([]);
-      const normalBaseCount = classified.preamble.length
-        + normalBands.merge_rounds.reduce((count, round) => count + round.rows.length, 0)
-        + normalBands.summary_rounds.reduce((count, round) => count + round.rows.length, 0);
-      expect(normalBaseCount).toBe(0);
-
       expect(conversation.safeSourcePrefixEnds).toEqual([1, 3]);
       expect(conversation.sourceRows.slice(0, conversation.safeSourcePrefixEnds[0]).map((row) => row.id)).toEqual([started.id]);
       expect(conversation.safeSourcePrefixEnds).not.toContain(2);
@@ -625,7 +637,7 @@ describe('accumulated compaction history generations', () => {
       });
       expect(fullComposition.summarizer).toEqual(omittedStructuralComposition.summarizer);
       expect(providerConversationFromComposedContext(fullComposition)).toEqual(providerConversationFromComposedContext(omittedStructuralComposition));
-      const rejectedTokens = preparedInvocation.providerConversation.messages.reduce((sum, row) => sum + estimateMessageTokens(row), 0);
+      const rejectedTokens = preparedInvocation.providerConversation.messages.reduce((sum, row) => sum + (row.kind === 'synthetic_context' ? Math.max(1, Math.ceil(Buffer.byteLength(`${row.role} ${row.kind} ${row.origin} ${row.block_identity} ${row.content}`, 'utf8') / 4)) : estimateMessageTokens(row)), 0);
       expect(rejectedTokens).toBeGreaterThan(preparedInvocation.preparedCompaction.triggerMessageThreshold);
       expect(readConversationCatalog(root, SESSION).versions).toEqual(predecessorCatalog.versions);
 
@@ -647,15 +659,18 @@ describe('accumulated compaction history generations', () => {
       expect(repeatCalls.length).toBeGreaterThan(0);
       expect(repeatCalls[0]!.contents.some((content) => content.includes(bundleMarker))).toBe(true);
       expect(JSON.stringify(repeatCalls[0])).not.toContain('llm_turn_started');
-      const repeatReductionContents = reductionCalls(repeatCalls).flatMap((call) => call.contents);
-      expect(repeatReductionContents.filter((content) => {
-        const [label, ...body] = content.split('\n');
-        return label?.includes('[kind=prior_accumulated_summary]') === true && body.join('\n') === inheritedSummary;
-      })).toHaveLength(1);
-      expect(repeatReductionContents.reduce(
-        (count, content) => count + content.split(inheritedSummary).length - 1,
-        0,
-      )).toBe(1);
+      const repeatRefineCalls = refineCalls(repeatCalls);
+      expect(repeatRefineCalls.length).toBeGreaterThan(0);
+      const inheritedHistoryInputs = repeatRefineCalls.map((call) => {
+        const inheritedInputs = parseSummaryContents(call).filter(({ label }) => label === '[kind=inherited_history]');
+        expect(inheritedInputs).toHaveLength(1);
+        return inheritedInputs[0]!.body;
+      });
+      expect(inheritedHistoryInputs).toEqual([
+        inheritedSummary,
+        ...repeatRefineCalls.slice(0, -1).map((call) => call.result),
+      ]);
+      expect(inheritedHistoryInputs.filter((body) => body === inheritedSummary)).toHaveLength(1);
       expect(repeatCalls.flatMap((call) => call.contents).join('').split(bundleMarker)).toHaveLength(2);
       expect(JSON.stringify(repeatCalls)).not.toContain(EMPTY_COVERAGE_SUMMARY);
 
@@ -680,7 +695,7 @@ describe('accumulated compaction history generations', () => {
       ]);
       expect(successorGenesis.compaction.summaryText).not.toContain(EMPTY_COVERAGE_SUMMARY);
       expect(successor.rows).toEqual([]);
-      expect(result.providerConversation).toEqual(providerConversationProjection(successor.conversation));
+      expect(result.providerConversation).toEqual(providerConversationProjection(successor.conversation, []));
       expect(readHistoricalConversationSegment(root, SESSION, predecessor.entry.version).genesis).toEqual(predecessorGenesis);
       expect(readConversation(root, SESSION).effectiveCompactedHistory).toEqual(successorGenesis.compaction);
     } finally { rmSync(root, { recursive: true, force: true }); }
@@ -711,8 +726,8 @@ describe('accumulated compaction history generations', () => {
       expect(result.kind).toBe('compacted');
       const segment = readCurrentConversationSegment(root, SESSION)!;
       expect(segment.rows.map((row) => row.id)).toEqual([unmatchedCall.id]);
-      const projected = providerConversationProjection(segment.conversation).messages;
-      expect(projected.some((row) => row.id === unmatchedCall.id)).toBe(true);
+      const projected = providerConversationProjection(segment.conversation, []).messages;
+      expect(projected.some((row) => row.kind !== 'synthetic_context' && row.id === unmatchedCall.id)).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
@@ -766,7 +781,7 @@ describe('accumulated compaction history generations', () => {
         segment_version: 2,
         timestamp: '2026-08-18T00:01:00.000Z',
         source: { version: 1, filename: v1Name, sha256: '0'.repeat(64), covered_through_message_id: 'activation-1' },
-        compaction: { boundary: 'round', retained_static_message_ids: [], summaries: [], applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 0, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, snap: 'compact_straddler' } },
+        compaction: { boundary: 'round', retained_static_message_ids: [], summaries: [], applied_policy: { mode: 'normal', band: 'normal', input_budget_tokens: 1000, canonical_estimated_static_tokens: 0, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' } },
         continuation: { kind: 'between_rounds' },
         retained_rows: { first_message_id: null, last_message_id: null, row_count: 0, static_row_count: 0, tail_row_count: 0, tail_first_message_id: null, sha256: '1'.repeat(64) },
       };

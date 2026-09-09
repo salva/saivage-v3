@@ -1,10 +1,10 @@
-import type { AgentMessage } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import { parseToolCallMessageForModel } from '../contracts/persisted-tool-call.js';
 import type {
   LlmCompleteOptions,
   LlmCompleteResult,
   LlmUsage,
+  ProviderConversationItem,
   ProviderConversationProjection,
   ToolCall,
 } from './llm-contracts.js';
@@ -128,6 +128,7 @@ function buildOpenAIChatRequest(
     ...providerConversation.messages
       .filter((m) => m.kind !== 'provider_private')
       .map((m): ChatMessage => {
+        if (m.kind === 'synthetic_context') return { role: m.role, content: m.content };
         if (m.role === 'assistant' && m.kind === 'tool_call') {
           const call = parseToolCallMessageForModel(JSON.parse(m.content));
           return {
@@ -183,7 +184,7 @@ function sanitizeToolCallSequences(messages: ChatMessage[]): ChatMessage[] {
   }
   return out;
 }
-function toChatRole(role: AgentMessage['role']): ChatMessage['role'] {
+function toChatRole(role: ProviderConversationItem['role']): ChatMessage['role'] {
   switch (role) {
     case 'system':
       return 'system';

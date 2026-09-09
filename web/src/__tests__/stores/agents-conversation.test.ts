@@ -28,6 +28,7 @@ const session: AgentSession = {
   id: S1,
   agent_name: 'planner',
   session_scope: 'card',
+  compaction: null,
   card_id: 'project',
   started_at: '2026-01-01T00:00:00.000Z',
   status: 'active',
@@ -44,6 +45,7 @@ const analystSession: AgentSession = {
   id: 'agent:analyst:global',
   agent_name: 'analyst',
   session_scope: 'global',
+  compaction: null,
   card_id: null,
   started_at: '2026-01-01T00:00:00.000Z',
   status: 'inactive',
@@ -114,6 +116,7 @@ describe('useAgentStore singular agent resource ownership', () => {
     const requests = [
       store.fetchSessions(),
       store.fetchConversation(conversationToken),
+      store.fetchSelectedSession(conversationToken),
       store.fetchLlmExchange(exchangeToken),
     ];
     expect(store.sessionsLoading).toBe(true);
@@ -203,6 +206,7 @@ describe('useAgentStore singular agent resource ownership', () => {
       .mockRejectedValueOnce(new Error('conversation refresh failed'));
     const store = useAgentStore();
     const token = store.beginConversationSelection(S1);
+    await store.fetchSelectedSession(token);
     await store.fetchConversation(token);
     const refresh = store.refetchConversation(token);
     expect(store.conversationRefreshing).toBe(true);
@@ -237,6 +241,7 @@ describe('useAgentStore singular agent resource ownership', () => {
       .mockRejectedValueOnce(unauthorized)
       .mockRejectedValueOnce(new Error('ordinary refresh failure'))
       .mockResolvedValueOnce(conversation([{ ...entry, id: 'm2' }], 'm2'));
+    await store.fetchSelectedSession(token);
     await store.fetchConversation(token);
     await expect(store.fetchConversation(token)).rejects.toBe(unauthorized);
     expect(store.currentSession).toEqual(session);
@@ -366,6 +371,7 @@ describe('useAgentStore singular agent resource ownership', () => {
 
   it('makes stale transcript tokens, completions, refetches, and clears inert', async () => {
     const oldRequest = deferred<any>();
+    const oldSummaryRequest = deferred<{ session: AgentSession }>();
     vi.mocked(getAgentConversation)
       .mockReturnValueOnce(oldRequest.promise)
       .mockResolvedValueOnce({
@@ -374,19 +380,84 @@ describe('useAgentStore singular agent resource ownership', () => {
         cursor: { segment_version: 1, message_id: 'm2' }, segment_version: 1, segment_context: null,
       });
     vi.mocked(getAgentSession)
-      .mockResolvedValueOnce({ session })
+      .mockReturnValueOnce(oldSummaryRequest.promise)
       .mockResolvedValueOnce({ session: reviewerSession });
     const store = useAgentStore();
     const oldToken = store.beginConversationSelection(S1);
     const oldFetch = store.fetchConversation(oldToken);
+    const oldSummaryFetch = store.fetchSelectedSession(oldToken);
     const newToken = store.beginConversationSelection(S2);
-    await store.fetchConversation(newToken);
+    await Promise.all([store.fetchConversation(newToken), store.fetchSelectedSession(newToken)]);
+    expect(getAgentSession).toHaveBeenNthCalledWith(1, S1, expect.any(AbortSignal));
+    expect(getAgentSession).toHaveBeenNthCalledWith(2, S2, expect.any(AbortSignal));
     await store.refetchConversation(oldToken);
     store.clearConversationSelection(oldToken);
     oldRequest.resolve(conversation());
-    await oldFetch;
+    oldSummaryRequest.resolve({ session });
+    await Promise.all([oldFetch, oldSummaryFetch]);
     expect(store.currentSession?.id).toBe(S2);
     expect(store.entries[0]?.session_id).toBe(S2);
+  });
+
+  it('keeps a stale selected-summary error and finalizer from changing the new owner', async () => {
+    const oldSummaryRequest = deferred<{ session: AgentSession }>();
+    vi.mocked(getAgentSession)
+      .mockReturnValueOnce(oldSummaryRequest.promise)
+      .mockResolvedValueOnce({ session: reviewerSession });
+    const store = useAgentStore();
+    const oldToken = store.beginConversationSelection(S1);
+    const oldSummaryFetch = store.fetchSelectedSession(oldToken);
+    const newToken = store.beginConversationSelection(S2);
+
+    await store.fetchSelectedSession(newToken);
+    expect(getAgentSession).toHaveBeenNthCalledWith(1, S1, expect.any(AbortSignal));
+    expect(getAgentSession).toHaveBeenNthCalledWith(2, S2, expect.any(AbortSignal));
+    oldSummaryRequest.reject(new Error('stale detail failure'));
+    await oldSummaryFetch;
+
+    expect(store.currentSession?.id).toBe(S2);
+    expect(store.sessionSummaryError).toBeNull();
+    expect(store.sessionSummaryRefreshError).toBeNull();
+    expect(store.sessionSummaryLoading).toBe(false);
+    expect(store.sessionSummaryRefreshing).toBe(false);
+  });
+
+  it('keeps transcript fetches from writing selected detail', async () => {
+    vi.mocked(getAgentConversation).mockResolvedValue(conversation());
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    await store.fetchConversation(token);
+    expect(getAgentSession).not.toHaveBeenCalled();
+    expect(store.currentSession).toBeNull();
+    expect(store.entries).toEqual([entry]);
+  });
+
+  it('coalesces rapid relevant hints into one trailing exact summary read and retains last-known detail on failure', async () => {
+    const first = deferred<{ session: AgentSession }>();
+    const second = deferred<{ session: AgentSession }>();
+    vi.mocked(getAgentSession).mockReset();
+    vi.mocked(getAgentSession)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockRejectedValueOnce(new Error('detail refresh failed'));
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    const request = store.fetchSelectedSession(token);
+    const hint = { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'other-card' } as const;
+    void store.selectedSummaryHint(hint);
+    void store.selectedSummaryHint(hint);
+    first.resolve({ session: { ...session, compaction: { strategy: 'preventive', started_at: '2026-09-08T10:00:00.000Z', folds_done: 1, fold_in_flight: true } } });
+    await vi.waitFor(() => expect(getAgentSession).toHaveBeenCalledTimes(2));
+    second.resolve({ session: { ...session, compaction: null } });
+    await request;
+    expect(getAgentSession).toHaveBeenCalledTimes(2);
+    expect(store.currentSession?.compaction).toBeNull();
+
+    await store.fetchSelectedSession(token);
+    expect(store.currentSession).toEqual({ ...session, compaction: null });
+    expect(store.sessionSummaryRefreshError).toBe('detail refresh failed');
+    await store.selectedSummaryHint({ ...hint, card_id: 'unrelated' });
+    expect(getAgentSession).toHaveBeenCalledTimes(3);
   });
 
   it('clear aborts and generation-invalidates an in-flight transcript', async () => {

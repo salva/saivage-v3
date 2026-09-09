@@ -10,7 +10,7 @@ import {
 import { loggedToolCallIdentity, loggedToolCallKey, loggedToolResultIdentity, type LoggedToolMessageIdentity } from '../../../schemas/message-identity.js';
 import { deterministicRoundId } from '../../../schemas/round-id-server.js';
 import { validateResponsesPairs } from '../../../agents/llm-openai-responses-mapper.js';
-import type { ProviderConversationProjection } from '../../../agents/llm-contracts.js';
+import type { ProviderConversationItem, ProviderConversationProjection, SyntheticProviderContextItem } from '../../../agents/llm-contracts.js';
 import { parseToolCallMessageForModel } from '../../../contracts/persisted-tool-call.js';
 import { contextContentSha256, selectLatestContextBlocks, type ContextBlock, type ContextEvidence } from './context-blocks.js';
 import { classifyConversationRowPolicy, settledToolBundlePolicy, type SettledToolBundlePolicy } from './row-policy.js';
@@ -76,6 +76,7 @@ export function composeContextProjection(args: {
 
   const primary: PrimaryContextEntry[] = [];
   const summarizer: SummarizerContextItem[] = [];
+  for (const block of dynamic) primary.push({ origin: 'dynamic', block });
   if (args.effectiveHistory) {
     primary.push({ origin: 'history_summary', content: args.effectiveHistory.summaryText, messageId: args.effectiveHistory.historyMessageId, timestamp: args.effectiveHistory.historyTimestamp });
     summarizer.push({ kind: 'inherited_summary', content: args.effectiveHistory.summaryText });
@@ -88,8 +89,18 @@ export function composeContextProjection(args: {
     primary.push({ origin: 'canonical', row: refusalNoticeFromInheritedSlot(args.sourceSessionId, args.effectiveHistory!.requiredModelFacts.latestContentPolicyRefusal!), semantic: 'refusal_notice' });
     summarizer.push(inheritedRefusalMessageItem(args.sourceSessionId, args.effectiveHistory!.requiredModelFacts.latestContentPolicyRefusal!));
   }
-  for (const block of dynamic) primary.push({ origin: 'dynamic', block });
-
+  if (selection.recovery?.kind === 'row') {
+    const row = selection.recovery.row;
+    if (row.content !== MODEL_RECOVERY_NOTICE_TEXT) throw new Error(`Recovery notice '${row.id}' does not carry the exact canonical recovery warning.`);
+    primary.push({ origin: 'canonical', row: syntheticProjectionRow(row, 'system', MODEL_RECOVERY_NOTICE_TEXT), semantic: 'recovery_notice' });
+    summarizer.push({ kind: 'message', sourceId: row.id, role: 'system', content: MODEL_RECOVERY_NOTICE_TEXT, semantic: 'recovery_notice', responsesPrivateMessageId: null });
+  }
+  if (selection.refusal?.kind === 'row') {
+    const row = selection.refusal.row;
+    const content = contentPolicyRefusalProjectionText(args.sourceSessionId, row.id);
+    primary.push({ origin: 'canonical', row: syntheticProjectionRow(row, 'user', content), semantic: 'refusal_notice' });
+    summarizer.push({ kind: 'message', sourceId: row.id, role: 'user', content, semantic: 'refusal_notice', responsesPrivateMessageId: null });
+  }
   for (const row of args.uncoveredRows) {
     const policy = classifyConversationRowPolicy(row);
     if (policy.kind === 'structural') {
@@ -99,16 +110,8 @@ export function composeContextProjection(args: {
         continue;
       }
       if (behavior === 'model_recovery_notice') {
-        if (selection.recovery?.kind !== 'row' || selection.recovery.row !== row) continue;
-        if (row.content !== MODEL_RECOVERY_NOTICE_TEXT) throw new Error(`Recovery notice '${row.id}' does not carry the exact canonical recovery warning.`);
-        primary.push({ origin: 'canonical', row: syntheticProjectionRow(row, 'system', MODEL_RECOVERY_NOTICE_TEXT), semantic: 'recovery_notice' });
-        summarizer.push({ kind: 'message', sourceId: row.id, role: 'system', content: MODEL_RECOVERY_NOTICE_TEXT, semantic: 'recovery_notice', responsesPrivateMessageId: null });
         continue;
       }
-      if (selection.refusal?.kind !== 'row' || selection.refusal.row !== row) continue;
-      const content = contentPolicyRefusalProjectionText(args.sourceSessionId, row.id);
-      primary.push({ origin: 'canonical', row: syntheticProjectionRow(row, 'user', content), semantic: 'refusal_notice' });
-      summarizer.push({ kind: 'message', sourceId: row.id, role: 'user', content, semantic: 'refusal_notice', responsesPrivateMessageId: null });
       continue;
     }
     if (policy.kind === 'tool_exchange') {
@@ -143,13 +146,28 @@ export function composeContextProjection(args: {
 }
 
 export function providerConversationFromComposedContext(composed: ComposedContextProjection): ProviderConversationProjection {
-  const messages = composed.primary.map((entry) => {
+  const messages: ProviderConversationItem[] = composed.primary.map((entry) => {
     if (entry.origin === 'history_summary')
-      return agentMessageSchema.parse({ id: entry.messageId, session_id: composed.sourceSessionId, role: 'system', kind: 'text', content: entry.content, context_policy: DURABLE_PRIMARY_CONTENT_POLICY, round_id: deterministicRoundId('pre', entry.messageId), message_index: 0, block_index: 0, timestamp: entry.timestamp });
-    if (entry.origin !== 'canonical') throw new Error(`Composed primary entry of origin '${entry.origin}' has no provider conversation row representation.`);
+      return syntheticProviderContext('system', entry.content, 'history_summary', entry.messageId);
+    if (entry.origin === 'dynamic') {
+      if (entry.block.role === 'tool') throw new Error(`Dynamic context block '${entry.block.id}' cannot use the tool role in a provider request.`);
+      return syntheticProviderContext(entry.block.role, entry.block.content, 'dynamic', entry.block.id);
+    }
+    if (entry.semantic === 'recovery_notice') return syntheticProviderContext('system', entry.row.content, 'recovery_notice', entry.row.id);
+    if (entry.semantic === 'refusal_notice') return syntheticProviderContext('user', entry.row.content, 'refusal_notice', entry.row.id);
+    if (entry.semantic === 'retry_notice') return syntheticProviderContext('user', entry.row.content, 'retry_notice', entry.row.id);
     return entry.row;
   });
   return { sourceSessionId: composed.sourceSessionId, messages };
+}
+
+function syntheticProviderContext(
+  role: SyntheticProviderContextItem['role'],
+  content: string,
+  origin: SyntheticProviderContextItem['origin'],
+  blockIdentity: string,
+): SyntheticProviderContextItem {
+  return Object.freeze({ kind: 'synthetic_context', role, content, origin, block_identity: blockIdentity });
 }
 
 export function projectedCanonicalRowContent(row: AgentMessage): string {

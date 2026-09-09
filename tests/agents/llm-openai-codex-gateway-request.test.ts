@@ -88,12 +88,24 @@ describe('OpenAI Codex adapter request shape', () => {
     expect(Object.prototype.hasOwnProperty.call(body, 'temperature')).toBe(false);
   });
 
-  it('omits the configured completion quantity and universally projects system context into instructions', () => {
+  it('keeps static instructions singular, maps system context into ordered input, and omits completion quantity', () => {
     const opts: LlmCompleteOptions = { inputId: 'test:input:1', temperature: 0.2, contract_id: 'test.v1', contractName: 'planner', terminalToolOffered: [], tools: [], tool_choice: 'auto', max_tokens: 777 };
-    const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: SYSTEM, providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }] }, options: opts, capabilities: CAPABILITIES });
+    const body = ADAPTER.buildRequestBody({ candidate: CANDIDATE, systemPrompt: SYSTEM, providerConversation: { sourceSessionId: 'agent:analyst:global', messages: [{ ...MESSAGES[0]!, id: 'system-row', role: 'system', content: 'compacted context' }, MESSAGES[0]!] }, options: opts, capabilities: CAPABILITIES });
+    expect(body).toEqual({
+      model: 'gpt-5',
+      store: false,
+      stream: true,
+      instructions: SYSTEM,
+      input: [
+        { role: 'system', content: 'compacted context' },
+        { role: 'user', content: [{ type: 'input_text', text: 'hi' }] },
+      ],
+    });
     expect(Object.prototype.hasOwnProperty.call(body, 'max_output_tokens')).toBe(false);
-    expect(body.instructions).toContain('compacted context');
-    expect(body.input).toEqual([{ role: 'user', content: [{ type: 'input_text', text: 'Proceed with the task described in the instructions.' }] }]);
+    expect(JSON.stringify(body).match(new RegExp(SYSTEM, 'g'))).toHaveLength(1);
+    expect(JSON.stringify(body)).not.toContain('sourceSessionId');
+    expect(JSON.stringify(body)).not.toContain('session_id');
+    expect(JSON.stringify(body)).not.toContain('context_policy');
   });
 
   it('no-tools (analyst message mode): omits tools, tool_choice, parallel_tool_calls', () => {

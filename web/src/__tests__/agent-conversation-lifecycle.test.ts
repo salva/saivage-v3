@@ -43,7 +43,7 @@ vi.mock('../api/client', async (importOriginal) => ({
 }));
 
 function makeSession(id: 'agent:planner:project' | 'agent:reviewer:project') {
-  return { id, agent_name: id === 'agent:planner:project' ? 'planner' : 'reviewer', session_scope: 'card' as const, card_id: 'project', started_at: '2026-01-01T00:00:00.000Z', status: 'inactive' as const, activity: 'idle' as const };
+  return { id, agent_name: id === 'agent:planner:project' ? 'planner' : 'reviewer', session_scope: 'card' as const, card_id: 'project', started_at: '2026-01-01T00:00:00.000Z', status: 'inactive' as const, activity: 'idle' as const, compaction: null };
 }
 
 function textEntry(id: string, messageIndex: number): AgentConversationEntry {
@@ -272,6 +272,9 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
     const loaded = await mountConversation('target');
     await loaded.callback(null);
     await flushPromises();
+    expect(loaded.store.currentSession?.id).toBe('agent:planner:project');
+    expect(loaded.store.sessionSummaryError).toBeNull();
+    expect(loaded.store.sessionSummaryRefreshError).toBeNull();
     await expect(loaded.callback({
       t: 'invalidate',
       resource: 'conversation',
@@ -280,7 +283,10 @@ describe('non-Debug keyed agent conversation lifecycle', () => {
       visible_message_id: 'next',
     })).rejects.toBe(unauthorized);
     await flushPromises();
+    expect(loaded.store.conversationError).toBeNull();
+    expect(loaded.store.conversationRefreshError).toBe('Unauthorized');
     expect(loaded.wrapper.text()).toContain('Unauthorized');
+    expect(loaded.wrapper.text()).not.toContain('Conversation unavailable');
     expect(loaded.wrapper.find('[data-entry-id="target"]').exists()).toBe(true);
     expect(loaded.wrapper.find('.conv-rounds').exists()).toBe(true);
   });

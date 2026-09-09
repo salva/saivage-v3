@@ -15,8 +15,10 @@ import { scriptedAdmissionProvider } from '../../helpers/llm-test-helpers.js';
 import type { ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
+import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';
+import type { SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
 
-const compactionConfig: AutonomousCompactionPolicy = { input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.55, snap: 'compact_straddler' };
+const compactionConfig: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' };
 
 describe('ConversationLLMActor compaction ownership', () => {
   it('passes no root/session aliases and sends compact returned projection directly to the provider', async () => {
@@ -33,7 +35,7 @@ describe('ConversationLLMActor compaction ownership', () => {
 
       expect(compact).toHaveBeenCalledTimes(1);
       const compactArgs = compact.mock.calls[0]![0];
-      expect(Object.keys(compactArgs).sort()).toEqual(['conversations', 'input', 'signal', 'strategy', 'summarizerProvider']);
+      expect(Object.keys(compactArgs).sort()).toEqual(['conversations', 'input', 'progress', 'signal', 'strategy', 'summarizerProvider']);
       expect(compactArgs.strategy).toBe('preventive');
       expect(compactArgs.conversations.projectRoot).toBe(ownerRoot);
       expect(compactArgs.input.sessionId).toBe('agent:planner:project');
@@ -41,6 +43,80 @@ describe('ConversationLLMActor compaction ownership', () => {
     } finally {
       rmSync(ownerRoot, { recursive: true, force: true });
     }
+  });
+
+  it('publishes actor-owned logical fold progress and clears it after ordinary completion', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-progress-'));
+    initProjectTree(root);
+    try {
+      let captureArgs!: (args: Parameters<CompactorPort['compact']>[0]) => void;
+      const capturedArgs = new Promise<Parameters<CompactorPort['compact']>[0]>((resolve) => { captureArgs = resolve; });
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      const compactor: CompactorPort = {
+        shouldCompact: () => true,
+        compact: jest.fn<CompactorPort['compact']>(async (args) => {
+          captureArgs(args);
+          await held;
+          return { kind: 'compacted', providerConversation: args.input.providerConversation, estimatedProviderMessageTokens: 0 };
+        }),
+      };
+      const changes = jest.fn();
+      const provider = scriptedAdmissionProvider(async () => ({ result: { kind: 'message' as const, content: 'done' }, provider_exchanges: [] }));
+      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged: changes, compactor, summarizerProvider: summarizer(async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] })) });
+      const turn = actor.turn(input(), undefined, terminalHandoff);
+      const compactArgs = await capturedArgs;
+      expect(actor.compactionProgress()).toEqual(expect.objectContaining({ strategy: 'preventive', foldsDone: 0, foldInFlight: false }));
+      compactArgs.progress.foldStarted();
+      expect(actor.compactionProgress()).toEqual(expect.objectContaining({ foldsDone: 0, foldInFlight: true }));
+      compactArgs.progress.foldCompleted();
+      expect(actor.compactionProgress()).toEqual(expect.objectContaining({ foldsDone: 1, foldInFlight: false }));
+      release();
+      await turn;
+      expect(actor.compactionProgress()).toBeNull();
+      expect(changes).toHaveBeenCalled();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('delivers publication uncertainty before any progress clear or later hint', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-progress-fatal-'));
+    initProjectTree(root);
+    const delivered = new Error('fatal delivered');
+    try {
+      const changes = jest.fn();
+      const compactor: CompactorPort = { shouldCompact: () => true, compact: jest.fn<CompactorPort['compact']>(async (args) => { args.progress.foldStarted(); throw new PublicationOutcomeUnknownError(); }) };
+      const provider = scriptedAdmissionProvider(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
+      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: { publicationOutcomeUnknown(): never { throw delivered; } }, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged: changes, compactor, summarizerProvider: summarizer(async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] })) });
+      await expect(actor.turn(input(), undefined, terminalHandoff)).rejects.toBe(delivered);
+      expect(actor.compactionProgress()).toEqual(expect.objectContaining({ foldsDone: 0, foldInFlight: true }));
+      expect(changes).toHaveBeenCalledTimes(3); // arming, compaction start, fold start
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('clears only current progress on ordinary compaction failure and disposal', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-compaction-progress-clear-'));
+    initProjectTree(root);
+    try {
+      const provider = scriptedAdmissionProvider(async () => ({ result: { kind: 'message' as const, content: 'unused' }, provider_exchanges: [] }));
+      const failed = new Error('summary failed');
+      const failingActor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact: async (args) => { args.progress.foldStarted(); throw failed; } }, summarizerProvider: summarizer(async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] })) });
+      await expect(failingActor.turn(input(), undefined, terminalHandoff)).rejects.toBe(failed);
+      expect(failingActor.compactionProgress()).toBeNull();
+
+      let release!: () => void;
+      const held = new Promise<void>((resolve) => { release = resolve; });
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => { markStarted = resolve; });
+      const disposedActor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider, conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact: async (args) => { args.progress.foldStarted(); markStarted(); await held; return { kind: 'compacted', providerConversation: args.input.providerConversation, estimatedProviderMessageTokens: 0 }; } }, summarizerProvider: summarizer(async () => ({ result: { kind: 'message', content: 'summary' }, provider_exchanges: [] })) });
+      const turn = disposedActor.turn(input(), undefined, terminalHandoff);
+      await started;
+      expect(disposedActor.compactionProgress()?.foldInFlight).toBe(true);
+      const reason = new Error('disposed');
+      disposedActor.dispose(reason);
+      expect(disposedActor.compactionProgress()).toBeNull();
+      release();
+      await expect(turn).rejects.toBe(reason);
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('preserves prepared compaction through a fresh tool-result continuation and rechecks refreshed context', async () => {
@@ -116,7 +192,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     try {
       const compact = jest.fn<CompactorPort['compact']>();
       const providerCall = jest.fn(async (_input: LlmInvocationInput, _signal: AbortSignal) => new Promise<never>(() => undefined));
-      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn: (input, _admitted, signal) => providerCall(input, signal), projectProviderExchanges: jest.fn() } });
+      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn: (input, _admitted, signal) => providerCall(input, signal), projectProviderExchanges: jest.fn() } });
       const malformed = { ...input(), providerConversation: { sourceSessionId: 'agent:reviewer:project' as const, messages: [] } };
 
       await expect(actor.turn(malformed, undefined, terminalHandoff)).rejects.toThrow(/does not match provider conversation source session/);
@@ -134,7 +210,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     try {
       const compact = jest.fn<CompactorPort['compact']>(async () => ({ kind: 'compacted', providerConversation: { sourceSessionId: 'agent:reviewer:project', messages: [] }, compactionMessage: agentMessageSchema.parse({ id: 'compaction', session_id: 'agent:reviewer:project', role: 'system', kind: 'text', content: 'x', context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }, round_id: 'r-compacted-00000000000000000000000000000000', message_index: 0, block_index: 0, timestamp: '2026-07-16T00:00:00.000Z' }), estimatedProviderMessageTokens: 1 }));
       const providerCall = jest.fn(async (_input: LlmInvocationInput, _signal: AbortSignal) => new Promise<never>(() => undefined));
-      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn: (input, _admitted, signal) => providerCall(input, signal), projectProviderExchanges: jest.fn() } });
+      const actor = new ConversationLLMActor({ purpose:{kind:'autonomous-card',cardId:'project'},gate:new RuntimeGate(),fatalPort: testApplicationFatalPort, agentId: 'agent:planner:project', provider: scriptedAdmissionProvider(providerCall), conversations: { projectRoot: root }, runtimeProjectionChanged() {}, compactor: { shouldCompact: () => true, compact }, summarizerProvider: { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn: (input, _admitted, signal) => providerCall(input, signal), projectProviderExchanges: jest.fn() } });
       await expect(actor.turn(input(), undefined, terminalHandoff)).rejects.toThrow(/Compaction changed provider conversation source session/);
       expect(providerCall).not.toHaveBeenCalled();
       expect(readConversation(root, 'agent:planner:project').physicalRows).toEqual([]);
@@ -149,6 +225,6 @@ function input(): PreparedLlmInvocationInput {
   return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} };
 }
 
-function summarizer(completeTurn: (...args: never[]) => Promise<ProviderTurnCompletion>) {
-  return { candidate:{provider:'test',account:null,model:'test-model'},serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn, projectProviderExchanges: jest.fn() };
+function summarizer(completeTurn: SummarizerProviderPort['completeTurn']): SummarizerProviderPort {
+  return { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn, projectProviderExchanges: jest.fn() };
 }

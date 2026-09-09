@@ -13,6 +13,7 @@ const harness = vi.hoisted(() => {
     beginConversationSelection: vi.fn(() => token),
     refetchConversation: vi.fn(async () => undefined),
     fetchConversation: vi.fn(async () => undefined),
+    fetchSelectedSession: vi.fn(async () => undefined),
     fetchConversationVersions: vi.fn(async () => undefined),
     selectConversationVersion: vi.fn(async () => undefined),
     clearConversationSelection: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('../../stores/agents', () => ({
     beginConversationSelection: harness.beginConversationSelection,
     refetchConversation: harness.refetchConversation,
     fetchConversation: harness.fetchConversation,
+    fetchSelectedSession: harness.fetchSelectedSession,
     fetchConversationVersions: harness.fetchConversationVersions,
     selectConversationVersion: harness.selectConversationVersion,
     clearConversationSelection: harness.clearConversationSelection,
@@ -81,6 +83,7 @@ describe('useSelectedConversation', () => {
 
     await harness.callback!(null);
     expect(harness.refetchConversation).toHaveBeenCalledWith(harness.token, null);
+    expect(harness.fetchSelectedSession).toHaveBeenCalledWith(harness.token);
   });
 
   it('forwards typed invalidations with the captured token', async () => {
@@ -96,6 +99,17 @@ describe('useSelectedConversation', () => {
     await harness.callback!(frame);
 
     expect(harness.refetchConversation).toHaveBeenCalledWith(harness.token, frame);
+    expect(harness.fetchSelectedSession).toHaveBeenCalledTimes(0);
+  });
+
+  it('propagates transcript callback failures without coupling the summary reader', async () => {
+    const failure = new Error('recorded transcript failure');
+    harness.refetchConversation.mockRejectedValueOnce(failure);
+    mount(Host);
+
+    await expect(harness.callback!(null)).rejects.toBe(failure);
+
+    expect(harness.fetchSelectedSession).toHaveBeenCalledWith(harness.token);
   });
 
   it('gates manual reload on acknowledgement and consumes its expected rejection', async () => {
@@ -108,6 +122,7 @@ describe('useSelectedConversation', () => {
     await expect(selectedConversation.reload()).resolves.toBeUndefined();
 
     expect(harness.fetchConversation).toHaveBeenCalledWith(harness.token);
+    expect(harness.fetchSelectedSession).toHaveBeenCalledWith(harness.token);
   });
 
   it('keeps version-history operations bound to the captured token', async () => {

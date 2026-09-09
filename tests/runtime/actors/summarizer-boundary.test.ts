@@ -6,15 +6,19 @@ import { ACTIVITY_ROW_POLICY, toolRowPolicies } from '../../helpers/row-policy-f
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
 import {
   internalCompactionSummarySessionId,
+  assertSummarizerCapabilities,
   SummaryResultValidationError,
   SUMMARY_COMPLETION_TOKENS,
   type SummaryRequestSerialization,
   type SummarizerProviderPort,
 } from '../../../src/runtime/actors/compaction/summarizer.js';
-import { createIncrementalSummaryMaterializer } from '../../../src/runtime/actors/compaction/summary-materializer.js';
+import { createSequentialRefineAccumulator as createAccumulatorWithoutProgress } from '../../../src/runtime/actors/compaction/refine-accumulator.js';
 import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
+import { noCompactionProgress } from '../../helpers/executing-llm-snapshot.js';
+
+const createSequentialRefineAccumulator = (args: Omit<Parameters<typeof createAccumulatorWithoutProgress>[0], 'progress'>) => createAccumulatorWithoutProgress({ ...args, progress: noCompactionProgress });
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const SOURCE_INPUT_ID = '11111111-1111-4111-8111-111111111111';
@@ -22,27 +26,33 @@ const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const
 const BUDGET = { inputBudgetTokens: 100_000, completionReserveTokens: 20_000 };
 
 describe('compaction summarizer projection boundary', () => {
+  it('requires declared positive fixed-candidate limits and 2000-token output without exclusive tool choice', () => {
+    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', toolsMode: 'unsupported', exclusiveToolChoiceSupport: 'unsupported', contextWindowTokens: 10_000, maxOutputTokens: 2_000, quirks: [] })).not.toThrow();
+    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] })).toThrow(/contextWindowTokens/u);
+    expect(() => assertSummarizerCapabilities({ transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', contextWindowTokens: 10_000, maxOutputTokens: 1_999, quirks: [] })).toThrow(/at least 2000/u);
+  });
+
   it('delivers every settled result body unchanged to the summarizer under the internal summary identity', async () => {
     const rows = durableRound(SESSION, SOURCE_INPUT_ID);
     const conversation = validateConversation(SESSION, rows);
     const completeTurn = jest.fn(async (input: Parameters<SummarizerProviderPort['completeTurn']>[0]) => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] }));
-    const provider: SummarizerProviderPort = { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() };
-    await expect(createIncrementalSummaryMaterializer({
+    const provider: SummarizerProviderPort = { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() };
+    await expect(createSequentialRefineAccumulator({
       conversation,
       inheritedHistory: null,
+      preparedBlocks: [],
       summarizerProvider: provider,
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).resolves.toBe('summary');
     expect(completeTurn).toHaveBeenCalledTimes(1);
     const input = completeTurn.mock.calls[0]![0];
-    expect(input.capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true });
+    expect(input.capabilityRequest).toEqual({ requiresTools: false });
     expect(input.modelParams).toEqual({ temperature: 0, maxTokens: SUMMARY_COMPLETION_TOKENS });
     expect(input.sessionId).toBe(internalCompactionSummarySessionId(SESSION));
     expect(input.sessionId).not.toMatch(/^agent:/);
-    const bundle = input.providerConversation.messages.find((row) => row.content.includes('tool_result_content='));
-    expect(bundle!.content).toContain(`x`.repeat(10_000));
-    expect(bundle!.content).toContain(`[order 1/1] [kind=settled_tool_bundle source=${SOURCE_INPUT_ID}:call-1 tool=read audience=primary_and_summarizer]`);
+    const result = input.providerConversation.messages.find((row) => row.content.includes('source_kind=tool_result:read'));
+    expect(result!.content).toContain(`x`.repeat(10_000));
   });
 
   it('measures each request once and sends exactly the admitted serialized bytes', async () => {
@@ -51,6 +61,8 @@ describe('compaction summarizer projection boundary', () => {
     const serializations: SummaryRequestSerialization[] = [];
     const provider: SummarizerProviderPort = {
       candidate: CANDIDATE,
+      contextWindowTokens: 100_000,
+      maxOutputTokens: 10_000,
       serializeSummaryRequest: (input) => {
         const serialization = deterministicSummarySerialization(input);
         serializations.push(serialization);
@@ -63,14 +75,9 @@ describe('compaction summarizer projection boundary', () => {
       },
       projectProviderExchanges: jest.fn(),
     };
-    await createIncrementalSummaryMaterializer({ conversation, inheritedHistory: null, summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
-    expect(serializations).toHaveLength(3);
-    expect(JSON.parse(serializations[0]!.serializedRequest).messages).toEqual([]);
-    const measured = serializations[1]!.serializedRequest;
-    expect(measured).toContain('Summarize the labeled Saivage conversation material');
-    expect(measured).toContain('[order 1/1]');
-    expect(measured).toContain('[kind=settled_tool_bundle source=');
-    expect(serializations[2]!.serializedRequest).toContain('summary');
+    await createSequentialRefineAccumulator({ conversation, inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
+    expect(serializations.length).toBeGreaterThan(0);
+    expect(serializations.some((entry) => entry.serializedRequest.includes('[kind=new_source source='))).toBe(true);
   });
 
   it('preserves provider, projection-publication, cancellation, and malformed-success identities', async () => {
@@ -78,10 +85,11 @@ describe('compaction summarizer projection boundary', () => {
     const conversation = validateConversation(SESSION, rows);
     const providerFailure = new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [attempt('summary-input')], originalFailure: new LlmRequestError({ kind: 'server_transient', provider: 'test', status: 200, message: 'overloaded' }), candidate: CANDIDATE });
     const projected = jest.fn();
-    await expect(createIncrementalSummaryMaterializer({
+    await expect(createSequentialRefineAccumulator({
       conversation,
       inheritedHistory: null,
-      summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => { throw providerFailure; }, projectProviderExchanges: projected },
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => { throw providerFailure; }, projectProviderExchanges: projected },
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).rejects.toBe(providerFailure);
@@ -89,10 +97,11 @@ describe('compaction summarizer projection boundary', () => {
     expect(projected).toHaveBeenCalledWith(internalCompactionSummarySessionId(SESSION), expect.any(String), [expect.anything()], { assistantOutputIds: [], terminalConversationOutputId: null });
 
     const publicationFailure = new Error('summary evidence publication failed');
-    await expect(createIncrementalSummaryMaterializer({
+    await expect(createSequentialRefineAccumulator({
       conversation,
       inheritedHistory: null,
-      summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [attempt('summary-input')] }), projectProviderExchanges: () => { throw publicationFailure; } },
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [attempt('summary-input')] }), projectProviderExchanges: () => { throw publicationFailure; } },
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).rejects.toBe(publicationFailure);
@@ -101,19 +110,30 @@ describe('compaction summarizer projection boundary', () => {
     const abortReason = new Error('stop summary admission');
     controller.abort(abortReason);
     const neverCalled = jest.fn(async () => { throw new Error('unexpected provider admission'); });
-    await expect(createIncrementalSummaryMaterializer({
+    await expect(createSequentialRefineAccumulator({
       conversation,
       inheritedHistory: null,
-      summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() },
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: neverCalled, projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: controller.signal,
     }).materializeThrough(rows.length)).rejects.toBe(abortReason);
     expect(neverCalled).not.toHaveBeenCalled();
 
-    await expect(createIncrementalSummaryMaterializer({
+    await expect(createSequentialRefineAccumulator({
       conversation,
       inheritedHistory: null,
-      summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: '   ' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() },
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: '   ' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() },
+      budget: BUDGET,
+      signal: new AbortController().signal,
+    }).materializeThrough(rows.length)).rejects.toBeInstanceOf(SummaryResultValidationError);
+
+    await expect(createSequentialRefineAccumulator({
+      conversation,
+      inheritedHistory: null,
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: `  ${'x'.repeat(12_001)}  ` }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).rejects.toBeInstanceOf(SummaryResultValidationError);

@@ -92,6 +92,7 @@ describe('AnalystChatPanel', () => {
         id: analystSessionId,
         agent_name: 'analyst',
         session_scope: 'global',
+        compaction: null,
         card_id: null,
         started_at: '2025-01-01T00:00:00Z',
         status: 'active', activity: 'busy',

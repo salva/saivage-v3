@@ -29,7 +29,8 @@ import {
   shouldCompact,
   type AutonomousCompactionPolicy,
 } from '../runtime/actors/compaction/compactor.js';
-import type { SummarizerProviderPort, SummaryRequestSerialization } from '../runtime/actors/compaction/summarizer.js';
+import { admitSummaryRequest, assertSummarizerCapabilities, buildSummaryRequestInput, SUMMARY_COMPLETION_TOKENS, type SummarizerProviderPort, type SummaryRequestSerialization } from '../runtime/actors/compaction/summarizer.js';
+import { SUMMARY_REFINE_INSTRUCTION } from '../runtime/actors/compaction/refine-accumulator.js';
 import type { CompactorPort } from '../runtime/actors/llm-actor.js';
 import { buildCandidateRequest } from '../agents/candidate-request.js';
 import { selectLlmProtocolAdapter } from '../agents/llm-protocol-adapter.js';
@@ -43,6 +44,7 @@ import { runtimeAgentBinding } from '../runtime/card-process/card-process-config
 import { EventQueryService } from './event-query-service.js';
 import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
+import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -50,7 +52,7 @@ export interface RuntimeApplication {
   readonly processRunner: ProcessRunner;
   readonly analystRuntime: AnalystRuntime;
   readonly analystSessionId: import('../schemas/index.js').GlobalConversationSessionId;
-  captureExecutingLlmSessionIds(): ReadonlySet<ConversationSessionId>;
+  captureExecutingLlmSnapshots(): ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>;
   closeRuntimeAdmission(): void;
   closeAnalystAdmission(): void;
   cleanupRuntimeForApplicationStop(): Promise<void>;
@@ -89,6 +91,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
 
   const registry = services.providerRegistry;
   const summarizerCandidate = registry.assertCandidate(config.compaction.summarizer_candidate);
+  const summarizerCapabilities = registry.getEffectiveCapabilities(summarizerCandidate);
+  assertSummarizerCapabilities(summarizerCapabilities);
   const invocationService = new InvocationService({
     projectRoot,
     registry,
@@ -124,6 +128,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   };
   const summarizerProvider: SummarizerProviderPort = {
     candidate:summarizerCandidate,
+    contextWindowTokens: summarizerCapabilities.contextWindowTokens,
+    maxOutputTokens: summarizerCapabilities.maxOutputTokens,
     serializeSummaryRequest: summarizerSerializeRequest,
     completeTurn: (input, admitted, signal) => executeAdmittedTurn(invocationService, input, signal, admitted.requestSha256),
     projectProviderExchanges: (sessionId, sourceInputId, attempts, context) =>
@@ -133,14 +139,26 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         attempts,
         context),
   };
+  const invariantSummaryInput = buildSummaryRequestInput({
+    candidate: summarizerCandidate,
+    sourceSessionId: services.analystSessionId,
+    instruction: SUMMARY_REFINE_INSTRUCTION,
+    items: [],
+  });
+  const invariantSummaryAdmission = admitSummaryRequest({
+    serialization: summarizerSerializeRequest(invariantSummaryInput),
+    inputBudgetTokens: config.compaction.input_budget_tokens,
+    completionReserveTokens: Math.floor(config.compaction.input_budget_tokens * config.compaction.completion_reserve_fraction),
+    contextWindowTokens: summarizerCapabilities.contextWindowTokens,
+    maxOutputTokens: summarizerCapabilities.maxOutputTokens,
+  });
+  if (invariantSummaryAdmission.kind !== 'admitted')
+    throw new Error(`The invariant compaction summary request overhead plus ${SUMMARY_COMPLETION_TOKENS} requested output tokens does not fit the configured fixed candidate capacity.`);
   const compactionPolicy: AutonomousCompactionPolicy = {
     input_budget_tokens: config.compaction.input_budget_tokens,
     trigger_fraction: config.compaction.trigger_fraction,
     completion_reserve_fraction: config.compaction.completion_reserve_fraction,
-    merge_line_fraction: config.compaction.merge_line_fraction,
-    summary_line_fraction: config.compaction.summary_line_fraction,
-    escalate_merge_line_fraction: config.compaction.escalate_merge_line_fraction,
-    escalate_summary_line_fraction: config.compaction.escalate_summary_line_fraction,
+    tail_fraction: config.compaction.tail_fraction,
     snap: config.compaction.snap,
   };
   const compactor: CompactorPort = { shouldCompact, compact };
@@ -201,7 +219,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         surface: 'web-chat',
         analystMutations,
         eventQueries,
-        captureExecutingLlmSessionIds,
+        captureExecutingLlmSnapshots,
       };
       return analystBinding.toolSet.bind({
         scope: 'global',
@@ -261,11 +279,11 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       categories: ['operator_session'],
       reason,
     });
-  const captureExecutingLlmSessionIds = (): ReadonlySet<ConversationSessionId> => {
-    const sessionIds = new Set(runtimeSupervisor.captureAutonomousExecutingLlmSessionIds());
+  const captureExecutingLlmSnapshots = (): ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot> => {
+    const snapshots = new Map(runtimeSupervisor.captureAutonomousExecutingLlmSnapshots());
     const analystSnapshot = analystRuntimeCache?.executingLlmSnapshot();
-    if (analystSnapshot) sessionIds.add(analystSnapshot.sessionId);
-    return sessionIds;
+    if (analystSnapshot) snapshots.set(analystSnapshot.sessionId, analystSnapshot);
+    return snapshots;
   };
 
   return {
@@ -273,7 +291,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     analystSessionId,
     cardStore,
     processRunner,
-    captureExecutingLlmSessionIds,
+    captureExecutingLlmSnapshots,
     get analystRuntime() {
       analystRuntimeCache ??= new AnalystRuntime({
         createSession: createAnalystSession,

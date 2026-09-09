@@ -36,9 +36,9 @@ describe('content-policy conversation rows', () => {
     const envelope = JSON.parse(readFileSync(currentConversationSegmentPath(root, sessionId), 'utf8').trim());
     expect(envelope.type).toBe('conversation-segment');
     expect(envelope.rows.slice(1)).toEqual([marker]);
-    const projected = providerConversationProjection(readConversation(root, sessionId));
+    const projected = providerConversationProjection(readConversation(root, sessionId), []);
     expect(projected.messages).toHaveLength(1);
-    expect(projected.messages[0]).toMatchObject({ role: 'user', kind: 'text', content: expect.stringContaining(`/agents/${encodeURIComponent(sessionId)}?entry=${encodeURIComponent(marker.id)}`) });
+    expect(projected.messages[0]).toMatchObject({ role: 'user', kind: 'synthetic_context', origin: 'refusal_notice', block_identity: marker.id, content: expect.stringContaining(`/agents/${encodeURIComponent(sessionId)}?entry=${encodeURIComponent(marker.id)}`) });
     expect(JSON.stringify(projected)).not.toContain('RAW-TERMINAL-EVIDENCE');
   });
 });

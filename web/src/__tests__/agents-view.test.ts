@@ -66,6 +66,7 @@ function makeSession(overrides: Partial<AgentSession> = {}): AgentSession {
     started_at: '2025-06-01T08:00:00Z',
     status: 'inactive',
     activity: 'idle',
+    compaction: null,
     ...overrides,
   });
 }

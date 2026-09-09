@@ -1,24 +1,9 @@
 <template>
   <div class="conversation-container">
-    <ViewState v-if="loading" state="loading" title="Loading conversation" />
-    <ViewState
-      v-else-if="conversationUnauthorized && !currentSession"
-      state="unauthorized"
-      title="Conversation unavailable"
-      message="Provide a valid API token to load this conversation."
-    />
-    <ViewState
-      v-else-if="errorMsg"
-      state="error"
-      title="Could not load conversation"
-      :message="errorMsg"
-    />
-    <ViewState
-      v-else-if="!currentSession"
-      state="empty"
-      title="Select a session to view its conversation"
-    />
-    <template v-else>
+    <StatusBanner v-if="sessionSummaryLoading && !currentSession" tone="stale" message="Loading session status…" />
+    <StatusBanner v-else-if="sessionSummaryUnauthorized && !currentSession" tone="warning" message="Session status unavailable: provide a valid API token." />
+    <StatusBanner v-else-if="sessionSummaryError && !currentSession" tone="warning" :message="sessionSummaryError" />
+    <template v-if="currentSession">
       <div class="conv-header">
         <PanelHeader :title="currentSession.agent_name">
           <template #actions
@@ -51,6 +36,14 @@
           >
         </PanelHeader>
       </div>
+      <CompactionProgressBanner v-if="currentSession.compaction" :progress="currentSession.compaction" :last-known="sessionSummaryRefreshError !== null" />
+      <StatusBanner v-if="sessionSummaryRefreshError" tone="warning" :message="sessionSummaryRefreshError" />
+      <StatusBanner v-if="sessionSummaryRefreshing" tone="stale" message="Refreshing session status…" />
+    </template>
+      <ViewState v-if="loading" state="loading" title="Loading conversation" />
+      <ViewState v-else-if="conversationUnauthorized && errorMsg" state="unauthorized" title="Conversation unavailable" message="Provide a valid API token to load this conversation." />
+      <ViewState v-else-if="errorMsg" state="error" title="Could not load conversation" :message="errorMsg" />
+      <template v-else>
       <RawLlmExchangePanel
         v-if="rawPanelOpen"
         :key="props.sessionId"
@@ -107,7 +100,7 @@
           · {{ timelineControls.unseenCount.value }} new</span
         >
       </button>
-    </template>
+      </template>
   </div>
 </template>
 <script setup lang="ts">
@@ -122,12 +115,18 @@ import PanelHeader from '../ui/PanelHeader.vue';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
 import RawLlmExchangePanel from './RawLlmExchangePanel.vue';
+import CompactionProgressBanner from './CompactionProgressBanner.vue';
 import type { ConversationSessionId } from '../../api/contracts';
 import { entriesToTimeline } from '../../utils/agent-timeline/timeline';
 const props = defineProps<{ sessionId: ConversationSessionId; entryId: string | null }>();
 const agentStore = useAgentStore();
 const {
   currentSession,
+  sessionSummaryLoading,
+  sessionSummaryRefreshing,
+  sessionSummaryError,
+  sessionSummaryRefreshError,
+  sessionSummaryUnauthorized,
   entries,
   conversationLoading: loading,
   conversationError: errorMsg,

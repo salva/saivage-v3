@@ -76,10 +76,18 @@ try {
       ...structuredClone(DEFAULT_SAIVAGE_CONFIG.models),
       routes: Object.fromEntries(Object.keys(DEFAULT_SAIVAGE_CONFIG.models.routes).map((name) => [name, { candidates: ['test-model'], temperature: 0, max_tokens: 200 }])),
     },
-    providers: { test: { models: ['test-model'] } },
+    providers: {
+      test: {
+        models: ['test-model'],
+        capabilities: {
+          contextWindowTokens: 100_000,
+          maxOutputTokens: 10_000,
+        },
+      },
+    },
     compaction: {
       enabled: true,
-      input_budget_tokens: 1000,
+      input_budget_tokens: 10_000,
       summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
     },
   });

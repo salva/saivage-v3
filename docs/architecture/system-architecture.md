@@ -335,7 +335,7 @@ The unchanged direct append primitive never reads or truncates existing bytes, a
 The singular generic growing-file whole-file reader opens the exact path with `O_RDONLY | O_NOFOLLOW | O_NONBLOCK`, requires a regular descriptor, reads all bytes, and strictly decodes and parses every envelope.
 Empty, incomplete, invalid UTF-8, malformed-envelope, and invalid-row content fails without mutation.
 App-log initialization, explicit reads, and append admission all use this reader; initialization alone treats exact `ENOENT` as absent, and a present empty stream fails unchanged.
-Agent summary reads do not use transcript readers: they obtain `started_at` directly from canonical conversation index metadata.
+Agent summary reads do not use transcript readers: they obtain `started_at` directly from canonical conversation index metadata and decorate the result from one request-local executing-session snapshot map. Runtime membership is derived from that map's keys; its nullable compaction member is projected only onto the exact owning session.
 
 The inferred strict `LoggedEvent` union and runtime event schema agree on the event-kind list in the [exact app-log vocabularies](../spec/system-specification.md#exact-app-log-vocabularies).
 The actionable-error envelope is strict.
@@ -854,8 +854,8 @@ Prospective append performs the same strict read without mutation, then runs the
 Invalid candidates fail before candidate-envelope open, bytes, publication, or freshness; the derivation is discarded and never authorizes a later write.
 Startup's explicit conversation owner is the sole ordinary exception for validated unterminated-suffix truncation.
 
-`conversation-session.ts` is the sole owner of ordinary provider conversation projection.
-From one `ValidatedConversation` plus its one effective compacted history it emits the derived synthetic accumulated-summary system context and the uncovered source suffix, deriving every primary/summarizer/recovery/refusal semantic from the singular composition projector.
+`conversation-session.ts` requires the activation's frozen prepared dynamic blocks for every ordinary provider conversation projection; it has no empty-block default. History-only public reads remain separate and never fabricate past preparation.
+From one `ValidatedConversation`, its one effective compacted history, and those blocks, the singular `composeContextProjection` owner emits prepared dynamic context first, then the derived synthetic accumulated-summary context, newest-only recovery/refusal facts, and the uncovered source suffix. Its request-only provider-item union is either an intact canonical row or synthetic role/content with explicit origin and block identity; synthetic items carry no fabricated durable row identity or timestamp.
 Uncovered summary-only and evidence-only bundles remain primary-visible; only validated coverage omits them.
 Eligible OpenAI Responses private/visible bundles in the uncovered suffix remain paired and ordered.
 Every projected row must exactly match the projection source session; Responses additionally requires exactly one private row and one marked visible row per source input with exact mutual IDs.
@@ -887,7 +887,7 @@ Each new workflow-node activation builds its compiled named-agent prompt and ord
 Each configured global Analyst submission uses its compiled agent surface and rendered prompt, including exact-or-throwing construction of the bounded Analyst orientation snapshot as one activation-local latest-snapshot context block, then calls `prepareCompaction()` with that agent's configured output request before any marker/source append.
 An ordinary project-context failure reaches `AnalystSession` settlement and poisons the session; publication uncertainty reaches its existing consuming fatal boundary before caller settlement or transport response.
 Reserved completion determines hard capacity; requested completion is the exact provider output authority and may not exceed it.
-Preparation rejects invalid fractions, completion, widths, static trigger capacity, or hard capacity before conversation, summarizer, router, provider, or tool I/O.
+Preparation rejects invalid `tail_fraction`, completion reserve below 2,000 tokens, trigger/reserve relationships, static trigger capacity, or hard capacity before conversation, summarizer, router, provider, or tool I/O. Runtime composition also requires the fixed summarizer candidate to declare positive context/output limits, support the 2,000-token output request, and fit only the genuinely invariant empty-source serializer/instruction overhead; it does not manufacture task or accumulator blocks.
 The singular `ConversationLLMActor.turn()` accepts prepared input for every persisted named-agent call and rejects stale/cast unprepared input before transition or persistence.
 Direct summarization is the explicit unprepared, nonpersisting exception: it uses the one Registry-validated candidate, the completion-token limit in the [exact context and compaction limits](../spec/system-specification.md#exact-context-and-compaction-limits), a no-tools prose request, distinct evidence identities, and no self-compaction or replay.
 
@@ -909,12 +909,10 @@ Agent/card identity must match the session, the timestamp must equal the row tim
 Global sessions permit no preamble.
 Ordinary Analyst ingress appends `[marker, workspace-context system text, operator user text]` in one physical batch, publishes each change, rereads the canonical session once, and creates the sole source-identified provider projection before preventive compaction and turn-start evidence.
 Confirmed restart uses `[marker, user confirmation]` and never enters preparation, compaction, or provider I/O.
-A next valid marker closes the preceding round; the newest remains open/verbatim under ordinary bands.
+A next valid marker closes the preceding round; the newest remains open/verbatim unless a selected safe fallback covers a settled atomic prefix.
 Unmarked, malformed, wrong-agent/card, or mixed histories fail strict reads without inference or compatibility classification.
 
-Compaction evaluates deterministic safe prefixes over explicit round state—multiple closed rounds and a partial open round—with strictly advancing first-time cutoffs, and never treats a physically observed open round as complete.
-One `compact()` call creates one incremental materializer and one cutoff-keyed complete-candidate memo; both are algorithmic state discarded when the call returns.
-Each uncached cutoff must advance beyond the materializer's committed cutoff, while a repeated cutoff, including normal/escalated overlap, returns the memoized candidate without reconstruction, revalidation, metric change, or provider work.
+Compaction selects at most two deterministic positive safe prefixes before construction: the base outside the configured backward tail and the furthest legal closed/open atomic fallback. Equal, absent, and zero endpoints are omitted; empty inherited rounds add no endpoint. One `compact()` creates one sequential refine accumulator and retains at most the current/best candidate, with no all-cutoff collection or memo.
 Successful summary coverage of the logically open round may publish `inherited_open_round` with an empty physical tail; an unmatched call is never coverable and remains in the tail.
 Canonical segment source IDs and raw-row hashes remain authority.
 Successful compaction commits the new index head before emitting its segment-aware freshness hint.
@@ -922,40 +920,37 @@ Publication uncertainty authorizes no reread, retry, predecessor inspection, or 
 
 The compactor is the single sequential admission owner for one `compact()` call.
 It has no worker pool, queue, semaphore, generic scheduler, or compaction retry owner, and admits at most one summarizer provider call at a time; abort or first failure admits nothing later.
-The materializer derives each advance as the disjoint source-row slice between its committed cutoff and the requested larger cutoff, so each current source summary item enters leaf materialization at most once.
+The accumulator derives each advance as the disjoint source-row slice between its committed cutoff and the requested larger cutoff, so each projected source byte is transported once.
 It owns semantic accumulator change separately from exact canonical coverage advance: a structural-only increment performs zero provider I/O, leaves the genuine nullable accumulator unchanged, advances the committed cutoff, and returns that accumulator or `EMPTY_COVERAGE_SUMMARY` when it is null; the sentinel is never stored or reduced.
-Content-bearing increments reduce only the non-null genuine accumulator, newly superseded inherited fact meanings, and new leaf outputs.
-Materializer coverage advance does not accept or publish a candidate; candidate construction and prospective validation plus the compactor strategy own acceptance, and only the strategy-selected candidate is published.
+Content-bearing increments refine the non-null genuine accumulator with newly superseded inherited fact meanings and new projected source.
+Accumulator coverage advance does not accept or publish a candidate; candidate construction and prospective validation plus the compactor strategy own acceptance, and only the strategy-selected candidate is published.
 Required-model-fact slots are derived newest-only from inherited slots plus newly covered rows, a superseded slot's meaning is folded before replacement, and unchanged slots are carried without re-summarization.
 
-Every summary-eligible leaf body and reduction request is materialized through the one exact serialized-request estimator/packer that accounts instructions, labels, wrappers, the genuine nullable prior accumulator, the exact semantic projection of selected recovery/refusal facts, protocol bytes, and the completion reserve in the [exact context and compaction limits](../spec/system-specification.md#exact-context-and-compaction-limits); oversized leaf/prior/reduction inputs are chunked deterministically with provable per-level progress.
-An advance computes the next accumulator, inherited-fact fold markers, and cutoff in locals and commits them together only after all leaf and reduction work succeeds.
+Every refine request orders the dedicated instruction, full selected frozen prepared blocks, genuine accumulator, and projected new source. Tool arguments and results are distinct labeled components; evidence uses the existing evidence projection. The actual-use range packer first admits one code point (or an explicit empty range), tries the whole remainder, then doubles prefixes until the first rejected growth probe. Labels commit immutable component identity/kind/role, exact UTF-8 range, total bytes, source hash, and zero omitted bytes. Actual wrappers, escaping, prepared context, accumulator, fixed 2,000-token output, input budget, and 80% fixed-candidate context headroom are measured on every probe, and retained admitted bytes/hash are sent unchanged.
+An advance computes the next accumulator, inherited-fact fold markers, and cutoff in locals and commits them together only after all refine work succeeds. One operation admits at most 16 logical refine invocations; abort and ceiling checks precede increment and send.
 Abort, malformed success, provider failure, summary-evidence projection/publication failure, or invariant failure leaves the preceding call-local state unchanged and terminates candidate admission.
 Summary evidence uses the internal `internal:compaction-summary:<source-session-hash>` namespace and label, never a configured agent identity or Agent inventory entry.
 
 The compactor requires `preventive`, `local_exact_admission`, or `authoritative_context_recovery` strategy and returns `compacted` or clean `no_smaller_projection`.
-`local_exact_admission` deterministically constructs the furthest safely coverable closed/open atomic prefix and selects the smallest validated resulting provider projection from that one compaction operation rather than the first approximate band fit, with an exact-byte tie resolved toward the furthest cutoff; preventive and authoritative strategies retain their bounded order and acceptance criteria, and authoritative recovery accepts only a valid provider projection strictly smaller than the rejected one.
-Candidate construction and prospective validation precede the singular append; `compacted` means exactly one canonical row was appended.
+Preventive and authoritative strategies construct base first and stop before fallback when accepted. Preventive accepts at or below trigger and throws its terminal capacity error when neither selected endpoint fits or exists. Authoritative recovery accepts only a valid provider projection strictly smaller than the rejected one and otherwise returns clean no-smaller. `local_exact_admission` must construct both selected endpoints and selects the smallest actual composed byte estimate strictly below rejected, tying toward the furthest cutoff; any demanded construction failure stops the operation.
+Candidate construction and prospective validation precede publication of one immutable successor segment followed by cumulative-index replacement; `compacted` means both known publication steps completed and freshness followed.
 No-smaller means no append and no new coverage.
-`compaction/summarizer.ts` owns `SummaryResultValidationError`; the compactor converts exactly that error, and no provider, abort, evidence-publication, admission, or invariant failure, to `CompactionSummaryConstructionError` with the original validation error as `cause`.
+`compaction/summarizer.ts` owns `SummaryResultValidationError`, including the trimmed 12,000 UTF-8-byte output bound. The range/ceiling owner raises `SummaryConstructionLimitError` with only `request_context_capacity` or `fold_limit` and numeric counts/limits. The compactor wraps exactly those two types in `CompactionSummaryConstructionError`, preserving cause; provider, abort, evidence-publication, invariant, and publication failures retain their owners.
 Source/candidate validation, returned projection/source mismatch, cancellation, and other summary failures preserve their own identities; append uncertainty is never reread, retried, repaired, or converted to no-smaller.
 
-Classification computes each source row's existing visible-message estimate once and one aggregate per round; safe-prefix sizing and retained-tail sizing reuse those values.
-Each distinct rendered candidate is fit-tested at most once.
-The strict durable payload stores only fixed-size coverage/disposition commitments, required-model-fact slots, mode, selected band, input budget, canonical static estimate, trigger and completion fractions, selected merge and summary fractions, and snap.
-Completion, hard ceiling, trigger line/threshold, and window budgets remain exact ephemeral derivations.
+Classification computes each source row's existing visible-message estimate once and one aggregate per round; base retained-tail sizing reuses those values. Candidate and endpoint policy are ephemeral and the current durable compacted format is unchanged.
 
 Analyst orientation and the card discovery/read/version surfaces share one byte-packing discipline whose source-derived limits are in the [exact context and compaction limits](../spec/system-specification.md#exact-context-and-compaction-limits).
 The orientation builder renders the bounded compact tree with compact JSON serialization, UTF-8-safe title slices, running-branch expansion, exact active path, deterministic wide-parent aggregates, and an explicit fresh-observation marker, and owns both the complete-observation hash over its full strict input and the rendered-content hash; `list_cards`, flat `get_tree`, current-section `get_card`, every general `read` branch, the card-version catalog/diff surfaces, and `read_record_version` pack provider-visible results through the shared exact-`ToolResult` envelope with deterministic stateless collection and `TextSlice`/`JsonSlice` continuations.
 Canonical tools, not the orientation snapshot, remain card authority: current readers are observational and never emit evidence, and a reader needing immutable evidence flows from the current reader to the dedicated immutable readers `get_card_version`/`read_record_version`, the only surfaces that emit canonical locators and hashes from the same validated stream-row read.
 Diagnostic, session, process, control-action, and MCP surfaces stay outside that response-paging API; their arbitrary result bodies enter the shared coverage-preserving compaction and exact admission path, where an uncovered oversized bundle keeps driving `local_compaction_required` until bounded chunking/materialization plus the one post-compaction admission produces retained admitted bytes.
 
-All transports consume that one ordered projection and perform transport-only wire mapping.
-Chat and Codex omit provider-private rows; Responses maps the same projection into instructions and input while enforcing source-session and private/visible pairing.
+All transports consume that one ordered projection and perform transport-only wire mapping; they neither select context nor append card/Analyst text.
+The rendered static instruction occurs exactly once at each protocol's instruction position. Chat maps synthetic items as ordinary ordered messages. Responses and Codex map synthetic and canonical system/user/assistant items to equivalent ordered input messages rather than concatenating them into static instructions. Chat and Codex omit provider-private canonical rows; Responses retains valid paired private output while enforcing pairing only across canonical rows.
 Transport code cannot request physical durable history or independently render compaction metadata.
 
 Actor compaction weighting and provider wire admission are distinct contracts.
-Compactor message estimates aggregate the existing projected visible content and structural fields, then derive one `ceil(UTF8 bytes / 4)` weight with a minimum of one for each visible row; `provider_private` remains fixed at zero actor weight while the marked visible row is counted and its bundle remains indivisible.
+Compactor message estimates aggregate the complete composed projection, including every full frozen prepared block and synthetic historical item, while canonical visible rows retain their existing projected-content/structural weighting; `provider_private` remains fixed at zero actor weight while the marked visible row is counted and its bundle remains indivisible.
 This row-derived result drives preventive compaction only.
 Separately, for each provider candidate the actual request builder maps the projection once, canonicalizes the complete protocol body once, estimates `ceil(UTF8 bytes / 4)`, and hashes those exact bytes.
 Equal units do not make actor weighting provider-wire admission authority: only the complete canonical provider body is used for exact admission, and its deterministic best-effort estimate is not fit proof.
@@ -988,7 +983,7 @@ Invocation Service owns exact ordinary admission and admitted execution.
 `preparePrimaryRequestAdmission()` builds and capability-classifies exactly one request plan per route candidate per projection, freezes the admitted membership authority from only admitted verdicts in route order, and returns aggregate `admitted`, `local_compaction_required`, or `local_admission_failed` without provider exchanges, availability mutation, retries, or failure normalization; a mixed chain executes only admitted candidates in relative order, and an unavailable but admitted candidate keeps ordinary wait/failover semantics while every retry sends the same retained serialized bytes.
 `executeAdmittedWithRecovery()` mutates the one process-local record set while the existing scheduler chooses attempts; on a real authoritative `input_context_exhausted` it marks only that member `context_failed`, appends the exchange to the settled attempts, and suspends through the typed `AdmittedProviderTurnFailure` custody handoff.
 The singular prepared `ConversationLLMActor` retains turn-start append, source consumption, completion persistence, output, state, tool delivery, preventive compaction, and the bounded ordinary recovery seam for configured card-node and Analyst turns: after the sole `local_exact_admission` compaction it re-admits once before any primary I/O, and after the sole `authoritative_context_recovery` compaction it returns the unchanged suspension to recovery-scoped preparation/resume, which retries the context-failed member first and then resumes the existing scheduler over still-viable retained members with unchanged attempt/deadline/exchange continuity.
-The retry keeps the same input/source identity, prefix, tools, prepared capacity, temperature, episode context, and ordinary route behavior; only the provider projection changes, and marker/ingress/result rows are not re-appended.
+The retry keeps the same input/source identity, static instruction, tools, frozen dynamic blocks, prepared capacity, temperature, episode context, and ordinary route behavior; only the history portion of the provider projection changes, and marker/ingress/result rows are not re-appended. Prospective, published, local-admission, preventive, pinned, and authoritative-recovery projections all receive those same blocks; no continuation rereads card or tree state.
 A second context rejection after the authoritative retry, a terminal local admission failure after the one local compaction, or any non-viable retained state is final; there is no third pass, second compaction of either kind, or candidate-route × compaction loop.
 
 The Chat, public Responses, and Codex parsers share direct failure classification, but endpoint/header policy and response decoding remain protocol-owned.
@@ -1028,7 +1023,7 @@ Restart-confirmation settlement remains terminal and model-free.
 Clean no-smaller remains an ordinary final actor outcome.
 Transport-successful malformed summary output—tool calls, empty text, or the prohibited recoverable-evidence section—first raises `SummaryResultValidationError` at direct result validation and is converted only at the compactor boundary to `CompactionSummaryConstructionError` with that exact error as `cause`.
 Preventive provider exhaustion remains exact `ProviderTurnFailure`; cancellation, summary-evidence publication/projection, publication-unknown, source/projection/hash/invariant, and append failures retain their owners and identities.
-`compaction/summarizer.ts` separately owns summary-attempt evidence: each leaf/reduction call uses the internal `internal:compaction-summary:<source-session-hash>` evidence session and fresh input UUID, projects settled attempts exactly once through `InvocationService.projectProviderExchanges()` with empty assistant output IDs, and never merges them into the triggering input.
+`compaction/summarizer.ts` separately owns summary-attempt evidence: each refine call uses the internal `internal:compaction-summary:<source-session-hash>` evidence session and fresh input UUID, projects settled attempts exactly once through `InvocationService.projectProviderExchanges()` with empty assistant output IDs, and never merges them into the triggering input.
 Projection failure is outcome-unknown and is not retried.
 Invocation Service remains the sole retry/deadline/cancellation/evidence-recovery owner for the fixed summarizer candidate.
 
@@ -1040,7 +1035,7 @@ The marker carries no exchanges, phase, route, candidate, or classification, mak
 It is not a second provider taxonomy.
 
 Internal/runtime execution activity is exactly active, waiting, or inactive.
-Private compaction/provider/tool phases are not exposed; compaction remains active.
+Provider/tool phases remain private. The conversation actor exposes only nullable ephemeral compaction work progress—strategy, start time, completed logical folds, and whether one fold is in flight—through the existing executing-session snapshot and Agent summary; it does not create a runtime phase, durable record, internal summary session, denominator, ETA, or percentage. Publication uncertainty leaves this cleanup path untouched.
 Waiting is reserved for the explicitly segmented unfinished process, public-fetch, or child promise.
 The separate public Agent-summary vocabulary is exactly `activity: busy | idle`, paired with `status: active | inactive`; an internally waiting but live Agent session is `active`/`busy`.
 
@@ -1124,7 +1119,7 @@ Reconnect installs a fresh lease and generation-local dispatcher state, so newly
 There is no cross-generation or global flight gate.
 
 Runtime, Card, and Agent Pinia stores own separate resources.
-Global Agent inventory exists only while Agents or the selected Debug Agents tab holds the acknowledged global lease and is partitioned by global/card scope.
+Global Agent inventory exists only while Agents or the selected Debug Agents tab holds the acknowledged global lease and is partitioned by global/card scope. Selected Agents/Debug conversation detail additionally owns one exact summary reader. It is the sole `currentSession` writer, independent of transcript and inventory requests, and uses the selected conversation token plus one in-flight read and one coalesced trailing-refresh bit. Existing scoped membership hints trigger only relevant exact summary rereads; unknown card scope may exact-read the selected summary but never infer scope or fetch inventory for detail.
 Card Conversations owns a separate card-keyed store and lease.
 The persistent Analyst store owns a readonly discriminated identity projection and one explicit epoch/AbortController identity resolver; replacement resets identity handoff/transcript exactly once, and stale completions are inert.
 Analyst and selected-Agent stores retain separate identity/send and selection/detail lifetimes, but directly share one browser conversation-tail core for request epochs and abort, baseline-versus-tail acceptance, exact cursor rebase, and retained refresh failures.
@@ -1510,7 +1505,7 @@ The top-level inventory therefore includes the optional source fields, while eff
 | `providers.entry.accounts.entry.capabilities` | `contextWindowTokens,exclusiveToolChoiceSupport,maxOutputTokens,quirks,responsesReasoning,toolsMode,transportProtocol` | `src/schemas/saivage-config.ts:36` |
 | `providers.entry.accounts.entry.capabilities.responsesReasoning` | `effort` | `src/schemas/saivage-config.ts:40` |
 | `server` | `host,port` | `src/schemas/saivage-config.ts:69` |
-| `compaction` | `completion_reserve_fraction,enabled,escalate_merge_line_fraction,escalate_summary_line_fraction,input_budget_tokens,merge_line_fraction,snap,summarizer_candidate,summary_line_fraction,trigger_fraction` | `src/schemas/saivage-config.ts:80` |
+| `compaction` | `completion_reserve_fraction,enabled,input_budget_tokens,snap,summarizer_candidate,tail_fraction,trigger_fraction` | `src/schemas/saivage-config.ts:80` |
 | `compaction.summarizer_candidate` | `account,model,provider` | `src/schemas/saivage-config.ts:74` |
 | `card_types.entry` | `permitted_child_types,records,workflow` | `src/schemas/saivage-config.ts:185` |
 | `card_types.entry.records.entry` | `bootstrap,format,schema` | `src/schemas/saivage-config.ts:180` |

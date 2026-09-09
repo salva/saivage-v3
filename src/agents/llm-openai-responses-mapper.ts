@@ -15,10 +15,16 @@ interface OpenAIResponsesPrivateRowContent {
 type ResponsesInputItem = Record<string, unknown>;
 
 export function responsesInputFromProviderConversation(providerConversation: ProviderConversationProjection): ResponsesInputItem[] {
-  if (providerConversation.sourceSessionId !== null) validateResponsesPairs(providerConversation.sourceSessionId, providerConversation.messages);
+  const canonicalRows: AgentMessage[] = [];
+  for (const message of providerConversation.messages) {
+    if (message.kind !== 'synthetic_context') canonicalRows.push(message);
+  }
+  const sourceSessionId = providerConversation.sourceSessionId;
+  if (sourceSessionId !== null) validateResponsesPairs(sourceSessionId, canonicalRows);
   const input: ResponsesInputItem[] = [];
   const privateByProjection = new Map<string, OpenAIResponsesPrivateRowContent>();
   for (const message of providerConversation.messages) {
+    if (message.kind === 'synthetic_context') continue;
     if (message.kind === 'provider_private') {
       const row = parsePrivateContent(message);
       privateByProjection.set(row.projection_message_id, row);
@@ -27,6 +33,10 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
   const emittedFunctionCalls = new Map<string, { sourceInputId: string; callId: string }>();
   const settled = new Set<string>();
   for (const message of providerConversation.messages) {
+    if (message.kind === 'synthetic_context') {
+      input.push(textInput(message.role, message.content));
+      continue;
+    }
     if (message.kind === 'provider_private') continue;
     if (message.provider_projection?.kind === 'openai_responses') {
       const row = privateByProjection.get(message.id);
@@ -55,9 +65,9 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
       input.push({ type: 'function_call', call_id: call.id, name: call.name, arguments: call.arguments });
       continue;
     }
-    if (message.kind === 'text' && message.role === 'system') continue;
     if (message.kind === 'text' || message.kind === 'model_repair') {
-      input.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content: [{ type: message.role === 'assistant' ? 'output_text' : 'input_text', text: message.content }] });
+      if (message.role === 'tool') throw new Error(`Responses text row '${message.id}' cannot use the tool role.`);
+      input.push(textInput(message.role, message.content));
       continue;
     }
     throw new Error(`Unsupported Responses replay row kind '${message.kind}' for '${message.id}'.`);
@@ -67,6 +77,10 @@ export function responsesInputFromProviderConversation(providerConversation: Pro
     if (!settled.has(key)) throw new Error(`Responses replay contains unpaired function_call '${callId}' for input '${sourceInputId}'.`);
   }
   return input;
+}
+
+function textInput(role: 'system' | 'user' | 'assistant', content: string): ResponsesInputItem {
+  return { role, content: [{ type: role === 'assistant' ? 'output_text' : 'input_text', text: content }] };
 }
 
 function parsePrivateContent(message: AgentMessage): OpenAIResponsesPrivateRowContent {

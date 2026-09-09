@@ -16,6 +16,7 @@ import type { PreparedLlmInvocationInput } from '../../src/runtime/actors/llm-in
 import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../src/tools/invocation.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from './row-policy-fixtures.js';
 import { deterministicSummarySerialization } from './summary-serialization.js';
+import { noCompactionProgress } from './executing-llm-snapshot.js';
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
@@ -23,10 +24,7 @@ const POLICY: AutonomousCompactionPolicy = {
   input_budget_tokens: 10_000,
   trigger_fraction: 0.8,
   completion_reserve_fraction: 0.2,
-  merge_line_fraction: 0.3,
-  summary_line_fraction: 0.5,
-  escalate_merge_line_fraction: 0.4,
-  escalate_summary_line_fraction: 0.55,
+  tail_fraction: 0.25,
   snap: 'compact_straddler',
 };
 const BIG = 'x'.repeat(12_000);
@@ -68,6 +66,8 @@ async function requireCompacted(
     input: invocation(conversation),
     summarizerProvider: {
       candidate: CANDIDATE,
+      contextWindowTokens: 100_000,
+      maxOutputTokens: 10_000,
       serializeSummaryRequest: deterministicSummarySerialization,
       completeTurn: async () => ({
         result: { kind: 'message' as const, content: 'fixture compacted summary' },
@@ -76,6 +76,7 @@ async function requireCompacted(
       projectProviderExchanges: () => [],
     },
     signal: new AbortController().signal,
+    progress: noCompactionProgress,
   });
   if (result.kind !== 'compacted') throw new Error(`Expected fixture compaction, got ${result.kind}.`);
 }
@@ -88,7 +89,7 @@ function invocation(conversation: ValidatedConversation): PreparedLlmInvocationI
     agentName: 'planner',
     sessionId: SESSION,
     systemPrompt: 'system',
-    providerConversation: providerConversationProjection(conversation),
+    providerConversation: providerConversationProjection(conversation, []),
     tools: [],
     compiledToolContracts: [],
     terminalToolNames: [],

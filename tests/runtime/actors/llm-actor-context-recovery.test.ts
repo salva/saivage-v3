@@ -223,7 +223,7 @@ function actorFixture(plannerPublicationFailure?: Error) {
     provider,
     conversations: { projectRoot: root },
     compactor: { shouldCompact: () => false, compact },
-    summarizerProvider: { candidate: CANDIDATE, serializeSummaryRequest: () => { throw new Error('unexpected summary provider serialization'); }, completeTurn: jest.fn(async () => { throw new Error('unexpected summary provider call'); }), projectProviderExchanges: summaryProjection },
+    summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: () => { throw new Error('unexpected summary provider serialization'); }, completeTurn: jest.fn(async () => { throw new Error('unexpected summary provider call'); }), projectProviderExchanges: summaryProjection },
     fatalPort: { publicationOutcomeUnknown: publicationOutcomeUnknown as unknown as (error: PublicationOutcomeUnknownError) => never },
   });
   return { root, input, actor, compact, prepare, execute, prepareRecovery, resume, pinnedPreflight, plannerProjection, summaryProjection, publicationOutcomeUnknown, capturedSuspension };
@@ -231,7 +231,7 @@ function actorFixture(plannerPublicationFailure?: Error) {
 
 function invocation(): PreparedLlmInvocationInput {
   const sessionId = 'agent:planner:project' as const;
-  const preparedCompaction = prepareCompaction({ input_budget_tokens: 1000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, merge_line_fraction: 0.3, summary_line_fraction: 0.5, escalate_merge_line_fraction: 0.4, escalate_summary_line_fraction: 0.6, snap: 'compact_straddler' }, 'system', []);
+  const preparedCompaction = prepareCompaction({ input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', []);
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: 'planner', sessionId,
     systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 },

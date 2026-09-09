@@ -18,6 +18,7 @@ import { buildAgentOperatorContractHandlers } from '../../src/server/routes/oper
 import { initProjectTree, TEST_RUNTIME_WORKFLOWS } from '../helpers/canonical-project.js';
 import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
 import { testApplicationFatalPort } from '../helpers/test-application-fatal-port.js';
+import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 
 const roots: string[] = [];
 
@@ -35,7 +36,7 @@ describe('mounted operator compacted Agent conversations', () => {
     const handlers = buildAgentOperatorContractHandlers({
       projectRoot,
       workflows: TEST_RUNTIME_WORKFLOWS,
-      captureExecutingLlmSessionIds: () => new Set([sessionId]),
+      captureExecutingLlmSnapshots: () => executingLlmSnapshots([sessionId]),
     });
     new ContractRuntime({
       authPolicy: new AuthPolicy(),

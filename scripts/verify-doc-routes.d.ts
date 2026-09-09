@@ -115,7 +115,7 @@ export interface VocabularyClaimValue {
   members: string[];
 }
 
-export type ValueContractUnit = 'bytes' | 'characters' | 'milliseconds' | 'segments' | 'tokens';
+export type ValueContractUnit = 'bytes' | 'characters' | 'logical invocations' | 'milliseconds' | 'segments' | 'tokens';
 
 export interface SourceConstantClaimValue {
   unit: ValueContractUnit;
@@ -234,11 +234,13 @@ export interface ValueContractClaimValueByKey {
   'constant.analyst-orientation-max-bytes': SourceConstantClaimValue;
   'constant.analyst-title-preview-max-bytes': SourceConstantClaimValue;
   'constant.app-cleanup-leaf-timeout-ms': SourceConstantClaimValue;
+  'constant.compaction-refine-max-invocations': SourceConstantClaimValue;
   'constant.emit-result-summary-max-chars': SourceConstantClaimValue;
   'constant.managed-process-post-kill-verification-ms': SourceConstantClaimValue;
   'constant.managed-process-term-grace-ms': SourceConstantClaimValue;
   'constant.maximum-card-depth-segments': SourceConstantClaimValue;
   'constant.summarizer-completion-tokens': SourceConstantClaimValue;
+  'constant.summarizer-output-max-bytes': SourceConstantClaimValue;
   'constant.sync-hub-debounce-ms': SourceConstantClaimValue;
   'constant.tool-result-envelope-max-bytes': SourceConstantClaimValue;
   'error.analyst-turn-busy': StrictErrorClaimValue;

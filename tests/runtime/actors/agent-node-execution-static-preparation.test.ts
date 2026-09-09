@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
 import { initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
-import type { ConversationSessionId } from '../../../src/schemas/index.js';
+import { canonicalJson, type ConversationSessionId } from '../../../src/schemas/index.js';
 import { defineTool, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 
@@ -67,7 +67,7 @@ function harness(failure: FailureMode) {
     workflows: { cardTypes: new Map([['project', { bootstrapRecord: { name: 'brief.md' } }]]) },
     readRecordCurrent: jest.fn((_cardId: string, name: string) => {
       events.push('read-record');
-      if (name === 'brief.md') return { kind: 'found', value: { projection: { headVersion: 1, currentUrl: 'record:///brief.md?card=project', artifact: { state: 'open', accepted: { content: 'brief' }, draft: { content: 'draft' } } } } };
+      if (name === 'brief.md') return { kind: 'found', value: { projection: { headVersion: 1, currentUrl: 'record:///brief.md?card=project', artifact: { state: 'open', accepted: { content: 'FULL ACCEPTED BRIEF\nwith all configured content' }, draft: { content: 'draft' } } } } };
       return { kind: 'found', value: { projection: statusRecordOpened ? { headVersion: 1, currentUrl: 'record:///status.md?card=project', artifact: { state: 'open', accepted: null, draft: null } } : null } };
     }),
 
@@ -82,7 +82,7 @@ function harness(failure: FailureMode) {
     store,
     conversations: { projectRoot },
     promptTemplates: { render: () => { if (failure.kind === 'render') throw failure.error; return failure.systemPrompt; } },
-    compactionConfig: { input_budget_tokens: 1_000, trigger_fraction: 0.7, completion_reserve_fraction: 0.2, merge_line_fraction: 0.2, summary_line_fraction: 0.4, escalate_merge_line_fraction: 0.3, escalate_summary_line_fraction: 0.5, snap: 'keep_straddler_verbatim' },
+    compactionConfig: { input_budget_tokens: 10_000, trigger_fraction: 0.7, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'keep_straddler_verbatim' },
     processRunner: { createDirectScope: jest.fn(() => ({})) },
     runtimeProcessRootScope: {},
     workflows: { agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false }, contract: { model: { temperature: 0, maxTokens: 100 } }, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], capabilityRequest: {} }]]) },
@@ -100,13 +100,24 @@ function harness(failure: FailureMode) {
 }
 
 describe('AgentNodeExecution static preparation', () => {
+  it('sends the full prepared card block exactly once on the actual initial actor request', async () => {
+    const test = harness({ kind: 'capacity', systemPrompt: 'rendered static instruction' });
+
+    await expect(test.run()).rejects.toThrow('turn sentinel');
+
+    expect(test.llm.turn).toHaveBeenCalledTimes(1);
+    const input = (test.llm.turn.mock.calls as unknown as [[unknown]])[0][0] as { systemPrompt: string; providerConversation: { messages: Array<{ kind: string; origin?: string; block_identity?: string; content: string }> } };
+    const expected = canonicalJson({ cardId: 'project', cardType: 'project', title: 'Project', brief: 'FULL ACCEPTED BRIEF\nwith all configured content' });
+    expect(input.systemPrompt).toBe('rendered static instruction');
+    expect(input.providerConversation.messages.filter((item) => item.kind === 'synthetic_context' && item.origin === 'dynamic' && item.block_identity === 'card-activation:project' && item.content === expected)).toHaveLength(1);
+  });
+
   it('rejects a static capacity failure before every durable node-entry effect', async () => {
-    const test = harness({ kind: 'capacity', systemPrompt: 'x'.repeat(8_000) });
+    const test = harness({ kind: 'capacity', systemPrompt: 'x'.repeat(32_000) });
 
     await expect(test.run()).rejects.toThrow(/does not fit the compaction budget/u);
 
     expect(readConversation(test.projectRoot, test.sessionId).sourceRows).toEqual([]);
-    expect(test.store.discardRecord).not.toHaveBeenCalled();
     expect(test.store.discardRecord).not.toHaveBeenCalled();
     expect(test.store.openRecord).not.toHaveBeenCalled();
     expect(test.removeNotifications).not.toHaveBeenCalled();

@@ -44,13 +44,10 @@ describe('AgentNodeExecution LLM options', () => {
       conversations: { projectRoot },
       promptTemplates: { render: (_cardType: string, _agentName: string, variables: Record<string, unknown>) => { renderedVariables = variables; return 'system'; } },
       compactionConfig: {
-        input_budget_tokens: 1_000,
+        input_budget_tokens: 10_000,
         trigger_fraction: 0.7,
         completion_reserve_fraction: 0.2,
-        merge_line_fraction: 0.2,
-        summary_line_fraction: 0.4,
-        escalate_merge_line_fraction: 0.3,
-        escalate_summary_line_fraction: 0.5,
+        tail_fraction: 0.25,
         snap: 'keep_straddler_verbatim',
       },
     } as never, { freshInputId: () => 'input-1' } as never) as unknown as LlmInputBuilder;
@@ -69,7 +66,7 @@ describe('AgentNodeExecution LLM options', () => {
     );
 
     expect(prepared.preparedCompaction).toMatchObject({
-      reservedCompletionTokens: 200,
+      reservedCompletionTokens: 2000,
       requestedCompletionTokens: 73,
     });
     expect(prepared.modelParams).toEqual({ temperature: 0.2 });

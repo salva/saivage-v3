@@ -66,8 +66,18 @@ export interface OpenAIResponsesPrivateContext {
 
 export type ProviderPrivateContext = OpenAIResponsesPrivateContext;
 
+export type SyntheticProviderContextItem = Readonly<{
+  kind: 'synthetic_context';
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+  origin: 'dynamic' | 'history_summary' | 'recovery_notice' | 'refusal_notice' | 'retry_notice' | 'summary_material';
+  block_identity: string;
+}>;
+
+export type ProviderConversationItem = AgentMessage | SyntheticProviderContextItem;
+
 export type ProviderConversationProjection =
-  | { sourceSessionId: ConversationSessionId; messages: AgentMessage[] }
+  | { sourceSessionId: ConversationSessionId; messages: ProviderConversationItem[] }
   | { sourceSessionId: null; messages: [] };
 
 export function assertProviderConversationSourceRows(
@@ -75,7 +85,9 @@ export function assertProviderConversationSourceRows(
 ): void {
   if (providerConversation.sourceSessionId === null) return;
   const wrongSession = providerConversation.messages.find(
-    (message) => message.session_id !== providerConversation.sourceSessionId,
+    (message): message is AgentMessage =>
+      message.kind !== 'synthetic_context' &&
+      message.session_id !== providerConversation.sourceSessionId,
   );
   if (wrongSession)
     throw new Error(

@@ -10,6 +10,7 @@ import type { AnalystPreparationReadServices } from '../application/analyst-prep
 import type { EventQueryService } from '../application/event-query-service.js';
 import type { CardTypeName, ConversationSessionId } from '../schemas/index.js';
 import type { RestartCapability } from '../contracts/index.js';
+import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
 
 export type AnalystToolOutcome = ToolActionOutcome;
 
@@ -45,5 +46,5 @@ export interface ToolContext {
   analystMutations?: AnalystMutationServices;
   analystPreparation?: AnalystPreparationReadServices;
   eventQueries: EventQueryService;
-  captureExecutingLlmSessionIds: () => ReadonlySet<ConversationSessionId>;
+  captureExecutingLlmSnapshots: () => ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>;
 }

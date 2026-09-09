@@ -90,13 +90,14 @@ describe('stable same-session recovery', () => {
       { ...base, context_policy: toolRowPolicies({ content: '' }).call, id: `${source}:tool-call:call-1`, role: 'assistant', kind: 'tool_call', content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read', arguments: '{}' } }] }), tool: 'read', tool_call_id: 'call-1', message_index: 1 },
     ] satisfies AgentMessage[]);
     stabilizeAgentSession({ sessionId, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) });
-    const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId));
+    const providerConversation = providerConversationProjection(readConversation(projectRoot, sessionId), []);
     const generic = providerConversation.messages;
     const notice = generic.find((row) => row.content === MODEL_RECOVERY_NOTICE_TEXT)!;
-    const failed = generic.find((row) => row.kind === 'tool_result')!;
+    const failed = generic.find((row) => row.kind === 'tool_result');
+    if (!failed || failed.kind === 'synthetic_context') throw new Error('Expected a canonical recovered tool-result row.');
     expect(failed.id).toBe(`${source}:tool-result:call-1`);
     expect(JSON.parse(failed.content)).toMatchObject({ success: false, data: { outcome_unknown: true } });
-    expect(generic).toContainEqual(expect.objectContaining({ role: 'system', kind: 'text', content: MODEL_RECOVERY_NOTICE_TEXT }));
+    expect(generic).toContainEqual(expect.objectContaining({ role: 'system', kind: 'synthetic_context', origin: 'recovery_notice', content: MODEL_RECOVERY_NOTICE_TEXT }));
 
     const options = { inputId: 'wire-check', contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto' as const, terminalToolOffered: [], temperature: 0, max_tokens: 10 };
     const codex = selectLlmProtocolAdapter('openai-codex-backend').buildRequestBody({

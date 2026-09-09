@@ -101,7 +101,7 @@ describe('reviewer rework completion E2E', () => {
         agentMembershipChanged(target) {
           membershipRecords.push({
             target,
-            liveIds: [...runtime.captureAutonomousExecutingLlmSessionIds()],
+            liveIds: [...runtime.captureAutonomousExecutingLlmSnapshots().keys()],
           });
         },
       },

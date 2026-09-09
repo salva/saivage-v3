@@ -35,6 +35,12 @@ const agentSessionBase = z
     started_at: z.string().datetime(),
     status: z.enum(['active', 'inactive']),
     activity: z.enum(['busy', 'idle']),
+    compaction: z.object({
+      strategy: z.enum(['preventive', 'authoritative_context_recovery', 'local_exact_admission']),
+      started_at: z.string().datetime(),
+      folds_done: z.number().int().safe().nonnegative(),
+      fold_in_flight: z.boolean(),
+    }).strict().nullable(),
   })
   .strict();
 function requireMatchingIdentity(
@@ -65,6 +71,12 @@ function requireMatchingIdentity(
       code: z.ZodIssueCode.custom,
       path: ['activity'],
       message: 'Agent session status and activity must be active/busy or inactive/idle.',
+    });
+  if (value.compaction !== null && value.status !== 'active')
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['compaction'],
+      message: 'Compaction progress requires an active executing session.',
     });
 }
 export const AgentSessionSummarySchema = agentSessionBase.superRefine(requireMatchingIdentity);
