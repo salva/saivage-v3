@@ -377,18 +377,20 @@ export class ConversationLLMActor {
       input = { ...input, providerConversation: compacted.providerConversation }; operation.input = input;
     }
     this.#assertPersistenceOwnership(input);
-    const admission = await this.#admitPrimaryRequest(operation, input, signal);
+    const admitted = await this.#admitPrimaryRequest(operation, input, signal);
+    input = admitted.input;
+    operation.input = input;
     appendLlmTurnStarted(this.conversations, input);
     await this.gate.waitUntilOpen(signal); this.#invocations.assertCurrent(operation.lease!); operation.providerBoundaryEntered = true;
-    const completion = await this.#callProvider(operation, input, admission, signal); this.#invocations.assertCurrent(operation.lease!);
+    const completion = await this.#callProvider(operation, input, admitted.admission, signal); this.#invocations.assertCurrent(operation.lease!);
     if (completion.kind === 'content-policy-blocked') return completion;
     operation.completionPersistenceEntered = true;
-    return this.#persistProviderCompletion(input, completion.completion);
+    return this.#persistProviderCompletion(operation.input, completion.completion);
   }
 
-  async #admitPrimaryRequest(operation: InvocationOperation, input: PreparedLlmInvocationInput, signal: AbortSignal): Promise<OrdinaryAdmittedExecution> {
+  async #admitPrimaryRequest(operation: InvocationOperation, input: PreparedLlmInvocationInput, signal: AbortSignal): Promise<Readonly<{ input: PreparedLlmInvocationInput; admission: OrdinaryAdmittedExecution }>> {
     const first = this.provider.preparePrimaryRequestAdmission(input, signal);
-    if (first.kind === 'admitted') return first;
+    if (first.kind === 'admitted') return { input, admission: first };
     if (first.kind === 'local_admission_failed') throw new LocalExactAdmissionError({ localCompactionAttempted: false, diagnostics: projectAdmissionDiagnostics(first.candidates) });
     signal.throwIfAborted();
     let compacted: Extract<CompactionResult, { kind: 'compacted' }>;
@@ -408,7 +410,7 @@ export class ConversationLLMActor {
     if (compacted.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compacted.providerConversation.sourceSessionId}'.`);
     const recomposed: PreparedLlmInvocationInput = { ...input, providerConversation: compacted.providerConversation };
     const second = this.provider.preparePrimaryRequestAdmission(recomposed, signal);
-    if (second.kind === 'admitted') return second;
+    if (second.kind === 'admitted') return { input: recomposed, admission: second };
     throw new LocalExactAdmissionError({ localCompactionAttempted: true, diagnostics: projectAdmissionDiagnostics(second.candidates) });
   }
 
@@ -581,14 +583,13 @@ export class ConversationLLMActor {
     if (!(firstFailure.originalFailure instanceof LlmRequestError) || firstFailure.originalFailure.failure.kind !== 'input_context_exhausted')
       throw new Error(`Admitted provider turn failure for '${input.inputId}' does not carry authoritative input-context exhaustion.`);
     const firstAttempts = strictFailureAttempts('Context', firstFailure, input.inputId); signal.throwIfAborted();
-    let compaction: Extract<CompactionResult, { kind: 'compacted' }>;
+    if (!input.preparedCompaction) throw new Error(`Context recovery for '${input.inputId}' requires prepared compaction.`);
+    let compaction: CompactionResult;
     try {
-      if (!input.preparedCompaction) throw new Error(`Context recovery for '${input.inputId}' requires prepared compaction.`);
-      const result = await this.#compact(operation, 'authoritative_context_recovery', input as PreparedLlmInvocationInput, signal); signal.throwIfAborted();
-      if (result.kind === 'no_smaller_projection') throw normalContextFailure('Provider input context exhausted; last-chance compaction found no strictly smaller safe provider projection, so no provider retry was attempted.', firstAttempts, firstFailure.originalFailure);
-      compaction = result;
+      compaction = await this.#compact(operation, 'authoritative_context_recovery', input, signal);
     } catch (error) {
       this.#deliverPublicationFatal(error);
+      if (signal.aborted && error === signal.reason) throw error;
       if (error instanceof ProviderTurnFailure) {
         this.#projectProviderExchanges(input, firstAttempts, {
           assistantOutputIds: [],
@@ -600,10 +601,14 @@ export class ConversationLLMActor {
       if (error instanceof CompactionAppendError) throw error.cause;
       throw error;
     }
+    signal.throwIfAborted();
+    if (compaction.kind === 'no_smaller_projection') throw normalContextFailure('Provider input context exhausted; last-chance compaction found no strictly smaller safe provider projection, so no provider retry was attempted.', firstAttempts, firstFailure.originalFailure);
     if (compaction.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compaction.providerConversation.sourceSessionId}'.`);
+    const recoveryInput: PreparedLlmInvocationInput = { ...input, providerConversation: compaction.providerConversation };
+    operation.input = recoveryInput;
     let preparation: AdmittedRecoveryPreparation;
     try {
-      preparation = this.provider.prepareAdmittedRecovery({ suspension: handoff.suspension, input: { ...input, providerConversation: compaction.providerConversation } as PreparedLlmInvocationInput, signal });
+      preparation = this.provider.prepareAdmittedRecovery({ suspension: handoff.suspension, input: recoveryInput, signal });
     } catch (error) {
       this.#deliverPublicationFatal(error);
       throw error;
@@ -667,7 +672,7 @@ export class ConversationLLMActor {
       appendConversationBatch(this.conversations, [marker]);
       this.#projectProviderExchanges(input, combined, { assistantOutputIds: [], terminalConversationOutputId: marker.id });
       const result: ContentPolicyRefusalBlockedResult = { kind: 'content-policy-refusal', summary: CONTENT_POLICY_REFUSAL_BLOCKED_SUMMARY, session_id: input.sessionId, marker_id: marker.id, evidence_url: contentPolicyEvidenceUrl(input.sessionId, marker.id) };
-      return { kind: 'content-policy-blocked', input, result, toolCallArguments: null };
+      return { kind: 'content-policy-blocked', input: retryInput, result, toolCallArguments: null };
     }
   }
 

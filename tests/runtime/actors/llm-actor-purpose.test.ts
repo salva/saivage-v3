@@ -2,7 +2,7 @@ import {afterEach,describe,expect,it,jest} from '@jest/globals';
 import {mkdtempSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-import {ConversationLLMActor} from '../../../src/runtime/actors/llm-actor.js';
+import {ConversationLLMActor,type LlmTerminalHandoff} from '../../../src/runtime/actors/llm-actor.js';
 import {ProviderTurnFailure} from '../../../src/agents/llm-contracts.js';
 import {LlmRequestError} from '../../../src/contracts/llm-failure.js';
 import {prepareCompaction} from '../../../src/runtime/actors/compaction/compactor.js';
@@ -59,10 +59,13 @@ describe('ConversationLLMActor purpose authority',()=>{
       return {result:{kind:'message' as const,content:'safe answer'},provider_exchanges:[attempt(input.inputId,'ok',0)]};
     });
     const actor=cardActor(projectRoot,{...scriptedAdmissionProvider(completeTurn),projectProviderExchanges});
-    await expect(actor.turn(input,undefined,()=>undefined)).resolves.toMatchObject({type:'result',result:{content:'safe answer'}});
+    const handoff=jest.fn<LlmTerminalHandoff>();
+    await expect(actor.turn(input,undefined,handoff)).resolves.toMatchObject({type:'result',result:{content:'safe answer'}});
     expect(completeTurn).toHaveBeenCalledTimes(2);
     expect(projectProviderExchanges).toHaveBeenCalledTimes(1);
     expect(projectProviderExchanges.mock.calls[0]![2]).toMatchObject([{attempt_index:0,status:'error'},{attempt_index:1,status:'ok'}]);
+    expect(handoff.mock.calls[0]![0].input.routePass).toEqual({kind:'pinned-content-policy-retry',candidate:CANDIDATE});
+    expect(handoff.mock.calls[0]![0].input.providerConversation.messages.at(-1)).toMatchObject({kind:'synthetic_context',origin:'retry_notice'});
     expect(readConversation(projectRoot,input.sessionId).sourceRows.filter(row=>row.kind==='content_policy_retry')).toHaveLength(1);
     expect(readConversation(projectRoot,input.sessionId).sourceRows.filter(row=>row.kind==='content_policy_refusal')).toHaveLength(0);
   });
@@ -73,7 +76,7 @@ describe('ConversationLLMActor purpose authority',()=>{
     const projectProviderExchanges=jest.fn((_session:string,_source:string,attempts:ProviderExchangeAttempt[],context:unknown)=>{effects.push('exchange');expect(attempts).toMatchObject([{attempt_index:0,status:'error'},{attempt_index:1,status:'error'}]);expect(context).toEqual({assistantOutputIds:[],terminalConversationOutputId:expect.any(String)});});
     const completeTurn=jest.fn(async(value:LlmInvocationInput)=>{if(completeTurn.mock.calls.length===1)throw refusal(input.inputId,'first-raw');expect(value.routePass.kind).toBe('pinned-content-policy-retry');throw refusal(input.inputId,'second-raw');});
     const actor=cardActor(projectRoot,{...scriptedAdmissionProvider(completeTurn),projectProviderExchanges});
-    const handoff=jest.fn(()=>effects.push('handoff'));
+    const handoff=jest.fn<LlmTerminalHandoff>(()=>{effects.push('handoff');});
     const outcome=await actor.turn(input,undefined,handoff);
     expect(outcome).toMatchObject({type:'blocked',result:{kind:'content-policy-refusal',session_id:input.sessionId,marker_id:expect.any(String)}});
     expect(completeTurn).toHaveBeenCalledTimes(2);
@@ -84,6 +87,8 @@ describe('ConversationLLMActor purpose authority',()=>{
     expect(marker.content).not.toContain('first-raw');
     expect(effects).toEqual(['exchange','handoff']);
     expect(handoff).toHaveBeenCalledWith(expect.objectContaining({outcome:expect.objectContaining({type:'blocked'})}));
+    expect(handoff.mock.calls[0]![0].input.routePass).toEqual({kind:'pinned-content-policy-retry',candidate:CANDIDATE});
+    expect(handoff.mock.calls[0]![0].input.providerConversation.messages.at(-1)).toMatchObject({kind:'synthetic_context',origin:'retry_notice'});
   });
 });
 
