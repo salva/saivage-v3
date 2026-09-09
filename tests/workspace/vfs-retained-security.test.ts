@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join, parse, relative, resolve, sep } from 'node:path';
 
-import { initProjectTree } from '../helpers/canonical-project.js';
-import { globScopedPath, listScopedPath, visitScopedFiles } from '../../src/workspace/vfs.js';
+import { CardService, initProjectTree } from '../helpers/canonical-project.js';
+import { listScopedPath, visitFiles, visitScopedFiles } from '../../src/workspace/vfs.js';
 import { authorizeWriteProject, editProject, readProject, writeProject } from '../../src/tools/project-file-tools.js';
 import { buildScopedPathUrl } from '../../src/contracts/scoped-path-url.js';
+import { cardNamespace } from '../../src/persistence/layout.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -17,6 +18,69 @@ function systemUrl(absolutePath: string): string {
 }
 
 describe('workspace VFS and project-file security', () => {
+  it('visits filesystem scopes depth-first by explicit string order', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-vfs-order-'));
+    roots.push(root);
+    initProjectTree(root);
+    const ordinary = join(root, 'ordered');
+    mkdirSync(join(ordinary, 'b-dir'), { recursive: true });
+    mkdirSync(join(ordinary, 'A-dir'), { recursive: true });
+    writeFileSync(join(ordinary, 'z.txt'), 'z');
+    writeFileSync(join(ordinary, 'b-dir', 'b.txt'), 'b');
+    writeFileSync(join(ordinary, 'A-dir', 'a.txt'), 'a');
+
+    const direct: string[] = [];
+    await visitFiles(root, ordinary, async (_absolutePath, displayPath) => { direct.push(displayPath); }, { includeHidden: false });
+    expect(direct).toEqual(['ordered/A-dir/a.txt', 'ordered/b-dir/b.txt', 'ordered/z.txt']);
+
+    const fixtures = [
+      ['project:///ordered', ['ordered/A-dir/a.txt', 'ordered/b-dir/b.txt', 'ordered/z.txt']],
+      ['tmp:///card-a/ordered', ['.saivage/work/cards/card-a/tmp/ordered/A-dir/a.txt', '.saivage/work/cards/card-a/tmp/ordered/b-dir/b.txt', '.saivage/work/cards/card-a/tmp/ordered/z.txt']],
+      ['work:///tmp/ordered', ['work:///tmp/ordered/A-dir/a.txt', 'work:///tmp/ordered/b-dir/b.txt', 'work:///tmp/ordered/z.txt']],
+    ] as const;
+    for (const [url] of fixtures.slice(1)) {
+      const destination = url.startsWith('tmp:///')
+        ? join(root, '.saivage/work/cards/card-a/tmp/ordered')
+        : join(root, '.saivage/work/tmp/ordered');
+      mkdirSync(join(destination, 'b-dir'), { recursive: true });
+      mkdirSync(join(destination, 'A-dir'), { recursive: true });
+      writeFileSync(join(destination, 'z.txt'), 'z');
+      writeFileSync(join(destination, 'b-dir', 'b.txt'), 'b');
+      writeFileSync(join(destination, 'A-dir', 'a.txt'), 'a');
+    }
+    for (const [url, expected] of fixtures) {
+      const visited: string[] = [];
+      await visitScopedFiles({ projectRoot: root, agent: { cardId: 'card-a', agentName: 'executor' }, fail }, url, async ({ displayPath }) => { visited.push(displayPath); });
+      expect(visited).toEqual(expected);
+    }
+
+    const systemVisited: string[] = [];
+    await visitScopedFiles({ projectRoot: root, fail }, systemUrl(ordinary), async ({ displayPath }) => { systemVisited.push(displayPath); });
+    expect(systemVisited).toEqual([
+      systemUrl(join(ordinary, 'A-dir', 'a.txt')),
+      systemUrl(join(ordinary, 'b-dir', 'b.txt')),
+      systemUrl(join(ordinary, 'z.txt')),
+    ]);
+  });
+
+  it('visits only effective declared records in explicit filename order', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-vfs-record-order-'));
+    roots.push(root);
+    initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'Record order', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    cards.openRecord(child.id, 'status.md');
+    cards.editRecord(child.id, 'status.md', 'status');
+    cards.openRecord(child.id, 'review.md');
+    cards.editRecord(child.id, 'review.md', 'review');
+    writeFileSync(join(cardNamespace(root, child.id), 'record-undiscoverable-orphan.jsonl'), 'needle orphan');
+
+    const visited: string[] = [];
+    await visitScopedFiles({ projectRoot: root, records: cards, fail }, `record:///${child.id}`, async ({ displayPath }) => { visited.push(displayPath); });
+    expect(visited).toEqual(['brief.md', 'review.md', 'status.md'].map((name) => `record:///${name}?card=${encodeURIComponent(child.id)}`));
+    expect(visited.join('\n')).not.toContain('undiscoverable-orphan');
+  });
+
   it('filters internal, dependency, and secret paths from listing, globbing, and visiting', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-vfs-security-'));
     roots.push(root);
@@ -29,7 +93,6 @@ describe('workspace VFS and project-file security', () => {
     const visited: string[] = [];
     await visitScopedFiles({ projectRoot: root, fail }, 'project:///', async ({ displayPath }) => { visited.push(displayPath); });
     expect(await listScopedPath({ projectRoot: root, fail }, 'project:///')).toEqual({ kind: 'entries', entries: [{ name: 'docs', type: 'dir' }] });
-    expect(await globScopedPath({ projectRoot: root, fail }, 'project:///', '**/*.md', 20)).toEqual({ matches: ['docs/SPEC.md'], truncated: false });
     expect(visited).toEqual(['docs/SPEC.md']);
   });
 

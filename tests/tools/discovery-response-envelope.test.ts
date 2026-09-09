@@ -15,6 +15,8 @@ import { canonicalJson } from '../../src/schemas/index.js';
 import { DISCOVERY_RESPONSE_MAX_BYTES, DISCOVERY_RESPONSE_MIN_BYTES } from '../../src/contracts/builtin-tool-inputs.js';
 import {
   emptyToolInputSchema,
+  globWorkspaceInputSchema,
+  grepWorkspaceInputSchema,
   listProcessesInputSchema,
   readAgentSessionInputSchema,
   readControlActionsInputSchema,
@@ -129,6 +131,28 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     expect((directory.data as { records: { items: unknown[] } }).records.items.length).toBeGreaterThan(0);
   });
 
+  it('uses the shared hex JsonSlice wire leaf for project-file and card-inspection collections', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-discovery-shared-json-slice-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const longName = `quoted-"-${'\n'.repeat(200)}.txt`;
+    writeFileSync(join(projectRoot, longName), 'content', 'utf8');
+    const cards = new CardService(projectRoot);
+    const longTag = `ask-secret-tail ${'🚀'.repeat(300)}`;
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'Slice host', bootstrap_content: 'brief', tags: [longTag], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const surface = analystSurface(cards, projectRoot);
+
+    const directory = await invokeTestTool(surface, 'read', { path: '.', response_bytes: 512 });
+    const directorySlice = (directory.data as { entries: { items: unknown[] } }).entries.items[0] as Record<string, unknown>;
+    expect(directorySlice).toEqual(expect.objectContaining({ content_hex: expect.stringMatching(/^(?:[0-9a-f]{2})+$/u), offset_bytes: 0 }));
+    expect(directorySlice).not.toHaveProperty('content');
+
+    const card = await invokeTestTool(surface, 'get_card', { id: child.id, section: 'tags', response_bytes: 700 });
+    const cardSlice = (card.data as { content: { items: unknown[] } }).content.items[0] as Record<string, unknown>;
+    expect(cardSlice).toEqual(expect.objectContaining({ content_hex: expect.stringMatching(/^(?:[0-9a-f]{2})+$/u), offset_bytes: 0 }));
+    expect(cardSlice).not.toHaveProperty('content');
+  });
+
   it('measures outbound redaction before paging work file content', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-discovery-work-'));
     roots.push(projectRoot);
@@ -179,6 +203,55 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
 
     await expect(invokeTestTool(surface, 'list_cards', { response_bytes: DISCOVERY_RESPONSE_MIN_BYTES - 1 })).rejects.toThrow(/response_bytes/u);
     await expect(invokeTestTool(surface, 'list_cards', { response_bytes: DISCOVERY_RESPONSE_MAX_BYTES + 1 })).rejects.toThrow(/response_bytes/u);
+  });
+
+  it('admits only the strict search paging input shape while deferring item-boundary checks to use time', () => {
+    for (const schemaAndBase of [
+      [globWorkspaceInputSchema, { directory: '.', pattern: '**/*' }],
+      [grepWorkspaceInputSchema, { pattern: 'needle' }],
+    ] as const) {
+      const [schema, base] = schemaAndBase;
+      expect(schema.parse(base)).toMatchObject({ max_results: 200, response_bytes: 32768, position: { item_index: 0, item_byte_offset: 0 } });
+      expect(schema.safeParse({ ...base, max_results: 1, response_bytes: 512, position: { item_index: 4, item_byte_offset: 7 } }).success).toBe(true);
+      expect(schema.safeParse({ ...base, max_results: 0 }).success).toBe(false);
+      expect(schema.safeParse({ ...base, max_results: 1001 }).success).toBe(false);
+      expect(schema.safeParse({ ...base, max_results: 1.5 }).success).toBe(false);
+      expect(schema.safeParse({ ...base, response_bytes: 511 }).success).toBe(false);
+      expect(schema.safeParse({ ...base, position: { item_index: -1, item_byte_offset: 0 } }).success).toBe(false);
+      expect(schema.safeParse({ ...base, position: { item_index: 0, item_byte_offset: 0.5 } }).success).toBe(false);
+      expect(schema.safeParse({ ...base, position: { item_index: 0, item_byte_offset: 0, extra: true } }).success).toBe(false);
+      expect(schema.safeParse({ ...base, extra: true }).success).toBe(false);
+    }
+  });
+
+  it('ships collection hex reconstruction help while keeping version text slices plaintext', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-discovery-help-'));
+    roots.push(root);
+    initProjectTree(root);
+    const surface = analystSurface(new CardService(root), root);
+    for (const name of ['list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version']) {
+      const description = llmToolDefinition(surface.tools.get(name)!).function.description;
+      expect(description).toContain('lowercase-hex content_hex');
+      expect(description).toContain('complete outbound-projected canonical JSON');
+      expect(description).toContain('decoded-byte');
+    }
+    for (const name of ['diff_card_versions', 'read_record_version']) {
+      const description = llmToolDefinition(surface.tools.get(name)!).function.description;
+      expect(description).toContain('plaintext TextSlice');
+      expect(description).toContain('not hex encoded');
+    }
+    const workspaceContext = { projectRoot: root, cardId: 'project', actor: 'analyst', store: new CardService(root), runtime: { notifyCard: () => ({ ok: true, notificationId: 'n' }) } } as unknown as ToolContext;
+    const workspaceSurface = buildInvocationSurfaceFixture('analyst', [bindToolProvider('workspace', analystWorkspaceToolBinders, workspaceContext)]);
+    for (const name of ['read', 'glob', 'grep']) {
+      const binder = analystWorkspaceToolBinders.find((candidate) => candidate.name === name)!;
+      expect(binder).toBeDefined();
+      const description = llmToolDefinition(workspaceSurface.tools.get(name)!).function.description;
+      expect(description).toContain('lowercase-hex content_hex');
+      expect(description).toContain('complete outbound-projected canonical JSON');
+    }
+    const readHelp = llmToolDefinition(workspaceSurface.tools.get('read')!).function.description;
+    expect(readHelp).toContain('plaintext UTF-8 TextSlice');
+    expect(readHelp).toContain('TextSlice content is not hex');
   });
 
   it('observes fresh state between pages without a cursor registry', async () => {

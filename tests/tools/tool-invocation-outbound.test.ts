@@ -170,6 +170,11 @@ describe('projectToolInvocation exhaustive identity switch', () => {
       expect(projected).not.toHaveProperty('arguments');
       expect(JSON.stringify(projected)).not.toContain('historical-secret');
       expect(Array.isArray((projected as Extract<ToolInvocationProjectionInput, { shape: 'result-row' }>).result.data)).toBe(Array.isArray(fixture.result.data));
+      if (fixture.toolName === 'glob' || fixture.toolName === 'grep') {
+        const originalHex = JSON.stringify(fixture.result).match(/"content_hex":"([0-9a-f]+)"/u)?.[1];
+        const projectedHex = JSON.stringify(projected).match(/"content_hex":"([0-9a-f]+)"/u)?.[1];
+        expect(projectedHex).toBe(originalHex);
+      }
     }
   });
 

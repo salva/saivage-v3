@@ -28,4 +28,32 @@ export const historicalOpaqueToolResults = [
       data: { accepted: false, summary: 'token=historical-secret', legacy_payload: ['unchanged-shape'] },
     },
   },
+  {
+    toolName: 'glob',
+    result: {
+      success: true,
+      data: { directory: '.', pattern: '**/*', matches: ['historical-a.txt', 'token=historical-secret'], truncated: true },
+    },
+  },
+  {
+    toolName: 'grep',
+    result: {
+      success: true,
+      data: { pattern: 'needle', matches: [{ path: 'historical.txt', line: 1, preview: 'Authorization: Bearer historical-secret' }], truncated: false },
+    },
+  },
+  {
+    toolName: 'glob',
+    result: {
+      success: true,
+      data: { matches: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [{ content: 'historical plaintext token=historical-secret', utf8_bytes: 44, offset_bytes: 0, next_offset_bytes: 44, total_bytes: 44 }] } },
+    },
+  },
+  {
+    toolName: 'grep',
+    result: {
+      success: true,
+      data: { matches: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [{ content_hex: '2261736b2d7365637265742d7461696c22', utf8_bytes: 17, offset_bytes: 0, next_offset_bytes: 17, total_bytes: 17 }] }, content_truncated: false, max_line_chars: 2000 },
+    },
+  },
 ] as const;

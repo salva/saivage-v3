@@ -12,8 +12,8 @@ const responseBytesSchema = z.number().int().min(DISCOVERY_RESPONSE_MIN_BYTES).m
   .describe(`Exact UTF-8 byte budget for the complete canonical provider-visible ToolResult envelope; minimum ${DISCOVERY_RESPONSE_MIN_BYTES}, maximum ${DISCOVERY_RESPONSE_MAX_BYTES}.`);
 const discoveryCollectionPositionSchema = z.object({
   item_index: z.number().int().min(0).describe('Zero-based canonical-order item index from the previously emitted next position; omit for the first page.'),
-  item_byte_offset: z.number().int().min(0).describe('Byte offset into the item when continuing an oversized item slice; zero for whole items.'),
-}).strict().describe('Stateless continuation position for a byte-packed collection page.');
+  item_byte_offset: z.number().int().min(0).describe('Decoded UTF-8 byte offset copied exactly from the previously emitted page next position; zero starts an item, while a nonzero value must be a valid boundary strictly inside its complete outbound-projected canonical JSON.'),
+}).strict().describe('Stateless continuation position for a byte-packed collection page. Copy the complete page next position; do not use a slice end as a position independently.');
 const discoveryReadPositionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('collection'), item_index: z.number().int().min(0), item_byte_offset: z.number().int().min(0) }).strict(),
   z.object({ kind: z.literal('text'), byte_offset: z.number().int().min(0) }).strict(),
@@ -114,8 +114,23 @@ export const readWorkspaceInputSchema = z.object({
   response_bytes: responseBytesSchema.optional(),
 }).strict();
 export const writeWorkspaceInputSchema = z.object({ path: z.string(), content: z.string() }).strict();
-export const globWorkspaceInputSchema = z.object({ directory: z.string(), pattern: z.string(), max_results: z.number().int().optional() }).strict();
-export const grepWorkspaceInputSchema = z.object({ pattern: z.string(), path: z.string().optional(), include: z.string().optional(), max_results: z.number().int().optional() }).strict();
+const searchMaxResultsSchema = z.number().int().min(1).max(1000)
+  .describe('Maximum candidate items considered for this response; minimum 1, maximum 1000, default 200.');
+export const globWorkspaceInputSchema = z.object({
+  directory: z.string(),
+  pattern: z.string(),
+  max_results: searchMaxResultsSchema.default(200),
+  position: discoveryCollectionPositionSchema.default({ item_index: 0, item_byte_offset: 0 }),
+  response_bytes: responseBytesSchema.default(DISCOVERY_RESPONSE_MAX_BYTES),
+}).strict();
+export const grepWorkspaceInputSchema = z.object({
+  pattern: z.string(),
+  path: z.string().optional(),
+  include: z.string().optional(),
+  max_results: searchMaxResultsSchema.default(200),
+  position: discoveryCollectionPositionSchema.default({ item_index: 0, item_byte_offset: 0 }),
+  response_bytes: responseBytesSchema.default(DISCOVERY_RESPONSE_MAX_BYTES),
+}).strict();
 export const editWorkspaceInputSchema = z.object({ path: z.string(), old_string: z.string(), new_string: z.string(), replace_all: z.boolean().optional() }).strict();
 export const applyPatchInputSchema = z.object({ patch: z.string() }).strict();
 

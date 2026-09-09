@@ -1,10 +1,11 @@
 import { describe, expect, it } from '@jest/globals';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { canonicalJson } from '../../src/schemas/index.js';
 import { globProject, grepProject, MAX_GREP_LINE_CHARS, MAX_READ_FILE_BYTES, readProject } from '../../src/tools/project-file-tools.js';
 import { DISCOVERY_RESPONSE_MAX_BYTES } from '../../src/contracts/builtin-tool-inputs.js';
+import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 function withTempProject<T>(fn: (projectRoot: string) => Promise<T> | T): Promise<T> | T {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-read-limits-'));
@@ -19,6 +20,12 @@ function ctx(projectRoot: string) {
 }
 
 const envelopeBytes = (data: unknown): number => Buffer.byteLength(canonicalJson({ success: true, data }), 'utf8');
+const treeSnapshot = (root: string) => readdirSync(root, { recursive: true, encoding: 'utf8' }).sort().map((path) => {
+  const absolute = join(root, path);
+  const stat = statSync(absolute);
+  return stat.isFile() ? { path, size: stat.size, mtimeMs: stat.mtimeMs, content: readFileSync(absolute).toString('hex') } : { path, directory: true };
+});
+type GrepMatch = { path: string; line: number; preview: string };
 const textSlice = (value: unknown): { content: string; utf8_bytes: number; offset_bytes: number; next_offset_bytes: number } => {
   if (typeof value !== 'object' || value === null) throw new Error('expected a text slice');
   return value as { content: string; utf8_bytes: number; offset_bytes: number; next_offset_bytes: number };
@@ -53,15 +60,15 @@ describe('project file tool read limits', () => {
 
     const read = await readProject(ctx(projectRoot), { path: '.' }) as Record<string, unknown>;
     const metadata = await readProject(ctx(projectRoot), { path: '.', metadata_only: true }) as Record<string, unknown>;
-    const glob = await globProject(ctx(projectRoot), { directory: '.', pattern: '**/*' }) as { directory: string; matches: string[] };
-    const grep = await grepProject(ctx(projectRoot), { pattern: 'needle' }) as { matches: Array<{ path: string; preview: string }> };
+    const glob = await globProject(ctx(projectRoot), { directory: '.', pattern: '**/*' }) as { matches: { items: string[] } };
+    const grep = await grepProject(ctx(projectRoot), { pattern: 'needle' }) as { matches: { items: Array<{ path: string; preview: string }> } };
 
     expect(read.path).toBe('.');
     expect(read.total_entries).toBe(1);
     expect(read.entries).toEqual({ total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [{ name: 'visible.txt', type: 'file' }] });
     expect(metadata.entries_count).toBe(1);
-    expect(glob).toMatchObject({ directory: '.', matches: ['visible.txt'] });
-    expect(grep.matches).toEqual([{ path: 'visible.txt', line: 1, preview: 'needle visible' }]);
+    expect(glob).toEqual({ matches: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: ['visible.txt'] } });
+    expect(grep.matches.items).toEqual([{ path: 'visible.txt', line: 1, preview: 'needle visible' }]);
   }));
 
   it('matches work directory metadata count to normal listing', async () => withTempProject(async (projectRoot) => {
@@ -222,7 +229,7 @@ describe('project file tool read limits', () => {
 
     const result = await grepProject(ctx(projectRoot), { path: 'oversized.txt', pattern: 'needle beyond' });
 
-    expect(result).toMatchObject({ matches: [{ path: 'oversized.txt', line: Math.ceil(MAX_READ_FILE_BYTES / 2) + 2, preview: 'needle beyond inline limit' }], truncated: false });
+    expect(result).toMatchObject({ matches: { items: [{ path: 'oversized.txt', line: Math.ceil(MAX_READ_FILE_BYTES / 2) + 2, preview: 'needle beyond inline limit' }] }, content_truncated: false, max_line_chars: MAX_GREP_LINE_CHARS });
   }));
 
   it('has no whole-file synchronous read in the grep scanner', () => {
@@ -241,8 +248,8 @@ describe('project file tool read limits', () => {
     const token = await grepProject(ctx(projectRoot), { path: 'token-boundary.txt', pattern: 'xéneedle' });
     const newline = await grepProject(ctx(projectRoot), { path: 'newline-boundary.txt', pattern: 'needle-final' });
 
-    expect(token).toMatchObject({ matches: [{ line: 32768, preview: 'xéneedle' }], truncated: false });
-    expect(newline).toMatchObject({ matches: [{ line: 32769, preview: 'needle-final' }], truncated: false });
+    expect(token).toMatchObject({ matches: { items: [{ line: 32768, preview: 'xéneedle' }] }, content_truncated: false });
+    expect(newline).toMatchObject({ matches: { items: [{ line: 32769, preview: 'needle-final' }] }, content_truncated: false });
   }));
 
   it('counts CRLF and final unterminated lines accurately', async () => withTempProject(async (projectRoot) => {
@@ -251,12 +258,12 @@ describe('project file tool read limits', () => {
     const result = await grepProject(ctx(projectRoot), { path: 'lines.txt', pattern: 'needle' });
 
     expect(result).toEqual({
-      pattern: 'needle',
-      matches: [
+      matches: { total: 2, position: { item_index: 0, item_byte_offset: 0 }, returned: 2, next: null, items: [
         { path: 'lines.txt', line: 2, preview: 'needle two' },
         { path: 'lines.txt', line: 4, preview: 'needle final' },
-      ],
-      truncated: false,
+      ] },
+      content_truncated: false,
+      max_line_chars: MAX_GREP_LINE_CHARS,
     });
   }));
 
@@ -268,33 +275,48 @@ describe('project file tool read limits', () => {
     const suffixResult = await grepProject(ctx(projectRoot), { path: 'overlong.txt', pattern: 'suffix-needle' }) as Record<string, unknown>;
 
     expect(prefixResult).toMatchObject({
-      matches: [{ path: 'overlong.txt', line: 1, preview: expect.stringMatching(/^prefix-needle-/) }],
-      truncated: true,
+      matches: { items: [{ path: 'overlong.txt', line: 1, preview: expect.stringMatching(/^prefix-needle-/) }] },
       content_truncated: true,
       max_line_chars: MAX_GREP_LINE_CHARS,
     });
-    expect(((prefixResult.matches as Array<{ preview: string }>)[0]!.preview)).toHaveLength(500);
-    expect(suffixResult).toEqual({ pattern: 'suffix-needle', matches: [], truncated: true, content_truncated: true, max_line_chars: MAX_GREP_LINE_CHARS });
+    expect((((prefixResult.matches as { items: Array<{ preview: string }> }).items)[0]!.preview)).toHaveLength(500);
+    expect(suffixResult).toEqual({ matches: { total: 0, position: { item_index: 0, item_byte_offset: 0 }, returned: 0, next: null, items: [] }, content_truncated: true, max_line_chars: MAX_GREP_LINE_CHARS });
   }));
 
-  it('stops before opening later files at the result limit', async () => withTempProject(async (projectRoot) => {
-    writeFileSync(join(projectRoot, 'a-match.txt'), 'needle\n' + 'ignored\n'.repeat(10000), 'utf8');
-    const unreadable = join(projectRoot, 'z-unreadable.txt');
-    writeFileSync(unreadable, 'needle', 'utf8');
-    chmodSync(unreadable, 0);
+  it('scans completely while retaining only the contiguous max_results window', async () => withTempProject(async (projectRoot) => {
+    writeFileSync(join(projectRoot, 'a-match.txt'), 'needle one\nneedle two', 'utf8');
+    writeFileSync(join(projectRoot, 'z-match.txt'), 'needle three', 'utf8');
 
-    try {
-      const result = await grepProject(ctx(projectRoot), { pattern: 'needle', max_results: 1 });
-      expect(result).toEqual({ pattern: 'needle', matches: [{ path: 'a-match.txt', line: 1, preview: 'needle' }], truncated: true });
-    } finally {
-      chmodSync(unreadable, 0o600);
+    const first = await grepProject(ctx(projectRoot), { pattern: 'needle', max_results: 1 }) as { matches: { total: number; items: GrepMatch[]; next: { item_index: number; item_byte_offset: number } } };
+    const second = await grepProject(ctx(projectRoot), { pattern: 'needle', max_results: 1, position: first.matches.next }) as { matches: { total: number; items: GrepMatch[] } };
+    expect(first.matches).toMatchObject({ total: 3, items: [{ preview: 'needle one' }], next: { item_index: 1, item_byte_offset: 0 } });
+    expect(second.matches).toMatchObject({ total: 3, items: [{ preview: 'needle two' }] });
+  }));
+
+  it('reports exact totals beyond the count window and reconstructs an oversized glob item from global positions', async () => withTempProject(async (projectRoot) => {
+    for (let index = 0; index < 1002; index += 1) writeFileSync(join(projectRoot, `item-${String(index).padStart(4, '0')}.txt`), 'x');
+    const counted = await globProject(ctx(projectRoot), { directory: '.', pattern: '*.txt', max_results: 1000 }) as { matches: { total: number; returned: number; next: { item_index: number; item_byte_offset: number } } };
+    expect(counted.matches).toMatchObject({ total: 1002, returned: 1000, next: { item_index: 1000, item_byte_offset: 0 } });
+
+    const segments = ['a'.repeat(180), 'b'.repeat(180), 'c'.repeat(180)];
+    const directory = join(projectRoot, ...segments);
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, '🚀.txt'), 'x');
+    const expected = [...segments, '🚀.txt'].join('/');
+    let position: { item_index: number; item_byte_offset: number } | undefined;
+    const decoded: Buffer[] = [];
+    for (;;) {
+      const result = await globProject(ctx(projectRoot), { directory: segments[0]!, pattern: '**/*.txt', max_results: 1, response_bytes: 512, position }) as { matches: { total: number; next: { item_index: number; item_byte_offset: number } | null; items: Array<{ content_hex: string; utf8_bytes: number }> } };
+      expect(envelopeBytes(result)).toBeLessThanOrEqual(512);
+      expect(result.matches.total).toBe(1);
+      const slice = result.matches.items[0]!;
+      const bytes = Buffer.from(slice.content_hex, 'hex');
+      expect(bytes).toHaveLength(slice.utf8_bytes);
+      decoded.push(bytes);
+      position = result.matches.next ?? undefined;
+      if (!position) break;
     }
-  }));
-
-  it('does not stat, enumerate, or open a path when max_results is zero', async () => withTempProject(async (projectRoot) => {
-    const result = await grepProject(ctx(projectRoot), { path: 'missing-directory', pattern: 'needle', max_results: 0 });
-
-    expect(result).toEqual({ pattern: 'needle', matches: [], truncated: true });
+    expect(JSON.parse(Buffer.concat(decoded).toString('utf8'))).toBe(expected);
   }));
 
   it('skips binary head samples and continues to later text files', async () => withTempProject(async (projectRoot) => {
@@ -303,7 +325,7 @@ describe('project file tool read limits', () => {
 
     const result = await grepProject(ctx(projectRoot), { pattern: 'needle' });
 
-    expect(result).toEqual({ pattern: 'needle', matches: [{ path: 'b-text.txt', line: 1, preview: 'needle text' }], truncated: false });
+    expect(result).toMatchObject({ matches: { total: 1, items: [{ path: 'b-text.txt', line: 1, preview: 'needle text' }] }, content_truncated: false });
   }));
 
   it('redacts streamed work grep previews while preserving path and line', async () => withTempProject(async (projectRoot) => {
@@ -314,10 +336,50 @@ describe('project file tool read limits', () => {
     const result = await grepProject(ctx(projectRoot), { path: 'work:///processes/proc-1/stdout.log', pattern: 'Authorization' });
 
     expect(result).toEqual({
-      pattern: 'Authorization',
-      matches: [{ path: 'work:///processes/proc-1/stdout.log', line: 2, preview: expect.stringContaining('[REDACTED]') }],
-      truncated: false,
+      matches: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [{ path: 'work:///processes/proc-1/stdout.log', line: 2, preview: expect.stringContaining('[REDACTED]') }] },
+      content_truncated: false,
+      max_line_chars: MAX_GREP_LINE_CHARS,
     });
-    expect((result as { matches: Array<{ preview: string }> }).matches[0]!.preview).not.toContain('secret-token');
+    expect((result as { matches: { items: Array<{ preview: string }> } }).matches.items[0]!.preview).not.toContain('secret-token');
+  }));
+
+  it('searches project, tmp, work, system, and effective declared-record scopes through the same page contract', async () => withTempProject(async (projectRoot) => {
+    initProjectTree(projectRoot);
+    const cardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+    const scopedRoots = [
+      { directory: 'project:///project-scope', absolute: join(projectRoot, 'project-scope'), expected: 'project-scope/match.txt' },
+      { directory: `tmp:///${cardId}/tmp-scope`, absolute: join(projectRoot, '.saivage/work/cards', cardId, 'tmp', 'tmp-scope'), expected: `.saivage/work/cards/${cardId}/tmp/tmp-scope/match.txt` },
+      { directory: 'work:///tmp/stash/work-scope', absolute: join(projectRoot, '.saivage/work/tmp/stash/work-scope'), expected: 'work:///tmp/stash/work-scope/match.txt' },
+    ];
+    for (const fixture of scopedRoots) {
+      mkdirSync(fixture.absolute, { recursive: true });
+      writeFileSync(join(fixture.absolute, 'match.txt'), 'needle scoped', 'utf8');
+      const before = treeSnapshot(projectRoot);
+      const glob = await globProject(ctx(projectRoot), { directory: fixture.directory, pattern: '**/*.txt' }) as { matches: { items: string[] } };
+      const grep = await grepProject(ctx(projectRoot), { path: fixture.directory, pattern: 'needle' }) as { matches: { items: GrepMatch[] } };
+      expect(glob.matches.items).toEqual([fixture.expected]);
+      expect(grep.matches.items).toEqual([{ path: fixture.expected, line: 1, preview: 'needle scoped' }]);
+      expect(treeSnapshot(projectRoot)).toEqual(before);
+    }
+
+    const systemRoot = join(projectRoot, 'system-scope');
+    mkdirSync(systemRoot, { recursive: true });
+    writeFileSync(join(systemRoot, 'match.txt'), 'needle system', 'utf8');
+    const beforeSystem = treeSnapshot(projectRoot);
+    const systemDirectory = `system:///${systemRoot.replace(/^\/+/, '')}`;
+    const systemPath = `${systemDirectory}/match.txt`;
+    expect((await globProject(ctx(projectRoot), { directory: systemDirectory, pattern: '**/*.txt' }) as { matches: { items: string[] } }).matches.items).toEqual([systemPath]);
+    expect((await grepProject(ctx(projectRoot), { path: systemDirectory, pattern: 'needle' }) as { matches: { items: GrepMatch[] } }).matches.items).toEqual([{ path: systemPath, line: 1, preview: 'needle system' }]);
+    expect(treeSnapshot(projectRoot)).toEqual(beforeSystem);
+
+    const cards = new CardService(projectRoot);
+    const child = cards.create({ type: 'goal', parent: 'project', title: 'Search records', bootstrap_content: 'needle brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+    const recordContext = { ...ctx(projectRoot), store: cards };
+    const recordRoot = `record:///${child.id}`;
+    const recordPath = `record:///brief.md?card=${encodeURIComponent(child.id)}`;
+    const beforeRecord = treeSnapshot(projectRoot);
+    expect((await globProject(recordContext, { directory: recordRoot, pattern: '*.md' }) as { matches: { items: string[] } }).matches.items).toEqual([recordPath]);
+    expect((await grepProject(recordContext, { path: recordRoot, pattern: 'needle' }) as { matches: { items: GrepMatch[] } }).matches.items).toEqual([{ path: recordPath, line: 1, preview: 'needle brief' }]);
+    expect(treeSnapshot(projectRoot)).toEqual(beforeRecord);
   }));
 });

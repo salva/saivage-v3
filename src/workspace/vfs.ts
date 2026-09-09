@@ -57,6 +57,10 @@ export function isHiddenPath(projectRoot: string, absolutePath: string, relative
   return isReadBlocked(relativePath) || looksLikeSecretPath(absolutePath) || relativePath.split('/').some((part) => SKIPPED_DIRS.has(part));
 }
 
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function workRootOf(resolved: { kind?: string; workRoot?: unknown }): string | undefined {
   return resolved.kind === 'work' && typeof resolved.workRoot === 'string' ? resolved.workRoot : undefined;
 }
@@ -74,7 +78,7 @@ export function listVisibleDirectoryEntries(ctx: { projectRoot: string }, resolv
     .map((entry) => ({ name: entry.name, type: entry.isDirectory() ? 'dir' as const : 'file' as const, absolutePath: join(absolutePath, entry.name), relativePath: normalizeRel(join(relativePath === '.' ? '' : relativePath, entry.name)) }))
     .filter((entry) => !isHiddenPath(ctx.projectRoot, entry.absolutePath, scopedReadFilterRel(resolved, entry.absolutePath, entry.relativePath)))
     .map(({ name, type }) => ({ name, type }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => compareStrings(a.name, b.name));
 }
 
 function globSegmentToRegExp(segment: string): string {
@@ -94,24 +98,9 @@ export function globToRegExp(pattern: string): RegExp {
   return new RegExp(parts.join(''));
 }
 
-export function walkFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => boolean | void, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string } = { includeHidden: false }): boolean | void {
-  const root = options.root ?? projectRoot;
-  for (const entry of readdirSync(start, { withFileTypes: true })) {
-    const absolutePath = join(start, entry.name);
-    const relativePath = normalizeRel(relative(root, absolutePath));
-    if (entry.isDirectory()) {
-      if (!options.includeHidden && (SKIPPED_DIRS.has(entry.name) || isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
-      if (walkFiles(projectRoot, absolutePath, visitor, options) === false) return false;
-      continue;
-    }
-    if (!entry.isFile() || (!options.includeHidden && isHiddenPath(projectRoot, absolutePath, relativePath))) continue;
-    if (visitor(absolutePath, options.displayPath ? options.displayPath(absolutePath, relativePath) : relativePath) === false) return false;
-  }
-}
-
 export async function visitFiles(projectRoot: string, start: string, visitor: (absolutePath: string, relativePath: string) => Promise<boolean | void>, options: { includeHidden: boolean; root?: string; displayPath?: (absolutePath: string, relativePath: string) => string } = { includeHidden: false }): Promise<boolean | void> {
   const root = options.root ?? projectRoot;
-  const entries = (await readdir(start, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name));
+  const entries = (await readdir(start, { withFileTypes: true })).sort((a, b) => compareStrings(a.name, b.name));
   for (const entry of entries) {
     const absolutePath = join(start, entry.name);
     const relativePath = normalizeRel(relative(root, absolutePath));
@@ -226,6 +215,7 @@ export async function listScopedPath(ctx: VfsContext, raw: string): Promise<VfsL
 function displayPathCallback(projectRoot: string, resolved: FsResolved): ((absolutePath: string, relativePath: string) => string) | undefined {
   if (resolved.kind === 'system') return (abs) => `system:///${normalizeRel(abs).replace(/^\/+/, '')}`;
   if (resolved.kind === 'work') return (abs) => workUrlFromAbsolutePath(projectRoot, abs);
+  if (resolved.kind === 'tmp') return (abs) => normalizeRel(relative(projectRoot, abs));
   return undefined;
 }
 
@@ -234,7 +224,7 @@ export async function visitScopedFiles(ctx: VfsContext, raw: string, visitor: (e
   if (resolved === null) throw ctx.fail(`Expected a scoped path, got '${raw}'.`);
 
   if (resolved.kind === 'record') {
-    const metadata=ctx.records!.listDeclaredRecordMetadata(resolved.cardId);if(metadata.kind==='card-not-found')throw ctx.fail('Card not found.');for (const {classification} of metadata.value.definitions) {
+    const metadata=ctx.records!.listDeclaredRecordMetadata(resolved.cardId);if(metadata.kind==='card-not-found')throw ctx.fail('Card not found.');for (const {classification} of [...metadata.value.definitions].sort((a,b)=>compareStrings(a.definition.filename,b.definition.filename))) {
       const latest=classification.kind==='present'?classification.projection:null;
       if (latest === null) continue;
       const effective = effectiveRecordContent(latest.artifact); if (!effective) continue;
@@ -256,15 +246,5 @@ export async function visitScopedFiles(ctx: VfsContext, raw: string, visitor: (e
     absolutePath,
     displayPath,
     matchPath: normalizeRel(relative(base, absolutePath)),
-  }), { includeHidden: false, root: resolved.kind === 'system' ? resolved.absolutePath : workRootOf(resolved), displayPath: displayPathCallback(ctx.projectRoot, resolved) });
-}
-
-export async function globScopedPath(ctx: VfsContext, raw: string, globPattern: string, limit: number): Promise<{ matches: string[]; truncated: boolean }> {
-  const pattern = globToRegExp(globPattern);
-  const matches: string[] = [];
-  await visitScopedFiles(ctx, raw, async (entry) => {
-    if (pattern.test(entry.matchPath) || pattern.test(entry.displayPath)) matches.push(entry.displayPath);
-    if (matches.length >= limit) return false;
-  });
-  return { matches, truncated: matches.length >= limit };
+  }), { includeHidden: false, root: resolved.kind === 'system' || resolved.kind === 'tmp' ? resolved.absolutePath : workRootOf(resolved), displayPath: displayPathCallback(ctx.projectRoot, resolved) });
 }

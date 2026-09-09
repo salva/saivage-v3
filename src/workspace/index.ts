@@ -19,14 +19,12 @@ export {
 } from './scoped-path-schemes.js';
 export {
   displayPathForResolved,
-  globScopedPath,
   globToRegExp,
   isHiddenPath,
   listScopedPath,
   listVisibleDirectoryEntries,
   resolveScopedPath,
   scopedReadFilterRel,
-  walkFiles,
   visitFiles,
   visitScopedFiles,
   type VfsResolved,

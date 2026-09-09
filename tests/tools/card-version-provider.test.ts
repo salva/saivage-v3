@@ -18,6 +18,9 @@ import { canonicalJson } from '../../src/schemas/index.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
 import { compileInvocationToolContract } from '../../src/runtime/actors/context/context-blocks.js';
 import { settleToolResultForConversation } from '../../src/runtime/actors/llm-delivery-log.js';
+import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
+import { redactTextForOutbound } from '../../src/redaction/index.js';
+import { DISCOVERY_TEXT_PREVIEW_MAX_BYTES, utf8SafePreview } from '../../src/tools/response-packer.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -316,5 +319,42 @@ describe('card version provider', () => {
     const summary = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 1, section: 'summary' });
     expect((summary.evidence as { locator: string }).locator).toBe((first.evidence as { locator: string }).locator);
     expect((summary.evidence as { sha256: string }).sha256).toBe((first.evidence as { sha256: string }).sha256);
+  });
+
+  it('reconstructs an oversized immutable collection item from projected canonical JSON hex slices', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-json-slice-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const tag = `ask-secret-tail token=synthetic-token-value ${'🚀 quoted " \\ '.repeat(180)}`;
+    const child = cards.create(childInput('Card', [tag]));
+    const surface = surfaceFor(cards);
+    const expected = canonicalJson(projectDynamicForOutbound(utf8SafePreview(redactTextForOutbound(tag), DISCOVERY_TEXT_PREVIEW_MAX_BYTES)));
+    const chunks: Buffer[] = [];
+    let position: { item_index: number; item_byte_offset: number } | undefined;
+
+    for (;;) {
+      const result = await invokeTestTool(surface, 'get_card_version', {
+        card_id: child.id,
+        version: 1,
+        section: 'tags',
+        response_bytes: 700,
+        position,
+      });
+      expect(envelopeBytes(result.data)).toBeLessThanOrEqual(700);
+      const content = (result.data as { content: { items: unknown[]; next: { item_index: number; item_byte_offset: number } | null } }).content;
+      const slice = content.items[0] as { content_hex: string; utf8_bytes: number; offset_bytes: number; next_offset_bytes: number; total_bytes: number };
+      expect(slice.content_hex).toMatch(/^(?:[0-9a-f]{2})+$/u);
+      const decoded = Buffer.from(slice.content_hex, 'hex');
+      expect(decoded).toHaveLength(slice.utf8_bytes);
+      expect(decoded).toEqual(Buffer.from(expected, 'utf8').subarray(slice.offset_bytes, slice.next_offset_bytes));
+      expect(slice.total_bytes).toBe(Buffer.byteLength(expected, 'utf8'));
+      chunks.push(decoded);
+      if (content.next === null) break;
+      position = content.next;
+    }
+
+    expect(Buffer.concat(chunks).toString('utf8')).toBe(expected);
+    expect(expected).toContain('ask-secret-tail');
+    expect(expected).toContain('[REDACTED]');
+    expect(expected).not.toContain('synthetic-token-value');
   });
 });

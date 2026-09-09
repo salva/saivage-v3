@@ -4,6 +4,7 @@ import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   DISCOVERY_RESPONSE_MIN_BYTES,
 } from '../contracts/builtin-tool-inputs.js';
+import { projectDynamicForOutbound } from '../redaction/dynamic.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 
 export { DISCOVERY_RESPONSE_MAX_BYTES, DISCOVERY_RESPONSE_MIN_BYTES };
@@ -23,6 +24,14 @@ export type CollectionPosition = Readonly<{
   item_byte_offset: number;
 }>;
 
+type JsonSlice = Readonly<{
+  content_hex: string;
+  utf8_bytes: number;
+  offset_bytes: number;
+  next_offset_bytes: number;
+  total_bytes: number;
+}>;
+
 export type CollectionPage = Readonly<{
   total: number;
   position: CollectionPosition;
@@ -37,6 +46,13 @@ export class DiscoveryBudgetTooSmallError extends Error {
       `Requested response_bytes budget ${requestedBytes} cannot hold the fixed discovery response envelope plus one progress unit; raise response_bytes toward the documented minimum of ${DISCOVERY_RESPONSE_MIN_BYTES}.`,
     );
     this.name = 'DiscoveryBudgetTooSmallError';
+  }
+}
+
+export class DiscoveryCollectionPositionError extends Error {
+  constructor() {
+    super('Collection position must identify an existing item and a UTF-8 boundary strictly inside its complete outbound-projected canonical JSON bytes.');
+    this.name = 'DiscoveryCollectionPositionError';
   }
 }
 
@@ -110,119 +126,107 @@ export function packCollectionData(input: Readonly<{
   cap: number;
   total: number;
   position: CollectionPosition;
+  maxItems?: number;
   item: (index: number) => unknown;
   render: (page: CollectionPage) => unknown;
 }>): PackedCollectionData {
-  type Emitted =
-    | { kind: 'value'; index: number; value: unknown }
-    | { kind: 'slice'; index: number; json: string; startOffset: number; bytes: number };
-  const emitted: Emitted[] = [];
+  if (input.maxItems !== undefined && (!Number.isSafeInteger(input.maxItems) || input.maxItems < 1)) {
+    throw new RangeError('maxItems must be a positive safe integer.');
+  }
 
-  const materialize = (entry: Emitted): unknown => {
-    if (entry.kind === 'value') return entry.value;
-    const cut = utf8SafeSlice(entry.json, entry.startOffset, entry.bytes);
-    return Object.freeze({
-      content: cut.content,
-      utf8_bytes: cut.bytes,
-      offset_bytes: entry.startOffset,
-      next_offset_bytes: entry.startOffset + cut.bytes,
-      total_bytes: utf8ByteLength(entry.json),
-    });
-  };
-  const pageOf = (next: CollectionPosition | null): CollectionPage => ({
+  const emitted: unknown[] = [];
+  const pageOf = (items: readonly unknown[], next: CollectionPosition | null): CollectionPage => ({
     total: input.total,
     position: input.position,
-    returned: emitted.length,
+    returned: items.length,
     next,
-    items: Object.freeze(emitted.map(materialize)),
+    items: Object.freeze([...items]),
   });
-  const fits = (): boolean => utf8ByteLength(settledSuccessBytes(input.render(pageOf(null)))) <= input.cap;
+  const renderPage = (items: readonly unknown[], next: CollectionPosition | null): PackedCollectionData => {
+    const page = pageOf(items, next);
+    const data = input.render(page);
+    if (utf8ByteLength(settledSuccessBytes(data)) > input.cap) throw new DiscoveryBudgetTooSmallError(input.cap);
+    return { data, page };
+  };
+  const fits = (items: readonly unknown[], next: CollectionPosition | null): boolean =>
+    utf8ByteLength(settledSuccessBytes(input.render(pageOf(items, next)))) <= input.cap;
+
+  const invalidPosition = (): never => { throw new DiscoveryCollectionPositionError(); };
 
   if (input.position.item_index >= input.total) {
-    const page = pageOf(null);
-    return { data: input.render(page), page };
+    if (input.position.item_byte_offset !== 0) invalidPosition();
+    return renderPage([], null);
   }
 
+  const windowEnd = Math.min(input.total, input.position.item_index + (input.maxItems ?? input.total));
   let index = input.position.item_index;
   let itemByteOffset = input.position.item_byte_offset;
-  let next: CollectionPosition | null = null;
 
-  while (index < input.total) {
-    if (itemByteOffset === 0) {
-      const value = input.item(index);
-      emitted.push({ kind: 'value', index, value });
-      if (fits()) {
-        index += 1;
-        continue;
-      }
-      emitted.pop();
-      if (emitted.length > 0) {
-        next = { item_index: index, item_byte_offset: 0 };
-        break;
-      }
+  const continuationAfter = (completedIndex: number): CollectionPosition | null =>
+    completedIndex + 1 < input.total ? { item_index: completedIndex + 1, item_byte_offset: 0 } : null;
+  const sliceOf = (bytes: Buffer, start: number, end: number): JsonSlice => Object.freeze({
+    content_hex: bytes.subarray(start, end).toString('hex'),
+    utf8_bytes: end - start,
+    offset_bytes: start,
+    next_offset_bytes: end,
+    total_bytes: bytes.length,
+  });
+  const boundaryAtOrBefore = (bytes: Buffer, start: number, requestedEnd: number): number => {
+    let end = requestedEnd;
+    while (end > start && end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end -= 1;
+    return end;
+  };
+
+  while (index < windowEnd) {
+    const value = input.item(index);
+    const itemBytes = Buffer.from(canonicalJson(projectDynamicForOutbound(value)), 'utf8');
+    if (itemByteOffset !== 0 && (
+      itemByteOffset < 0
+      || itemByteOffset >= itemBytes.length
+      || (itemBytes[itemByteOffset]! & 0xc0) === 0x80
+    )) invalidPosition();
+
+    const completedNext = continuationAfter(index);
+    if (itemByteOffset === 0 && fits([...emitted, value], completedNext)) {
+      emitted.push(value);
+      index += 1;
+      if (index === windowEnd) return renderPage(emitted, index < input.total ? { item_index: index, item_byte_offset: 0 } : null);
+      continue;
     }
-    const itemJson = canonicalJson(input.item(index));
-    const itemTotalBytes = utf8ByteLength(itemJson);
-    if (itemByteOffset >= itemTotalBytes) {
+    if (itemByteOffset === 0 && emitted.length > 0) {
+      return renderPage(emitted, { item_index: index, item_byte_offset: 0 });
+    }
+
+    const completeSlice = sliceOf(itemBytes, itemByteOffset, itemBytes.length);
+    if (fits([...emitted, completeSlice], completedNext)) {
+      emitted.push(completeSlice);
       index += 1;
       itemByteOffset = 0;
+      if (index === windowEnd) return renderPage(emitted, index < input.total ? { item_index: index, item_byte_offset: 0 } : null);
       continue;
     }
-    const fitsSlice = (bytes: number): boolean => {
-      emitted.push({ kind: 'slice', index, json: itemJson, startOffset: itemByteOffset, bytes });
-      const ok = fits();
-      emitted.pop();
-      return ok;
-    };
-    if (!fitsSlice(0)) {
-      if (emitted.length === 0) throw new DiscoveryBudgetTooSmallError(input.cap);
-      next = { item_index: index, item_byte_offset: itemByteOffset };
-      break;
+
+    let firstEnd = itemByteOffset + 1;
+    while (firstEnd < itemBytes.length && (itemBytes[firstEnd]! & 0xc0) === 0x80) firstEnd += 1;
+    if (firstEnd >= itemBytes.length) throw new DiscoveryBudgetTooSmallError(input.cap);
+    const firstSlice = sliceOf(itemBytes, itemByteOffset, firstEnd);
+    if (!fits([...emitted, firstSlice], { item_index: index, item_byte_offset: firstEnd })) {
+      throw new DiscoveryBudgetTooSmallError(input.cap);
     }
-    let low = 0;
-    let high = itemTotalBytes - itemByteOffset;
+
+    let low = firstEnd;
+    let high = itemBytes.length - 1;
     while (low < high) {
-      const mid = low + Math.ceil((high - low) / 2);
-      if (fitsSlice(mid)) low = mid;
-      else high = mid - 1;
+      const requestedEnd = low + Math.ceil((high - low) / 2);
+      const end = boundaryAtOrBefore(itemBytes, itemByteOffset, requestedEnd);
+      const candidate = sliceOf(itemBytes, itemByteOffset, end);
+      if (fits([...emitted, candidate], { item_index: index, item_byte_offset: end })) low = requestedEnd;
+      else high = requestedEnd - 1;
     }
-    if (low === 0) {
-      if (emitted.length === 0) throw new DiscoveryBudgetTooSmallError(input.cap);
-      next = { item_index: index, item_byte_offset: itemByteOffset };
-      break;
-    }
-    const entry: Emitted = { kind: 'slice', index, json: itemJson, startOffset: itemByteOffset, bytes: low };
-    emitted.push(entry);
-    const cut = utf8SafeSlice(itemJson, itemByteOffset, low);
-    if (itemByteOffset + cut.bytes < itemTotalBytes) {
-      next = { item_index: index, item_byte_offset: itemByteOffset + cut.bytes };
-      break;
-    }
-    index += 1;
-    itemByteOffset = 0;
+    const end = boundaryAtOrBefore(itemBytes, itemByteOffset, low);
+    emitted.push(sliceOf(itemBytes, itemByteOffset, end));
+    return renderPage(emitted, { item_index: index, item_byte_offset: end });
   }
 
-  while (utf8ByteLength(settledSuccessBytes(input.render(pageOf(next)))) > input.cap) {
-    const last = emitted.at(-1);
-    if (!last) throw new DiscoveryBudgetTooSmallError(input.cap);
-    const overflow = utf8ByteLength(settledSuccessBytes(input.render(pageOf(next)))) - input.cap;
-    if (last.kind === 'value') {
-      emitted.pop();
-      next = { item_index: last.index, item_byte_offset: 0 };
-      continue;
-    }
-    const shrunk = last.bytes - Math.max(1, overflow);
-    emitted.pop();
-    if (shrunk <= 0) {
-      next = { item_index: last.index, item_byte_offset: last.startOffset };
-      continue;
-    }
-    const shrunkCut = utf8SafeSlice(last.json, last.startOffset, shrunk);
-    emitted.push({ kind: 'slice', index: last.index, json: last.json, startOffset: last.startOffset, bytes: shrunk });
-    if (last.startOffset + shrunkCut.bytes < utf8ByteLength(last.json))
-      next = { item_index: last.index, item_byte_offset: last.startOffset + shrunkCut.bytes };
-  }
-
-  const page = pageOf(next);
-  return { data: input.render(page), page };
+  throw new Error('Collection packer reached an impossible nonterminal state.');
 }

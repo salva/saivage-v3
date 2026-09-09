@@ -2,7 +2,10 @@ import { describe, expect, it } from '@jest/globals';
 
 import { validateConversation } from '../../src/contracts/conversation-validation.js';
 import { accumulatedSummarySha256, agentMessageSchema, compactedHistorySchema, coveredSourceGroupsSha256, type AgentMessage, type CompactedHistory } from '../../src/schemas/index.js';
-import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
+import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
+import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
+import { providerConversationProjection } from '../../src/runtime/actors/conversation-session.js';
+import { selectLlmProtocolAdapter } from '../../src/agents/llm-protocol-adapter.js';
 
 const SESSION = 'agent:planner:project' as const;
 describe('canonical conversation validation', () => {
@@ -43,6 +46,39 @@ describe('canonical conversation validation', () => {
     expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: { sourceMessageId: `${INPUT}:other`, activationInputId: INPUT }, latestContentPolicyRefusal: null } }))).toThrow(/activation-derived recovery identity/);
     expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: null, latestContentPolicyRefusal: { markerId: 'not-a-uuid', activationInputId: INPUT } } }))).toThrow();
     expect(() => compactedHistorySchema.parse(validHistory({ requiredModelFactsOverride: { latestRecovery: null, latestContentPolicyRefusal: null }, dispositionsOverride: { sha256: 'a'.repeat(64), count: 5, summarized: 2, evidenceOnly: 2, superseded: 2 } }))).toThrow(/sum of its kinds/);
+  });
+
+  it('admits historical search arguments and opaque old-array, plaintext-slice, and hex-slice results unchanged', () => {
+    for (const [index, fixture] of historicalOpaqueToolResults.filter(({ toolName }) => toolName === 'glob' || toolName === 'grep').entries()) {
+      const inputId = `00000000-0000-4000-8000-${String(index + 100).padStart(12, '0')}`;
+      const callId = `search-${index}`;
+      const argumentsValue = fixture.toolName === 'glob'
+        ? { directory: '.', pattern: '**/*', max_results: 0 }
+        : { path: '.', pattern: 'needle', max_results: 0 };
+      const content = JSON.stringify(fixture.result);
+      const policies = toolRowPolicies({ content });
+      const rows: AgentMessage[] = [
+        activation(`activation-${index}`, inputId),
+        { id: `${inputId}:tool-call:${callId}`, session_id: SESSION, role: 'assistant', kind: 'tool_call', tool: fixture.toolName, tool_call_id: callId, context_policy: policies.call, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: fixture.toolName, arguments: JSON.stringify(argumentsValue) } }] }), round_id: `r-assistant-${String(index).padStart(32, '0')}`, message_index: 1, block_index: 0, timestamp: '2026-09-09T00:00:01.000Z' },
+        { id: `${inputId}:tool-result:${callId}`, session_id: SESSION, role: 'tool', kind: 'tool_result', tool: fixture.toolName, tool_call_id: callId, context_policy: policies.result, content, round_id: `r-assistant-${String(index).padStart(32, '0')}`, message_index: 2, block_index: 0, timestamp: '2026-09-09T00:00:02.000Z' },
+      ];
+      const validated = validateConversation(SESSION, rows);
+      expect(validated.physicalRows[2]!.content).toBe(content);
+      expect(JSON.parse(validated.physicalRows[1]!.content).tool_calls[0].function.arguments).toBe(JSON.stringify(argumentsValue));
+      const providerConversation = providerConversationProjection(validated, []);
+      const request = selectLlmProtocolAdapter('openai-chat-completions').buildRequestBody({
+        candidate: { provider: 'openai', model: 'fixture', account: null },
+        systemPrompt: 'system',
+        providerConversation,
+        options: { inputId, contract_id: 'test.v1', contractName: 'test', tools: [], tool_choice: 'auto', terminalToolOffered: [], temperature: 0, max_tokens: 10 },
+        capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native', quirks: [] },
+      });
+      const providerResult = (request.messages as Array<{ role: string; content: string; tool_call_id?: string }>).find((message) => message.role === 'tool');
+      expect(providerResult?.tool_call_id).toBe(callId);
+      expect(JSON.parse(providerResult!.content as string)).toEqual(JSON.parse(providerConversation.messages.find((message) => message.kind === 'tool_result')!.content));
+      const sourceHex = content.match(/"content_hex":"([0-9a-f]+)"/u)?.[1];
+      expect((providerResult!.content as string).match(/"content_hex":"([0-9a-f]+)"/u)?.[1]).toBe(sourceHex);
+    }
   });
 });
 

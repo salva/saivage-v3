@@ -137,6 +137,29 @@ describe('static tool presenter authority', () => {
     expect(inlineText(bare.headline)).toBe('result unavailable');
   });
 
+  it.each(['glob', 'grep'] as const)('uses one fixed successful %s headline while preserving opaque raw bodies', (tool) => {
+    const call = presentToolCall(callEnvelope(tool, tool === 'glob' ? { directory: 'project:///src', pattern: '**/*.ts' } : { pattern: 'needle', path: 'project:///src' }));
+    expect(TOOL_PRESENTERS[tool].group).toBe('context');
+    expect(inlineText(call.headline)).toContain(tool === 'glob' ? 'project:///src' : 'needle');
+
+    const bodies = [
+      { success: true, data: { matches: { total: 0, position: { item_index: 0, item_byte_offset: 0 }, returned: 0, next: null, items: [] } } },
+      { success: true, data: { matches: { total: 2, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: { item_index: 1, item_byte_offset: 0 }, items: ['first'] } } },
+      { success: true, data: { matches: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [{ content_hex: '2278', utf8_bytes: 2, offset_bytes: 0, next_offset_bytes: 2, total_bytes: 2 }] } } },
+      { success: true, data: { matches: ['historical-a', 'historical-b'], truncated: true } },
+    ];
+    for (const body of bodies) {
+      const view = presentToolResult(JSON.stringify(body), { tool });
+      expect(inlineText(view.headline)).toBe(`${tool} completed`);
+      expect(view.body).toEqual(body);
+      expect(inlineText(view.headline)).not.toMatch(/\d+ match/u);
+    }
+
+    const failure = presentToolResult(JSON.stringify({ success: false, error: 'search failed' }), { tool });
+    expect(failure.status).toBe('error');
+    expect(inlineText(failure.headline)).toBe('search failed');
+  });
+
   it('uses exact current process, card, and terminal result payloads', () => {
     const process = { process_id: 'proc-a', exit_code: 0, status: 'exited', stdout_url: 'work:///processes/proc-a/stdout.log', stderr_url: 'work:///processes/proc-a/stderr.log', stdout_bytes: 10, stderr_bytes: 0 };
     for (const tool of ['run_command', 'wait_process'] as const) {

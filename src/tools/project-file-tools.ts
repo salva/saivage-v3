@@ -2,17 +2,19 @@ import * as childProcess from 'node:child_process';
 import { closeSync, createReadStream, lstatSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import type { z } from 'zod';
 
 import type { AgentName } from '../schemas/index.js';
 import { isBinarySample } from './analyst-tool-helpers.js';
 import { redactTextForOutbound } from '../redaction/index.js';
-import { assertRecordWrite, displayPathForResolved, globScopedPath, globToRegExp, hasParentPathSegment, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, walkFiles, type VfsResolved } from '../workspace/index.js';
+import { assertRecordWrite, displayPathForResolved, globToRegExp, hasParentPathSegment, isHiddenPath, isWriteBlocked, listScopedPath, listVisibleDirectoryEntries, looksLikeSecretPath, parseScopedPathScheme, resolveContainedProjectPath, resolveRecordWriteTarget, resolveScopedPath, scopedReadFilterRel, visitFiles, visitScopedFiles, type VfsResolved } from '../workspace/index.js';
 import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
 import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import { mutateRecord } from '../application/record-mutation-service.js';
 import { buildScopedPathUrl, parseScopedPathUrl } from '../contracts/scoped-path-url.js';
 import { ToolArgumentValidationError } from './invocation.js';
+import { globWorkspaceInputSchema, grepWorkspaceInputSchema } from '../contracts/builtin-tool-inputs.js';
 import {
   DISCOVERY_RESPONSE_MAX_BYTES,
   packCollectionData,
@@ -25,8 +27,6 @@ import {
 
 const { spawnSync } = childProcess;
 
-const DEFAULT_SEARCH_LIMIT = 200;
-const MAX_SEARCH_LIMIT = 1000;
 export const MAX_READ_FILE_BYTES = 10 * 1024 * 1024;
 const READ_HEAD_SAMPLE_BYTES = 4096;
 export const MAX_GREP_LINE_CHARS = 2000;
@@ -169,10 +169,21 @@ async function directoryEntriesForRead(ctx: WorkspaceContext, raw: string, resol
   return listVisibleDirectoryEntries(ctx, resolved);
 }
 
-function parseNonNegativeInt(value: unknown, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
-  if (value === undefined) return fallback;
-  if (!Number.isInteger(value) || Number(value) < 0) throw toolInputError('Expected a non-negative integer.');
-  return Math.min(Number(value), max);
+type GlobProjectParams = z.input<typeof globWorkspaceInputSchema>;
+type GrepProjectParams = z.input<typeof grepWorkspaceInputSchema>;
+type GrepMatch = { path: string; line: number; preview: string };
+
+function searchWindow<T>(position: CollectionPosition, maxResults: number) {
+  let total = 0;
+  const retained: T[] = [];
+  return {
+    add(item: T): void {
+      if (total >= position.item_index && retained.length < maxResults) retained.push(item);
+      total += 1;
+    },
+    total: (): number => total,
+    item: (globalIndex: number): T => retained[globalIndex - position.item_index]!,
+  };
 }
 
 function patchPaths(patch: string): string[] {
@@ -339,30 +350,37 @@ export function authorizeWriteProject(ctx: WorkspaceContext, params: { path: str
   resolveWritePath(ctx, params.path);
 }
 
-export async function globProject(ctx: WorkspaceContext, params: { directory: string; pattern: string; max_results?: number }): Promise<unknown> {
+export async function globProject(ctx: WorkspaceContext, params: GlobProjectParams): Promise<unknown> {
+  const position = params.position ?? { item_index: 0, item_byte_offset: 0 };
+  const maxResults = params.max_results ?? 200;
+  const cap = params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES;
   const scoped = resolveScopedPath(vfsCtx(ctx), params.directory, 'search');
-  const limit = parseNonNegativeInt(params.max_results, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
-  if (scoped !== null) {
-    const result = await globScopedPath(vfsCtx(ctx), params.directory, params.pattern, limit);
-    return { directory: displayPathForResolved(ctx.projectRoot, scoped), pattern: params.pattern, matches: result.matches, truncated: result.truncated };
-  }
-  const resolved = { kind: 'project' as const, ...assertReadable(ctx.projectRoot, params.directory), isRoot: false };
-  const { absolutePath, relativePath } = resolved;
-  const st = statSync(absolutePath);
   const pattern = globToRegExp(params.pattern);
-  const matches: string[] = [];
-  const consider = (abs: string, rel: string): boolean | void => {
-    const within = abs === absolutePath ? relativePath : abs.slice((relativePath === '.' ? ctx.projectRoot : absolutePath).length + 1).replace(/\\/g, '/');
-    if (pattern.test(within) || pattern.test(rel)) matches.push(rel);
-    if (matches.length >= limit) return false;
-  };
-  if (st.isFile()) consider(absolutePath, relativePath);
-  else walkFiles(ctx.projectRoot, absolutePath, consider, { includeHidden: false });
-  return { directory: relativePath, pattern: params.pattern, matches, truncated: matches.length >= limit };
+  const window = searchWindow<string>(position, maxResults);
+  if (scoped !== null) {
+    await visitScopedFiles(vfsCtx(ctx), params.directory, async (entry) => {
+      if (pattern.test(entry.matchPath) || pattern.test(entry.displayPath)) window.add(entry.displayPath);
+    });
+  } else {
+    const resolved = { kind: 'project' as const, ...assertReadable(ctx.projectRoot, params.directory), isRoot: false };
+    const { absolutePath, relativePath } = resolved;
+    const consider = (abs: string, rel: string): void => {
+      const within = abs === absolutePath ? relativePath : relative(absolutePath, abs).replace(/\\/g, '/');
+      if (pattern.test(within) || pattern.test(rel)) window.add(rel);
+    };
+    const st = statSync(absolutePath);
+    if (st.isFile()) consider(absolutePath, relativePath);
+    else await visitFiles(ctx.projectRoot, absolutePath, async (abs, rel) => { consider(abs, rel); }, { includeHidden: false });
+  }
+  const total = window.total();
+  return packCollectionData({ cap, total, position, maxItems: maxResults, item: window.item, render: (matches: CollectionPage) => ({ matches }) }).data;
 }
 
-export async function grepProject(ctx: WorkspaceContext, params: { pattern: string; path?: string; include?: string; max_results?: number }): Promise<unknown> {
+export async function grepProject(ctx: WorkspaceContext, params: GrepProjectParams): Promise<unknown> {
   const raw = params.path ?? '.';
+  const position = params.position ?? { item_index: 0, item_byte_offset: 0 };
+  const maxResults = params.max_results ?? 200;
+  const cap = params.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES;
   const scoped = resolveScopedPath(vfsCtx(ctx), raw, 'search');
   let regex: RegExp;
   try {
@@ -371,70 +389,62 @@ export async function grepProject(ctx: WorkspaceContext, params: { pattern: stri
     throw toolInputError(error instanceof Error ? error.message : String(error));
   }
   const include = params.include ? globToRegExp(params.include) : null;
-  const limit = parseNonNegativeInt(params.max_results, DEFAULT_SEARCH_LIMIT, MAX_SEARCH_LIMIT);
-  const matches: Array<{ path: string; line: number; preview: string }> = [];
+  const window = searchWindow<GrepMatch>(position, maxResults);
   let contentTruncated = false;
-
-  const result = () => ({
-    pattern: params.pattern,
-    matches,
-    truncated: matches.length >= limit || contentTruncated,
-    ...(contentTruncated ? { content_truncated: true, max_line_chars: MAX_GREP_LINE_CHARS } : {}),
-  });
-
-  if (limit === 0) return result();
+  const onMatch = (match: GrepMatch): void => window.add(match);
 
   if (scoped !== null) {
     const redact = scoped.kind === 'work';
     await visitScopedFiles(vfsCtx(ctx), raw, async (entry) => {
-      if (matches.length >= limit) return false;
       const outcome = entry.content === undefined
-        ? await scanFile(entry.absolutePath!, entry.displayPath, regex, include, redact, limit, matches)
-        : scanRecordText(entry.content, entry.displayPath, regex, include, limit, matches);
+        ? await scanFile(entry.absolutePath!, entry.displayPath, regex, include, redact, onMatch)
+        : scanRecordText(entry.content, entry.displayPath, regex, include, onMatch);
       contentTruncated ||= outcome.contentTruncated;
-      return outcome.stop ? false : undefined;
     });
-    return result();
-  }
-
-  const target = { kind: 'project' as const, ...assertReadable(ctx.projectRoot, raw), isRoot: false };
-  const st = statSync(target.absolutePath);
-  if (st.isFile()) {
-    const outcome = await scanFile(target.absolutePath, displayPathForResolved(ctx.projectRoot, target), regex, include, false, limit, matches);
-    contentTruncated = outcome.contentTruncated;
   } else {
-    await visitFiles(ctx.projectRoot, target.absolutePath, async (abs, rel) => {
-      if (matches.length >= limit) return false;
-      const outcome = await scanFile(abs, rel, regex, include, false, limit, matches);
-      contentTruncated ||= outcome.contentTruncated;
-      return outcome.stop ? false : undefined;
-    }, { includeHidden: false });
+    const target = { kind: 'project' as const, ...assertReadable(ctx.projectRoot, raw), isRoot: false };
+    const st = statSync(target.absolutePath);
+    if (st.isFile()) {
+      const outcome = await scanFile(target.absolutePath, displayPathForResolved(ctx.projectRoot, target), regex, include, false, onMatch);
+      contentTruncated = outcome.contentTruncated;
+    } else {
+      await visitFiles(ctx.projectRoot, target.absolutePath, async (abs, rel) => {
+        const outcome = await scanFile(abs, rel, regex, include, false, onMatch);
+        contentTruncated ||= outcome.contentTruncated;
+      }, { includeHidden: false });
+    }
   }
-  return result();
+  const total = window.total();
+  return packCollectionData({
+    cap,
+    total,
+    position,
+    maxItems: maxResults,
+    item: window.item,
+    render: (matches: CollectionPage) => ({ matches, content_truncated: contentTruncated, max_line_chars: MAX_GREP_LINE_CHARS }),
+  }).data;
 }
 
 interface GrepScanOutcome {
-  stop: boolean;
   contentTruncated: boolean;
 }
 
-function scanRecordText(content: string, displayPath: string, regex: RegExp, include: RegExp | null, limit: number, matches: Array<{ path: string; line: number; preview: string }>): GrepScanOutcome {
-  if (include) { include.lastIndex = 0; if (!include.test(displayPath)) return { stop: false, contentTruncated: false }; }
+function scanRecordText(content: string, displayPath: string, regex: RegExp, include: RegExp | null, onMatch: (match: GrepMatch) => void): GrepScanOutcome {
+  if (include) { include.lastIndex = 0; if (!include.test(displayPath)) return { contentTruncated: false }; }
   let contentTruncated = false;
   for (const [index, rawLine] of content.split(/\r?\n/).entries()) {
     const line = rawLine.slice(0, MAX_GREP_LINE_CHARS);
     contentTruncated ||= line.length !== rawLine.length;
     regex.lastIndex = 0;
-    if (regex.test(line)) matches.push({ path: displayPath, line: index + 1, preview: line.slice(0, 500) });
-    if (matches.length >= limit) return { stop: true, contentTruncated };
+    if (regex.test(line)) onMatch({ path: displayPath, line: index + 1, preview: line.slice(0, 500) });
   }
-  return { stop: false, contentTruncated };
+  return { contentTruncated };
 }
 
-async function scanFile(absolutePath: string, displayPath: string, regex: RegExp, include: RegExp | null, redact: boolean, limit: number, matches: Array<{ path: string; line: number; preview: string }>): Promise<GrepScanOutcome> {
+async function scanFile(absolutePath: string, displayPath: string, regex: RegExp, include: RegExp | null, redact: boolean, onMatch: (match: GrepMatch) => void): Promise<GrepScanOutcome> {
   if (include) {
     include.lastIndex = 0;
-    if (!include.test(displayPath)) return { stop: false, contentTruncated: false };
+    if (!include.test(displayPath)) return { contentTruncated: false };
   }
 
   const stream = createReadStream(absolutePath, { highWaterMark: GREP_STREAM_CHUNK_BYTES });
@@ -447,7 +457,6 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
   let lineNumber = 1;
   let contentTruncated = false;
   let pendingCarriageReturn = false;
-  let stop = false;
 
   const append = (char: string) => {
     if (lineChars < MAX_GREP_LINE_CHARS) {
@@ -462,9 +471,8 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
     regex.lastIndex = 0;
     if (regex.test(linePrefix)) {
       const preview = linePrefix.slice(0, 500);
-      matches.push({ path: displayPath, line: lineNumber, preview: redact ? redactTextForOutbound(preview) : preview });
+      onMatch({ path: displayPath, line: lineNumber, preview: redact ? redactTextForOutbound(preview) : preview });
     }
-    if (matches.length >= limit) stop = true;
     linePrefix = '';
     lineChars = 0;
     lineNumber += 1;
@@ -475,7 +483,6 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
       if (char === '\n') {
         pendingCarriageReturn = false;
         finishLine();
-        if (stop) return;
         continue;
       }
       if (pendingCarriageReturn) append('\r');
@@ -494,29 +501,24 @@ async function scanFile(absolutePath: string, displayPath: string, regex: RegExp
         const initial = Buffer.concat(initialChunks, initialBytes);
         if (isBinarySample(initial.subarray(0, GREP_HEAD_SAMPLE_BYTES))) {
           stream.destroy();
-          return { stop: false, contentTruncated: false };
+          return { contentTruncated: false };
         }
         classified = true;
         consumeText(decoder.write(initial));
       } else {
         consumeText(decoder.write(chunk));
       }
-      if (stop) {
-        stream.destroy();
-        return { stop: true, contentTruncated };
-      }
     }
 
     if (!classified) {
       const initial = Buffer.concat(initialChunks, initialBytes);
-      if (isBinarySample(initial)) return { stop: false, contentTruncated: false };
+      if (isBinarySample(initial)) return { contentTruncated: false };
       consumeText(decoder.write(initial));
     }
     consumeText(decoder.end());
-    if (stop) return { stop: true, contentTruncated };
     if (pendingCarriageReturn) append('\r');
     finishLine();
-    return { stop, contentTruncated };
+    return { contentTruncated };
   } catch (error) {
     stream.destroy();
     throw error;

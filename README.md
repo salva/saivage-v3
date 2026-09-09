@@ -44,6 +44,10 @@ for capacity, 16-call, and failure limits; these bounds are not latency or
 summary-quality guarantees.
 Selected Agents and Debug conversation detail can show ephemeral completed-call,
 in-flight, and elapsed compaction progress without polling or durable state.
+Current `glob` and `grep` results are also packed into exact byte-bounded,
+stateless collection pages; this removes one context amplifier but is not a
+guarantee that accumulated conversations will never require compaction. See the
+[search result contract](docs/spec/system-specification.md#10-prepared-invocation-exact-admission-and-compaction).
 
 Open the UI at `http://localhost:8080/`, or check the public probes:
 

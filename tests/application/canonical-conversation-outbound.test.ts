@@ -7,6 +7,8 @@ import type {
 } from '../../src/contracts/tool-invocation-projection.js';
 import type { AgentMessage, ConversationSessionId } from '../../src/schemas/index.js';
 import { TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
+import { projectToolInvocation } from '../../src/tools/tool-invocation-outbound.js';
+import { historicalOpaqueToolResults } from '../fixtures/historical-opaque-tool-results.js';
 
 const timestamp = '2026-07-22T10:00:00.000Z';
 const source = '11111111-1111-4111-8111-111111111111';
@@ -89,6 +91,24 @@ describe('canonical conversation outbound row projection', () => {
       error: 'failed [REDACTED]',
       data: { historical_wrapper: ['unchanged'] },
     });
+  });
+
+  it('projects historical search arrays, plaintext JsonSlice, and current hex JsonSlice opaquely without mutating stored bytes', () => {
+    for (const fixture of historicalOpaqueToolResults.filter(({ toolName }) => toolName === 'glob' || toolName === 'grep')) {
+      const content = JSON.stringify(fixture.result);
+      const row = resultFor(fixture.toolName, content);
+      const storedPolicy = structuredClone(row.context_policy);
+      const projected = projectCanonicalConversationRow(row, projectToolInvocation);
+      const body = JSON.parse(projected.content);
+      expect(row.content).toBe(content);
+      expect(row.context_policy).toEqual(storedPolicy);
+      expect(JSON.stringify(body)).not.toContain('historical-secret');
+      const originalHex = content.match(/"content_hex":"([0-9a-f]+)"/u)?.[1];
+      const projectedHex = projected.content.match(/"content_hex":"([0-9a-f]+)"/u)?.[1];
+      expect(projectedHex).toBe(originalHex);
+      if (content.includes('"content"')) expect(projected.content).toContain('"content"');
+      if (content.includes('"matches":[')) expect(Array.isArray(body.data.matches)).toBe(true);
+    }
   });
 
   it('fails malformed row content, embedded identity mismatch, and projector identity changes', () => {
@@ -186,6 +206,17 @@ function result(): AgentMessage {
     message_index: 1,
     block_index: 0,
     timestamp,
+  };
+}
+
+function resultFor(tool: string, content: string): AgentMessage {
+  const policies = toolRowPolicies({ content });
+  return {
+    ...result(),
+    id: `${source}:tool-result:call-a`,
+    tool,
+    content,
+    context_policy: policies.result,
   };
 }
 
