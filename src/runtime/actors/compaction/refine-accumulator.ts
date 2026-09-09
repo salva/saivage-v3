@@ -85,6 +85,7 @@ export function createSequentialRefineAccumulator(args: {
     get materializedThrough() { return materializedThrough; },
     get invocationCount() { return invocationCount; },
     async materializeThrough(cutoffCount: number): Promise<string> {
+      args.signal.throwIfAborted();
       if (!Number.isInteger(cutoffCount) || cutoffCount <= materializedThrough || cutoffCount > args.conversation.sourceRows.length)
         throw new Error(`Sequential refine cutoff must be an integer greater than ${materializedThrough} and no greater than ${args.conversation.sourceRows.length}; received ${cutoffCount}.`);
 
@@ -114,6 +115,8 @@ export function createSequentialRefineAccumulator(args: {
         args.progress.foldStarted();
         nextSummary = await invokeSummaryRequest({ input: group.input, admitted: group.serialization, summarizerProvider: args.summarizerProvider, signal: args.signal });
         args.progress.foldCompleted();
+        // The next iterator step probes ranges before yielding.
+        args.signal.throwIfAborted();
       }
 
       accumulatedSummary = nextSummary;

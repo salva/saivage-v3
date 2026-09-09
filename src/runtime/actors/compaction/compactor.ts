@@ -153,6 +153,7 @@ type Candidate = {
 };
 
 export async function compact(args: CompactArgs): Promise<CompactionResult> {
+  args.signal.throwIfAborted();
   const projectRoot = args.conversations.projectRoot;
   const sessionId = args.input.sessionId;
   const budget = args.input.preparedCompaction;

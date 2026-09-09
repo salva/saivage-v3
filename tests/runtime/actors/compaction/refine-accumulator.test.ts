@@ -118,13 +118,133 @@ describe('sequential contextual refine accumulator', () => {
     expect(completeTurn).not.toHaveBeenCalled();
   });
 
-  it('advances structural-only coverage without a provider call or sentinel input', async () => {
+  it('rejects an already-aborted advance before a would-be minimum-range capacity failure or any effect', async () => {
+    const reason = new Error('cancel before materialization');
+    const controller = new AbortController();
+    controller.abort(reason);
+    const serializeSummaryRequest = jest.fn((input: SummaryInput) => serialization(input, 10_000));
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unexpected' }, provider_exchanges: [] }));
+    const projectProviderExchanges = jest.fn();
+    const foldStarted = jest.fn();
+    const foldCompleted = jest.fn();
+    const rows = [activation(), text('source', 'valid nonempty source')];
+    const accumulator = createAccumulatorWithoutProgress({
+      conversation: validateConversation(SESSION, rows),
+      inheritedHistory: null,
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+      budget: BUDGET,
+      signal: controller.signal,
+      progress: { foldStarted, foldCompleted },
+    });
+
+    await expect(accumulator.materializeThrough(rows.length)).rejects.toBe(reason);
+    expect(serializeSummaryRequest).not.toHaveBeenCalled();
+    expect(completeTurn).not.toHaveBeenCalled();
+    expect(projectProviderExchanges).not.toHaveBeenCalled();
+    expect(foldStarted).not.toHaveBeenCalled();
+    expect(foldCompleted).not.toHaveBeenCalled();
+    expect(accumulator.materializedThrough).toBe(0);
+    expect(accumulator.invocationCount).toBe(0);
+  });
+
+  it('does not resume packing after the first completed fold callback aborts', async () => {
+    const reason = new Error('cancel from fold completion');
+    const controller = new AbortController();
+    let capacityFailureEnabled = false;
+    const serializeSummaryRequest = jest.fn((input: SummaryInput) => serialization(
+      input,
+      capacityFailureEnabled || sourceByteCount(input) > 1 ? 10_000 : 1,
+    ));
+    const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'first summary' }, provider_exchanges: [] }));
+    const projectProviderExchanges = jest.fn();
+    const foldStarted = jest.fn();
+    let serializationCountAtAbort = -1;
+    const foldCompleted = jest.fn(() => {
+      capacityFailureEnabled = true;
+      serializationCountAtAbort = serializeSummaryRequest.mock.calls.length;
+      controller.abort(reason);
+    });
+    const rows = [activation(), text('source', 'ab')];
+    const accumulator = createAccumulatorWithoutProgress({
+      conversation: validateConversation(SESSION, rows),
+      inheritedHistory: null,
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+      budget: BUDGET,
+      signal: controller.signal,
+      progress: { foldStarted, foldCompleted },
+    });
+
+    await expect(accumulator.materializeThrough(rows.length)).rejects.toBe(reason);
+    expect(foldStarted).toHaveBeenCalledTimes(1);
+    expect(foldCompleted).toHaveBeenCalledTimes(1);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    expect(projectProviderExchanges).toHaveBeenCalledTimes(1);
+    expect(serializationCountAtAbort).toBeGreaterThan(0);
+    expect(serializeSummaryRequest).toHaveBeenCalledTimes(serializationCountAtAbort);
+    expect(accumulator.materializedThrough).toBe(0);
+    expect(accumulator.invocationCount).toBe(1);
+  });
+
+  it('uses the existing post-await summarizer fence when a cancelled pending provider settles successfully', async () => {
+    const reason = new Error('cancel while provider is pending');
+    const controller = new AbortController();
+    const serializeSummaryRequest = jest.fn((input: SummaryInput) => serialization(input, sourceByteCount(input) > 1 ? 10_000 : 1));
+    let settleProvider!: () => void;
+    const completeTurn = jest.fn(() => new Promise<Awaited<ReturnType<SummarizerProviderPort['completeTurn']>>>((resolve) => {
+      settleProvider = () => resolve({ result: { kind: 'message' as const, content: 'settled summary' }, provider_exchanges: [] });
+    }));
+    const projectProviderExchanges = jest.fn();
+    const foldStarted = jest.fn();
+    const foldCompleted = jest.fn();
+    const rows = [activation(), text('source', 'ab')];
+    const accumulator = createAccumulatorWithoutProgress({
+      conversation: validateConversation(SESSION, rows),
+      inheritedHistory: null,
+      preparedBlocks: [],
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+      budget: BUDGET,
+      signal: controller.signal,
+      progress: { foldStarted, foldCompleted },
+    });
+
+    const pending = accumulator.materializeThrough(rows.length);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    const serializationCountAtAbort = serializeSummaryRequest.mock.calls.length;
+    controller.abort(reason);
+    settleProvider();
+
+    await expect(pending).rejects.toBe(reason);
+    expect(foldStarted).toHaveBeenCalledTimes(1);
+    expect(foldCompleted).not.toHaveBeenCalled();
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    expect(projectProviderExchanges).toHaveBeenCalledTimes(1);
+    expect(serializeSummaryRequest).toHaveBeenCalledTimes(serializationCountAtAbort);
+    expect(accumulator.materializedThrough).toBe(0);
+    expect(accumulator.invocationCount).toBe(1);
+  });
+
+  it('advances structural-only coverage with zero count without retaining the coverage sentinel', async () => {
+    const completedInputs: SummaryInput[] = [];
+    const completeTurn = jest.fn(async (input: SummaryInput) => {
+      completedInputs.push(input);
+      return { result: { kind: 'message' as const, content: 'genuine summary' }, provider_exchanges: [] };
+    });
     const provider = recordingProvider({ contextWindowTokens: 10_000, completeTurn });
-    const rows = [activation()];
+    const rows = [activation(), text('source', 'later source')];
     const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
     await expect(accumulator.materializeThrough(1)).resolves.toBe(EMPTY_COVERAGE_SUMMARY);
+    expect(accumulator.materializedThrough).toBe(1);
+    expect(accumulator.invocationCount).toBe(0);
     expect(completeTurn).not.toHaveBeenCalled();
+    await expect(accumulator.materializeThrough(2)).resolves.toBe('genuine summary');
+    expect(accumulator.materializedThrough).toBe(2);
+    expect(accumulator.invocationCount).toBe(1);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+    const completedInput = completedInputs[0];
+    if (!completedInput) throw new Error('Expected one completed summary input.');
+    expect(completedInput.providerConversation.messages.some((message) => message.content.includes(EMPTY_COVERAGE_SUMMARY))).toBe(false);
   });
 });
 

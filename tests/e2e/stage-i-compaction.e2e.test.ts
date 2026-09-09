@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, jest } from '@jest/globals';
@@ -15,6 +15,7 @@ import { initProjectTree } from '../helpers/canonical-project.js';
 import { deterministicSummarySerialization } from '../helpers/summary-serialization.js';
 import { noCompactionProgress } from '../helpers/executing-llm-snapshot.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../helpers/row-policy-fixtures.js';
+import { cardConversationVersionIndexFile } from '../../src/persistence/layout.js';
 
 const config: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' };
 const TEST_CANDIDATE = { provider: 'test', account: null, model: 'test-model' } as const;
@@ -75,6 +76,49 @@ describe('Stage-I versioned compaction', () => {
       expect(current.rows).toEqual([]);
       expect(current.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('message-7');
       expect(readHistoricalConversationSegment(root, SESSION, 1).rows).toHaveLength(14);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it('rejects an already-aborted persisted compaction before oversized summary work or canonical head changes', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-aborted-compaction-')); initProjectTree(root);
+    try {
+      appendRound(root, 1);
+      const before = readCurrentConversationSegment(root, SESSION)!;
+      const indexPath = cardConversationVersionIndexFile(root, 'project', 'planner');
+      const beforeIndexBytes = readFileSync(indexPath);
+      const reason = new Error('cancel persisted compaction before admission');
+      const controller = new AbortController();
+      controller.abort(reason);
+      const serializeSummaryRequest = jest.fn((input: Parameters<typeof deterministicSummarySerialization>[0]) => ({
+        ...deterministicSummarySerialization(input),
+        estimatedInputTokens: 100_000,
+      }));
+      const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'unexpected' }, provider_exchanges: [] }));
+      const projectProviderExchanges = jest.fn();
+      const foldStarted = jest.fn();
+      const foldCompleted = jest.fn();
+
+      await expect(compact({
+        strategy: 'preventive',
+        conversations: { projectRoot: root },
+        input: invocationFor(SESSION, providerConversationProjection(before.conversation, []).messages),
+        summarizerProvider: { candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+        signal: controller.signal,
+        progress: { foldStarted, foldCompleted },
+      })).rejects.toBe(reason);
+
+      expect(serializeSummaryRequest).not.toHaveBeenCalled();
+      expect(completeTurn).not.toHaveBeenCalled();
+      expect(projectProviderExchanges).not.toHaveBeenCalled();
+      expect(foldStarted).not.toHaveBeenCalled();
+      expect(foldCompleted).not.toHaveBeenCalled();
+      expect(readFileSync(indexPath)).toEqual(beforeIndexBytes);
+      const after = readCurrentConversationSegment(root, SESSION)!;
+      expect(after.index).toEqual(before.index);
+      expect(after.entry).toEqual(before.entry);
+      expect(after.genesis).toEqual(before.genesis);
+      expect(after.rows).toEqual(before.rows);
+      expect(after.bytes).toEqual(before.bytes);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });
