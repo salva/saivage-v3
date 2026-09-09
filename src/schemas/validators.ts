@@ -28,7 +28,8 @@ const noteAuthorSchema = z.union([z.literal('user'),z.literal('runtime'),agentNa
 const controlActionSurfaceSchema = z.enum(['web-chat', 'rest', 'cli', 'runtime', 'web-ui']);
 export const cardNotificationSchema: z.ZodType<import('./types.js').CardNotification> = z.object({ id: z.string().min(1), content: z.string().min(1), created_at: z.string().datetime(), source: z.string().min(1).optional() }).strict();
 const cardRecordShape = { id: cardIdSchema, type: cardTypeSchema, child_membership: z.array(cardIdSchema), active_child_order: z.array(cardIdSchema), title: z.string().min(1), lifecycle: cardLifecycleStateSchema, subtype: z.null(), tags: z.array(z.string()), priority: z.number().int(), urgency: urgencySchema, created_by: createdBySchema, created_at: z.string().datetime(), updated_at: z.string().datetime(), version_seq: positiveSafeIntegerSchema, assigned_to: z.null(), depends_on: z.array(cardIdSchema), related: z.array(cardIdSchema), metrics: z.null(), estimate: z.null(), started_at: z.null(), duration_ms: z.null(), status_text: z.string().nullable(), status_text_updated_at: z.string().datetime().nullable(), status_text_author_session_id: z.null(), latest_self_report: z.null(), metadata: z.null(), pending_notifications: z.array(cardNotificationSchema) };
-function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.RefinementCtx): void {
+const { pending_notifications: _pendingNotificationsSchema, ...outboundCardRecordShape } = cardRecordShape;
+function refineCardCommon(card: import('./types.js').OutboundCardRecord, ctx: z.RefinementCtx): void {
   if (card.id === 'project' && card.type !== 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'The project card is the fixed root.', path: ['id'] });
   if (card.id !== 'project' && card.type === 'project') ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Only the fixed project card may have type project.', path: ['type'] });
   for (const field of ['child_membership', 'active_child_order'] as const) {
@@ -37,29 +38,21 @@ function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.Refin
     if (ids.some((id) => cardParentId(id) !== card.id)) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Card ${field} must contain only direct child ids.`, path: [field] });
   }
   if (card.child_membership.length !== card.active_child_order.length || card.child_membership.some((id) => !card.active_child_order.includes(id))) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Card child_membership and active_child_order must contain the same ids.', path: ['active_child_order'] });
+}
+function refineCardLifecycle(card: import('./types.js').CardRecord, ctx: z.RefinementCtx): void {
+  refineCardCommon(card, ctx);
   if (new Set(card.pending_notifications.map((notification) => notification.id)).size !== card.pending_notifications.length) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Notification ids must be unique per card.', path: ['pending_notifications'] });
   if ((card.lifecycle.status === 'done' || card.lifecycle.status === 'failed' || card.lifecycle.status === 'cancelled') && card.pending_notifications.length !== 0) ctx.addIssue({ code: z.ZodIssueCode.custom, message: `Cards in status '${card.lifecycle.status}' require empty pending_notifications.`, path: ['pending_notifications'] });
 }
+export const outboundCardRecordSchema: z.ZodType<import('./types.js').OutboundCardRecord> = z.object(outboundCardRecordShape).strict().superRefine(refineCardCommon);
 export const cardRecordSchema: z.ZodType<import('./types.js').CardRecord> = z.lazy(() => z.object(cardRecordShape).strict().superRefine(refineCardLifecycle));
-const historyCommonShape = { entry_id: z.string().uuid(), card_id: cardIdSchema, version_seq: positiveSafeIntegerSchema, changed_at: z.string().datetime(), change_reason: z.string().nullable(), changed_fields: z.array(z.string()), change_summary: z.string() };
-const historyProvenance = {
-  update: { changed_by_actor: agentNameSchema, changed_by_surface: z.literal('runtime') },
-  delete: { changed_by_actor: agentNameSchema, changed_by_surface: z.literal('runtime') },
-  runtime: { changed_by_actor: z.literal('runtime'), changed_by_surface: z.literal('runtime') },
-} as const;
-const runtimeHistoryKinds = ['notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder'] as const;
-const historyEntryVariants = [
-  z.object({ ...historyCommonShape, kind: z.literal('update'), snapshot: cardRecordSchema, ...historyProvenance.update }).strict(),
-  ...runtimeHistoryKinds.map((kind) => z.object({ ...historyCommonShape, kind: z.literal(kind), snapshot: cardRecordSchema, ...historyProvenance.runtime }).strict()),
-  z.object({ ...historyCommonShape, kind: z.literal('delete'), snapshot: cardRecordSchema, ...historyProvenance.delete }).strict(),
-] as const;
-const historyHeaderVariants = [
-  z.object({ ...historyCommonShape, kind: z.literal('update'), ...historyProvenance.update }).strict(),
-  ...runtimeHistoryKinds.map((kind) => z.object({ ...historyCommonShape, kind: z.literal(kind), ...historyProvenance.runtime }).strict()),
-  z.object({ ...historyCommonShape, kind: z.literal('delete'), ...historyProvenance.delete }).strict(),
-] as const;
-export const cardHistoryHeaderSchema: z.ZodType<import('./types.js').CardHistoryHeader> = z.discriminatedUnion('kind', historyHeaderVariants);
-export const cardHistoryEntrySchema: z.ZodType<import('./types.js').CardHistoryEntry> = z.discriminatedUnion('kind', historyEntryVariants);
+export const cardViewSchema: z.ZodType<import('./types.js').CardView> = z.object({
+  card: outboundCardRecordSchema,
+  logical_path: z.string().nullable(),
+  status: cardStatusSchema,
+  parent: cardIdSchema.nullable(),
+  operator_summary: z.object({ blocked: z.boolean(), hasError: z.boolean(), error: z.string().nullable(), completedAt: z.string().datetime().nullable(), stale: z.boolean() }).strict(),
+}).strict();
 export const controlActionAuditEntrySchema: z.ZodType<import('./types.js').ControlActionAuditEntry> = z.object({ id: z.string().min(1), actor: noteAuthorSchema, surface: controlActionSurfaceSchema, action: z.string().min(1), target_kind: z.enum(['card', 'note', 'process', 'runtime', 'config', 'session']).nullable(), target_id: z.string().nullable(), params_summary: z.string(), safety_class: z.enum(['read_only', 'low', 'high', 'destructive', 'deployment']).optional(), outcome: z.enum(['ok', 'error', 'denied']), outcome_summary: z.string(), error: z.string().optional(), created_at: z.string().datetime() }).strict();
 export const projectConfigSchema = z.object({ id: z.literal('project'), name: z.string().min(1), context: z.string(), goals_summary: z.string(), constraints: z.array(z.string()), planner_enabled: z.boolean(), created_at: z.string().datetime(), updated_at: z.string().datetime() });
 export const processStatusSchema = z.enum(['running', 'exited', 'failed', 'killed']);

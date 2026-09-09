@@ -2,7 +2,6 @@ import { describe, expect, it } from '@jest/globals';
 
 import {
   AnalystToolInvokedContentSchema,
-  CardHistoryAppendedContentSchema,
   ConnectedStatusContentSchema,
   ControlActionRecordedContentSchema,
   InboundAnalystMessageContentSchema,
@@ -19,17 +18,6 @@ const strictContentCases = [
       sessionId: 'agent:analyst:global',
       timestamp: '2026-08-11T00:00:00.000Z',
       clientCount: 1,
-    },
-  },
-  {
-    name: 'card history appended activity',
-    schema: CardHistoryAppendedContentSchema,
-    valid: {
-      event: 'card_history_appended',
-      card_id: 'project',
-      version_seq: 2,
-      changed_fields: ['title'],
-      changed_at: '2026-08-11T00:00:00.000Z',
     },
   },
   {

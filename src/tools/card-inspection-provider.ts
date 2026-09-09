@@ -16,7 +16,7 @@ import {
   type CollectionPage,
   type CollectionPosition,
 } from './response-packer.js';
-import { projectBoundedCardSummary, projectCardNotificationItems } from './card-section-projection.js';
+import { projectBoundedCardSummary } from './card-section-projection.js';
 
 type CardInspectionStore=Pick<CardService,'listCardInspectionRows'|'readCardInspectionTree'|'getCardDetail'|'getCardChildren'|'listDeclaredRecordMetadata'>;
 
@@ -32,7 +32,7 @@ const COLLECTION_HELP = 'Collection pages expose total, position, returned, next
 
 export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProviderContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'list_cards', description: `List and filter cards in canonical order as a byte-bounded paged collection. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: (ctx) => createListCardsInputSchema(ctx.cardTypeVocabulary), executor: (ctx, args) => executeToolAction('observational_query', async () => listCards(ctx.store, args)) }),
-  defineToolBinder({ name: 'get_card', description: `Observe exactly one current-card section per call. Non-summary sections are byte-bounded collections. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getCard(ctx, args.id, args.section, args.position, args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES)) }),
+  defineToolBinder({ name: 'get_card', description: `Observe exactly one current-card summary, tags, dependencies, related cards, children, or records section per call. Pending delivery context is not readable. Non-summary sections are byte-bounded collections. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getCard(ctx, args.id, args.section, args.position, args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES)) }),
   defineToolBinder({ name: 'get_tree', description: `Observe a flat canonical preorder page of one card subtree. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getTreeInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getTree(ctx.store, args.rootId, args.depth, args.position, args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES)) }),
 ]);
 
@@ -128,7 +128,6 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
   if (section === 'tags') items = () => projected.tags.map((tag) => utf8SafePreview(redactTextForOutbound(tag), DISCOVERY_TEXT_PREVIEW_MAX_BYTES));
   else if (section === 'dependencies') items = () => [...projected.depends_on];
   else if (section === 'related') items = () => [...projected.related];
-  else if (section === 'notifications') items = () => projectCardNotificationItems(projected);
   else items = () => sectionItems!;
   const complete = items();
   const observation = observationSha256({ surface: 'get_card', card_id: card.id, version_seq: card.version_seq, section, items: complete });

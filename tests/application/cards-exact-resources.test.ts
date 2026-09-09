@@ -93,6 +93,24 @@ describe('exact Card operator resources',()=>{
     for(const secret of secrets)expect(serialized).not.toContain(secret);
   });
 
+  it('keeps queue-only versions addressable while projecting queue-free history and diffs without public change metadata', () => {
+    const root=mkdtempSync(join(tmpdir(),'saivage-card-public-history-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
+    cards.enqueueNotification(card.id,{id:'private-notification-id',content:'private notification body',created_at:'2026-09-09T00:00:00.000Z',source:'test'});
+    const history=model.listHistory(card.id);
+    if ('statusCode' in history) throw new Error('Expected history.');
+    expect(history.body.versions).toHaveLength(2);
+    expect(history.body.versions.every((entry)=>!Object.hasOwn(entry,'change'))).toBe(true);
+    const selected=model.getHistoryEntry(card.id,2);
+    if ('statusCode' in selected) throw new Error('Expected selected history.');
+    expect(selected.body.artifact).not.toHaveProperty('change');
+    if (selected.body.artifact.kind !== 'card-version') throw new Error('Expected card version.');
+    expect(selected.body.artifact.card).not.toHaveProperty('pending_notifications');
+    const diff=model.diffCard(card.id,{from:1,to:2});
+    if ('statusCode' in diff) throw new Error('Expected diff.');
+    expect(diff.body.diff.map(({field})=>field)).toEqual(['updated_at','version_seq']);
+    expect(JSON.stringify([history,selected,diff])).not.toMatch(/private-notification-id|private notification body|notification_enqueue|pending_notifications/);
+  });
+
   it('distinguishes dynamic and optional absence, malformed names, bootstrap corruption, and inactive cards',()=>{
     const root=mkdtempSync(join(tmpdir(),'saivage-card-api-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
     expect(model.getRecord(card.id,'unknown.md')).toEqual({statusCode:404,body:{error:'Card record not found',cardId:card.id,name:'unknown.md'}});

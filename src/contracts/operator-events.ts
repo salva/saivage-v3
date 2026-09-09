@@ -188,22 +188,11 @@ const AnalystTurnAcknowledgedStatusEnvelopeSchema = z.object({
 }).strict();
 
 const AnalystActivityEventNames = [
-  'card_history_appended',
   'notification_added',
   'control_action_recorded',
   'analyst_tool_invoked',
   'tool_invocation',
 ] as const;
-
-export const CardHistoryAppendedContentSchema = z
-  .object({
-    event: z.literal('card_history_appended'),
-    card_id: cardIdSchema,
-    version_seq: z.number().int(),
-    changed_fields: z.array(z.string()),
-    changed_at: z.string().min(1),
-  })
-  .strict();
 
 export const NotificationAddedContentSchema = z
   .object({
@@ -252,7 +241,6 @@ export const ClassifiedToolInvocationActivityContentSchema = z
   .strict();
 
 const AnalystActivityContentSchema = z.discriminatedUnion('event', [
-  CardHistoryAppendedContentSchema,
   NotificationAddedContentSchema,
   ControlActionRecordedContentSchema,
   AnalystToolInvokedContentSchema,

@@ -6,14 +6,24 @@ describe('card-only notification contract', () => {
     const calls: Array<{ cardId: string; id: string }> = [];
     const result = queueNotification('project', 'operator', 'Recheck current facts.', (cardId, notification) => {
       calls.push({ cardId, id: notification.id });
-      return { ok: true, notificationId: notification.id };
+      return { ok: true, notificationId: 'port-selected-id' };
     });
-    expect(result).toEqual({ ok: true, notificationId: calls[0]!.id });
+    expect(result).toEqual({ ok: true, notificationId: 'port-selected-id' });
+    if (!result.ok) throw new Error('Expected success.');
+    expect(result.notificationId).not.toBe(calls[0]!.id);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.cardId).toBe('project');
   });
 
   it('preserves exact terminal-card rejection without reporting acceptance', () => {
     expect(queueNotification('project', 'operator', 'late', (cardId) => ({ ok: false, reason: 'terminal_card', cardId, status: 'done' }))).toEqual({ ok: false, reason: 'terminal_card', cardId: 'project', status: 'done' });
+  });
+
+  it.each([
+    { ok: false as const, reason: 'missing_card' as const, cardId: 'project' },
+    { ok: false as const, reason: 'terminal_card' as const, cardId: 'project', status: 'failed' as const },
+    { ok: false as const, reason: 'activation_closed' as const, cardId: 'project' },
+  ])('passes through $reason without normalization', (portResult) => {
+    expect(queueNotification('project', 'operator', 'late', () => portResult)).toBe(portResult);
   });
 });

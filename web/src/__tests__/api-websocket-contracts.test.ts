@@ -35,7 +35,16 @@ describe('websocket bootstrap boundary after S06', () => {
     expect(parseServerEgressWsEnvelope(connected)).toEqual(connected);
 
     expect(() => parseServerEgressWsEnvelope({ type: 'activity', content: { event: 'future_event' } })).toThrow();
-    expect(() => parseServerEgressWsEnvelope({ type: 'activity', content: { event: 'card_history_appended' } })).toThrow();
+    expect(() => parseServerEgressWsEnvelope({
+      type: 'activity',
+      content: {
+        event: 'card_history_appended',
+        card_id: 'project',
+        version_seq: 2,
+        changed_fields: ['pending_notifications'],
+        changed_at: '2026-09-09T00:00:00.000Z',
+      },
+    })).toThrow();
     expect(() => parseServerEgressWsEnvelope({ type: 'message', content: { text: 'browser input only' } })).toThrow();
     expect(() => parseServerEgressWsEnvelope({ type: 'thinking', content: {} })).toThrow();
     expect(() => parseServerEgressWsEnvelope({ ...connected, extra: true })).toThrow();
@@ -57,5 +66,36 @@ describe('websocket bootstrap boundary after S06', () => {
       ...activity,
       content: { ...activity.content, result: { success: true, error: 'impossible' } },
     })).toThrow();
+  });
+
+  it('preserves exact queue notification success and activation-closed failure events', () => {
+    const content = {
+      event: 'tool_invocation' as const,
+      sessionId: 'agent:analyst:global',
+      tool: 'queue_notification',
+      params: { card_id: 'card-a', kind: 'progress', body: 'Working' },
+    };
+    const success = {
+      type: 'activity' as const,
+      content: {
+        ...content,
+        result: { success: true as const, data: { queued: true, card_id: 'card-a', notification_id: 'notification-a' } },
+      },
+    };
+    const failure = {
+      type: 'activity' as const,
+      content: {
+        ...content,
+        result: {
+          success: false as const,
+          error: "Cannot queue notification for card 'card-a': its current activation is closed to new notifications.",
+          data: { queued: false, reason: 'activation_closed', card_id: 'card-a' },
+        },
+      },
+    };
+    expect(parseServerEgressWsEnvelope(success)).toEqual(success);
+    expect(parseServerEgressWsEnvelope(failure)).toEqual(failure);
+    expect(failure.content.result.data).not.toHaveProperty('status');
+    expect(failure.content.result.data).not.toHaveProperty('winner');
   });
 });

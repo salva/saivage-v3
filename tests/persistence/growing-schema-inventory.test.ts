@@ -2,8 +2,6 @@ import { describe, expect, it } from '@jest/globals';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { cardHistoryEntrySchema } from '../../src/schemas/validators.js';
-
 const source = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
 
 describe('durable growing-schema and writer inventory', () => {
@@ -42,13 +40,5 @@ describe('durable growing-schema and writer inventory', () => {
       const text = source(path);
       expect(text).not.toMatch(/safeParse\(entry\.data\)|entry\.data\s+as\s+/);
     }
-  });
-
-  it('keeps exactly the eight current card history kinds', () => {
-    const variants = (cardHistoryEntrySchema as unknown as {
-      options: readonly { shape: { kind: { value: string } } }[];
-    }).options;
-
-    expect(variants.map((variant) => variant.shape.kind.value)).toEqual(['update', 'notification_enqueue', 'notification_remove', 'status', 'terminal', 'child_link', 'reorder', 'delete']);
   });
 });

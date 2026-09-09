@@ -29,13 +29,10 @@
             @click="selectVersion(entry.version)"
           >
             <div class="history-item-top">
+              <span class="history-label">Card version</span>
               <span class="badge subtle">v{{ entry.version }}</span>
-              <span class="badge">{{ entry.change?.changed_by_actor ?? 'runtime' }}</span>
-              <span class="badge subtle">{{ entry.change?.changed_by_surface ?? 'runtime' }}</span>
             </div>
-            <div class="history-summary">{{ entry.change?.change_summary ?? 'Initial card version' }}</div>
-            <div class="history-fields">Changed: {{ entry.change?.changed_fields.join(', ') || 'none recorded' }}</div>
-            <div class="history-time" :title="timestampTitle(entry.published_at)">{{ fmtDate(entry.published_at) }}</div>
+            <div class="history-time" :title="timestampTitle(entry.published_at)">Published at {{ fmtDate(entry.published_at) }}</div>
           </button>
         </div>
 
@@ -53,9 +50,7 @@
           <template v-else>
             <div class="history-meta-grid">
               <div class="meta-item"><span class="meta-key">Snapshot version</span><span class="meta-value">v{{ cardHistoryEntry.version }}</span></div>
-              <div class="meta-item"><span class="meta-key">Changed by</span><span class="meta-value">{{ cardHistoryEntry.artifact.change?.changed_by_actor ?? 'runtime' }} via {{ cardHistoryEntry.artifact.change?.changed_by_surface ?? 'runtime' }}</span></div>
-              <div class="meta-item"><span class="meta-key">Changed at</span><span class="meta-value" :title="timestampTitle(cardHistoryEntry.published_at)">{{ fmtDate(cardHistoryEntry.published_at) }}</span></div>
-              <div class="meta-item"><span class="meta-key">Reason</span><span class="meta-value">{{ cardHistoryEntry.artifact.change?.change_reason ?? 'Initial card version' }}</span></div>
+              <div class="meta-item"><span class="meta-key">Published at</span><span class="meta-value" :title="timestampTitle(cardHistoryEntry.published_at)">{{ fmtDate(cardHistoryEntry.published_at) }}</span></div>
             </div>
 
             <div class="history-subsection">
@@ -150,8 +145,7 @@ onBeforeUnmount(() => cardStore.closeCardHistory());
 .history-item { text-align:left; padding:10px 12px; background:var(--surface-1); border:1px solid var(--surface-3); border-radius:6px; color:var(--text); cursor:pointer; }
 .history-item.selected { border-color:var(--accent-2); }
 .history-item-top { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
-.history-summary { font-size:13px; color:var(--text); margin-bottom:4px; }
-.history-fields,.history-time { font-size:11px; color:var(--text-muted); }
+.history-label,.history-time { font-size:11px; color:var(--text-muted); }
 .history-detail { min-width:0; }
 .history-meta-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-bottom:12px; }
 .history-subsection { margin-top:12px; }

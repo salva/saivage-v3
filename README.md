@@ -182,8 +182,18 @@ Chromium; absence is a failing prerequisite, not a skipped test or production
 network requirement.
 
 The build and release gates package every registered prompt tree and run its
-compiled composition smoke. Repeat that focused check against existing build
-output with `npm run test:compiled-prompt-composition`.
+compiled composition smoke. `npm run test:compiled-prompt-composition` runs
+`dist/tests/scripts/compiled-prompt-composition-smoke.js --source-root .` against
+the normal compiled `dist` tree. The required `--source-root <repository>`
+argument resolves relative paths against the invocation working directory and
+selects only the source prompt tree used for byte comparison; compiled modules
+and packaged prompts always derive from the emitted smoke's own output tree.
+
+For isolated validation, compile production modules and the smoke into one
+output root, package prompts into that root, then execute
+`<output>/tests/scripts/compiled-prompt-composition-smoke.js --source-root
+<repository>`. This isolated constituent is release-equivalent coverage, not a
+literal pass of the default validation profile.
 
 To use a locally installed Chrome for release validation:
 

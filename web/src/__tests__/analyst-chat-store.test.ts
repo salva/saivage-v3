@@ -285,12 +285,11 @@ describe('analyst chat store', () => {
     expect(store.messages.map((message) => message.id)).toEqual([first.id, second.id]);
   });
 
-  it('does not refresh transcript from card or control activity frames', async () => {
+  it('does not refresh transcript from control activity frames', async () => {
     const store = useAnalystChat();
     await store.resolveIdentity();
     apiMocks.getAgentConversation.mockClear();
 
-    store.ingestWsEvent({ event: 'card_history_appended', sessionId: analystSessionId });
     store.ingestWsEvent({
       event: 'control_action_recorded',
       sessionId: analystSessionId,

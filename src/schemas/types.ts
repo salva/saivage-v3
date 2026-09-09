@@ -34,6 +34,7 @@ export interface CardRecord {
   status_text_author_session_id: null; latest_self_report: null; metadata: null;
   pending_notifications: CardNotification[];
 }
+export type OutboundCardRecord = Omit<CardRecord, 'pending_notifications'>;
 
 export const CARD_RECORD_FIELDS = [
   'id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at',
@@ -57,14 +58,7 @@ export interface CardOperatorSummary {
   completedAt: string | null;
   stale: boolean;
 }
-export interface CardView { card: CardRecord; logical_path: string | null; status: CardStatus; parent: string | null; operator_summary: CardOperatorSummary; }
-type CardHistoryKind = 'update' | 'notification_enqueue' | 'notification_remove' | 'status' | 'terminal' | 'child_link' | 'reorder' | 'delete';
-interface CardHistoryEntryBase { entry_id: string; card_id: string; version_seq: number; snapshot: CardRecord; changed_at: string; change_reason: string | null; changed_fields: string[]; change_summary: string; }
-type RuntimeCardHistoryEntry = CardHistoryEntryBase & { kind: Exclude<CardHistoryKind, 'update' | 'delete'>; changed_by_actor: 'runtime'; changed_by_surface: 'runtime' };
-type UpdateCardHistoryEntry = CardHistoryEntryBase & { kind: 'update'; changed_by_actor: import('./agent-name.js').AgentName; changed_by_surface: 'runtime' };
-type DeleteCardHistoryEntry = CardHistoryEntryBase & { kind: 'delete'; changed_by_actor: import('./agent-name.js').AgentName; changed_by_surface: 'runtime' };
-export type CardHistoryEntry = RuntimeCardHistoryEntry | UpdateCardHistoryEntry | DeleteCardHistoryEntry;
-export type CardHistoryHeader = CardHistoryEntry extends infer Entry ? Entry extends CardHistoryEntry ? Omit<Entry, 'snapshot'> : never : never;
+export interface CardView { card: OutboundCardRecord; logical_path: string | null; status: CardStatus; parent: string | null; operator_summary: CardOperatorSummary; }
 export interface ControlActionAuditEntry { id: string; actor: NoteAuthor; surface: ControlActionSurface; action: string; target_kind: 'card' | 'note' | 'process' | 'runtime' | 'config' | 'session' | null; target_id: string | null; params_summary: string; safety_class?: 'read_only' | 'low' | 'high' | 'destructive' | 'deployment'; outcome: 'ok' | 'error' | 'denied'; outcome_summary: string; error?: string; created_at: string; }
 export interface ProjectConfig { id: 'project'; name: string; context: string; goals_summary: string; constraints: string[]; planner_enabled: boolean; created_at: string; updated_at: string; }
 export const analystIssueSeverityValues = ['info', 'warning', 'blocker'] as const;

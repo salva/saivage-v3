@@ -48,7 +48,7 @@ const ANALYST_CARD_VIEW = {
   card: {
     id: 'card-a', type: 'code', title: 'Analyst', child_membership: [], active_child_order: [], subtype: null, tags: [], priority: 0, urgency: 'normal', created_by: 'analyst',
     created_at: '2026-07-21T00:00:00.000Z', updated_at: '2026-07-21T00:00:00.000Z', version_seq: 1,
-    assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
+    assigned_to: null, depends_on: [], related: [], lifecycle: { status: 'backlog', result: null, error: null, completed_at: null }, metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null,
   },
   logical_path: '1', status: 'backlog', parent: 'project',
   operator_summary: { blocked: false, hasError: false, error: null, completedAt: null, stale: false },
@@ -179,6 +179,24 @@ describe('static tool presenter authority', () => {
     expect(inlineText(getCard.detail ?? [])).toBe('code · backlog');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'x', result: null } }), { tool: 'activate_card' }).headline)).toBe('blocked');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { accepted: true } }), { tool: 'emit_result' }).headline)).toBe('result accepted');
+  });
+
+  it('renders queue success but keeps activation-closed failure on the generic failure boundary', () => {
+    const successData = { queued: true, card_id: 'card-a', notification_id: 'notification-a' };
+    const success = presentToolResult(JSON.stringify({ success: true, data: successData }), { tool: 'queue_notification' });
+    expect(success.status).toBe('ok');
+    expect(inlineText(success.headline)).toBe('notification queued');
+    expect(success.body).toEqual({ success: true, data: successData });
+
+    const error = "Cannot queue notification for card 'card-a': its current activation is closed to new notifications.";
+    const failureData = { queued: false, reason: 'activation_closed', card_id: 'card-a' };
+    const failure = presentToolResult(JSON.stringify({ success: false, error, data: failureData }), { tool: 'queue_notification' });
+    expect(failure.status).toBe('error');
+    expect(inlineText(failure.headline)).toBe(error);
+    expect(inlineText(failure.headline)).not.toContain('notification queued');
+    expect(failure.body).toEqual({ success: false, error, data: failureData });
+    expect(failureData).not.toHaveProperty('status');
+    expect(failureData).not.toHaveProperty('winner');
   });
 
   it('exposes wrapped canonical webfetch stash URLs as Files links', () => {

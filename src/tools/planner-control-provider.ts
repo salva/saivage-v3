@@ -47,7 +47,7 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
   defineToolBinder({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerCancelCardInputSchema, executor: (ctx, args) => executeToolAction('none', async () => cancelCard(ctx, args)) }),
   defineToolBinder({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => activateCardArgumentsSchema, executor: (ctx, args, _signal, invocation) => executeToolAction('none', async () => activateCard(ctx, args, invocation)) }),
   defineToolBinder({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerReorderChildInputSchema, executor: (ctx, args) => executeToolAction('none', async () => reorderChild(ctx, args)) }),
-  defineToolBinder({ name: 'queue_notification', description: 'Queue operator context on a notification-capable card for its planner or executor.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerQueueNotificationInputSchema, executor: (ctx, args) => executeToolAction('none', async () => queueNotificationTool(ctx, args)) }),
+  defineToolBinder({ name: 'queue_notification', description: "Queue context on a notification-capable card for its configured current/next workflow-node agent while notification admission is open. Pending delivery context is not readable.", resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerQueueNotificationInputSchema, executor: (ctx, args) => executeToolAction('none', async () => queueNotificationTool(ctx, args)) }),
 ]);
 
 function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolActionOutcome {
@@ -96,10 +96,16 @@ function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof
 
 function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>): ToolActionOutcome {
   const queued = queueNotification(record.card_id, record.kind, record.body, ctx.notifyCard);
-  if (!queued.ok && queued.reason === 'terminal_card') return toolFailed(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
-  if (!queued.ok) return toolFailed(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-  return toolSucceeded({ queued: true, card_id: record.card_id, notification_id: queued.notificationId });
+  if (queued.ok) return toolSucceeded({ queued: true, card_id: record.card_id, notification_id: queued.notificationId });
+  switch (queued.reason) {
+    case 'missing_card': return toolFailed(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
+    case 'terminal_card': return toolFailed(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
+    case 'activation_closed': return toolFailed(`Cannot queue notification for card '${queued.cardId}': its current activation is closed to new notifications.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
+    default: return assertNever(queued);
+  }
 }
+
+function assertNever(value: never): never { throw new Error(`Unhandled notification result: ${JSON.stringify(value)}`); }
 
 async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCancelCardInputSchema>): Promise<ToolActionOutcome> {
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');

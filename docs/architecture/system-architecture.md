@@ -267,7 +267,7 @@ Saivage-owned persistence is direct stateless synchronous file I/O by the domain
 - `auth-profile-file.ts` and `project-identity.ts` own their single canonical files.
 - `runtime/lock.ts` is the exceptional process-exclusion boundary only.
 
-One strict `cardRecordSchema` defines every current `CardRecord`, including card-version, embedded history-snapshot, and tombstone-final fields.
+One strict `cardRecordSchema` defines every durable current, card-version, and tombstone-final `CardRecord`.
 The card-stream row schema is the sole structural parser for each raw row at read and write boundaries and owns general child-array structure, uniqueness, and immediate-child identity.
 `validateCardStream()` consumes only those typed parsed rows and performs identity, history, transition, immutable-field, child-link/reorder, ordering, and tombstone validation without another Zod parse.
 
@@ -298,10 +298,10 @@ A real reorder appends requested active IDs followed by retained tombstones in p
 Existing `appendEnvelope` and centralized `writeAllExact` remain the unchanged write boundary.
 
 CardService uses membership for exact reachability and linked-history traversal, active order for semantic hierarchy and `CardIndex.childrenOf()`, and writes both arrays only for `child_link`.
-Files keeps `children` as the active virtual directory name while virtual current/version `card.json` documents expose both durable arrays at artifact row format 2.
+Files keeps `children` as the active virtual directory name while virtual current/version `card.json` documents expose both durable arrays at artifact row format 2 through the queue-free outbound card projection.
 The Cards REST hierarchy and web store remain ordered active projections and do not interpret durable arrays.
 Historical section `children` is intentionally the selected row's complete stored carrier.
-Outbound history and diffs expose both structural fields, while authored-record diffs continue to apply `projectRecordArtifact()` before `recordView()` comparison so redaction remains before comparison.
+Outbound history and diffs expose both relationship fields, omit `pending_notifications`, and publish no public `change`; authored-record diffs continue to apply `projectRecordArtifact()` before `recordView()` comparison so redaction remains before comparison.
 
 Planner activation validates schema and immediate-child identity, reserves the exact invocation lease, and delegates through the bound parent port.
 The supervisor validates parent and lease before I/O; owner absence alone authorizes one admission/dependency/status read.
@@ -490,7 +490,7 @@ A shared live-invocation projector outbound-projects arguments but passes this c
 Historical/read-model rows remain strict wire values and use the application Agent conversation read-side projector rather than becoming current producer outcomes.
 
 Bounded response admission measures the exact canonical bytes of the final post-outbound ToolResult.
-Current and immutable card summaries and notification sections share one projector, ensuring identical final-byte truncation rules across those surfaces.
+Current and immutable card summaries share one summary projector, ensuring identical final-byte truncation rules across those surfaces. There is no notification section.
 
 Stable sessions are `agent:<agent-name>:global` or `agent:<agent-name>:<card-id>`.
 The configured scope and exact card context derive the identity and deterministic encoded path.
@@ -530,7 +530,7 @@ Identity replacement or lifetime end releases the exact lease; a replacement mou
 Overlap receives immediate typed busy and no server queue; request-local `sending`, acknowledgements, and optimistic messages are presentation state only.
 Exact REST busy removes only its optimistic send owner and restores that captured draft only when the composer is empty; live-sync/REST later reveal the durable winner.
 
-Operator egress uses source-adjacent typed projection for granular Card resources and one small source-tagged dispatcher for provider exchange, logged event, control action, card history/diff, effective config, process view, tool invocation, Agent conversation, strict server-egress WebSocket envelope, and MCP tools owners.
+Operator egress uses source-adjacent typed projection for granular Card resources and one small source-tagged dispatcher for provider exchange, logged event, control action, card diff, effective config, process view, tool invocation, Agent conversation, strict server-egress WebSocket envelope, and MCP tools owners. Card history artifacts use the direct outbound-card projector rather than a generic card-history redaction branch.
 Browser-to-server Analyst `message` input is a separate strict contract and never enters the egress projector.
 The effective-config projector is the sole behavior owner: it accepts the internal effective type and validates its completed immutable projection against the browser-safe outbound schema, structurally omitting provider/account `baseUrl`, replacing API keys and stdio environment values, and applying `redactUrl` to streamable-HTTP MCP URLs.
 Webfetch argument projection is owned by the singular tool-invocation branch, and webfetch results use its generic opaque-result projection; there are no standalone webfetch dispatcher branches.
@@ -541,7 +541,7 @@ Card egress uses resource-specific projection.
 Hierarchy projects only `id,title,type,status`; detail projects only displayed identity/lifecycle/version/urgency/timestamps/actions; descriptors and exact content project their own strict shapes.
 Current authored-record content, explicit record versions, and record diffs share one source-adjacent authored-record artifact projector.
 Record-diff processing follows the strict order `strict read -> shared authored-record artifact projection -> view selection -> comparison/hunk construction -> strict response validation`, so no canonical raw authored content reaches comparison or the browser.
-Card tools, durable history snapshots, and field-directed diffs retain their separate complete projections.
+Card tools, ordinary history artifacts, and field-directed diffs retain separate strict projections over the same queue-free outbound card shape.
 Classified prose is redacted source-adjacently before each strict response parse.
 Unknown diff fields fail rather than becoming dynamic.
 
@@ -624,16 +624,13 @@ There is no actor reconstruction, multi-card installation, transaction, rollback
 
 ## 6. Notifications And Terminal Arbitration
 
-Notifications persist only in the target card's ordered `pending_notifications`.
-The durable request identifies one `card_id`; no role/session recipient or session-delivery result exists.
-`backlog`, `changed`, `running`, `blocked`, and `stopped` preserve pending context.
-Only `done`, `failed`, and `cancelled` clear and reject it with `terminal_card`.
+Notifications persist only in the target card's ordered `pending_notifications`; `queue_notification` is the only public agent-facing notification tool. The request identifies one `card_id`; no role/session recipient or session-delivery result exists. While admission is open, the compiled current or next workflow node selects one card-scoped configured agent/session deterministically, including reviewer-owned nodes, but this routing is not a delivery promise.
 
-Planner, reviewer, and executor share one append-before-remove path.
-Node-entry context appends the selected ordered bodies before removing their IDs.
-At each result candidate gate, the node captures one ordered set and, when non-empty, appends failed paired evidence with `pending_notifications`, those exact bodies, and the resolved correction before removing exactly those IDs in `afterAppend`.
-Any append failure removes nothing; later arrivals are not in that selection and remain for the next candidate.
-The failed result is an unfinished same-node continuation for recovery classification, never a clean terminal or reviewer deferral.
+Lifecycle admission permits backlog, changed, running, blocked, and stopped and rejects persisted done, failed, and cancelled with `terminal_card`. The Supervisor then consults the exact current activation owner synchronously: once either result or cancellation has claimed `terminalWinner`, `notifyCard()` returns `activation_closed` before durable enqueue. The four exact tool outcomes are queued success, `missing_card`, `terminal_card` with its persisted terminal status, and `activation_closed` without status or winner discriminator. No retry or redirect follows.
+
+Planner, reviewer, and executor share one append-before-remove path. Node-entry context appends the selected ordered bodies before removing their IDs. At an otherwise accepted terminal `emit_result` candidate gate, the node captures one ordered set and, when non-empty, appends failed paired evidence with `pending_notifications`, those exact bodies, and the resolved correction before removing exactly those IDs in `afterAppend`. Any append failure removes nothing. In contrast, a successful preclaim enqueue may be cleared without delivery by cancellation, BLOCKED outcome settlement, or ordinary execution-failure settlement. Enqueue therefore acknowledges admission, not delivery.
+
+Ordinary card query surfaces provide no explicit queue collection, count, membership, IDs/bodies, availability field, direction discriminator, or delivery receipt. Generic version/time/diff/invalidation observations may signal or support inference of hidden queue activity and are not a supported queue query. Explicit enqueue attempts/results, delivered context, and opaque retained conversation evidence remain outside that boundary.
 
 With no pending context, reviewer semantic currentness may still reject.
 Its snapshot contains only each card's `version_seq` and each included declared record's accepted `source_version`; it uses no content hash.
@@ -1097,6 +1094,7 @@ WebSocket hints carry no membership or write authority.
 Server event egress is the closed strict `status | activity | error` union; `message` exists only as separate browser-to-server Analyst input and `thinking` is not a wire member.
 Its final source-owned projector copies only declared fields, with no undeclared dynamic passthrough lane.
 The browser's server-egress parser is a throwing boundary: structurally invalid, unknown, malformed, and wrong-direction events do not dispatch.
+Activity event-bearing content is exactly `connected`, `analyst_turn_acknowledged`, `notification_added`, `control_action_recorded`, `analyst_tool_invoked`, and `tool_invocation`. Ordinary Cards freshness remains the scoped identity-only invalidation contract; there is no history changed-fields activity event or replacement queue-metadata event.
 
 ### Exact SyncHub debounce policy
 
@@ -1147,8 +1145,9 @@ Consequently a successful restart-only configuration replacement cannot alter th
 
 Shared strict Zod operation contracts are the server response validator and the browser wire authority.
 Browser contracts and inferred types import that backend contract surface through `web/src/api/contracts.ts`; backend schema, route fallback, store/view, and fixtures cut over together.
-`CardDiffRowSchema` is the sole card-diff row owner: it validates required strict `{field,before,after}` recursive-JSON rows at backend final egress and in browser declared status-200 parsing.
-The browser has no local card-diff row overlay or card-diff client result cast.
+`CardDiffRowSchema` is the sole card-diff row owner: it validates required strict `{field,before,after}` recursive-JSON rows at backend final egress and in browser declared status-200 parsing and rejects `field:'pending_notifications'`.
+The browser has no local card-diff row overlay or card-diff client result cast. Public history catalogs retain exactly `entry_id`, `version`, `published_at`, and `artifact_kind`; selected outer responses retain `card_id`, `version`, `entry_id`, and `published_at`, with artifact exactly `{kind:'card-version',card}` or `{kind:'card-tombstone',final_card}`. Public `change` is absent for every version. Durable change vocabulary/provenance, versioning, and time validation remain unchanged.
+Agent version catalogs retain the same four item fields, selected version responses retain their existing locator identity/time/kind/hash/section fields, and agent diffs retain their existing pivots, side entry/hash identities, observation, and sliced diff. The artifact hash input is exactly the queue-free REST artifact `{kind,card}` or `{kind,final_card}`, with no wrapper metadata or `change`. Files current/historical documents retain exactly `{format_version:2,kind,entry_id,card_id,version,published_at,card}`; tombstones substitute `final_card` and add `prior_card_version`. Their listing/preview size is computed from those serialized public bytes.
 The Debug error row type is indexed directly from `OperatorApiSuccess`; no response overlay or client assertion replaces it.
 DebugStore keeps those canonical REST rows, while the pure exhaustive web read-model projector creates separate error presentation items.
 This dependency is one-way: frontend display heuristics are defense in depth and never normalize durable/wire input or replace backend source-aware projection.

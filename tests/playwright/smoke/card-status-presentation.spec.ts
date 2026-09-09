@@ -33,7 +33,7 @@ function card(id: string, title: string, status: FixtureStatus, children: string
     tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
     assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
     status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null,
-    pending_notifications: [], allowedActions: [], version_seq: 1,
+    allowedActions: [], version_seq: 1,
   };
 }
 

@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from '@jest/globals';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 import { cardVersionToolBinders } from '../../src/tools/card-version-provider.js';
 import { invokeTool, llmToolDefinition, type InvocationSurface } from '../../src/tools/invocation.js';
@@ -21,6 +22,7 @@ import { settleToolResultForConversation } from '../../src/runtime/actors/llm-de
 import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { DISCOVERY_TEXT_PREVIEW_MAX_BYTES, utf8SafePreview } from '../../src/tools/response-packer.js';
+import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -93,7 +95,7 @@ describe('card version provider', () => {
     })).rejects.toThrow("Section 'summary' does not fit the requested response_bytes budget of 512.");
   });
 
-  it('settles a fitting immutable summary with locator evidence and matches current summary and notification projection', async () => {
+  it('settles a fitting immutable summary with locator evidence while rejecting notification queue reads', async () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-summary-parity-')); roots.push(root); initProjectTree(root);
     const cards = new CardService(root);
     const child = cards.create(childInput('Parity title', ['alpha', 'beta']));
@@ -114,13 +116,8 @@ describe('card version provider', () => {
     expect(immutableSummary.settledResultBytes).toBe(canonicalJson(immutableSummary.providerResult));
     expect((immutableSummary.providerResult as { data: { card: unknown } }).data.card).toEqual((currentSummary.data as { card: unknown }).card);
 
-    const currentNotifications = await invokeTestTool(surface, 'get_card', { id: child.id, section: 'notifications', response_bytes: responseBytes });
-    const immutableNotificationExecution = await invokeTool(surface, 'get_card_version', { card_id: child.id, version, section: 'notifications', response_bytes: responseBytes });
-    const immutableNotifications = settleExecution(surface, 'get_card_version', immutableNotificationExecution);
-    const currentItems = (currentNotifications.data as { content: { items: unknown[] } }).content.items;
-    const immutableItems = (immutableNotifications.providerResult as { data: { content: { items: unknown[] } } }).data.content.items;
-    expect(immutableItems).toEqual(currentItems);
-    expect(Buffer.byteLength(immutableNotifications.settledResultBytes, 'utf8')).toBeLessThanOrEqual(responseBytes);
+    await expect(invokeTestTool(surface, 'get_card', { id: child.id, section: 'notifications', response_bytes: responseBytes })).rejects.toThrow();
+    await expect(invokeTool(surface, 'get_card_version', { card_id: child.id, version, section: 'notifications', response_bytes: responseBytes })).rejects.toThrow();
   });
 
   it('lists stream row metadata paged by byte budget and reads and diffs exact resulting versions', async () => {
@@ -131,13 +128,14 @@ describe('card version provider', () => {
     const surface = surfaceFor(cards);
 
     const listed = await invokeTestTool(surface, 'list_card_versions', { card_id: child.id });
-    const listData = listed.data as { observation_sha256: string; versions: { total: number; returned: number; items: Array<{ version: number; entry_id: string; change: unknown }> } };
+    const listData = listed.data as { observation_sha256: string; versions: { total: number; returned: number; items: Array<{ version: number; entry_id: string }> } };
     expect(listData.versions.total).toBe(2);
     expect(listData.versions.items.map((entry) => entry.version)).toEqual([1, 2]);
     expect(listData.observation_sha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(envelopeBytes(listed.data)).toBeLessThanOrEqual(32768);
     const streamEntryIds = readStrictCanonicalGrowingFile(cardStreamFile(root, child.id), cardArtifactSchema).map((row) => row.entry_id);
     expect(listData.versions.items.map((entry) => entry.entry_id)).toEqual(streamEntryIds);
+    expect(listData.versions.items.every((entry) => !Object.hasOwn(entry, 'change'))).toBe(true);
 
     const version = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' });
     expect(version.evidence).toMatchObject({ kind: 'canonical_locator', locator: `card:///${child.id}?v=2#entry=${(listData.versions.items[1]!.entry_id)}`, sha256: expect.any(String) });
@@ -154,6 +152,24 @@ describe('card version provider', () => {
     expect(diffData.diff.content).toContain('After');
     expect(diffData.diff.next_offset_bytes).toBe(diffData.diff.total_bytes);
     expect(envelopeBytes(diff.data)).toBeLessThanOrEqual(32768);
+  });
+
+  it('omits queue-only diff rows and hashes the exact queue-free REST artifact', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-private-queue-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create(childInput('Queue host'));
+    cards.enqueueNotification(child.id, { id: 'private-id', content: 'private body', created_at: '2026-09-09T00:00:00.000Z' });
+    const surface = surfaceFor(cards);
+    const selected = settleToolActionOutcome((await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' })).providerOutcome).providerResult as { data: { artifact_sha256: string } };
+    const rest = new CardsReadModelService(root, cards, { getRuntimeState: () => null }).getHistoryEntry(child.id, 2);
+    if ('statusCode' in rest) throw new Error('Expected selected REST artifact.');
+    expect(selected.data.artifact_sha256).toBe(createHash('sha256').update(canonicalJson(rest.body.artifact)).digest('hex'));
+    expect(JSON.stringify(rest.body.artifact)).not.toMatch(/private-id|private body|pending_notifications|change/);
+    const diff = await invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 2 });
+    const content = (diff.data as { diff: { content: string } }).diff.content;
+    const rows = JSON.parse(content) as Array<{ field: string }>;
+    expect(rows.map(({ field }) => field)).toEqual(['updated_at', 'version_seq']);
+    expect(content).not.toMatch(/private-id|private body|pending_notifications/);
   });
 
   it('rejects the removed current pivot and missing exact pivots', async () => {

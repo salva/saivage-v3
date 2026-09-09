@@ -53,17 +53,6 @@ function projectActivityEnvelope(
           ]),
         },
       });
-    case 'card_history_appended':
-      return ServerEgressWsEnvelopeSchema.parse({
-        type: 'activity',
-        content: {
-          event: content.event,
-          card_id: content.card_id,
-          version_seq: content.version_seq,
-          changed_fields: [...content.changed_fields],
-          changed_at: content.changed_at,
-        },
-      });
     case 'notification_added':
       return ServerEgressWsEnvelopeSchema.parse({
         type: 'activity',

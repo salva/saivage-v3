@@ -78,6 +78,10 @@ describe('CanonicalCardFilesReadModel virtual card documents', () => {
     expect(historicalDocument).toMatchObject({ format_version: 2, card: { child_membership: [], active_child_order: [] } });
     expect(currentDocument.card).not.toHaveProperty('children');
     expect(historicalDocument.card).not.toHaveProperty('children');
+    expect(currentDocument.card).not.toHaveProperty('pending_notifications');
+    expect(historicalDocument.card).not.toHaveProperty('pending_notifications');
+    expect(currentDocument).not.toHaveProperty('change');
+    expect(historicalDocument).not.toHaveProperty('change');
   });
 
   it('serves the small selected document of a cumulative stream over 1 MiB with exact bytes and committed_at', () => {

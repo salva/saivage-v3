@@ -1,1 +1,1 @@
-Reassess the stopped `{{cardType}}` card from its current durable cards, records, and notifications. Prior process position is unavailable; choose the next outcome from current evidence.
+Reassess the stopped `{{cardType}}` card from its current durable cards, records, and delivered notification context. Prior process position is unavailable; choose the next outcome from current evidence.

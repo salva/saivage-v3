@@ -14,6 +14,7 @@ import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { workflowResult } from '../helpers/workflow-result.js';
 import { runtimeFailure } from '../helpers/workflow-result.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
+import type { NotifyCardResult } from '../../src/runtime/runtime-api.js';
 
 const PARENT = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CHILD = `${PARENT}-b`;
@@ -31,7 +32,7 @@ describe('planner control provider ownership delegation', () => {
     } as unknown as CardService;
     const activateChild = jest.fn(async ({ childCardId }: { childCardId: string; invocation: ChildInvocationLease }) => ({ status: 'done' as const, summary: childCardId, result: workflowResult('DONE',childCardId) }));
     const cancelChild = jest.fn(async ({ childCardId }: { childCardId: string; reason: string }) => ({ card_id: childCardId, status: 'cancelled' as const, cancelled_card_ids: [childCardId] }));
-    const notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'unused' }));
+    const notifyCard = jest.fn<() => NotifyCardResult>(() => ({ ok: true, notificationId: 'unused' }));
     const surface = buildInvocationSurfaceFixture('planner', [bindPlannerControl({ agentName:'planner',projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store, parentControl: { activateChild, cancelChild }, notifyCard,childCreationTypes:new Set(),childActivationTypes:new Set(['code']),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
     return { store, activateChild, cancelChild, notifyCard, surface };
   }
@@ -70,6 +71,20 @@ describe('planner control provider ownership delegation', () => {
     expect(test.store.reorderChildren).toHaveBeenCalledWith(PARENT, []);
     expect(test.store.read).not.toHaveBeenCalled();
     expect(test.notifyCard).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ ok: true as const, notificationId: 'exact-id' }, { success: true, data: { queued: true, card_id: CHILD, notification_id: 'exact-id' } }],
+    [{ ok: false as const, reason: 'missing_card' as const, cardId: CHILD }, { success: false, error: `Card '${CHILD}' not found.`, data: { queued: false, reason: 'missing_card', card_id: CHILD } }],
+    [{ ok: false as const, reason: 'terminal_card' as const, cardId: CHILD, status: 'cancelled' as const }, { success: false, error: `Cannot queue notification for terminal card '${CHILD}' in status 'cancelled'.`, data: { queued: false, reason: 'terminal_card', card_id: CHILD, status: 'cancelled' } }],
+    [{ ok: false as const, reason: 'activation_closed' as const, cardId: CHILD }, { success: false, error: `Cannot queue notification for card '${CHILD}': its current activation is closed to new notifications.`, data: { queued: false, reason: 'activation_closed', card_id: CHILD } }],
+  ])('maps notification owner result %# exactly', async (ownerResult, expected) => {
+    const test = harness();
+    test.notifyCard.mockReturnValue(ownerResult);
+    const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'queue_notification' });
+    await expect(settleToolForLlm(test.surface, 'queue_notification', { card_id: CHILD, kind: 'context', body: 'body' }, context)).resolves.toEqual(expected);
+    expect(test.notifyCard).toHaveBeenCalledTimes(1);
+    if (!ownerResult.ok && ownerResult.reason === 'activation_closed') expect(JSON.stringify(expected)).not.toMatch(/status|winner/);
   });
 
   it('preserves runtime Stop interruption identity', async () => {

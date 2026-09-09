@@ -5,10 +5,11 @@ import { join } from 'node:path';
 
 import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
 import { CardService } from '../helpers/canonical-project.js';
-import type { CardRecord, CardStatus, CardTypeName } from '../../src/schemas/index.js';
+import { cardViewSchema, type CardRecord, type CardStatus, type CardTypeName } from '../../src/schemas/index.js';
 import { initProjectTree, testAnalystMutationServices, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { runtimeFailure, workflowResult } from '../helpers/workflow-result.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
+import { toCardView } from '../../src/application/read-models/card-view.js';
 
 const FIRST = 'card-a';
 const SECOND = 'card-a-b';
@@ -66,7 +67,10 @@ describe('analyst stopped card mutations', () => {
       listChildren: jest.fn((id: string) => id === 'project' ? [FIRST] : id === FIRST ? [SECOND] : []), create: jest.fn(() => child),
     } as unknown as CardService;
     const bundle = services(store);
-    expect(bundle.cards.create({ type: 'code', parent: FIRST, title: 'child', bootstrap_content: 'brief' })).toMatchObject({ kind: 'returned', success: true });
+    const outcome = bundle.cards.create({ type: 'code', parent: FIRST, title: 'child', bootstrap_content: 'brief' });
+    expect(outcome).toMatchObject({ kind: 'returned', success: true });
+    if (outcome.kind !== 'returned' || !outcome.success) throw new Error('Expected creation success.');
+    expect(cardViewSchema.parse(outcome.data).card).not.toHaveProperty('pending_notifications');
     expect((store.create as jest.Mock)).toHaveBeenCalledTimes(1);
   });
 
@@ -332,6 +336,19 @@ describe('Analyst record publication', () => {
 });
 
 describe('other Analyst mutation facets', () => {
+  it('projects a directly viewed queued inactive card without exposing its delivery queue', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-queued-card-view-'));
+    try {
+      initProjectTree(root);
+      const cards = new CardService(root);
+      const target = cards.create({ type: 'code', parent: 'project', title: 'Queued', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      cards.enqueueNotification(target.id, { id: 'private-direct-id', content: 'private direct body', created_at: '2026-09-09T00:00:00.000Z' });
+      const view = cardViewSchema.parse(toCardView(cards, cards.read(target.id)!));
+      expect(view.card).not.toHaveProperty('pending_notifications');
+      expect(JSON.stringify(view)).not.toMatch(/private-direct-id|private direct body/);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
   it('calls the configuration authority exactly once through apply', () => {
     const applyChange = jest.fn(() => ({ success: true, requires_restart: true }));
     const bundle = createAnalystMutationServices({ store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn(() => ({ ok: true as const, notificationId: 'unused' })), cancelCard: jest.fn() as never });
@@ -346,6 +363,47 @@ describe('other Analyst mutation facets', () => {
     expect(bundle.notifications.queue(FIRST, 'context', 'body')).toMatchObject({ kind: 'returned', success: true });
     expect(read).not.toHaveBeenCalled();
     expect(notifyCard).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      result: { ok: true as const, notificationId: 'exact-id' },
+      expected: { kind: 'returned', success: true, data: { queued: true, card_id: FIRST, notification_id: 'exact-id' } },
+    },
+    {
+      result: { ok: false as const, reason: 'missing_card' as const, cardId: FIRST },
+      expected: { kind: 'returned', success: false, error: `Card '${FIRST}' not found.`, data: { queued: false, reason: 'missing_card', card_id: FIRST } },
+    },
+    {
+      result: { ok: false as const, reason: 'terminal_card' as const, cardId: FIRST, status: 'done' as const },
+      expected: { kind: 'returned', success: false, error: `Cannot queue notification for terminal card '${FIRST}' in status 'done'.`, data: { queued: false, reason: 'terminal_card', card_id: FIRST, status: 'done' } },
+    },
+    {
+      result: { ok: false as const, reason: 'activation_closed' as const, cardId: FIRST },
+      expected: { kind: 'returned', success: false, error: `Cannot queue notification for card '${FIRST}': its current activation is closed to new notifications.`, data: { queued: false, reason: 'activation_closed', card_id: FIRST } },
+    },
+  ])('maps notification owner result $result exactly', ({ result, expected }) => {
+    const outcome = services({ read: jest.fn() } as unknown as CardService, () => result).notifications.queue(FIRST, 'context', 'body');
+    expect(outcome).toEqual(expected);
+    if (!result.ok && result.reason === 'activation_closed') expect(JSON.stringify(outcome)).not.toMatch(/status|winner/);
+  });
+
+  it('projects queued blocked cards through the strict queue-free CardView boundary on reopen', () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-reopen-queued-view-'));
+    try {
+      initProjectTree(root);
+      const cards = new CardService(root);
+      const target = cards.create({ type: 'code', parent: 'project', title: 'Queued blocked', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
+      cards.setStatus(target.id, 'running');
+      cards.commitActivationOutcome(target.id, { status: 'blocked', summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-09-09T00:00:00.000Z');
+      cards.enqueueNotification(target.id, { id: 'private-id', content: 'private body', created_at: '2026-09-09T00:00:01.000Z' });
+      const outcome = testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'propagated' })).cards.reopen(target.id);
+      if (outcome.kind !== 'returned' || !outcome.success) throw new Error('Expected successful reopen.');
+      const view = cardViewSchema.parse(outcome.data);
+      expect(view.card).not.toHaveProperty('pending_notifications');
+      expect(cards.read(target.id)?.pending_notifications).toEqual([expect.objectContaining({ id: 'private-id', content: 'private body' })]);
+      expect(() => cardViewSchema.parse({ ...view, card: { ...view.card, pending_notifications: [] } })).toThrow();
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
   it('edits from the fresh latest closed brief', () => {

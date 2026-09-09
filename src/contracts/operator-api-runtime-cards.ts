@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  cardRecordSchema,
+  outboundCardRecordSchema,
   runtimeStateSchema,
   cardIdSchema,
   cardTypeSchema,
@@ -12,7 +12,6 @@ import {
   cardActionSchema,
   cardLifecycleStateSchema,
   ConversationSessionIdSchema,
-  cardVersionChangeSchema,
 } from '../schemas/index.js';
 import {
   operatorSessionContract,
@@ -109,11 +108,11 @@ const CardRecordVersionParamsSchema = z.object({ id: cardIdSchema, name: recordN
 export const CardHistoryEntryParamsSchema = z.object({ id: cardIdSchema, version: canonicalPositiveSafeIntegerStringSchema }).strict();
 const diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema]);
 export const CardDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() }).strict();
-const cardVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), artifact_kind: z.enum(['card-version', 'card-tombstone']), change: cardVersionChangeSchema.nullable() }).strict();
+const cardVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), artifact_kind: z.enum(['card-version', 'card-tombstone']) }).strict();
 export const CardHistoryListResponseSchema = z.object({ card_id: cardIdSchema, versions: z.array(cardVersionMetadataSchema), total: z.number().int().nonnegative() }).strict();
 const cardVersionArtifactWireSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('card-version'), card: cardRecordSchema, change: cardVersionChangeSchema.nullable() }).strict(),
-  z.object({ kind: z.literal('card-tombstone'), final_card: cardRecordSchema, change: cardVersionChangeSchema }).strict(),
+  z.object({ kind: z.literal('card-version'), card: outboundCardRecordSchema }).strict(),
+  z.object({ kind: z.literal('card-tombstone'), final_card: outboundCardRecordSchema }).strict(),
 ]);
 export const CardHistoryEntryResponseSchema = z.object({ card_id: cardIdSchema, version: positiveSafeIntegerSchema, entry_id: z.string().uuid(), published_at: z.string().datetime(), artifact: cardVersionArtifactWireSchema }).strict();
 type CardDiffJsonValue =
@@ -136,7 +135,7 @@ const cardDiffJsonValueSchema: z.ZodType<CardDiffJsonValue> = z.lazy(() =>
 );
 
 export const CardDiffRowSchema = z.object({
-  field: z.string().min(1),
+  field: z.string().min(1).refine((field) => field !== 'pending_notifications', 'pending_notifications is not an outbound card diff field.'),
   before: cardDiffJsonValueSchema,
   after: cardDiffJsonValueSchema,
 }).strict();

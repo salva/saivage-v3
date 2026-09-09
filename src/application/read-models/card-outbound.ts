@@ -1,20 +1,16 @@
 import type { CardDiffEntry } from '../../cards/card-service.js';
 import {
-  cardHistoryEntrySchema,
-  cardHistoryHeaderSchema,
   cardLifecycleStateSchema,
-  cardNotificationSchema,
   cardRecordSchema,
-  type CardHistoryEntry,
-  type CardHistoryHeader,
+  outboundCardRecordSchema,
+  type OutboundCardRecord,
   type CardRecord,
 } from '../../schemas/index.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
-import type { CardVersionChange } from '../../persistence/canonical-card-artifacts.js';
 
-export function projectCardRecordForOutbound(card: CardRecord): CardRecord {
+export function projectCardRecordForOutbound(card: CardRecord): OutboundCardRecord {
   const parsed = cardRecordSchema.parse(card);
-  return cardRecordSchema.parse({
+  return outboundCardRecordSchema.parse({
     id: parsed.id,
     type: parsed.type,
     child_membership: [...parsed.child_membership],
@@ -41,58 +37,15 @@ export function projectCardRecordForOutbound(card: CardRecord): CardRecord {
     status_text_author_session_id: parsed.status_text_author_session_id,
     latest_self_report: parsed.latest_self_report,
     metadata: parsed.metadata,
-    pending_notifications: parsed.pending_notifications.map(projectNotification),
-  });
-}
-
-export function projectCardVersionChangeForOutbound(change: CardVersionChange | null): CardVersionChange | null {
-  if (!change) return null;
-  return {
-    ...change,
-    change_summary: redactTextForOutbound(change.change_summary),
-    change_reason: redactTextForOutbound(change.change_reason),
-    terminal_summary: change.terminal_summary ? { ...change.terminal_summary, summary: redactTextForOutbound(change.terminal_summary.summary) } : null,
-  };
-}
-
-export function projectCardHistory(value: CardHistoryHeader | CardHistoryEntry): CardHistoryHeader | CardHistoryEntry {
-  if ('snapshot' in value) {
-    const parsed = cardHistoryEntrySchema.parse(value);
-    return cardHistoryEntrySchema.parse({
-      ...projectHistoryCommon(parsed),
-      kind: parsed.kind,
-      changed_by_actor: parsed.changed_by_actor,
-      changed_by_surface: parsed.changed_by_surface,
-      snapshot: projectCardRecordForOutbound(parsed.snapshot),
-    });
-  }
-  const parsed = cardHistoryHeaderSchema.parse(value);
-  return cardHistoryHeaderSchema.parse({
-    ...projectHistoryCommon(parsed),
-    kind: parsed.kind,
-    changed_by_actor: parsed.changed_by_actor,
-    changed_by_surface: parsed.changed_by_surface,
   });
 }
 
 export function projectCardDiff(diff: CardDiffEntry[]): CardDiffEntry[] {
-  return diff.map((entry) => ({
+  return diff.filter((entry) => entry.field !== 'pending_notifications').map((entry) => ({
     field: entry.field,
     before: projectDiffValue(entry.field, entry.before),
     after: projectDiffValue(entry.field, entry.after),
   }));
-}
-
-function projectHistoryCommon(value: CardHistoryHeader | CardHistoryEntry) {
-  return {
-    entry_id: value.entry_id,
-    card_id: value.card_id,
-    version_seq: value.version_seq,
-    changed_at: value.changed_at,
-    change_reason: redactNullableText(value.change_reason),
-    changed_fields: [...value.changed_fields],
-    change_summary: redactTextForOutbound(value.change_summary),
-  };
 }
 
 function projectLifecycle(value: CardRecord['lifecycle']): CardRecord['lifecycle'] {
@@ -127,7 +80,6 @@ function projectDiffValue(field: string, value: unknown): unknown {
     case 'title': return typeof value === 'string' ? redactTextForOutbound(value) : failDiffType(field);
     case 'status_text': return value === null ? null : typeof value === 'string' ? redactTextForOutbound(value) : failDiffType(field);
     case 'lifecycle': return projectLifecycle(cardLifecycleStateSchema.parse(value));
-    case 'pending_notifications': return cardNotificationSchema.array().parse(value).map(projectNotification);
     case 'id':
     case 'type':
     case 'child_membership':
@@ -155,15 +107,6 @@ function projectDiffValue(field: string, value: unknown): unknown {
     default:
       throw new Error(`Unknown card diff field '${field}'.`);
   }
-}
-
-function projectNotification(notification: { id: string; content: string; created_at: string; source?: string }) {
-  return {
-    id: notification.id,
-    content: redactTextForOutbound(notification.content),
-    created_at: notification.created_at,
-    ...(notification.source !== undefined ? { source: notification.source } : {}),
-  };
 }
 
 function redactNullableText(value: string | null): string | null {

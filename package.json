@@ -52,7 +52,7 @@
     "docs:build": "vitepress build docs",
     "docs:verify": "bash scripts/docs-verify.sh",
     "build": "tsc && tsx scripts/copy-system-template-prompts.js && npm run docs:build && (cd web && npm run build) && npm run test:compiled-prompt-composition",
-    "test:compiled-prompt-composition": "node tests/scripts/compiled-prompt-composition-smoke.js",
+    "test:compiled-prompt-composition": "node dist/tests/scripts/compiled-prompt-composition-smoke.js --source-root .",
     "web:test:operator-smoke": "cd web && npx vitest run src/__tests__/operator-dashboard-smoke.test.ts && cd .. && npx playwright test -c tests/playwright/smoke/playwright.config.ts tests/playwright/smoke/operator-direct-load-routes.spec.ts tests/playwright/smoke/cards-independent-scroll-selection.spec.ts tests/playwright/smoke/card-status-presentation.spec.ts tests/playwright/smoke/http-live-sync-lease.spec.ts tests/playwright/smoke/cards-bootstrap-request-order.spec.ts",
     "web:test:card-history-panel": "cd web && npx vitest run src/__tests__/card-history-panel.test.ts",
     "validate:docs": "npm run docs:verify",

@@ -41,11 +41,12 @@ const canonicalCard = {
   metrics: null, estimate: null, started_at: null, duration_ms: null, status_text: null, status_text_updated_at: null,
   status_text_author_session_id: null, latest_self_report: null, metadata: null, pending_notifications: [],
 } as const;
+const { pending_notifications: _pendingNotifications, ...outboundCanonicalCard } = canonicalCard;
 const canonicalCardDetail = { id:'project',type:'project',title:'Project',lifecycle:canonicalCard.lifecycle,version_seq:1,urgency:'normal',created_at:canonicalCard.created_at,updated_at:canonicalCard.updated_at,allowedActions:[] } as const;
 const canonicalHierarchyCard = { id:'project',type:'project',title:'Project',status:'backlog',permitted_child_types:['goal','code'] } as const;
 const canonicalHierarchyChild = { id:'card-a',type:'code',title:'Card',status:'backlog',permitted_child_types:[] } as const;
 const canonicalRecordDescriptors = [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true, current: null }] as const;
-const canonicalCardKeys = ['id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata', 'pending_notifications'] as const;
+const outboundCanonicalCardKeys = ['id', 'type', 'child_membership', 'active_child_order', 'title', 'subtype', 'tags', 'priority', 'urgency', 'created_by', 'created_at', 'updated_at', 'version_seq', 'assigned_to', 'depends_on', 'related', 'lifecycle', 'metrics', 'estimate', 'started_at', 'duration_ms', 'status_text', 'status_text_updated_at', 'status_text_author_session_id', 'latest_self_report', 'metadata'] as const;
 const validOperatorApiRow: OperatorApiCardDiffRow = { field: 'title', before: null, after: 'new' };
 // @ts-expect-error CardDiffRow requires before through operator-api.ts.
 const missingBefore: OperatorApiCardDiffRow = { field: 'title', after: 'new' };
@@ -522,20 +523,32 @@ describe('operator API runtime contract without runtime ledgers', () => {
       {error:'Card record not found',cardId:'project',name:'brief.md'},
     ]) expect(record404.parse(body)).toEqual(body);
     expect(() => record404.parse({error:'Card record not found',cardId:'project',name:'brief.md',extra:true})).toThrow();
-    const entry = { card_id: 'project', version: 1, entry_id: '11111111-1111-4111-8111-111111111111', published_at: '2026-01-01T00:00:00.000Z', artifact: { kind: 'card-version', card: canonicalCard, change: null } } as const;
-    expect((parseOperatorResponse('cards.history.get', 200, entry) as any).artifact.card).toEqual(canonicalCard);
+    const entry = { card_id: 'project', version: 1, entry_id: '11111111-1111-4111-8111-111111111111', published_at: '2026-01-01T00:00:00.000Z', artifact: { kind: 'card-version', card: outboundCanonicalCard } } as const;
+    expect((parseOperatorResponse('cards.history.get', 200, entry) as any).artifact.card).toEqual(outboundCanonicalCard);
+    expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, card: canonicalCard } })).toThrow();
+    for (const change of [null, { actor: 'runtime' }, { kind: 'update', changed_at: canonicalCard.created_at }]) expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, change } })).toThrow();
+    const tombstone = { ...entry, version: 2, artifact: { kind: 'card-tombstone' as const, final_card: outboundCanonicalCard } };
+    expect((parseOperatorResponse('cards.history.get', 200, tombstone) as any).artifact).toEqual(tombstone.artifact);
+    expect(() => parseOperatorResponse('cards.history.get', 200, { ...tombstone, artifact: { ...tombstone.artifact, change: { actor: 'runtime' } } })).toThrow();
+    expect(() => parseOperatorResponse('cards.history.get', 200, { ...tombstone, artifact: { ...tombstone.artifact, final_card: canonicalCard } })).toThrow();
 
-    for (const key of canonicalCardKeys) {
-      const incompleteSnapshot = { ...canonicalCard } as Record<string, unknown>;
+    for (const key of outboundCanonicalCardKeys) {
+      const incompleteSnapshot = { ...outboundCanonicalCard } as Record<string, unknown>;
       delete incompleteSnapshot[key];
       expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, card: incompleteSnapshot } })).toThrow();
     }
   });
 
   it('uses resulting-version metadata and rejects embedded prior-snapshot history rows', () => {
-    const version = { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: '2026-01-01T00:00:00.000Z', artifact_kind: 'card-version', change: null };
+    const version = { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: '2026-01-01T00:00:00.000Z', artifact_kind: 'card-version' };
     expect((parseOperatorResponse('cards.history.list', 200, { card_id: 'project', versions: [version], total: 1 }) as any).versions[0]).toEqual(version);
+    expect(() => parseOperatorResponse('cards.history.list', 200, { card_id: 'project', versions: [{ ...version, change: null }], total: 1 })).toThrow();
     expect(() => parseOperatorResponse('cards.history.list', 200, { history: [{ ...version, version_seq: 1, snapshot: canonicalCard }], total: 1 })).toThrow();
+  });
+
+  it('rejects pending notification rows from the card diff contract', () => {
+    expect(contractsModule.CardDiffRowSchema.safeParse({ field: 'pending_notifications', before: [], after: [] }).success).toBe(false);
+    expect(contractsModule.CardDiffRowSchema.parse({ field: 'title', before: 'before', after: 'after' })).toEqual({ field: 'title', before: 'before', after: 'after' });
   });
 
   it('uses one canonical positive safe integer wire grammar', () => {

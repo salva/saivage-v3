@@ -6,7 +6,7 @@ import { join } from 'node:path';
 
 import { CardService, initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
 import { cardRecordSchema, type CardRecord } from '../../src/schemas/index.js';
-import { cardVersionChangeSchema } from '../../src/schemas/card-version-change.js';
+import { cardVersionChangeSchema } from '../../src/schemas/index.js';
 import { publishCardVersion, publishInitialChildCard } from '../../src/persistence/card-files.js';
 import { cardStreamFile } from '../../src/persistence/layout.js';
 

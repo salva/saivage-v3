@@ -2,6 +2,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import type { WebSocket } from 'ws';
 
 import { ServerEgressWsEnvelopeSchema } from '../../src/contracts/index.js';
+import { isAnalystActivityContent } from '../../src/contracts/operator-events.js';
 import { sendToClient, serializeOutboundEnvelope } from '../../src/server/websocket.js';
 import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
 import { OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
@@ -60,5 +61,15 @@ describe('WebSocket outbound serialization', () => {
         result: { success: false, error: 'failed token=[REDACTED]', data: { status: 'visible' } },
       },
     });
+  });
+
+  it.each([['pending_notifications'], ['title']])('rejects the removed complete card history event and sends nothing for changed fields %j', (changedFields) => {
+    const frame = { type: 'activity', content: { event: 'card_history_appended', card_id: 'project', version_seq: 2, changed_fields: changedFields, changed_at: '2026-09-09T00:00:00.000Z' } };
+    const ws = { OPEN: 1, readyState: 1, send: jest.fn() } as unknown as WebSocket;
+    expect(ServerEgressWsEnvelopeSchema.safeParse(frame).success).toBe(false);
+    expect(isAnalystActivityContent(frame.content)).toBe(false);
+    expect(() => serializeOutboundEnvelope(frame as never)).toThrow();
+    sendToClient(ws, frame as never);
+    expect(ws.send).not.toHaveBeenCalled();
   });
 });

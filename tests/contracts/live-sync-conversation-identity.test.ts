@@ -114,7 +114,7 @@ describe('server-egress WebSocket parser', () => {
     undefined,
     {},
     { type: 'activity', content: { event: 'future_event' } },
-    { type: 'activity', content: { event: 'card_history_appended' } },
+    { type: 'activity', content: { event: 'card_history_appended', card_id: 'project', version_seq: 2, changed_fields: ['pending_notifications'], changed_at: '2026-09-09T00:00:00.000Z' } },
     { type: 'message', content: { text: 'browser input only' } },
     { type: 'thinking', content: {} },
     { ...connected, extra: true },

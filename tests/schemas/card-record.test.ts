@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { cardRecordSchema } from '../../src/schemas/index.js';
+import { cardRecordSchema, outboundCardRecordSchema } from '../../src/schemas/index.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
@@ -42,6 +42,14 @@ describe('card record hierarchy shape', () => {
     const { active_child_order: _order, ...missingOrder } = project;
     expect(() => cardRecordSchema.parse(missingMembership)).toThrow();
     expect(() => cardRecordSchema.parse(missingOrder)).toThrow();
+  });
+
+  it('keeps pending notifications required only on the durable record and forbidden on the outbound record', () => {
+    const project = fixture().cards.read('project')!;
+    const { pending_notifications: _pending, ...outbound } = project;
+    expect(cardRecordSchema.safeParse(outbound).success).toBe(false);
+    expect(outboundCardRecordSchema.parse(outbound)).toEqual(outbound);
+    expect(outboundCardRecordSchema.safeParse(project).success).toBe(false);
   });
 });
 

@@ -1,6 +1,7 @@
 import { PROJECT_CARD_ID, type CardService } from '../../cards/card-api.js';
-import type { CardOperatorSummary, CardRecord, CardView } from '../../schemas/index.js';
+import { cardViewSchema, type CardOperatorSummary, type CardRecord, type CardView } from '../../schemas/index.js';
 import { cardParentId } from '../../schemas/card-id.js';
+import { projectCardRecordForOutbound } from './card-outbound.js';
 
 function computeCardLogicalPath(store: CardService, card: CardRecord): string | null {
   if (card.id === PROJECT_CARD_ID) return null;
@@ -25,10 +26,11 @@ function siblingDisplayRank(store: CardService, card: CardRecord): number {
 }
 
 export function toCardView(store: CardService, card: CardRecord): CardView {
-  return { card, logical_path: computeCardLogicalPath(store, card), status: card.lifecycle.status, parent: cardParentId(card.id), operator_summary: toCardOperatorSummary(card) };
+  const projected = projectCardRecordForOutbound(card);
+  return cardViewSchema.parse({ card: projected, logical_path: computeCardLogicalPath(store, card), status: projected.lifecycle.status, parent: cardParentId(card.id), operator_summary: toCardOperatorSummary(projected) });
 }
 
-function toCardOperatorSummary(card: CardRecord): CardOperatorSummary {
+function toCardOperatorSummary(card: Pick<CardRecord, 'lifecycle'>): CardOperatorSummary {
   const lifecycle = card.lifecycle;
   return {
     blocked: lifecycle.status === 'blocked',

@@ -220,6 +220,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const card = this.behavior.actorStore.read(cardId);
     if (!card) return { ok: false, reason: 'missing_card', cardId };
     if (!acceptsCardNotifications(card.lifecycle.status)) return { ok: false, reason: 'terminal_card', cardId, status: card.lifecycle.status as 'done' | 'failed' | 'cancelled' };
+    const owner = this.activationOwners.get(cardId);
+    if (owner && owner.terminalWinner !== 'open') return { ok: false, reason: 'activation_closed', cardId };
     this.behavior.actorStore.enqueueNotification(cardId, notification);
     return { ok: true, notificationId: notification.id };
   }

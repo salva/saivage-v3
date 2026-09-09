@@ -24,7 +24,7 @@ function card(id: string, title: string, children: string[] = [], status: 'backl
     tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', created_at: now, updated_at: now,
     assigned_to: null, depends_on: [], related: [], metrics: null, estimate: null, started_at: null, duration_ms: null,
     status_text: null, status_text_updated_at: null, status_text_author_session_id: null, latest_self_report: null, metadata: null,
-    pending_notifications: [], allowedActions: [], version_seq: 1,
+    allowedActions: [], version_seq: 1,
   };
 }
 
@@ -80,21 +80,11 @@ async function install(page: Page): Promise<Fixture> {
     }
     if (url.pathname === `/api/cards/${targetId}/history`) {
       await fixture.historyDelay.get(targetId);
-      const change = {
-        entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update' as const, card_id: targetId, resulting_version: 2,
-        changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card',
-        changed_fields: ['title'], change_summary: 'title updated', terminal_summary: null,
-      };
-      return json(route, parseOperatorResponse('cards.history.list', 200, { card_id: targetId, versions: [{ entry_id: change.entry_id, version: 2, published_at: now, artifact_kind: 'card-version', change }], total: 1 }));
+      return json(route, parseOperatorResponse('cards.history.list', 200, { card_id: targetId, versions: [{ entry_id: '11111111-1111-4111-8111-111111111111', version: 2, published_at: now, artifact_kind: 'card-version' }], total: 1 }));
     }
     if (url.pathname === `/api/cards/${targetId}/history/2`) {
       const { operator_summary: _operatorSummary, allowedActions: _allowedActions, ...snapshot } = targetPrior;
-      const change = {
-        entry_id: '11111111-1111-4111-8111-111111111111', kind: 'update' as const, card_id: targetId, resulting_version: 2,
-        changed_at: now, changed_by_actor: 'planner', changed_by_surface: 'runtime', change_reason: 'planner edit_card',
-        changed_fields: ['title'], change_summary: 'title updated', terminal_summary: null,
-      };
-      return json(route, parseOperatorResponse('cards.history.get', 200, { card_id: targetId, version: 2, entry_id: change.entry_id, published_at: now, artifact: { kind: 'card-version', card: snapshot, change } }));
+      return json(route, parseOperatorResponse('cards.history.get', 200, { card_id: targetId, version: 2, entry_id: '11111111-1111-4111-8111-111111111111', published_at: now, artifact: { kind: 'card-version', card: snapshot } }));
     }
     if (url.pathname === `/api/cards/${targetId}/diff`) {
       return json(route, parseOperatorResponse('cards.diff', 200, { card_id: targetId, from: 2, to: 3, diff: [{ field: 'title', before: 'Earlier target', after: target.title }] }));
@@ -207,7 +197,7 @@ test('direct obsolete card URL explains terminal absence, retains the tree, and 
 test('refresh detail 404 aborts selected resources, blocks healing fan-out, and leaves hierarchy independently refreshable', async ({ page }) => {
   const fixture = await install(page); await page.goto(`/cards/${targetId}`);
   await expect(page.getByTestId('card-detail-highlight')).toContainText('Deep linked target');
-  await page.getByText('Version history', { exact: true }).click(); await expect(page.getByText('title updated', { exact: true })).toBeVisible(); await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
+  await page.getByText('Version history', { exact: true }).click(); await expect(page.getByText('Card version', { exact: true })).toBeVisible(); await expect(page.getByText('Published at', { exact: true })).toBeVisible(); await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
   const tree = page.locator('.tree-container'); await tree.evaluate((element) => element.setAttribute('data-identity', 'refresh-404-retained'));
   let releaseRecord!: () => void; let releaseHistory!: () => void;
   fixture.recordDelay.set(`${targetId}:brief`, new Promise<void>((resolve) => { releaseRecord = resolve; })); fixture.historyDelay.set(targetId, new Promise<void>((resolve) => { releaseHistory = resolve; }));
@@ -219,7 +209,7 @@ test('refresh detail 404 aborts selected resources, blocks healing fan-out, and 
   ]);
   await expect.poll(() => fixture.requests.filter((entry) => entry === briefPath).length).toBe(briefBefore + 1); await expect.poll(() => fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}/history`).length).toBe(historyBefore + 1);
   fixture.missingDetails.add(targetId); await page.evaluate((frame) => window.__saivageWsFixture?.emit(frame), { t: 'invalidate', resource: 'cards', scope: 'detail', card_id: targetId });
-  await expect(page.getByText('Card not found', { exact: true })).toBeVisible(); await expect(page.getByTestId('card-detail-highlight')).toHaveCount(0); await expect(page.getByText('title updated', { exact: true })).toHaveCount(0); await expect(page.getByText(/Continue with/)).toHaveCount(0);
+  await expect(page.getByText('Card not found', { exact: true })).toBeVisible(); await expect(page.getByTestId('card-detail-highlight')).toHaveCount(0); await expect(page.getByText('Card version', { exact: true })).toHaveCount(0); await expect(page.getByText(/Continue with/)).toHaveCount(0);
   releaseRecord(); releaseHistory(); await page.evaluate(() => Promise.resolve()); await expect(page.getByText('Card not found', { exact: true })).toBeVisible();
   const selectedReads = () => fixture.requests.filter((entry) => entry === `GET /api/cards/${targetId}` || entry.startsWith(`GET /api/cards/${targetId}/records`) || entry.startsWith(`GET /api/cards/${targetId}/history`) || entry.startsWith(`GET /api/cards/${targetId}/diff`)).length;
   const selectedBaseline = selectedReads();
@@ -383,7 +373,7 @@ test('unselected card history and diff invalidations do not reload the selected 
   await page.goto(`/cards/${targetId}`);
   await page.getByText('Version history', { exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Card history', exact: true })).toBeVisible();
-  await expect(page.getByText('title updated', { exact: true })).toBeVisible();
+  await expect(page.getByText('Card version', { exact: true })).toBeVisible();
   await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
   const before = [...fixture.requests];
   await page.evaluate((frames) => { for (const frame of frames) window.__saivageWsFixture?.emit(frame); }, [

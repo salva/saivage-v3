@@ -122,7 +122,16 @@ describe('websocket ticket client', () => {
     socket.onmessage?.({ data: JSON.stringify({ type: 'message', content: { text: 'browser input only' } }) });
     socket.onmessage?.({ data: JSON.stringify({ type: 'thinking', content: {} }) });
     socket.onmessage?.({ data: JSON.stringify({ type: 'activity', content: { event: 'future_event' } }) });
-    socket.onmessage?.({ data: JSON.stringify({ type: 'activity', content: { event: 'card_history_appended' } }) });
+    socket.onmessage?.({ data: JSON.stringify({
+      type: 'activity',
+      content: {
+        event: 'card_history_appended',
+        card_id: 'project',
+        version_seq: 2,
+        changed_fields: ['title'],
+        changed_at: '2026-09-09T00:00:00.000Z',
+      },
+    }) });
 
     expect(handler).not.toHaveBeenCalled();
   });

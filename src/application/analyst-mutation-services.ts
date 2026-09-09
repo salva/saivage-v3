@@ -168,11 +168,17 @@ class AnalystNotificationMutationImplementation implements AnalystNotificationMu
   constructor(private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
   queue(cardId: string, kind: string, body: string): AnalystMutationOutcome {
     const queued = queueNotification(cardId, kind, body, this.notifyCard);
-    if (!queued.ok && queued.reason === 'terminal_card') return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
-    if (!queued.ok) return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-    return success({ queued: true, card_id: cardId, notification_id: queued.notificationId });
+    if (queued.ok) return success({ queued: true, card_id: cardId, notification_id: queued.notificationId });
+    switch (queued.reason) {
+      case 'missing_card': return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
+      case 'terminal_card': return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
+      case 'activation_closed': return failure(`Cannot queue notification for card '${queued.cardId}': its current activation is closed to new notifications.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
+      default: return assertNever(queued);
+    }
   }
 }
+
+function assertNever(value: never): never { throw new Error(`Unhandled notification result: ${JSON.stringify(value)}`); }
 
 class AnalystRecordMutationImplementation implements AnalystRecordMutationService {
   constructor(private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}

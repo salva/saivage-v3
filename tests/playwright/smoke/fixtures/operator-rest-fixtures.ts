@@ -25,24 +25,18 @@ export const smokeOperatorCard = {
   version_seq: 3,
 };
 const card = smokeOperatorCard;
-const rawCard = { id:smokeCardId,type:'code',child_membership:[],active_child_order:[],title:card.title,lifecycle:card.lifecycle,subtype:null,tags:['smoke'],priority:90,urgency:'normal',created_by:'analyst',created_at:now,updated_at:now,version_seq:3,assigned_to:null,depends_on:[],related:[],metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:'synthetic result',status_text_updated_at:now,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[] };
+const outboundCard = { id:smokeCardId,type:'code',child_membership:[],active_child_order:[],title:card.title,lifecycle:card.lifecycle,subtype:null,tags:['smoke'],priority:90,urgency:'normal',created_by:'analyst',created_at:now,updated_at:now,version_seq:3,assigned_to:null,depends_on:[],related:[],metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:'synthetic result',status_text_updated_at:now,status_text_author_session_id:null,latest_self_report:null,metadata:null };
 const priorCard = {
-  ...rawCard,
+  ...outboundCard,
   lifecycle: { status: 'running' as const, result: null, error: null, completed_at: null },
   status_text: null,
   status_text_updated_at: null,
   version_seq: 2,
 };
-const terminalHistory = {
-  entry_id: '11111111-1111-4111-8111-111111111111', kind: 'terminal' as const, card_id: smokeCardId, resulting_version: 2,
-  changed_at: now, changed_by_actor: 'runtime' as const, changed_by_surface: 'runtime' as const,
-  change_reason: 'terminal lifecycle commit', changed_fields: ['lifecycle', 'status_text', 'status_text_updated_at'],
-  change_summary: 'lifecycle, status_text, status_text_updated_at updated',
-  terminal_summary: { status: 'done' as const, result_kind: 'workflow-result' as const, summary: 'synthetic result', content_policy: null },
-};
-const historyList = parseOperatorResponse('cards.history.list', 200, { card_id: smokeCardId, versions: [{ entry_id: terminalHistory.entry_id, version: 2, published_at: now, artifact_kind: 'card-version', change: terminalHistory }], total: 1 });
-const historyEntry = parseOperatorResponse('cards.history.get', 200, { card_id: smokeCardId, version: 2, entry_id: terminalHistory.entry_id, published_at: now, artifact: { kind: 'card-version', card: priorCard, change: terminalHistory } });
-const historyDiff = parseOperatorResponse('cards.diff', 200, { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: rawCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
+const historyEntryId = '11111111-1111-4111-8111-111111111111';
+const historyList = parseOperatorResponse('cards.history.list', 200, { card_id: smokeCardId, versions: [{ entry_id: historyEntryId, version: 2, published_at: now, artifact_kind: 'card-version' }], total: 1 });
+const historyEntry = parseOperatorResponse('cards.history.get', 200, { card_id: smokeCardId, version: 2, entry_id: historyEntryId, published_at: now, artifact: { kind: 'card-version', card: priorCard } });
+const historyDiff = parseOperatorResponse('cards.diff', 200, { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: outboundCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
 
 const projectCard = {
   id: 'project',
@@ -321,7 +315,6 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     if (request.method() === 'GET' && url.pathname === '/api/processes') {
       return json(route, processListResponse);
     }
-    if (request.method() === 'GET' && url.pathname === '/api/notifications') return json(route, { notifications: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/control-actions') return json(route, { control_actions: [], total: 0 });
     if (request.method() === 'GET' && url.pathname === '/api/chat') {
       const sessionId = 'agent:analyst:global';

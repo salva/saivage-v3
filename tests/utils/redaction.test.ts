@@ -13,7 +13,6 @@ describe('outbound redaction', () => {
       'provider-exchange',
       'logged-event',
       'control-action',
-      'card-history',
       'card-diff',
       'config',
       'process-view',

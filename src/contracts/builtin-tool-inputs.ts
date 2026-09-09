@@ -18,10 +18,10 @@ const discoveryReadPositionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('collection'), item_index: z.number().int().min(0), item_byte_offset: z.number().int().min(0) }).strict(),
   z.object({ kind: z.literal('text'), byte_offset: z.number().int().min(0) }).strict(),
 ]);
-const cardSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'notifications', 'children', 'records'])
-  .describe('Exactly one current-card section per call.');
-const cardVersionSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'notifications', 'children'])
-  .describe("Exactly one card-artifact-owned section per call. The children section is the selected immutable row's complete active_child_order carrier and may include retained tombstoned links.");
+const cardSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'children', 'records'])
+  .describe('Exactly one current-card section per call. Pending delivery context is not readable.');
+const cardVersionSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'children'])
+  .describe("Exactly one card-artifact-owned section per call. The children section is the selected immutable row's complete active_child_order carrier and may include retained tombstoned links. Pending delivery context is not readable.");
 
 const cardTypeEnum = (cardTypeVocabulary: readonly CardTypeName[]) => z.enum(cardTypeVocabulary as [CardTypeName, ...CardTypeName[]]);
 

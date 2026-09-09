@@ -78,17 +78,17 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
       { id: 'project', section: 'summary' } as const,
       { id: 'project', section: 'tags' } as const,
       { id: 'project', section: 'children', response_bytes: 1024 } as const,
-      { id: cards.listChildren('project').find((id) => id !== undefined && cards.read(id)!.pending_notifications.length > 0)!, section: 'notifications', response_bytes: 1024 } as const,
       { id: 'project', section: 'records' } as const,
     ]) {
       const result = await invokeTestTool(surface, 'get_card', args);
       expect(envelopeBytes(result.data)).toBeLessThanOrEqual(args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES);
     }
+    const firstChild = cards.listChildren('project')[0]!;
+    await expect(invokeTestTool(surface, 'get_card', { id: firstChild, section: 'notifications', response_bytes: 1024 })).rejects.toThrow();
 
     const tree = await invokeTestTool(surface, 'get_tree', { rootId: 'project', depth: 2, response_bytes: 1500 });
     expect(envelopeBytes(tree.data)).toBeLessThanOrEqual(1500);
 
-    const firstChild = cards.listChildren('project')[0]!;
     const versions = await invokeTestTool(surface, 'list_card_versions', { card_id: firstChild, response_bytes: 900 });
     expect(envelopeBytes(versions.data)).toBeLessThanOrEqual(900);
     const versionPage = (versions.data as { versions: { total: number } }).versions;

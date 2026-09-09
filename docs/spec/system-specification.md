@@ -173,7 +173,7 @@ A later same-format binary deployment may retain only the exact current `card.js
 ## 1. Product Boundary
 
 Saivage autonomously plans and executes software work represented by cards.
-It exposes an operator server, Analyst conversation, card/agent/file/debug read models, and process-local runtime controls.
+It exposes an operator server, Analyst conversation, card/agent/file/debug read models, and process-local runtime controls. Pending notifications are a private delivery queue: `queue_notification` is the only public agent-facing notification operation, and no ordinary card read exposes that queue.
 The runtime is the only dispatcher.
 
 Default agent allocation is deliberate workflow/API discipline for trusted in-container agents, not a hard-coded privilege system.
@@ -346,10 +346,11 @@ Before acceptance runtime status is unknown; accepted `runtime:null` means stopp
 The browser has no runtime callback-provenance or age-derived stale model.
 Browser-to-server Analyst input is the separate strict `message` envelope and is never valid server egress.
 Server event egress is one strict `status | activity | error` union; it has no `message`, `thinking`, unknown, or open member.
-Its event-bearing content uses only `connected`, `analyst_turn_acknowledged`, `card_history_appended`, `notification_added`, `control_action_recorded`, `analyst_tool_invoked`, and `tool_invocation`.
+Its event-bearing content uses only `connected`, `analyst_turn_acknowledged`, `notification_added`, `control_action_recorded`, `analyst_tool_invoked`, and `tool_invocation`.
 `tool_invocation` requires the singular classified `ToolResult` contract.
 Every server envelope and content variant is an exact strict object: an undeclared key is structurally invalid.
 The server-egress parser returns a validated server value or throws for structurally invalid, unknown, malformed, or wrong-direction input; unknown events are never dispatched through a generic envelope path.
+Ordinary Cards freshness is carried only by the scoped identity-only invalidations above; there is no card-history activity payload carrying changed fields.
 
 `children.card_id` names the parent key of `GET /api/cards/:id/children`; `history` names ascending card-version metadata; `diff` names a displayed diff against current; and `record` names one effective current configured record.
 The mutation owner publishes targets only after successful canonical publication, according to this effect matrix:
@@ -419,10 +420,9 @@ Root/current-invalid routes clear route ownership and supersede reveal without c
 Route-required reveal takes precedence over collapse intent only along represented edges.
 Desktop uses independently scrolling tree and detail panes with no combined Cards scroll, while mobile presents the tree or selected detail as one pane with Back returning to the tree.
 
-Every card requires ordered `pending_notifications`.
-Notifications are allowed on backlog, changed, running, blocked, and stopped cards.
-Done, failed, and cancelled cards require an empty list and reject enqueue with `terminal_card`.
-Unrelated mutations preserve the list; transitions to done, failed, or cancelled clear it.
+Every durable card requires ordered `pending_notifications`.
+Backlog, changed, running, blocked, and stopped lifecycle state permits enqueue, while done, failed, and cancelled require an empty list and reject enqueue with `terminal_card`. For a currently owned activation, lifecycle permission is necessary but not sufficient: after its result or cancellation winner is synchronously claimed, enqueue rejects with `activation_closed` before a card append even while durable status can still be running.
+Unrelated mutations preserve the list. Cancellation and done or failed publication clear it; BLOCKED activation settlement also clears it before publishing blocked.
 Reopening supported statuses to changed uses only the supported `setStatus('changed')` transition; no actor callback or lifecycle-repair authority exists.
 No `next_role`, retry count, reviewer phase, recovery cursor, or autonomous-round counter exists.
 
@@ -717,7 +717,7 @@ Analyst stores that returned result only after durable append and passes it unch
 Successful restart no-continuation settlement likewise returns the authority-created facts before confirmation handling.
 
 Every bounded tool response is admitted against canonical bytes of the final post-outbound settled ToolResult, not an inner pre-redaction payload estimate.
-Current and immutable card summaries and notification sections use one shared projector, so both surfaces apply the same truncation and byte-fit decisions.
+Current and immutable card summaries use one shared summary projector and therefore apply the same truncation and byte-fit decisions. Neither surface has a notification section.
 
 Provider completion owns canonical conversation publication and all writer observers, mandatory provider-exchange evidence publication, synchronous enclosing-owner handoff carrying the exact terminal input, and only then direct promise delivery.
 Analyst handoff installs outer settlement before promise callbacks: message completion needs no second row, while provider/model issue preserves `${terminalSource}:error` and evidence before the Analyst writes required `${terminalSource}:message`.
@@ -792,17 +792,15 @@ There is no transaction, recovery generation, graph cursor, old-node inference, 
 
 ## 5. Notifications And Reviewer Arbitration
 
-The durable notification target is one `card_id`.
-Public tools accept `card_id`, `kind`, and `body`; they do not accept role/session recipients and do not report session deliveries.
-A Planner queue operation is evidenced by the target card's canonical pending-notification state and its normal tool result; it creates no current control-action audit row and adds no operator control action.
+The durable notification target is one `card_id`, and `queue_notification` is the only public agent-facing notification tool. It accepts `card_id`, `kind`, and `body`; roles and session IDs are not targets, and its configured current/next workflow-node agent receives context through the card-scoped session selected by the runtime.
 
-Planner, reviewer, and executor use one delivery rule.
-Node-entry notifications are appended as role context before exact selected-ID removal.
-At every `emit_result` candidate gate, the owner captures one deterministic ordered pending set.
-A non-empty set defeats the candidate without claim: append the paired failed result with reason `pending_notifications`, append exactly those bodies in order, append the resolved correction and reconsider instruction, then remove exactly the selected IDs only after all appends succeed.
-Append failure removes nothing; a crash after append and before removal may duplicate visible context.
-Notifications arriving after selection remain queued for the next candidate.
-The failed result begins an ordinary same-node continuation for every role and is never clean terminal settlement.
+The exact public outcomes are success `{queued:true,card_id,notification_id}`, missing `{queued:false,reason:'missing_card',card_id}`, persisted terminal `{queued:false,reason:'terminal_card',card_id,status:'done'|'failed'|'cancelled'}`, and closed current activation `{queued:false,reason:'activation_closed',card_id}`. The closed result carries no status or result/cancel winner discriminator because durable status may still be running. It is returned synchronously before enqueue, and Saivage neither retries nor redirects that invocation.
+
+Successful queueing acknowledges durable enqueue, not delivery. Planner, reviewer, and executor use one append-before-remove delivery rule: node entry appends selected bodies as delivered notification context before exact selected-ID removal. At every otherwise accepted terminal `emit_result` candidate gate, the owner captures one deterministic ordered pending set. A non-empty set defeats the candidate without claim: append the paired failed result with reason `pending_notifications`, append exactly those bodies in order, append the resolved correction and reconsider instruction, then remove exactly the selected IDs only after all appends succeed. Append failure removes nothing; a crash after append and before removal may duplicate visible context. There is no every-later-arrival guarantee: preclaim cancellation, BLOCKED outcome settlement, and ordinary execution-failure settlement may clear already-admitted notifications without delivery. After the result or cancellation winner claim, later attempts receive `activation_closed` and create no enqueue version.
+
+A Planner queue operation is evidenced internally by canonical pending-notification state and externally by its normal tool result; it creates no current control-action audit row. Durable queue evidence is not an ordinary operator query.
+
+Ordinary card query surfaces provide no explicit queue collection, count, membership, IDs/bodies, availability field, direction discriminator, or delivery receipt. Generic version/time/diff/invalidation observations may signal or support inference of hidden queue activity and are not a supported queue query. Explicit enqueue attempts/results, delivered context, and opaque retained conversation evidence remain visible through their existing contracts.
 
 Pause does not interrupt these synchronous terminal sections; continuation parks only if it later reaches the single provider-admission frontier.
 
@@ -1509,9 +1507,9 @@ Malformed canonical data fails the request.
 No counter, cache, registry, timer, watcher, polling, or persisted projection exists.
 Initial load, every accepted card invalidation, reconnect, and auth reset/refetch refresh this store through epoch/AbortController single-flight ownership.
 
-The operator card representation is current strict card state plus operator actions and the pure card-only summary; it contains no backend `logical_path` or authored content.
-Its typed projection treats `title`, every lifecycle result `summary`, blocked `resume_reason`, lifecycle `error`, `operator_summary.error`, `status_text`, and every pending-notification `content` as prose.
-Card/child/dependency/relation and notification IDs, notification `source`, tags, allowed actions, status/type/result/action/blocker discriminants, timestamps, and other structural scalar/null fields remain exact even when credential-shaped.
+The operator card representation is current strict card state plus operator actions and the pure card-only summary; it contains no backend `logical_path`, authored content, or pending-notification field. Analyst create/reopen CardView results and ordinary immutable card artifacts use the same strict queue-free card projection.
+Its typed projection treats `title`, every lifecycle result `summary`, blocked `resume_reason`, lifecycle `error`, `operator_summary.error`, and `status_text` as prose.
+Card/child/dependency/relation IDs, tags, allowed actions, status/type/result/action/blocker discriminants, timestamps, and other public structural scalar/null fields remain exact even when credential-shaped.
 Tags and tag-filter values are namespace identities, not prose.
 The same classification is used by `cards.get`, the parent and every child from `cards.children`, card tools, immutable card-version artifacts, and field-directed diffs; unknown diff fields fail rather than receiving opaque projection.
 Its `allowedActions` values derive from the canonical action schema and an operator-only action projection, not mutation admission for runtime roles.
@@ -1520,9 +1518,13 @@ Operator projections do not advertise `card.create`, `card.reorder_child`, or `c
 The hierarchy operation is `GET /api/cards/:id/children`, returning the requested active card and only its active immediate children in committed parent order.
 Retained tombstone links are read and omitted, and traversal stops there.
 `GET /api/cards/:id` returns only selected current detail.
-Card-version history is separate: `GET /api/cards/:id/history` returns ascending row-projected version metadata with `total` equal to the returned count; `GET /api/cards/:id/history/:version` returns one exact ordinary or tombstone artifact selected by resulting version; and `GET /api/cards/:id/diff` compares explicit resulting versions or one version to current.
+Card-version history is separate: `GET /api/cards/:id/history` returns ascending items exactly `{entry_id,version,published_at,artifact_kind}` with `card_id` and `total` in the outer response; `GET /api/cards/:id/history/:version` returns outer `{card_id,version,entry_id,published_at,artifact}` where the artifact is exactly `{kind:'card-version',card}` or `{kind:'card-tombstone',final_card}`; and `GET /api/cards/:id/diff` compares explicit resulting versions or one version to current.
 History listing projects rows from the card fold, while selected content/diff selects the exact requested row sides and never substitutes another version.
 Current authored Records are a separate exact resource and do not expose authored-record history through card-version routes.
+
+Public history metadata and artifacts have no `change` member, including initial and tombstone versions. Durable `CardVersionChange`, its exact vocabulary, provenance, summaries, fields, version rows, and time validation remain internal unchanged. Agent `list_card_versions` retains the same four item fields; `get_card_version` retains its existing card/version/entry/publication/artifact-kind/hash/section locator fields; and agent diffs retain their existing pivots, side entry/hash identities, observation, and sliced diff. Agent artifact hashes cover only the queue-free `{kind,card}` or `{kind,final_card}` artifact, matching the selected REST artifact, and no public card diff row may name `pending_notifications`.
+
+Ordinary card query surfaces provide no explicit queue collection, count, membership, IDs/bodies, availability field, direction discriminator, or delivery receipt. Generic version/time/diff/invalidation observations may signal or support inference of hidden queue activity and are not a supported queue query. This structural guarantee includes current/history/version, card diffs, Analyst create/reopen results, and Files; explicit enqueue attempts/results, delivered context, and opaque retained conversation evidence are excluded.
 
 Every successful card-diff response contains a strict `diff` array whose rows are exactly required `{field,before,after}` objects.
 `field` is a nonempty string; `before` and `after` are both present and each is recursive JSON: null, boolean, string, finite number, an array of recursive JSON values, or a string-keyed object of recursive JSON values.
@@ -1530,7 +1532,7 @@ Missing members, additional row properties, undefined values, non-JSON values, a
 The one shared row schema validates the backend's final projected response and the browser's declared status-200 response before CardStore admission.
 Malformed valid JSON at declared status 200 is therefore a contract/protocol failure, not validated API error data or an `OperatorApiError`.
 
-Operator egress projects granular Card resources source-adjacently and uses a small source-tagged owner dispatcher for provider exchanges, logged events, control actions, card history/diffs, effective config, process views, tool invocations, Agent conversations, strict server-egress WebSocket envelopes, and MCP tools.
+Operator egress projects granular Card resources source-adjacently and uses a small source-tagged owner dispatcher for provider exchanges, logged events, control actions, card diffs, effective config, process views, tool invocations, Agent conversations, strict server-egress WebSocket envelopes, and MCP tools. Card history artifacts use their direct outbound-card projector rather than a generic history redaction branch.
 Webfetch argument projection belongs to the singular tool-invocation owner, and webfetch results use that owner's generic opaque-result projection; neither has an independent dispatcher branch.
 A separately selected `dynamic` branch is available only for owner-classified opaque leaves.
 Complete known owners never enter recursive credential guessing: identities, discriminants, topology, counts, timestamps, booleans, nulls, and canonical non-webfetch URLs are copied by their owner, while only classified prose, secret containers, URLs, and opaque payloads are transformed.
@@ -1641,7 +1643,7 @@ Card-namespace listing reads canonical card streams required for linked reachabi
 A missing optional record stream omits that non-bootstrap record; a missing bootstrap record stream and every malformed, empty, or unreadable reached stream fail the listing.
 
 Explicit content is selector-bound and strict.
-`card.json` returns the last row's projected document; `card.json?v=N` returns exactly row N's document from the same validated fold.
+`card.json` returns the last row's projected document; `card.json?v=N` returns exactly row N's document from the same validated fold. An ordinary version document is exactly `{format_version:2,kind,entry_id,card_id,version,published_at,card}`; a tombstone substitutes `final_card` and retains `prior_card_version`. These wrappers retain publication identity/time but contain no public `change` or pending-notification field.
 Record URLs use current or exact `v=N` row selection.
 Virtual document bytes are produced once by the Files read model from the selected semantic artifact: listing size, preview admission against the 1 MiB limit, response content, and a successful preview's reported size are all the exact UTF-8 byte length of those selected-document bytes, and `modifiedAt` is the selected artifact's `committed_at`.
 Appending unrelated history therefore cannot change an older selected document or cause a 413, and listing and current preview agree deterministically.
@@ -1659,6 +1661,7 @@ Files route schemas, authorization, and client presentation remain unchanged; ca
 ## 12. Reset And Failure Consequences
 
 Incompatible changes to hierarchical card layout or durable shapes, deterministic child claims, exact card/record append-only streams, terminal card tombstones, complete parent-owned membership/order, self-contained current record rows, and indexed conversation segments are reset-only durable-format cutovers.
+Notification query-surface removal and current-activation enqueue admission change no durable format. They require no reset, migration, prompt rematerialization, or special deployment operation; existing materialized prompts remain instance-owned.
 The current widening of the unchanged card-ID field grammar from the former bound of five to the maximum in the [exact card identity contract](#exact-card-identity-contract) is instead a same-format forward deployment: every previously valid ID remains valid, so deployment requires no reset.
 Once a deeper card is created, an old binary cannot read that state and must not be used against it.
 Old or mixed structural formats are rejected and never migrated or accepted as current.

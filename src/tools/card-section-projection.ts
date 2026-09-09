@@ -12,7 +12,3 @@ export function projectBoundedCardSummary(input: { base: Record<string, unknown>
   if (utf8ByteLength(settledSuccessBytes(data)) > input.responseBytes) throw new ToolArgumentValidationError(`Section 'summary' does not fit the requested response_bytes budget of ${input.responseBytes}.`);
   return data;
 }
-
-export function projectCardNotificationItems(projectedCard: ReturnType<typeof projectCardRecordForOutbound>): readonly Record<string, unknown>[] {
-  return projectedCard.pending_notifications.map((notification) => ({ id: notification.id, content: utf8SafePreview(notification.content, DISCOVERY_TEXT_PREVIEW_MAX_BYTES), content_bytes: utf8ByteLength(notification.content), content_truncated: utf8ByteLength(notification.content) > DISCOVERY_TEXT_PREVIEW_MAX_BYTES, created_at: notification.created_at, ...('source' in notification ? { source: notification.source } : {}) }));
-}

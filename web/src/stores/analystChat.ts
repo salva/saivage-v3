@@ -329,9 +329,6 @@ export const useAnalystChat = defineStore('analyst-chat', () => {
 
   function ingestWsEvent(payload: Record<string, unknown>): void {
     const event = typeof payload.event === 'string' ? payload.event : null;
-    if (event === 'card_history_appended') {
-      return;
-    }
     if (event === 'notification_added') {
       return;
     }

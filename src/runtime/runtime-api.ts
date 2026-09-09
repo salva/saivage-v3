@@ -16,7 +16,8 @@ export interface StopProjectResult { readonly status: 'stopped'; readonly contai
 export type NotifyCardResult =
   | { ok: true; notificationId: string }
   | { ok: false; reason: 'missing_card'; cardId: string }
-  | { ok: false; reason: 'terminal_card'; cardId: string; status: 'done' | 'failed' | 'cancelled' };
+  | { ok: false; reason: 'terminal_card'; cardId: string; status: 'done' | 'failed' | 'cancelled' }
+  | { ok: false; reason: 'activation_closed'; cardId: string };
 
 export interface RuntimeApi {
   start(): Promise<void>;

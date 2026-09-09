@@ -2,8 +2,6 @@ import type { ProviderExchangePayload } from '../contracts/provider-exchange.js'
 import type {
   LoggedEvent,
   ControlActionAuditEntry,
-  CardHistoryEntry,
-  CardHistoryHeader,
   OutboundEffectiveSaivageConfig,
   SaivageConfig,
 } from '../schemas/index.js';
@@ -12,10 +10,7 @@ import { projectProviderExchange } from '../agents/provider-exchange-outbound.js
 import { projectLoggedEvent } from '../observability/logged-event-projection.js';
 import { projectControlAction } from '../persistence/control-action-outbound.js';
 import { projectDynamicForOutbound } from './dynamic.js';
-import {
-  projectCardDiff,
-  projectCardHistory,
-} from '../application/read-models/card-outbound.js';
+import { projectCardDiff } from '../application/read-models/card-outbound.js';
 import { projectEffectiveConfigForOutbound } from '../config/effective-config-outbound.js';
 import type { ProcessOutboundValue } from '../application/read-models/process-outbound.js';
 import { projectProcessForOutbound } from '../application/read-models/process-outbound.js';
@@ -37,7 +32,6 @@ type OutboundRedactionRequest =
   | { source: 'provider-exchange'; value: ProviderExchangePayload }
   | { source: 'logged-event'; value: LoggedEvent }
   | { source: 'control-action'; value: ControlActionAuditEntry }
-  | { source: 'card-history'; value: CardHistoryHeader | CardHistoryEntry }
   | { source: 'card-diff'; value: CardDiffEntry[] }
   | { source: 'config'; value: SaivageConfig }
   | { source: 'process-view'; value: ProcessOutboundValue }
@@ -54,9 +48,7 @@ type OutboundRedactionResult<Request extends OutboundRedactionRequest> = Request
     ? LoggedEvent
     : Request extends { source: 'control-action' }
       ? ControlActionAuditEntry
-       : Request extends { source: 'card-history'; value: infer Value }
-            ? Value
-            : Request extends { source: 'card-diff' }
+       : Request extends { source: 'card-diff' }
               ? CardDiffEntry[]
               : Request extends { source: 'config' }
                 ? OutboundEffectiveSaivageConfig
@@ -80,7 +72,6 @@ export const OUTBOUND_REDACTION_SOURCES = [
   'provider-exchange',
   'logged-event',
   'control-action',
-  'card-history',
   'card-diff',
   'config',
   'process-view',
@@ -101,8 +92,6 @@ export function redactForOutbound(input: OutboundRedactionRequest): unknown {
       return projectLoggedEvent(input.value);
     case 'control-action':
       return projectControlAction(input.value);
-    case 'card-history':
-      return projectCardHistory(input.value);
     case 'card-diff':
       return projectCardDiff(input.value);
     case 'config':
