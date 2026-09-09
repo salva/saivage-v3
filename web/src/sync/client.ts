@@ -54,7 +54,7 @@ interface LeaseEntry {
   lease: string | null;
   acknowledged: boolean;
   inFlight: boolean;
-  trailingFrame: Exclude<LeaseInvalidation, null> | undefined;
+  trailingFrame: LeaseInvalidation | undefined;
   generation: number;
 }
 
@@ -270,6 +270,19 @@ export class SyncClient {
     entry: LeaseEntry,
     frame: Exclude<LeaseInvalidation, null>,
   ): void {
+    if (entry.resource === 'agents') {
+      if (frame.resource !== 'agent-membership')
+        throw new Error('Agents lease received a non-membership invalidation.');
+      const pending = entry.trailingFrame;
+      if (pending === undefined) entry.trailingFrame = frame;
+      else if (pending !== null) {
+        if (pending.resource !== 'agent-membership')
+          throw new Error('Agents lease retained a non-membership invalidation.');
+        entry.trailingFrame = sameAgentMembershipScope(pending, frame) ? frame : null;
+      }
+      this.drainLease(key, entry, entry.generation);
+      return;
+    }
     if (
       frame.resource === 'conversation' &&
       entry.trailingFrame?.resource === 'conversation' &&
@@ -380,6 +393,15 @@ export class SyncClient {
         this.flights.delete(key);
       });
   }
+}
+
+function sameAgentMembershipScope(
+  left: Extract<LiveSyncInvalidateFrame, { resource: 'agent-membership' }>,
+  right: Extract<LiveSyncInvalidateFrame, { resource: 'agent-membership' }>,
+): boolean {
+  return left.scope === 'card'
+    ? right.scope === 'card' && left.card_id === right.card_id
+    : right.scope === 'global-session' && left.session_id === right.session_id;
 }
 
 

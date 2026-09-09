@@ -38,6 +38,25 @@ function harness() {
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
+function pending<T = void>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+function acknowledgeAgents(h: ReturnType<typeof harness>) {
+  const subscribe = h.sent.find(
+    (value) => (value as { t?: string; resource?: string }).t === 'subscribe'
+      && (value as { resource?: string }).resource === 'agents',
+  ) as { lease: string };
+  h.sync({ t: 'subscribed', resource: 'agents', lease: subscribe.lease });
+  return subscribe;
+}
+
 describe('changeset C lease ownership', () => {
   it('waits for the exact ack and retains one trailing invalidation', async () => {
     const h = harness();
@@ -186,5 +205,169 @@ describe('changeset C lease ownership', () => {
       id: 'agent:planner:project',
       lease: exchangeSubscribe.lease,
     });
+  });
+
+  it.each([
+    {
+      name: 'same card scope remains scoped',
+      pendingFrames: [
+        { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' },
+        { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' },
+      ],
+      expected: { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' },
+    },
+    {
+      name: 'distinct card scopes broaden',
+      pendingFrames: [
+        { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' },
+        { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-b' },
+      ],
+      expected: null,
+    },
+    {
+      name: 'mixed card and global-session scopes broaden',
+      pendingFrames: [
+        { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' },
+        { t: 'invalidate', resource: 'agent-membership', scope: 'global-session', session_id: 'agent:analyst:global' },
+      ],
+      expected: null,
+    },
+    {
+      name: 'a broadened request remains absorbing through a third event',
+      pendingFrames: [
+        { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' },
+        { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-b' },
+        { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-b' },
+      ],
+      expected: null,
+    },
+  ])('$name while an Agents callback is held', async ({ pendingFrames, expected }) => {
+    const h = harness();
+    const held = pending();
+    const callback = vi.fn().mockResolvedValue(undefined);
+    callback.mockImplementationOnce(async () => undefined).mockImplementationOnce(() => held.promise);
+    h.client.openAgents(callback);
+    acknowledgeAgents(h);
+    await flush();
+    callback.mockClear();
+
+    h.sync({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-held' });
+    expect(callback).toHaveBeenCalledOnce();
+    for (const frame of pendingFrames) h.sync(frame as Parameters<WsSyncFrameHandler>[0]);
+    expect(callback).toHaveBeenCalledOnce();
+
+    held.resolve(undefined);
+    await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2));
+    expect(callback).toHaveBeenLastCalledWith(expected);
+  });
+
+  it('holds pre-ack mixed scopes behind the initial baseline and drains the broadened request afterward', async () => {
+    const h = harness();
+    const baseline = pending();
+    const callback = vi.fn().mockImplementationOnce(() => baseline.promise).mockResolvedValue(undefined);
+    h.client.openAgents(callback);
+    h.sync({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' });
+    h.sync({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-b' });
+    expect(callback).not.toHaveBeenCalled();
+
+    acknowledgeAgents(h);
+    expect(callback.mock.calls).toEqual([[null]]);
+    baseline.resolve(undefined);
+    await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2));
+    expect(callback.mock.calls).toEqual([[null], [null]]);
+  });
+
+  it('acknowledges a late Agents registration before pending work and resets obsolete work on reconnect', async () => {
+    const h = harness();
+    const first = vi.fn().mockResolvedValue(undefined);
+    const second = vi.fn().mockResolvedValue(undefined);
+    h.client.openAgents(first);
+    const firstSubscribe = acknowledgeAgents(h);
+    await flush();
+
+    h.client.openAgents(second);
+    await flush();
+    expect(second.mock.calls).toEqual([[null]]);
+    h.sync({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-obsolete' });
+    h.reconnect();
+    const reconnectSubscribe = h.sent.at(-1) as { lease: string };
+    expect(reconnectSubscribe.lease).not.toBe(firstSubscribe.lease);
+    h.sync({ t: 'subscribed', resource: 'agents', lease: firstSubscribe.lease });
+    await flush();
+    expect(first).toHaveBeenCalledTimes(2);
+    expect(second).toHaveBeenCalledTimes(2);
+
+    h.sync({ t: 'subscribed', resource: 'agents', lease: reconnectSubscribe.lease });
+    await flush();
+    expect(first.mock.calls).toEqual([[null], [expect.objectContaining({ card_id: 'card-obsolete' })], [null]]);
+    expect(second.mock.calls).toEqual([[null], [expect.objectContaining({ card_id: 'card-obsolete' })], [null]]);
+  });
+
+  it('drains a broadened Agents request after a held callback rejects', async () => {
+    const h = harness();
+    const held = pending();
+    const callback = vi.fn().mockResolvedValue(undefined);
+    callback.mockImplementationOnce(async () => undefined).mockImplementationOnce(() => held.promise);
+    h.client.openAgents(callback);
+    acknowledgeAgents(h);
+    await flush();
+    callback.mockClear();
+
+    h.sync({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-held' });
+    h.sync({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' });
+    h.sync({ t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-b' });
+    held.reject(new Error('held refresh failed'));
+    await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2));
+    expect(callback).toHaveBeenLastCalledWith(null);
+  });
+
+  it('keeps dedicated card routing exact while the shared Agents lease receives all membership scopes', async () => {
+    const h = harness();
+    const agents = vi.fn().mockResolvedValue(undefined);
+    const cardA = vi.fn().mockResolvedValue(undefined);
+    const cardB = vi.fn().mockResolvedValue(undefined);
+    h.client.openAgents(agents);
+    h.client.openCardAgentSessions('card-a', cardA);
+    h.client.openCardAgentSessions('card-b', cardB);
+    for (const value of h.sent.filter((frame) => (frame as { t?: string }).t === 'subscribe')) {
+      const frame = value as { resource: 'agents' | 'card-agent-sessions'; id?: string; lease: string };
+      h.sync(frame.resource === 'agents'
+        ? { t: 'subscribed', resource: 'agents', lease: frame.lease }
+        : { t: 'subscribed', resource: 'card-agent-sessions', id: frame.id!, lease: frame.lease });
+    }
+    await flush();
+    agents.mockClear();
+    cardA.mockClear();
+    cardB.mockClear();
+
+    const frame = { t: 'invalidate', resource: 'agent-membership', scope: 'card', card_id: 'card-a' } as const;
+    h.sync(frame);
+    await flush();
+    expect(agents).toHaveBeenCalledWith(frame);
+    expect(cardA).toHaveBeenCalledWith(frame);
+    expect(cardB).not.toHaveBeenCalled();
+  });
+
+  it('retains the greatest conversation segment and the latest equal-version tip', async () => {
+    const h = harness();
+    const held = pending();
+    const callback = vi.fn().mockResolvedValue(undefined);
+    callback.mockImplementationOnce(async () => undefined).mockImplementationOnce(() => held.promise);
+    h.client.openConversation('agent:planner:project', callback);
+    const subscribe = h.sent.at(-1) as { lease: string };
+    h.sync({ t: 'subscribed', resource: 'conversation', id: 'agent:planner:project', lease: subscribe.lease });
+    await flush();
+    callback.mockClear();
+
+    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 1, visible_message_id: 'held' });
+    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 3, visible_message_id: 'first-tip' });
+    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 2, visible_message_id: 'older' });
+    h.sync({ t: 'invalidate', resource: 'conversation', id: 'agent:planner:project', segment_version: 3, visible_message_id: 'latest-tip' });
+    held.resolve(undefined);
+    await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(2));
+    expect(callback).toHaveBeenLastCalledWith(expect.objectContaining({
+      segment_version: 3,
+      visible_message_id: 'latest-tip',
+    }));
   });
 });

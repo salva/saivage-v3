@@ -213,13 +213,13 @@ export const useAgentStore = defineStore('agents', () => {
   }
   function selectedSummaryHint(frame: LeaseInvalidation): Promise<void> {
     const token = activeConversationToken;
-    if (!token || !frame || frame.resource !== 'agent-membership') return Promise.resolve();
+    if (!token || (frame !== null && frame.resource !== 'agent-membership')) return Promise.resolve();
     const selectedId = conversationIds.get(token);
     if (!selectedId) throw new Error('Conversation selection owner has no session identity.');
     const known = currentSession.value;
-    const relevant = frame.scope === 'global-session'
+    const relevant = frame === null || (frame.scope === 'global-session'
       ? frame.session_id === selectedId
-      : known === null || (known.session_scope === 'card' && known.card_id === frame.card_id);
+      : known === null || (known.session_scope === 'card' && known.card_id === frame.card_id));
     return relevant ? fetchSelectedSession(token) : Promise.resolve();
   }
   function releaseSessions() {

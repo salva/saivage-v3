@@ -83,6 +83,11 @@ describe('useAgentStore singular agent resource ownership', () => {
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
+    vi.mocked(listAgentSessions).mockReset();
+    vi.mocked(getAgentSession).mockReset();
+    vi.mocked(getCardAgentSessions).mockReset();
+    vi.mocked(getAgentConversation).mockReset();
+    vi.mocked(getAgentLlmExchange).mockReset();
     vi.mocked(getAgentSession).mockResolvedValue({ session });
   });
 
@@ -458,6 +463,70 @@ describe('useAgentStore singular agent resource ownership', () => {
     expect(store.sessionSummaryRefreshError).toBe('detail refresh failed');
     await store.selectedSummaryHint({ ...hint, card_id: 'unrelated' });
     expect(getAgentSession).toHaveBeenCalledTimes(3);
+  });
+
+  it('treats a null Agents baseline as selected-summary dirtiness and coalesces it into one trailing read', async () => {
+    const first = deferred<{ session: AgentSession }>();
+    const trailing = deferred<{ session: AgentSession }>();
+    const compacting = {
+      ...session,
+      compaction: {
+        strategy: 'preventive' as const,
+        started_at: '2026-09-09T10:00:00.000Z',
+        folds_done: 3,
+        fold_in_flight: true,
+      },
+    };
+    vi.mocked(getAgentSession)
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(trailing.promise);
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    const initial = store.fetchSelectedSession(token);
+
+    void store.selectedSummaryHint(null);
+    void store.selectedSummaryHint(null);
+    first.resolve({ session: compacting });
+    await vi.waitFor(() => expect(getAgentSession).toHaveBeenCalledTimes(2));
+    trailing.resolve({ session: { ...session, compaction: null } });
+    await initial;
+
+    expect(getAgentSession).toHaveBeenCalledTimes(2);
+    expect(store.currentSession?.compaction).toBeNull();
+    expect(store.sessionSummaryRefreshError).toBeNull();
+  });
+
+  it('does not fetch selected summary for a null baseline when no conversation is selected', async () => {
+    const store = useAgentStore();
+    await store.selectedSummaryHint(null);
+    expect(getAgentSession).not.toHaveBeenCalled();
+    expect(store.currentSession).toBeNull();
+  });
+
+  it('clears authoritative selected progress even when the independent baseline inventory request rejects', async () => {
+    const compacting = {
+      ...session,
+      compaction: {
+        strategy: 'preventive' as const,
+        started_at: '2026-09-09T10:00:00.000Z',
+        folds_done: 1,
+        fold_in_flight: false,
+      },
+    };
+    vi.mocked(getAgentSession)
+      .mockResolvedValueOnce({ session: compacting })
+      .mockResolvedValueOnce({ session: { ...session, compaction: null } });
+    vi.mocked(listAgentSessions).mockRejectedValueOnce(new Error('inventory refresh failed'));
+    const store = useAgentStore();
+    const token = store.beginConversationSelection(S1);
+    await store.fetchSelectedSession(token);
+    expect(store.currentSession?.compaction).toEqual(compacting.compaction);
+
+    await expect(store.reconcileMembership(null)).rejects.toThrow('inventory refresh failed');
+    await Promise.resolve();
+    expect(store.currentSession?.compaction).toBeNull();
+    expect(getAgentSession).toHaveBeenCalledTimes(2);
+    expect(store.sessionSummaryRefreshError).toBeNull();
   });
 
   it('clear aborts and generation-invalidates an in-flight transcript', async () => {
