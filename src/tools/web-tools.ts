@@ -15,19 +15,21 @@ import { authorizeWriteProject, writeProject, type WorkspaceContext } from './pr
 import { SAIVAGE_WORK_RELATIVE_DIR } from '../persistence/layout.js';
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { admitAnalystRecordWebfetch, prepareAnalystRecordWebfetch, type PreparedFetchedRecord } from '../application/analyst-prepare/webfetch.js';
-import { redactUrl } from '../redaction/text.js';
-import { WebfetchDataSchema, WebfetchInvocationSchema, WorkspaceWriteDataSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
+import { redactTextWithStablePrefixesForOutbound, redactUrl } from '../redaction/text.js';
+import { WebfetchDataSchema, WebfetchInvocationSchema, WebfetchTextDataSchema, WorkspaceWriteDataSchema, type WebfetchInvocation, type WebfetchMetadata } from '../contracts/webfetch.js';
 import { RecordMutationResultSchema, RecordMutationSuccessSchema } from '../contracts/record-mutation.js';
 import { websearchInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { replaceFile } from '../persistence/replace-file.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { admitRecordMutation } from '../application/record-mutation-service.js';
+import { settledSuccessBytes } from './tool-result-settlement.js';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES = 500_000;
 const DEFAULT_MAX_INLINE_BYTES = 100_000;
 const MAX_RESULTS = 20;
 const MAX_REDIRECTS = 5;
+const WEBFETCH_TEXT_RESULT_MAX_BYTES = 1_000_000;
 
 type ReadMode = 'auto' | 'text';
 
@@ -37,7 +39,10 @@ export interface WebProviderContext extends WorkspaceContext {
 }
 
 const websearchSchema = websearchInputSchema;
-const webfetchSchema = WebfetchInvocationSchema.extend({ save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.') }).strict();
+const webfetchSchema = WebfetchInvocationSchema.extend({
+  max_inline_bytes: describe(z.number().int().optional(), 'Maximum UTF-8 bytes in the redacted text head, also subject to max_bytes and the complete-result limit.'),
+  save_as: describe(z.string().optional(), 'Optional scoped path to save fetched text content.'),
+}).strict();
 
 function parseHttpUrl(raw: string): URL {
   const url = new URL(raw);
@@ -79,11 +84,14 @@ function isAbortError(err: unknown, signal: AbortSignal): boolean {
 }
 
 interface MetadataFetchResult { kind: 'metadata'; url: URL; response: Response }
-interface ContentFetchResult { kind: 'content'; url: URL; response: Response; body: Uint8Array }
-type FetchBodyPolicy = { kind: 'metadata' } | { kind: 'bounded'; maxBytes: number };
+interface ContentFetchResult { kind: 'content'; url: URL; response: Response; body: Uint8Array; exceededMaxBytes: boolean }
+type BoundedFetchPolicy =
+  | { kind: 'bounded'; maxBytes: number; overflow: 'reject' }
+  | { kind: 'bounded'; maxBytes: number; overflow: 'successful-no-save-text'; readMode: ReadMode };
+type FetchBodyPolicy = { kind: 'metadata' } | BoundedFetchPolicy;
 
 async function fetchPublic(url: URL, policy: { kind: 'metadata' }, signal: AbortSignal, redirects?: number): Promise<MetadataFetchResult>;
-async function fetchPublic(url: URL, policy: { kind: 'bounded'; maxBytes: number }, signal: AbortSignal, redirects?: number): Promise<ContentFetchResult>;
+async function fetchPublic(url: URL, policy: BoundedFetchPolicy, signal: AbortSignal, redirects?: number): Promise<ContentFetchResult>;
 async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSignal, redirects?: number): Promise<MetadataFetchResult | ContentFetchResult>;
 async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSignal, redirects = 0): Promise<MetadataFetchResult | ContentFetchResult> {
   if (redirects > MAX_REDIRECTS) throw new Error('Too many redirects.');
@@ -102,15 +110,30 @@ async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSigna
     return { kind: 'metadata', url, response };
   }
   const reader = response.body?.getReader();
-  if (!reader) return { kind: 'content', url, response, body: new Uint8Array() };
+  if (!reader) return { kind: 'content', url, response, body: new Uint8Array(), exceededMaxBytes: false };
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let exceededMaxBytes = false;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    total += value.byteLength;
-    if (total > policy.maxBytes) throw new Error(`Response exceeded max_bytes (${policy.maxBytes}).`);
-    chunks.push(value);
+    if (value.byteLength === 0) continue;
+    const remaining = policy.maxBytes - total;
+    if (value.byteLength <= remaining) {
+      total += value.byteLength;
+      chunks.push(value);
+      continue;
+    }
+    if (policy.overflow === 'reject' || !response.ok || !isTextResponse(response, policy.readMode)) {
+      throw new Error(`Response exceeded max_bytes (${policy.maxBytes}).`);
+    }
+    if (remaining > 0) {
+      chunks.push(value.subarray(0, remaining));
+      total += remaining;
+    }
+    exceededMaxBytes = true;
+    await reader.cancel();
+    break;
   }
   const body = new Uint8Array(total);
   let offset = 0;
@@ -118,7 +141,7 @@ async function fetchPublic(url: URL, policy: FetchBodyPolicy, signal: AbortSigna
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return { kind: 'content', url, response, body };
+  return { kind: 'content', url, response, body, exceededMaxBytes };
 }
 
 function headersObject(headers: Headers): Record<string, string> {
@@ -128,6 +151,89 @@ function headersObject(headers: Headers): Record<string, string> {
     if (value) out[key] = value;
   }
   return out;
+}
+
+function isTextResponse(response: Response, mode: ReadMode): boolean {
+  const contentType = response.headers.get('content-type') ?? '';
+  return mode === 'text' || /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType);
+}
+
+function decodeFetchedText(body: Uint8Array, exceededMaxBytes: boolean, maxBytes: number): string {
+  const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+  const text = exceededMaxBytes ? decoder.decode(body, { stream: true }) : decoder.decode(body);
+  if (Buffer.byteLength(text, 'utf8') > maxBytes) throw new Error(`Decoded text exceeded max_bytes (${maxBytes}).`);
+  return text;
+}
+
+function packWebfetchText(
+  metadata: WebfetchMetadata,
+  normalizedText: string,
+  inlineCap: number,
+  fetchTruncated: boolean,
+): { data: z.infer<typeof WebfetchTextDataSchema>; absoluteStash: string | null } {
+  const fetchedTextUtf8Bytes = Buffer.byteLength(normalizedText, 'utf8');
+  const stable = redactTextWithStablePrefixesForOutbound(normalizedText);
+  const redactedTextUtf8Bytes = Buffer.byteLength(stable.text, 'utf8');
+  const base = {
+    ...metadata,
+    kind: 'text' as const,
+    redacted_text_utf8_bytes: redactedTextUtf8Bytes,
+    fetched_text_utf8_bytes: fetchedTextUtf8Bytes,
+    fetch_truncated: fetchTruncated,
+  };
+  const resultBytes = (data: unknown): number => Buffer.byteLength(settledSuccessBytes(data), 'utf8');
+  const fullEndpointCertified = stable.maxPrefixEnd === stable.text.length;
+  if (fullEndpointCertified && redactedTextUtf8Bytes <= inlineCap) {
+    const complete = WebfetchTextDataSchema.parse({
+      ...base,
+      head: stable.text,
+      head_utf8_bytes: redactedTextUtf8Bytes,
+      head_complete: true,
+    });
+    if (resultBytes(complete) <= WEBFETCH_TEXT_RESULT_MAX_BYTES) return { data: complete, absoluteStash: null };
+  }
+  if (redactedTextUtf8Bytes === 0) throw new Error('Webfetch text result exceeded the complete-result byte limit.');
+
+  const hash = createHash('sha256').update(normalizedText).digest('hex').slice(0, 16);
+  const filename = `webfetch-${Date.now()}-${hash}.txt`;
+  const contentUrl = buildScopedPathUrl('work', ['tmp', 'stash', filename]);
+  const fixed = WebfetchTextDataSchema.parse({
+    ...base,
+    head: '',
+    head_utf8_bytes: 0,
+    head_complete: false,
+    content_url: contentUrl,
+  });
+  if (resultBytes(fixed) > WEBFETCH_TEXT_RESULT_MAX_BYTES) throw new Error('Webfetch text result metadata exceeded the complete-result byte limit.');
+
+  const endpoints: Array<{ end: number; bytes: number }> = [{ end: 0, bytes: 0 }];
+  let end = 0;
+  let bytes = 0;
+  let spanIndex = 0;
+  for (const character of stable.text) {
+    end += character.length;
+    bytes += Buffer.byteLength(character, 'utf8');
+    while (stable.indivisibleSpans[spanIndex] && stable.indivisibleSpans[spanIndex]!.end <= end) spanIndex += 1;
+    const span = stable.indivisibleSpans[spanIndex];
+    const insideSpan = span !== undefined && span.start < end && end < span.end;
+    if (end <= stable.maxPrefixEnd && bytes <= inlineCap && bytes < redactedTextUtf8Bytes && !insideSpan) endpoints.push({ end, bytes });
+  }
+  const candidate = (index: number) => WebfetchTextDataSchema.parse({
+    ...base,
+    head: stable.text.slice(0, endpoints[index]!.end),
+    head_utf8_bytes: endpoints[index]!.bytes,
+    head_complete: false,
+    content_url: contentUrl,
+  });
+  let low = 0;
+  let high = endpoints.length - 1;
+  while (low < high) {
+    const middle = low + Math.ceil((high - low) / 2);
+    if (resultBytes(candidate(middle)) <= WEBFETCH_TEXT_RESULT_MAX_BYTES) low = middle;
+    else high = middle - 1;
+  }
+  const data = candidate(low);
+  return { data, absoluteStash: `${SAIVAGE_WORK_RELATIVE_DIR}/tmp/stash/${filename}` };
 }
 
 function stripHtml(value: string): string {
@@ -158,7 +264,7 @@ async function websearchCore(params: { query: string; max_results?: number }, si
     if (!query) return toolFailed('query is required.');
     const max = Math.min(Math.max(params.max_results ?? 10, 1), MAX_RESULTS);
     const url = parseHttpUrl(`https://duckduckgo.com/html/?q=${encodeURIComponent(query)}`);
-    const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes: DEFAULT_MAX_BYTES }, signal);
+    const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes: DEFAULT_MAX_BYTES, overflow: 'reject' }, signal);
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     if (!fetched.response.ok) return toolFailed(`Search provider returned HTTP ${fetched.response.status}.`);
     const html = Buffer.from(fetched.body).toString('utf8');
@@ -189,17 +295,18 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
       const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
       return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, metadata_only: true }));
     }
-    const fetchPromise = fetchPublic(url, { kind: 'bounded', maxBytes }, signal);
+    const mode = params.read_mode ?? 'auto';
+    const fetchPromise = fetchPublic(url, params.save_as
+      ? { kind: 'bounded', maxBytes, overflow: 'reject' }
+      : { kind: 'bounded', maxBytes, overflow: 'successful-no-save-text', readMode: mode }, signal);
     const fetched = await (wait ? wait(fetchPromise) : fetchPromise);
     const headers = headersObject(fetched.response.headers);
     const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
     if (!fetched.response.ok) return toolFailed(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);
-    const contentType = headers['content-type'] ?? '';
-    const mode = params.read_mode ?? 'auto';
-    const isText = mode === 'text' || (mode === 'auto' && /^(text\/)|application\/(json|xml|javascript|xhtml\+xml)/i.test(contentType));
+    const isText = isTextResponse(fetched.response, mode);
     if (!isText) return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, bytes: fetched.body.byteLength, content: null, binary: true }));
-    const text = Buffer.from(fetched.body).toString('utf8');
     if (params.save_as) {
+      const text = Buffer.from(fetched.body).toString('utf8');
       const rawWrite = await writeProject(ctx, { path: params.save_as, content: text });
       if (params.save_as.startsWith('record:///')) {
         const result = RecordMutationResultSchema.parse(rawWrite); if (result.kind === 'rejected') return toolFailed(result.error, result.data);
@@ -209,15 +316,15 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
       const data = WorkspaceWriteDataSchema.parse(rawWrite.data);
       return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, saved_as: data.target, write: { kind: 'workspace_file', data }, bytes: Buffer.byteLength(text, 'utf8') }));
     }
+    const text = decodeFetchedText(fetched.body, fetched.exceededMaxBytes, maxBytes);
     const inlineCap = Math.min(Math.max(params.max_inline_bytes ?? DEFAULT_MAX_INLINE_BYTES, 1), maxBytes);
-    if (Buffer.byteLength(text, 'utf8') <= inlineCap) return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, text, bytes: Buffer.byteLength(text, 'utf8'), truncated: false }));
-    const hash = createHash('sha256').update(text).digest('hex').slice(0, 16);
-    const filename = `webfetch-${Date.now()}-${hash}.txt`;
-    const stash = `${SAIVAGE_WORK_RELATIVE_DIR}/tmp/stash/${filename}`;
-    const absolute = join(ctx.projectRoot, stash);
-    mkdirSync(dirname(absolute), { recursive: true });
-    replaceFile(absolute, Buffer.from(text, 'utf8'));
-    return toolSucceeded(WebfetchDataSchema.parse({ ...metadata, stash_url: buildScopedPathUrl('work', ['tmp', 'stash', filename]), bytes: Buffer.byteLength(text, 'utf8'), truncated: true }));
+    const packed = packWebfetchText(metadata, text, inlineCap, fetched.exceededMaxBytes);
+    if (packed.absoluteStash !== null) {
+      const absolute = join(ctx.projectRoot, packed.absoluteStash);
+      mkdirSync(dirname(absolute), { recursive: true });
+      replaceFile(absolute, Buffer.from(text, 'utf8'));
+    }
+    return toolSucceeded(packed.data);
   } catch (err) {
     throwIfPublicationOutcomeUnknown(err);
     if (isAbortError(err, signal)) throw err;
@@ -228,7 +335,7 @@ async function webfetchCore(ctx: WebProviderContext, params: WebfetchInvocation,
 async function fetchAnalystRecord(input: { url: string; read_mode?: ReadMode; max_bytes?: number }, signal: AbortSignal): Promise<PreparedFetchedRecord> {
   const url = parseHttpUrl(input.url);
   const maxBytes = Math.min(Math.max(input.max_bytes ?? DEFAULT_MAX_BYTES, 1), 1_000_000);
-  const fetched = await fetchPublic(url, { kind: 'bounded', maxBytes }, signal);
+  const fetched = await fetchPublic(url, { kind: 'bounded', maxBytes, overflow: 'reject' }, signal);
   const headers = headersObject(fetched.response.headers);
   const metadata: WebfetchMetadata = { redacted_url: redactUrl(fetched.url.toString()), status: fetched.response.status, headers };
   if (!fetched.response.ok) throw new Error(`HTTP ${fetched.response.status} for ${redactUrl(fetched.url.toString())}.`);
@@ -249,7 +356,7 @@ export const webToolBinders: readonly ToolBinder<WebProviderContext, any>[] = Ob
       }),
       defineToolBinder({
         name: 'webfetch',
-        description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Oversized text is stashed as stash_url, a work:///tmp/stash/<file> URL readable with read or grep.',
+        description: 'Fetch a public HTTP(S) URL with bounded size and private-network protections. Successful no-save text returns an always-present redacted head, exact fetched/redacted/head UTF-8 byte counts, independent head_complete and fetch_truncated flags, and a canonical content_url exactly when the head omits retained text. The complete settled result is limited to 1,000,000 UTF-8 bytes.',
         resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
         inputSchema: () => webfetchSchema,
         executor: (ctx, args, signal, invocation) => executeToolAction('none', async () => {

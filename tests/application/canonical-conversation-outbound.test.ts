@@ -93,6 +93,12 @@ describe('canonical conversation outbound row projection', () => {
     });
   });
 
+  it('preserves the current settled webfetch text shape through canonical historical projection', () => {
+    const content = JSON.stringify({ success: true, data: { kind: 'text', redacted_url: 'https://example.test/path?[REDACTED]', status: 200, headers: {}, head: 'safe head', head_utf8_bytes: 9, redacted_text_utf8_bytes: 20, fetched_text_utf8_bytes: 30, head_complete: false, fetch_truncated: true, content_url: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt' } });
+    const projected = projectCanonicalConversationRow(resultFor('webfetch', content), projectToolInvocation);
+    expect(JSON.parse(projected.content)).toEqual(JSON.parse(content));
+  });
+
   it('projects historical search arrays, plaintext JsonSlice, and current hex JsonSlice opaquely without mutating stored bytes', () => {
     for (const fixture of historicalOpaqueToolResults.filter(({ toolName }) => toolName === 'glob' || toolName === 'grep')) {
       const content = JSON.stringify(fixture.result);

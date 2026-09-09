@@ -77,7 +77,7 @@ describe('ConversationTimeline', () => {
       toolEntry('call-unknown', 'move_card', { id: 'old-card' }, 4),
       resultEntry('result-unknown', 'call-unknown', 'move_card', { success: false, error: 'boom' }, 5),
       toolEntry('call-fetch', 'webfetch', { url: 'https://example.com' }, 6),
-      resultEntry('result-fetch', 'call-fetch', 'webfetch', { success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }, 7),
+      resultEntry('result-fetch', 'call-fetch', 'webfetch', { success: true, data: { kind: 'text', redacted_url: 'https://example.com/', status: 200, headers: {}, head: 'preview', head_utf8_bytes: 7, redacted_text_utf8_bytes: 20, fetched_text_utf8_bytes: 20, head_complete: false, fetch_truncated: false, content_url: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt' } }, 7),
       toolEntry('call-unmatched-unknown', 'custom_probe', { exact: 'request-payload' }, 8),
     ];
     const timeline = entriesToTimeline(entries);
@@ -105,8 +105,8 @@ describe('ConversationTimeline', () => {
     expect(chips[2].classes()).toContain('tool-chip-error');
     expect(chips[2].text()).toContain('Generic tool');
     expect(chips[2].findAll('button.raw-toggle')).toHaveLength(2);
-    expect(chips[3].find('a.inline-part-file').text()).toBe('work:///tmp/stash/webfetch.txt');
-    expect(chips[3].find('a.inline-part-file').attributes('href')).toContain('path=.saivage/work/tmp/stash/webfetch.txt');
+    expect(chips[3].find('a.inline-part-file').text()).toBe('work:///tmp/stash/webfetch-1-0123456789abcdef.txt');
+    expect(chips[3].find('a.inline-part-file').attributes('href')).toContain('path=.saivage/work/tmp/stash/webfetch-1-0123456789abcdef.txt');
     expect(chips[4].text()).toContain('no result recorded');
     expect(chips[4].find('.tool-chip-status').attributes('data-tone')).toBe('neutral');
     expect(chips[4].classes()).not.toContain('tool-chip-ok');

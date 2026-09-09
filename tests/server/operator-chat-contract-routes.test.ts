@@ -167,11 +167,10 @@ describe('operator chat route request contracts', () => {
           metadata_only: false,
           max_bytes: 123,
           max_inline_bytes: 45,
-          save_as: 'record:///brief.md?card=card-a',
         },
         result: {
           success: true as const,
-          data: { opaque_extension: { apiKey: '[REDACTED]', identity: 'stable_value' } },
+          data: { kind: 'text', redacted_url: 'https://example.test/path?[REDACTED]', status: 200, headers: {}, head: 'stable head', head_utf8_bytes: 11, redacted_text_utf8_bytes: 11, fetched_text_utf8_bytes: 11, head_complete: true, fetch_truncated: false },
         },
       },
     },

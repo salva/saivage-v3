@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { RecordMutationSuccessSchema } from './record-mutation.js';
+import { buildScopedPathUrl, parseScopedPathUrl } from './scoped-path-url.js';
 
 export const WebfetchInvocationSchema = z.object({
   url: z.string(),
@@ -31,16 +32,43 @@ const WebfetchBinaryDataSchema = WebfetchMetadataSchema.extend({
   content: z.null(),
   binary: z.literal(true),
 }).strict();
-const WebfetchInlineDataSchema = WebfetchMetadataSchema.extend({
-  text: z.string(),
-  bytes: z.number().int().nonnegative(),
-  truncated: z.literal(false),
-}).strict();
-const WebfetchStashDataSchema = WebfetchMetadataSchema.extend({
-  stash_url: z.string(),
-  bytes: z.number().int().nonnegative(),
-  truncated: z.literal(true),
-}).strict();
+const SafeByteCountSchema = z.number().int().safe().nonnegative();
+const WEBFETCH_STASH_FILENAME_RE = /^webfetch-[1-9][0-9]*-[0-9a-f]{16}\.txt$/;
+
+function isCanonicalWebfetchContentUrl(value: string): boolean {
+  try {
+    const parsed = parseScopedPathUrl(value, 'work');
+    return parsed.query === null
+      && !parsed.hadFragment
+      && parsed.segments.length === 3
+      && parsed.segments[0] === 'tmp'
+      && parsed.segments[1] === 'stash'
+      && WEBFETCH_STASH_FILENAME_RE.test(parsed.segments[2]!)
+      && value === buildScopedPathUrl('work', parsed.segments);
+  } catch {
+    return false;
+  }
+}
+
+export const WebfetchTextDataSchema = WebfetchMetadataSchema.extend({
+  kind: z.literal('text'),
+  head: z.string(),
+  head_utf8_bytes: SafeByteCountSchema,
+  redacted_text_utf8_bytes: SafeByteCountSchema,
+  fetched_text_utf8_bytes: SafeByteCountSchema.max(1_000_000),
+  head_complete: z.boolean(),
+  fetch_truncated: z.boolean(),
+  content_url: z.string().optional(),
+}).strict().superRefine((value, ctx) => {
+  const actualHeadBytes = Buffer.byteLength(value.head, 'utf8');
+  if (value.head_utf8_bytes !== actualHeadBytes) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['head_utf8_bytes'], message: 'head_utf8_bytes must equal the UTF-8 byte length of head.' });
+  if (value.head_utf8_bytes > value.redacted_text_utf8_bytes) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['head_utf8_bytes'], message: 'head cannot exceed complete redacted text.' });
+  const complete = value.head_utf8_bytes === value.redacted_text_utf8_bytes;
+  if (value.head_complete !== complete) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['head_complete'], message: 'head_complete must exactly reflect the redacted byte counts.' });
+  if (value.head_complete && value.content_url !== undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['content_url'], message: 'content_url is forbidden for a complete head.' });
+  if (!value.head_complete && value.content_url === undefined) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['content_url'], message: 'content_url is required for an incomplete head.' });
+  if (value.content_url !== undefined && !isCanonicalWebfetchContentUrl(value.content_url)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['content_url'], message: 'content_url must be the canonical current webfetch stash URL.' });
+});
 const WebfetchSavedDataSchema = WebfetchMetadataSchema.extend({
   saved_as: z.string(),
   write: WebfetchSavedWriteSchema,
@@ -50,7 +78,6 @@ const WebfetchSavedDataSchema = WebfetchMetadataSchema.extend({
 export const WebfetchDataSchema = z.union([
       WebfetchMetadataOnlyDataSchema,
       WebfetchBinaryDataSchema,
-      WebfetchInlineDataSchema,
-      WebfetchStashDataSchema,
+      WebfetchTextDataSchema,
       WebfetchSavedDataSchema,
     ]);

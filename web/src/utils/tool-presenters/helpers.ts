@@ -54,12 +54,11 @@ function filePart(pathValue: unknown, label?: string): InlinePart | null {
   return null;
 }
 
-export function webfetchStashPart(value: unknown): InlinePart | null {
+export function webfetchContentPart(value: unknown): InlinePart | null {
   const url = str(value);
-  const prefix = 'work:///tmp/stash/';
-  if (!url.startsWith(prefix) || url.length === prefix.length) return null;
-  const file = url.slice(prefix.length);
-  if (file.includes('/')) return null;
+  const match = /^work:\/\/\/tmp\/stash\/(webfetch-[1-9][0-9]*-[0-9a-f]{16}\.txt)$/u.exec(url);
+  if (!match || match[0] !== url) return null;
+  const file = match[1];
   return { kind: 'file', root: 'output', path: `.saivage/work/tmp/stash/${file}`, label: url };
 }
 

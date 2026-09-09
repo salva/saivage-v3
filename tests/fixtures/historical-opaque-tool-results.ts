@@ -29,6 +29,13 @@ export const historicalOpaqueToolResults = [
     },
   },
   {
+    toolName: 'webfetch',
+    result: {
+      success: true,
+      data: { redacted_url: 'https://example.test/', text: 'token=historical-secret', bytes: 23, truncated: false },
+    },
+  },
+  {
     toolName: 'glob',
     result: {
       success: true,

@@ -142,9 +142,9 @@ describe('projectToolInvocation exhaustive identity switch', () => {
   it('projects every result as opaque data and invents neither calls nor arguments', () => {
     const webfetch = projectToolInvocation({
       shape: 'result-row', identity: identity('webfetch'),
-      result: { success: true, data: { redacted_url: 'https://tok_primary.example/path?[REDACTED]', status: 200, headers: { etag: 'tok_primary' }, text: marker, bytes: 42, truncated: false, opaque_extension: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } } },
+      result: { success: true, data: { kind: 'text', redacted_url: 'https://tok_primary.example/path?[REDACTED]', status: 200, headers: { etag: 'tok_primary' }, head: 'token=[REDACTED]', head_utf8_bytes: 16, redacted_text_utf8_bytes: 16, fetched_text_utf8_bytes: 42, head_complete: true, fetch_truncated: false, opaque_extension: { apiKey: OUTBOUND_RAW_MARKER, identity: 'stable_value' } } },
     });
-    expect(webfetch).toMatchObject({ result: { success: true, data: { opaque_extension: { apiKey: '[REDACTED]', identity: 'stable_value' } } } });
+    expect(webfetch).toMatchObject({ result: { success: true, data: { head: 'token=[REDACTED]', head_utf8_bytes: 16, redacted_text_utf8_bytes: 16, fetched_text_utf8_bytes: 42, head_complete: true, fetch_truncated: false, opaque_extension: { apiKey: '[REDACTED]', identity: 'stable_value' } } } });
     expect(JSON.stringify(webfetch)).not.toContain('synthetic-secret-value');
     expect(webfetch).not.toHaveProperty('arguments');
 

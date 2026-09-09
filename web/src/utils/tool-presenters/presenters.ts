@@ -1,4 +1,4 @@
-import { argKeys, asRecord, cardPart, describeJsonlTail, formatBytes, oneLine, pathParts, str, textPart, webfetchStashPart } from './helpers';
+import { argKeys, asRecord, cardPart, describeJsonlTail, formatBytes, oneLine, pathParts, str, textPart, webfetchContentPart } from './helpers';
 import type { ResultPresenterContext, ToolPresenter } from './types';
 
 function cardResult(ctx: ResultPresenterContext, verb: string) {
@@ -33,6 +33,25 @@ function pageCount(page: unknown, noun: string, plural?: string) {
   const pluralNoun = plural ?? `${noun}s`;
   if (total === null) return { headline: textPart(`${returned} ${returned === 1 ? noun : pluralNoun}`) };
   return { headline: textPart(`${returned} of ${total} ${total === 1 ? noun : pluralNoun}`) };
+}
+
+function webfetchResult(ctx: ResultPresenterContext) {
+  const result = ctx.dataRecord;
+  if (typeof result?.saved_as === 'string') return { headline: textPart(result.saved_as, 96) };
+  if (result?.kind !== 'text') return { headline: textPart(str(result?.redacted_url) || 'fetched', 96) };
+  const content = webfetchContentPart(result.content_url);
+  const headline = result.head_complete === false && content
+    ? [content]
+    : textPart(str(result.redacted_url) || 'fetched', 96);
+  const head = oneLine(result.head, 72);
+  const headBytes = typeof result.head_utf8_bytes === 'number' ? result.head_utf8_bytes : 0;
+  const totalBytes = typeof result.redacted_text_utf8_bytes === 'number' ? result.redacted_text_utf8_bytes : 0;
+  const completeness = result.head_complete === true ? 'head complete' : 'head incomplete';
+  const fetchState = result.fetch_truncated === true ? 'fetch truncated' : 'fetch complete';
+  return {
+    headline,
+    detail: textPart(`${head ? `head: ${head} · ` : 'empty head · '}${formatBytes(headBytes)} of ${formatBytes(totalBytes)} · ${completeness} · ${fetchState}`),
+  };
 }
 
 export const TOOL_PRESENTERS = {
@@ -79,7 +98,7 @@ export const TOOL_PRESENTERS = {
   start_project: { action: 'Start project', call: () => ({ icon: '▶', headline: textPart('start project') }), result: () => ({ headline: textPart('project start requested') }) },
   stop_project: { action: 'Stop project', call: () => ({ icon: '■', headline: textPart('stop project') }), result: () => ({ headline: textPart('project stopped') }) },
   wait_process: { action: 'Wait', call: (a) => ({ icon: '⏳', headline: textPart(`process ${str(a.process_id)}`) }), result: processResult },
-  webfetch: { action: 'Fetch', group: 'web', call: (a) => ({ icon: '🌐', headline: textPart(a.url, 80) }), result: (ctx) => { const stash = webfetchStashPart(ctx.dataRecord?.stash_url); if (stash) return { headline: [stash] }; return { headline: textPart(str(ctx.dataRecord?.saved_as ?? ctx.dataRecord?.redacted_url) || 'fetched', 96) }; } },
+  webfetch: { action: 'Fetch', group: 'web', call: (a) => ({ icon: '🌐', headline: textPart(a.url, 80) }), result: webfetchResult },
   websearch: { action: 'Search', group: 'web', call: (a) => ({ icon: '🌐', headline: textPart(a.query, 80) }), result: (ctx) => { const n = Array.isArray(ctx.dataRecord?.results) ? ctx.dataRecord.results.length : null; return { headline: n === null ? textPart('search completed') : textPart(`${n} result${n === 1 ? '' : 's'}`) }; } },
   write: { action: 'Write', call: (a) => ({ icon: '✏️', headline: pathParts(a.path), detail: textPart(`${str(a.content).length} chars`) }), result: (ctx) => ({ headline: textPart(typeof ctx.dataRecord?.bytes === 'number' ? `wrote ${formatBytes(ctx.dataRecord.bytes)}` : 'wrote file') }) },
 } as const satisfies Readonly<Record<string, ToolPresenter>>;

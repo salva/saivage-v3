@@ -6,6 +6,7 @@ import {
   redactSnippetForOutbound,
   redactTextForOutbound,
 } from '../../src/redaction/index.js';
+import { redactTextWithStablePrefixesForOutbound } from '../../src/redaction/text.js';
 
 describe('outbound redaction', () => {
   it('has the exact singular-cutover source inventory', () => {
@@ -304,5 +305,50 @@ describe('outbound redaction', () => {
     expect(result).toBe('prefix Bearer [REDACTED] safe-');
     expect(result).toHaveLength(30);
     expect(result).not.toContain(rawSecret);
+  });
+
+  describe('stable-prefix certificate', () => {
+    const fixtures = [
+      'plain astral 😀 text',
+      'Authorization: Bearer example tail',
+      'before token="example with spaces" after',
+      '{"apiKey":"example","safe":"visible"}',
+      '  password: example\r\nsafe: visible',
+      'payload={\\"apiKey\\":\\"example\\"}',
+      'https://example.test/?api_key=example&safe=yes',
+      'sk-example tid=example ghu_example rt_example tok_example',
+      'sk-[REDACTED] rt_[REDACTED] [REDACTED] [R',
+      'apiKey: ${A}${B}',
+      'prose token: ${Bearer example}',
+      '\uFEFFcombining e\u0301 and 😀 token=example',
+    ];
+
+    it.each(fixtures)('advertises only Unicode endpoints stable under every current rule: %s', (input) => {
+      const result = redactTextWithStablePrefixesForOutbound(input);
+      expect(result.text).toBe(redactTextForOutbound(input));
+      expect(result.maxPrefixEnd).toBeGreaterThanOrEqual(0);
+      expect(result.maxPrefixEnd).toBeLessThanOrEqual(result.text.length);
+      for (let end = 0; end <= result.maxPrefixEnd; end += 1) {
+        const bisectsSurrogate = end > 0
+          && end < result.text.length
+          && /[\uD800-\uDBFF]/u.test(result.text[end - 1]!)
+          && /[\uDC00-\uDFFF]/u.test(result.text[end]!);
+        const insideSpan = result.indivisibleSpans.some((span) => span.start < end && end < span.end);
+        if (!bisectsSurrogate && !insideSpan) expect(redactTextForOutbound(result.text.slice(0, end))).toBe(result.text.slice(0, end));
+      }
+    });
+
+    it('keeps touching spans distinct, merges strict overlap, and can reject the full endpoint', () => {
+      const touching = redactTextWithStablePrefixesForOutbound('"apiKey":"x""password":"y"');
+      expect(touching.indivisibleSpans).toHaveLength(2);
+      expect(touching.indivisibleSpans[0]!.end).toBe(touching.indivisibleSpans[1]!.start);
+
+      const overlapping = redactTextWithStablePrefixesForOutbound('ordinary=sk-[REDACTED]');
+      expect(overlapping.indivisibleSpans).toHaveLength(1);
+
+      const unstable = redactTextWithStablePrefixesForOutbound('token: ${Bearer example}');
+      expect(unstable.text).toBe('token: ${Bearer [REDACTED]');
+      expect(unstable.maxPrefixEnd).toBe(0);
+    });
   });
 });

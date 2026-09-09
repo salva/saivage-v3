@@ -51,13 +51,19 @@ describe('tool activity projection', () => {
     const projected = projectAnalystToolInvocationActivity({
       tool: 'webfetch',
       params: { url: `https://example.test/path?token=${OUTBOUND_RAW_MARKER}#fragment`, read_mode: 'text', max_bytes: 123 },
-      result: { success: true, data: { redacted_url: 'https://example.test/path?[REDACTED]', status: 200, headers: {}, bytes: 123, truncated: true, stash_url: 'work:///tmp/stash/webfetch.txt', command: 'token=[REDACTED]' } },
+      result: { success: true, data: { kind: 'text', redacted_url: 'https://example.test/path?[REDACTED]', status: 200, headers: {}, head: 'safe head', head_utf8_bytes: 9, redacted_text_utf8_bytes: 123, fetched_text_utf8_bytes: 140, head_complete: false, fetch_truncated: true, content_url: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt', command: 'token=[REDACTED]' } },
       ...IDENTITY,
     },'agent:analyst:global');
 
     expect(projected.params).toEqual({ url: 'https://example.test/path?[REDACTED]', read_mode: 'text', max_bytes: 123 });
     expect((projected.result as { data: Record<string, unknown> }).data).toEqual(expect.objectContaining({
-      stash_url: 'work:///tmp/stash/webfetch.txt',
+      head: 'safe head',
+      head_utf8_bytes: 9,
+      redacted_text_utf8_bytes: 123,
+      fetched_text_utf8_bytes: 140,
+      head_complete: false,
+      fetch_truncated: true,
+      content_url: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt',
       command: 'token=[REDACTED]',
     }));
     expect(JSON.stringify(projected)).not.toContain(OUTBOUND_RAW_MARKER);

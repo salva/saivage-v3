@@ -199,10 +199,10 @@ describe('static tool presenter authority', () => {
     expect(failureData).not.toHaveProperty('winner');
   });
 
-  it('exposes wrapped canonical webfetch stash URLs as Files links', () => {
+  it('exposes wrapped canonical webfetch content URLs as Files links', () => {
     const call = { id: 'c', session_id: 'agent:analyst:global', role: 'assistant', kind: 'tool_call', content: callEnvelope('webfetch', { url: 'https://example.com' }), context_policy: { kind: 'tool_call', template: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'primary_and_summarizer', evidenceMode: 'none' }, template_bytes: '{}', template_sha256: '0'.repeat(64) }, round_id: 'assistant:1', message_index: 0, block_index: 0, timestamp: '2026-07-21T00:00:00Z', tool: 'webfetch', tool_call_id: 'c' } as ToolPair['call'];
-    const result = { ...call, id: 'r', role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: true, data: { stash_url: 'work:///tmp/stash/webfetch.txt' } }), context_policy: { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } } as ToolPair['result'];
+    const result = { ...call, id: 'r', role: 'tool', kind: 'tool_result', content: JSON.stringify({ success: true, data: { kind: 'text', redacted_url: 'https://example.com/', status: 200, headers: {}, head: 'preview', head_utf8_bytes: 7, redacted_text_utf8_bytes: 20, fetched_text_utf8_bytes: 20, head_complete: false, fetch_truncated: false, content_url: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt' } }), context_policy: { kind: 'tool_result', settlement_origin: 'executed', result_content_sha256: '0'.repeat(64), call_policy_sha256: '0'.repeat(64), evidence: { kind: 'none' } } } as ToolPair['result'];
     const display = buildToolDisplay({ call, result });
-    expect(display.links).toContainEqual({ kind: 'file', root: 'output', path: '.saivage/work/tmp/stash/webfetch.txt', label: 'work:///tmp/stash/webfetch.txt' });
+    expect(display.links).toContainEqual({ kind: 'file', root: 'output', path: '.saivage/work/tmp/stash/webfetch-1-0123456789abcdef.txt', label: 'work:///tmp/stash/webfetch-1-0123456789abcdef.txt' });
   });
 });
