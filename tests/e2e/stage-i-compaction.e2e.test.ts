@@ -104,7 +104,7 @@ describe('Stage-I versioned compaction', () => {
         input: invocationFor(SESSION, providerConversationProjection(before.conversation, []).messages),
         summarizerProvider: { candidate: TEST_CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
         signal: controller.signal,
-        progress: { foldStarted, foldCompleted },
+        progress: { foldStarted, foldCompleted, foldFailed: jest.fn() },
       })).rejects.toBe(reason);
 
       expect(serializeSummaryRequest).not.toHaveBeenCalled();

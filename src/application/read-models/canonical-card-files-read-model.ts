@@ -7,7 +7,7 @@ import { cardIdSchema, childCardId, MAX_CARD_DEPTH } from '../../schemas/card-id
 import { redactTextForOutbound } from '../../redaction/index.js';
 import type { WorkspaceFileContentResult, WorkspaceFilesListResult } from './workspace-file-read-model.js';
 import type { CardArtifact } from '../../persistence/canonical-card-artifacts.js';
-import { projectCardRecordForOutbound } from './card-outbound.js';
+import { projectCardArtifactForOutbound } from './card-outbound.js';
 
 const CARDS_ROOT = '.saivage/cards';
 const MAX_FILE_SIZE_BYTES = 1_048_576;
@@ -64,26 +64,25 @@ function sortJson(value: unknown): unknown {
 }
 
 function projectCardDocument(artifact: CardArtifact): unknown {
+  const projected = projectCardArtifactForOutbound(artifact);
   if (artifact.kind === 'card-version') {
     return {
       format_version: 2,
-      kind: artifact.kind,
       entry_id: artifact.entry_id,
       card_id: artifact.card_id,
       version: artifact.version,
       published_at: artifact.committed_at,
-      card: projectCardRecordForOutbound(artifact.card),
+      ...projected,
     };
   }
   return {
     format_version: 2,
-    kind: artifact.kind,
     entry_id: artifact.entry_id,
     card_id: artifact.card_id,
     version: artifact.version,
     published_at: artifact.committed_at,
     prior_card_version: artifact.prior_card_version,
-    final_card: projectCardRecordForOutbound(artifact.final_card),
+    ...projected,
   };
 }
 

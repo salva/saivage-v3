@@ -9,4 +9,4 @@ export function executingLlmSnapshots(sessionIds: readonly ConversationSessionId
   }));
 }
 
-export const noCompactionProgress = Object.freeze({ foldStarted() {}, foldCompleted() {} });
+export const noCompactionProgress = Object.freeze({ foldStarted() {}, foldCompleted() {}, foldFailed() {} });

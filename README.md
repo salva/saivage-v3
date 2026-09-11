@@ -36,8 +36,13 @@ The [system specification](docs/spec/system-specification.md#8-lifecycle-lock-an
 owns startup options and precedence. The [runbook](docs/runbook/index.md) owns
 deployment, configuration cutovers, lifecycle operations, recovery, and reset.
 
-Conversation compaction uses one contextual sequential-refine accumulator and at
-most two preselected safe coverage endpoints. Current configuration has one
+Conversation compaction uses one contextual sequential-refine accumulator, at
+most two preselected safe coverage endpoints, and at most one source-faithful
+corrective regeneration inside the shared 16-logical-call bound. Its 12,000-byte
+normal and 6,000-byte corrective output values are concision targets, not
+validator ceilings; complete candidates still require strict reduction, hard
+budget qualification where applicable, and exact provider-request admission.
+Current configuration has one
 `tail_fraction` (default `0.25`) and no merge/summary escalation fractions. See
 the [prepared conversation compaction runbook](docs/runbook/index.md#prepared-conversation-compaction)
 for capacity, 16-call, and failure limits; these bounds are not latency or

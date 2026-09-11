@@ -240,7 +240,7 @@ export interface ValueContractClaimValueByKey {
   'constant.managed-process-term-grace-ms': SourceConstantClaimValue;
   'constant.maximum-card-depth-segments': SourceConstantClaimValue;
   'constant.summarizer-completion-tokens': SourceConstantClaimValue;
-  'constant.summarizer-output-max-bytes': SourceConstantClaimValue;
+  'constant.summarizer-output-target-bytes': SourceConstantClaimValue;
   'constant.sync-hub-debounce-ms': SourceConstantClaimValue;
   'constant.tool-result-envelope-max-bytes': SourceConstantClaimValue;
   'error.analyst-turn-busy': StrictErrorClaimValue;

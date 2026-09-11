@@ -263,8 +263,7 @@ describe('accumulated compaction history generations', () => {
   it.each([
     ['tool-call result', { kind: 'tool_calls' as const, tool_calls: [] }],
     ['empty text', { kind: 'message' as const, content: '   ' }],
-    ['recoverable-evidence section', { kind: 'message' as const, content: 'Recoverable evidence\n- forbidden' }],
-  ])('wraps malformed successful %s and stops before publication or another summary call', async (_label, malformedResult) => {
+  ])('corrects malformed successful %s once and wraps repeated noncompliance without publication', async (_label, malformedResult) => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-history-malformed-summary-'));
     initProjectTree(root);
     try {
@@ -279,7 +278,7 @@ describe('accumulated compaction history generations', () => {
       const failure = await operation.catch((error: unknown) => error);
       expect(failure).toBeInstanceOf(CompactionSummaryConstructionError);
       expect((failure as Error & { cause: unknown }).cause).toBeInstanceOf(SummaryResultValidationError);
-      expect(completeTurn).toHaveBeenCalledTimes(1);
+      expect(completeTurn).toHaveBeenCalledTimes(2);
       expect(readConversationCatalog(root, SESSION).versions.map(({ version }) => version)).toEqual([1]);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });

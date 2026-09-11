@@ -27,7 +27,6 @@ import { InvocationLifecycle, type InvocationJoinOutcome, type InvocationLease }
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext } from '../../contracts/provider-exchange.js';
 import { CompactionAppendError, CompactionSummaryConstructionError, type CompactArgs, type CompactionResult, type CompactionStrategy } from './compaction/compactor.js';
 import type { SummarizerProviderPort } from './compaction/summarizer.js';
-import { sanitizeRecoveryMessage } from '../../agents/invocation-recovery-policy.js';
 import type { ChildInvocationReservation, CompactionProgress, ExactWaitBarrier, ExecutingLlmActivity, ExternalAndProcessWaits, LlmToolInvocationContext, ToolInvocationIdentity } from './executing-llm-snapshot.js';
 import { ChildInvocationLease } from './child-invocation-wait.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
@@ -404,7 +403,7 @@ export class ConversationLLMActor {
       this.#deliverPublicationFatal(error);
       if (error instanceof LocalExactAdmissionError) throw error;
       if (error instanceof CompactionSummaryConstructionError)
-        throw new LocalExactAdmissionError({ localCompactionAttempted: true, diagnostics: projectAdmissionDiagnostics(first.candidates), cause: error });
+        throw new LocalExactAdmissionError({ localCompactionAttempted: true, diagnostics: projectAdmissionDiagnostics(first.candidates), constructionDiagnostic: error.message, cause: error });
       throw error;
     }
     if (compacted.providerConversation.sourceSessionId !== input.providerConversation.sourceSessionId) throw new Error(`Compaction changed provider conversation source session from '${input.providerConversation.sourceSessionId}' to '${compacted.providerConversation.sourceSessionId}'.`);
@@ -597,7 +596,7 @@ export class ConversationLLMActor {
         });
         throw new LastChanceSummaryProviderUnavailableError(error);
       }
-      if (error instanceof CompactionSummaryConstructionError) throw normalContextFailure(`Provider input context exhausted; last-chance compaction failed while constructing a smaller projection: ${sanitizeRecoveryMessage(error.cause)}. No provider retry was attempted.`, firstAttempts, firstFailure.originalFailure, error.cause);
+      if (error instanceof CompactionSummaryConstructionError) throw normalContextFailure(`Provider input context exhausted; last-chance ${error.message} No provider retry was attempted.`, firstAttempts, firstFailure.originalFailure, error);
       if (error instanceof CompactionAppendError) throw error.cause;
       throw error;
     }
@@ -707,6 +706,13 @@ export class ConversationLLMActor {
             const progress = this.#compactionProgress;
             if (!progress || !progress.foldInFlight) throw new Error(`LLMActor '${this.agentId}' received an invalid compaction fold completion.`);
             this.#compactionProgress = Object.freeze({ ...progress, foldsDone: progress.foldsDone + 1, foldInFlight: false });
+            this.runtimeProjectionChanged?.();
+          },
+          foldFailed: () => {
+            if (!current()) return;
+            const progress = this.#compactionProgress;
+            if (!progress || !progress.foldInFlight) throw new Error(`LLMActor '${this.agentId}' received an invalid compaction fold failure.`);
+            this.#compactionProgress = Object.freeze({ ...progress, foldInFlight: false });
             this.runtimeProjectionChanged?.();
           },
         },

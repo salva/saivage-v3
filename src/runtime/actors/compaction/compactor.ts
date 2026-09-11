@@ -27,7 +27,9 @@ import { classifyConversationRounds, estimateMessageTokens,
 } from './round-classifier.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
 import { createSequentialRefineAccumulator, SummaryConstructionLimitError } from './refine-accumulator.js';
-import { SummaryResultValidationError, type SummarizerProviderPort } from './summarizer.js';
+import { SUMMARY_OUTPUT_TARGET_BYTES, SummaryResultValidationError, type SummarizerProviderPort } from './summarizer.js';
+import { ProviderTurnFailure } from '../../../agents/llm-contracts.js';
+import { LlmRequestError } from '../../../contracts/llm-failure.js';
 import { versionFilename } from '../../../persistence/version-index.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
 
@@ -107,6 +109,7 @@ export type CompactionStrategy = 'preventive' | 'authoritative_context_recovery'
 export type CompactionProgressCallbacks = Readonly<{
   foldStarted(): void;
   foldCompleted(): void;
+  foldFailed(): void;
 }>;
 export type CompactionResult =
   | {
@@ -120,10 +123,45 @@ export type CompactionResult =
       smallestCandidateEstimatedProviderMessageTokens: number | null;
     };
 
+type CompactionConstructionReason =
+  | 'empty_output'
+  | 'tool_calls'
+  | 'incomplete_output'
+  | 'request_context_capacity'
+  | 'fold_limit'
+  | 'no_reduction'
+  | 'residual_capacity';
+
 export class CompactionSummaryConstructionError extends Error {
-  constructor(cause: unknown) {
-    super('Failed to construct compaction summary.', { cause });
+  readonly reason: CompactionConstructionReason;
+  readonly invocationCount: number;
+  readonly invocationLimit: number;
+  readonly correctionCount: number;
+  readonly correctionLimit = 1;
+
+  constructor(args: {
+    reason: CompactionConstructionReason;
+    invocationCount: number;
+    invocationLimit?: number;
+    correctionCount: number;
+    summaryBytes?: number | null;
+    summaryTargetBytes?: number;
+    projectionTokens?: number;
+    projectionCeiling?: number;
+    cause: unknown;
+  }) {
+    const measurements = [
+      args.summaryBytes !== undefined && args.summaryBytes !== null ? `summary_bytes=${args.summaryBytes}` : null,
+      args.summaryTargetBytes !== undefined ? `summary_target_bytes=${args.summaryTargetBytes}` : null,
+      args.projectionTokens !== undefined ? `projection_tokens=${args.projectionTokens}` : null,
+      args.projectionCeiling !== undefined ? `projection_ceiling=${args.projectionCeiling}` : null,
+    ].filter((value): value is string => value !== null);
+    super(`Compaction summary construction failed: reason=${args.reason}, invocation_count=${args.invocationCount}, invocation_limit=${args.invocationLimit ?? 16}, correction_count=${args.correctionCount}, correction_limit=1${measurements.length ? `, ${measurements.join(', ')}` : ''}.`, { cause: args.cause });
     this.name = 'CompactionSummaryConstructionError';
+    this.reason = args.reason;
+    this.invocationCount = args.invocationCount;
+    this.invocationLimit = args.invocationLimit ?? 16;
+    this.correctionCount = args.correctionCount;
   }
 }
 
@@ -192,22 +230,15 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     progress: args.progress,
   });
 
-  const accepted = (estimated: number): boolean =>
-    args.strategy === 'preventive'
-      ? estimated <= budget.triggerMessageThreshold
-      : estimated < rejectedEstimatedProviderMessageTokens;
-
   const candidateFor = async (cutoffCount: number): Promise<Candidate | null> => {
     if (cutoffCount === 0) return null;
     if (cutoffCount <= summaries.materializedThrough)
       throw new Error(`Compaction candidate cutoff ${cutoffCount} moved backward from materialized cutoff ${summaries.materializedThrough}.`);
-    let summaryText: string;
-    try {
-      summaryText = await summaries.materializeThrough(cutoffCount);
-    } catch (error) {
-      if (error instanceof SummaryResultValidationError || error instanceof SummaryConstructionLimitError) throw new CompactionSummaryConstructionError(error);
-      throw error;
-    }
+    const summaryText = await summaries.materializeThrough(cutoffCount);
+    return candidateFromSummary(cutoffCount, summaryText);
+  };
+
+  const candidateFromSummary = (cutoffCount: number, summaryText: string): Candidate => {
     args.signal.throwIfAborted();
     const coveredRows = sourceRows.slice(0, cutoffCount);
     const successor = buildSuccessorHistory({ conversation, sessionId, sourceVersion, sourceGenesis, coveredRows, summaryText });
@@ -235,52 +266,63 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
   };
 
   let candidate: Candidate | null = null;
-  if (args.strategy === 'preventive') {
-    for (const endpoint of endpoints) {
+  const completed: Candidate[] = [];
+  let expectedFailure: unknown = null;
+  for (const endpoint of endpoints) {
+    try {
       const evaluated = await candidateFor(endpoint);
-      if (evaluated && accepted(evaluated.estimatedProviderMessageTokens)) { candidate = evaluated; break; }
+      if (!evaluated) continue;
+      completed.push(evaluated);
+      if (args.strategy === 'authoritative_context_recovery' && isTokenReduction(evaluated)) { candidate = evaluated; break; }
+      if (args.strategy === 'preventive' && isPreventiveCandidate(evaluated) && evaluated.estimatedProviderMessageTokens <= budget.triggerMessageThreshold) { candidate = evaluated; break; }
+    } catch (error) {
+      throwIfPublicationOutcomeUnknown(error);
+      if (args.signal.aborted && error === args.signal.reason) throw error;
+      if (!isExpectedRecoveryFailure(error)) throw error;
+      expectedFailure = error;
+      const retained = selectQualifying(completed);
+      if (retained) candidate = retained;
+      break;
     }
-    if (!candidate)
-      throw new Error(
-        'Compaction could not fit the residual context below the trigger threshold using the selected safe coverage endpoints. Raise compaction.input_budget_tokens or reduce the prompt/tool surface.',
-      );
-  } else if (args.strategy === 'authoritative_context_recovery') {
-    for (const endpoint of endpoints) {
-      const evaluated = await candidateFor(endpoint);
-      if (evaluated && accepted(evaluated.estimatedProviderMessageTokens)) { candidate = evaluated; break; }
+  }
+
+  candidate ??= selectQualifying(completed);
+  if (!candidate && expectedFailure === null && completed.length > 0 && summaries.canCorrectLatestFold) {
+    const obstruction = finalObstruction(completed.at(-1)!);
+    if (obstruction) {
+      try {
+        const correctedSummary = await summaries.correctLatestFold();
+        const corrected = candidateFromSummary(summaries.materializedThrough, correctedSummary);
+        completed.push(corrected);
+        candidate = selectQualifying([corrected]);
+        if (!candidate && args.strategy === 'preventive') expectedFailure = obstructionFor(corrected);
+      } catch (error) {
+        throwIfPublicationOutcomeUnknown(error);
+        if (args.signal.aborted && error === args.signal.reason) throw error;
+        if (!(error instanceof ProviderTurnFailure) &&
+            !(error instanceof SummaryResultValidationError) &&
+            !(error instanceof SummaryConstructionLimitError) &&
+            !(error instanceof ProjectionObstruction)) throw error;
+        expectedFailure = error;
+      }
     }
-    if (!candidate) {
-      return {
-        kind: 'no_smaller_projection',
-        rejectedEstimatedProviderMessageTokens,
-        smallestCandidateEstimatedProviderMessageTokens,
-      };
+  }
+
+  if (!candidate) {
+    if (expectedFailure instanceof ProviderTurnFailure) throw expectedFailure;
+    if (expectedFailure instanceof SummaryResultValidationError || expectedFailure instanceof SummaryConstructionLimitError)
+      throw constructionFailure(expectedFailure, summaries.invocationCount, summaries.correctionCount);
+    if (expectedFailure instanceof ProjectionObstruction)
+      throw constructionFailure(expectedFailure, summaries.invocationCount, summaries.correctionCount);
+    if (args.strategy === 'preventive') {
+      const obstruction = completed.length > 0 ? obstructionFor(completed.at(-1)!) : new ProjectionObstruction('request_context_capacity');
+      throw constructionFailure(obstruction, summaries.invocationCount, summaries.correctionCount);
     }
-  } else {
-    const evaluated: Candidate[] = [];
-    for (const endpoint of endpoints) {
-      const entry = await candidateFor(endpoint);
-      if (entry) evaluated.push(entry);
-    }
-    const selected = evaluated
-      .filter((entry) => entry.composedProviderConversationBytes < rejectedComposedProviderConversationBytes)
-      .reduce<Candidate | null>(
-        (best, entry) =>
-          best === null ||
-          entry.composedProviderConversationBytes < best.composedProviderConversationBytes ||
-          (entry.composedProviderConversationBytes === best.composedProviderConversationBytes && entry.cutoffSourceIndex > best.cutoffSourceIndex)
-            ? entry
-            : best,
-        null,
-      );
-    if (!selected) {
-      return {
-        kind: 'no_smaller_projection',
-        rejectedEstimatedProviderMessageTokens,
-        smallestCandidateEstimatedProviderMessageTokens,
-      };
-    }
-    candidate = selected;
+    return {
+      kind: 'no_smaller_projection',
+      rejectedEstimatedProviderMessageTokens,
+      smallestCandidateEstimatedProviderMessageTokens,
+    };
   }
   args.signal.throwIfAborted();
   let published: ValidatedConversation;
@@ -302,6 +344,72 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     providerConversation,
     estimatedProviderMessageTokens: estimateProviderConversationTokens(providerConversation),
   };
+
+  function isTokenReduction(value: Candidate): boolean {
+    return value.estimatedProviderMessageTokens < rejectedEstimatedProviderMessageTokens;
+  }
+
+  function isPreventiveCandidate(value: Candidate): boolean {
+    return isTokenReduction(value) && value.estimatedProviderMessageTokens <= budget.canonicalMessageHardCeiling;
+  }
+
+  function selectQualifying(values: readonly Candidate[]): Candidate | null {
+    const qualifying = values.filter((value) => args.strategy === 'preventive'
+      ? isPreventiveCandidate(value)
+      : args.strategy === 'authoritative_context_recovery'
+        ? isTokenReduction(value)
+        : value.composedProviderConversationBytes < rejectedComposedProviderConversationBytes);
+    if (args.strategy === 'authoritative_context_recovery') return qualifying[0] ?? null;
+    return qualifying.reduce<Candidate | null>((best, value) => {
+      if (!best) return value;
+      const valueSize = args.strategy === 'local_exact_admission' ? value.composedProviderConversationBytes : value.estimatedProviderMessageTokens;
+      const bestSize = args.strategy === 'local_exact_admission' ? best.composedProviderConversationBytes : best.estimatedProviderMessageTokens;
+      return valueSize < bestSize || (valueSize === bestSize && value.cutoffSourceIndex > best.cutoffSourceIndex) ? value : best;
+    }, null);
+  }
+
+  function finalObstruction(value: Candidate): ProjectionObstruction | null {
+    return selectQualifying([value]) ? null : obstructionFor(value);
+  }
+
+  function obstructionFor(value: Candidate): ProjectionObstruction {
+    if (args.strategy === 'preventive' && value.estimatedProviderMessageTokens > budget.canonicalMessageHardCeiling)
+      return new ProjectionObstruction('residual_capacity', value.estimatedProviderMessageTokens, budget.canonicalMessageHardCeiling);
+    if (args.strategy === 'local_exact_admission' && value.composedProviderConversationBytes >= rejectedComposedProviderConversationBytes)
+      return new ProjectionObstruction('no_reduction');
+    return new ProjectionObstruction('no_reduction', value.estimatedProviderMessageTokens, rejectedEstimatedProviderMessageTokens - 1);
+  }
+}
+
+class ProjectionObstruction extends Error {
+  constructor(
+    readonly reason: 'request_context_capacity' | 'no_reduction' | 'residual_capacity',
+    readonly projectionTokens?: number,
+    readonly projectionCeiling?: number,
+  ) {
+    super(reason);
+    this.name = 'ProjectionObstruction';
+  }
+}
+
+function isExpectedRecoveryFailure(error: unknown): boolean {
+  if (error instanceof SummaryResultValidationError || error instanceof SummaryConstructionLimitError) return true;
+  return error instanceof ProviderTurnFailure && error.originalFailure instanceof LlmRequestError &&
+    (error.originalFailure.failure.kind === 'output_token_limit_exceeded' ||
+      error.originalFailure.failure.kind === 'input_context_exhausted' ||
+      error.originalFailure.failure.kind === 'content_policy');
+}
+
+function constructionFailure(
+  cause: SummaryResultValidationError | SummaryConstructionLimitError | ProjectionObstruction,
+  invocationCount: number,
+  correctionCount: number,
+): CompactionSummaryConstructionError {
+  if (cause instanceof SummaryResultValidationError)
+    return new CompactionSummaryConstructionError({ reason: cause.reason, invocationCount, correctionCount, summaryBytes: cause.summaryBytes, summaryTargetBytes: SUMMARY_OUTPUT_TARGET_BYTES, cause });
+  if (cause instanceof SummaryConstructionLimitError)
+    return new CompactionSummaryConstructionError({ reason: cause.reason, invocationCount: cause.invocationCount, invocationLimit: cause.invocationLimit, correctionCount, cause });
+  return new CompactionSummaryConstructionError({ reason: cause.reason, invocationCount, correctionCount, projectionTokens: cause.projectionTokens, projectionCeiling: cause.projectionCeiling, cause });
 }
 
 function allocateSuccessorIdentity(sourceVersion: number): CompactionSuccessorIdentity {

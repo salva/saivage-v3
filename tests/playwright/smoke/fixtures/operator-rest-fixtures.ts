@@ -34,8 +34,9 @@ const priorCard = {
   version_seq: 2,
 };
 const historyEntryId = '11111111-1111-4111-8111-111111111111';
-const historyList = parseOperatorResponse('cards.history.list', 200, { card_id: smokeCardId, versions: [{ entry_id: historyEntryId, version: 2, published_at: now, artifact_kind: 'card-version' }], total: 1 });
-const historyEntry = parseOperatorResponse('cards.history.get', 200, { card_id: smokeCardId, version: 2, entry_id: historyEntryId, published_at: now, artifact: { kind: 'card-version', card: priorCard } });
+const historyChange = { summary: 'status -> running', changed_fields: ['lifecycle'] as const, actor: null };
+const historyList = parseOperatorResponse('cards.history.list', 200, { card_id: smokeCardId, versions: [{ entry_id: historyEntryId, version: 2, published_at: now, artifact_kind: 'card-version', change: historyChange }], total: 1 });
+const historyEntry = parseOperatorResponse('cards.history.get', 200, { card_id: smokeCardId, version: 2, entry_id: historyEntryId, published_at: now, artifact: { kind: 'card-version', card: priorCard, change: historyChange } });
 const historyDiff = parseOperatorResponse('cards.diff', 200, { card_id: smokeCardId, from: 2, to: 3, diff: [{ field: 'lifecycle', before: priorCard.lifecycle, after: card.lifecycle }, { field: 'status_text', before: null, after: outboundCard.status_text }, { field: 'status_text_updated_at', before: null, after: now }] });
 
 const projectCard = {

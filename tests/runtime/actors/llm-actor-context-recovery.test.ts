@@ -16,7 +16,7 @@ import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-ex
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';
 import { appendConversationBatch, readConversation, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
 import { ConversationLLMActor, LastChanceSummaryProviderUnavailableError, type CompactorPort, type LLMProviderPort, type LlmTerminalHandoff } from '../../../src/runtime/actors/llm-actor.js';
-import { compact, prepareCompaction, shouldCompact } from '../../../src/runtime/actors/compaction/compactor.js';
+import { compact, CompactionSummaryConstructionError, prepareCompaction, shouldCompact } from '../../../src/runtime/actors/compaction/compactor.js';
 import { internalCompactionSummarySessionId } from '../../../src/runtime/actors/compaction/summarizer.js';
 import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { compileInvocationToolContract } from '../../../src/runtime/actors/context/context-blocks.js';
@@ -223,9 +223,34 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     expect(fixture.compact).toHaveBeenCalledTimes(1);
     expect(fixture.execute).not.toHaveBeenCalled();
   });
+
+  it('adds only the fixed construction diagnostic to local exact-admission failure', async () => {
+    const fixture = actorFixture();
+    fixture.prepare.mockReturnValueOnce(rejectedCompactionAdmission());
+    const construction = new CompactionSummaryConstructionError({ reason: 'fold_limit', invocationCount: 16, correctionCount: 1, cause: new Error('SENTINEL RAW CAUSE') });
+    fixture.compact.mockRejectedValue(construction);
+    const failure = await fixture.actor.turn(fixture.input, undefined, jest.fn()).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ name: 'LocalExactAdmissionError', cause: construction });
+    expect((failure as Error).message).toContain('reason=fold_limit');
+    expect((failure as Error).message).not.toContain('SENTINEL');
+    expect(fixture.execute).not.toHaveBeenCalled();
+  });
 });
 
 describe('ConversationLLMActor authoritative admitted recovery', () => {
+  it('formats owned construction diagnostics without exposing the internal cause and keeps provider exhaustion on the separate handoff', async () => {
+    const fixture = actorFixture();
+    const construction = new CompactionSummaryConstructionError({ reason: 'incomplete_output', invocationCount: 2, correctionCount: 1, summaryBytes: 9_999, summaryTargetBytes: 12_000, cause: new Error('SENTINEL INTERNAL CAUSE') });
+    fixture.compact.mockRejectedValue(construction);
+    const outcome = await fixture.actor.turn(fixture.input, undefined, jest.fn());
+    expect(outcome).toMatchObject({ type: 'error', error: expect.stringContaining('reason=incomplete_output') });
+    if (outcome.type !== 'error') throw new Error('Expected construction failure outcome.');
+    expect(outcome.error).toContain('invocation_count=2');
+    expect(outcome.error).toContain('correction_count=1');
+    expect(outcome.error).not.toContain('SENTINEL');
+    expect(fixture.plannerProjection).toHaveBeenCalledTimes(1);
+  });
+
   it('holds the suspension untouched, compacts authoritatively once, and returns the same suspension to recovery preparation', async () => {
     const fixture = actorFixture();
     const compactedProjection = distinctProjection(fixture.input, 'authoritative-p2');

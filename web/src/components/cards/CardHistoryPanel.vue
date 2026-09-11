@@ -29,9 +29,11 @@
             @click="selectVersion(entry.version)"
           >
             <div class="history-item-top">
-              <span class="history-label">Card version</span>
+              <span class="history-label">{{ entry.change?.summary ?? 'Card version' }}</span>
               <span class="badge subtle">v{{ entry.version }}</span>
             </div>
+            <div v-if="entry.change" class="history-change-fields">{{ entry.change.changed_fields.join(', ') }}</div>
+            <div v-if="entry.change?.actor" class="history-actor">Changed by {{ entry.change.actor }}</div>
             <div class="history-time" :title="timestampTitle(entry.published_at)">Published at {{ fmtDate(entry.published_at) }}</div>
           </button>
         </div>
@@ -51,6 +53,16 @@
             <div class="history-meta-grid">
               <div class="meta-item"><span class="meta-key">Snapshot version</span><span class="meta-value">v{{ cardHistoryEntry.version }}</span></div>
               <div class="meta-item"><span class="meta-key">Published at</span><span class="meta-value" :title="timestampTitle(cardHistoryEntry.published_at)">{{ fmtDate(cardHistoryEntry.published_at) }}</span></div>
+            </div>
+
+            <div class="history-subsection">
+              <div class="history-subheading">Ordinary change metadata</div>
+              <div v-if="cardHistoryEntry.artifact.change" class="history-change-detail">
+                <strong>{{ cardHistoryEntry.artifact.change.summary }}</strong>
+                <div>{{ cardHistoryEntry.artifact.change.changed_fields.join(', ') }}</div>
+                <div v-if="cardHistoryEntry.artifact.change.actor">Changed by {{ cardHistoryEntry.artifact.change.actor }}</div>
+              </div>
+              <div v-else class="empty-evidence">No ordinary change metadata</div>
             </div>
 
             <div class="history-subsection">
@@ -146,6 +158,8 @@ onBeforeUnmount(() => cardStore.closeCardHistory());
 .history-item.selected { border-color:var(--accent-2); }
 .history-item-top { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:8px; }
 .history-label,.history-time { font-size:11px; color:var(--text-muted); }
+.history-change-fields,.history-actor { margin-top:4px; font-size:11px; color:var(--text-muted); }
+.history-change-detail { display:flex; flex-direction:column; gap:4px; font-size:12px; }
 .history-detail { min-width:0; }
 .history-meta-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:8px; margin-bottom:12px; }
 .history-subsection { margin-top:12px; }

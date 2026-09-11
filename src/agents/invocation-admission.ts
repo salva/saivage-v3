@@ -310,9 +310,9 @@ export class LocalExactAdmissionError extends Error {
   readonly localCompactionAttempted: boolean;
   readonly diagnostics: AdmissionDiagnostics;
   readonly recovery: RetainedAdmissionStateDiagnostics | null;
-  constructor(args: { localCompactionAttempted: boolean; diagnostics: AdmissionDiagnostics; recovery?: RetainedAdmissionStateDiagnostics; cause?: unknown }) {
+  constructor(args: { localCompactionAttempted: boolean; diagnostics: AdmissionDiagnostics; recovery?: RetainedAdmissionStateDiagnostics; constructionDiagnostic?: string; cause?: unknown }) {
     super(
-      `Ordinary exact admission failed (local_compaction_attempted=${args.localCompactionAttempted}): verdicts=${JSON.stringify(args.diagnostics.verdictCounts)}, reasons=${JSON.stringify(args.diagnostics.reasonCounts)}, candidates=${args.diagnostics.candidates.length}, omitted=${args.diagnostics.omittedCandidateCount}, verdict_summary_sha256=${args.diagnostics.verdictSummarySha256}${args.recovery ? `, recovery=${JSON.stringify(args.recovery)}` : ''}`,
+      `Ordinary exact admission failed (local_compaction_attempted=${args.localCompactionAttempted}): verdicts=${JSON.stringify(args.diagnostics.verdictCounts)}, reasons=${JSON.stringify(args.diagnostics.reasonCounts)}, candidates=${args.diagnostics.candidates.length}, omitted=${args.diagnostics.omittedCandidateCount}, verdict_summary_sha256=${args.diagnostics.verdictSummarySha256}${args.recovery ? `, recovery=${JSON.stringify(args.recovery)}` : ''}${args.constructionDiagnostic ? `, ${args.constructionDiagnostic}` : ''}`,
       { cause: args.cause },
     );
     this.name = 'LocalExactAdmissionError';

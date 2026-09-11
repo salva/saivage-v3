@@ -9,6 +9,7 @@ import {
   assertSummarizerCapabilities,
   SummaryResultValidationError,
   SUMMARY_COMPLETION_TOKENS,
+  SUMMARY_OUTPUT_TARGET_BYTES,
   type SummaryRequestSerialization,
   type SummarizerProviderPort,
 } from '../../../src/runtime/actors/compaction/summarizer.js';
@@ -85,6 +86,7 @@ describe('compaction summarizer projection boundary', () => {
     const conversation = validateConversation(SESSION, rows);
     const providerFailure = new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [attempt('summary-input')], originalFailure: new LlmRequestError({ kind: 'server_transient', provider: 'test', status: 200, message: 'overloaded' }), candidate: CANDIDATE });
     const projected = jest.fn();
+    const emptyCalls = jest.fn(async () => ({ result: { kind: 'message' as const, content: '   ' }, provider_exchanges: [] }));
     await expect(createSequentialRefineAccumulator({
       conversation,
       inheritedHistory: null,
@@ -124,10 +126,11 @@ describe('compaction summarizer projection boundary', () => {
       conversation,
       inheritedHistory: null,
       preparedBlocks: [],
-      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: '   ' }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() },
+      summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: emptyCalls, projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: new AbortController().signal,
     }).materializeThrough(rows.length)).rejects.toBeInstanceOf(SummaryResultValidationError);
+    expect(emptyCalls).toHaveBeenCalledTimes(2);
 
     await expect(createSequentialRefineAccumulator({
       conversation,
@@ -136,7 +139,45 @@ describe('compaction summarizer projection boundary', () => {
       summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn: async () => ({ result: { kind: 'message' as const, content: `  ${'x'.repeat(12_001)}  ` }, provider_exchanges: [] }), projectProviderExchanges: jest.fn() },
       budget: BUDGET,
       signal: new AbortController().signal,
-    }).materializeThrough(rows.length)).rejects.toBeInstanceOf(SummaryResultValidationError);
+    }).materializeThrough(rows.length)).resolves.toBe('x'.repeat(12_001));
+  });
+
+  it('treats the byte value as a prompt target and accepts complete prose and ordinary phrase use above it', async () => {
+    const text = `Recoverable evidence is discussed as ordinary history. ${'é'.repeat(SUMMARY_OUTPUT_TARGET_BYTES)}`;
+    const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: text }, provider_exchanges: [okAttempt('summary-input', 'stop')] }));
+    const rows = durableRound(SESSION, SOURCE_INPUT_ID);
+    const result = await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() }, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
+    expect(Buffer.byteLength(result, 'utf8')).toBeGreaterThan(SUMMARY_OUTPUT_TARGET_BYTES);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses final successful Chat metadata, correcting length once but never consuming refusal or protocol-invalid sentinel text', async () => {
+    const rows = durableRound(SESSION, SOURCE_INPUT_ID);
+    const cases = [
+      { finish: 'content_filter', kind: 'content_policy' },
+      { finish: 'future_reason', kind: 'provider_protocol_error' },
+      { finish: 'tool_calls', kind: 'provider_protocol_error' },
+    ] as const;
+    for (const entry of cases) {
+      const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'SENTINEL MUST NOT BE USED' }, provider_exchanges: [errorAttempt('transient'), okAttempt('summary-input', entry.finish)] }));
+      const failure = await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: summarizerProvider(completeTurn), budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length).catch((error: unknown) => error);
+      expect(failure).toBeInstanceOf(ProviderTurnFailure);
+      expect((failure as ProviderTurnFailure).originalFailure).toMatchObject({ failure: { kind: entry.kind } });
+      expect((failure as ProviderTurnFailure).provider_exchanges).toHaveLength(2);
+      expect(completeTurn).toHaveBeenCalledTimes(1);
+    }
+
+    let calls = 0;
+    const length = jest.fn<SummarizerProviderPort['completeTurn']>(async () => ++calls === 1
+      ? { result: { kind: 'message' as const, content: 'INCOMPLETE SENTINEL' }, provider_exchanges: [okAttempt('summary-input', 'length')] }
+      : { result: { kind: 'message' as const, content: 'complete corrected summary' }, provider_exchanges: [okAttempt('summary-input-2', 'stop')] });
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: summarizerProvider(length), budget: BUDGET, signal: new AbortController().signal });
+    await expect(accumulator.materializeThrough(rows.length)).resolves.toBe('complete corrected summary');
+    expect(accumulator.correctionCount).toBe(1);
+    expect(length).toHaveBeenCalledTimes(2);
+    expect(length.mock.calls[1]![0].systemPrompt).toContain('6000 UTF-8 bytes');
+    expect(length.mock.calls[1]![0].inputId).not.toBe(length.mock.calls[0]![0].inputId);
+    expect(length.mock.calls[1]![0].providerConversation.messages).toEqual(length.mock.calls[0]![0].providerConversation.messages);
   });
 });
 
@@ -154,4 +195,14 @@ function durableRound(sessionId: ConversationSessionId, sourceInputId: string): 
 
 function attempt(source_input_id: string): ProviderExchangeAttempt {
   return { contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: 'test', model: 'summary', source_input_id, attempt_index: 0, request_params: { endpoint: 'https://example.invalid', method: 'POST', stream: false, offered_tools_count: 0, temperature: 0, max_tokens: 10 }, started_at: '2026-08-10T00:00:00.000Z', completed_at: '2026-08-10T00:00:01.000Z', status: 'error', terminal_tool_fired: null, error: { name: 'LlmRequestError', message: 'overloaded' } };
+}
+
+function errorAttempt(source_input_id: string): ProviderExchangeAttempt { return attempt(source_input_id); }
+
+function okAttempt(source_input_id: string, finish_reason?: string | null): ProviderExchangeAttempt {
+  return { contract_id: 'test.v1', contract_name: 'test', transport: 'generic', provider: 'test', model: 'summary', source_input_id, attempt_index: 0, request_params: { endpoint: 'https://example.invalid', method: 'POST', stream: false, offered_tools_count: 0, temperature: 0, max_tokens: 2000 }, started_at: '2026-08-10T00:00:00.000Z', completed_at: '2026-08-10T00:00:01.000Z', status: 'ok', finish_reason, terminal_tool_fired: null };
+}
+
+function summarizerProvider(completeTurn: SummarizerProviderPort['completeTurn']): SummarizerProviderPort {
+  return { candidate: CANDIDATE, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest: deterministicSummarySerialization, completeTurn, projectProviderExchanges: jest.fn() };
 }

@@ -5,7 +5,7 @@ import { CANONICAL_LOCATOR_RESULT_POLICY_TEMPLATE, defineToolBinder, executeCano
 import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { redactForOutbound, redactTextForOutbound } from '../redaction/index.js';
 import { diffCardVersionsInputSchema, getCardVersionInputSchema, listCardVersionsInputSchema, readRecordVersionInputSchema } from '../contracts/builtin-tool-inputs.js';
-import { projectCardRecordForOutbound } from '../application/read-models/card-outbound.js';
+import { projectCardArtifactForOutbound, projectCardRecordForOutbound, projectCardVersionChangeForOutbound } from '../application/read-models/card-outbound.js';
 import type { CardArtifact } from '../persistence/canonical-card-artifacts.js';
 import { recordContentSha256 } from '../persistence/canonical-record-artifacts.js';
 import {
@@ -55,17 +55,12 @@ function listCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
         version: entry.version,
         published_at: entry.committed_at,
         artifact_kind: entry.artifact_kind,
+        change: projectCardVersionChangeForOutbound(entry.change),
       };
     },
     render: (page: CollectionPage) => ({ card_id: params.card_id, observation_sha256: observation, versions: page }),
   });
   return Promise.resolve(toolSucceeded(data));
-}
-
-function cardArtifactProjection(value: CardArtifact): unknown {
-  return value.kind === 'card-version'
-    ? { kind: value.kind, card: projectCardRecordForOutbound(value.card) }
-    : { kind: value.kind, final_card: projectCardRecordForOutbound(value.final_card) };
 }
 
 function artifactIdentity(value: CardArtifact): { entry_id: string; committed_at: string; artifact_kind: string } {
@@ -80,7 +75,7 @@ function getCardVersion(ctx: CardVersionProviderContext, params: z.infer<typeof 
   const card = value.kind === 'card-version' ? value.card : value.final_card;
   const identity = artifactIdentity(value);
   const locator = `card:///${params.card_id}?v=${params.version}#entry=${identity.entry_id}`;
-  const sha256 = observationSha256(cardArtifactProjection(value));
+  const sha256 = observationSha256(projectCardArtifactForOutbound(value));
   const base = {
     card_id: params.card_id,
     version: params.version,
@@ -120,8 +115,8 @@ function diffCardVersions(ctx: CardVersionProviderContext, params: z.infer<typeo
   if (result.kind === 'card-not-found') return Promise.resolve(failure('Card not found.', { code: 'card_not_found', card_id: params.card_id }));
   if (result.kind === 'invalid-pivots') return Promise.resolve(failure('Invalid card version pivots.', { code: 'invalid_card_version_pivots', card_id: params.card_id, from_version: result.from, to_version: result.to }));
   if (result.kind === 'version-not-found') return Promise.resolve(failure('Card version not found.', { code: 'card_version_not_found', card_id: params.card_id, version: result.version, side: result.side }));
-  const fromIdentity={entry_id:result.fromArtifact.entry_id,artifact_sha256:observationSha256(cardArtifactProjection(result.fromArtifact))};
-  const toIdentity={entry_id:result.toArtifact.entry_id,artifact_sha256:observationSha256(cardArtifactProjection(result.toArtifact))};
+  const fromIdentity={entry_id:result.fromArtifact.entry_id,artifact_sha256:observationSha256(projectCardArtifactForOutbound(result.fromArtifact))};
+  const toIdentity={entry_id:result.toArtifact.entry_id,artifact_sha256:observationSha256(projectCardArtifactForOutbound(result.toArtifact))};
   const projectedDiff = redactForOutbound({ source: 'card-diff', value: result.diff });
   const observation = observationSha256({ surface: 'diff_card_versions', card_id: params.card_id, from_version: params.from_version, to_version: params.to_version, from_sha256: fromIdentity.artifact_sha256, to_sha256: toIdentity.artifact_sha256, diff: projectedDiff });
   const diffJson = JSON.stringify(projectedDiff);

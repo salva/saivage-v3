@@ -22,7 +22,7 @@ import {
 } from '../../contracts/index.js';
 import type { CanonicalReadInstrumentation } from '../../persistence/growing-file.js';
 import { redactTextForOutbound } from '../../redaction/text.js';
-import { projectCardRecordForOutbound } from './card-outbound.js';
+import { projectCardArtifactForOutbound, projectCardVersionChangeForOutbound } from './card-outbound.js';
 
 function projectLifecycle(lifecycle: CardLifecycleState): CardLifecycleState {
   switch (lifecycle.status) {
@@ -112,7 +112,7 @@ export class CardsReadModelService {
   listHistory(id: string): OperatorApiHandlerResult<'cards.history.list'> {
     const result = this.store.listCardVersions(id);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
-    const versions = result.value.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.committed_at, artifact_kind: entry.artifact_kind }));
+    const versions = result.value.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.committed_at, artifact_kind: entry.artifact_kind, change: projectCardVersionChangeForOutbound(entry.change) }));
     return { body: CardHistoryListResponseSchema.parse({ card_id: id, versions, total: versions.length }) };
   }
 
@@ -121,7 +121,7 @@ export class CardsReadModelService {
     const result = this.store.readCardVersion(id, version);
     if (result.kind === 'card-not-found') return { statusCode: 404, body: { error: 'Card not found', cardId: id } };
     if (result.kind === 'version-not-found') return { statusCode: 404, body: { error: 'historical_version_not_found', resource: 'card', owner_id: id, version } };
-    const value = result.value; const artifact = value.kind === 'card-version' ? { kind: value.kind, card: projectCardRecordForOutbound(value.card) } : { kind: value.kind, final_card: projectCardRecordForOutbound(value.final_card) };
+    const value = result.value; const artifact = projectCardArtifactForOutbound(value);
     return { body: CardHistoryEntryResponseSchema.parse({ card_id: id, version, entry_id: value.entry_id, published_at: value.committed_at, artifact }) };
   }
 

@@ -23,6 +23,8 @@ import { projectDynamicForOutbound } from '../../src/redaction/dynamic.js';
 import { redactTextForOutbound } from '../../src/redaction/index.js';
 import { DISCOVERY_TEXT_PREVIEW_MAX_BYTES, utf8SafePreview } from '../../src/tools/response-packer.js';
 import { CardsReadModelService } from '../../src/application/read-models/cards-read-model.js';
+import { CanonicalCardFilesReadModel } from '../../src/application/read-models/canonical-card-files-read-model.js';
+import { workflowResult } from '../helpers/workflow-result.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -128,14 +130,14 @@ describe('card version provider', () => {
     const surface = surfaceFor(cards);
 
     const listed = await invokeTestTool(surface, 'list_card_versions', { card_id: child.id });
-    const listData = listed.data as { observation_sha256: string; versions: { total: number; returned: number; items: Array<{ version: number; entry_id: string }> } };
+    const listData = listed.data as { observation_sha256: string; versions: { total: number; returned: number; items: Array<{ version: number; entry_id: string; change: unknown }> } };
     expect(listData.versions.total).toBe(2);
     expect(listData.versions.items.map((entry) => entry.version)).toEqual([1, 2]);
     expect(listData.observation_sha256).toMatch(/^[0-9a-f]{64}$/u);
     expect(envelopeBytes(listed.data)).toBeLessThanOrEqual(32768);
     const streamEntryIds = readStrictCanonicalGrowingFile(cardStreamFile(root, child.id), cardArtifactSchema).map((row) => row.entry_id);
     expect(listData.versions.items.map((entry) => entry.entry_id)).toEqual(streamEntryIds);
-    expect(listData.versions.items.every((entry) => !Object.hasOwn(entry, 'change'))).toBe(true);
+    expect(listData.versions.items.map(({ change }) => change)).toEqual([null, { summary: 'title updated', changed_fields: ['title'], actor: 'planner' }]);
 
     const version = await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' });
     expect(version.evidence).toMatchObject({ kind: 'canonical_locator', locator: `card:///${child.id}?v=2#entry=${(listData.versions.items[1]!.entry_id)}`, sha256: expect.any(String) });
@@ -159,17 +161,64 @@ describe('card version provider', () => {
     const cards = new CardService(root);
     const child = cards.create(childInput('Queue host'));
     cards.enqueueNotification(child.id, { id: 'private-id', content: 'private body', created_at: '2026-09-09T00:00:00.000Z' });
+    cards.removeNotifications(child.id, ['private-id']);
     const surface = surfaceFor(cards);
     const selected = settleToolActionOutcome((await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 2, section: 'summary' })).providerOutcome).providerResult as { data: { artifact_sha256: string } };
     const rest = new CardsReadModelService(root, cards, { getRuntimeState: () => null }).getHistoryEntry(child.id, 2);
     if ('statusCode' in rest) throw new Error('Expected selected REST artifact.');
     expect(selected.data.artifact_sha256).toBe(createHash('sha256').update(canonicalJson(rest.body.artifact)).digest('hex'));
-    expect(JSON.stringify(rest.body.artifact)).not.toMatch(/private-id|private body|pending_notifications|change/);
-    const diff = await invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 2 });
+    expect(rest.body.artifact.change).toBeNull();
+    expect(JSON.stringify(rest.body.artifact)).not.toMatch(/private-id|private body|pending_notifications|notification_enqueue/);
+    const queueFile = new CanonicalCardFilesReadModel(() => cards).content(`.saivage/cards/project/children/a/card.json`);
+    if ('statusCode' in queueFile) throw new Error('Expected queue-only Files document.');
+    expect((JSON.parse(queueFile.body.content) as { change: unknown }).change).toBeNull();
+    const catalog = await invokeTestTool(surface, 'list_card_versions', { card_id: child.id, response_bytes: 1024 });
+    expect((catalog.data as { versions: { items: Array<{ change: unknown }> } }).versions.items.map(({ change }) => change)).toEqual([null, null, null]);
+    expect(envelopeBytes(catalog.data)).toBeLessThanOrEqual(1024);
+    const removed = settleToolActionOutcome((await invokeTool(surface, 'get_card_version', { card_id: child.id, version: 3, section: 'summary' })).providerOutcome).providerResult as { data: { artifact_sha256: string } };
+    const removedRest = new CardsReadModelService(root, cards, { getRuntimeState: () => null }).getHistoryEntry(child.id, 3);
+    if ('statusCode' in removedRest) throw new Error('Expected removed-queue REST artifact.');
+    expect(removedRest.body.artifact.change).toBeNull();
+    expect(removed.data.artifact_sha256).toBe(createHash('sha256').update(canonicalJson(removedRest.body.artifact)).digest('hex'));
+    const diff = await invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: 1, to_version: 3 });
     const content = (diff.data as { diff: { content: string } }).diff.content;
     const rows = JSON.parse(content) as Array<{ field: string }>;
     expect(rows.map(({ field }) => field)).toEqual(['updated_at', 'version_seq']);
-    expect(content).not.toMatch(/private-id|private body|pending_notifications/);
+    expect(JSON.stringify([queueFile, content])).not.toMatch(/private-id|private body|pending_notifications|notification_enqueue/);
+  });
+
+  it('projects a mixed terminal publication through catalog, hashes, diffs, REST, and Files without queue disclosure', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-card-version-mixed-terminal-')); roots.push(root); initProjectTree(root);
+    const cards = new CardService(root);
+    const child = cards.create(childInput('Terminal host'));
+    cards.setStatus(child.id, 'running');
+    cards.enqueueNotification(child.id, { id: 'terminal-private-id', content: 'terminal private body', created_at: '2026-09-09T00:00:00.000Z' });
+    const beforeTerminal = cards.read(child.id)!.version_seq;
+    cards.commitActivationOutcome(child.id, { status: 'done', summary: 'Completed safely', result: workflowResult('DONE', 'Completed safely') }, '2026-09-09T00:01:00.000Z');
+    const terminalVersion = beforeTerminal + 1;
+    const surface = surfaceFor(cards);
+    const listed = await invokeTestTool(surface, 'list_card_versions', { card_id: child.id });
+    const terminalChange = { summary: 'lifecycle, status_text, status_text_updated_at updated', changed_fields: ['lifecycle', 'status_text', 'status_text_updated_at'], actor: null };
+    expect((listed.data as { versions: { items: Array<{ change: unknown }> } }).versions.items.at(-1)!.change).toEqual(terminalChange);
+
+    const selected = settleToolActionOutcome((await invokeTool(surface, 'get_card_version', { card_id: child.id, version: terminalVersion, section: 'summary' })).providerOutcome).providerResult as { data: { artifact_sha256: string } };
+    const rest = new CardsReadModelService(root, cards, { getRuntimeState: () => null }).getHistoryEntry(child.id, terminalVersion);
+    if ('statusCode' in rest) throw new Error('Expected selected REST artifact.');
+    expect(rest.body.artifact.change).toEqual(terminalChange);
+    expect(selected.data.artifact_sha256).toBe(createHash('sha256').update(canonicalJson(rest.body.artifact)).digest('hex'));
+
+    const diff = await invokeTestTool(surface, 'diff_card_versions', { card_id: child.id, from_version: beforeTerminal, to_version: terminalVersion });
+    const diffData = diff.data as { to_artifact: { artifact_sha256: string }; diff: { content: string } };
+    expect(diffData.to_artifact.artifact_sha256).toBe(selected.data.artifact_sha256);
+    expect(diffData.diff.content).not.toContain('pending_notifications');
+
+    const files = new CanonicalCardFilesReadModel(() => cards).content(`.saivage/cards/project/children/a/card.json`);
+    if ('statusCode' in files) throw new Error('Expected current Files document.');
+    const document = JSON.parse(files.body.content) as { change: unknown };
+    expect(document.change).toEqual(terminalChange);
+    expect(files.body.size).toBe(Buffer.byteLength(files.body.content));
+    const serialized = JSON.stringify([listed, rest, diff, document]);
+    expect(serialized).not.toMatch(/terminal-private-id|terminal private body|pending_notifications|notification_enqueue|receipt/);
   });
 
   it('rejects the removed current pivot and missing exact pivots', async () => {

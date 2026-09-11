@@ -61,7 +61,14 @@ function retitle(cards: CardService, title: string): CardRecord {
 describe('CanonicalCardFilesReadModel virtual card documents', () => {
   it('exposes only terminal card.json for a directly addressed retained tombstone',()=>{
     const cards=fixture();const child=cards.create({type:'code',parent:'project',title:'deleted',bootstrap_content:'brief',tags:[],priority:0,urgency:'normal',created_by:'analyst',depends_on:[],related:[]});cards.deleteSubtrees([child.id],()=>true,'analyst');const model=new CanonicalCardFilesReadModel(()=>cards);const namespace=`${NAMESPACE}/children/a`;
-    expect(model.list(namespace)).toMatchObject({body:{files:[{name:'card.json'}]}});const current=model.content(`${namespace}/card.json`);expect(current).toMatchObject({body:{version:2}});if('statusCode'in current)throw new Error('expected tombstone head');expect(JSON.parse(current.body.content)).toMatchObject({kind:'card-tombstone',card_id:child.id});expect(model.content(`${namespace}/card.json?v=1`)).toMatchObject({body:{version:1}});expect(model.list(`${namespace}/children`)).toMatchObject({statusCode:404});expect(model.content(`${namespace}/brief.md`)).toMatchObject({statusCode:404});
+    expect(model.list(namespace)).toMatchObject({body:{files:[{name:'card.json'}]}});const current=model.content(`${namespace}/card.json`);expect(current).toMatchObject({body:{version:2}});if('statusCode'in current)throw new Error('expected tombstone head');expect(JSON.parse(current.body.content)).toMatchObject({kind:'card-tombstone',card_id:child.id,change:{summary:'card deleted',changed_fields:['deleted'],actor:'analyst'}});expect(model.content(`${namespace}/card.json?v=1`)).toMatchObject({body:{version:1}});expect(model.list(`${namespace}/children`)).toMatchObject({statusCode:404});expect(model.content(`${namespace}/brief.md`)).toMatchObject({statusCode:404});
+  });
+
+  it('projects child-link, reorder, and deletion through the closed ordinary field vocabulary', () => {
+    const cards=fixture();const first=cards.create({type:'code',parent:'project',title:'first',bootstrap_content:'brief',tags:[],priority:0,urgency:'normal',created_by:'analyst',depends_on:[],related:[]});const second=cards.create({type:'code',parent:'project',title:'second',bootstrap_content:'brief',tags:[],priority:0,urgency:'normal',created_by:'analyst',depends_on:[],related:[]});
+    cards.reorderChildren('project',[second.id,first.id]);
+    const model=new CanonicalCardFilesReadModel(()=>cards);const reordered=model.content(`${NAMESPACE}/card.json`);if('statusCode'in reordered)throw new Error('expected reorder document');expect(JSON.parse(reordered.body.content).change).toEqual({summary:'children reordered',changed_fields:['active_child_order'],actor:null});
+    cards.deleteSubtrees([first.id],()=>true,'reviewer');const deleted=model.content(`${NAMESPACE}/children/a/card.json`);if('statusCode'in deleted)throw new Error('expected deletion document');expect(JSON.parse(deleted.body.content).change).toEqual({summary:'card deleted',changed_fields:['deleted'],actor:'reviewer'});
   });
 
   it('serves strict row-format-2 current and historical artifacts with both relationship arrays', () => {
@@ -72,16 +79,17 @@ describe('CanonicalCardFilesReadModel virtual card documents', () => {
     const current = model.content(`${NAMESPACE}/card.json`);
     const historical = model.content(`${NAMESPACE}/card.json?v=1`);
     if ('statusCode' in current || 'statusCode' in historical) throw new Error('Expected card documents.');
-    const currentDocument = JSON.parse(current.body.content) as { format_version: number; card: Record<string, unknown> };
-    const historicalDocument = JSON.parse(historical.body.content) as { format_version: number; card: Record<string, unknown> };
+    const currentDocument = JSON.parse(current.body.content) as { format_version: number; card: Record<string, unknown>; change: unknown };
+    const historicalDocument = JSON.parse(historical.body.content) as { format_version: number; card: Record<string, unknown>; change: unknown };
     expect(currentDocument).toMatchObject({ format_version: 2, card: { child_membership: [child.id], active_child_order: [child.id] } });
     expect(historicalDocument).toMatchObject({ format_version: 2, card: { child_membership: [], active_child_order: [] } });
     expect(currentDocument.card).not.toHaveProperty('children');
     expect(historicalDocument.card).not.toHaveProperty('children');
     expect(currentDocument.card).not.toHaveProperty('pending_notifications');
     expect(historicalDocument.card).not.toHaveProperty('pending_notifications');
-    expect(currentDocument).not.toHaveProperty('change');
-    expect(historicalDocument).not.toHaveProperty('change');
+    expect(currentDocument.change).toEqual({ summary: `linked child ${child.id}`, changed_fields: ['child_membership', 'active_child_order'], actor: null });
+    expect(historicalDocument.change).toBeNull();
+    expect(current.body.size).toBe(Buffer.byteLength(current.body.content));
   });
 
   it('serves the small selected document of a cumulative stream over 1 MiB with exact bytes and committed_at', () => {
@@ -122,6 +130,7 @@ describe('CanonicalCardFilesReadModel virtual card documents', () => {
     const model = new CanonicalCardFilesReadModel(() => readerFor(cards));
     const before = model.content(`${NAMESPACE}/card.json?v=2`);
     if ('statusCode' in before) throw new Error('Expected a success result.');
+    expect((JSON.parse(before.body.content) as { change: unknown }).change).toEqual({ summary: 'title updated', changed_fields: ['title'], actor: 'planner' });
     const secondRow = lastRow(cards);
 
     retitle(cards, 'third title');
@@ -138,6 +147,7 @@ describe('CanonicalCardFilesReadModel virtual card documents', () => {
     const current = model.content(`${NAMESPACE}/card.json`);
     if ('statusCode' in current) throw new Error('Expected a success result.');
     expect(current.body.version).toBe(4);
+    expect((JSON.parse(current.body.content) as { change: unknown }).change).toEqual({ summary: 'title updated', changed_fields: ['title'], actor: 'planner' });
     expect(current.body.content).not.toBe(after.body.content);
     expect(current.body.modifiedAt).toBe(lastRow(cards).committed_at);
   });

@@ -88,9 +88,9 @@ describe('CardStore exact card resources',()=>{
   });
 
   it('stores route-derived history metadata and queue-free selected artifacts unchanged',async()=>{
-    const first={entry_id:'11111111-1111-4111-8111-111111111111',version:1,published_at:'2026-07-22T00:00:00.000Z',artifact_kind:'card-version' as const};
-    const second={entry_id:'22222222-2222-4222-8222-222222222222',version:2,published_at:'2026-07-22T00:00:01.000Z',artifact_kind:'card-version' as const};
-    const selected={card_id:A,version:1,entry_id:first.entry_id,published_at:first.published_at,artifact:{kind:'card-version' as const,card:historyCard(A)}};
+    const first={entry_id:'11111111-1111-4111-8111-111111111111',version:1,published_at:'2026-07-22T00:00:00.000Z',artifact_kind:'card-version' as const,change:null};
+    const second={entry_id:'22222222-2222-4222-8222-222222222222',version:2,published_at:'2026-07-22T00:00:01.000Z',artifact_kind:'card-version' as const,change:{summary:'lifecycle updated',changed_fields:['lifecycle' as const],actor:null}};
+    const selected={card_id:A,version:1,entry_id:first.entry_id,published_at:first.published_at,artifact:{kind:'card-version' as const,card:historyCard(A),change:null}};
     vi.mocked(listCardHistory).mockResolvedValue({card_id:A,versions:[first,second],total:2});
     vi.mocked(getCardHistoryEntry).mockResolvedValue(selected);
     vi.mocked(getCardDiff).mockResolvedValue({card_id:A,from:1,to:2,diff:[]});
@@ -100,7 +100,7 @@ describe('CardStore exact card resources',()=>{
     expect(store.cardHistory).toEqual([first,second]);
     await store.selectCardHistoryVersion(A,1);
     expect(store.cardHistoryEntry).toEqual(selected);
-    expect(store.cardHistoryEntry!.artifact).not.toHaveProperty('change');
+    expect(store.cardHistoryEntry!.artifact.change).toBeNull();
     if (store.cardHistoryEntry!.artifact.kind !== 'card-version') throw new Error('Expected a card-version artifact.');
     expect(store.cardHistoryEntry!.artifact.card).not.toHaveProperty('pending_notifications');
   });

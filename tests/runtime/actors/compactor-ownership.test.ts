@@ -5,18 +5,22 @@ import { describe, expect, it, jest } from '@jest/globals';
 
 import { ConversationLLMActor, type CompactorPort } from '../../../src/runtime/actors/llm-actor.js';
 import type { LlmInvocationInput, PreparedLlmInvocationInput } from '../../../src/runtime/actors/llm-invocation.js';
-import { prepareCompaction, type AutonomousCompactionPolicy } from '../../../src/runtime/actors/compaction/compactor.js';
+import { compact, CompactionSummaryConstructionError, prepareCompaction, type AutonomousCompactionPolicy } from '../../../src/runtime/actors/compaction/compactor.js';
 import { buildPreparedInvocationContext } from '../../../src/runtime/actors/context/context-blocks.js';
 import { RuntimeGate } from '../../../src/runtime/runtime-gate.js';
 import { agentMessageSchema } from '../../../src/schemas/index.js';
-import { readConversation } from '../../../src/persistence/conversation-file.js';
+import { appendConversationBatch, readConversation, readConversationCatalog, readCurrentConversationSegment } from '../../../src/persistence/conversation-file.js';
 import { initProjectTree } from '../../helpers/canonical-project.js';
 import { scriptedAdmissionProvider } from '../../helpers/llm-test-helpers.js';
-import type { ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
+import { ProviderTurnFailure, type ProviderTurnCompletion } from '../../../src/agents/llm-contracts.js';
 import { testApplicationFatalPort } from '../../helpers/test-application-fatal-port.js';
 import { toolSucceeded } from '../../../src/contracts/tool-result.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/index.js';
 import type { SummarizerProviderPort } from '../../../src/runtime/actors/compaction/summarizer.js';
+import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
+import { providerConversationProjection } from '../../../src/runtime/actors/conversation-session.js';
+import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
+import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../../helpers/row-policy-fixtures.js';
 
 const compactionConfig: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' };
 
@@ -216,6 +220,56 @@ describe('ConversationLLMActor compaction ownership', () => {
       expect(readConversation(root, 'agent:planner:project').physicalRows).toEqual([]);
     } finally { consoleError.mockRestore(); rmSync(root, { recursive: true, force: true }); }
   });
+
+  it.each([
+    ['an unclassified invariant failure', () => new Error('final correction invariant sentinel'), 1],
+    ['an infrastructure provider failure', () => new ProviderTurnFailure({ failure_phase: 'provider_attempt', provider_exchanges: [], candidate: { provider: 'test', account: null, model: 'test-model' }, originalFailure: new LlmRequestError({ kind: 'server_transient', provider: 'test', status: 503, message: 'infrastructure sentinel' }) }), 2],
+  ] as Array<[string, () => Error, number]>)('rethrows %s unchanged from final-obstruction correction without later effects', async (_label, failureFactory, expectedEvidenceCalls) => {
+    const root = mkdtempSync(join(tmpdir(), 'saivage-final-correction-owner-'));
+    initProjectTree(root);
+    try {
+      appendCompactionRound(root);
+      const conversation = readConversation(root, 'agent:planner:project');
+      const preparedCompaction = prepareCompaction({ ...compactionConfig, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', []);
+      const invocation = {
+        ...input(),
+        providerConversation: providerConversationProjection(conversation, []),
+        preparedCompaction,
+        preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
+      };
+      const failure = failureFactory();
+      const serializeSummaryRequest = jest.fn(deterministicSummarySerialization);
+      const completeTurn = jest.fn(async (): Promise<ProviderTurnCompletion> => {
+        if (completeTurn.mock.calls.length === 1)
+          return { result: { kind: 'message', content: 'S'.repeat(11_900) }, provider_exchanges: [] };
+        throw failure;
+      });
+      const projectProviderExchanges = jest.fn();
+      const foldStarted = jest.fn();
+      const foldCompleted = jest.fn();
+      const foldFailed = jest.fn();
+
+      const rejection = await compact({
+        strategy: 'preventive',
+        conversations: { projectRoot: root },
+        input: invocation,
+        summarizerProvider: { candidate: { provider: 'test', account: null, model: 'test-model' }, contextWindowTokens: 100_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
+        signal: new AbortController().signal,
+        progress: { foldStarted, foldCompleted, foldFailed },
+      }).catch((error: unknown) => error);
+
+      expect(rejection).toBe(failure);
+      expect(rejection).not.toBeInstanceOf(CompactionSummaryConstructionError);
+      expect(serializeSummaryRequest.mock.calls.filter(([request]) => request.systemPrompt.includes('6000 UTF-8 bytes'))).toHaveLength(1);
+      expect(completeTurn).toHaveBeenCalledTimes(2);
+      expect(projectProviderExchanges).toHaveBeenCalledTimes(expectedEvidenceCalls);
+      expect(foldStarted).toHaveBeenCalledTimes(2);
+      expect(foldCompleted).toHaveBeenCalledTimes(1);
+      expect(foldFailed).toHaveBeenCalledTimes(1);
+      expect(readConversationCatalog(root, 'agent:planner:project').versions).toHaveLength(1);
+      expect(readCurrentConversationSegment(root, 'agent:planner:project')!.entry.version).toBe(1);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
 });
 
 const terminalHandoff = (): void => undefined;
@@ -227,4 +281,13 @@ function input(): PreparedLlmInvocationInput {
 
 function summarizer(completeTurn: SummarizerProviderPort['completeTurn']): SummarizerProviderPort {
   return { candidate:{provider:'test',account:null,model:'test-model'},contextWindowTokens:100_000,maxOutputTokens:10_000,serializeSummaryRequest: () => { throw new Error('Unexpected summarizer request serialization in test.'); }, completeTurn, projectProviderExchanges: jest.fn() };
+}
+
+function appendCompactionRound(root: string): void {
+  const sessionId = 'agent:planner:project' as const;
+  const timestamp = '2026-09-11T00:00:00.000Z';
+  appendConversationBatch({ projectRoot: root }, [
+    { id: 'final-correction-activation', session_id: sessionId, role: 'system', kind: 'activity', context_policy: ACTIVITY_ROW_POLICY, content: JSON.stringify({ event: 'activation_open', agent_name: 'planner', card_id: 'project', input_id: '00000000-0000-4000-8000-000000000002', timestamp }), round_id: `r-pre-${'1'.repeat(32)}`, message_index: 0, block_index: 0, timestamp },
+    { id: 'final-correction-source', session_id: sessionId, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content: `FINAL-CORRECTION-SOURCE-${'x'.repeat(3_000)}`, round_id: `r-user-${'2'.repeat(32)}`, message_index: 1, block_index: 0, timestamp },
+  ]);
 }

@@ -523,13 +523,13 @@ describe('operator API runtime contract without runtime ledgers', () => {
       {error:'Card record not found',cardId:'project',name:'brief.md'},
     ]) expect(record404.parse(body)).toEqual(body);
     expect(() => record404.parse({error:'Card record not found',cardId:'project',name:'brief.md',extra:true})).toThrow();
-    const entry = { card_id: 'project', version: 1, entry_id: '11111111-1111-4111-8111-111111111111', published_at: '2026-01-01T00:00:00.000Z', artifact: { kind: 'card-version', card: outboundCanonicalCard } } as const;
+    const entry = { card_id: 'project', version: 1, entry_id: '11111111-1111-4111-8111-111111111111', published_at: '2026-01-01T00:00:00.000Z', artifact: { kind: 'card-version', card: outboundCanonicalCard, change: null } } as const;
     expect((parseOperatorResponse('cards.history.get', 200, entry) as any).artifact.card).toEqual(outboundCanonicalCard);
     expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, card: canonicalCard } })).toThrow();
-    for (const change of [null, { actor: 'runtime' }, { kind: 'update', changed_at: canonicalCard.created_at }]) expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, change } })).toThrow();
-    const tombstone = { ...entry, version: 2, artifact: { kind: 'card-tombstone' as const, final_card: outboundCanonicalCard } };
+    for (const change of [{ actor: 'runtime' }, { kind: 'update', changed_at: canonicalCard.created_at }, { summary: 'changed', changed_fields: ['pending_notifications'], actor: null }]) expect(() => parseOperatorResponse('cards.history.get', 200, { ...entry, artifact: { ...entry.artifact, change } })).toThrow();
+    const tombstone = { ...entry, version: 2, artifact: { kind: 'card-tombstone' as const, final_card: outboundCanonicalCard, change: { summary: 'card deleted', changed_fields: ['deleted'] as const, actor: 'analyst' as const } } };
     expect((parseOperatorResponse('cards.history.get', 200, tombstone) as any).artifact).toEqual(tombstone.artifact);
-    expect(() => parseOperatorResponse('cards.history.get', 200, { ...tombstone, artifact: { ...tombstone.artifact, change: { actor: 'runtime' } } })).toThrow();
+    expect(() => parseOperatorResponse('cards.history.get', 200, { ...tombstone, artifact: { ...tombstone.artifact, change: { summary: 'card deleted', changed_fields: ['deleted'], actor: 'Runtime' } } })).toThrow();
     expect(() => parseOperatorResponse('cards.history.get', 200, { ...tombstone, artifact: { ...tombstone.artifact, final_card: canonicalCard } })).toThrow();
 
     for (const key of outboundCanonicalCardKeys) {
@@ -540,9 +540,11 @@ describe('operator API runtime contract without runtime ledgers', () => {
   });
 
   it('uses resulting-version metadata and rejects embedded prior-snapshot history rows', () => {
-    const version = { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: '2026-01-01T00:00:00.000Z', artifact_kind: 'card-version' };
+    const version = { entry_id: '11111111-1111-4111-8111-111111111111', version: 1, published_at: '2026-01-01T00:00:00.000Z', artifact_kind: 'card-version', change: null };
     expect((parseOperatorResponse('cards.history.list', 200, { card_id: 'project', versions: [version], total: 1 }) as any).versions[0]).toEqual(version);
-    expect(() => parseOperatorResponse('cards.history.list', 200, { card_id: 'project', versions: [{ ...version, change: null }], total: 1 })).toThrow();
+    expect(() => parseOperatorResponse('cards.history.list', 200, { card_id: 'project', versions: [{ ...version, change: { summary: 'title updated', changed_fields: ['title'], actor: 'planner' } }], total: 1 })).not.toThrow();
+    const withoutChange = { ...version } as Record<string, unknown>; delete withoutChange.change;
+    expect(() => parseOperatorResponse('cards.history.list', 200, { card_id: 'project', versions: [withoutChange], total: 1 })).toThrow();
     expect(() => parseOperatorResponse('cards.history.list', 200, { history: [{ ...version, version_seq: 1, snapshot: canonicalCard }], total: 1 })).toThrow();
   });
 

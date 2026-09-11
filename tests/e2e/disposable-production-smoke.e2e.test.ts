@@ -9,6 +9,8 @@ import { stringify } from 'yaml';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { startApp, type App } from '../../src/boot/app.js';
 import { effectiveSaivageConfigSchema, type SaivageConfig } from '../../src/schemas/saivage-config.js';
+import { readConversation } from '../../src/persistence/conversation-file.js';
+import { appLogFile } from '../../src/persistence/layout.js';
 
 const CLI = join(process.cwd(), 'src', 'cli.ts');
 const TSX = join(process.cwd(), 'node_modules', 'tsx', 'dist', 'cli.mjs');
@@ -98,7 +100,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
   };
   config.compaction = {
     ...config.compaction,
-    input_budget_tokens: 32_768,
+    input_budget_tokens: 20_000,
     summarizer_candidate: { provider: 'fake', account: null, model: 'analyst-model' },
   };
   config.agents.reviewer!.record_writes=['status.md','review.md','review-*.md'];
@@ -193,6 +195,7 @@ describe('disposable production-composition smoke', () => {
     let recoveryPlannerCalls = 0;
     let executorCalls = 0;
     let reviewerCalls = 0;
+    let summaryCalls = 0;
     let oldPlannerBlocked = false;
     let oldPlannerRequestClosed = false;
     let activationToolResult = '';
@@ -200,6 +203,8 @@ describe('disposable production-composition smoke', () => {
     const offeredTools = new Map<string, string[]>();
     const requestedMaxTokens = new Map<string, number>();
     const providerUrls: string[] = [];
+    const summaryRequests: ChatRequest[] = [];
+    const executorEffects: string[] = [];
     const analystTools: Array<{ name: string; args: object }> = [
       { name: 'write', args: { path: 'record:///brief.md?card=project', content: 'Disposable Analyst bootstrap edit.' } },
       { name: 'create_card', args: { type: 'code', parent: 'project', title: 'Promoted child', bootstrap_content: 'Produce and review child evidence.', tags: [], priority: 0, urgency: 'normal', depends_on: [], related: [] } },
@@ -216,6 +221,20 @@ describe('disposable production-composition smoke', () => {
       const body = await requestBody(request);
       const names = toolNames(body);
       const last = body.messages.at(-1);
+      const isSummary = names.length === 0 && body.max_tokens === 2_000;
+      if (isSummary) {
+        summaryCalls += 1;
+        summaryRequests.push(body);
+        if (summaryCalls === 1) {
+          response.setHeader('content-type', 'application/json');
+          response.end(JSON.stringify({ choices: [{ message: { content: 'INCOMPLETE SUMMARY MUST NEVER CONTINUE' }, finish_reason: 'length' }] }));
+        } else if (summaryCalls === 2) {
+          finalMessage(response, `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay because the write effect already succeeded. Exact identifier: record:///status.md?card=card-a. Next action: emit the workflow result. ${'P'.repeat(12_100)}`);
+        } else if (summaryCalls === 3) {
+          finalMessage(response, 'Refreshed history: the later distinct reads succeeded. Constraint: do not duplicate settled tool effects. Decision: emit verification next. Exact identifier: card-a. Next action: call emit_result.');
+        } else throw new Error(`Unexpected summary call ${summaryCalls}.`);
+        return;
+      }
       const isAnalyst = names.includes('show_config');
       const isPlanner = names.includes('activate_card');
       const isExecutor = names.includes('run_command') && !isAnalyst;
@@ -253,6 +272,7 @@ describe('disposable production-composition smoke', () => {
           toolCall(response, 201, 'activate_card', { card_id: 'card-a' });
         } else if (recoveryPlannerCalls === 3) {
           activationToolResult = last?.content ?? '';
+          if (activationToolResult.includes('"outcome":"failed"')) throw new Error(`Child failed before parent review: ${activationToolResult.slice(0, 1000)}`);
           toolCall(response, 202, 'emit_result', { outcome: 'admit_review', summary: 'Parent submits after promoted child completion.' });
         } else throw new Error(`Unexpected recovery Planner call ${recoveryPlannerCalls}.`);
         return;
@@ -260,8 +280,19 @@ describe('disposable production-composition smoke', () => {
 
       if (isExecutor) {
         executorCalls += 1;
-        if (executorCalls === 1) toolCall(response, 300, 'write', { path: 'record:///status.md?card=card-a', content: 'Ordered child status export.' });
-        else if (executorCalls === 2) toolCall(response, 301, 'emit_result', { outcome: 'verify', summary: 'Promoted executor summary.' });
+        if (executorCalls === 1) {
+          executorEffects.push('status-write');
+          toolCall(response, 300, 'write', { path: 'record:///status.md?card=card-a', content: 'Ordered child status export.' });
+        } else if (executorCalls === 2) {
+          executorEffects.push('first-large-read');
+          toolCall(response, 301, 'read', { path: 'project:///compaction-source-a.txt' });
+        } else if (executorCalls === 3) {
+          executorEffects.push('second-large-read');
+          toolCall(response, 302, 'read', { path: 'project:///compaction-source-b.txt' });
+        } else if (executorCalls === 4) {
+          executorEffects.push('third-large-read');
+          toolCall(response, 303, 'read', { path: 'project:///compaction-source-c.txt' });
+        } else if (executorCalls === 5) toolCall(response, 304, 'emit_result', { outcome: 'verify', summary: 'Promoted executor summary.' });
         else throw new Error(`Unexpected Executor call ${executorCalls}.`);
         return;
       }
@@ -274,13 +305,16 @@ describe('disposable production-composition smoke', () => {
         const status=cards.readRecordCurrent('project','status.md');rootStatusClosedBeforeReview = status.kind==='found'&&status.value.projection?.artifact.accepted?.content === 'Recovered plan with closed child evidence.';
         toolCall(response, 402, 'write', { path: 'record:///review.md?card=project', content: 'Root review after closed plan status.' });
       } else if (reviewerCalls === 4) toolCall(response, 403, 'emit_result', { outcome: 'approved', summary: 'Root review approved.' });
-      else throw new Error(`Unexpected Reviewer call ${reviewerCalls}.`);
+      else throw new Error(`Unexpected Reviewer call ${reviewerCalls}: ${last?.content.slice(0, 500)}`);
     });
     const providerPort = await listen(provider);
 
     try {
       expect(runCli(root, 'init')).toContain('Project initialized');
       expect(readCurrentArtifact(join(root, '.saivage', 'cards', 'project', 'card.jsonl'))).toContain('"id":"project"');
+      writeFileSync(join(root, 'compaction-source-a.txt'), `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay. Exact identifier: record:///status.md?card=card-a. Next action: read the second source. ${'X'.repeat(31_000)}`);
+      writeFileSync(join(root, 'compaction-source-b.txt'), `Refreshed unresolved task after first compaction. Constraint: never replay prior effects. Decision: use the new observation. Exact identifier: card-a. Next action: emit verification. ${'Y'.repeat(31_000)}`);
+      writeFileSync(join(root, 'compaction-source-c.txt'), `Later refreshed history after two distinct reads. Constraint: preserve each settled effect exactly once. Decision: finish after this observation. Exact identifier: compaction-source-c.txt. Next action: emit verification. ${'Z'.repeat(31_000)}`);
       writeFileSync(join(root, '.saivage', 'saivage.yaml'), stringify(testConfig(providerPort, appPort)));
       writeCustomPrompts(root);
 
@@ -337,7 +371,7 @@ describe('disposable production-composition smoke', () => {
       await waitUntil(() => app!.server.runtimeApplication.runtimeApi.getStatus().status === 'stopped', 'recovered workflow completion');
 
       expect(recoveryPlannerCalls).toBe(3);
-      expect(executorCalls).toBe(2);
+      expect(executorCalls).toBe(5);
       expect(reviewerCalls).toBe(4);
       expect(rootStatusClosedBeforeReview).toBe(true);
       const activation = JSON.parse(activationToolResult);
@@ -346,6 +380,19 @@ describe('disposable production-composition smoke', () => {
       expect(activation.data.result.records.map((record: any) => record.name)).toEqual(['status.md', 'review.md']);
       expect(app.server.runtimeApplication.cardStore.read('card-a')).toMatchObject({ lifecycle: { status: 'done', result: { summary: 'Promoted executor summary.' } } });
       expect(app.server.runtimeApplication.cardStore.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { summary: 'Root review approved.' } } });
+      expect(summaryCalls).toBe(3);
+      expect(executorEffects).toEqual(['status-write', 'first-large-read', 'second-large-read', 'third-large-read']);
+      expect(summaryRequests[0]!.messages.slice(1)).toEqual(summaryRequests[1]!.messages.slice(1));
+      expect(summaryRequests[0]!.messages.some((message) => message.content.includes('Unresolved task: finish card-a verification'))).toBe(true);
+      expect(summaryRequests[0]!.messages.some((message) => message.content.includes('Constraint: preserve exact admission'))).toBe(true);
+      expect(summaryRequests[0]!.messages.some((message) => message.content.includes('record:///status.md?card=card-a'))).toBe(true);
+      expect(summaryRequests[0]!.messages.some((message) => message.content.includes('"cardId":"card-a"'))).toBe(true);
+      expect(summaryRequests[1]!.messages[0]!.content).toContain('6000 UTF-8 bytes');
+      expect(summaryRequests[2]!.messages.some((message) => message.content.includes('Later refreshed history after two distinct reads'))).toBe(true);
+      const executorConversation = readConversation(root, 'agent:executor:card-a');
+      expect(executorConversation.effectiveCompactedHistory?.summaryText).toContain('Refreshed history');
+      const internalExchanges = readFileSync(appLogFile(root), 'utf8').trim().split('\n').flatMap((line) => (JSON.parse(line) as { rows: Array<{ type: string; data: { session_id?: string } }> }).rows).filter((row) => row.type === 'provider_exchange' && row.data.session_id?.startsWith('internal:compaction-summary:'));
+      expect(internalExchanges).toHaveLength(3);
 
       expect(offeredTools.get('analyst')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.analyst.tools);
       expect(offeredTools.get('planner')).toEqual(DEFAULT_SAIVAGE_CONFIG.agents.planner.tools.concat('emit_result'));

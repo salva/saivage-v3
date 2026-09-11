@@ -93,22 +93,38 @@ describe('exact Card operator resources',()=>{
     for(const secret of secrets)expect(serialized).not.toContain(secret);
   });
 
-  it('keeps queue-only versions addressable while projecting queue-free history and diffs without public change metadata', () => {
+  it('projects ordinary multi-field history metadata and its genuine configured actor through catalog and selection', () => {
+    const root=mkdtempSync(join(tmpdir(),'saivage-card-ordinary-history-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
+    cards.editCard(card.id,{title:'Retitled',tags:['ordinary'],priority:7},'designer');
+    const history=model.listHistory(card.id);if('statusCode'in history)throw new Error('Expected history.');
+    expect(history.body.versions.map(({change})=>change)).toEqual([null,{summary:'title, tags, priority updated',changed_fields:['title','tags','priority'],actor:'designer'}]);
+    const selected=model.getHistoryEntry(card.id,2);if('statusCode'in selected)throw new Error('Expected selected history.');
+    expect(selected.body.artifact.change).toEqual(history.body.versions[1]!.change);
+    expect(selected.body.artifact).not.toHaveProperty('entry_id');
+    expect(JSON.stringify(selected.body.artifact)).not.toMatch(/change_reason|changed_at|changed_by_surface|resulting_version/);
+  });
+
+  it('keeps queue-only versions generic and projects mixed cancellation as ordinary metadata only', () => {
     const root=mkdtempSync(join(tmpdir(),'saivage-card-public-history-'));roots.push(root);initProjectTree(root);const cards=new CardService(root);const card=cards.create(input('project','Target'));const model=new CardsReadModelService(root,cards,{getRuntimeState:()=>null});
     cards.enqueueNotification(card.id,{id:'private-notification-id',content:'private notification body',created_at:'2026-09-09T00:00:00.000Z',source:'test'});
+    cards.removeNotifications(card.id,['private-notification-id']);
+    cards.enqueueNotification(card.id,{id:'second-private-id',content:'second private body',created_at:'2026-09-09T00:00:01.000Z',source:'test'});
+    cards.setStatus(card.id,'cancelled');
     const history=model.listHistory(card.id);
     if ('statusCode' in history) throw new Error('Expected history.');
-    expect(history.body.versions).toHaveLength(2);
-    expect(history.body.versions.every((entry)=>!Object.hasOwn(entry,'change'))).toBe(true);
+    expect(history.body.versions).toHaveLength(5);
+    expect(history.body.versions.map(({change})=>change)).toEqual([null,null,null,null,{summary:'status -> cancelled',changed_fields:['lifecycle'],actor:null}]);
     const selected=model.getHistoryEntry(card.id,2);
     if ('statusCode' in selected) throw new Error('Expected selected history.');
-    expect(selected.body.artifact).not.toHaveProperty('change');
+    expect(selected.body.artifact.change).toBeNull();
     if (selected.body.artifact.kind !== 'card-version') throw new Error('Expected card version.');
     expect(selected.body.artifact.card).not.toHaveProperty('pending_notifications');
     const diff=model.diffCard(card.id,{from:1,to:2});
     if ('statusCode' in diff) throw new Error('Expected diff.');
     expect(diff.body.diff.map(({field})=>field)).toEqual(['updated_at','version_seq']);
-    expect(JSON.stringify([history,selected,diff])).not.toMatch(/private-notification-id|private notification body|notification_enqueue|pending_notifications/);
+    const mixed=model.getHistoryEntry(card.id,5);if('statusCode'in mixed)throw new Error('Expected mixed selected history.');
+    expect(mixed.body.artifact.change).toEqual({summary:'status -> cancelled',changed_fields:['lifecycle'],actor:null});
+    expect(JSON.stringify([history,selected,mixed,diff])).not.toMatch(/private-notification-id|private notification body|second-private-id|second private body|notification_enqueue|notification_remove|pending_notifications|notifications delivered/);
   });
 
   it('distinguishes dynamic and optional absence, malformed names, bootstrap corruption, and inactive cards',()=>{

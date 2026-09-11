@@ -15,10 +15,11 @@ describe('CardHistoryPanel order', () => {
     const children = ['card-a-c', 'card-a-a', 'card-a-b'];
     const entryId = '11111111-1111-4111-8111-111111111111';
     const publishedAt = '2026-01-01T00:00:01.000Z';
-    const header = { entry_id: entryId, version: 2, published_at: publishedAt, artifact_kind: 'card-version' as const };
+    const change = { summary: 'linked child card-a-c', changed_fields: ['child_membership' as const, 'active_child_order' as const], actor: null };
+    const header = { entry_id: entryId, version: 2, published_at: publishedAt, artifact_kind: 'card-version' as const, change };
     const snapshot = historyCard(CARD, { child_membership: children, active_child_order: children, version_seq: 2 });
     vi.mocked(listCardHistory).mockResolvedValue({ card_id: CARD, versions: [header], total: 1 });
-    vi.mocked(getCardHistoryEntry).mockResolvedValue({ card_id: CARD, version: 2, entry_id: entryId, published_at: publishedAt, artifact: { kind: 'card-version', card: snapshot } });
+    vi.mocked(getCardHistoryEntry).mockResolvedValue({ card_id: CARD, version: 2, entry_id: entryId, published_at: publishedAt, artifact: { kind: 'card-version', card: snapshot, change } });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: CARD, from: 2, to: 3, diff: [{ field: 'active_child_order', before: children, after: [] }] });
     const wrapper = mount(CardHistoryPanel, { props: { cardId: CARD }, global: { plugins: [pinia] } }); await flushPromises();
     const text = wrapper.text(); expect(text.indexOf('card-a-c')).toBeLessThan(text.indexOf('card-a-a')); expect(text.indexOf('card-a-a')).toBeLessThan(text.indexOf('card-a-b'));
@@ -32,8 +33,8 @@ describe('CardHistoryPanel order', () => {
     vi.mocked(listCardHistory).mockResolvedValue({
       card_id: CARD,
       versions: [
-        { entry_id: firstId, version: 1, published_at: '2026-01-01T00:00:00.000Z', artifact_kind: 'card-version' },
-        { entry_id: secondId, version: 2, published_at: '2026-01-01T00:00:01.000Z', artifact_kind: 'card-version' },
+        { entry_id: firstId, version: 1, published_at: '2026-01-01T00:00:00.000Z', artifact_kind: 'card-version', change: null },
+        { entry_id: secondId, version: 2, published_at: '2026-01-01T00:00:01.000Z', artifact_kind: 'card-version', change: { summary: 'status -> running', changed_fields: ['lifecycle'], actor: null } },
       ],
       total: 2,
     });
@@ -42,7 +43,7 @@ describe('CardHistoryPanel order', () => {
       version: 1,
       entry_id: firstId,
       published_at: '2026-01-01T00:00:00.000Z',
-      artifact: { kind: 'card-version', card: historyCard(CARD) },
+      artifact: { kind: 'card-version', card: historyCard(CARD), change: null },
     });
     vi.mocked(getCardDiff).mockResolvedValue({ card_id: CARD, from: 1, to: 3, diff: [] });
 
@@ -70,7 +71,7 @@ describe('CardHistoryPanel order', () => {
     })).toThrow();
   });
 
-  it('strictly rejects private queues and every removed public change shape', () => {
+  it('strictly rejects private queues and admits only the narrow public change shape', () => {
     const card = historyCard(CARD);
     const base = {
       card_id: CARD,
@@ -90,8 +91,7 @@ describe('CardHistoryPanel order', () => {
       card: { ...cardView(CARD), pending_notifications: [] },
     })).toThrow();
 
-    const changes = [
-      null,
+    const invalidChanges = [
       {
         entry_id: base.entry_id,
         kind: 'update',
@@ -105,22 +105,23 @@ describe('CardHistoryPanel order', () => {
         change_reason: 'planner edit_card',
         terminal_summary: null,
       },
-      { entry_id: base.entry_id, version: 1, published_at: base.published_at, artifact_kind: 'card-version' },
+      { actor: 'runtime' },
     ];
-    for (const change of changes) {
+    for (const change of invalidChanges) {
       expect(() => parseOperatorResponse('cards.history.get', 200, {
         ...base,
         artifact: { kind: 'card-version', card, change },
       })).toThrow();
     }
-    expect(() => parseOperatorResponse('cards.history.list', 200, {
+    const safeChange = { summary: 'title updated', changed_fields: ['title'], actor: 'planner' };
+    expect(parseOperatorResponse('cards.history.list', 200, {
       card_id: CARD,
-      versions: [{ entry_id: base.entry_id, version: 1, published_at: base.published_at, artifact_kind: 'card-version', change: changes[1] }],
+      versions: [{ entry_id: base.entry_id, version: 1, published_at: base.published_at, artifact_kind: 'card-version', change: safeChange }],
       total: 1,
-    })).toThrow();
-    expect(() => parseOperatorResponse('cards.history.get', 200, {
+    }).versions[0]!.change).toEqual(safeChange);
+    expect(parseOperatorResponse('cards.history.get', 200, {
       ...base,
-      artifact: { kind: 'card-tombstone', final_card: card, change: changes[2] },
-    })).toThrow();
+      artifact: { kind: 'card-tombstone', final_card: card, change: { summary: 'card deleted', changed_fields: ['deleted'], actor: 'analyst' } },
+    }).artifact.change).toEqual({ summary: 'card deleted', changed_fields: ['deleted'], actor: 'analyst' });
   });
 });

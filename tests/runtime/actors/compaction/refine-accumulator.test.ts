@@ -3,7 +3,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 
 import { validateConversation } from '../../../../src/contracts/conversation-validation.js';
 import { agentMessageSchema, type AgentMessage, type ConversationSessionId } from '../../../../src/schemas/index.js';
-import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../../../helpers/row-policy-fixtures.js';
+import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';
 import {
   createSequentialRefineAccumulator as createAccumulatorWithoutProgress,
   EMPTY_COVERAGE_SUMMARY,
@@ -20,6 +20,16 @@ const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const
 const BUDGET = { inputBudgetTokens: 10_000, completionReserveTokens: 2_000 };
 type SummaryInput = Parameters<SummarizerProviderPort['completeTurn']>[0];
 type ParsedSummaryMessage = Readonly<{ label: string; body: string }>;
+type ParsedSourceRange = Readonly<{
+  source: string;
+  sourceKind: string;
+  start: number;
+  end: number;
+  totalBytes: number;
+  sourceSha256: string;
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}>;
 
 function parseSummaryMessages(input: SummaryInput): ParsedSummaryMessage[] {
   const messages = input.providerConversation.messages;
@@ -93,6 +103,170 @@ describe('sequential contextual refine accumulator', () => {
     expect(ranges.map((entry) => entry.content).join('')).toBe(source);
   });
 
+  it('preserves exact projected source semantics for mixed Unicode and legitimate empty tool components', async () => {
+    const mixed = `A\u0000é中🙂\uD800B\uDC00Z`;
+    const settledResult = '{"success":true}';
+    const rows = [
+      activation(),
+      text('mixed-source', mixed),
+      ...settledToolRows('empty-call-a', 2, '', settledResult),
+      ...settledToolRows('empty-call-b', 4, '', settledResult),
+    ];
+    const sent: SummaryInput[] = [];
+    const attemptedSources: string[][] = [];
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      serialize: (input) => {
+        const ranges = sourceRanges(input);
+        attemptedSources.push(ranges.map(({ source }) => source));
+        return serialization(input, ranges.length <= 1 && sourceByteCount(input) <= 6 ? 1 : 10_000);
+      },
+      complete: async (input) => {
+        sent.push(input);
+        return `summary-${sent.length}`;
+      },
+    });
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
+
+    await accumulator.materializeThrough(rows.length);
+
+    const ranges = sent.flatMap(sourceRanges);
+    const expectedSources = [
+      { source: 'mixed-source', sourceKind: 'message:direct', role: 'user' as const, content: mixed },
+      { source: '11111111-1111-4111-8111-111111111111:empty-call-a:arguments', sourceKind: 'tool_arguments:empty_tool', role: 'assistant' as const, content: '' },
+      { source: '11111111-1111-4111-8111-111111111111:empty-call-a:result', sourceKind: 'tool_result:empty_tool', role: 'user' as const, content: settledResult },
+      { source: '11111111-1111-4111-8111-111111111111:empty-call-b:arguments', sourceKind: 'tool_arguments:empty_tool', role: 'assistant' as const, content: '' },
+      { source: '11111111-1111-4111-8111-111111111111:empty-call-b:result', sourceKind: 'tool_result:empty_tool', role: 'user' as const, content: settledResult },
+    ];
+    expect(ranges.filter((entry, index) => index === 0 || entry.source !== ranges[index - 1]!.source).map((entry) => entry.source)).toEqual(expectedSources.map(({ source }) => source));
+    for (const expected of expectedSources) {
+      const sourceRangesInOrder = ranges.filter(({ source }) => source === expected.source);
+      expect(sourceRangesInOrder).not.toHaveLength(0);
+      expect(sourceRangesInOrder[0]!.start).toBe(0);
+      expect(sourceRangesInOrder.at(-1)!.end).toBe(Buffer.byteLength(expected.content, 'utf8'));
+      expect(sourceRangesInOrder.every((entry, index) => index === 0 || entry.start === sourceRangesInOrder[index - 1]!.end)).toBe(true);
+      expect(sourceRangesInOrder.map(({ content }) => content).join('')).toBe(expected.content);
+      for (const range of sourceRangesInOrder) {
+        expect(range).toMatchObject({
+          sourceKind: expected.sourceKind,
+          role: expected.role,
+          totalBytes: Buffer.byteLength(expected.content, 'utf8'),
+          sourceSha256: sourceHash(expected.content),
+        });
+        expect(Buffer.byteLength(range.content, 'utf8')).toBe(range.end - range.start);
+      }
+    }
+    const sentSources = sent.map((input) => sourceRanges(input).map(({ source }) => source));
+    for (const callId of ['empty-call-a', 'empty-call-b']) {
+      const argumentsSource = `11111111-1111-4111-8111-111111111111:${callId}:arguments`;
+      const argumentsAttempt = attemptedSources.findIndex((sources) => sources.length === 2 && sources[1] === argumentsSource);
+      expect(argumentsAttempt).toBeGreaterThan(0);
+      expect(attemptedSources[argumentsAttempt + 1]).toEqual([argumentsSource]);
+      expect(sentSources).toContainEqual([argumentsSource]);
+    }
+  });
+
+  it('stops at the first rejected growth probe, resumes at the admitted endpoint, and sends the exact admitted objects', async () => {
+    const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization; range: string }> = [];
+    const completed: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
+    const estimateForRange = (range: string): number => {
+      if (range === '0:9' || range === '0:4') return 10_000;
+      return 1;
+    };
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      serialize: (input) => {
+        const range = onlySourceRange(input);
+        const result = serialization(input, estimateForRange(range));
+        attempts.push({ input, serialization: result, range });
+        return result;
+      },
+      completeTurn: async (input, admitted) => {
+        completed.push({ input, serialization: admitted });
+        return { result: { kind: 'message' as const, content: `summary-${completed.length}` }, provider_exchanges: [] };
+      },
+    });
+    const rows = [activation(), text('source', 'abcdefghi')];
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
+
+    await accumulator.materializeThrough(rows.length);
+
+    expect(attempts.map(({ range }) => range)).toEqual(['0:1', '0:9', '0:2', '0:4', '2:3', '2:9']);
+    expect(estimateForRange('0:8')).toBe(1);
+    expect(completed).toHaveLength(2);
+    expect(completed[0]!.input).toBe(attempts[2]!.input);
+    expect(completed[0]!.serialization).toBe(attempts[2]!.serialization);
+    expect(onlySourceRange(completed[0]!.input)).toBe('0:2');
+    expect(completed[1]!.input).toBe(attempts[5]!.input);
+    expect(completed[1]!.serialization).toBe(attempts[5]!.serialization);
+    expect(onlySourceRange(completed[1]!.input)).toBe('2:9');
+  });
+
+  it('retains the distinct fitting whole-width doubling probe at an eight-code-point EOF', async () => {
+    const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
+    const completed: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      serialize: (input) => {
+        const result = serialization(input, attempts.length === 1 ? 10_000 : 1);
+        attempts.push({ input, serialization: result });
+        return result;
+      },
+      completeTurn: async (input, admitted) => {
+        completed.push({ input, serialization: admitted });
+        return { result: { kind: 'message' as const, content: 'summary' }, provider_exchanges: [] };
+      },
+    });
+    const rows = [activation(), text('source', 'abcdefgh')];
+
+    await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
+
+    expect(attempts.map(({ input }) => onlySourceRange(input))).toEqual(['0:1', '0:8', '0:2', '0:4', '0:8']);
+    expect(attempts[1]!.input).not.toBe(attempts[4]!.input);
+    expect(attempts[1]!.serialization).not.toBe(attempts[4]!.serialization);
+    expect(attempts[1]!.input.providerConversation.messages).toEqual(attempts[4]!.input.providerConversation.messages);
+    expect(sourceRanges(attempts[1]!.input)).toEqual([{
+      source: 'source',
+      sourceKind: 'message:direct',
+      start: 0,
+      end: 8,
+      totalBytes: 8,
+      sourceSha256: sourceHash('abcdefgh'),
+      role: 'user',
+      content: 'abcdefgh',
+    }]);
+    expect(completed).toHaveLength(1);
+    expect(completed[0]!.input).toBe(attempts[4]!.input);
+    expect(completed[0]!.serialization).toBe(attempts[4]!.serialization);
+  });
+
+  it('does not add a clamped width-eight probe at a seven-code-point EOF', async () => {
+    const attempts: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
+    const completed: Array<{ input: SummaryInput; serialization: SummaryRequestSerialization }> = [];
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      serialize: (input) => {
+        const result = serialization(input, attempts.length === 1 ? 10_000 : 1);
+        attempts.push({ input, serialization: result });
+        return result;
+      },
+      completeTurn: async (input, admitted) => {
+        completed.push({ input, serialization: admitted });
+        return { result: { kind: 'message' as const, content: `summary-${completed.length}` }, provider_exchanges: [] };
+      },
+    });
+    const rows = [activation(), text('source', 'abcdefg')];
+
+    await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
+
+    expect(attempts.slice(0, 4).map(({ input }) => onlySourceRange(input))).toEqual(['0:1', '0:7', '0:2', '0:4']);
+    expect(completed[0]!.input).toBe(attempts[3]!.input);
+    expect(completed[0]!.serialization).toBe(attempts[3]!.serialization);
+    expect(onlySourceRange(completed[0]!.input)).toBe('0:4');
+    expect(onlySourceRange(attempts[4]!.input)).toBe('4:5');
+    expect(attempts.map(({ input }) => onlySourceRange(input)).filter((range) => range === '0:7')).toHaveLength(1);
+  });
+
   it('allows sixteen logical calls and rejects a needed seventeenth before invoking it', async () => {
     const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: 'a' }, provider_exchanges: [] }));
     const provider = recordingProvider({
@@ -106,6 +280,76 @@ describe('sequential contextual refine accumulator', () => {
     expect(failure).toBeInstanceOf(SummaryConstructionLimitError);
     expect(failure).toMatchObject({ reason: 'fold_limit', invocationCount: MAX_REFINE_INVOCATIONS, invocationLimit: MAX_REFINE_INVOCATIONS });
     expect(completeTurn).toHaveBeenCalledTimes(MAX_REFINE_INVOCATIONS);
+  });
+
+  it('regenerates one invalid fold from identical source and pre-fold inheritance with a fresh stronger request', async () => {
+    const inputs: SummaryInput[] = [];
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      completeTurn: async (input) => {
+        inputs.push(input);
+        return { result: { kind: 'message' as const, content: inputs.length === 1 ? '   ' : 'corrected' }, provider_exchanges: [] };
+      },
+    });
+    const rows = [activation(), text('source', 'exact source')];
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
+
+    await expect(accumulator.materializeThrough(rows.length)).resolves.toBe('corrected');
+    expect(accumulator.invocationCount).toBe(2);
+    expect(accumulator.correctionCount).toBe(1);
+    expect(inputs[1]!.inputId).not.toBe(inputs[0]!.inputId);
+    expect(inputs[1]!.systemPrompt).toContain('6000 UTF-8 bytes');
+    expect(inputs[1]!.providerConversation.messages).toEqual(inputs[0]!.providerConversation.messages);
+  });
+
+  it('corrects the last genuine fold when its output blocks the next minimum source range and resumes at the unconsumed cursor', async () => {
+    const sent: SummaryInput[] = [];
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      serialize: (input) => {
+        const inherited = input.providerConversation.messages.find((message) => message.content.includes('[kind=inherited_history]'))?.content ?? '';
+        const sourceBytes = sourceByteCount(input);
+        return serialization(input, inherited.includes('X'.repeat(100)) && sourceBytes > 0 ? 10_000 : sourceBytes > 1 ? 10_000 : 1);
+      },
+      completeTurn: async (input) => {
+        sent.push(input);
+        return { result: { kind: 'message' as const, content: input.systemPrompt.includes('6000 UTF-8 bytes') ? 'short' : 'X'.repeat(100) }, provider_exchanges: [] };
+      },
+    });
+    const rows = [activation(), text('source', 'ab')];
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
+
+    await expect(accumulator.materializeThrough(rows.length)).resolves.toBe('X'.repeat(100));
+    expect(accumulator.correctionCount).toBe(1);
+    expect(sent.map(onlySourceRange)).toEqual(['0:1', '0:1', '1:2']);
+    expect(sent[1]!.providerConversation.messages).toEqual(sent[0]!.providerConversation.messages);
+  });
+
+  it('counts fifteen normal folds plus one incomplete fold and blocks its correction before a seventeenth send', async () => {
+    let calls = 0;
+    const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: ++calls === 16 ? ' ' : `summary-${calls}` }, provider_exchanges: [] }));
+    const provider = recordingProvider({ contextWindowTokens: 10_000, serialize: (input) => serialization(input, sourceByteCount(input) > 1 ? 10_000 : 1), completeTurn });
+    const rows = [activation(), text('source', 'abcdefghijklmnop')];
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
+    const failure = await accumulator.materializeThrough(rows.length).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ reason: 'fold_limit', invocationCount: 16, invocationLimit: 16 });
+    expect(accumulator.correctionCount).toBe(1);
+    expect(completeTurn).toHaveBeenCalledTimes(16);
+  });
+
+  it('consumes the one correction but sends nothing when its fresh stronger request is not admitted', async () => {
+    const completeTurn = jest.fn(async () => ({ result: { kind: 'message' as const, content: ' ' }, provider_exchanges: [] }));
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      serialize: (input) => serialization(input, input.systemPrompt.includes('6000 UTF-8 bytes') ? 10_000 : 1),
+      completeTurn,
+    });
+    const rows = [activation(), text('source', 'a')];
+    const accumulator = createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal });
+    const failure = await accumulator.materializeThrough(rows.length).catch((error: unknown) => error);
+    expect(failure).toMatchObject({ reason: 'request_context_capacity', invocationCount: 1 });
+    expect(accumulator.correctionCount).toBe(1);
+    expect(completeTurn).toHaveBeenCalledTimes(1);
   });
 
   it('reports request context capacity only after the concrete next code point fails and sends nothing', async () => {
@@ -135,7 +379,7 @@ describe('sequential contextual refine accumulator', () => {
       summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
       budget: BUDGET,
       signal: controller.signal,
-      progress: { foldStarted, foldCompleted },
+      progress: { foldStarted, foldCompleted, foldFailed: jest.fn() },
     });
 
     await expect(accumulator.materializeThrough(rows.length)).rejects.toBe(reason);
@@ -173,7 +417,7 @@ describe('sequential contextual refine accumulator', () => {
       summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
       budget: BUDGET,
       signal: controller.signal,
-      progress: { foldStarted, foldCompleted },
+      progress: { foldStarted, foldCompleted, foldFailed: jest.fn() },
     });
 
     await expect(accumulator.materializeThrough(rows.length)).rejects.toBe(reason);
@@ -206,7 +450,7 @@ describe('sequential contextual refine accumulator', () => {
       summarizerProvider: { candidate: CANDIDATE, contextWindowTokens: 10_000, maxOutputTokens: 10_000, serializeSummaryRequest, completeTurn, projectProviderExchanges },
       budget: BUDGET,
       signal: controller.signal,
-      progress: { foldStarted, foldCompleted },
+      progress: { foldStarted, foldCompleted, foldFailed: jest.fn() },
     });
 
     const pending = accumulator.materializeThrough(rows.length);
@@ -273,6 +517,36 @@ function sourceByteCount(input: Parameters<SummarizerProviderPort['serializeSumm
   return input.providerConversation.messages.reduce((total, item) => total + (item.content.includes('[kind=new_source ') ? Buffer.byteLength(item.content.split('\n').slice(1).join('\n'), 'utf8') : 0), 0);
 }
 
+function sourceRanges(input: SummaryInput): ParsedSourceRange[] {
+  return input.providerConversation.messages.flatMap((message) => {
+    const wrapper = /^\[order \d+\/\d+\] ([^\n]+)\n([\s\S]*)$/u.exec(message.content);
+    if (!wrapper?.[1].startsWith('[kind=new_source ')) return [];
+    const label = /^\[kind=new_source source=(\S+) source_kind=(\S+) range=(\d+):(\d+) total_bytes=(\d+) source_sha256=([0-9a-f]{64}) omitted_source_bytes=0\]$/u.exec(wrapper[1]);
+    if (!label) throw new Error(`Invalid new-source label: ${wrapper[1]}`);
+    if (message.role !== 'system' && message.role !== 'user' && message.role !== 'assistant') throw new Error(`Invalid new-source role: ${message.role}`);
+    return [{
+      source: label[1]!,
+      sourceKind: label[2]!,
+      start: Number(label[3]),
+      end: Number(label[4]),
+      totalBytes: Number(label[5]),
+      sourceSha256: label[6]!,
+      role: message.role,
+      content: wrapper[2]!,
+    }];
+  });
+}
+
+function onlySourceRange(input: SummaryInput): string {
+  const ranges = sourceRanges(input);
+  if (ranges.length !== 1) throw new Error(`Expected one source range, received ${ranges.length}.`);
+  return `${ranges[0]!.start}:${ranges[0]!.end}`;
+}
+
+function sourceHash(content: string): string {
+  return createHash('sha256').update(content, 'utf8').digest('hex');
+}
+
 function activation(): AgentMessage {
   const inputId = '11111111-1111-4111-8111-111111111111';
   const timestamp = '2026-09-08T00:00:00.000Z';
@@ -281,4 +555,40 @@ function activation(): AgentMessage {
 
 function text(id: string, content: string): AgentMessage {
   return agentMessageSchema.parse({ id, session_id: SESSION, role: 'user', kind: 'text', context_policy: TEXT_ROW_POLICY, content, round_id: `r-user-${'1'.repeat(32)}`, message_index: 1, block_index: 0, timestamp: '2026-09-08T00:00:01.000Z' });
+}
+
+function settledToolRows(callId: string, firstMessageIndex: number, argumentsJson: string, resultContent: string): AgentMessage[] {
+  const sourceInputId = '11111111-1111-4111-8111-111111111111';
+  const roundId = `r-user-${'1'.repeat(32)}`;
+  const policies = toolRowPolicies({ content: resultContent });
+  return [
+    agentMessageSchema.parse({
+      id: `${sourceInputId}:tool-call:${callId}`,
+      session_id: SESSION,
+      role: 'assistant',
+      kind: 'tool_call',
+      tool: 'empty_tool',
+      tool_call_id: callId,
+      context_policy: policies.call,
+      content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: callId, type: 'function', function: { name: 'empty_tool', arguments: argumentsJson } }] }),
+      round_id: roundId,
+      message_index: firstMessageIndex,
+      block_index: 0,
+      timestamp: '2026-09-08T00:00:02.000Z',
+    }),
+    agentMessageSchema.parse({
+      id: `${sourceInputId}:tool-result:${callId}`,
+      session_id: SESSION,
+      role: 'tool',
+      kind: 'tool_result',
+      tool: 'empty_tool',
+      tool_call_id: callId,
+      context_policy: policies.result,
+      content: resultContent,
+      round_id: roundId,
+      message_index: firstMessageIndex + 1,
+      block_index: 0,
+      timestamp: '2026-09-08T00:00:03.000Z',
+    }),
+  ];
 }

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { ProviderTurnFailure, type LlmCompleteResult, type ProviderTurnCompletion,
 } from '../../../agents/llm-contracts.js';
+import { LlmRequestError } from '../../../contracts/llm-failure.js';
 import type { ProviderExchangeAttempt, ProviderExchangePublicationContext,
 } from '../../../contracts/provider-exchange.js';
 import { throwIfPublicationOutcomeUnknown } from '../../../contracts/index.js';
@@ -11,7 +12,7 @@ import type { Candidate } from '../../../contracts/provider-candidate.js';
 import type { EffectiveProviderCapabilities } from '../../../agents/provider-capabilities.js';
 
 export const SUMMARY_COMPLETION_TOKENS = 2000;
-const SUMMARY_OUTPUT_MAX_BYTES = 12_000;
+export const SUMMARY_OUTPUT_TARGET_BYTES = 12_000;
 
 const INTERNAL_SUMMARY_LABEL = 'internal-compaction-summary';
 
@@ -121,7 +122,7 @@ export async function invokeSummaryRequest(args: {
   args.signal.throwIfAborted();
   const completion = await sendAdmittedSummaryRequest(args);
   args.signal.throwIfAborted();
-  return validateSummaryResult(completion.result);
+  return validateSummaryCompletion(completion, args.summarizerProvider.candidate);
 }
 
 async function sendAdmittedSummaryRequest(args: {
@@ -154,23 +155,59 @@ function projectSummaryExchanges(
 }
 
 export class SummaryResultValidationError extends Error {
-  constructor(message: string) {
+  readonly reason: 'empty_output' | 'tool_calls' | 'incomplete_output';
+  readonly summaryBytes: number | null;
+
+  constructor(reason: 'empty_output' | 'tool_calls' | 'incomplete_output', message: string, summaryBytes: number | null = null) {
     super(message);
     this.name = 'SummaryResultValidationError';
+    this.reason = reason;
+    this.summaryBytes = summaryBytes;
   }
+}
+
+function validateSummaryCompletion(completion: ProviderTurnCompletion, candidate: Candidate): string {
+  const finalExchange = completion.provider_exchanges.at(-1);
+  const finishReason = finalExchange?.status === 'ok' ? finalExchange.finish_reason : undefined;
+  if (finishReason === 'length') {
+    const bytes = completion.result.kind === 'message' ? Buffer.byteLength(completion.result.content.trim(), 'utf8') : null;
+    throw new SummaryResultValidationError('incomplete_output', 'Summary refine output ended at the native output limit.', bytes);
+  }
+  if (finishReason === 'content_filter')
+    throw rejectedChatCompletion(candidate, completion, 'content_policy', 'Summary provider refused the compaction request.');
+  if (finishReason !== undefined && finishReason !== null) {
+    const consistent = (finishReason === 'stop' && completion.result.kind === 'message') ||
+      (finishReason === 'tool_calls' && completion.result.kind === 'tool_calls');
+    if (!consistent)
+      throw rejectedChatCompletion(candidate, completion, 'provider_protocol_error', 'Summary provider returned inconsistent completion metadata.');
+  }
+  return validateSummaryResult(completion.result);
+}
+
+function rejectedChatCompletion(
+  candidate: Candidate,
+  completion: ProviderTurnCompletion,
+  kind: 'content_policy' | 'provider_protocol_error',
+  message: string,
+): ProviderTurnFailure {
+  const status = completion.provider_exchanges.at(-1)?.response_status ?? 200;
+  const originalFailure = kind === 'content_policy'
+    ? new LlmRequestError({ kind, provider: candidate.provider, status, message, providerResponse: '' })
+    : new LlmRequestError({ kind, provider: candidate.provider, status, message });
+  return new ProviderTurnFailure({
+    failure_phase: 'provider_attempt',
+    provider_exchanges: completion.provider_exchanges,
+    originalFailure,
+    candidate,
+    message,
+  });
 }
 
 function validateSummaryResult(result: LlmCompleteResult): string {
   if (result.kind !== 'message')
-    throw new SummaryResultValidationError('Summary refine expected prose summary text, got tool calls.');
+    throw new SummaryResultValidationError('tool_calls', 'Summary refine expected prose summary text, got tool calls.');
   const text = result.content.trim();
-  if (!text) throw new SummaryResultValidationError('Summary refine returned an empty summary.');
-  if (/Recoverable evidence/i.test(text))
-    throw new SummaryResultValidationError(
-      'Summary refine output must be prose only; recoverable evidence is rendered by the compactor.',
-    );
-  if (Buffer.byteLength(text, 'utf8') > SUMMARY_OUTPUT_MAX_BYTES)
-    throw new SummaryResultValidationError(`Summary refine output exceeds the ${SUMMARY_OUTPUT_MAX_BYTES}-byte UTF-8 limit.`);
+  if (!text) throw new SummaryResultValidationError('empty_output', 'Summary refine returned an empty summary.', 0);
   return text;
 }
 

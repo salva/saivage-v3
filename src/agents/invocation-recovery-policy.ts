@@ -2,7 +2,6 @@ import { unwrapFailure } from '../contracts/llm-failure.js';
 import type { LlmTransportFailure } from '../contracts/llm-failure.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { AvailabilityDecision } from './candidate-availability.js';
-import { redactTextForOutbound } from '../redaction/index.js';
 
 interface InvocationFailureContext {
   candidate: Candidate;
@@ -13,13 +12,6 @@ type InvocationFailureDecision =
   | { kind: 'terminal'; availability?: AvailabilityDecision }
   | { kind: 'retry'; wait: 'rate-limit'; availability: AvailabilityDecision }
   | { kind: 'retry'; wait: 'standard'; retryDelayMs: number; availability?: AvailabilityDecision };
-
-export function sanitizeRecoveryMessage(value: unknown, maxLength = 500): string {
-  const text = value instanceof Error ? value.message : String(value ?? 'Unknown error');
-  const redacted = redactTextForOutbound(text);
-  if (redacted.length > maxLength) return `${redacted.slice(0, maxLength)}…`;
-  return redacted;
-}
 
 function assertNever(x: never): never {
   throw new Error('Unhandled failure kind: ' + JSON.stringify(x));

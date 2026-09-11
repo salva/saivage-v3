@@ -12,6 +12,7 @@ import {
   cardActionSchema,
   cardLifecycleStateSchema,
   ConversationSessionIdSchema,
+  outboundCardVersionChangeSchema,
 } from '../schemas/index.js';
 import {
   operatorSessionContract,
@@ -108,11 +109,11 @@ const CardRecordVersionParamsSchema = z.object({ id: cardIdSchema, name: recordN
 export const CardHistoryEntryParamsSchema = z.object({ id: cardIdSchema, version: canonicalPositiveSafeIntegerStringSchema }).strict();
 const diffPivotSchema = z.union([z.literal('current'), canonicalPositiveSafeIntegerStringSchema]);
 export const CardDiffQuerySchema = z.object({ from: canonicalPositiveSafeIntegerStringSchema, to: diffPivotSchema.optional() }).strict();
-const cardVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), artifact_kind: z.enum(['card-version', 'card-tombstone']) }).strict();
+const cardVersionMetadataSchema = z.object({ entry_id: z.string().uuid(), version: positiveSafeIntegerSchema, published_at: z.string().datetime(), artifact_kind: z.enum(['card-version', 'card-tombstone']), change: outboundCardVersionChangeSchema.nullable() }).strict();
 export const CardHistoryListResponseSchema = z.object({ card_id: cardIdSchema, versions: z.array(cardVersionMetadataSchema), total: z.number().int().nonnegative() }).strict();
 const cardVersionArtifactWireSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('card-version'), card: outboundCardRecordSchema }).strict(),
-  z.object({ kind: z.literal('card-tombstone'), final_card: outboundCardRecordSchema }).strict(),
+  z.object({ kind: z.literal('card-version'), card: outboundCardRecordSchema, change: outboundCardVersionChangeSchema.nullable() }).strict(),
+  z.object({ kind: z.literal('card-tombstone'), final_card: outboundCardRecordSchema, change: outboundCardVersionChangeSchema.nullable() }).strict(),
 ]);
 export const CardHistoryEntryResponseSchema = z.object({ card_id: cardIdSchema, version: positiveSafeIntegerSchema, entry_id: z.string().uuid(), published_at: z.string().datetime(), artifact: cardVersionArtifactWireSchema }).strict();
 type CardDiffJsonValue =
