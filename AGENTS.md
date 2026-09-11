@@ -99,6 +99,8 @@ large or cross-cutting refactor.
 - Changeset scope discipline — keep each changeset to the smallest coherent unit that delivers the intended behavior change and leaves the system in a working state.
 - Defer non-essential robustness and rare edge-case handling — for example corrupted-file recovery — to separate changesets rather than bundling them in. Call them out as deferred follow-ups in the plan.
 - Expand scope only when a deferred item would block the core change or leave the system unsafe. This complements, and does not weaken, the root-cause and brave-refactor guidance above: fix the needed change fully, but do not pad it with extras.
+- Accepting an evidenced defect does not authorize its suggested remedy. Evaluate changes against the original evidenced need. When an introduced mechanism causes a problem, consider removing it before adding machinery to sustain it.
+- Obtain an owner decision before strengthening product guarantees or removing unrelated capabilities beyond the authorized scope. General engineering slogans do not authorize those tradeoffs; ordinary implementation and refactoring choices within established requirements remain autonomous.
 
 ## Storage Policy
 

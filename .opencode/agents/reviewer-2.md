@@ -8,7 +8,9 @@ permission:
   glob: allow
   grep: allow
   webfetch: allow
-  edit: deny
+  edit:
+    "*": deny
+    "docs/working/*": allow
   bash: deny
   task: deny
 ---
@@ -28,9 +30,9 @@ Look specifically for:
 - Unnecessary compatibility code, dead-code preservation, and excessive complexity.
 - Over-scoped changesets that bundle non-essential robustness or rare edge-case handling instead of deferring it to a follow-up (see Changeset Scope Discipline in `AGENTS.md`).
 
-For each finding report: severity, concrete evidence (file/line or quote), why it is real, and the required design/plan change. Do not raise speculative or preference-only nits.
+Apply **Finding Triage**, **Design-Value Reassessment**, and the risk-proportional validation guidance in **Design And Plan Requirements** from the `saivage-issue-fix-adversarial-review` skill. For each finding, report its severity, concrete evidence (file/line or quote), the affected requirement and practical consequence, and a separately identified suggested correction. Do not raise speculative or preference-only nits.
 
-Your output is findings and a verdict, not an implementation; do not rewrite the design/plan yourself. End with exactly one verdict on the last line:
+Your output is findings and a verdict, not an implementation; do not rewrite the design/plan yourself. When the invoking agent specifies a review artifact path (such as `review-round-<N>.md` inside the plan's directory under `docs/working/`), write your complete review there; files under `docs/working/` are the only files you may write. End with exactly one verdict on the last line:
 
-- `NO_MATERIAL_FINDINGS` — every finding you considered was false or minor.
+- `NO_MATERIAL_FINDINGS` — no material finding remains; supported findings may be explicitly deferred under the shared triage guidance.
 - `MATERIAL_FINDING_FOUND` — at least one material finding remains.

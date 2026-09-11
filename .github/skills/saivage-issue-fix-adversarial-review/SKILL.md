@@ -40,7 +40,9 @@ Create a unique working directory for each issue, such as `docs/working/<date>-<
 
 ## Design And Plan Requirements
 
-The first design/plan must include:
+Keep each design/plan concise, self-contained, and proportional to the change's risk. Cover the required subjects below without repeating policy inventories or the complete review history; a brief explanation that a subject is not affected is sufficient when applicable.
+
+The design/plan must include:
 
 - Problem statement with evidence and affected user/runtime behavior.
 - Root-cause analysis, or the best current hypothesis.
@@ -52,7 +54,7 @@ The first design/plan must include:
   - Cleanup tasks for obsolete code, tests, fixtures, docs, and scripts.
   - Documentation-update tasks naming each main document to update and how. Documentation is implementation work, not a later phase. Consider `docs/spec/system-specification.md`, `docs/spec/operator-ui.md`, `docs/architecture/system-architecture.md`, and `README.md`; do not count the working plan itself.
 - Related stale main documentation and scoped tasks to correct it.
-- Focused and broader validation appropriate to risk.
+- Focused and broader validation appropriate to risk. Target affected semantic owners and useful behavior, broadening only for demonstrated cross-cutting risk. Do not use prose-regex assertions, repository-wide spelling bans, or unrelated test matrices as substitutes for semantic evidence.
 - Risks, rollback considerations, and unresolved questions.
 
 ## Adversarial Review And Revision Loop
@@ -74,7 +76,7 @@ The issue fixer, not the designer or reviewer, owns this higher-level merit deci
 
 Use a concise pass/fault decision, not a scorecard or new approval artifact. Confirm all of the following:
 
-- **Value and root cause:** the plan still solves the evidenced issue at the layer that owns its root cause rather than compensating for a symptom or preserving a disproved premise.
+- **Value and root cause:** measured against the original evidenced need, the plan solves the issue at the layer that owns its root cause rather than compensating for a symptom or preserving a disproved premise. When an introduced mechanism creates the problem, first consider removing that mechanism before adding machinery to make it correct.
 - **Net simplicity:** the result is cleaner and easier to understand and change; its new mechanisms, states, contracts, coordination, and exceptions are not comparable to or worse than the complexity removed unless concrete value clearly justifies them.
 - **Project alignment:** the plan follows `AGENTS.md`, including clean architecture, fail-fast and singular-contract rules, and the prohibitions on compatibility paths and test-driven production complexity.
 - **Scope discipline:** the plan is the minimal coherent safe fix, and deferred or non-essential robustness and rare-edge-case concerns remain deferred unless they block the core behavior or leave it unsafe.
@@ -95,14 +97,17 @@ Invoke the designer with `subagent_type: "designer"`, the issue context, and abs
 
 ### Finding Triage
 
-- **False:** speculative, preference-only, contradicted by current rules, or outside scope; reject it.
+- **False:** disproved, speculative, preference-only, or contradicted by current requirements; reject it. A finding is not false merely because it is outside scope.
 - **Minor:** correct but too small to affect the plan; note it without forcing another round.
 - **Material:** real and significant enough to change the design or plan; revise directly.
-- **Deferred:** real but outside the minimal coherent fix; record why and whether follow-up is needed.
+- **Deferred:** supported but outside the minimal coherent fix; record a brief reason and any needed follow-up. Do not defer a defect that blocks the core fix or leaves it unsafe.
+
+Accepting a defect does not accept its proposed remedy. Distinguish the evidence and violated requirement from the suggested correction. When an unsupported plan claim causes the defect, narrow that claim if current requirements do not require the stronger behavior; do not weaken an actual requirement merely to close review.
 
 ### Escalation And Blockers
 
 - Ask the user when reassessment cannot resolve unclear scope, repeated disagreement, or a required tradeoff.
+- Ask the owner before introducing stronger product guarantees or removing unrelated capabilities not already authorized. Generic slogans such as “fail fast,” “root cause,” or “remove dead code” do not authorize those tradeoffs. Ordinary implementation choices within established requirements remain autonomous; this boundary does not require owner approval for every refactor.
 - If required subagent tooling is unavailable, report `BLOCKED`; never claim review or implementation passed. Proceed only if the user explicitly changes the workflow or the change repairs the unavailable workflow itself.
 
 ## Batch Launch And Tracking

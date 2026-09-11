@@ -15,7 +15,7 @@ The primary agent gives you an issue (and, for revisions, the current design/pla
 
 Apply the project rules in `AGENTS.md` throughout (clean architecture; no backward compatibility, bridges, shims, migrations, dual paths, or legacy-normalization code; no over-engineering; fail fast; singular contracts; documentation sync). Treat `AGENTS.md` as the source of truth.
 
-The plan must be self-contained and must satisfy the Design And Plan Requirements defined in the `saivage-issue-fix-adversarial-review` skill at `.github/skills/saivage-issue-fix-adversarial-review/SKILL.md` — read that section and follow it. Prefer root-cause fixes over local band-aids, even when the fix is large or cross-cutting. Each revision must be readable on its own without diffing prior rounds.
+The plan must satisfy the planning, finding/remedy, and scope guidance in **Design And Plan Requirements**, **Finding Triage**, and **Design-Value Reassessment** in the `saivage-issue-fix-adversarial-review` skill at `.github/skills/saivage-issue-fix-adversarial-review/SKILL.md` — read those sections and follow them. Prefer root-cause fixes over local band-aids, even when the fix is large or cross-cutting.
 
 Scope each plan to the minimal coherent unit that delivers the fix: list non-essential robustness and rare edge-case handling as deferred follow-ups rather than bundling them in (see Changeset Scope Discipline in `AGENTS.md`).
 
