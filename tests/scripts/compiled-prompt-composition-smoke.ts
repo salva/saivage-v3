@@ -45,6 +45,23 @@ function requireValue<T>(value: T | undefined, message: string): T {
   return value;
 }
 
+const WORKFLOW_ROLES = ['planner', 'executor', 'reviewer'] as const;
+const SHIPPED_ROLES = [...WORKFLOW_ROLES, 'analyst'] as const;
+type ShippedRole = typeof SHIPPED_ROLES[number];
+
+function assertGuidanceComposition(text: string, promptRoot: string, role: ShippedRole, context: string): void {
+  const fragmentRoot = join(promptRoot, 'fragments', '_shared');
+  const common = readFileSync(join(fragmentRoot, 'project-guidance-common.md'), 'utf8');
+  const matching = readFileSync(join(fragmentRoot, `project-guidance-${role}.md`), 'utf8');
+  if (text.split(common).length - 1 !== 1) throw new Error(`Common project guidance is not rendered exactly once for ${context}.`);
+  if (text.split(matching).length - 1 !== 1) throw new Error(`Matching project guidance is not rendered exactly once for ${context}.`);
+  for (const otherRole of SHIPPED_ROLES) {
+    if (otherRole === role) continue;
+    const other = readFileSync(join(fragmentRoot, `project-guidance-${otherRole}.md`), 'utf8');
+    if (text.includes(other)) throw new Error(`Other-role project guidance '${otherRole}' is rendered for ${context}.`);
+  }
+}
+
 for (const template of SYSTEM_TEMPLATES) {
   const packagedRoot = join(distRoot, 'src', 'config', 'system-templates', template.name, 'prompts');
   if (resolve(template.promptRoot) !== resolve(packagedRoot)) {
@@ -118,7 +135,14 @@ try {
     const text = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: 'contract' });
     if (text.includes('{{')) throw new Error(`Unresolved agent template syntax for ${cardType}/${state.agent.name}`);
   }
-  const assertRoleComposition = (templateName: string, packaged: ReturnType<typeof compileProjectWorkflows>, source: ReturnType<typeof compileProjectWorkflows>) => {
+  const assertRoleComposition = (
+    templateName: string,
+    packagedRoot: string,
+    sourceRoot: string,
+    packaged: ReturnType<typeof compileProjectWorkflows>,
+    source: ReturnType<typeof compileProjectWorkflows>,
+  ) => {
+    const composedWorkflowRoles = new Set<ShippedRole>();
     for (const [cardType, packagedProcess] of packaged.cardTypes) {
       const sourceProcess = requireValue(source.cardTypes.get(cardType), `Missing source ${templateName}/${cardType} workflow.`);
       for (const [stateId, packagedState] of packagedProcess.states) {
@@ -131,11 +155,25 @@ try {
         const sourceInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, sourceState.agent.name, sourceState.selectedAgentPrompt.compiled, { contractDescription: sourceContract });
         if (packagedState.agent.name !== sourceState.agent.name || packagedState.selectedAgentPrompt.reference !== sourceState.selectedAgentPrompt.reference || packagedContract !== sourceContract || packagedInstruction !== sourceInstruction) throw new Error(`Source/package role composition differs for ${templateName}/${cardType}/${stateId}.`);
         if (packagedInstruction.split(packagedContract).length - 1 !== 1) throw new Error(`Generated role contract is not rendered exactly once for ${templateName}/${cardType}/${stateId}.`);
+        const role = WORKFLOW_ROLES.find((candidate) => candidate === packagedState.selectedAgentPrompt.reference);
+        if (role) {
+          composedWorkflowRoles.add(role);
+          assertGuidanceComposition(packagedInstruction, packagedRoot, role, `${templateName} packaged ${cardType}/${stateId}`);
+          assertGuidanceComposition(sourceInstruction, sourceRoot, role, `${templateName} source ${cardType}/${stateId}`);
+        }
       }
     }
+    if (WORKFLOW_ROLES.some((role) => !composedWorkflowRoles.has(role))) throw new Error(`Not all shipped workflow roles were composed for ${templateName}.`);
+
+    if (packaged.analyst.name !== source.analyst.name || packaged.analystPrompt.reference !== 'analyst' || source.analystPrompt.reference !== 'analyst') throw new Error(`Analyst source selection differs for ${templateName}.`);
+    const packagedAnalyst = renderCompiledPrompt({ kind: 'global-agent' }, packaged.analyst.name, packaged.analystPrompt.compiled, { vocabularySnippet: 'vocabulary' });
+    const sourceAnalyst = renderCompiledPrompt({ kind: 'global-agent' }, source.analyst.name, source.analystPrompt.compiled, { vocabularySnippet: 'vocabulary' });
+    if (packagedAnalyst !== sourceAnalyst) throw new Error(`Source/package Analyst composition differs for ${templateName}.`);
+    assertGuidanceComposition(packagedAnalyst, packagedRoot, 'analyst', `${templateName} packaged Analyst`);
+    assertGuidanceComposition(sourceAnalyst, sourceRoot, 'analyst', `${templateName} source Analyst`);
   };
-  assertRoleComposition('classic', classicWorkflows, classicSourceWorkflows);
-  assertRoleComposition('classic-typed', typedWorkflows, typedSourceWorkflows);
+  assertRoleComposition('classic', classic.promptRoot, classicSourceRoot, classicWorkflows, classicSourceWorkflows);
+  assertRoleComposition('classic-typed', classicTyped.promptRoot, typedSourceRoot, typedWorkflows, typedSourceWorkflows);
   const assertPlanningComposition = (templateName: string, packaged: ReturnType<typeof compileProjectWorkflows>, source: ReturnType<typeof compileProjectWorkflows>) => {
     for (const cardType of ['project', 'goal'] as const) {
       const packagedProcess = requireValue(packaged.cardTypes.get(cardType), `Missing packaged ${templateName}/${cardType} workflow.`);

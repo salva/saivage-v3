@@ -44,12 +44,14 @@ function assertTreesEqual(sourceRoot, outputRoot) {
 
 const CLASSIC_CLOSURE = [
   'agents/_shared/analyst.md', 'agents/_shared/executor.md', 'agents/_shared/planner.md', 'agents/_shared/reviewer.md',
+  ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
   'process/_shared/correct-execution-result.md', 'process/_shared/correct-plan-result.md', 'process/_shared/correct-review-result.md',
   'process/_shared/execute.md', 'process/_shared/plan-to-review.md', 'process/_shared/plan.md', 'process/_shared/recover.md',
   'process/_shared/review-to-plan.md', 'process/_shared/review.md', 'process/_shared/stopped-recovery.md',
 ].sort();
 const TYPED_CLOSURE = [
   ...['analyst', 'executor', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
+  ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
   ...['correct-execution-result', 'correct-plan-result', 'correct-review-result', 'execute', 'specialized-plan-to-review', 'specialized-plan', 'specialized-recover', 'specialized-review-to-plan', 'specialized-review', 'stopped-recovery'].map((id) => `process/_shared/${id}.md`),
   ...['code-red', 'code-green', 'code-refactor', 'code-red-to-green', 'code-to-refactor', 'code-green-retry', 'code-regression-to-green'].map((id) => `process/code/${id}.md`),
   ...['test-diagnose', 'test-add-coverage', 'test-repair', 'test-verify', 'test-to-add-coverage', 'test-to-repair', 'test-to-verify', 'test-repair-retry'].map((id) => `process/test/${id}.md`),
@@ -59,6 +61,7 @@ const TYPED_CLOSURE = [
 ].sort();
 const SHARED_PROMPT_FILES = [
   ...['analyst', 'executor', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
+  ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
   ...['execute', 'stopped-recovery', 'correct-plan-result', 'correct-review-result', 'correct-execution-result'].map((id) => `process/_shared/${id}.md`),
 ];
 
@@ -127,12 +130,10 @@ function runCopySystemTemplatePromptsTest() {
     const classicRoot = resolveSystemTemplate('classic').promptRoot;
     const typedRoot = resolveSystemTemplate('classic-typed').promptRoot;
     assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed', 'registered templates must be exactly classic then classic-typed');
-    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic') }).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic closure differs from the exact 14-file lock');
-    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic-typed') }).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed closure differs from the exact 51-file lock');
+    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic') }).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic closure differs from the exact 19-file lock');
+    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic-typed') }).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed closure differs from the exact 56-file lock');
     assert(walkFiles(classicRoot).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic source tree contains an unselected or missing artifact');
     assert(walkFiles(typedRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed source tree contains an unselected or missing artifact');
-    assert(!existsSync(join(classicRoot, 'fragments')), 'classic prompt tree unexpectedly contains fragments');
-    assert(!existsSync(join(typedRoot, 'fragments')), 'classic-typed prompt tree unexpectedly contains fragments');
     for (const file of SHARED_PROMPT_FILES) {
       assert(readFileSync(join(classicRoot, file), 'utf8') === readFileSync(join(typedRoot, file), 'utf8'), `classic-family shared prompt drifted between templates: ${file}`);
     }

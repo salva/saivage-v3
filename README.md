@@ -87,6 +87,8 @@ curl -H "Authorization: Bearer $SAIVAGE_API_TOKEN" http://localhost:8080/api/pro
 | [README](README.md) | Introduction, minimal quick start, authority navigation, and repository validation profiles. |
 | [AI setup procedure](README-IF-YOU-ARE-AN-AI.md) | Subordinate seven-stage LXC setup procedure; follow its links to the authorities above. |
 
+For prompt customization, see the canonical [shipped project-guidance authoring guide](docs/architecture/prompts.md#authoring-shipped-project-guidance).
+
 ## Verification
 
 `npm run check:export-consumers` is the singular complete semantic

@@ -20,6 +20,7 @@ Structural compilation validates every configured card-type workflow, exact name
 Prompt roots mirror `agents|process|fragments/<card-type|_shared>/<reference>.md`; project card-specific, project shared, bundled card-specific, then bundled shared is the exact root-major order, and only exact absence advances.
 Agent filenames use the configured prompt reference; the global Analyst uses shared scope only.
 Direct `&#123;&#123;> fragment-id&#125;&#125;` inclusion is one level, uses the host card type, and is validated under the host policy.
+Each shipped Planner, Executor, Reviewer, and Analyst agent prompt directly includes `project-guidance-common` and its matching role fragment. These hooks compose only when that selected prompt contains them: custom prompt references and full overrides are not automatically modified or required to include them, and the Analyst remains shared-scope only.
 Workflow-agent system prompts require `&#123;&#123;contractDescription&#125;&#125;` exactly once after composition; process prompts allow only `&#123;&#123;cardType&#125;&#125;`, render eagerly, and are frozen as final text.
 Startup discovers the selected Analyst and distinct card agents directly from the singular state tables, then installs one immutable `agentBindings` map before actor construction.
 Each installation resolves only its explicit model IDs through the Provider Registry and retains its exact capability request: complete card surfaces include generated `emit_result` last and require tools plus exclusive choice, while Analyst has only its operational surface and may retain no-tools plus exclusive choice.
@@ -105,8 +106,9 @@ The operator must restore the compatible map or template, or intentionally use t
 
 Bundled prompts live in per-template trees under `src/config/system-templates/<name>/prompts/`.
 Packaging compiles each registered template standalone against its own source prompts root, observes the bundled agent, process, and direct-fragment artifacts actually selected, and requires that template's physical tree to equal its sorted compiled closure exactly.
-The `classic` template is locked to exactly 14 files—four shared agent prompts and ten shared process prompts.
-`classic-typed` reuses those four agent prompts, the shared correction/stopped/execute process prompts, and adds only selected shared or card-specific process prompts; it adds no agent prompt or fragment and totals exactly 51 files.
+The `classic` template is locked to exactly 19 files—four shared agent prompts, five shared project-guidance fragments, and ten shared process prompts.
+`classic-typed` reuses those four agent prompts and five fragments, the shared correction/stopped/execute process prompts, and adds only selected shared or card-specific process prompts, totaling exactly 56 files.
+Startup strictly composes the selected direct hooks and freezes the result. Existing materialized prompt trees remain instance-owned and are not upgraded by `init`; no hook is injected into a custom prompt and no automatic reconciliation occurs.
 
 Prompt scope is a discriminator—global agent, workflow agent with card type, or process with card type—not a pseudo card name.
 Therefore a configured card type literally named `global` receives ordinary card-specific agent, process, and fragment tiers and workflow/process placeholder rules, while the global Analyst remains shared-only.

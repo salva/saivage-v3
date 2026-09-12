@@ -101,21 +101,20 @@ function renderedNode(template: SystemTemplateDefinition, compiled: ReturnType<t
 }
 
 describe('shipped project Planner semantic composition', () => {
-  it('renders each shared role from its selected source with one generated node contract in both template families', () => {
+  it('selects each bundled shared role with one generated node contract and byte parity across template families', () => {
     const renderedSources = new Map<string, string>();
     for (const templateName of ['classic', 'classic-typed'] as const) {
       const template = resolveSystemTemplate(templateName);
       const compiled = compile(template);
       for (const role of ['planner', 'executor', 'reviewer'] as const) {
         const selected = [...compiled.workflows.cardTypes].flatMap(([cardType, process]) =>
-          [...process.states.values()].flatMap((state) => state.kind === 'node' && state.agent.name === role ? [{ cardType, process, state }] : []),
+          [...process.states.values()].flatMap((state) => state.kind === 'node' && state.selectedAgentPrompt.reference === role ? [{ cardType, process, state }] : []),
         ).at(0);
         if (!selected) throw new Error(`Missing ${templateName}/${role} node.`);
         const contract = describeNodeResultContract(selected.process, `node:${selected.state.nodeId}`);
-        const instruction = compiled.registry.render({ kind: 'workflow-agent', cardType: selected.cardType }, role, { contractDescription: contract });
+        const instruction = compiled.registry.render({ kind: 'workflow-agent', cardType: selected.cardType }, selected.state.agent.name, { contractDescription: contract });
         const source = readFileSync(selected.state.selectedAgentPrompt.path, 'utf8');
         expect(selected.state.selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: role });
-        expect(instruction).toBe(source.replace('{{contractDescription}}', contract));
         expect(instruction.split(contract)).toHaveLength(2);
         renderedSources.set(`${templateName}:${role}`, source);
       }
@@ -124,7 +123,7 @@ describe('shipped project Planner semantic composition', () => {
       expect(renderedSources.get(`classic:${role}`)).toBe(renderedSources.get(`classic-typed:${role}`));
   });
 
-  it('keeps one complete source-owned strategic Planner instruction for project and goal', () => {
+  it('keeps one shared strategic Planner instruction for project and goal', () => {
     const rendered = (['classic', 'classic-typed'] as const).flatMap((templateName) => {
       const template = resolveSystemTemplate(templateName);
       const compiled = compile(template);
@@ -132,9 +131,7 @@ describe('shipped project Planner semantic composition', () => {
     });
 
     for (const value of rendered) {
-      const source = readFileSync(value.node.selectedAgentPrompt.path, 'utf8');
       expect(value.node.selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
-      expect(value.instruction).toBe(source.replace('{{contractDescription}}', value.contract));
       expect(value.instruction.split(value.contract)).toHaveLength(2);
     }
     expect(new Set(rendered.map(({ instruction }) => instruction)).size).toBe(1);
