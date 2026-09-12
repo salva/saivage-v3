@@ -42,10 +42,11 @@ Superseded and stale design documents are provenance available only through Git 
 
 ## Commit Policy
 
-- Commit proactively at stable points — do not wait to be asked. Whenever the work reaches a coherent, verifiable state, commit it. This includes intermediate milestones: a closed design or plan, a passing focused test subset, a completed refactor step, a finished doc section, or one logical unit of a larger change.
-- Do not commit broken, half-finished, or non-compiling states; complete the stable unit first. Run the relevant focused validation (`npm run validate:docs`, focused Jest/Vitest, etc.) before committing when the change type warrants it.
-- Keep each commit focused and reviewable. Write a message matching repo style (recent prefix examples: `docs(...)`, `chore(...)`, `feat(...)`, `fix(...)`). Never include secrets, `.saivage/auth-profiles.json`, env files, or `docs/working/` scratch.
-- This project policy supersedes any conservative default that waits for an explicit commit request.
+- The project owner explicitly grants standing permission to commit and normally push coherent, validated, scoped repository work, including reviewed new files, at stable points without repeated task-specific permission, subject to higher-level instructions and explicit task restrictions. Stable units include completed source or refactor work, finished documentation work, and one logical unit of a larger change; a test pass alone is not a committable unit.
+- Do not commit broken, half-finished, or non-compiling states. Run the relevant focused validation (`npm run validate:docs`, focused Jest/Vitest, etc.) before committing when the change type warrants it. Keep each commit focused and reviewable, and write a message matching repository style (recent prefix examples: `docs(...)`, `chore(...)`, `feat(...)`, `fix(...)`).
+- Preserve other people's unready work. Never stage, commit, or push secrets, generated or live runtime state, or `docs/working/` artifacts.
+- Push normally only to the configured upstream. Report authentication, conflict, remote-ahead, or other push failures rather than overwriting them. Never force push, amend, bypass hooks, change Git configuration, add remotes, rewrite history, or overwrite conflicts.
+- Permission to push never authorizes deployment or service action.
 
 ## Documentation Hygiene
 
