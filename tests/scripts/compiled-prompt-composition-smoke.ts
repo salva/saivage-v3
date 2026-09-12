@@ -26,7 +26,7 @@ const walk = (root: string, current: string = root): string[] => readdirSync(cur
 
 const { effectiveSaivageConfigSchema } = await import('../../src/schemas/saivage-config.js');
 const { DEFAULT_SAIVAGE_CONFIG, SYSTEM_TEMPLATES, resolveSystemTemplate } = await import('../../src/config/system-templates/registry.js');
-const { compileProjectWorkflows, bindRuntimeWorkflows } = await import('../../src/runtime/card-process/card-process-config.js');
+const { compileProjectWorkflows, bindRuntimeWorkflows, describeNodeResultContract } = await import('../../src/runtime/card-process/card-process-config.js');
 const { ProviderRegistry } = await import('../../src/agents/provider.js');
 const { ModelRouter } = await import('../../src/agents/model-router.js');
 const { createRuntimeApplication } = await import('../../src/application/runtime-composition.js');
@@ -101,6 +101,10 @@ try {
   const typedTestConfig = effectiveSaivageConfigSchema.parse({ ...structuredClone(globals), card_types: structuredClone(classicTyped.config.card_types) });
   const classicWorkflows = compileProjectWorkflows(classicTestConfig, { projectRoot, artifactObserver: observeInside('classic', classic.promptRoot) });
   const typedWorkflows = compileProjectWorkflows(typedTestConfig, { defaultPromptRoot: classicTyped.promptRoot, projectRoot, artifactObserver: observeInside('classic-typed', classicTyped.promptRoot) });
+  const classicSourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', 'classic', 'prompts');
+  const typedSourceRoot = join(repositoryRoot, 'src', 'config', 'system-templates', 'classic-typed', 'prompts');
+  const classicSourceWorkflows = compileProjectWorkflows(classicTestConfig, { defaultPromptRoot: classicSourceRoot, projectRoot, artifactObserver: observeInside('classic source', classicSourceRoot) });
+  const typedSourceWorkflows = compileProjectWorkflows(typedTestConfig, { defaultPromptRoot: typedSourceRoot, projectRoot, artifactObserver: observeInside('classic-typed source', typedSourceRoot) });
   const derivedDefaultWorkflows = compileProjectWorkflows(structuredClone(DEFAULT_SAIVAGE_CONFIG), { projectRoot, artifactObserver: observeInside('classic', classic.promptRoot) });
   const renderAgentPrompts = (workflows: ReturnType<typeof compileProjectWorkflows>) => [...workflows.cardTypes].flatMap(([cardType, workflow]) => [...workflow.states.values()].filter((state) => state.kind === 'node').map((state) => state.kind === 'node' ? renderCompiledPrompt({ kind: 'workflow-agent', cardType }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: 'contract' }) : ''));
   if (JSON.stringify(renderAgentPrompts(classicWorkflows)) !== JSON.stringify(renderAgentPrompts(derivedDefaultWorkflows))) throw new Error('Derived default rendered prompt baseline changed.');
@@ -114,15 +118,57 @@ try {
     const text = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, state.agent.name, state.selectedAgentPrompt.compiled, { contractDescription: 'contract' });
     if (text.includes('{{')) throw new Error(`Unresolved agent template syntax for ${cardType}/${state.agent.name}`);
   }
-  const goal = requireValue(typedWorkflows.cardTypes.get('goal'), 'Missing typed goal workflow.');
-  const classicGoal = requireValue(classicWorkflows.cardTypes.get('goal'), 'Missing classic goal workflow.');
-  const plan = requireValue(goal.states.get('node:plan'), 'Missing typed planning node.');
-  const classicPlan = requireValue(classicGoal.states.get('node:plan'), 'Missing classic planning node.');
-  if (plan.kind !== 'node' || classicPlan.kind !== 'node') throw new Error('Missing planning nodes.');
-  const planText = requireValue(goal.processPrompts.get(plan.promptId), 'Missing typed planning prompt.').text;
-  for (const required of ['Inspect all direct children', 'BACKLOG, CHANGED, BLOCKED, or STOPPED', '`title`, `tags`, `priority`, `urgency`, or `related`', 'Planner has no `reopen_card` tool', 'reopen_card({cardId:"<id>"})', 'stopped or settled paused', 'independently reviewable or parallelizable']) if (!planText.includes(required)) throw new Error(`Typed Planner composition lacks '${required}'.`);
-  const classicPlanText = requireValue(classicGoal.processPrompts.get(classicPlan.promptId), 'Missing classic planning prompt.').text;
-  if (classicPlanText.includes('Planner has no `reopen_card` tool') || classicPlanText.includes('reopen_card({cardId:"<id>"})')) throw new Error('Typed planning guidance leaked into the classic template.');
+  const assertRoleComposition = (templateName: string, packaged: ReturnType<typeof compileProjectWorkflows>, source: ReturnType<typeof compileProjectWorkflows>) => {
+    for (const [cardType, packagedProcess] of packaged.cardTypes) {
+      const sourceProcess = requireValue(source.cardTypes.get(cardType), `Missing source ${templateName}/${cardType} workflow.`);
+      for (const [stateId, packagedState] of packagedProcess.states) {
+        if (packagedState.kind !== 'node') continue;
+        const sourceState = requireValue(sourceProcess.states.get(stateId), `Missing source ${templateName}/${cardType}/${stateId}.`);
+        if (sourceState.kind !== 'node') throw new Error(`Source ${templateName}/${cardType}/${stateId} is not a node.`);
+        const packagedContract = describeNodeResultContract(packagedProcess, stateId);
+        const sourceContract = describeNodeResultContract(sourceProcess, stateId);
+        const packagedInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, packagedState.agent.name, packagedState.selectedAgentPrompt.compiled, { contractDescription: packagedContract });
+        const sourceInstruction = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, sourceState.agent.name, sourceState.selectedAgentPrompt.compiled, { contractDescription: sourceContract });
+        if (packagedState.agent.name !== sourceState.agent.name || packagedState.selectedAgentPrompt.reference !== sourceState.selectedAgentPrompt.reference || packagedContract !== sourceContract || packagedInstruction !== sourceInstruction) throw new Error(`Source/package role composition differs for ${templateName}/${cardType}/${stateId}.`);
+        if (packagedInstruction.split(packagedContract).length - 1 !== 1) throw new Error(`Generated role contract is not rendered exactly once for ${templateName}/${cardType}/${stateId}.`);
+      }
+    }
+  };
+  assertRoleComposition('classic', classicWorkflows, classicSourceWorkflows);
+  assertRoleComposition('classic-typed', typedWorkflows, typedSourceWorkflows);
+  const assertPlanningComposition = (templateName: string, packaged: ReturnType<typeof compileProjectWorkflows>, source: ReturnType<typeof compileProjectWorkflows>) => {
+    for (const cardType of ['project', 'goal'] as const) {
+      const packagedProcess = requireValue(packaged.cardTypes.get(cardType), `Missing packaged ${templateName}/${cardType} workflow.`);
+      const sourceProcess = requireValue(source.cardTypes.get(cardType), `Missing source ${templateName}/${cardType} workflow.`);
+      for (const nodeId of ['plan', 'recover'] as const) {
+        const packagedNode = requireValue(packagedProcess.states.get(`node:${nodeId}`), `Missing packaged ${templateName}/${cardType}/${nodeId}.`);
+        const sourceNode = requireValue(sourceProcess.states.get(`node:${nodeId}`), `Missing source ${templateName}/${cardType}/${nodeId}.`);
+        if (packagedNode.kind !== 'node' || sourceNode.kind !== 'node') throw new Error(`Planning state is not a node for ${templateName}/${cardType}/${nodeId}.`);
+        const packagedContract = describeNodeResultContract(packagedProcess, `node:${nodeId}`);
+        const sourceContract = describeNodeResultContract(sourceProcess, `node:${nodeId}`);
+        const packagedAgent = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, packagedNode.agent.name, packagedNode.selectedAgentPrompt.compiled, { contractDescription: packagedContract });
+        const sourceAgent = renderCompiledPrompt({ kind: 'workflow-agent', cardType }, sourceNode.agent.name, sourceNode.selectedAgentPrompt.compiled, { contractDescription: sourceContract });
+        const packagedProcessPrompt = requireValue(packagedProcess.processPrompts.get(packagedNode.promptId), `Missing packaged ${templateName}/${cardType}/${nodeId} process prompt.`);
+        const sourceProcessPrompt = requireValue(sourceProcess.processPrompts.get(sourceNode.promptId), `Missing source ${templateName}/${cardType}/${nodeId} process prompt.`);
+        if (packagedNode.selectedAgentPrompt.source !== 'bundled-shared' || sourceNode.selectedAgentPrompt.source !== 'bundled-shared' || packagedNode.selectedAgentPrompt.reference !== 'planner' || sourceNode.selectedAgentPrompt.reference !== 'planner') throw new Error(`Planner source selection changed for ${templateName}/${cardType}/${nodeId}.`);
+        if (packagedContract !== sourceContract || packagedAgent !== sourceAgent || packagedProcessPrompt.reference !== sourceProcessPrompt.reference || packagedProcessPrompt.text !== sourceProcessPrompt.text) throw new Error(`Source/package Planner rendering differs for ${templateName}/${cardType}/${nodeId}.`);
+        if (packagedAgent.split(packagedContract).length - 1 !== 1) throw new Error(`Generated Planner contract is not rendered exactly once for ${templateName}/${cardType}/${nodeId}.`);
+      }
+      const packagedPlan = requireValue(packagedProcess.states.get('node:plan'), `Missing packaged ${templateName}/${cardType}/plan.`);
+      const packagedReview = requireValue(packagedProcess.states.get('node:review'), `Missing packaged ${templateName}/${cardType}/review.`);
+      const sourcePlan = requireValue(sourceProcess.states.get('node:plan'), `Missing source ${templateName}/${cardType}/plan.`);
+      const sourceReview = requireValue(sourceProcess.states.get('node:review'), `Missing source ${templateName}/${cardType}/review.`);
+      if (packagedPlan.kind !== 'node' || packagedReview.kind !== 'node' || sourcePlan.kind !== 'node' || sourceReview.kind !== 'node') throw new Error(`Missing planning transition node for ${templateName}/${cardType}.`);
+      const transitionShape = (process: typeof packagedProcess, planNode: typeof packagedPlan, reviewNode: typeof packagedReview) => ({
+        stopped: process.states.get('entry:STOPPED')?.on.get('entry:route'),
+        reviewAdmission: planNode.on.get('result:admit_review'),
+        reviewRevision: reviewNode.on.get('result:revision_required'),
+      });
+      if (JSON.stringify(transitionShape(packagedProcess, packagedPlan, packagedReview)) !== JSON.stringify(transitionShape(sourceProcess, sourcePlan, sourceReview))) throw new Error(`Source/package Planner transition references differ for ${templateName}/${cardType}.`);
+    }
+  };
+  assertPlanningComposition('classic', classicWorkflows, classicSourceWorkflows);
+  assertPlanningComposition('classic-typed', typedWorkflows, typedSourceWorkflows);
   const architecture = requireValue(typedWorkflows.cardTypes.get('architecture'), 'Missing architecture workflow.');
   for (const nodeId of ['component-review', 'system-review']) {
     const node = requireValue(architecture.states.get(`node:${nodeId}`), `Missing ${nodeId}.`);

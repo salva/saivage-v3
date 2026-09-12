@@ -31,21 +31,30 @@ describe('protocol adapters consume the composed projection', () => {
   const composed = composeContextProjection({
     sourceSessionId: SESSION,
     effectiveHistory: { summaryText: 'prior summary', historyMessageId: 'history-block', historyTimestamp: TS, requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } },
-    dynamicBlocks: [{ id: 'prepared-card', role: 'system', content: '{"brief":"FULL-BRIEF"}', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock],
+    dynamicBlocks: [
+      { id: 'prepared-card', role: 'system', content: '{"brief":"FULL-BRIEF"}', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock,
+      { id: 'prepared-node', role: 'system', content: "Current workflow node 'work':\n\nEXACT-COMPILED-NODE", storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock,
+    ],
     uncoveredRows: [recoveryRow(INPUT_A), recoveryRow(INPUT_B), userRow('u1', 'first question'), refusalA, refusalB],
   });
   const providerConversation = providerConversationFromComposedContext(composed);
   const identities = providerConversation.messages.map((item) => item.kind === 'synthetic_context' ? item.block_identity : item.id);
+  const boundary = providerConversation.messages.find((item) => item.kind === 'synthetic_context' && item.origin === 'context_boundary');
+  const summary = providerConversation.messages.find((item) => item.kind === 'synthetic_context' && item.origin === 'history_summary');
+  if (!boundary || !summary) throw new Error('Missing composed boundary or history summary.');
 
   it('projects each repeated recovery and refusal semantic exactly once before adapter mapping', () => {
-    expect(identities).toEqual(['prepared-card', 'history-block', `${INPUT_B}:model-recovered`, refusalB.id, 'u1']);
+    expect(identities).toEqual(['prepared-card', 'prepared-node', `${SESSION}:context-boundary`, 'history-block', `${INPUT_B}:model-recovered`, refusalB.id, 'u1']);
   });
 
   it('Chat maps the prefix first and the projected system and user notices normally', () => {
     const chat = requestBody('openai-chat-completions', providerConversation) as unknown as { messages: Array<{ role: string; content: string }> };
     expect(chat.messages[0]).toEqual({ role: 'system', content: 'prefix-instructions' });
-    expect(chat.messages.slice(1).map((message) => message.role)).toEqual(['system', 'system', 'system', 'user', 'user']);
+    expect(chat.messages.slice(1).map((message) => message.role)).toEqual(['system', 'system', 'system', 'system', 'system', 'user', 'user']);
     expect(chat.messages.filter((message) => message.content === '{"brief":"FULL-BRIEF"}')).toHaveLength(1);
+    expect(chat.messages.filter((message) => message.content === "Current workflow node 'work':\n\nEXACT-COMPILED-NODE")).toHaveLength(1);
+    expect(chat.messages.findIndex((message) => message.content === boundary.content)).toBe(3);
+    expect(chat.messages.findIndex((message) => message.content === summary.content)).toBe(4);
     expect(chat.messages.filter((message) => message.content === 'prefix-instructions')).toHaveLength(1);
     expect(chat.messages.filter((message) => message.content === MODEL_RECOVERY_NOTICE_TEXT)).toHaveLength(1);
   });
@@ -53,16 +62,21 @@ describe('protocol adapters consume the composed projection', () => {
   it('Codex keeps static instructions singular and maps ordered synthetic system context into input', () => {
     const body = requestBody('openai-codex-backend', providerConversation) as unknown as { instructions: string; input: Array<{ role?: string; content?: unknown }> };
     expect(body.instructions).toBe('prefix-instructions');
-    expect(body.input.slice(0, 3).map((item) => item.role)).toEqual(['system', 'system', 'system']);
+    expect(body.input.slice(0, 4).map((item) => item.role)).toEqual(['system', 'system', 'system', 'system']);
     expect(JSON.stringify(body.input).match(/FULL-BRIEF/g)).toHaveLength(1);
+    expect(JSON.stringify(body.input).match(/EXACT-COMPILED-NODE/g)).toHaveLength(1);
     expect(JSON.stringify(body.input).match(new RegExp(MODEL_RECOVERY_NOTICE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
   });
 
   it('Responses keeps static instructions singular and maps ordered synthetic system context into input', () => {
     const body = requestBody('openai-responses', providerConversation) as unknown as { instructions: string; input: unknown[] };
     expect(body.instructions).toBe('prefix-instructions');
-    expect(JSON.stringify(body.input).match(/FULL-BRIEF/g)).toHaveLength(1);
-    expect(JSON.stringify(body.input).match(new RegExp(MODEL_RECOVERY_NOTICE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
+    const serializedInput = JSON.stringify(body.input);
+    const serializedSummary = JSON.stringify(summary.content).slice(1, -1);
+    expect(serializedInput.match(/FULL-BRIEF/g)).toHaveLength(1);
+    expect(serializedInput.match(/EXACT-COMPILED-NODE/g)).toHaveLength(1);
+    expect(serializedInput.indexOf('EXACT-COMPILED-NODE')).toBeLessThan(serializedInput.indexOf(serializedSummary));
+    expect(serializedInput.match(new RegExp(MODEL_RECOVERY_NOTICE_TEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'))).toHaveLength(1);
     expect(JSON.stringify(body)).not.toContain('RAW-A');
     expect(JSON.stringify(body)).not.toContain('RAW-B');
   });

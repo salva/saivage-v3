@@ -36,7 +36,22 @@ describe('Stage-I versioned compaction', () => {
       expect(result.kind).toBe('compacted'); const current = readCurrentConversationSegment(root, SESSION)!;
       expect(current.entry.version).toBe(2); expect(current.genesis.kind).toBe('compacted_segment_genesis'); expect(current.rows.some((row) => row.kind === ('context_compaction' as never))).toBe(false);
       expect(readHistoricalConversationSegment(root, SESSION, 1).genesis.kind).toBe('ordinary_segment_genesis');
-      const projected = providerConversationProjection(current.conversation, []).messages; expect(projected.filter((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary')).toHaveLength(1); expect(projected[0]!.content).toBe(current.conversation.effectiveCompactedHistory!.summaryText);
+      const durableSummaryText = current.conversation.effectiveCompactedHistory!.summaryText;
+      expect(durableSummaryText).toBe('summary');
+      const projection = providerConversationProjection(current.conversation, []);
+      if (projection.sourceSessionId === null) throw new Error('missing compacted provider conversation source');
+      const projected = projection.messages;
+      const boundaries = projected.filter((row) => row.kind === 'synthetic_context' && row.origin === 'context_boundary');
+      const historySummaries = projected.filter((row) => row.kind === 'synthetic_context' && row.origin === 'history_summary');
+      expect(boundaries).toHaveLength(1);
+      expect(boundaries[0]).toMatchObject({ kind: 'synthetic_context', role: 'system', origin: 'context_boundary' });
+      expect(boundaries[0]!.content).not.toHaveLength(0);
+      expect(historySummaries).toHaveLength(1);
+      expect(historySummaries[0]).toMatchObject({ kind: 'synthetic_context', role: 'system', origin: 'history_summary' });
+      expect(projected.indexOf(historySummaries[0]!)).toBe(projected.indexOf(boundaries[0]!) + 1);
+      const summaryRequestPrefix = 'Historical summary:\n';
+      expect(historySummaries[0]!.content.startsWith(summaryRequestPrefix)).toBe(true);
+      expect(historySummaries[0]!.content.slice(summaryRequestPrefix.length)).toBe(durableSummaryText);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

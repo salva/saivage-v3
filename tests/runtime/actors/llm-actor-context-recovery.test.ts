@@ -93,8 +93,9 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     roots.push(root);
     initProjectTree(root);
     seedMarkerLedRounds(root);
-    const dynamicBlock = Object.freeze({ id: 'frozen-card-state', role: 'system' as const, content: '{"card":"frozen"}', storage: 'activation_local' as const, replacement: { kind: 'retain' as const }, audience: 'primary_and_summarizer' as const, evidence: { kind: 'none' as const } });
-    const input = realCompactionInvocation(root, dynamicBlock);
+    const cardBlock = Object.freeze({ id: 'card-activation:project', role: 'system' as const, content: '{"card":"frozen"}', storage: 'activation_local' as const, replacement: { kind: 'retain' as const }, audience: 'primary_and_summarizer' as const, evidence: { kind: 'none' as const } });
+    const nodeBlock = Object.freeze({ id: 'node-activation:project:work', role: 'system' as const, content: "Current workflow node 'work':\n\nFROZEN-COMPILED-NODE", storage: 'activation_local' as const, replacement: { kind: 'retain' as const }, audience: 'primary_and_summarizer' as const, evidence: { kind: 'none' as const } });
+    const input = realCompactionInvocation(root, [cardBlock, nodeBlock]);
     expect(readCurrentConversationSegment(root, input.sessionId)!.entry.version).toBe(1);
     expect(shouldCompact(input)).toBe(false);
     const candidate = input.routePass.kind === 'ordinary' ? input.routePass.candidateChain[0]! : CANDIDATE;
@@ -147,7 +148,10 @@ describe('ConversationLLMActor local exact-admission transition', () => {
     expect(p1).not.toBe(input);
     expect(p1.providerConversation).not.toEqual(input.providerConversation);
     expect(p1).toEqual({ ...input, providerConversation: p1.providerConversation });
-    expect(p1.preparedContext.dynamicBlocks[0]).toBe(dynamicBlock);
+    expect(p1.preparedContext.dynamicBlocks).toEqual([cardBlock, nodeBlock]);
+    expect(p1.preparedContext.dynamicBlocks[0]).toBe(cardBlock);
+    expect(p1.preparedContext.dynamicBlocks[1]).toBe(nodeBlock);
+    expect(p1.preparedContext.dynamicBlocksSha256).toBe(input.preparedContext.dynamicBlocksSha256);
     expect(strategies).toEqual(['local_exact_admission', 'authoritative_context_recovery']);
     expect(compactionInputs[0]).toBe(input);
     expect(compactionInputs[1]).toBe(p1);
@@ -486,9 +490,9 @@ function seedMarkerLedRounds(root: string): void {
   }
 }
 
-function realCompactionInvocation(root: string, dynamicBlock: Parameters<typeof buildPreparedInvocationContext>[0]['dynamicBlocks'][number]): PreparedLlmInvocationInput {
+function realCompactionInvocation(root: string, dynamicBlocks: Parameters<typeof buildPreparedInvocationContext>[0]['dynamicBlocks']): PreparedLlmInvocationInput {
   const preparedCompaction = prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.01, snap: 'compact_straddler' }, 'system', [], 500);
-  const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [dynamicBlock], preparedCompaction });
+  const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks, preparedCompaction });
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system',
     providerConversation: providerConversationProjection(readConversation(root, 'agent:planner:project'), preparedContext.dynamicBlocks),

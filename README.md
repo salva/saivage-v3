@@ -47,6 +47,14 @@ Current configuration has one
 the [prepared conversation compaction runbook](docs/runbook/index.md#prepared-conversation-compaction)
 for capacity, 16-call, and failure limits; these bounds are not latency or
 summary-quality guarantees.
+Each card-node request keeps the complete accepted brief in its unchanged prepared
+card block and follows it with the full text of the actual compiled current node.
+The static role instruction, generated outcome contract, and compiled tools remain
+in their own request positions. These values are frozen across continuations and
+prepared anew for the next node; future node text is not a durable transcript row.
+Historical summaries are intentionally lossy context, are labeled as history, and
+do not by themselves prove execution, transition, acceptance, or approval. Existing
+one-time handoffs and owner requirements remain applicable when their semantics do.
 Selected Agents and Debug conversation detail can show ephemeral completed-call,
 in-flight, and elapsed compaction progress without polling or durable state.
 Current `glob` and `grep` results are also packed into exact byte-bounded,

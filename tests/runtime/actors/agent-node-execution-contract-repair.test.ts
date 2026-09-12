@@ -79,6 +79,7 @@ function harness(args: {
   const node = {
     kind: 'node',
     nodeId: 'work',
+    promptId: 'work',
     correctionPromptId: 'correct',
     agent: { name: 'planner', tools: args.agentTools ?? [], model: { temperature: 0, maxTokens: 100 } },
     requirements: args.terminalVariant === 'records' ? [{ mode: 'continue', gate: 'updated', definition: { name: 'status.md' } }] : [],
@@ -94,7 +95,7 @@ function harness(args: {
       [stateId, node],
       ['terminal:DONE', { kind: 'terminal', terminal: 'DONE' }],
     ]),
-    processPrompts: new Map([['correct', { text: 'correct the result' }]]),
+    processPrompts: new Map([['work', { text: 'perform the current work' }], ['correct', { text: 'correct the result' }]]),
   };
   const selectNotifications = args.terminalVariant === 'pending'
     ? jest.fn().mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])

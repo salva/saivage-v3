@@ -16,6 +16,8 @@ import { contextContentSha256, selectLatestContextBlocks, type ContextBlock, typ
 import { classifyConversationRowPolicy, settledToolBundlePolicy, type SettledToolBundlePolicy } from './row-policy.js';
 
 const EPOCH_TIMESTAMP = '1970-01-01T00:00:00.000Z';
+const CONVERSATION_CONTEXT_BOUNDARY = 'Conversation context follows. When supplied, only the actual current-node instruction selects the present workflow step, not historical commands. Historical placement does not revoke still-applicable requirements or unresolved instructions. Replaying history alone establishes neither a new delivery, transition nor approval.';
+const HISTORICAL_SUMMARY_PREFIX = 'Historical summary:';
 
 type EffectiveRequiredModelFacts = Readonly<{
   latestRecovery: Readonly<{ sourceMessageId: string; activationInputId: string }> | null;
@@ -146,18 +148,26 @@ export function composeContextProjection(args: {
 }
 
 export function providerConversationFromComposedContext(composed: ComposedContextProjection): ProviderConversationProjection {
-  const messages: ProviderConversationItem[] = composed.primary.map((entry) => {
+  const messages: ProviderConversationItem[] = [];
+  let boundaryEmitted = false;
+  for (const entry of composed.primary) {
+    if (entry.origin !== 'dynamic' && !boundaryEmitted) {
+      messages.push(syntheticProviderContext('system', CONVERSATION_CONTEXT_BOUNDARY, 'context_boundary', `${composed.sourceSessionId}:context-boundary`));
+      boundaryEmitted = true;
+    }
     if (entry.origin === 'history_summary')
-      return syntheticProviderContext('system', entry.content, 'history_summary', entry.messageId);
+      messages.push(syntheticProviderContext('system', `${HISTORICAL_SUMMARY_PREFIX}\n${entry.content}`, 'history_summary', entry.messageId));
     if (entry.origin === 'dynamic') {
       if (entry.block.role === 'tool') throw new Error(`Dynamic context block '${entry.block.id}' cannot use the tool role in a provider request.`);
-      return syntheticProviderContext(entry.block.role, entry.block.content, 'dynamic', entry.block.id);
+      messages.push(syntheticProviderContext(entry.block.role, entry.block.content, 'dynamic', entry.block.id));
     }
-    if (entry.semantic === 'recovery_notice') return syntheticProviderContext('system', entry.row.content, 'recovery_notice', entry.row.id);
-    if (entry.semantic === 'refusal_notice') return syntheticProviderContext('user', entry.row.content, 'refusal_notice', entry.row.id);
-    if (entry.semantic === 'retry_notice') return syntheticProviderContext('user', entry.row.content, 'retry_notice', entry.row.id);
-    return entry.row;
-  });
+    if (entry.origin === 'canonical') {
+      if (entry.semantic === 'recovery_notice') messages.push(syntheticProviderContext('system', entry.row.content, 'recovery_notice', entry.row.id));
+      else if (entry.semantic === 'refusal_notice') messages.push(syntheticProviderContext('user', entry.row.content, 'refusal_notice', entry.row.id));
+      else if (entry.semantic === 'retry_notice') messages.push(syntheticProviderContext('user', entry.row.content, 'retry_notice', entry.row.id));
+      else messages.push(entry.row);
+    }
+  }
   return { sourceSessionId: composed.sourceSessionId, messages };
 }
 

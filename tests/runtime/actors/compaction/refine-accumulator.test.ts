@@ -8,9 +8,10 @@ import {
   createSequentialRefineAccumulator as createAccumulatorWithoutProgress,
   EMPTY_COVERAGE_SUMMARY,
   MAX_REFINE_INVOCATIONS,
+  SUMMARY_REFINE_INSTRUCTION,
   SummaryConstructionLimitError,
 } from '../../../../src/runtime/actors/compaction/refine-accumulator.js';
-import type { SummarizerProviderPort, SummaryRequestSerialization } from '../../../../src/runtime/actors/compaction/summarizer.js';
+import { SUMMARY_OUTPUT_TARGET_BYTES, type SummarizerProviderPort, type SummaryRequestSerialization } from '../../../../src/runtime/actors/compaction/summarizer.js';
 import { noCompactionProgress } from '../../../helpers/executing-llm-snapshot.js';
 
 const createSequentialRefineAccumulator = (args: Omit<Parameters<typeof createAccumulatorWithoutProgress>[0], 'progress'>) => createAccumulatorWithoutProgress({ ...args, progress: noCompactionProgress });
@@ -72,7 +73,7 @@ describe('sequential contextual refine accumulator', () => {
     expect(materialized).toBe(providerResults.at(-1));
     const parsedSent = sent.map(parseSummaryMessages);
     for (const messages of parsedSent) {
-      const orientation = messages.filter(({ label }) => label === '[kind=current_observation source=card-context]');
+      const orientation = messages.filter(({ label }) => label === '[kind=prepared_context source=card-context]');
       expect(orientation).toHaveLength(1);
       expect(orientation[0]!.body).toBe('FULL FROZEN CARD ORIENTATION');
       expect(messages.reduce(
@@ -300,6 +301,34 @@ describe('sequential contextual refine accumulator', () => {
     expect(inputs[1]!.inputId).not.toBe(inputs[0]!.inputId);
     expect(inputs[1]!.systemPrompt).toContain('6000 UTF-8 bytes');
     expect(inputs[1]!.providerConversation.messages).toEqual(inputs[0]!.providerConversation.messages);
+  });
+
+  it('gives normal and corrective refinement the same evidence and state distinctions without copying prepared context', async () => {
+    const inputs: SummaryInput[] = [];
+    const provider = recordingProvider({
+      contextWindowTokens: 10_000,
+      completeTurn: async (input) => {
+        inputs.push(input);
+        return { result: { kind: 'message' as const, content: inputs.length === 1 ? ' ' : 'corrected' }, provider_exchanges: [] };
+      },
+    });
+    const rows = [activation(), text('source', 'Owner constraint and an unrecorded observed finding.')];
+    const accumulator = createSequentialRefineAccumulator({
+      conversation: validateConversation(SESSION, rows),
+      inheritedHistory: null,
+      preparedBlocks: [{ id: 'node', role: 'system', content: 'CURRENT NODE', storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }],
+      summarizerProvider: provider,
+      budget: BUDGET,
+      signal: new AbortController().signal,
+    });
+
+    await expect(accumulator.materializeThrough(rows.length)).resolves.toBe('corrected');
+    expect(inputs).toHaveLength(2);
+    for (const input of inputs) {
+      expect(parseSummaryMessages(input).filter(({ label }) => label === '[kind=prepared_context source=node]').map(({ body }) => body)).toEqual(['CURRENT NODE']);
+    }
+    expect(inputs[0]!.systemPrompt).toBe(SUMMARY_REFINE_INSTRUCTION);
+    expect(inputs[1]!.systemPrompt).toBe(SUMMARY_REFINE_INSTRUCTION.replace(String(SUMMARY_OUTPUT_TARGET_BYTES), '6000'));
   });
 
   it('corrects the last genuine fold when its output blocks the next minimum source range and resumes at the unconsumed cursor', async () => {

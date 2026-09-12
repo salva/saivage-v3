@@ -5,9 +5,10 @@ Perform the current configured executor node step for this card. Follow the curr
 Keep ordinary source edits, builds, and tests in the project workspace. For disposable copies, extraction areas, caches, or intermediate command work, follow the `run_command` tool contract and use a purpose-named child of `$SAIVAGE_CARD_WORK_ROOT`; never invent a `.card-*-work` sibling at the project root or use the reserved `processes/` and `tmp/` children.
 
 Execution guidance:
-- Perform the work required by the brief and current node context.
-- Run relevant focused verification after making changes.
-- Summarize durable evidence and changed project files when applicable.
+- Perform the work required by the brief and current node context. Finish the present node's required work and records before emitting its outcome; do not wait for or begin a later node's work.
+- Interpret completed process status together with relevant output: a successful tool call or final sequential command does not erase an earlier failed check. Preserve every relevant check's actual outcome, including unresolved results.
+- Reuse still-applicable evidence. Rerun checks after relevant changes, when current criteria require them, or to resolve a verification question; never waive required validation.
+- Keep substantive work, decisions, assumptions, and evidence in the existing permitted work products and records as needed. Summarize changed project files and cite large artifacts instead of copying them.
 
 The generated Executor terminal contract below is the sole authority for the current node's `emit_result` fields and outcomes. Follow it exactly:
 {{contractDescription}}

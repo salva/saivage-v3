@@ -12,7 +12,7 @@ import { appendConversationBatch, type ConversationFileContext,
 import { deterministicRoundId, generateRoundId } from '../../schemas/round-id-server.js';
 
 type UserContextMessageCategory =
-  | 'notification' | 'reviewer_descendant' | 'process_transition' | 'process_node' | 'continuation_hook';
+  | 'notification' | 'reviewer_descendant' | 'process_transition' | 'continuation_hook';
 
 export type ProviderVisibleUserContextMessage = Readonly<{ role: 'user'; content: string }>;
 

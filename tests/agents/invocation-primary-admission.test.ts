@@ -88,9 +88,9 @@ describe('ordinary primary-request local admission', () => {
     expect(verdict.plan.request.serializedBody).toBe(canonicalJson(verdict.plan.request.body));
   });
 
-  it('classifies an oversized full prepared block as capacity failure without shortening it', () => {
-    const full = `BEGIN-FULL-BLOCK:${'x'.repeat(20_000)}:END-FULL-BLOCK`;
-    const block = Object.freeze({ id: 'card-activation:project', role: 'system', content: full, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock);
+  it('classifies an oversized full prepared node block as capacity failure without shortening it', () => {
+    const full = `Current workflow node 'work':\n\nBEGIN-FULL-NODE:${'x'.repeat(20_000)}:END-FULL-NODE`;
+    const block = Object.freeze({ id: 'node-activation:project:work', role: 'system', content: full, storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } } satisfies ContextBlock);
     const providerConversation = providerConversationFromComposedContext(composeContextProjection({ sourceSessionId: SESSION, effectiveHistory: null, dynamicBlocks: [block], uncoveredRows: [] }));
     expect(providerConversation.messages).toEqual([expect.objectContaining({ kind: 'synthetic_context', content: full })]);
     const base = request([A]);

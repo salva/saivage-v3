@@ -11,7 +11,7 @@ import type { ToolDefinition as LlmToolDefinition } from '../../../src/agents/ll
 import { appendConversationBatch, initializeConversation, readConversation } from '../../../src/persistence/conversation-file.js';
 
 type LlmInputBuilder = {
-  prepareNodeInvocation(node: unknown, input: unknown, sessionId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown): Omit<PreparedLlmInvocationInput, 'providerConversation'>;
+  prepareNodeInvocation(node: unknown, input: unknown, sessionId: string, contractDescription: string, surface: unknown, terminalToolDefinition: LlmToolDefinition, binding: unknown, nodePromptText: string): Omit<PreparedLlmInvocationInput, 'providerConversation'>;
 };
 
 const roots: string[] = [];
@@ -56,13 +56,14 @@ describe('AgentNodeExecution LLM options', () => {
     const terminalToolDefinition: LlmToolDefinition = { type: 'function', function: { name: 'emit_result', description: 'Emit result', parameters: { type: 'object' } } };
     const retainedCapabilityRequest = { requiresTools: true, requiresExclusiveToolChoice: true } as const;
     const prepared = runner.prepareNodeInvocation(
-      { agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
+      { nodeId: 'work', promptId: 'work', agent: { name: 'planner', model: { temperature: 0.2, maxTokens: 73 } } },
       { card: { id: 'project', type: 'project', title: 'Project' }, caller: 'runtime' },
       sessionId,
       'direct result contract',
       { agentName: 'planner', tools: new Map([['lookup', operationalTool]]), providers: [] },
       terminalToolDefinition,
       { contract: { model: { temperature: 0.2, maxTokens: 73 } }, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], capabilityRequest: retainedCapabilityRequest },
+      'selected node prompt body',
     );
 
     expect(prepared.preparedCompaction).toMatchObject({
@@ -80,8 +81,9 @@ describe('AgentNodeExecution LLM options', () => {
     expect(prepared.preparedContext.prefix.terminalToolNames).toEqual(['emit_result']);
     expect(prepared.preparedContext.compiledTools).toEqual(prepared.compiledToolContracts);
     expect(prepared.preparedContext.internalToolContractSha256).toMatch(/^[0-9a-f]{64}$/u);
-    expect(prepared.preparedContext.dynamicBlocks).toHaveLength(1);
+    expect(prepared.preparedContext.dynamicBlocks).toHaveLength(2);
     expect(prepared.preparedContext.dynamicBlocks[0]).toMatchObject({ id: 'card-activation:project', storage: 'activation_local', replacement: { kind: 'retain' } });
+    expect(prepared.preparedContext.dynamicBlocks[1]).toMatchObject({ id: 'node-activation:project:work', content: "Current workflow node 'work':\n\nselected node prompt body", storage: 'activation_local', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer' });
     expect(prepared.preparedContext.preparedCompaction).toBe(prepared.preparedCompaction);
   expect(Object.keys(prepared)).not.toContain('providerConversation');
   expect(renderedVariables).toMatchObject({ contractDescription: 'direct result contract' });
@@ -90,7 +92,7 @@ describe('AgentNodeExecution LLM options', () => {
   expect(prepared.preparedContext.compiledTools.map((tool) => tool.providerDefinition.function.name)).toEqual(['lookup', 'emit_result']);
 });
 
-  it('appends exactly one activation marker on first and subsequent node entry', () => {
+  it('appends only one activation marker on first and subsequent node entry', () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-agent-node-entry-'));
     roots.push(projectRoot);
     mkdirSync(join(projectRoot, '.saivage', 'cards', 'project', 'conversations'), { recursive: true });
@@ -118,16 +120,12 @@ describe('AgentNodeExecution LLM options', () => {
     expect(readConversation(projectRoot, sessionId).sourceRows
       .filter((row) => row.kind === 'activity')
       .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId]);
-    expect(readConversation(projectRoot, sessionId).sourceRows
-      .filter((row) => row.role === 'user')
-      .map((row) => row.content)).toEqual(['selected node prompt body']);
+    expect(readConversation(projectRoot, sessionId).sourceRows.filter((row) => row.role === 'user')).toEqual([]);
 
     runner.prepareNodeEntry(process, node, transition, input, sessionId, secondInputId, null);
     expect(readConversation(projectRoot, sessionId).sourceRows
       .filter((row) => row.kind === 'activity')
       .map((row) => (JSON.parse(row.content) as { input_id: string }).input_id)).toEqual([firstInputId, secondInputId]);
-    expect(readConversation(projectRoot, sessionId).sourceRows
-      .filter((row) => row.role === 'user')
-      .map((row) => row.content)).toEqual(['selected node prompt body', 'selected node prompt body']);
+    expect(readConversation(projectRoot, sessionId).sourceRows.filter((row) => row.role === 'user')).toEqual([]);
   });
 });

@@ -67,6 +67,7 @@ export class AgentNodeExecution {
     const resultSchema = nodeResultSchema(process, stateId);
     const terminalToolDefinition = nodeResultToolDefinition(process, stateId);
     const contractDescription = describeNodeResultContract(process, stateId);
+    const nodePromptText = this.prepareNodePromptText(process, node);
     const sessionId = cardAgentSessionId(node.agent.name, this.deps.cardId);
     const llm = this.host.createLlm(sessionId);
     this.host.selectLlm(llm);
@@ -80,7 +81,7 @@ export class AgentNodeExecution {
     let recordFinalizationBegun = false;
     let primaryCompletion: { kind: 'success'; value: NodeExecutionResult } | { kind: 'failure'; reason: unknown };
     try {
-      const prepared = this.prepareNodeInvocation(node, input, sessionId, contractDescription, surface, terminalToolDefinition, binding);
+      const prepared = this.prepareNodeInvocation(node, input, sessionId, contractDescription, surface, terminalToolDefinition, binding, nodePromptText);
       this.prepareRecordRequirements(node);
       this.prepareNodeEntry(process, node, args.transition, input, sessionId, prepared.inputId, reviewerPair);
       const baseline = new Map(node.requirements.map((record) => [record.definition.name, this.captureRecordHead(record.definition.name)]));
@@ -222,7 +223,6 @@ export class AgentNodeExecution {
     if (selected.length > 0) input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id));
     const transitionMessage = this.transitionContext(process, transition);
     if (transitionMessage) appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_transition', 0, transitionMessage);
-    appendUserContextMessage(this.deps.conversations, sessionId, inputId, 'process_node', 0, { role: 'user', content: promptText(process, node.promptId) });
   }
 
   private transitionContext(process: CompiledCardTypeWorkflow, transition: NodeTransition): ProviderVisibleUserContextMessage | null {
@@ -258,18 +258,22 @@ export class AgentNodeExecution {
     return { role: 'user', content: `Previous process node: ${context.source.slice('node:'.length)}\nAccepted outcome: ${acceptedResult.outcome}\nSummary: ${acceptedResult.summary}\nRecords:\n${acceptedResult.acceptedRecords.map((record) => `- ${record.url}`).join('\n') || '(none)'}${edgePrompt}` };
   }
 
-  private prepareNodeInvocation(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition, binding: import('../card-process/card-process-config.js').BoundAgentContract): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
+  private prepareNodePromptText(process: CompiledCardTypeWorkflow, node: CompiledNodeContract): string {
+    return promptText(process, node.promptId);
+  }
+
+  private prepareNodeInvocation(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, contractDescription: string, surface: InvocationSurface, terminalToolDefinition: LlmToolDefinition, binding: import('../card-process/card-process-config.js').BoundAgentContract, nodePromptText: string): Omit<PreparedLlmInvocationInput, 'providerConversation'> {
     const cardBrief = cardBootstrapForPrompt(this.deps.store, input.card);
     const systemPrompt = this.deps.promptTemplates.render({kind:'workflow-agent',cardType:input.card.type}, node.agent.name, { contractDescription });
     const tools = [...surfaceToolDefinitions(surface), terminalToolDefinition];
     const compiledToolContracts = [...surfaceToolContracts(surface), compileInvocationToolContract(terminalToolDefinition, EMIT_RESULT_POLICY_TEMPLATE)];
     const preparedCompaction = prepareCompaction(this.deps.compactionConfig, systemPrompt, tools, binding.contract.model.maxTokens);
-    const preparedContext = buildPreparedInvocationContext({ instructionText: systemPrompt, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], compiledTools: compiledToolContracts, dynamicBlocks: this.cardDynamicBlocks(input, cardBrief), preparedCompaction });
+    const preparedContext = buildPreparedInvocationContext({ instructionText: systemPrompt, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], compiledTools: compiledToolContracts, dynamicBlocks: this.nodeDynamicBlocks(input, cardBrief, node, nodePromptText), preparedCompaction });
     return { inputId: this.host.freshInputId(), agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, tools, compiledToolContracts, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:binding.contract.model.temperature}, preparedCompaction, preparedContext, capabilityRequest: binding.capabilityRequest,routePass:{kind:'ordinary',candidateChain:binding.candidateChain}, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
   }
 
-  private cardDynamicBlocks(input: CardActivationInput, cardBrief: string): readonly ContextBlock[] {
-    const block: ContextBlock = {
+  private nodeDynamicBlocks(input: CardActivationInput, cardBrief: string, node: CompiledNodeContract, nodePromptText: string): readonly ContextBlock[] {
+    const cardBlock: ContextBlock = {
       id: `card-activation:${input.card.id}`,
       role: 'system',
       content: canonicalJson({ cardId: input.card.id, cardType: input.card.type, title: input.card.title, brief: cardBrief }),
@@ -278,7 +282,16 @@ export class AgentNodeExecution {
       audience: 'primary_and_summarizer',
       evidence: { kind: 'none' },
     };
-    return [Object.freeze(block)];
+    const nodeBlock: ContextBlock = {
+      id: `node-activation:${input.card.id}:${node.nodeId}`,
+      role: 'system',
+      content: `Current workflow node '${node.nodeId}':\n\n${nodePromptText}`,
+      storage: 'activation_local',
+      replacement: { kind: 'retain' },
+      audience: 'primary_and_summarizer',
+      evidence: { kind: 'none' },
+    };
+    return [Object.freeze(cardBlock), Object.freeze(nodeBlock)];
   }
 
   private enterNodeConversation(prepared: Omit<PreparedLlmInvocationInput, 'providerConversation'>): PreparedLlmInvocationInput {

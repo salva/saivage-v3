@@ -92,7 +92,7 @@ describe('composition projector selection pass', () => {
       { kind: 'message', sourceId: 'u1', role: 'user', content: 'question', semantic: 'direct', responsesPrivateMessageId: null },
       { kind: 'settled_tool_bundle', identity: { session_id: SESSION, source_input_id: INPUT_A, tool_call_id: 'call-1' }, toolName: 'get_card', callArguments: '{"id":"card-a"}', resultContent, policy: { storage: 'durable', replacement: { kind: 'retain' }, settledAudience: 'summarizer_only', evidence: { kind: 'observational_query', tool: 'get_card', arguments: { id: 'card-a' }, observed_sha256: observed } }, responsesPrivateMessageId: null },
     ]);
-    expect(providerConversationFromComposedContext(compose(rows)).messages.map((row) => row.kind === 'synthetic_context' ? row.block_identity : row.id)).toEqual(['u1', `${INPUT_A}:tool-call:call-1`, `${INPUT_A}:tool-result:call-1`]);
+    expect(providerConversationFromComposedContext(compose(rows)).messages.map((row) => row.kind === 'synthetic_context' ? row.origin : row.id)).toEqual(['context_boundary', 'u1', `${INPUT_A}:tool-call:call-1`, `${INPUT_A}:tool-result:call-1`]);
   });
 
   it('drops superseded snapshots after verifying every represented-content hash', () => {
@@ -115,7 +115,40 @@ describe('composition projector selection pass', () => {
 
     expect(first.messages[0]).toMatchObject({ kind: 'synthetic_context', block_identity: prepared.id, content: 'brief prepared at activation' });
     expect(continuation.messages[0]).toEqual(first.messages[0]);
+    expect(continuation.messages[1]).toMatchObject({ kind: 'synthetic_context', origin: 'context_boundary' });
     expect(JSON.stringify(continuation)).not.toContain(currentBrief);
+  });
+
+  it('adds one request-only context boundary only before non-dynamic context and labels only the request summary', () => {
+    const card = dynamicBlock('card-activation:project', { role: 'system', content: 'CARD' });
+    const node = dynamicBlock('node-activation:project:work', { role: 'system', content: "Current workflow node 'work':\n\nCURRENT-NODE" });
+    const oldNode = row({ id: 'old-node-looking-row', role: 'user', kind: 'text', content: 'CURRENT-NODE' });
+    const ownerRequirement = row({ id: 'owner-requirement', role: 'user', kind: 'text', content: 'Still-applicable owner requirement' });
+    const effectiveHistory = historyFacts({ summaryText: 'Draft proposal, not approval', requiredModelFacts: { latestRecovery: null, latestContentPolicyRefusal: null } });
+
+    const provider = providerConversationFromComposedContext(compose([oldNode, ownerRequirement], { effectiveHistory, dynamicBlocks: [card, node] }));
+    expect(provider.messages.map((item) => item.kind === 'synthetic_context' ? item.origin : item.id)).toEqual([
+      'dynamic', 'dynamic', 'context_boundary', 'history_summary', 'old-node-looking-row', 'owner-requirement',
+    ]);
+    expect(provider.messages.filter((item) => item.kind === 'synthetic_context' && item.origin === 'context_boundary')).toHaveLength(1);
+    expect(provider.messages[3]).toMatchObject({ kind: 'synthetic_context', origin: 'history_summary', content: 'Historical summary:\nDraft proposal, not approval' });
+    expect(provider.messages[4]).toMatchObject({ kind: 'text', content: 'CURRENT-NODE' });
+    expect(provider.messages[5]).toMatchObject({ kind: 'text', content: 'Still-applicable owner requirement' });
+    expect(effectiveHistory.summaryText).toBe('Draft proposal, not approval');
+    expect(compose([], { dynamicBlocks: [card, node] }).primary).toHaveLength(2);
+    expect(providerConversationFromComposedContext(compose([], { dynamicBlocks: [card, node] })).messages.every((item) => item.kind !== 'synthetic_context' || item.origin !== 'context_boundary')).toBe(true);
+  });
+
+  it('gives Analyst conditional historical framing without fabricating a workflow node', () => {
+    const orientation = dynamicBlock('analyst-submission:one', { role: 'system', content: 'Prepared project orientation' });
+    const provider = providerConversationFromComposedContext(compose([
+      row({ id: 'analyst-question', role: 'user', kind: 'text', content: 'Investigate this' }),
+    ], { dynamicBlocks: [orientation] }));
+
+    expect(provider.messages.map((item) => item.kind === 'synthetic_context' ? item.origin : item.id)).toEqual(['dynamic', 'context_boundary', 'analyst-question']);
+    expect(provider.messages[1]).toMatchObject({ kind: 'synthetic_context', role: 'system', origin: 'context_boundary' });
+    expect(provider.messages[1].content).not.toHaveLength(0);
+    expect(JSON.stringify(provider.messages)).not.toContain('node-activation:');
   });
 
   it('omits activation boundaries and provider failures from both projections', () => {
