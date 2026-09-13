@@ -13,13 +13,18 @@ import { specializedCardTypes, specializedConfig } from '../../helpers/specializ
 import { resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
 import { effectiveSaivageConfigSchema } from '../../../src/schemas/saivage-config.js';
 
+function bindConfigured(workflows: Parameters<typeof bindRuntimeWorkflows>[0], config: typeof TEST_SAIVAGE_CONFIG) {
+  const registry = new ProviderRegistry(config);
+  return bindRuntimeWorkflows(workflows, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
+}
+
 describe('compiled Debug graph projection', () => {
   it('remains the startup projection after restart-only reconfiguration and changes only with a fresh artifact', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-graphs-reconfigure-'));
     try {
       const authority = createTestConfigAuthority(root);
       const current = authority.loadEffective();
-      const bind = (effective: typeof current) => bindRuntimeWorkflows(effective.workflows, new ModelRouter(new ProviderRegistry(effective.config)));
+      const bind = (effective: typeof current) => bindConfigured(effective.workflows, effective.config);
       const startup = bind(current);
       const before = projectCompiledGraphs(startup);
       expect(authority.applyChange({ kind: 'set_agent_model_route', agent: 'planner', modelRoute: 'executor' })).toMatchObject({ success: true, requires_restart: true });
@@ -36,7 +41,7 @@ describe('compiled Debug graph projection', () => {
     const root = mkdtempSync(join(tmpdir(), 'saivage-graphs-shape-'));
     try {
       const effective = createTestConfigAuthority(root, { config: TEST_SAIVAGE_CONFIG }).loadEffective();
-      const workflows = bindRuntimeWorkflows(effective.workflows, new ModelRouter(new ProviderRegistry(effective.config)));
+      const workflows = bindConfigured(effective.workflows, effective.config);
       const graph = projectCompiledGraphs(workflows).graphs.find((candidate) => candidate.card_type === 'project')!;
       expect(graph.entries).toEqual([
         { entry: 'BACKLOG', node_id: 'plan', prompt_reference: null },
@@ -74,7 +79,7 @@ describe('compiled Debug graph projection', () => {
     const expected=specializedCardTypes();
     const selected=specializedConfig();selected.models=structuredClone(TEST_SAIVAGE_CONFIG.models);selected.providers=structuredClone(TEST_SAIVAGE_CONFIG.providers);
     const config=effectiveSaivageConfigSchema.parse(selected);
-    const bound=bindRuntimeWorkflows(compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot}),new ModelRouter(new ProviderRegistry(config)));
+    const bound=bindConfigured(compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot}),config);
     const projected=projectCompiledGraphs(bound);
     expect(projected.graphs.map(({card_type})=>card_type)).toEqual(Object.keys(expected));
     for(const [cardType,source] of Object.entries(expected)){
@@ -93,7 +98,7 @@ describe('compiled Debug graph projection', () => {
   });
 
   it('keeps omitted-default projection byte-identical to the explicit historical default',()=>{
-    const explicit=bindRuntimeWorkflows(compileProjectWorkflows(TEST_SAIVAGE_CONFIG),new ModelRouter(new ProviderRegistry(TEST_SAIVAGE_CONFIG)));
-    const root=mkdtempSync(join(tmpdir(),'saivage-selected-standard-'));try{const globals=structuredClone(TEST_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;const omitted=createTestConfigAuthority(root,{config:globals}).loadEffective();const omittedBound=bindRuntimeWorkflows(omitted.workflows,new ModelRouter(new ProviderRegistry(omitted.config)));expect(projectCompiledGraphs(omittedBound)).toEqual(projectCompiledGraphs(explicit));}finally{rmSync(root,{recursive:true,force:true});}
+    const explicit=bindConfigured(compileProjectWorkflows(TEST_SAIVAGE_CONFIG),TEST_SAIVAGE_CONFIG);
+    const root=mkdtempSync(join(tmpdir(),'saivage-selected-standard-'));try{const globals=structuredClone(TEST_SAIVAGE_CONFIG) as Record<string,unknown>;delete globals.card_types;const omitted=createTestConfigAuthority(root,{config:globals}).loadEffective();const omittedBound=bindConfigured(omitted.workflows,omitted.config);expect(projectCompiledGraphs(omittedBound)).toEqual(projectCompiledGraphs(explicit));}finally{rmSync(root,{recursive:true,force:true});}
   });
 });

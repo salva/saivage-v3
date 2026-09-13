@@ -5,8 +5,7 @@ import type { Candidate } from '../../contracts/provider-candidate.js';
 import type { CompiledInvocationToolContract, PreparedInvocationContext } from './context/context-blocks.js';
 
 export type PreparedCompaction = {
-  readonly inputBudgetTokens: number;
-  readonly reservedCompletionTokens: number;
+  readonly routeUsableInputTokens: number;
   readonly requestedCompletionTokens: number;
   readonly triggerLineTokens: number;
   readonly estimatedStaticTokens: number;
@@ -14,7 +13,7 @@ export type PreparedCompaction = {
   readonly canonicalMessageHardCeiling: number;
   readonly tailBudgetTokens: number;
   readonly triggerFraction: number;
-  readonly completionReserveFraction: number;
+  readonly contextUtilizationFraction: number;
   readonly tailFraction: number;
   readonly snap: 'keep_straddler_verbatim' | 'compact_straddler';
 };

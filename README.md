@@ -43,8 +43,12 @@ corrective regeneration inside the shared 16-logical-call bound. Its 12,000-byte
 normal and 6,000-byte corrective output values are concision targets, not
 validator ceilings; complete candidates still require strict reduction, hard
 budget qualification where applicable, and exact provider-request admission.
-Current configuration has one
-`tail_fraction` (default `0.25`) and no merge/summary escalation fractions. See
+Current configuration has model-aware `context_utilization_fraction` (default
+`0.80`), `trigger_fraction` (default `0.90`), and `tail_fraction` (default
+`0.25`). Preparation uses the largest eligible route capacity while exact
+serialized admission remains candidate-specific; the fixed summarizer applies
+the same utilization to its own window. Absolute input-budget,
+completion-reserve, and merge/summary escalation keys do not exist. See
 the [prepared conversation compaction runbook](docs/runbook/index.md#prepared-conversation-compaction)
 for capacity, 16-call, and failure limits; these bounds are not latency or
 summary-quality guarantees.

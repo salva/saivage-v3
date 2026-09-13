@@ -17,9 +17,8 @@ import { ProviderRegistry } from '../../src/agents/provider.js';
 import { ModelRouter } from '../../src/agents/model-router.js';
 
 export const testCompactionPolicy: AutonomousCompactionPolicy = {
-  input_budget_tokens: 100_000,
+  context_utilization_fraction: 0.8,
   trigger_fraction: 0.8,
-  completion_reserve_fraction: 0.2,
   tail_fraction: 0.25,
   snap: 'compact_straddler',
 };
@@ -53,7 +52,7 @@ export function scriptedBindings() {
     inputId: 'scripted', sessionId: 'agent:planner:project', agentName: 'planner' as never, sourceSessionId: 'agent:planner:project',
     systemPromptSha256: '0'.repeat(64), toolsSha256: '0'.repeat(64), terminalToolNamesSha256: '0'.repeat(64),
     capabilityRequest: Object.freeze({}), capabilityRequestSha256: '0'.repeat(64), temperature: 0,
-    requestedCompletionTokens: 1, inputBudgetTokens: null, preparedCompactionSha256: '0'.repeat(64),
+    requestedCompletionTokens: 1, contextUtilizationFraction: null, preparedCompactionSha256: '0'.repeat(64),
   });
 }
 
@@ -137,7 +136,7 @@ export const testAutonomousCompaction = {
   compactionConfig: testCompactionPolicy,
   summarizerProvider: unusedSummarizerProvider,
   mcpToolInvocation: unusedMcpToolInvocation,
-  workflows: bindRuntimeWorkflows(TEST_WORKFLOWS,new ModelRouter(new ProviderRegistry(TEST_SAIVAGE_CONFIG))),
+  workflows: (()=>{const registry=new ProviderRegistry(TEST_SAIVAGE_CONFIG);return bindRuntimeWorkflows(TEST_WORKFLOWS,new ModelRouter(registry),registry,TEST_SAIVAGE_CONFIG.compaction.context_utilization_fraction);})(),
 };
 
 export function toolsOpts(extra: Partial<LlmCompleteOptions> = {}): LlmCompleteOptions {

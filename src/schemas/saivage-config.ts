@@ -79,23 +79,18 @@ const candidateSchema = z.object({
 
 const compactionSectionSchema = z.object({
   enabled: z.literal(true),
-  input_budget_tokens: z.number().int().positive(),
-  trigger_fraction: z.number().positive().max(1).default(0.80),
-  completion_reserve_fraction: z.number().positive().max(1).default(0.20),
+  context_utilization_fraction: z.number().positive().max(1).default(0.80),
+  trigger_fraction: z.number().positive().max(1).default(0.90),
   tail_fraction: z.number().nonnegative().max(1).default(0.25),
   snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']).default('keep_straddler_verbatim'),
   summarizer_candidate: candidateSchema,
 }).strict().superRefine(validateCompaction);
 
 function validateCompaction(value: {
-  input_budget_tokens: number;
   trigger_fraction: number;
-  completion_reserve_fraction: number;
   tail_fraction: number;
 }, ctx: z.RefinementCtx): void {
   if (value.tail_fraction > value.trigger_fraction) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['tail_fraction'], message: 'tail_fraction must be <= trigger_fraction' });
-  if (value.trigger_fraction + value.completion_reserve_fraction > 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'trigger_fraction + completion_reserve_fraction must be <= 1' });
-  if (Math.floor(value.input_budget_tokens * value.completion_reserve_fraction) < 2000) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['completion_reserve_fraction'], message: 'compaction reservedCompletionTokens must be at least 2000' });
 }
 
 function isHttpUrl(value: string): boolean {
@@ -218,9 +213,8 @@ const effectiveServerSectionSchema = z.object({
 }).strict();
 const effectiveCompactionSectionSchema = z.object({
   enabled: z.literal(true),
-  input_budget_tokens: z.number().int().positive(),
+  context_utilization_fraction: z.number().positive().max(1),
   trigger_fraction: z.number().positive().max(1),
-  completion_reserve_fraction: z.number().positive().max(1),
   tail_fraction: z.number().nonnegative().max(1),
   snap: z.enum(['keep_straddler_verbatim', 'compact_straddler']),
   summarizer_candidate: candidateSchema,

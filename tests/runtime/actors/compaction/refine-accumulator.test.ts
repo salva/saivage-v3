@@ -18,7 +18,7 @@ const createSequentialRefineAccumulator = (args: Omit<Parameters<typeof createAc
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const;
-const BUDGET = { inputBudgetTokens: 10_000, completionReserveTokens: 2_000 };
+const BUDGET = { contextUtilizationFraction: 0.8 };
 type SummaryInput = Parameters<SummarizerProviderPort['completeTurn']>[0];
 type ParsedSummaryMessage = Readonly<{ label: string; body: string }>;
 type ParsedSourceRange = Readonly<{
@@ -192,15 +192,15 @@ describe('sequential contextual refine accumulator', () => {
 
     await accumulator.materializeThrough(rows.length);
 
-    expect(attempts.map(({ range }) => range)).toEqual(['0:1', '0:9', '0:2', '0:4', '2:3', '2:9']);
+    expect(attempts.map(({ range }) => range)).toEqual(['0:1', '0:9', '0:2', '0:4', '0:3', '3:4', '3:9']);
     expect(estimateForRange('0:8')).toBe(1);
     expect(completed).toHaveLength(2);
-    expect(completed[0]!.input).toBe(attempts[2]!.input);
-    expect(completed[0]!.serialization).toBe(attempts[2]!.serialization);
-    expect(onlySourceRange(completed[0]!.input)).toBe('0:2');
-    expect(completed[1]!.input).toBe(attempts[5]!.input);
-    expect(completed[1]!.serialization).toBe(attempts[5]!.serialization);
-    expect(onlySourceRange(completed[1]!.input)).toBe('2:9');
+    expect(completed[0]!.input).toBe(attempts[4]!.input);
+    expect(completed[0]!.serialization).toBe(attempts[4]!.serialization);
+    expect(onlySourceRange(completed[0]!.input)).toBe('0:3');
+    expect(completed[1]!.input).toBe(attempts[6]!.input);
+    expect(completed[1]!.serialization).toBe(attempts[6]!.serialization);
+    expect(onlySourceRange(completed[1]!.input)).toBe('3:9');
   });
 
   it('retains the distinct fitting whole-width doubling probe at an eight-code-point EOF', async () => {
@@ -261,10 +261,8 @@ describe('sequential contextual refine accumulator', () => {
     await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
 
     expect(attempts.slice(0, 4).map(({ input }) => onlySourceRange(input))).toEqual(['0:1', '0:7', '0:2', '0:4']);
-    expect(completed[0]!.input).toBe(attempts[3]!.input);
-    expect(completed[0]!.serialization).toBe(attempts[3]!.serialization);
-    expect(onlySourceRange(completed[0]!.input)).toBe('0:4');
-    expect(onlySourceRange(attempts[4]!.input)).toBe('4:5');
+    expect(onlySourceRange(completed[0]!.input)).toBe('0:6');
+    expect(onlySourceRange(completed[1]!.input)).toBe('6:7');
     expect(attempts.map(({ input }) => onlySourceRange(input)).filter((range) => range === '0:7')).toHaveLength(1);
   });
 

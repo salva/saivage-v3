@@ -10,6 +10,7 @@ import type { ProviderExchangeAttempt } from '../contracts/provider-exchange.js'
 import type { CapabilityRequest, CapabilityMatch, EffectiveProviderCapabilities } from './provider-capabilities.js';
 import type { InvocationRoutePass } from '../runtime/actors/llm-invocation.js';
 import { utf8SafeSlice } from '../tools/response-packer.js';
+import { usableInputTokens } from './context-budget.js';
 
 type CandidateIdentity = Candidate;
 
@@ -22,7 +23,8 @@ type CandidateIneligibleReason =
   | Readonly<{ kind: 'capability_mismatch'; reasons: readonly CapabilitySkipReason[] }>
   | Readonly<{ kind: 'missing_context_window' }>
   | Readonly<{ kind: 'missing_max_output' }>
-  | Readonly<{ kind: 'max_output_too_small' }>;
+  | Readonly<{ kind: 'max_output_too_small' }>
+  | Readonly<{ kind: 'nonpositive_usable_input' }>;
 
 export type CandidateLocalAdmissionVerdict =
   | Readonly<{ kind: 'admitted'; plan: CandidateRequestPlan }>
@@ -33,7 +35,7 @@ export type CandidateLocalAdmissionVerdict =
       serializedBytes: number;
       estimatedInputTokens: number;
       requestedCompletionTokens: number;
-      inputBudgetTokens: number | null;
+      usableInputTokens: number;
       contextWindowTokens: number;
     }>
   | Readonly<{ kind: 'candidate_ineligible'; reason: CandidateIneligibleReason }>;
@@ -46,9 +48,8 @@ export type CandidateLocalAdmission = Readonly<{
   CandidateLocalAdmissionVerdict;
 
 export type AdmissionSizeLimits = Readonly<{
-  inputBudgetTokens: number | null;
+  contextUtilizationFraction: number | null;
   requestedCompletionTokens: number;
-  reservedCompletionTokens: number | null;
 }>;
 
 export function classifyCandidateLocalAdmission(args: {
@@ -65,10 +66,14 @@ export function classifyCandidateLocalAdmission(args: {
     return { kind: 'candidate_ineligible', reason: { kind: 'missing_max_output' } };
   if (args.limits.requestedCompletionTokens > args.capabilities.maxOutputTokens)
     return { kind: 'candidate_ineligible', reason: { kind: 'max_output_too_small' } };
-  const totalTokens = args.plan.request.estimatedWireInputTokens + args.limits.requestedCompletionTokens;
-  const overWindow = totalTokens > args.capabilities.contextWindowTokens;
-  const overBudget = args.limits.inputBudgetTokens !== null && totalTokens > args.limits.inputBudgetTokens;
-  if (overWindow || overBudget)
+  const inputCapacity = usableInputTokens(
+    args.capabilities.contextWindowTokens,
+    args.limits.requestedCompletionTokens,
+    args.limits.contextUtilizationFraction ?? 1,
+  );
+  if (inputCapacity <= 0)
+    return { kind: 'candidate_ineligible', reason: { kind: 'nonpositive_usable_input' } };
+  if (args.plan.request.estimatedWireInputTokens > inputCapacity)
     return {
       kind: 'projection_too_large',
       protocol: args.capabilities.transportProtocol,
@@ -76,7 +81,7 @@ export function classifyCandidateLocalAdmission(args: {
       serializedBytes: Buffer.byteLength(args.plan.request.serializedBody, 'utf8'),
       estimatedInputTokens: args.plan.request.estimatedWireInputTokens,
       requestedCompletionTokens: args.limits.requestedCompletionTokens,
-      inputBudgetTokens: args.limits.inputBudgetTokens,
+      usableInputTokens: inputCapacity,
       contextWindowTokens: args.capabilities.contextWindowTokens,
     };
   return { kind: 'admitted', plan: args.plan };
@@ -131,7 +136,7 @@ export type AdmittedExecutionBindings = Readonly<{
   capabilityRequestSha256: string;
   temperature: number;
   requestedCompletionTokens: number;
-  inputBudgetTokens: number | null;
+  contextUtilizationFraction: number | null;
   preparedCompactionSha256: string;
 }>;
 
@@ -224,7 +229,7 @@ type AdmissionCandidateDiagnostic = Readonly<{
 
 type AdmissionDiagnostics = Readonly<{
   verdictCounts: Readonly<{ admitted: number; projection_too_large: number; candidate_ineligible: number }>;
-  reasonCounts: Readonly<{ capability_mismatch: number; missing_context_window: number; missing_max_output: number; max_output_too_small: number }>;
+  reasonCounts: Readonly<{ capability_mismatch: number; missing_context_window: number; missing_max_output: number; max_output_too_small: number; nonpositive_usable_input: number }>;
   verdictSummarySha256: string;
   candidates: readonly AdmissionCandidateDiagnostic[];
   omittedCandidateCount: number;
@@ -252,7 +257,7 @@ const verdictSummary = (candidates: readonly CandidateLocalAdmission[]): string 
 
 export function projectAdmissionDiagnostics(candidates: readonly CandidateLocalAdmission[]): AdmissionDiagnostics {
   const verdictCounts = { admitted: 0, projection_too_large: 0, candidate_ineligible: 0 };
-  const reasonCounts = { capability_mismatch: 0, missing_context_window: 0, missing_max_output: 0, max_output_too_small: 0 };
+  const reasonCounts = { capability_mismatch: 0, missing_context_window: 0, missing_max_output: 0, max_output_too_small: 0, nonpositive_usable_input: 0 };
   const displayed: AdmissionCandidateDiagnostic[] = [];
   for (const [routeIndex, verdict] of candidates.entries()) {
     verdictCounts[verdict.kind] += 1;

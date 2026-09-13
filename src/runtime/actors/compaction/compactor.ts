@@ -34,34 +34,26 @@ import { versionFilename } from '../../../persistence/version-index.js';
 import { estimateUtf8Tokens } from './token-estimator.js';
 
 export type AutonomousCompactionPolicy = {
-  input_budget_tokens: number; trigger_fraction: number; completion_reserve_fraction: number;
+  context_utilization_fraction: number; trigger_fraction: number;
   tail_fraction: number;
   snap: 'keep_straddler_verbatim' | 'compact_straddler';
 };
 
-export function prepareCompaction(config: AutonomousCompactionPolicy, systemPrompt: string, tools: readonly ToolDefinition[], requestedCompletionTokens?: number,
+export function prepareCompaction(config: AutonomousCompactionPolicy, systemPrompt: string, tools: readonly ToolDefinition[], routeUsableInputTokens: number, requestedCompletionTokens: number,
 ): PreparedCompaction {
-  const B = config.input_budget_tokens;
-  if (!Number.isInteger(B) || B <= 0) throw new Error('compaction.input_budget_tokens must be a positive integer.');
-  if (!(config.completion_reserve_fraction > 0 && config.completion_reserve_fraction <= 1)) throw new Error('compaction.completion_reserve_fraction must be > 0 and <= 1.');
+  const B = routeUsableInputTokens;
+  if (!Number.isInteger(B) || B <= 0) throw new Error('routeUsableInputTokens must be a positive integer.');
+  if (!Number.isFinite(config.context_utilization_fraction) || !(config.context_utilization_fraction > 0 && config.context_utilization_fraction <= 1)) throw new Error('compaction.context_utilization_fraction must be finite, > 0 and <= 1.');
   if (!(config.trigger_fraction > 0 && config.trigger_fraction <= 1)) throw new Error('compaction.trigger_fraction must be > 0 and <= 1.');
   if (!(config.tail_fraction >= 0 && config.tail_fraction <= config.trigger_fraction)) throw new Error('compaction.tail_fraction must satisfy 0 <= tail_fraction <= trigger_fraction.');
-  if (config.trigger_fraction + config.completion_reserve_fraction > 1) throw new Error('compaction trigger_fraction + completion_reserve_fraction must be <= 1.');
-  const reservedCompletionTokens = Math.floor(B * config.completion_reserve_fraction);
-  if (reservedCompletionTokens < 2000)
-    throw new Error('compaction reservedCompletionTokens must be at least 2000.');
-  const requested = requestedCompletionTokens ?? reservedCompletionTokens;
+  const requested = requestedCompletionTokens;
   if (!Number.isInteger(requested) || requested < 1)
     throw new Error('compaction requestedCompletionTokens must be a positive integer.');
-  if (requested > reservedCompletionTokens)
-    throw new Error(
-      `compaction requestedCompletionTokens (${requested}) must not exceed reservedCompletionTokens (${reservedCompletionTokens}).`,
-    );
   const tailBudgetTokens = Math.floor(B * config.tail_fraction);
   const triggerLineTokens = Math.floor(B * config.trigger_fraction);
   const estimatedStaticTokens = estimateCanonicalStaticTokens(systemPrompt, tools);
   const triggerMessageThreshold = triggerLineTokens - estimatedStaticTokens;
-  const canonicalMessageHardCeiling = B - estimatedStaticTokens - reservedCompletionTokens;
+  const canonicalMessageHardCeiling = B - estimatedStaticTokens;
   if (
     !Number.isFinite(estimatedStaticTokens) ||
     estimatedStaticTokens < 0 ||
@@ -70,12 +62,11 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
     triggerMessageThreshold > canonicalMessageHardCeiling
   ) {
     throw new Error(
-      `Prompt/tool surface does not fit the compaction budget (input_budget_tokens=${B}, estimated_static_tokens=${estimatedStaticTokens}, reserved_completion_tokens=${reservedCompletionTokens}, requested_completion_tokens=${requested}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Raise compaction.input_budget_tokens or reduce the prompt/tool surface.`,
+      `Prompt/tool surface does not fit the route usable-input capacity (route_usable_input_tokens=${B}, estimated_static_tokens=${estimatedStaticTokens}, requested_completion_tokens=${requested}, trigger_message_threshold=${triggerMessageThreshold}, canonical_message_hard_ceiling=${canonicalMessageHardCeiling}). Select a larger-window route or reduce the prompt/tool surface.`,
     );
   }
   return {
-    inputBudgetTokens: B,
-    reservedCompletionTokens,
+    routeUsableInputTokens: B,
     requestedCompletionTokens: requested,
     triggerLineTokens,
     estimatedStaticTokens,
@@ -83,7 +74,7 @@ export function prepareCompaction(config: AutonomousCompactionPolicy, systemProm
     canonicalMessageHardCeiling,
     tailBudgetTokens,
     triggerFraction: config.trigger_fraction,
-    completionReserveFraction: config.completion_reserve_fraction,
+    contextUtilizationFraction: config.context_utilization_fraction,
     tailFraction: config.tail_fraction,
     snap: config.snap,
   };
@@ -222,10 +213,7 @@ export async function compact(args: CompactArgs): Promise<CompactionResult> {
     inheritedHistory,
     preparedBlocks: args.input.preparedContext.dynamicBlocks,
     summarizerProvider: args.summarizerProvider,
-    budget: {
-      inputBudgetTokens: budget.inputBudgetTokens,
-      completionReserveTokens: budget.reservedCompletionTokens,
-    },
+    budget: { contextUtilizationFraction: budget.contextUtilizationFraction },
     signal: args.signal,
     progress: args.progress,
   });

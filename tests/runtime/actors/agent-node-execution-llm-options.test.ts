@@ -44,9 +44,8 @@ describe('AgentNodeExecution LLM options', () => {
       conversations: { projectRoot },
       promptTemplates: { render: (_cardType: string, _agentName: string, variables: Record<string, unknown>) => { renderedVariables = variables; return 'system'; } },
       compactionConfig: {
-        input_budget_tokens: 10_000,
+        context_utilization_fraction: 0.8,
         trigger_fraction: 0.7,
-        completion_reserve_fraction: 0.2,
         tail_fraction: 0.25,
         snap: 'keep_straddler_verbatim',
       },
@@ -62,12 +61,12 @@ describe('AgentNodeExecution LLM options', () => {
       'direct result contract',
       { agentName: 'planner', tools: new Map([['lookup', operationalTool]]), providers: [] },
       terminalToolDefinition,
-      { contract: { model: { temperature: 0.2, maxTokens: 73 } }, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], capabilityRequest: retainedCapabilityRequest },
+      { contract: { model: { temperature: 0.2, maxTokens: 73 } }, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], routeUsableInputTokens: 8_000, capabilityRequest: retainedCapabilityRequest },
       'selected node prompt body',
     );
 
     expect(prepared.preparedCompaction).toMatchObject({
-      reservedCompletionTokens: 2000,
+      routeUsableInputTokens: 8_000,
       requestedCompletionTokens: 73,
     });
     expect(prepared.modelParams).toEqual({ temperature: 0.2 });

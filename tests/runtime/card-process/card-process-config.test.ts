@@ -94,11 +94,11 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(registry.render({kind:'global-agent'},'analyst',{vocabularySnippet:'types'})).toContain('Saivage Analyst');
   });
   it('projects exactly configured graphs and the same effective leaf tool selection used by execution',()=>{
-    const config=source();config.providers={test:{models:['gpt-5.6']}};
+    const config=source();config.providers={test:{models:['gpt-5.6'],capabilities:{contextWindowTokens:100_000,maxOutputTokens:10_000}}};
     const project=structuredClone(config.card_types.project!);project.permitted_child_types=['leaf-plan'];
     const leaf=structuredClone(config.card_types.goal!);leaf.permitted_child_types=[];
     config.card_types={project,'leaf-plan':leaf};
-    const bound=bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(new ProviderRegistry(config)));
+    const registry=new ProviderRegistry(config);const bound=bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction);
     const graphs=projectCompiledGraphs(bound).graphs;
     expect(graphs.map((graph)=>graph.card_type)).toEqual(['project','leaf-plan']);
     const projectPlan=graphs[0]!.nodes.find((node)=>node.node_id==='plan')!;
@@ -402,9 +402,9 @@ describe('named-agent card-type workflow compilation',()=>{
   });
 
   it('binds configured provider candidates once and fails when a required route has none',()=>{
-    const valid=source();valid.providers={test:{models:['gpt-5.6']}};const structural=compileProjectWorkflows(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(new ProviderRegistry(valid)));
+    const valid=source();valid.providers={test:{models:['gpt-5.6'],capabilities:{contextWindowTokens:100_000,maxOutputTokens:10_000}}};const structural=compileProjectWorkflows(valid);const registry=new ProviderRegistry(valid);const bound=bindRuntimeWorkflows(structural,new ModelRouter(registry),registry,valid.compaction.context_utilization_fraction);
     expect(bound.runtimeBound).toBe(true);expect(bound.agentBindings.get('reviewer')?.candidateChain).toEqual([expect.objectContaining({provider:'test',model:'gpt-5.6'})]);
-    const unavailable=source();const unbound=compileProjectWorkflows(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(new ProviderRegistry(unavailable)))).toThrow(/no capability-compatible configured provider candidate/);
+    const unavailable=source();const unbound=compileProjectWorkflows(unavailable);const unavailableRegistry=new ProviderRegistry(unavailable);expect(()=>bindRuntimeWorkflows(unbound,new ModelRouter(unavailableRegistry),unavailableRegistry,unavailable.compaction.context_utilization_fraction)).toThrow(/no capability-compatible configured provider candidate/);
   });
 
   it('rejects missing agents, invalid record-write authority, invalid child authority, and graph defects',()=>{
@@ -480,47 +480,11 @@ describe('named-agent card-type workflow compilation',()=>{
     ]);
   });
 
-  it('validates the completion reserve over the global Analyst and every selected-graph node participant',()=>{
-    const reserved=Math.floor(32768*0.25);
-    failure((value)=>{value.models.routes.executor!.max_tokens=reserved+1;},new RegExp(`Configured workflow participants exceed the compaction completion reserve: agents\\.executor\\.model_route 'executor' requests max_tokens ${reserved+1}, exceeding reserved completion tokens ${reserved} \\(floor\\(input_budget_tokens 32768 \\* completion_reserve_fraction 0\\.25\\)\\)`));
-    failure((value)=>{value.models.routes.analyst!.max_tokens=reserved+1;},/agents\.analyst\.model_route 'analyst' requests max_tokens/);
-  });
-
-  it('reports custom-named node participants and every offender precisely',()=>{
-    const value=source();
-    value.agents['custom-worker']={...structuredClone(value.agents.executor!),model_route:'worker-route'};
-    value.models.routes['worker-route']={candidates:['gpt-5.6'],temperature:0.3,max_tokens:9000};
-    value.card_types.code!.workflow.nodes.execute!.agent='custom-worker';
-    value.models.routes.analyst!.max_tokens=9000;
-    expect(()=>compileProjectWorkflows(value)).toThrow(new RegExp([
-      `^Configured workflow participants exceed the compaction completion reserve: `,
-      `agents\\.analyst\\.model_route 'analyst' requests max_tokens 9000, exceeding reserved completion tokens 8192 \\(floor\\(input_budget_tokens 32768 \\* completion_reserve_fraction 0\\.25\\)\\); `,
-      `agents\\.custom-worker\\.model_route 'worker-route' requests max_tokens 9000, exceeding reserved completion tokens 8192 \\(floor\\(input_budget_tokens 32768 \\* completion_reserve_fraction 0\\.25\\)\\)\\.$`,
-    ].join('')));
-  });
-
-  it('reports a shared node participant once across every selected graph node',()=>{
-    const value=source();
-    value.models.routes.planner!.max_tokens=9000;
-    expect(()=>compileProjectWorkflows(value)).toThrow(/participants exceed the compaction completion reserve/);
-    try { compileProjectWorkflows(value); } catch (error) {
-      expect((error as Error).message.match(/agents\.planner\.model_route 'planner'/gu)).toHaveLength(1);
-      expect((error as Error).message.match(/agents\./gu)).toHaveLength(1);
-    }
-  });
-
-  it('exempts unused configured agents from the participant completion reserve',()=>{
+  it('keeps provider capacity out of structural workflow compilation',()=>{
     const value=source();
     value.agents['unused-worker']={...structuredClone(value.agents.executor!),model_route:'unused-route'};
     value.models.routes['unused-route']={candidates:['gpt-5.6'],temperature:0.3,max_tokens:32000};
     expect(()=>compileProjectWorkflows(value)).not.toThrow();
   });
 
-  it('validates specialized-only node participants that no standard graph references',()=>{
-    const config=specializedConfig();
-    config.agents['specialized-worker']={...structuredClone(config.agents.executor!),model_route:'specialized-worker-route'};
-    config.models.routes['specialized-worker-route']={candidates:['gpt-5.6'],temperature:0.3,max_tokens:9000};
-    config.card_types.architecture!.workflow.nodes.draft!.agent='specialized-worker';
-    expect(()=>compileProjectWorkflows(config,{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot})).toThrow(/agents\.specialized-worker\.model_route 'specialized-worker-route' requests max_tokens 9000/u);
-  });
 });

@@ -21,9 +21,8 @@ import { noCompactionProgress } from './executing-llm-snapshot.js';
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
 const POLICY: AutonomousCompactionPolicy = {
-  input_budget_tokens: 10_000,
+  context_utilization_fraction: 0.8,
   trigger_fraction: 0.8,
-  completion_reserve_fraction: 0.2,
   tail_fraction: 0.25,
   snap: 'compact_straddler',
 };
@@ -82,7 +81,7 @@ async function requireCompacted(
 }
 
 function invocation(conversation: ValidatedConversation): PreparedLlmInvocationInput {
-  const preparedCompaction = prepareCompaction(POLICY, 'system', []);
+  const preparedCompaction = prepareCompaction(POLICY, 'system', [], 8_000, 2_000);
   return {
     inputId: '00000000-0000-4000-8000-000000000099',
     agentId: SESSION,

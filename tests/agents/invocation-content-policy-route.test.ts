@@ -64,7 +64,7 @@ describe('content-policy route passes', () => {
 
   it('rejects an oversized pinned candidate before any transport', async () => {
     const fetch = jest.spyOn(globalThis, 'fetch');
-    const preflight = service(new MemoryCandidateAvailability(), { first: { contextWindowTokens: 10 } })
+    const preflight = service(new MemoryCandidateAvailability(), { first: { contextWindowTokens: 101 } })
       .preflightPinnedContentPolicyRequest(request({ kind: 'pinned-content-policy-retry', candidate: first }));
     expect(preflight.kind).toBe('rejected');
     if (preflight.kind !== 'rejected') throw new Error('unreachable');

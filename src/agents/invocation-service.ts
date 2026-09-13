@@ -618,12 +618,9 @@ function requestedCompletionTokensOf(request: InvocationRequest): number {
 
 function admissionSizeLimits(request: InvocationRequest): AdmissionSizeLimits {
   const requestedCompletionTokens = requestedCompletionTokensOf(request);
-  if (request.preparedCompaction && requestedCompletionTokens > request.preparedCompaction.reservedCompletionTokens)
-    throw new Error('Prepared completion request exceeds the prepared compaction output reserve.');
   return {
-    inputBudgetTokens: request.preparedCompaction?.inputBudgetTokens ?? null,
+    contextUtilizationFraction: request.preparedCompaction?.contextUtilizationFraction ?? null,
     requestedCompletionTokens,
-    reservedCompletionTokens: request.preparedCompaction?.reservedCompletionTokens ?? null,
   };
 }
 
@@ -654,7 +651,7 @@ function executionBindings(request: InvocationRequest, capabilityRequest: Readon
     capabilityRequestSha256: capabilityHash,
     temperature: request.modelParams.temperature,
     requestedCompletionTokens,
-    inputBudgetTokens: request.preparedCompaction?.inputBudgetTokens ?? null,
+    contextUtilizationFraction: request.preparedCompaction?.contextUtilizationFraction ?? null,
     preparedCompactionSha256: sha256Of(canonicalJson(request.preparedCompaction ?? null)),
   });
 }
@@ -671,7 +668,7 @@ function assertBindingsUnchanged(expected: AdmittedExecutionBindings, actual: Ad
     'capabilityRequestSha256',
     'temperature',
     'requestedCompletionTokens',
-    'inputBudgetTokens',
+    'contextUtilizationFraction',
     'preparedCompactionSha256',
   ];
   for (const field of fields) {

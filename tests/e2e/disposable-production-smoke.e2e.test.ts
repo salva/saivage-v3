@@ -95,12 +95,12 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
     fake: {
       models: ['analyst-model', 'planner-model', 'reviewer-model', 'executor-model'],
       apiKey: 'test-only', baseUrl: `http://127.0.0.1:${providerPort}`,
-      capabilities: { contextWindowTokens: 100_000, maxOutputTokens: 16_384 },
+      capabilities: { contextWindowTokens: 25_000, maxOutputTokens: 16_384 },
     },
   };
   config.compaction = {
     ...config.compaction,
-    input_budget_tokens: 20_000,
+    context_utilization_fraction: 0.8,
     summarizer_candidate: { provider: 'fake', account: null, model: 'analyst-model' },
   };
   config.agents.reviewer!.record_writes=['status.md','review.md','review-*.md'];
@@ -229,7 +229,7 @@ describe('disposable production-composition smoke', () => {
           response.setHeader('content-type', 'application/json');
           response.end(JSON.stringify({ choices: [{ message: { content: 'INCOMPLETE SUMMARY MUST NEVER CONTINUE' }, finish_reason: 'length' }] }));
         } else if (summaryCalls === 2) {
-          finalMessage(response, `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay because the write effect already succeeded. Exact identifier: record:///status.md?card=card-a. Next action: emit the workflow result. ${'P'.repeat(12_100)}`);
+          finalMessage(response, `Unresolved task: finish card-a verification. Constraint: preserve exact admission. Decision: continue without replay because the write effect already succeeded. Exact identifier: record:///status.md?card=card-a. Next action: emit the workflow result. ${'P'.repeat(30_000)}`);
         } else if (summaryCalls === 3) {
           finalMessage(response, 'Refreshed history: the later distinct reads succeeded. Constraint: do not duplicate settled tool effects. Decision: emit verification next. Exact identifier: card-a. Next action: call emit_result.');
         } else throw new Error(`Unexpected summary call ${summaryCalls}.`);

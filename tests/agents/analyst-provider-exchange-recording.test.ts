@@ -100,13 +100,15 @@ describe('production-composed Analyst provider-exchange recording', () => {
         },
         compaction: {
           ...structuredClone(TEST_SAIVAGE_CONFIG.compaction),
-          input_budget_tokens: 100_000,
+          context_utilization_fraction: 0.8,
         },
       });
       const registry = new ProviderRegistry(config);
       const workflows = bindRuntimeWorkflows(
         compileProjectWorkflows(config),
         new ModelRouter(registry),
+        registry,
+        config.compaction.context_utilization_fraction,
       );
       const processRegistry = new ManagedProcessGroupRegistry();
       const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');

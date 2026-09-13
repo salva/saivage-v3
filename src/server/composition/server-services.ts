@@ -61,6 +61,8 @@ export async function createServerServices(input: {
   const workflows = bindRuntimeWorkflows(
     environment.workflows,
     new ModelRouter(providerRegistry),
+    providerRegistry,
+    config.compaction.context_utilization_fraction,
   );
   const analystSessionId = globalAgentSessionId(workflows.analyst.name);
   validateConfiguredAnalystConversation(projectRoot, analystSessionId);

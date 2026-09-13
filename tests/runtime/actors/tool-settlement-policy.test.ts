@@ -22,7 +22,7 @@ const SESSION: ConversationSessionId = 'agent:planner:project';
 const CANDIDATE = { provider: 'test', account: null, model: 'test-model' } as const;
 
 function invocation(inputId: string, contracts: readonly InvocationContract[]): PreparedLlmInvocationInput {
-  const preparedCompaction = prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', []);
+  const preparedCompaction = prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [], 80_000, 2_000);
   return {
     inputId,
     agentId: SESSION,

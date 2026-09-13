@@ -324,6 +324,6 @@ const cardTypes: CardTypesSource = deepFreeze({
   ops: simpleExecutionCardType(),
 });
 
-const config: SaivageConfigSource = deepFreeze({agents:structuredClone(AGENTS) as unknown as SaivageConfigSource['agents'],analyst_agent:'analyst',models:{routes:structuredClone(MODEL_ROUTES) as unknown as SaivageConfigSource['models']['routes'],profiles:{planning:{preferred:['gpt-5.6'],allowed:[]},review:{preferred:['gpt-5.6'],allowed:[]}},equivalents:[],failover:{}},providers:{},server:{host:'0.0.0.0',port:8080},compaction:{enabled:true,input_budget_tokens:32768,trigger_fraction:0.75,completion_reserve_fraction:0.25,tail_fraction:0.25,snap:'keep_straddler_verbatim',summarizer_candidate:{provider:'openai',account:null,model:'gpt-5.6'}},card_types:cardTypes});
+const config: SaivageConfigSource = deepFreeze({agents:structuredClone(AGENTS) as unknown as SaivageConfigSource['agents'],analyst_agent:'analyst',models:{routes:structuredClone(MODEL_ROUTES) as unknown as SaivageConfigSource['models']['routes'],profiles:{planning:{preferred:['gpt-5.6'],allowed:[]},review:{preferred:['gpt-5.6'],allowed:[]}},equivalents:[],failover:{}},providers:{},server:{host:'0.0.0.0',port:8080},compaction:{enabled:true,context_utilization_fraction:0.80,trigger_fraction:0.90,tail_fraction:0.25,snap:'keep_straddler_verbatim',summarizer_candidate:{provider:'openai',account:null,model:'gpt-5.6'}},card_types:cardTypes});
 
 export const CLASSIC_TYPED_TEMPLATE = Object.freeze({ name: 'classic-typed', config, promptRoot: fileURLToPath(new URL('./prompts/', import.meta.url)) });

@@ -754,7 +754,7 @@ function pinnedPreflightRejection(preflight: Extract<PinnedContentPolicyPrefligh
   const verdict = preflight.verdict;
   if (verdict.kind === 'candidate_ineligible')
     return `candidate_ineligible(${verdict.reason.kind}${verdict.reason.kind === 'capability_mismatch' ? `: ${verdict.reason.reasons.join(', ')}` : ''}) for ${preflight.candidate.provider}/${preflight.candidate.account ?? '_implicit'}/${preflight.candidate.model}`;
-  return `projection_too_large(estimated_input_tokens=${verdict.estimatedInputTokens}, requested_completion_tokens=${verdict.requestedCompletionTokens}, input_budget_tokens=${verdict.inputBudgetTokens ?? 'undeclared'}, context_window_tokens=${verdict.contextWindowTokens}) for ${preflight.candidate.provider}/${preflight.candidate.account ?? '_implicit'}/${preflight.candidate.model}`;
+  return `projection_too_large(estimated_input_tokens=${verdict.estimatedInputTokens}, requested_completion_tokens=${verdict.requestedCompletionTokens}, usable_input_tokens=${verdict.usableInputTokens}, context_window_tokens=${verdict.contextWindowTokens}) for ${preflight.candidate.provider}/${preflight.candidate.account ?? '_implicit'}/${preflight.candidate.model}`;
 }
 function strictFailureAttempts(label: 'Context' | 'Content-policy', error: ProviderTurnFailure, inputId: string): ProviderExchangeAttempt[] {
   if (error.failure_phase !== 'provider_attempt' || error.provider_exchanges.length === 0) throw new Error(`${label} failure for '${inputId}' carried no provider exchange.`);

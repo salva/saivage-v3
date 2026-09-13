@@ -36,7 +36,7 @@ const compact = (args: Omit<CompactArgs, 'progress'>): Promise<CompactionResult>
 
 const SESSION = 'agent:planner:project' as const;
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
-const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' };
+const POLICY: AutonomousCompactionPolicy = { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' };
 const BIG = 'x'.repeat(12_000);
 
 type SummaryCall = { systemPrompt: string; contents: string[]; result: string };
@@ -77,7 +77,7 @@ function refineCalls(calls: readonly SummaryCall[]): SummaryCall[] {
 
 function invocation(conversation: ValidatedConversation): PreparedLlmInvocationInput {
   const providerConversation = providerConversationProjection(conversation, []);
-  const preparedCompaction = prepareCompaction(POLICY, 'system', []);
+  const preparedCompaction = prepareCompaction(POLICY, 'system', [], 8_000, 2_000);
   return {
     inputId: '00000000-0000-4000-8000-000000000001',
     agentId: SESSION,
@@ -228,7 +228,7 @@ describe('accumulated compaction history generations', () => {
       const projected = providerConversationProjection(segment.conversation, []).messages;
       expect(projected.some((row) => row.content.includes(bundleBody))).toBe(false);
       expect(segment.conversation.effectiveCompactedHistory!.summaryText.includes('OPERATIONAL-FINDINGS')).toBe(true);
-      expect(projected.some((row) => row.content === segment.conversation.effectiveCompactedHistory!.summaryText)).toBe(true);
+      expect(projected.some((row) => row.content === `Historical summary:\n${segment.conversation.effectiveCompactedHistory!.summaryText}`)).toBe(true);
       expect(calls.some((call) => call.contents.some((content) => content.includes('OPERATIONAL-FINDINGS')))).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
@@ -489,7 +489,7 @@ describe('accumulated compaction history generations', () => {
       expect(segment.conversation.effectiveValidatedCoverage).not.toBeNull();
       const projected = providerConversationProjection(segment.conversation, []).messages;
       expect(projected.some((row) => row.content.includes(openRoundBody))).toBe(false);
-      expect(projected.some((row) => row.content === segment.conversation.effectiveCompactedHistory!.summaryText)).toBe(true);
+      expect(projected.some((row) => row.content === `Historical summary:\n${segment.conversation.effectiveCompactedHistory!.summaryText}`)).toBe(true);
 
       const repair: AgentMessage = {
         id: '00000000-0000-4000-8000-000000000009:model-repair',
@@ -508,7 +508,7 @@ describe('accumulated compaction history generations', () => {
       expect(continued.conversation.rounds[0]!.segments.map((segmentOfRound) => segmentOfRound.kind)).toEqual(['initial', 'repair']);
       const continuedProjection = providerConversationProjection(continued.conversation, []).messages;
       expect(continuedProjection.some((row) => row.content === 'repair directive after inherited open round')).toBe(true);
-      expect(continuedProjection.some((row) => row.content === continued.conversation.effectiveCompactedHistory!.summaryText)).toBe(true);
+      expect(continuedProjection.some((row) => row.content === `Historical summary:\n${continued.conversation.effectiveCompactedHistory!.summaryText}`)).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 

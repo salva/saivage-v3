@@ -267,7 +267,7 @@ export class AgentNodeExecution {
     const systemPrompt = this.deps.promptTemplates.render({kind:'workflow-agent',cardType:input.card.type}, node.agent.name, { contractDescription });
     const tools = [...surfaceToolDefinitions(surface), terminalToolDefinition];
     const compiledToolContracts = [...surfaceToolContracts(surface), compileInvocationToolContract(terminalToolDefinition, EMIT_RESULT_POLICY_TEMPLATE)];
-    const preparedCompaction = prepareCompaction(this.deps.compactionConfig, systemPrompt, tools, binding.contract.model.maxTokens);
+    const preparedCompaction = prepareCompaction(this.deps.compactionConfig, systemPrompt, tools, binding.routeUsableInputTokens, binding.contract.model.maxTokens);
     const preparedContext = buildPreparedInvocationContext({ instructionText: systemPrompt, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], compiledTools: compiledToolContracts, dynamicBlocks: this.nodeDynamicBlocks(input, cardBrief, node, nodePromptText), preparedCompaction });
     return { inputId: this.host.freshInputId(), agentId: sessionId, agentName: node.agent.name, sessionId, systemPrompt, tools, compiledToolContracts, terminalToolNames: [TERMINAL_RESULT_TOOL_NAME], modelParams: {temperature:binding.contract.model.temperature}, preparedCompaction, preparedContext, capabilityRequest: binding.capabilityRequest,routePass:{kind:'ordinary',candidateChain:binding.candidateChain}, episodeContext: { cardId: input.card.id, caller: input.caller, children: this.directChildren(input.card.id).map((card) => ({ id: card.id, status: card.lifecycle.status, type: card.type, title: card.title })) } };
   }

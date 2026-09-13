@@ -66,7 +66,7 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
   let transition = { context: { source: 'entry:BACKLOG', event: 'entry:route', target: 'node:work' }, acceptedResult: null };
   let stateId = 'node:work';
   let productionNode: CompiledNodeContract | null = null;
-  let workflows = { agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false }, contract: { model: { temperature: 0, maxTokens: 100 } }, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], capabilityRequest: {} }]]) };
+  let workflows = { agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false }, contract: { model: { temperature: 0, maxTokens: 100 } }, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], routeUsableInputTokens: 20_000, capabilityRequest: {} }]]) };
   let promptTemplates = { render: () => { if (failure.kind === 'render') throw failure.error; return failure.systemPrompt; } };
   if (productionPlanner) {
     const template = resolveSystemTemplate('classic-typed');
@@ -79,7 +79,7 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
     node = compiledNode as never;
     transition = { context: { source: 'entry:BACKLOG', event: 'entry:route', target: 'node:plan' }, acceptedResult: null };
     stateId = 'node:plan';
-    workflows = { ...compiled, agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false }, contract: compiledNode.agent, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], capabilityRequest: {} }]]) } as never;
+    workflows = { ...compiled, agentBindings: new Map([['planner', { toolSet: { requiresProcessScope: false }, contract: compiledNode.agent, candidateChain: [{ provider: 'test', account: null, model: 'planner-model' }], routeUsableInputTokens: 20_000, capabilityRequest: {} }]]) } as never;
     promptTemplates = createPromptTemplateRegistry(compiled) as never;
   }
   const selectNotifications = jest.fn(() => []);
@@ -111,7 +111,7 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
     store,
     conversations: { projectRoot },
     promptTemplates,
-    compactionConfig: { input_budget_tokens: 25_000, trigger_fraction: 0.7, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'keep_straddler_verbatim' },
+    compactionConfig: { context_utilization_fraction: 0.8, trigger_fraction: 0.7, tail_fraction: 0.25, snap: 'keep_straddler_verbatim' },
     processRunner: { createDirectScope: jest.fn(() => ({})) },
     runtimeProcessRootScope: {},
     workflows,
@@ -173,7 +173,7 @@ describe('AgentNodeExecution static preparation', () => {
   it('rejects a static capacity failure before every durable node-entry effect', async () => {
     const test = harness({ kind: 'capacity', systemPrompt: 'x'.repeat(120_000) });
 
-    await expect(test.run()).rejects.toThrow(/does not fit the compaction budget/u);
+    await expect(test.run()).rejects.toThrow(/does not fit the route usable-input capacity/u);
 
     expect(readConversation(test.projectRoot, test.sessionId).sourceRows).toEqual([]);
     expect(test.store.discardRecord).not.toHaveBeenCalled();

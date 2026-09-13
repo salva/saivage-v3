@@ -9,6 +9,8 @@ import { validateCompiledActorTable } from '../micro-actor/micro-actor.js';
 import { compilePromptTemplate, renderCompiledPrompt, type AgentPromptHost, type CompiledPromptTemplate, type ProcessPromptHost, type PromptHost } from '../../utils/prompt-api.js';
 import type { Candidate } from '../../contracts/provider-candidate.js';
 import type { ModelRouter } from '../../agents/model-router.js';
+import type { ProviderRegistry } from '../../agents/provider.js';
+import { usableInputTokens } from '../../agents/context-budget.js';
 import { capabilityRequestForTools, type CapabilityRequest } from '../../agents/provider-capabilities.js';
 import { BoundAgentToolSet, effectiveCardNodeToolReferences, resolveRuntimeTool, type CompiledToolReference } from '../../tools/runtime-tool-catalog.js';
 import { z } from 'zod';
@@ -50,7 +52,7 @@ type CompiledProcessState =
 export type ProcessPosition = Readonly<{ cardType: CardTypeName; stateId: string; kind: 'ready' }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'entry'; entry: CardProcessEntry }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'node'; nodeId: string; executionOrdinal: number }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'terminal'; terminal: CardProcessTerminal }>;
 export interface CompiledCardTypeWorkflow { readonly cardType: CardTypeName; readonly permittedChildTypes: ReadonlySet<CardTypeName>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly initialStateId: 'lifecycle:ready'; readonly states: ReadonlyMap<string, CompiledProcessState>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
 export interface CompiledProjectWorkflows { readonly analyst: CompiledAgentContract; readonly analystPrompt:CompiledAgentPrompt; readonly agents: ReadonlyMap<AgentName, CompiledAgentContract>; readonly cardTypes: ReadonlyMap<CardTypeName, CompiledCardTypeWorkflow>; readonly cardTypeVocabulary: readonly CardTypeName[] }
-export type BoundAgentContract = Readonly<{ contract: CompiledAgentContract; candidateChain: readonly Candidate[]; toolSet: BoundAgentToolSet; capabilityRequest: CapabilityRequest }>;
+export type BoundAgentContract = Readonly<{ contract: CompiledAgentContract; candidateChain: readonly Candidate[]; routeUsableInputTokens: number; toolSet: BoundAgentToolSet; capabilityRequest: CapabilityRequest }>;
 export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows { readonly runtimeBound: true;readonly agentBindings:ReadonlyMap<AgentName,BoundAgentContract> }
 
 const IDENTIFIER = /^[a-z][a-z0-9-]{0,63}$/u;
@@ -600,17 +602,6 @@ function validateDescendantContextClosure(drafts:ReadonlyMap<CardTypeName,CardTy
   }
 }
 
-function validateParticipantCompletionReserve(config:SaivageConfig,analyst:CompiledAgentContract,drafts:ReadonlyMap<CardTypeName,CardTypeCompileDraft>):void{
-  const budget=config.compaction.input_budget_tokens;
-  const fraction=config.compaction.completion_reserve_fraction;
-  const reserved=Math.floor(budget*fraction);
-  const participants=new Map<AgentName,CompiledAgentContract>([[analyst.name,analyst]]);
-  for(const draft of drafts.values())for(const node of draft.nodes.values())participants.set(node.agent.name,node.agent);
-  const offenders:string[]=[];
-  for(const [name,agent] of participants)if(agent.model.maxTokens>reserved)offenders.push(`agents.${name}.model_route '${agent.modelRoute}' requests max_tokens ${agent.model.maxTokens}, exceeding reserved completion tokens ${reserved} (floor(input_budget_tokens ${budget} * completion_reserve_fraction ${fraction}))`);
-  if(offenders.length>0)throw new Error(`Configured workflow participants exceed the compaction completion reserve: ${offenders.join('; ')}.`);
-}
-
 export function compileProjectWorkflows(
   config: SaivageConfig,
   options: WorkflowCompileOptions = {},
@@ -640,7 +631,6 @@ export function compileProjectWorkflows(
   if (!cardTypeVocabulary.includes('project')) throw new Error("card_types must contain the reserved 'project' entry.");
   const configuredCardTypes = immutableSet(cardTypeVocabulary);
   const drafts=immutableMap(sourceEntries.map(([type,source])=>[type,compileCardTypeInputs(type,source,agents,roots,configuredCardTypes)] as const));
-  validateParticipantCompletionReserve(config,analyst,drafts);
   for(const draft of drafts.values())validateCardTypeTopology(draft);
   validateDescendantContextClosure(drafts);
   const cardTypes=immutableMap([...drafts].map(([type,draft])=>[type,buildCardTypeStateTable(draft,roots)] as const));
@@ -649,6 +639,8 @@ export function compileProjectWorkflows(
 export function bindRuntimeWorkflows(
   structural: CompiledProjectWorkflows,
   router: ModelRouter,
+  registry: ProviderRegistry,
+  contextUtilizationFraction: number,
 ): CompiledRuntimeWorkflows {
   const participants = new Map<AgentName, Readonly<{ agent: CompiledAgentContract; toolSet: BoundAgentToolSet; request: CapabilityRequest }>>();
   const analystToolSet = new BoundAgentToolSet(structural.analyst.tools);
@@ -673,7 +665,17 @@ export function bindRuntimeWorkflows(
       throw new Error(
         `Agent '${name}' model route '${participant.agent.modelRoute}' has no capability-compatible configured provider candidate.`,
       );
-    bindings.push([name, Object.freeze({ contract: participant.agent, candidateChain: Object.freeze([...candidates]), toolSet: participant.toolSet, capabilityRequest: participant.request })]);
+    const capacities = candidates.flatMap((candidate) => {
+      const capabilities = registry.getEffectiveCapabilities(candidate);
+      if (!Number.isInteger(capabilities.contextWindowTokens) || capabilities.contextWindowTokens! <= 0 ||
+          !Number.isInteger(capabilities.maxOutputTokens) || capabilities.maxOutputTokens! <= 0 ||
+          participant.agent.model.maxTokens > capabilities.maxOutputTokens!) return [];
+      const capacity = usableInputTokens(capabilities.contextWindowTokens!, participant.agent.model.maxTokens, contextUtilizationFraction);
+      return capacity > 0 ? [capacity] : [];
+    });
+    if (capacities.length === 0)
+      throw new Error(`Agent '${name}' model route '${participant.agent.modelRoute}' has no configured candidate with positive usable input capacity for max_tokens ${participant.agent.model.maxTokens} at context_utilization_fraction ${contextUtilizationFraction}.`);
+    bindings.push([name, Object.freeze({ contract: participant.agent, candidateChain: Object.freeze([...candidates]), routeUsableInputTokens: Math.max(...capacities), toolSet: participant.toolSet, capabilityRequest: participant.request })]);
   }
   return Object.freeze({
     ...structural,

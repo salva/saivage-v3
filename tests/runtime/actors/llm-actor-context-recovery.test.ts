@@ -491,7 +491,7 @@ function seedMarkerLedRounds(root: string): void {
 }
 
 function realCompactionInvocation(root: string, dynamicBlocks: Parameters<typeof buildPreparedInvocationContext>[0]['dynamicBlocks']): PreparedLlmInvocationInput {
-  const preparedCompaction = prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.01, snap: 'compact_straddler' }, 'system', [], 500);
+  const preparedCompaction = prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.01, snap: 'compact_straddler' }, 'system', [], 80_000, 500);
   const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks, preparedCompaction });
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system',
@@ -503,7 +503,7 @@ function realCompactionInvocation(root: string, dynamicBlocks: Parameters<typeof
 
 function invocation(): PreparedLlmInvocationInput {
   const sessionId = 'agent:planner:project' as const;
-  const preparedCompaction = prepareCompaction({ input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', []);
+  const preparedCompaction = prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [], 8_000, 2_000);
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: 'planner', sessionId,
     systemPrompt: 'system', providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 },

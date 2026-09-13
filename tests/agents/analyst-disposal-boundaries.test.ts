@@ -182,6 +182,7 @@ function createFixture(options: {
     sessionId,
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+    routeUsableInputTokens: 80_000,
     promptTemplates: { render: () => 'test analyst prompt' },
     restartCapability: { available: true, port: restartPort },
     provider: scriptedAdmissionProvider(completeTurn),

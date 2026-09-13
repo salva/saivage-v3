@@ -38,7 +38,8 @@ describe('startup workflow binding authority', () => {
     source.models.routes.analyst = { candidates: ['mutated-model'], temperature: 0.9, max_tokens: 99 };
     source.models.equivalents = [];
     source.models.failover = {};
-    const bound = bindRuntimeWorkflows(structural, new ModelRouter(new ProviderRegistry(source)));
+    const registry = new ProviderRegistry(source);
+    const bound = bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, source.compaction.context_utilization_fraction);
 
     expect(runtimeAgentBinding(bound, 'analyst').candidateChain.map((candidate) => candidate.model))
       .toEqual(['test-model', 'equivalent-model', 'failover-model']);
@@ -56,7 +57,8 @@ describe('startup workflow binding authority', () => {
         return [{ provider: 'test', account: null, model: modelIds[0]! }];
       },
     } as ModelRouter;
-    const bound = bindRuntimeWorkflows(structural, router);
+    const registry = new ProviderRegistry(source);
+    const bound = bindRuntimeWorkflows(structural, router, registry, source.compaction.context_utilization_fraction);
     const analyst = runtimeAgentBinding(bound, 'analyst');
     const planner = runtimeAgentBinding(bound, 'planner');
 
@@ -80,7 +82,8 @@ describe('startup workflow binding authority', () => {
     const structural=compileProjectWorkflows(source);
     const order:string[]=[];
     const router={resolveModels(modelIds:readonly string[]){order.push(modelIds[0]!);return [{provider:'test',account:null,model:modelIds[0]!}];}} as unknown as ModelRouter;
-    const bound=bindRuntimeWorkflows(structural,router);
+    const registry=new ProviderRegistry(source);
+    const bound=bindRuntimeWorkflows(structural,router,registry,source.compaction.context_utilization_fraction);
     expect([...bound.agentBindings.keys()]).toEqual(['analyst','planner','reviewer','executor']);
     expect(bound.agentBindings.has('unused')).toBe(false);
     expect(order).toEqual(['test-model','test-model','test-model','test-model']);
@@ -98,7 +101,8 @@ describe('startup workflow binding authority', () => {
     );
     const structural = compileProjectWorkflows(source);
     const requests: unknown[] = [];
-    const router = new ModelRouter(new ProviderRegistry(source));
+    const providerRegistry = new ProviderRegistry(source);
+    const router = new ModelRouter(providerRegistry);
     const recording = {
       resolveModels(modelIds: readonly string[], request: Parameters<ModelRouter['resolveModels']>[1]) {
         if (modelIds.includes('empty-model')) requests.push(request);
@@ -106,7 +110,39 @@ describe('startup workflow binding authority', () => {
       },
     } as ModelRouter;
 
-    expect(() => bindRuntimeWorkflows(structural, recording)).toThrow("Agent 'empty' model route 'empty' has no capability-compatible configured provider candidate.");
+    expect(() => bindRuntimeWorkflows(structural, recording, providerRegistry, source.compaction.context_utilization_fraction)).toThrow("Agent 'empty' model route 'empty' has no capability-compatible configured provider candidate.");
     expect(requests).toEqual([{ requiresTools: true, requiresExclusiveToolChoice: true }]);
+  });
+
+  it('binds the maximum positive candidate capacity while preserving route order', () => {
+    const source = config();
+    source.models.routes.analyst = { candidates: ['small-model', 'large-model', 'output-ineligible-model', 'unknown-model'], temperature: 0, max_tokens: 4096 };
+    source.providers.test!.models = ['test-model', 'small-model', 'large-model', 'output-ineligible-model'];
+    source.providers.test!.modelCapabilities = {
+      'small-model': { contextWindowTokens: 120_000, maxOutputTokens: 8_000 },
+      'large-model': { contextWindowTokens: 1_050_000, maxOutputTokens: 8_000 },
+      'output-ineligible-model': { contextWindowTokens: 2_000_000, maxOutputTokens: 1_000 },
+    };
+    source.providers.uncapped = { models: ['unknown-model'], capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native' } };
+    const structural = compileProjectWorkflows(source);
+    const registry = new ProviderRegistry(source);
+    const bound = bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, 0.8);
+    const binding = runtimeAgentBinding(bound, 'analyst');
+    expect(binding.candidateChain.map(({ model }) => model)).toEqual(['small-model', 'large-model', 'output-ineligible-model', 'unknown-model']);
+    expect(binding.routeUsableInputTokens).toBe(835_904);
+  });
+
+  it('fails binding when a participating route has no candidate with positive usable input', () => {
+    const source = config();
+    source.models.routes.analyst = { candidates: ['uncapped-model'], temperature: 0, max_tokens: 4096 };
+    source.providers = {
+      uncapped: {
+        models: ['uncapped-model'],
+        capabilities: { transportProtocol: 'openai-chat-completions', toolsMode: 'native', exclusiveToolChoiceSupport: 'native' },
+      },
+    };
+    const structural = compileProjectWorkflows(source);
+    const registry = new ProviderRegistry(source);
+    expect(() => bindRuntimeWorkflows(structural, new ModelRouter(registry), registry, 0.8)).toThrow(/no configured candidate with positive usable input capacity/u);
   });
 });

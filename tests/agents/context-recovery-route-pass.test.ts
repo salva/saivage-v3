@@ -28,7 +28,7 @@ const SESSION = 'agent:planner:project';
 const roots: string[] = [];
 
 function preparedCompactionFixture() {
-  return prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [], 2000);
+  return prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [], 80_000, 2_000);
 }
 
 afterEach(() => {
@@ -201,7 +201,7 @@ describe('ordinary admitted execution immutable-membership recovery', () => {
     jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) =>
       new URL(String(input)).hostname.startsWith('cand-b') ? contextExhausted() : chatSuccess('unexpected'));
     const value = request([B], [message('m1', 'x'.repeat(1000)), message('m2', 'y'.repeat(1000))]);
-    const svc = service([B], new MemoryCandidateAvailability(), { 'cand-b': 3000 });
+    const svc = service([B], new MemoryCandidateAvailability(), { 'cand-b': 5000 });
     const handoff = await svc.executeAdmittedWithRecovery(admitted(svc, value)).then(
       () => { throw new Error('Expected suspension.'); },
       (error: unknown) => {

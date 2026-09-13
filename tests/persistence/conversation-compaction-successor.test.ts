@@ -25,7 +25,7 @@ const compact = (args: Omit<CompactArgs, 'progress'>): Promise<CompactionResult>
 
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const CANDIDATE = { provider: 'test', account: null, model: 'test' } as const;
-const POLICY: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' };
+const POLICY: AutonomousCompactionPolicy = { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' };
 const BIG = 'x'.repeat(12_000);
 
 type SummaryCall = { sessionId: string; systemPrompt: string; contents: string[] };
@@ -48,7 +48,7 @@ function summarizer(args: { calls: SummaryCall[]; summaryOf: (call: SummaryCall)
 const constantSummary = (text: string) => (): string => text;
 
 function invocation(conversation: ValidatedConversation, overrides: Partial<PreparedLlmInvocationInput> = {}): PreparedLlmInvocationInput {
-  const preparedCompaction = prepareCompaction(POLICY, 'system', []);
+  const preparedCompaction = prepareCompaction(POLICY, 'system', [], 8_000, 2_000);
   return {
     inputId: '00000000-0000-4000-8000-000000000001',
     agentId: SESSION,
@@ -144,7 +144,7 @@ describe('compaction fallback, successor identity, and internal summary identity
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
-  it('local exact admission retains a completed smaller preferred candidate when the furthest endpoint does not improve it', async () => {
+  it('local exact admission uses refined packing to reach the furthest qualifying endpoint', async () => {
     const root = mkdtempSync(join(tmpdir(), 'compaction-local-exact-smallest-'));
     initProjectTree(root);
     try {
@@ -153,7 +153,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       const calls: SummaryCall[] = [];
       const conversation = readConversation(root, SESSION);
       const localPolicy = { ...POLICY, tail_fraction: 0.25 };
-      const preparedCompaction = prepareCompaction(localPolicy, 'system', []);
+      const preparedCompaction = prepareCompaction(localPolicy, 'system', [], 8_000, 2_000);
       const result = compact({ strategy: 'local_exact_admission', conversations: { projectRoot: root }, input: invocation(conversation, {
         preparedCompaction,
         preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
@@ -163,10 +163,10 @@ describe('compaction fallback, successor identity, and internal summary identity
       }), signal: new AbortController().signal });
       await expect(result).resolves.toMatchObject({ kind: 'compacted' });
       expect(readConversationCatalog(root, SESSION).versions).toHaveLength(2);
-      expect(readCurrentConversationSegment(root, SESSION)!.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t1');
+      expect(readCurrentConversationSegment(root, SESSION)!.conversation.effectiveCompactedHistory!.coverageCommitment.coveredThroughMessageId).toBe('t2');
       const rawInputs = calls.flatMap((call) => call.contents);
       expect(rawInputs.filter((content) => content.includes('T1-PLAIN'))).toHaveLength(1);
-      expect(rawInputs.filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(2);
+      expect(rawInputs.filter((content) => content.includes('T2-EXPLODE'))).toHaveLength(1);
       expect(rawInputs.filter((content) => content.includes('T3-PLAIN'))).toHaveLength(2);
     } finally { rmSync(root, { recursive: true, force: true }); }
 
@@ -196,11 +196,11 @@ describe('compaction fallback, successor identity, and internal summary identity
       ]);
       const conversation = readConversation(root, SESSION);
       const restrictivePolicy: AutonomousCompactionPolicy = {
-        input_budget_tokens: 10_000, trigger_fraction: 0.3, completion_reserve_fraction: 0.2,
+        context_utilization_fraction: 0.8, trigger_fraction: 0.3,
         tail_fraction: 0.1,
         snap: 'compact_straddler',
       };
-      const preparedCompaction = prepareCompaction(restrictivePolicy, 'system', []);
+      const preparedCompaction = prepareCompaction(restrictivePolicy, 'system', [], 8_000, 2_000);
       const input = invocation(conversation, {
         preparedCompaction,
         preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }),
@@ -256,7 +256,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       };
       const conversation = readConversation(root, SESSION);
       const policy = { ...POLICY, trigger_fraction: 0.3, tail_fraction: 0.1 };
-      const preparedCompaction = prepareCompaction(policy, 'system', []);
+      const preparedCompaction = prepareCompaction(policy, 'system', [], 8_000, 2_000);
       const preparedContext = buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction });
       const operation = compact({ strategy: 'preventive', conversations: { projectRoot: root }, input: invocation(conversation, { preparedCompaction, preparedContext }), summarizerProvider: provider, signal: new AbortController().signal });
       if (allowsFallback) {
@@ -338,7 +338,7 @@ describe('compaction fallback, successor identity, and internal summary identity
       initializeConversation(root, agentSession);
       appendConversationBatch({ projectRoot: root }, [activation(1, agentSession), text('t1', BIG, agentSession), activation(2, agentSession), text('t2', BIG, agentSession), activation(3, agentSession), text('t3', BIG, agentSession)]);
       const conversation = readConversation(root, agentSession);
-      const preparedCompaction = prepareCompaction(POLICY, 'system', []);
+      const preparedCompaction = prepareCompaction(POLICY, 'system', [], 8_000, 2_000);
       const input: PreparedLlmInvocationInput = {
         ...invocation(conversation),
         sessionId: agentSession,

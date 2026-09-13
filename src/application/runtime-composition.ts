@@ -147,17 +147,15 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   });
   const invariantSummaryAdmission = admitSummaryRequest({
     serialization: summarizerSerializeRequest(invariantSummaryInput),
-    inputBudgetTokens: config.compaction.input_budget_tokens,
-    completionReserveTokens: Math.floor(config.compaction.input_budget_tokens * config.compaction.completion_reserve_fraction),
+    contextUtilizationFraction: config.compaction.context_utilization_fraction,
     contextWindowTokens: summarizerCapabilities.contextWindowTokens,
     maxOutputTokens: summarizerCapabilities.maxOutputTokens,
   });
   if (invariantSummaryAdmission.kind !== 'admitted')
     throw new Error(`The invariant compaction summary request overhead plus ${SUMMARY_COMPLETION_TOKENS} requested output tokens does not fit the configured fixed candidate capacity.`);
   const compactionPolicy: AutonomousCompactionPolicy = {
-    input_budget_tokens: config.compaction.input_budget_tokens,
+    context_utilization_fraction: config.compaction.context_utilization_fraction,
     trigger_fraction: config.compaction.trigger_fraction,
-    completion_reserve_fraction: config.compaction.completion_reserve_fraction,
     tail_fraction: config.compaction.tail_fraction,
     snap: config.compaction.snap,
   };
@@ -253,6 +251,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
       modelParams: analystBinding.contract.model,
       capabilityRequest: analystBinding.capabilityRequest,
       candidateChain: analystBinding.candidateChain,
+      routeUsableInputTokens: analystBinding.routeUsableInputTokens,
       promptTemplates,
       restartCapability,
       provider: analystProvider,

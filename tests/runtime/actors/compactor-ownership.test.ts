@@ -22,7 +22,7 @@ import { providerConversationProjection } from '../../../src/runtime/actors/conv
 import { deterministicSummarySerialization } from '../../helpers/summary-serialization.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY } from '../../helpers/row-policy-fixtures.js';
 
-const compactionConfig: AutonomousCompactionPolicy = { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' };
+const compactionConfig: AutonomousCompactionPolicy = { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' };
 
 describe('ConversationLLMActor compaction ownership', () => {
   it('passes no root/session aliases and sends compact returned projection directly to the provider', async () => {
@@ -230,7 +230,7 @@ describe('ConversationLLMActor compaction ownership', () => {
     try {
       appendCompactionRound(root);
       const conversation = readConversation(root, 'agent:planner:project');
-      const preparedCompaction = prepareCompaction({ ...compactionConfig, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', []);
+      const preparedCompaction = prepareCompaction({ ...compactionConfig, trigger_fraction: 0.3, tail_fraction: 0.1 }, 'system', [], 8_000, 2_000);
       const invocation = {
         ...input(),
         providerConversation: providerConversationProjection(conversation, []),
@@ -275,7 +275,7 @@ describe('ConversationLLMActor compaction ownership', () => {
 const terminalHandoff = (): void => undefined;
 
 function input(): PreparedLlmInvocationInput {
-  const preparedCompaction = prepareCompaction(compactionConfig, 'system', []);
+  const preparedCompaction = prepareCompaction(compactionConfig, 'system', [], 8_000, 2_000);
   return { inputId: '00000000-0000-4000-8000-000000000001', agentId: 'agent:planner:project', agentName: 'planner', sessionId: 'agent:planner:project', systemPrompt: 'system', providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] }, tools: [], compiledToolContracts: [], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [], preparedCompaction }), capabilityRequest: {},routePass:{kind:'ordinary',candidateChain:[{provider:'test',account:null,model:'test-model'}]}, episodeContext: {} };
 }
 

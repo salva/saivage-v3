@@ -56,6 +56,7 @@ describe('Analyst project-context failure', () => {
       sessionId: 'agent:analyst:global',
       agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+      routeUsableInputTokens: 80_000,
       promptTemplates: { render },
       restartCapability: { available: false },
       provider: scriptedAdmissionProvider(completeTurn),
@@ -119,11 +120,12 @@ describe('Analyst project-context failure', () => {
       sessionId: 'agent:analyst:global',
       agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 100 }, capabilityRequest: { requiresTools: true, requiresExclusiveToolChoice: true },
       candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+      routeUsableInputTokens: 5_000,
       promptTemplates: { render },
       restartCapability: { available: false },
       provider: scriptedAdmissionProvider(completeTurn),
       conversations: { projectRoot },
-      compactionPolicy: { input_budget_tokens: 10_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'keep_straddler_verbatim' },
+      compactionPolicy: { context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'keep_straddler_verbatim' },
       compactor: {
         shouldCompact: () => false,
         compact: async () => { throw new Error('compaction must not run'); },
@@ -137,7 +139,7 @@ describe('Analyst project-context failure', () => {
       fatalPort: testApplicationFatalPort,
     });
 
-    await expect(session.submit({ userContent: 'inspect the project' })).rejects.toThrow(/does not fit the compaction budget/u);
+    await expect(session.submit({ userContent: 'inspect the project' })).rejects.toThrow(/does not fit the route usable-input capacity/u);
 
     expect(readConversation(projectRoot, 'agent:analyst:global').sourceRows).toEqual([]);
     expect(render).toHaveBeenCalledTimes(1);

@@ -90,7 +90,7 @@ describe('search result actor/provider envelope', () => {
 
 function invocation(contract: ReturnType<typeof compileInvocationToolContract>): PreparedLlmInvocationInput {
   const sessionId = 'agent:planner:project' as const;
-  const preparedCompaction = prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', []);
+  const preparedCompaction = prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [], 80_000, 2_000);
   return {
     inputId: '00000000-0000-4000-8000-000000000001', agentId: sessionId, agentName: 'planner', sessionId, systemPrompt: 'system',
     providerConversation: { sourceSessionId: sessionId, messages: [] }, tools: [contract.providerDefinition], compiledToolContracts: [contract], terminalToolNames: [], modelParams: { temperature: 0 }, preparedCompaction,

@@ -109,7 +109,7 @@ try {
     compaction: {
       ...structuredClone(DEFAULT_SAIVAGE_CONFIG.compaction),
       enabled: true,
-      input_budget_tokens: 10_000,
+      context_utilization_fraction: 0.8,
       summarizer_candidate: { provider: 'test', account: null, model: 'test-model' },
     },
   });
@@ -218,7 +218,7 @@ try {
     if (!prompt.text.includes('versioned `review.md` URL')) throw new Error(`${prompt.reference} lacks immutable transition evidence guidance.`);
   }
   const providerRegistry = new ProviderRegistry(typedTestConfig);
-  const workflows = bindRuntimeWorkflows(typedWorkflows, new ModelRouter(providerRegistry));
+  const workflows = bindRuntimeWorkflows(typedWorkflows, new ModelRouter(providerRegistry), providerRegistry, typedTestConfig.compaction.context_utilization_fraction);
   const configAuthority = createResolvedConfigAuthority({
     path: join(projectRoot, '.saivage', 'saivage.yaml'),
     interpolationEnvironment: process.env,

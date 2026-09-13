@@ -100,7 +100,7 @@ describe('context contracts', () => {
     expect(contextContentSha256(first.content)).toBe(conversationSha256(first.content));
   });
   it('builds one frozen prepared invocation context from its exact inputs', () => {
-    const preparedCompaction = { inputBudgetTokens: 1 } as PreparedCompaction;
+    const preparedCompaction = { routeUsableInputTokens: 1 } as unknown as PreparedCompaction;
     const compiledTools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
     const prepared = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
     expect(prepared.prefix).toEqual(buildStaticInvocationPrefix('instruction', ['emit_result'], compiledTools));
@@ -113,7 +113,7 @@ describe('context contracts', () => {
     expect(Object.isFrozen(prepared.dynamicBlocks)).toBe(true);
   });
   it('accepts byte-identical prepared contexts and rejects every frozen-contract drift across continuations', () => {
-    const preparedCompaction = { inputBudgetTokens: 1 } as PreparedCompaction;
+    const preparedCompaction = { routeUsableInputTokens: 1 } as unknown as PreparedCompaction;
     const compiledTools = [compileInvocationToolContract(providerDefinition, observationalTemplate)];
     const base = buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction });
     expect(() => assertPreparedContextContinuity(base, buildPreparedInvocationContext({ instructionText: 'instruction', terminalToolNames: ['emit_result'], compiledTools, dynamicBlocks: [snapshotBlock('a', 'k', 'v1')], preparedCompaction }), 'actor-x')).not.toThrow();

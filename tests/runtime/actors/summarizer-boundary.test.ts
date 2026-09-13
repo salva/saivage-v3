@@ -24,7 +24,7 @@ const createSequentialRefineAccumulator = (args: Omit<Parameters<typeof createAc
 const SESSION: ConversationSessionId = 'agent:planner:project';
 const SOURCE_INPUT_ID = '11111111-1111-4111-8111-111111111111';
 const CANDIDATE = { provider: 'test', account: null, model: 'summary' } as const;
-const BUDGET = { inputBudgetTokens: 100_000, completionReserveTokens: 20_000 };
+const BUDGET = { contextUtilizationFraction: 0.8 };
 
 describe('compaction summarizer projection boundary', () => {
   it('requires declared positive fixed-candidate limits and 2000-token output without exclusive tool choice', () => {

@@ -58,6 +58,7 @@ function analyst(
     sessionId: 'agent:analyst:global',
     agentName: 'analyst', modelParams: { temperature: 0, maxTokens: 1000 }, capabilityRequest,
     candidateChain: [{ provider: 'test', account: null, model: 'test-model' }],
+    routeUsableInputTokens: 80_000,
     promptTemplates: { render: () => 'test analyst prompt' },
     restartCapability: options.restartCapability ?? { available: false },
     provider: scriptedAdmissionProvider(completeTurn),

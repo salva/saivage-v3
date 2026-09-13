@@ -10,6 +10,7 @@ import type { ConversationSessionId } from '../../../schemas/index.js';
 import type { LlmInvocationInput } from '../llm-invocation.js';
 import type { Candidate } from '../../../contracts/provider-candidate.js';
 import type { EffectiveProviderCapabilities } from '../../../agents/provider-capabilities.js';
+import { usableInputTokens } from '../../../agents/context-budget.js';
 
 export const SUMMARY_COMPLETION_TOKENS = 2000;
 export const SUMMARY_OUTPUT_TARGET_BYTES = 12_000;
@@ -42,36 +43,32 @@ type SummaryRequestAdmission =
       serializedRequest: string;
       requestSha256: string;
       estimatedInputTokens: number;
-      totalEstimatedTokens: number;
+      usableInputTokens: number;
     }>
-  | Readonly<{ kind: 'too_large'; estimatedInputTokens: number; totalEstimatedTokens: number }>;
+  | Readonly<{ kind: 'too_large'; estimatedInputTokens: number; usableInputTokens: number }>;
 
 export function admitSummaryRequest(args: {
   serialization: SummaryRequestSerialization;
-  inputBudgetTokens: number;
-  completionReserveTokens: number;
+  contextUtilizationFraction: number;
   contextWindowTokens: number;
   maxOutputTokens: number;
 }): SummaryRequestAdmission {
-  if (SUMMARY_COMPLETION_TOKENS > args.completionReserveTokens)
-    throw new Error(
-      `The fixed ${SUMMARY_COMPLETION_TOKENS}-token summary completion request exceeds the configured completion reserve (${args.completionReserveTokens} tokens).`,
-    );
   if (SUMMARY_COMPLETION_TOKENS > args.maxOutputTokens)
     throw new Error(`The fixed ${SUMMARY_COMPLETION_TOKENS}-token summary completion request exceeds the candidate output limit (${args.maxOutputTokens} tokens).`);
-  const totalEstimatedTokens = args.serialization.estimatedInputTokens + SUMMARY_COMPLETION_TOKENS;
-  if (totalEstimatedTokens > Math.min(args.inputBudgetTokens, Math.floor(0.8 * args.contextWindowTokens)))
+  const inputCapacity = usableInputTokens(args.contextWindowTokens, SUMMARY_COMPLETION_TOKENS, args.contextUtilizationFraction);
+  if (inputCapacity <= 0) throw new Error('The fixed summary candidate has no positive usable input capacity.');
+  if (args.serialization.estimatedInputTokens > inputCapacity)
     return {
       kind: 'too_large',
       estimatedInputTokens: args.serialization.estimatedInputTokens,
-      totalEstimatedTokens,
+      usableInputTokens: inputCapacity,
     };
   return {
     kind: 'admitted',
     serializedRequest: args.serialization.serializedRequest,
     requestSha256: args.serialization.requestSha256,
     estimatedInputTokens: args.serialization.estimatedInputTokens,
-    totalEstimatedTokens,
+    usableInputTokens: inputCapacity,
   };
 }
 

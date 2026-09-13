@@ -50,7 +50,7 @@ export function productionTestConfig(providerPort: number, customize?: (config: 
   };
   config.compaction = {
     ...config.compaction,
-    input_budget_tokens: 32_768,
+    context_utilization_fraction: 0.8,
     summarizer_candidate: { provider: 'fixture', account: null, model: 'fixture-model' },
   };
   customize?.(config);

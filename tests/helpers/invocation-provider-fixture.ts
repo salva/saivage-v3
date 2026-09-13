@@ -32,9 +32,8 @@ export function invocationProviderRegistry(candidates: readonly Candidate[], cap
     server: { port: 8080, host: '127.0.0.1' },
     compaction: {
       enabled: true,
-      input_budget_tokens: 100_000,
+      context_utilization_fraction: 0.8,
       trigger_fraction: 0.8,
-      completion_reserve_fraction: 0.2,
       tail_fraction: 0.25,
       snap: 'compact_straddler',
       summarizer_candidate: first,

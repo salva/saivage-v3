@@ -27,7 +27,7 @@ const TOOL: ToolDefinition = { type: 'function', function: { name: 'probe_tool',
 const roots: string[] = [];
 
 function preparedCompactionFixture() {
-  return prepareCompaction({ input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [TOOL], 2000);
+  return prepareCompaction({ context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler' }, 'system', [TOOL], 80_000, 2_000);
 }
 
 afterEach(() => {
@@ -95,14 +95,14 @@ describe('ordinary primary-request local admission', () => {
     expect(providerConversation.messages).toEqual([expect.objectContaining({ kind: 'synthetic_context', content: full })]);
     const base = request([A]);
     if (!base.preparedCompaction) throw new Error('fixture requires prepared compaction');
-    const admission = service([A], { 'cand-a': { contextWindowTokens: 1000 } }).preparePrimaryRequestAdmission({ ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [block], preparedCompaction: base.preparedCompaction }) });
+    const admission = service([A], { 'cand-a': { contextWindowTokens: 3000 } }).preparePrimaryRequestAdmission({ ...base, providerConversation, preparedContext: buildPreparedInvocationContext({ instructionText: 'system', terminalToolNames: [], compiledTools: [], dynamicBlocks: [block], preparedCompaction: base.preparedCompaction }) });
     expect(admission.kind).toBe('local_compaction_required');
     if (admission.kind !== 'local_compaction_required') throw new Error('unreachable');
     expect(admission.candidates[0]).toMatchObject({ kind: 'projection_too_large' });
   });
 
   it('requests local compaction when a capability-ineligible fitting candidate cannot suppress a compatible oversized one', () => {
-    const svc = service([A, B], { 'cand-a': { toolsMode: 'unsupported' }, 'cand-b': { contextWindowTokens: 10 } });
+    const svc = service([A, B], { 'cand-a': { toolsMode: 'unsupported' }, 'cand-b': { contextWindowTokens: 2502 } });
     const admission = svc.preparePrimaryRequestAdmission(request([A, B]));
     expect(admission.kind).toBe('local_compaction_required');
     if (admission.kind !== 'local_compaction_required') throw new Error('unreachable');
@@ -110,9 +110,9 @@ describe('ordinary primary-request local admission', () => {
     expect(admission.candidates[1]).toMatchObject({ kind: 'projection_too_large' });
     const oversized = admission.candidates[1];
     if (oversized.kind !== 'projection_too_large') throw new Error('unreachable');
-    expect(oversized.contextWindowTokens).toBe(10);
+    expect(oversized.contextWindowTokens).toBe(2502);
     expect(oversized.requestHash).toHaveLength(64);
-    expect(oversized.inputBudgetTokens).toBe(100_000);
+    expect(oversized.usableInputTokens).toBe(1);
   });
 
   it('fails locally without compaction when every rejection is non-size-fixable', () => {
@@ -143,6 +143,26 @@ describe('ordinary primary-request local admission', () => {
     expect(second.candidates[0]).toMatchObject({ kind: 'candidate_ineligible' });
     expect(second.candidates[1]).toMatchObject({ kind: 'admitted' });
     expect(second.executionAuthority.admittedCandidateIdentities).toEqual([B]);
+  });
+
+  it.each([[A, B], [B, A]] as const)('excludes a nonfitting small fallback without compacting a fitting large candidate in either order', (first, second) => {
+    const large = B;
+    const small = A;
+    const value: InvocationRequest = { ...request([first, second]), providerConversation: { sourceSessionId: SESSION, messages: [message('mixed-size', 'x'.repeat(8_000))] } };
+    const admission = service([first, second], { [small.provider]: { contextWindowTokens: 3_000 }, [large.provider]: { contextWindowTokens: 100_000 } }).preparePrimaryRequestAdmission(value);
+    expect(admission.kind).toBe('admitted');
+    if (admission.kind !== 'admitted') throw new Error('unreachable');
+    expect(admission.executionAuthority.admittedCandidateIdentities).toEqual([large]);
+    expect(admission.candidates.find((candidate) => candidate.candidate.provider === small.provider)?.kind).toBe('projection_too_large');
+  });
+
+  it('admits exact usable-input equality and rejects one-token overflow', () => {
+    const base = service([A]).preparePrimaryRequestAdmission(request([A]));
+    if (base.kind !== 'admitted' || base.candidates[0]?.kind !== 'admitted') throw new Error('baseline admission failed');
+    const estimated = base.candidates[0].plan.request.estimatedWireInputTokens;
+    const exactWindow = Math.ceil((estimated + 2_000) / 0.8);
+    expect(service([A], { 'cand-a': { contextWindowTokens: exactWindow } }).preparePrimaryRequestAdmission(request([A])).kind).toBe('admitted');
+    expect(service([A], { 'cand-a': { contextWindowTokens: exactWindow - 1 } }).preparePrimaryRequestAdmission(request([A])).kind).toBe('local_compaction_required');
   });
 
   it('rejects duplicate ordinary candidate identities before admission', () => {
@@ -184,7 +204,7 @@ describe('ordinary primary-request local admission', () => {
       agents: structuredClone(DEFAULT_SAIVAGE_CONFIG.agents) as unknown as SaivageConfig['agents'], analyst_agent: 'analyst',
       models: { routes: { planner: { candidates: ['model-x'], temperature: 0.2, max_tokens: 2000 } }, profiles: {}, equivalents: [], failover: {} },
       providers, server: { port: 8080, host: '127.0.0.1' },
-      compaction: { enabled: true, input_budget_tokens: 100_000, trigger_fraction: 0.8, completion_reserve_fraction: 0.2, tail_fraction: 0.25, snap: 'compact_straddler', summarizer_candidate: chain[0]! },
+      compaction: { enabled: true, context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler', summarizer_candidate: chain[0]! },
       card_types: structuredClone(DEFAULT_SAIVAGE_CONFIG.card_types),
     });
     const svc = new InvocationService({ projectRoot, freshness: NO_FRESHNESS_EFFECTS, registry, candidateAvailability: new MemoryCandidateAvailability() });

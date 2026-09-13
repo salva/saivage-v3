@@ -142,6 +142,7 @@ export class AnalystSession {
   readonly #modelParams: Readonly<{ temperature: number; maxTokens: number }>;
   readonly #capabilityRequest: CapabilityRequest;
   readonly #candidateChain:readonly Candidate[];
+  readonly #routeUsableInputTokens:number;
   readonly #promptTemplates: PromptTemplateRegistry;
   readonly #restartCapability: RestartCapability;
   readonly #conversations: ConversationFileContext;
@@ -163,6 +164,7 @@ export class AnalystSession {
     modelParams: Readonly<{ temperature: number; maxTokens: number }>;
     capabilityRequest: CapabilityRequest;
     candidateChain:readonly Candidate[];
+    routeUsableInputTokens:number;
     promptTemplates: PromptTemplateRegistry;
     restartCapability: RestartCapability;
     provider: LLMProviderPort;
@@ -183,6 +185,7 @@ export class AnalystSession {
     this.#modelParams = input.modelParams;
     this.#capabilityRequest = input.capabilityRequest;
     this.#candidateChain=Object.freeze([...input.candidateChain]);
+    this.#routeUsableInputTokens=input.routeUsableInputTokens;
     this.#promptTemplates = input.promptTemplates;
     this.#restartCapability = input.restartCapability;
     this.#conversations = input.conversations;
@@ -402,6 +405,7 @@ export class AnalystSession {
       this.#compactionPolicy,
       systemPrompt,
       tools,
+      this.#routeUsableInputTokens,
       this.#modelParams.maxTokens,
     );
     return {

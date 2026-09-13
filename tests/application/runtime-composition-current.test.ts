@@ -119,7 +119,7 @@ describe('current runtime composition', () => {
     initProjectTree(projectRoot);
     const config = TEST_SAIVAGE_CONFIG;
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry));
+    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
     const analystRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
@@ -164,7 +164,7 @@ describe('current runtime composition', () => {
     initProjectTree(projectRoot);
     const config = TEST_SAIVAGE_CONFIG;
     const registry = new ProviderRegistry(config);
-    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry));
+    const workflows = bindRuntimeWorkflows(TEST_WORKFLOWS, new ModelRouter(registry), registry, config.compaction.context_utilization_fraction);
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
     const analystRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'analyst');
@@ -225,13 +225,15 @@ describe('current runtime composition', () => {
       },
       compaction: {
         ...structuredClone(TEST_SAIVAGE_CONFIG.compaction),
-        input_budget_tokens: 100_000,
+        context_utilization_fraction: 0.8,
       },
     });
     const registry = new ProviderRegistry(config);
     const workflows = bindRuntimeWorkflows(
       compileProjectWorkflows(config),
       new ModelRouter(registry),
+      registry,
+      config.compaction.context_utilization_fraction,
     );
     const processRegistry = new ManagedProcessGroupRegistry();
     const runtimeRoot = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime');
