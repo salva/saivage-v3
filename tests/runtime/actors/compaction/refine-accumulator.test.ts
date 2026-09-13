@@ -13,6 +13,8 @@ import {
 } from '../../../../src/runtime/actors/compaction/refine-accumulator.js';
 import { SUMMARY_OUTPUT_TARGET_BYTES, type SummarizerProviderPort, type SummaryRequestSerialization } from '../../../../src/runtime/actors/compaction/summarizer.js';
 import { noCompactionProgress } from '../../../helpers/executing-llm-snapshot.js';
+import { buildCandidateRequest } from '../../../../src/agents/candidate-request.js';
+import { selectLlmProtocolAdapter } from '../../../../src/agents/llm-protocol-adapter.js';
 
 const createSequentialRefineAccumulator = (args: Omit<Parameters<typeof createAccumulatorWithoutProgress>[0], 'progress'>) => createAccumulatorWithoutProgress({ ...args, progress: noCompactionProgress });
 
@@ -107,21 +109,15 @@ describe('sequential contextual refine accumulator', () => {
   it('preserves exact projected source semantics for mixed Unicode and legitimate empty tool components', async () => {
     const mixed = `A\u0000é中🙂\uD800B\uDC00Z`;
     const settledResult = '{"success":true}';
+    const emptyBundles = Array.from({ length: 12 }, (_, index) => settledToolRows(`empty-call-${index + 1}`, 2 + index * 2, '', settledResult)).flat();
     const rows = [
       activation(),
       text('mixed-source', mixed),
-      ...settledToolRows('empty-call-a', 2, '', settledResult),
-      ...settledToolRows('empty-call-b', 4, '', settledResult),
+      ...emptyBundles,
     ];
     const sent: SummaryInput[] = [];
-    const attemptedSources: string[][] = [];
     const provider = recordingProvider({
       contextWindowTokens: 10_000,
-      serialize: (input) => {
-        const ranges = sourceRanges(input);
-        attemptedSources.push(ranges.map(({ source }) => source));
-        return serialization(input, ranges.length <= 1 && sourceByteCount(input) <= 6 ? 1 : 10_000);
-      },
       complete: async (input) => {
         sent.push(input);
         return `summary-${sent.length}`;
@@ -134,10 +130,13 @@ describe('sequential contextual refine accumulator', () => {
     const ranges = sent.flatMap(sourceRanges);
     const expectedSources = [
       { source: 'mixed-source', sourceKind: 'message:direct', role: 'user' as const, content: mixed },
-      { source: '11111111-1111-4111-8111-111111111111:empty-call-a:arguments', sourceKind: 'tool_arguments:empty_tool', role: 'assistant' as const, content: '' },
-      { source: '11111111-1111-4111-8111-111111111111:empty-call-a:result', sourceKind: 'tool_result:empty_tool', role: 'user' as const, content: settledResult },
-      { source: '11111111-1111-4111-8111-111111111111:empty-call-b:arguments', sourceKind: 'tool_arguments:empty_tool', role: 'assistant' as const, content: '' },
-      { source: '11111111-1111-4111-8111-111111111111:empty-call-b:result', sourceKind: 'tool_result:empty_tool', role: 'user' as const, content: settledResult },
+      ...Array.from({ length: 12 }, (_, index) => {
+        const callId = `empty-call-${index + 1}`;
+        return [
+          { source: `11111111-1111-4111-8111-111111111111:${callId}:arguments`, sourceKind: 'tool_arguments:empty_tool', role: 'assistant' as const, content: '' },
+          { source: `11111111-1111-4111-8111-111111111111:${callId}:result`, sourceKind: 'tool_result:empty_tool', role: 'user' as const, content: settledResult },
+        ];
+      }).flat(),
     ];
     expect(ranges.filter((entry, index) => index === 0 || entry.source !== ranges[index - 1]!.source).map((entry) => entry.source)).toEqual(expectedSources.map(({ source }) => source));
     for (const expected of expectedSources) {
@@ -157,14 +156,7 @@ describe('sequential contextual refine accumulator', () => {
         expect(Buffer.byteLength(range.content, 'utf8')).toBe(range.end - range.start);
       }
     }
-    const sentSources = sent.map((input) => sourceRanges(input).map(({ source }) => source));
-    for (const callId of ['empty-call-a', 'empty-call-b']) {
-      const argumentsSource = `11111111-1111-4111-8111-111111111111:${callId}:arguments`;
-      const argumentsAttempt = attemptedSources.findIndex((sources) => sources.length === 2 && sources[1] === argumentsSource);
-      expect(argumentsAttempt).toBeGreaterThan(0);
-      expect(attemptedSources[argumentsAttempt + 1]).toEqual([argumentsSource]);
-      expect(sentSources).toContainEqual([argumentsSource]);
-    }
+    expect(ranges.filter(({ content }) => content === '')).toHaveLength(12);
   });
 
   it('stops at the first rejected growth probe, resumes at the admitted endpoint, and sends the exact admitted objects', async () => {
@@ -198,9 +190,51 @@ describe('sequential contextual refine accumulator', () => {
     expect(completed[0]!.input).toBe(attempts[4]!.input);
     expect(completed[0]!.serialization).toBe(attempts[4]!.serialization);
     expect(onlySourceRange(completed[0]!.input)).toBe('0:3');
+    expect(attempts.find(({ range }) => range === '0:4')!.serialization.estimatedInputTokens).toBeGreaterThan(8_000 - 2_000);
     expect(completed[1]!.input).toBe(attempts[6]!.input);
     expect(completed[1]!.serialization).toBe(attempts[6]!.serialization);
     expect(onlySourceRange(completed[1]!.input)).toBe('3:9');
+  });
+
+  it('refines actual JSON wire admission across escaping, supplementary characters, and range-label digit transitions until the next code point rejects', async () => {
+    const capabilities = { transportProtocol: 'openai-chat-completions' as const, toolsMode: 'native' as const, exclusiveToolChoiceSupport: 'native' as const, contextWindowTokens: 4_000, maxOutputTokens: 10_000, quirks: [] };
+    const attempts: Array<{ range: ParsedSourceRange; serialization: SummaryRequestSerialization }> = [];
+    const sent: SummaryInput[] = [];
+    const provider = recordingProvider({
+      contextWindowTokens: capabilities.contextWindowTokens,
+      serialize: (input) => {
+        const plan = buildCandidateRequest({ candidate: CANDIDATE, capabilities, adapter: selectLlmProtocolAdapter(capabilities.transportProtocol), systemPrompt: input.systemPrompt, providerConversation: input.providerConversation, options: { inputId: input.inputId, temperature: 0, max_tokens: 2_000, tools: [], tool_choice: 'auto', contract_id: 'internal-compaction-summary.v1', contractName: 'internal-compaction-summary', terminalToolOffered: [] } });
+        const result = { serializedRequest: plan.request.serializedBody, requestSha256: plan.request.requestHash, estimatedInputTokens: plan.request.estimatedWireInputTokens };
+        const ranges = sourceRanges(input);
+        if (ranges.length === 1) attempts.push({ range: ranges[0]!, serialization: result });
+        return result;
+      },
+      complete: async (input) => { sent.push(input); return `summary-${sent.length}`; },
+    });
+    const source = (`ASCII "quoted" \\ slash\ncontrol\té漢🙂-${'x'.repeat(31)}|`).repeat(180);
+    const rows = [activation(), text('source', source)];
+
+    await createSequentialRefineAccumulator({ conversation: validateConversation(SESSION, rows), inheritedHistory: null, preparedBlocks: [], summarizerProvider: provider, budget: BUDGET, signal: new AbortController().signal }).materializeThrough(rows.length);
+
+    const admittedRanges = sent.flatMap(sourceRanges);
+    expect(admittedRanges.length).toBeGreaterThan(1);
+    expect(admittedRanges.map(({ content }) => content).join('')).toBe(source);
+    expect(attempts.some(({ range }) => range.start === 0 && range.end === 8)).toBe(true);
+    expect(attempts.some(({ range }) => range.start === 0 && range.end >= 10)).toBe(true);
+    const inputCapacity = Math.floor(0.8 * capabilities.contextWindowTokens) - 2_000;
+    for (const admitted of admittedRanges.slice(0, -1)) {
+      const prefix = Buffer.from(source, 'utf8').subarray(0, admitted.end).toString('utf8');
+      const nextPoint = source.codePointAt(prefix.length)!;
+      const nextEnd = admitted.end + Buffer.byteLength(String.fromCodePoint(nextPoint), 'utf8');
+      const rejection = attempts.find(({ range }) => range.start === admitted.start && range.end === nextEnd);
+      expect(rejection?.serialization.estimatedInputTokens).toBeGreaterThan(inputCapacity);
+    }
+    for (let index = 1; index < attempts.length; index++) {
+      const previous = attempts[index - 1]!;
+      const current = attempts[index]!;
+      if (previous.range.start === current.range.start && previous.range.end < current.range.end)
+        expect(current.serialization.estimatedInputTokens).toBeGreaterThanOrEqual(previous.serialization.estimatedInputTokens);
+    }
   });
 
   it('retains the distinct fitting whole-width doubling probe at an eight-code-point EOF', async () => {

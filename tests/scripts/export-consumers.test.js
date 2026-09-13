@@ -683,17 +683,17 @@ describe('repository complete export boundary', () => {
     expect(result.ownership.declarationFiles).toEqual(['scripts/verify-doc-routes.d.ts', 'web/env.d.ts']);
     expect(result.ownership.typescriptOrdinaryFiles).toEqual(tsFamily.filter((file) => !declarations.includes(file)));
     expect(Object.fromEntries(['production-consumed', 'test-only', 'local-only', 'zero-use'].map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]))).toEqual({
-      'production-consumed': 1679, 'test-only': 203, 'local-only': 2, 'zero-use': 0,
+      'production-consumed': 1680, 'test-only': 203, 'local-only': 2, 'zero-use': 0,
     });
-    expect(result.records).toHaveLength(1884);
-    expect(result.totals).toEqual({ 'production-consumed': 1681, 'test-only': 203, 'local-only': 0, 'zero-use': 0 });
+    expect(result.records).toHaveLength(1885);
+    expect(result.totals).toEqual({ 'production-consumed': 1682, 'test-only': 203, 'local-only': 0, 'zero-use': 0 });
     expect(result.ok).toBe(true);
     expect(result.failures).toEqual([]);
     expect(result.staleImports).toBe(0);
     expect(result.unsupported).toBe(0);
     expect(result.allowlistEntries).toBe(0);
     expect(result.failures.filter((failure) => failure.category === 'declaration-diagnostic')).toEqual([]);
-    expect(result.ownership.declarationUnitFiles).toHaveLength(340);
+    expect(result.ownership.declarationUnitFiles).toHaveLength(341);
     expect(result.ownership.declarationUnitFiles.some((file) => file.endsWith('.vue'))).toBe(false);
     expect(result.records.flatMap((item) => item.declarationPaths).flatMap((item) => item.edges).some((edge) => edge.sourceSurface.module.endsWith('.vue'))).toBe(false);
     const promoted = result.records.filter((item) => item.classification !== item.directClassification);

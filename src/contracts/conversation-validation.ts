@@ -267,6 +267,7 @@ export function selectAtomicCoveredSourceGroups(
   const groups: { ids: string[]; rows: AgentMessage[] }[] = [];
   for (const row of coveredRows) {
     if (row.kind === 'tool_call') {
+      if (row.provider_projection?.private_message_id && coveredSet.has(row.provider_projection.private_message_id)) continue;
       const call = conversation.calls.find((candidate) => candidate.message.id === row.id);
       if (!call || call.resultSourceIndex === null)
         throw new Error(`Covered tool call '${row.id}' is not part of one complete settled exchange.`);
@@ -280,7 +281,17 @@ export function selectAtomicCoveredSourceGroups(
     if (row.kind === 'provider_private') {
       const mate = coveredRows.find((candidate) => candidate.provider_projection?.private_message_id === row.id);
       if (!mate) throw new Error(`Covered private row '${row.id}' would be split from its marked visible mate.`);
-      groups.push({ ids: [row.id, mate.id], rows: [row, mate] });
+      if (mate.kind !== 'tool_call') {
+        groups.push({ ids: [row.id, mate.id], rows: [row, mate] });
+        continue;
+      }
+      const call = conversation.calls.find((candidate) => candidate.message.id === mate.id);
+      if (!call || call.resultSourceIndex === null)
+        throw new Error(`Covered private tool call '${mate.id}' is not part of one complete settled exchange.`);
+      const result = conversation.sourceRows[call.resultSourceIndex]!;
+      if (!coveredSet.has(result.id))
+        throw new Error(`Compaction coverage would split the provider bundle of private tool call '${mate.id}'.`);
+      groups.push({ ids: [row.id, mate.id, result.id], rows: [row, mate, result] });
       continue;
     }
     if (row.provider_projection?.private_message_id && coveredSet.has(row.provider_projection.private_message_id))
@@ -308,10 +319,11 @@ function coveredGroupDisposition(rows: readonly AgentMessage[], coveredRows: rea
     const newer = coveredRows.some((candidate) => candidate.kind === first.kind && coveredRows.indexOf(candidate) > coveredRows.indexOf(first));
     return newer ? 'superseded' : 'summarized';
   }
-  if (first.kind === 'tool_call' && first.context_policy.kind === 'tool_call') {
-    const template = first.context_policy.template;
+  const toolCall = rows.find((row) => row.kind === 'tool_call');
+  if (toolCall?.kind === 'tool_call' && toolCall.context_policy.kind === 'tool_call') {
+    const template = toolCall.context_policy.template;
     if (template.settledAudience === 'evidence_only') return 'evidence_only';
-    if (template.replacement.kind === 'latest_snapshot' && supersededSnapshotKey(template.replacement.key, first, coveredRows)) return 'superseded';
+    if (template.replacement.kind === 'latest_snapshot' && supersededSnapshotKey(template.replacement.key, toolCall, coveredRows)) return 'superseded';
     return 'summarized';
   }
   if (first.context_policy.kind === 'content') {
