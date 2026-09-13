@@ -34,8 +34,8 @@ Ordinary coordination has no owner repository, factory, registry, second ownersh
 The sole narrow callback exception is the required terminal CardProcess actor-main notification to its exact current/frozen Supervisor owner.
 
 Each configured processor is directly constructed and started ready before its owner is observable.
-The supervisor constructs one `PlannerChildControlPort` bound to that exact parent activation and passes it through process/node/role composition.
-Provider code cannot select a parent or read an activation target before delegation.
+The supervisor constructs one `PlannerChildControlPort` bound to that exact parent activation and passes it through process/node/role composition. Activation, cancellation, and reopening all use this port; it never exposes generic card mutation or caller-selected parent/activation authority.
+Provider code cannot select a parent or read an activation target before delegation. For reopening, the Supervisor proves the captured parent remains the active/open owner before target I/O and synchronously retains that authority through its existing owner-bound publication boundary.
 Concrete `CardService` remains the sole root/card reader.
 
 `ConversationLLMActor.toolInvocationContext(outcome)` is the only production constructor of the complete invocation context for autonomous and Analyst calls.
@@ -162,6 +162,8 @@ Dependency completion is activation admission, not creation admission.
 The Analyst's first-class `reopen_card` is a narrow audited application mutation, not a generic transition API.
 It admits only intervention-ready blocked/done/failed targets and delegates the target and eligible resting ancestors to existing `propagateChange`; it adds no planner permission or operator card action.
 
+The Planner's same-named card-scoped operation is a separate owner-bound contract. It accepts only an ownerless done/failed immediate child of the exact active/open parent activation and publishes one `setStatus('changed')` call through `SupervisorRuntimeApi.publish(parent, write)`. Success changes no parent or ancestor, performs no propagation, notification, dispatch, audit, or activation, and returns only `{card_id,status:'changed'}`. Ordinary admission denial occurs before publication. Outcome-unknown remains fatal; other publication failure enters the existing Supervisor halt and returns the retained stopped interruption, with no reread, retry, compensation, cleanup, or alternate mutation boundary.
+
 Status-to-process admission has one nullable mapper: backlog maps to BACKLOG, changed to CHANGED, blocked to BLOCKED, stopped to STOPPED, and running/done/failed/cancelled to null.
 It grants no transition authority.
 The supervisor invokes it only after exact owner absence and one admission read; rejection precedes owner/processor construction.
@@ -193,8 +195,8 @@ Both return `changed:0` without card/status publication, propagation, or notific
 A real Planner reorder has no propagation, notification, or control-action audit, while a real Analyst reorder performs changed propagation after the same parent-only canonical reorder.
 
 Default allocation is a configured workflow/API boundary for trusted agents.
-Analyst has global create/reorder/reopen/cancel/delete maintenance plus generic record mutation but no child activation or Planner metadata edit; Planner has immediate-child create/edit/cancel/activate and current-parent reorder but no delete/reopen; Reviewer and Executor have no default structure tools.
-Their child ceilings permit creation only for Analyst and Planner and grant neither dispatch nor reopening.
+Analyst has global create/reorder/reopen/cancel/delete maintenance plus generic record mutation but no child activation or Planner metadata edit; Planner has immediate-child create/edit/cancel/activate/reopen and current-parent reorder but no delete; Reviewer and Executor have no default structure tools.
+Their child ceilings permit creation only for Analyst and Planner and grant neither dispatch nor reopening by themselves. Reopening comes only from the selected scoped tool: global Analyst application authority or the Planner's exact parent-bound port.
 Runtime dispatch still exists only through the active exact parent-bound port and invocation lease.
 
 Cancellation preserves the same caller separation.
@@ -308,6 +310,8 @@ The supervisor validates parent and lease before I/O; owner absence alone author
 It constructs and starts a ready processor, silently installs owner/relationship/lease, performs one running publication, then transfers currentness and activates the processor.
 Exact same-lease joins perform no I/O.
 
+Planner reopening validates the scoped `{card_id}` schema and immediate-child identity, then delegates through that same parent-bound port without creating a lease. The Supervisor rejects stale, closed, halted, settling, result-won, cancel-won, or application-closed parent authority and any target with an activation owner before exact target access/status admission. The sole successful mutation is the existing parent-authorized `publish` of done/failed to changed; there is no raw store path or second publication owner.
+
 Dependency and non-activatable-status rejection precede owner and processor construction.
 They cause no running publication, relationship/currentness change, or execution work and add no scheduler, traversal, propagation, or cancellation behavior.
 
@@ -348,7 +352,7 @@ Logged-event and control-action producers likewise apply their discriminated pro
 Schemas validate these projected singular contracts but never sanitize canonical bytes, and `app-log.ts` selects no redaction behavior.
 
 There is no app-log dependency forwarded through Supervisor, `CardActivationOwner`, `CardProcessActor`, or `AgentNodeExecution`.
-Planner reorder and notification use canonical card/runtime evidence and append no control action.
+Planner reopen, reorder, and notification use canonical card/runtime evidence and append no control action.
 Analyst mutation settlement and Invocation Service retain their independent valid app-log ownership.
 `listControlActions()` is the shared HTTP/tool projection owner: it performs one complete strict app-log read, applies outbound control-action redaction, then optionally narrows by `card_id` and `since` and sorts newest first.
 It applies no actor or validity filtering, so historical Planner control-action rows remain readable; current event discriminators and strict replay behavior are unchanged.
@@ -443,6 +447,7 @@ The scope-aware runtime catalog aggregates those entries, rejects duplicate `(sc
 Both global and card binding contexts carry the selected compiled card-type vocabulary.
 Analyst `create_card` constructs its type enum from that vocabulary and binds one required explicit `cardIdSchema` parent.
 Planner binds its separate no-parent plain-string create schema, derives the parent from the active Planner session, and checks compiled membership in execution.
+The catalog intentionally defines `reopen_card` once in global Analyst scope and once in card Planner-control scope. The Analyst shape is `{cardId}` with intervention-ready global propagation; the Planner shape is `{card_id}` with exact parent-owner/direct-child admission. Shared spelling does not alias arguments, result shape, readiness, propagation, or authority, and configured named agents receive only explicitly selected capabilities regardless of their names.
 The one shared global/card `list_cards` binder also constructs its enum from the vocabulary, and invocation parsing rejects unconfigured filters before its shared filter executor.
 A bound invocation surface is the authoritative definition source; startup capability requests retain only tool presence and exclusive choice, preserving one named-agent candidate chain rather than routing per card.
 One pure effective-card-node selection preserves ceiling order and removes `create_card` exactly when `childCreationTypes` is empty; execution binding and Debug Graphs consume that same selection.
@@ -1425,6 +1430,7 @@ The Analyst `restart_server` entry remains installed and reports unavailable whe
 
 The Analyst control registry is one ordered, context-bound catalog of executable `ToolDefinition` entries.
 It is distinct from the Planner control provider, the LLM wire-tool projection, and MCP discovery/wire contracts; those surfaces do not contribute metadata to the Analyst catalog.
+The exact exclusive-identity projection lists only names present on one of those two scoped control surfaces. `reopen_card` is intentionally absent from both exclusive lists because both scopes define it; this common presentation identity grants neither scope the other's binder, arguments, result, or authority.
 Analyst mutation composition creates one application service bundle for a turn.
 Each application operation performs its fresh admission/currentness reads and immediately invokes its card, runtime, configuration, notification, or record owner through that single call.
 
@@ -1438,7 +1444,7 @@ Every path settles audit once and performs no post-mutation cancellation/readine
 <!-- saivage:agent-tools:start -->
 | Agent | Tools | Source |
 |---|---|---|
-| `planner` | `activate_card,cancel_card,create_card,diff_card_versions,edit,edit_card,get_card,get_card_version,get_tree,glob,grep,list_card_versions,list_cards,queue_notification,read,read_record_version,reorder_child,webfetch,websearch,write` | `src/config/system-templates/classic/template.ts:6` |
+| `planner` | `activate_card,cancel_card,create_card,diff_card_versions,edit,edit_card,get_card,get_card_version,get_tree,glob,grep,list_card_versions,list_cards,queue_notification,read,read_record_version,reopen_card,reorder_child,webfetch,websearch,write` | `src/config/system-templates/classic/template.ts:6` |
 | `executor` | `apply_patch,diff_card_versions,edit,get_card_version,glob,grep,kill_process,list_card_versions,mcp_tool_call,read,read_record_version,run_command,skill,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic/template.ts:8` |
 | `reviewer` | `diff_card_versions,edit,get_card_version,glob,grep,list_card_versions,read,read_record_version,skill,webfetch,websearch,write` | `src/config/system-templates/classic/template.ts:7` |
 | `analyst` | `apply_patch,cancel_card,create_card,delete_card,diff_card_versions,edit,get_card,get_card_version,get_status,get_tree,glob,grep,kill_process,list_agent_sessions,list_card_versions,list_cards,list_processes_tool,mcp_reconcile,mcp_tool_call,navigate_back,navigate_workspace,pause_runtime,queue_notification,read,read_agent_session,read_control_actions,read_record_version,read_runtime_errors,read_runtime_events,reconfigure,reopen_card,reorder_child,restart_server,resume_runtime,run_command,show_config,skill,start_project,stop_project,wait_process,webfetch,websearch,write` | `src/config/system-templates/classic/template.ts:5` |
@@ -1448,9 +1454,9 @@ Every path settles audit once and performs no post-mutation cancellation/readine
 
 <!-- saivage:value-contract:tool-identities:start -->
 ```text
-tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","mcp_reconcile","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","mcp_tool_call"]},{"name":"executor","tools":["read","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","mcp_tool_call"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reorder_child","queue_notification","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch"]},{"name":"reviewer","tools":["read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill"]}],"templates":["classic","classic-typed"]}
+tools.shipped-role-inventories = {"agents":[{"name":"analyst","tools":["create_card","reorder_child","reopen_card","queue_notification","get_status","start_project","pause_runtime","resume_runtime","stop_project","restart_server","navigate_workspace","navigate_back","show_config","reconfigure","mcp_reconcile","read_runtime_events","read_runtime_errors","read_control_actions","list_processes_tool","list_agent_sessions","read_agent_session","cancel_card","delete_card","list_cards","get_card","get_tree","list_card_versions","get_card_version","diff_card_versions","read_record_version","read","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","websearch","webfetch","skill","mcp_tool_call"]},{"name":"executor","tools":["read","write","edit","glob","grep","apply_patch","run_command","wait_process","kill_process","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill","mcp_tool_call"]},{"name":"planner","tools":["create_card","edit_card","cancel_card","activate_card","reopen_card","reorder_child","queue_notification","list_cards","get_card","get_tree","read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch"]},{"name":"reviewer","tools":["read","write","edit","glob","grep","list_card_versions","get_card_version","diff_card_versions","read_record_version","websearch","webfetch","skill"]}],"templates":["classic","classic-typed"]}
 tools.projector-presenter-equality = {"gates":["projectLiveToolInvocation","projectToolInvocation"],"names":["activate_card","apply_patch","cancel_card","create_card","delete_card","diff_card_versions","edit","edit_card","emit_result","get_card","get_card_version","get_status","get_tree","glob","grep","kill_process","list_agent_sessions","list_card_versions","list_cards","list_processes_tool","mcp_reconcile","mcp_tool_call","navigate_back","navigate_workspace","pause_runtime","queue_notification","read","read_agent_session","read_control_actions","read_record_version","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","reorder_child","restart_server","resume_runtime","run_command","show_config","skill","start_project","stop_project","wait_process","webfetch","websearch","write"],"sources":["KNOWN_TOOL_INVOCATION_NAMES","TOOL_PRESENTERS","shipped-role-union-plus-terminal"]}
-tools.exclusive-identities = {"analystPresenterOnly":["delete_card","get_status","list_agent_sessions","list_processes_tool","mcp_reconcile","navigate_back","navigate_workspace","pause_runtime","read_agent_session","read_control_actions","read_runtime_errors","read_runtime_events","reconfigure","reopen_card","restart_server","resume_runtime","show_config","start_project","stop_project"],"plannerOnly":["activate_card","edit_card"]}
+tools.exclusive-identities = {"analystPresenterOnly":["delete_card","get_status","list_agent_sessions","list_processes_tool","mcp_reconcile","navigate_back","navigate_workspace","pause_runtime","read_agent_session","read_control_actions","read_runtime_errors","read_runtime_events","reconfigure","restart_server","resume_runtime","show_config","start_project","stop_project"],"plannerOnly":["activate_card","edit_card"]}
 ```
 <!-- saivage:value-contract:tool-identities:end -->
 

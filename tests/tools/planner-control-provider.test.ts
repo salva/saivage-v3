@@ -15,6 +15,7 @@ import { workflowResult } from '../helpers/workflow-result.js';
 import { runtimeFailure } from '../helpers/workflow-result.js';
 import type { CardRecord, CardStatus } from '../../src/schemas/index.js';
 import type { NotifyCardResult } from '../../src/runtime/runtime-api.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 
 const PARENT = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const CHILD = `${PARENT}-b`;
@@ -32,9 +33,10 @@ describe('planner control provider ownership delegation', () => {
     } as unknown as CardService;
     const activateChild = jest.fn(async ({ childCardId }: { childCardId: string; invocation: ChildInvocationLease }) => ({ status: 'done' as const, summary: childCardId, result: workflowResult('DONE',childCardId) }));
     const cancelChild = jest.fn(async ({ childCardId }: { childCardId: string; reason: string }) => ({ card_id: childCardId, status: 'cancelled' as const, cancelled_card_ids: [childCardId] }));
+    const reopenChild = jest.fn(({ childCardId }: { childCardId: string }) => ({ card_id: childCardId, status: 'changed' as const }));
     const notifyCard = jest.fn<() => NotifyCardResult>(() => ({ ok: true, notificationId: 'unused' }));
-    const surface = buildInvocationSurfaceFixture('planner', [bindPlannerControl({ agentName:'planner',projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store, parentControl: { activateChild, cancelChild }, notifyCard,childCreationTypes:new Set(),childActivationTypes:new Set(['code']),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
-    return { store, activateChild, cancelChild, notifyCard, surface };
+    const surface = buildInvocationSurfaceFixture('planner', [bindPlannerControl({ agentName:'planner',projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store, parentControl: { activateChild, cancelChild, reopenChild }, notifyCard,childCreationTypes:new Set(),childActivationTypes:new Set(['code']),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
+    return { store, activateChild, cancelChild, reopenChild, notifyCard, surface };
   }
 
   it('reserves the exact child lease and delegates activation without card I/O or callbacks', async () => {
@@ -60,6 +62,22 @@ describe('planner control provider ownership delegation', () => {
     await expect(settleToolForLlm(test.surface, 'cancel_card', { card_id: CHILD, reason: 'obsolete' }, context)).resolves.toMatchObject({ success: true });
     expect(test.cancelChild).toHaveBeenCalledWith({ childCardId: CHILD, reason: 'obsolete' });
     expect(test.store.read).not.toHaveBeenCalled();
+  });
+
+  it('delegates reopen owner-first and returns only the compact changed result', async () => {
+    const test = harness();
+    const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'reopen_card' });
+    await expect(settleToolForLlm(test.surface, 'reopen_card', { card_id: CHILD }, context)).resolves.toEqual({ success: true, data: { card_id: CHILD, status: 'changed' } });
+    expect(test.reopenChild).toHaveBeenCalledWith({ childCardId: CHILD });
+    expect(test.store.read).not.toHaveBeenCalled();
+  });
+
+  it('rejects non-child and noncanonical reopen arguments before owner delegation', async () => {
+    const test = harness();
+    const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'reopen_card' });
+    await expect(settleToolForLlm(test.surface, 'reopen_card', { card_id: 'card-b' }, context)).resolves.toMatchObject({ success: false });
+    await expect(settleToolForLlm(test.surface, 'reopen_card', { card_id: CHILD, reason: 'alias forbidden' }, context)).resolves.toMatchObject({ success: false });
+    expect(test.reopenChild).not.toHaveBeenCalled();
   });
 
   it('returns a current-parent zero-change reorder without card or notification follow-on work', async () => {
@@ -94,6 +112,19 @@ describe('planner control provider ownership delegation', () => {
     await expect(settleToolForLlm(test.surface, 'activate_card', { card_id: CHILD }, context, controller.signal)).rejects.toBe(interruption);
   });
 
+  it('preserves runtime Stop interruption identity for reopening', async () => {
+    const test = harness(); const interruption = new RuntimeStoppedInterruption(); test.reopenChild.mockImplementationOnce(() => { throw interruption; });
+    const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'reopen_card' });
+    const controller = new AbortController(); controller.abort(interruption);
+    await expect(settleToolForLlm(test.surface, 'reopen_card', { card_id: CHILD }, context, controller.signal)).rejects.toBe(interruption);
+  });
+
+  it('does not convert reopen publication uncertainty into an operational tool result', async () => {
+    const test = harness(); const failure = new PublicationOutcomeUnknownError(); test.reopenChild.mockImplementationOnce(() => { throw failure; });
+    const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'reopen_card' });
+    await expect(settleToolForLlm(test.surface, 'reopen_card', { card_id: CHILD }, context)).rejects.toBe(failure);
+  });
+
   function editHarness(status: CardStatus) {
     const root = mkdtempSync(join(tmpdir(), `planner-edit-${status}-`)); roots.push(root); initProjectTree(root);
     const store = new CardService(root);
@@ -112,7 +143,7 @@ describe('planner control provider ownership delegation', () => {
       else if (status === 'failed') store.commitActivationOutcome(child.id, { status, summary: 'failed', result: runtimeFailure('failed') }, '2026-08-15T00:00:00.000Z');
       else store.commitActivationOutcome(child.id, { status, summary: 'blocked', result: workflowResult('BLOCKED', 'blocked') }, '2026-08-15T00:00:00.000Z');
     }
-    const provider = bindPlannerControl({ agentName: 'planner', projectRoot: root, parentCardId: 'project', sessionId: 'agent:planner:project', store, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] });
+    const provider = bindPlannerControl({ agentName: 'planner', projectRoot: root, parentCardId: 'project', sessionId: 'agent:planner:project', store, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never, reopenChild: jest.fn() as never }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] });
     const surface = buildInvocationSurfaceFixture('planner', [provider]);
     return { store, child: store.read(child.id)!, surface };
   }
@@ -153,7 +184,7 @@ describe('planner control provider ownership delegation', () => {
     const updated = { ...blocked, title: 'Corrected', lifecycle: { status: 'changed' } } as CardRecord;
     const setStatus = jest.fn();
     const store = { read: jest.fn(() => blocked), editCard: jest.fn(() => updated), setStatus };
-    const surface = buildInvocationSurfaceFixture('planner', [bindPlannerControl({ agentName: 'planner', projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store: store as unknown as CardService, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
+    const surface = buildInvocationSurfaceFixture('planner', [bindPlannerControl({ agentName: 'planner', projectRoot: '/project', parentCardId: PARENT, sessionId: `agent:planner:${PARENT}`, store: store as unknown as CardService, parentControl: { activateChild: jest.fn() as never, cancelChild: jest.fn() as never, reopenChild: jest.fn() as never }, notifyCard: () => ({ ok: true, notificationId: 'unused' }), childCreationTypes: new Set(), childActivationTypes: new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] })]);
     await expect(invokeEdit(surface, { card_id: CHILD, title: 'Corrected' })).resolves.toMatchObject({ success: true, data: { card: { status: 'changed' } } });
     expect(store.editCard).toHaveBeenCalledTimes(1);
     expect(setStatus).not.toHaveBeenCalled();

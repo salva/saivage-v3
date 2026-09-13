@@ -18,10 +18,12 @@ type CardActivationCaller = { readonly kind: 'root' } | { readonly kind: 'parent
 interface CardNotificationDeliveryPort { selectNotifications(): CardNotification[]; removeNotifications(ids: readonly string[]): void }
 interface CardCancelReason { reason: string; cancelled_at?: string }
 export interface CardCancellationResult { readonly card_id: string; readonly status: 'cancelled'; readonly cancelled_card_ids: string[] }
+export interface PlannerChildReopenResult { readonly card_id: string; readonly status: 'changed' }
 
 export interface PlannerChildControlPort {
   activateChild(request: { childCardId: string; invocation: ChildInvocationLease }): Promise<CardActivationOutcome>;
   cancelChild(request: { childCardId: string; reason: string }): Promise<CardCancellationResult>;
+  reopenChild(request: { childCardId: string }): PlannerChildReopenResult;
 }
 
 type CardActivationOwnerPhase = 'prepared_root' | 'child_admission' | 'active' | 'settling';

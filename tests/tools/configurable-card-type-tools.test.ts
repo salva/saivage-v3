@@ -15,15 +15,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { plannerControlToolBinders } from '../../src/tools/planner-control-provider.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
+import type { PlannerChildControlPort } from '../../src/runtime/actors/card-activation-owner.js';
 
 const DEFAULT_TYPES=['project','goal','architecture','code','test','doc','data','research','ops'] as const;
 function card(id:string,type:string,children:string[]=[]):CardRecord{return {id,type,title:id,child_membership:children,active_child_order:children,subtype:null,tags:[],priority:0,urgency:'normal',created_by:'analyst',created_at:'2026-08-15T00:00:00.000Z',updated_at:'2026-08-15T00:00:00.000Z',version_seq:1,assigned_to:null,depends_on:[],related:[],lifecycle:{status:'backlog',result:null,error:null,completed_at:null},metrics:null,estimate:null,started_at:null,duration_ms:null,status_text:null,status_text_updated_at:null,status_text_author_session_id:null,latest_self_report:null,metadata:null,pending_notifications:[]};}
+const unusedParentControl: PlannerChildControlPort = {
+  activateChild() { throw new Error('unused parent control'); },
+  cancelChild() { throw new Error('unused parent control'); },
+  reopenChild() { throw new Error('unused parent control'); },
+};
 
 function surfaces(vocabulary:readonly string[],read:ReturnType<typeof jest.fn>){
   const tool=(scope:'global'|'card')=>new BoundAgentToolSet([resolveRuntimeTool(scope,'list_cards')]);
   const store={read,listCardInspectionRows:()=>[{card:read('project'),parentId:null},{card:read('card-a'),parentId:'project'}],listChildren:(id:string)=>id==='project'?['card-a']:[]};
   const global=tool('global').bind({scope:'global',agentName:'analyst',projectRoot:'/',store:store as never,processRunner:{} as never,processScope:{} as never,processOwnerId:'analyst',mcpToolInvocation:{} as never,analystToolContext:{} as never,cardTypeVocabulary:vocabulary});
-  const cardSurface=tool('card').bind({scope:'card',agentName:'planner',projectRoot:'/',store:store as never,cardId:'project',sessionId:'agent:planner:project',parentControl:{} as never,childCreationTypes:new Set(),childActivationTypes:new Set(),notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never,cardTypeVocabulary:vocabulary});
+  const cardSurface=tool('card').bind({scope:'card',agentName:'planner',projectRoot:'/',store:store as never,cardId:'project',sessionId:'agent:planner:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never,cardTypeVocabulary:vocabulary});
   return {global,card:cardSurface};
 }
 
@@ -89,7 +95,7 @@ describe('configuration-bound card-type tool vocabulary',()=>{
   it('keeps Planner wire schema open while enforcing compiled membership, root denial, and node child admission in order',async()=>{
     const created=card('card-a','custom-leaf');
     const store={read:jest.fn((id:string)=>id==='project'?card('project','project'):null),create:jest.fn(()=>created)};
-    const provider=bindToolProvider('planner-control',plannerControlToolBinders,{agentName:'planner',projectRoot:'/',parentCardId:'project',sessionId:'agent:planner:project',store,parentControl:{} as never,notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),childCreationTypes:new Set(['custom-leaf']),childActivationTypes:new Set<string>(),cardTypeVocabulary:['project','custom-leaf','other']});
+    const provider=bindToolProvider('planner-control',plannerControlToolBinders,{agentName:'planner',projectRoot:'/',parentCardId:'project',sessionId:'agent:planner:project',store,parentControl:unusedParentControl,notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),childCreationTypes:new Set(['custom-leaf']),childActivationTypes:new Set<string>(),cardTypeVocabulary:['project','custom-leaf','other']});
     const surface=buildInvocationSurfaceFixture('planner',[provider]);
     const schema=surface.tools.get('create_card')!.inputSchema;
     expect(schema.safeParse({type:'wire-unknown',title:'x',bootstrap_content:'x'}).success).toBe(true);

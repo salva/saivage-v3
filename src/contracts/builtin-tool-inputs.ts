@@ -143,5 +143,6 @@ export const skillInputSchema = z.object({ name: z.string().optional() }).strict
 export const plannerCreateCardInputSchema = z.object({ type: z.string(), title: z.string(), bootstrap_content: z.string().trim().min(1), tags: z.array(z.string()).optional(), priority: z.number().int().optional(), urgency: z.string().optional(), depends_on: z.array(z.string()).optional(), related: z.array(z.string()).optional() }).strict();
 export const plannerEditCardInputSchema = z.object({ card_id: cardIdSchema, title: z.string().optional(), tags: z.array(z.string()).optional(), priority: z.number().int().optional(), urgency: z.string().optional(), related: z.array(z.string()).optional() }).strict();
 export const plannerCancelCardInputSchema = z.object({ card_id: cardIdSchema, reason: z.string().optional() }).strict();
+export const plannerReopenCardInputSchema = z.object({ card_id: cardIdSchema.describe('The exact done or failed direct-child card ID to reopen.') }).strict();
 export const plannerReorderChildInputSchema = z.object({ orderedChildIds: z.array(z.string()) }).strict();
 export const plannerQueueNotificationInputSchema = z.object({ card_id: cardIdSchema, kind: z.string().min(1), body: z.string().min(1) }).strict();

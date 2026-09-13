@@ -137,6 +137,33 @@ describe('shipped project Planner semantic composition', () => {
     expect(new Set(rendered.map(({ instruction }) => instruction)).size).toBe(1);
   });
 
+  it.each(['classic', 'classic-typed'] as const)('compiles explicit project-planner plan/recover selection while preserving configured omission in %s', (templateName) => {
+    const template = resolveSystemTemplate(templateName);
+    const config = effectiveSaivageConfigSchema.parse(structuredClone(template.config));
+    const projectPlanner = structuredClone(config.agents.planner!);
+    config.agents['project-planner'] = projectPlanner;
+    config.agents.planner!.tools = config.agents.planner!.tools.filter((name) => name !== 'reopen_card');
+    config.card_types.project!.workflow.nodes.plan!.agent = 'project-planner';
+    config.card_types.project!.workflow.nodes.recover!.agent = 'project-planner';
+
+    const projectRoot = mkdtempSync(join(tmpdir(), `saivage-${templateName}-named-project-planner-`));
+    roots.push(projectRoot);
+    const workflows = compileProjectWorkflows(config, { defaultPromptRoot: template.promptRoot, projectRoot });
+    const registry = createPromptTemplateRegistry(workflows);
+    const project = workflows.cardTypes.get('project')!;
+    for (const nodeId of ['plan', 'recover']) {
+      const node = requireNode(project, nodeId);
+      expect(node.agent.name).toBe('project-planner');
+      expect(node.selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });
+      expect(node.agent.tools.map(({ name }) => name)).toContain('reopen_card');
+      const rendered = registry.render({ kind: 'workflow-agent', cardType: 'project' }, node.agent.name, { contractDescription: describeNodeResultContract(project, `node:${nodeId}`) });
+      expect(rendered).toContain('Use `reopen_card` only for a done or failed direct child');
+    }
+
+    const goal = workflows.cardTypes.get('goal')!;
+    for (const nodeId of ['plan', 'recover']) expect(requireNode(goal, nodeId).agent.tools.map(({ name }) => name)).not.toContain('reopen_card');
+  });
+
   it.each(['classic', 'classic-typed'] as const)('preserves source-derived %s project/goal process composition and transition values', (templateName) => {
     const template = resolveSystemTemplate(templateName);
     const compiled = compile(template);
@@ -182,6 +209,11 @@ describe('shipped project Planner semantic composition', () => {
       expect(reviewRevision).toContain('Previous process node: review\nAccepted outcome: revision_required');
       expect(reviewRevision).toContain(`record:///review.md?card=${cardId}&v=2`);
       expect(reviewRevision.endsWith(routePrompt(process, 'node:review', 'result:revision_required'))).toBe(true);
+      if (templateName === 'classic-typed') {
+        expect(requirePrompt(process, plan.promptId)).toContain('call `reopen_card({card_id:"<id>"})`');
+        expect(requirePrompt(process, recover.node.promptId)).toContain('call `reopen_card({card_id:"<id>"})`');
+        expect(routePrompt(process, 'node:review', 'result:revision_required')).toContain('Preserve the immutable versioned `review.md` URL');
+      }
       expect(requirePrompt(process, plan.correctionPromptId)).toBe(readFileSync(process.processPrompts.get(plan.correctionPromptId)!.path, 'utf8').replaceAll('{{cardType}}', cardType));
     }
 

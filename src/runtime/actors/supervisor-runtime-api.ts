@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { cardAgentSessionId, cardRecordSchema, type CardNotification, type CardRecord, type ConversationSessionId, type RuntimeState, type RuntimeStatus } from '../../schemas/index.js';
 import { PROJECT_CARD_ID } from '../../cards/project-card.js';
 import { acceptsCardNotifications, canCancelCardStatus } from '../../cards/status-api.js';
-import { CardActivationOwner, type CardCancellationResult, type PlannerChildControlPort } from './card-activation-owner.js';
+import { CardActivationOwner, type CardCancellationResult, type PlannerChildControlPort, type PlannerChildReopenResult } from './card-activation-owner.js';
 import { CardProcessActor } from './card-process-actor.js';
 import { toPublicCardActorState } from '../../schemas/actor-vocabulary.js';
 import type { ChildInvocationLease } from './child-invocation-wait.js';
@@ -258,7 +258,26 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
         }
       },
       cancelChild: ({ childCardId, reason }: { childCardId: string; reason: string }) => { requireParent(); return this.cancelOwnedOrStored(childCardId, reason, parentCardId); },
+      reopenChild: ({ childCardId }: { childCardId: string }) => this.reopenChild(requireParent(), childCardId),
     });
+  }
+
+  private reopenChild(parent: CardActivationOwner, childCardId: string): PlannerChildReopenResult {
+    this.requireOwnerAuthority(parent);
+    if (parent.phase !== 'active' || parent.terminalWinner !== 'open' || !this.applicationAdmissionOpen) throw new Error(`Parent activation '${parent.cardId}' is closed to child reopening.`);
+    if (cardParentId(childCardId) !== parent.cardId) throw new Error(`reopen_card can target only immediate children of '${parent.cardId}'.`);
+    if (this.activationOwners.has(childCardId)) throw new Error(`Child '${childCardId}' still has an activation owner.`);
+    const child = this.behavior.actorStore.read(childCardId);
+    if (!child) throw new Error(`Child card '${childCardId}' not found.`);
+    if (child.lifecycle.status !== 'done' && child.lifecycle.status !== 'failed') throw new Error(`Card '${childCardId}' in status '${child.lifecycle.status}' cannot be reopened.`);
+    this.requireOwnerAuthority(parent);
+    if (parent.phase !== 'active' || parent.terminalWinner !== 'open' || !this.applicationAdmissionOpen) throw new Error(`Parent activation '${parent.cardId}' is closed to child reopening.`);
+    const changed = this.publish(parent, () => this.behavior.actorStore.setStatus(childCardId, 'changed'));
+    if (changed === null) {
+      this.requireOwnerAuthority(parent);
+      throw new Error('Child reopening publication returned no result without stopping the runtime.');
+    }
+    return { card_id: childCardId, status: 'changed' };
   }
 
   private activateChild(parent: CardActivationOwner, childCardId: string, lease: ChildInvocationLease): Promise<import('../../contracts/tool-api.js').CardActivationOutcome> {

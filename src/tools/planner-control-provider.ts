@@ -18,7 +18,7 @@ import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-s
 import type { PlannerChildControlPort } from '../runtime/actors/card-activation-owner.js';
 import { cardParentId } from '../schemas/card-id.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
-import { plannerCancelCardInputSchema, plannerCreateCardInputSchema, plannerEditCardInputSchema, plannerQueueNotificationInputSchema, plannerReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { plannerCancelCardInputSchema, plannerCreateCardInputSchema, plannerEditCardInputSchema, plannerQueueNotificationInputSchema, plannerReopenCardInputSchema, plannerReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { parseAgentName } from '../schemas/agent-name.js';
 
 interface PlannerControlStore {
@@ -46,6 +46,7 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
   defineToolBinder({ name: 'edit_card', description: 'Edit one immediate child of the current planner card. The target must be a direct child; parent/depth changes are not accepted.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerEditCardInputSchema, executor: (ctx, args) => executeToolAction('none', async () => editCard(ctx, args)) }),
   defineToolBinder({ name: 'cancel_card', description: 'Destructively cancel a planner-managed immediate child only when it is obsolete, duplicate, mis-scoped, or explicitly rejected; not a scheduling/defer primitive and not for avoiding actionable backlog work.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerCancelCardInputSchema, executor: (ctx, args) => executeToolAction('none', async () => cancelCard(ctx, args)) }),
   defineToolBinder({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => activateCardArgumentsSchema, executor: (ctx, args, _signal, invocation) => executeToolAction('none', async () => activateCard(ctx, args, invocation)) }),
+  defineToolBinder({ name: 'reopen_card', description: 'Reopen one done or failed immediate child for correction. The parent and its current activation authority are inferred from this planner session.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerReopenCardInputSchema, executor: (ctx, args) => executeToolAction('none', async () => reopenCard(ctx, args)) }),
   defineToolBinder({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerReorderChildInputSchema, executor: (ctx, args) => executeToolAction('none', async () => reorderChild(ctx, args)) }),
   defineToolBinder({ name: 'queue_notification', description: "Queue context on a notification-capable card for its configured current/next workflow-node agent while notification admission is open. Pending delivery context is not readable.", resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerQueueNotificationInputSchema, executor: (ctx, args) => executeToolAction('none', async () => queueNotificationTool(ctx, args)) }),
 ]);
@@ -111,6 +112,12 @@ async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<ty
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');
   if (record.card_id === 'project' || cardParentId(record.card_id) !== ctx.parentCardId) return failure(`cancel_card can target only immediate children of '${ctx.parentCardId}'.`);
   try { return toolSucceeded(await ctx.parentControl.cancelChild({ childCardId: record.card_id, reason: record.reason ?? 'planner_cancel_card' })); }
+  catch (error) { throwIfPublicationOutcomeUnknown(error); if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
+}
+
+async function reopenCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerReopenCardInputSchema>): Promise<ToolActionOutcome> {
+  if (record.card_id === 'project' || cardParentId(record.card_id) !== ctx.parentCardId) return failure(`reopen_card can target only immediate children of '${ctx.parentCardId}'.`);
+  try { return toolSucceeded(ctx.parentControl.reopenChild({ childCardId: record.card_id })); }
   catch (error) { throwIfPublicationOutcomeUnknown(error); if (isRuntimeStoppedInterruption(error)) throw error; return failure(error instanceof Error ? error.message : String(error)); }
 }
 

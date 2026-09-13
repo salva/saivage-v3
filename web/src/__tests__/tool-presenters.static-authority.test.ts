@@ -72,6 +72,7 @@ describe('static tool presenter authority', () => {
     expect(inlineText(presentToolCall(callEnvelope('create_card', { type: 'code', parent: 'project', title: 'Analyst', brief: 'x' })).detail ?? [])).toContain('project');
     expect(inlineText(presentToolCall(callEnvelope('reorder_child', { parentId: 'project', orderedChildIds: ['card-b', 'card-a'] })).detail ?? [])).toContain('project');
     expect(inlineText(presentToolCall(callEnvelope('reopen_card', { cardId: 'card-a' })).headline)).toContain('card-a');
+    expect(inlineText(presentToolCall(callEnvelope('reopen_card', { card_id: 'card-planner' })).headline)).toContain('card-planner');
     expect(inlineText(presentToolCall(callEnvelope('activate_card', { card_id: 'card-current' })).headline)).toContain('card-current');
     expect(inlineText(presentToolCall(callEnvelope('edit_card', { card_id: 'card-current', title: 'x' })).headline)).toContain('card-current');
     expect(inlineText(presentToolCall(callEnvelope('queue_notification', { card_id: 'card-a', kind: 'progress', body: 'Current body' })).detail ?? [])).toContain('Current body');
@@ -173,6 +174,10 @@ describe('static tool presenter authority', () => {
     const reopened = presentToolResult(JSON.stringify({ success: true, data: { ...ANALYST_CARD_VIEW, status: 'changed' } }), { tool: 'reopen_card' });
     expect(inlineText(reopened.headline)).toContain('card-a');
     expect(inlineText(reopened.detail ?? [])).toBe('changed');
+    const plannerReopened = presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-planner', status: 'changed' } }), { tool: 'reopen_card' });
+    expect(inlineText(plannerReopened.headline)).toContain('card-planner');
+    expect(inlineText(plannerReopened.detail ?? [])).toBe('changed');
+    expect(inlineText([...(plannerReopened.headline), ...(plannerReopened.detail ?? [])])).not.toContain('queue');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card: { ...PLANNER_COMPACT_CARD, id: 'card-e', title: 'Edited' } } }), { tool: 'edit_card' }).headline)).toContain('card-e');
     const getCard = presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-a', version_seq: 1, section: 'summary', card: { id: 'card-a', type: 'code', status: 'backlog', title: 'Analyst' } } }), { tool: 'get_card' });
     expect(inlineText(getCard.headline)).toBe('Analyst');

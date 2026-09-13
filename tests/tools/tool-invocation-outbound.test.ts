@@ -68,7 +68,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
 };
 
 describe('projectToolInvocation exhaustive identity switch', () => {
-  it('contains the exact 45-name baseline and every name reaches complete, call-row, and result-row', () => {
+  it('contains the exact 46-name baseline and every name reaches complete, call-row, and result-row', () => {
     expect(KNOWN_TOOL_INVOCATION_NAMES).toHaveLength(46);
     expect(new Set(KNOWN_TOOL_INVOCATION_NAMES).size).toBe(46);
     expect(Object.keys(validArguments).sort()).toEqual([...KNOWN_TOOL_INVOCATION_NAMES].sort());
@@ -92,8 +92,12 @@ describe('projectToolInvocation exhaustive identity switch', () => {
   it('preserves structural identities while classifying every valid argument group', () => {
     expect(complete('list_cards').arguments).toEqual({ tag: OUTBOUND_IDENTITY });
     expect(complete('reopen_card').arguments).toEqual({ cardId: 'card-a' });
-    const reopenCall = projectToolInvocation({ shape: 'call-row', identity: callIdentity('reopen_card'), arguments: JSON.stringify({ cardId: 'card-a' }) });
-    expect(JSON.parse((reopenCall as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ cardId: 'card-a' });
+    const analystReopenCall = projectToolInvocation({ shape: 'call-row', identity: callIdentity('reopen_card'), arguments: JSON.stringify({ cardId: 'card-a' }) });
+    expect(JSON.parse((analystReopenCall as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ cardId: 'card-a' });
+    const plannerReopen = projectToolInvocation({ shape: 'complete', identity: identity('reopen_card'), arguments: { card_id: 'card-b' }, result: { success: true, data: { card_id: 'card-b', status: 'changed' } } });
+    expect(plannerReopen).toMatchObject({ arguments: { card_id: 'card-b' }, result: { success: true, data: { card_id: 'card-b', status: 'changed' } } });
+    const plannerReopenCall = projectToolInvocation({ shape: 'call-row', identity: callIdentity('reopen_card'), arguments: JSON.stringify({ card_id: 'card-b' }) });
+    expect(JSON.parse((plannerReopenCall as Extract<ToolInvocationProjectionInput, { shape: 'call-row' }>).arguments)).toEqual({ card_id: 'card-b' });
     expect(complete('reconfigure').arguments).toEqual({ action: 'set_server_setting', key: 'host', value: 'tok_primary' });
     expect(JSON.stringify(complete('create_card').arguments)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(JSON.stringify(complete('write').arguments)).not.toContain(OUTBOUND_RAW_MARKER);

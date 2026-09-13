@@ -124,6 +124,7 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       parentControl: {
         activateChild: async () => ({ status: 'cancelled', summary: 'schema canary does not execute tools' }),
         cancelChild: async ({ childCardId, reason }) => ({ card_id: childCardId, status: 'cancelled', cancelled_card_ids: [childCardId], reason }),
+        reopenChild: ({ childCardId }) => ({ card_id: childCardId, status: 'changed' }),
       },
       childCreationTypes: new Set(vocabulary.filter((type) => type !== 'project')),
       childActivationTypes: new Set(vocabulary.filter((type) => type !== 'project')),

@@ -10,6 +10,8 @@ import { RuntimeStoppedInterruption } from '../../../src/runtime/actors/runtime-
 import { createSupervisorRuntimeApi } from '../../../src/runtime/actors/supervisor-runtime-api.js';
 import type { CardRecord, ConversationSessionId } from '../../../src/schemas/index.js';
 import type { CardActivationOutcome } from '../../../src/contracts/tool-api.js';
+import type { ApplicationFatalPort } from '../../../src/contracts/publication-outcome.js';
+import type { PlannerChildControlPort } from '../../../src/runtime/actors/card-activation-owner.js';
 import type { ProcessStopReport } from '../../../src/runtime/managed-process-group-registry.js';
 import { workflowResult } from '../../helpers/workflow-result.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
@@ -71,13 +73,14 @@ interface SupervisorInternals {
   halt: { interruption: RuntimeStoppedInterruption; owners: readonly CardActivationOwner[]; promise: Promise<void> } | null;
   beginHalt(trigger: HaltTrigger, publicationOwner?: CardActivationOwner, publicationFailure?: Error): Promise<void>;
   publish<T>(owner: CardActivationOwner, write: () => T): T | null;
+  boundParentControl(parentCardId: string, activationId: string): PlannerChildControlPort;
   activateChild(parent: CardActivationOwner, childCardId: string, lease: ChildInvocationLease): Promise<CardActivationOutcome>;
   createOwner(...args: never[]): CardActivationOwner;
   settleResult(owner: CardActivationOwner, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): Promise<void>;
   onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void;
 }
 
-function harness(withChild = false) {
+function harness(withChild = false, fatalPort: ApplicationFatalPort = testApplicationFatalPort) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-halt-harness-')); roots.push(projectRoot); initProjectTree(projectRoot);
   const processTermination = barrier<ProcessStopReport>();
   const terminateScopeTree = jest.fn(() => processTermination.promise);
@@ -86,7 +89,7 @@ function harness(withChild = false) {
     read: jest.fn((id: string) => ({ ...card(id), lifecycle: { ...card(id).lifecycle, status: lifecycle.get(id) ?? 'running' } })),
     readActivationAdmission: jest.fn((id: string) => id === 'card-a' ? { child: { ...card('card-a'), lifecycle: { ...card('card-a').lifecycle, status: lifecycle.get(id)! } }, dependencies: [] } : null),
     commitActivationOutcome: jest.fn((_id: string, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => ({ ...card('project'), lifecycle: { ...card('project').lifecycle, status: outcome.status } })),
-    setStatus: jest.fn(() => card('project')),
+    setStatus: jest.fn((id: string, status: CardRecord['lifecycle']['status']) => { lifecycle.set(id, status); return { ...card(id), lifecycle: { ...card(id).lifecycle, status } }; }),
     listChildren: jest.fn((id: string) => withChild && id === 'project' ? ['card-a'] : []),
     stopRunningForRecovery: jest.fn((id: string) => { lifecycle.set(id, 'stopped'); return { ...card(id), lifecycle: { ...card(id).lifecycle, status: 'stopped' as const } }; }),
     activateStopped: jest.fn((id: string) => { lifecycle.set(id, 'running'); return { ...card(id), lifecycle: { ...card(id).lifecycle, status: 'running' as const } }; }),
@@ -95,7 +98,7 @@ function harness(withChild = false) {
   const membershipRecords: Array<{ target: { scope: 'card'; cardId: string }; liveIds: ConversationSessionId[]; ownersCleared: boolean }> = [];
   let supervisor!: ReturnType<typeof createSupervisorRuntimeApi>;
   supervisor = createSupervisorRuntimeApi({
-    fatalPort: testApplicationFatalPort,
+    fatalPort,
     ...testAutonomousCompaction,
     runtimeGate: new RuntimeGate(),
     projectRoot,
@@ -141,6 +144,136 @@ async function within<T>(promise: Promise<T>): Promise<T> {
 }
 
 describe('Supervisor singular runtime halt concurrency', () => {
+  it.each(['done', 'failed'] as const)('reopens a real %s child through the bound owner port with one status append', (status) => {
+    const projectRoot = mkdtempSync(join(tmpdir(), `saivage-reopen-${status}-`)); roots.push(projectRoot); initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot);
+    const child = cards.create({ type: 'code', parent: 'project', title: 'child', bootstrap_content: 'brief', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    cards.setStatus('project', 'running');
+    cards.setStatus(child.id, 'running');
+    cards.commitActivationOutcome(child.id, status === 'done'
+      ? { status: 'done', summary: 'complete', result: workflowResult('DONE', 'complete') }
+      : { status: 'failed', summary: 'failed', result: { kind: 'runtime-failure', summary: 'failed' } }, '2026-09-13T00:00:00.000Z');
+    const processes = createTestProcessRunner(projectRoot);
+    const supervisor = createSupervisorRuntimeApi({ fatalPort: testApplicationFatalPort, ...testAutonomousCompaction, runtimeGate: new RuntimeGate(), projectRoot, actorStore: cards, provider: scriptedAdmissionProvider(async () => new Promise<never>(() => undefined)), conversations: { projectRoot }, freshness: { runtimeChanged() {}, agentMembershipChanged() {} }, processRunner: processes.processRunner, runtimeProcessRootScope: processes.runtimeProcessRootScope, processIdentity: { pid: 1, startedAt: 'now' }, promptTemplates: createTestPromptTemplateRegistry() });
+    const internals = supervisor as unknown as SupervisorInternals;
+    const rootProcessor = processor();
+    const root = new CardActivationOwner({ card: cards.read('project')!, processor: rootProcessor.actor, activationId: 'real-root', entry: 'BACKLOG', phase: 'prepared_root' });
+    root.phase = 'active'; internals.activationOwners.set('project', root); internals.runIdentity = {}; internals.currentCardId = 'project'; internals.status = 'running';
+    const port = internals.boundParentControl('project', root.activationId);
+    const versionsBefore = cards.listCardVersions(child.id);
+    if (versionsBefore.kind !== 'found') throw new Error('Expected child version history.');
+    const parentBefore = cards.listCardVersions('project');
+    const recordBefore = cards.readRecordHistory(child.id, 'brief.md');
+    if (recordBefore.kind !== 'found') throw new Error('Expected child record history.');
+
+    expect(port.reopenChild({ childCardId: child.id })).toEqual({ card_id: child.id, status: 'changed' });
+    expect(cards.read(child.id)).toMatchObject({ version_seq: child.version_seq + 3, lifecycle: { status: 'changed', result: null, error: null, completed_at: null } });
+    const versionsAfter = cards.listCardVersions(child.id);
+    expect(versionsAfter.kind).toBe('found');
+    if (versionsAfter.kind !== 'found') throw new Error('Expected reopened child version history.');
+    expect(versionsAfter.value).toHaveLength(versionsBefore.value.length + 1);
+    const recordAfter = cards.readRecordHistory(child.id, 'brief.md');
+    expect(recordAfter.kind).toBe('found');
+    if (recordAfter.kind !== 'found') throw new Error('Expected reopened child record history.');
+    expect(recordAfter.value.catalog).toEqual(recordBefore.value.catalog);
+    expect(cards.listCardVersions('project')).toEqual(parentBefore);
+    expect(() => port.reopenChild({ childCardId: child.id })).toThrow("in status 'changed' cannot be reopened");
+  });
+
+  it.each(['backlog', 'changed', 'running', 'stopped', 'blocked', 'cancelled'] as const)('denies a %s child before publication without halting', (status) => {
+    const h = harness(); h.lifecycle.set('card-a', status);
+    const port = h.internals.boundParentControl('project', h.root.activationId);
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(`in status '${status}' cannot be reopened`);
+    expect(h.store.setStatus).not.toHaveBeenCalled(); expect(h.internals.halt).toBeNull(); expect(h.supervisor.getStatus().status).toBe('running');
+  });
+
+  it('denies non-child, missing, owned-target, stale-owner, result, cancellation, and application-close fences without a reopen write', () => {
+    const h = harness(); h.lifecycle.set('card-a', 'done');
+    const port = h.internals.boundParentControl('project', h.root.activationId);
+    expect(() => port.reopenChild({ childCardId: 'card-a-b' })).toThrow("only immediate children of 'project'");
+    expect(h.store.read).not.toHaveBeenCalled();
+    h.store.read.mockImplementationOnce(() => null as never);
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow("Child card 'card-a' not found");
+    h.store.read.mockClear();
+
+    const owned = harness(true); owned.lifecycle.set('card-a', 'done');
+    expect(() => owned.internals.boundParentControl('project', owned.root.activationId).reopenChild({ childCardId: 'card-a' })).toThrow('still has an activation owner');
+    expect(owned.store.read).not.toHaveBeenCalled();
+
+    h.root.terminalWinner = 'result';
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('closed to child reopening');
+    expect(h.store.read).not.toHaveBeenCalled();
+    h.root.terminalWinner = 'cancel';
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('closed to child reopening');
+    expect(h.store.read).not.toHaveBeenCalled();
+    h.root.terminalWinner = 'open'; h.root.phase = 'settling';
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('no longer active');
+    expect(h.store.read).not.toHaveBeenCalled();
+    h.root.terminalWinner = 'open'; h.root.phase = 'active';
+    (h.supervisor as unknown as { applicationAdmissionOpen: boolean }).applicationAdmissionOpen = false;
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('closed to child reopening');
+    expect(h.store.read).not.toHaveBeenCalled();
+    (h.supervisor as unknown as { applicationAdmissionOpen: boolean }).applicationAdmissionOpen = true;
+    const replacement = new CardActivationOwner({ card: card('project'), processor: processor().actor, activationId: 'replacement', entry: 'BACKLOG', phase: 'prepared_root' });
+    replacement.phase = 'active'; h.internals.activationOwners.set('project', replacement);
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('no longer active');
+    expect(h.store.read).not.toHaveBeenCalled();
+    expect(h.store.setStatus).not.toHaveBeenCalled(); expect(h.internals.halt).toBeNull();
+  });
+
+  it('rejects a captured reopen port after Stop freezes its owner, before any target access', async () => {
+    const h = harness(); h.lifecycle.set('card-a', 'done');
+    const port = h.internals.boundParentControl('project', h.root.activationId);
+    const stop = h.supervisor.stopProject();
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(h.internals.halt!.interruption);
+    expect(h.store.read).not.toHaveBeenCalled(); expect(h.store.setStatus).not.toHaveBeenCalled();
+    h.rootProcessor.join.resolve([]); h.processTermination.resolve(processReport);
+    await expect(stop).resolves.toEqual({ status: 'stopped', contained: true });
+  });
+
+  it('routes a reopen publication failure through the normal halt and exposes only the stop interruption', async () => {
+    const h = harness(); h.lifecycle.set('card-a', 'done');
+    const failure = new Error('reopen append failed'); h.store.setStatus.mockImplementationOnce(() => { throw failure; });
+    const settlement = h.root.settlement.promise.catch((error) => error);
+    const port = h.internals.boundParentControl('project', h.root.activationId);
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(RuntimeStoppedInterruption);
+    expect(h.store.setStatus).toHaveBeenCalledTimes(1); expect(h.internals.halt?.owners).toEqual([h.root]);
+    await expect(settlement).resolves.toBe(failure);
+    expect(h.rootProcessor.dispose).toHaveBeenCalledTimes(1); expect(h.terminateScopeTree).toHaveBeenCalledTimes(1);
+    h.rootProcessor.join.resolve([]); h.processTermination.resolve(processReport);
+    await expect(h.internals.halt!.promise).resolves.toBeUndefined();
+  });
+
+  it('returns no reopen success when a stop begins during the append', async () => {
+    const h = harness(); h.lifecycle.set('card-a', 'done');
+    let stop!: Promise<unknown>;
+    h.store.setStatus.mockImplementationOnce((id: string, status: CardRecord['lifecycle']['status']) => { stop = h.supervisor.stopProject(); h.lifecycle.set(id, status); return card(id); });
+    const port = h.internals.boundParentControl('project', h.root.activationId);
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(RuntimeStoppedInterruption);
+    expect(h.store.setStatus).toHaveBeenCalledTimes(1);
+    h.rootProcessor.join.resolve([]); h.processTermination.resolve(processReport);
+    await expect(stop).resolves.toEqual({ status: 'stopped', contained: true });
+  });
+
+  it('fails fast if publication returns null without installing a halt', () => {
+    const h = harness(); h.lifecycle.set('card-a', 'done');
+    jest.spyOn(h.internals, 'publish').mockReturnValueOnce(null);
+    const port = h.internals.boundParentControl('project', h.root.activationId);
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow('publication returned no result without stopping the runtime');
+    expect(h.store.setStatus).not.toHaveBeenCalled(); expect(h.internals.halt).toBeNull();
+  });
+
+  it('delivers reopen publication uncertainty fatally without retry, halt, or follow-on access', () => {
+    const failure = new PublicationOutcomeUnknownError();
+    const publicationOutcomeUnknown = jest.fn((error: PublicationOutcomeUnknownError): never => { throw error; });
+    const h = harness(false, { publicationOutcomeUnknown }); h.lifecycle.set('card-a', 'done');
+    h.store.setStatus.mockImplementationOnce(() => { throw failure; });
+    const port = h.internals.boundParentControl('project', h.root.activationId);
+    expect(() => port.reopenChild({ childCardId: 'card-a' })).toThrow(failure);
+    expect(publicationOutcomeUnknown).toHaveBeenCalledWith(failure); expect(h.store.setStatus).toHaveBeenCalledTimes(1);
+    expect(h.store.read).toHaveBeenCalledTimes(1); expect(h.store.read).toHaveBeenCalledWith('card-a');
+    expect(h.internals.halt).toBeNull(); expect(h.terminateScopeTree).not.toHaveBeenCalled();
+  });
   it('captures installed autonomous selection, handoff, and ordinary release exactly', () => {
     const h = harness();
     const snapshot = jest.spyOn(h.rootProcessor.actor, 'executingLlmSnapshot');

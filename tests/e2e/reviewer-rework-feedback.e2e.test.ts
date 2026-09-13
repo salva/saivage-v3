@@ -136,4 +136,150 @@ describe('reviewer rework completion E2E', () => {
     expect(cards.readRecordVersion('project','review.md',6)).toMatchObject({kind:'found',value:{projection:{artifact:{accepted:{content:'Approved after concrete remediation.'}}}}});
     expect(cards.readRecordCurrent('project','review-notes-1.md')).toMatchObject({kind:'found',value:{projection:{artifact:{state:'closed',accepted:{content:'Repeatedly edited wildcard note.',writer_agent:'reviewer'}}}}});
   });
+
+  it('lets the owning goal Planner reopen the same completed child for reviewed correction', async () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-reviewer-child-reopen-e2e-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const cards = new CardService(projectRoot);
+    const goal = cards.create({ type: 'goal', parent: 'project', title: 'Reviewed goal', bootstrap_content: 'Deliver the implementation and correct review findings.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const implementation = cards.create({ type: 'code', parent: goal.id, title: 'Implementation', bootstrap_content: 'Implement the reviewed behavior.', tags: [], priority: 0, urgency: 'normal', created_by: 'planner', depends_on: [], related: [] });
+    const correction = 'Correction required: preserve the explicit cleanup guarantee when finalization throws.';
+    const firstReview = 'Revision required: prove cleanup still closes the resource when finalization throws.';
+    const approvedReview = 'Approved: corrected implementation demonstrates the required cleanup guarantee.';
+
+    let rootPlannerCalls = 0;
+    let goalPlannerCalls = 0;
+    let executorCalls = 0;
+    let reviewerCalls = 0;
+    let rootGrandchildReopenResult: unknown;
+    let goalReviewContext: string | undefined;
+    let correctedExecutorInput: LlmInvocationInput | undefined;
+    const observedImplementationStatuses: string[] = [];
+    const plannerToolMenus: string[][] = [];
+    const implementationInputs: LlmInvocationInput[] = [];
+
+    const providerTurn = jest.fn(async (input: LlmInvocationInput) => {
+      if (input.sessionId === 'agent:planner:project') {
+        rootPlannerCalls += 1;
+        plannerToolMenus.push(input.tools.map((definition) => definition.function.name));
+        if (rootPlannerCalls === 1) return complete(tool('root-activate-goal', 'activate_card', { card_id: goal.id }));
+        if (rootPlannerCalls === 2) return complete(tool('root-reopen-grandchild', 'reopen_card', { card_id: implementation.id }));
+        if (rootPlannerCalls === 3) {
+          const row = [...input.providerConversation.messages].reverse().find((message) => message.kind === 'tool_result' && message.tool_call_id === 'root-reopen-grandchild');
+          rootGrandchildReopenResult = row ? JSON.parse(row.content) : null;
+          return complete(tool('root-status', 'write', { path: 'record:///status.md?card=project', content: 'Reviewed goal and corrected implementation are complete.' }));
+        }
+        if (rootPlannerCalls === 4) return complete(tool('root-complete', 'emit_result', { outcome: 'complete_direct', summary: 'Project completed after owned correction.' }));
+        throw new Error(`Unexpected root Planner call ${rootPlannerCalls}.`);
+      }
+
+      if (input.sessionId === `agent:planner:${goal.id}`) {
+        goalPlannerCalls += 1;
+        plannerToolMenus.push(input.tools.map((definition) => definition.function.name));
+        if (goalPlannerCalls === 1) return complete(tool('goal-activate-initial', 'activate_card', { card_id: implementation.id }));
+        if (goalPlannerCalls === 2) return complete(tool('goal-status-initial', 'write', { path: `record:///status.md?card=${goal.id}`, content: 'Initial implementation is ready for review.' }));
+        if (goalPlannerCalls === 3) return complete(tool('goal-review-initial', 'emit_result', { outcome: 'admit_review', summary: 'Review the initial implementation.' }));
+        if (goalPlannerCalls === 4) {
+          goalReviewContext = input.providerConversation.messages.find((message) => message.role === 'user' && message.kind === 'text' && message.content.includes(firstReview))?.content;
+          observedImplementationStatuses.push(cards.read(implementation.id)!.lifecycle.status);
+          return complete(tool('goal-reopen-child', 'reopen_card', { card_id: implementation.id }));
+        }
+        if (goalPlannerCalls === 5) {
+          observedImplementationStatuses.push(cards.read(implementation.id)!.lifecycle.status);
+          return complete(tool('goal-queue-correction', 'queue_notification', { card_id: implementation.id, kind: 'review_correction', body: correction }));
+        }
+        if (goalPlannerCalls === 6) return complete(tool('goal-activate-correction', 'activate_card', { card_id: implementation.id }));
+        if (goalPlannerCalls === 7) return complete(tool('goal-status-corrected', 'write', { path: `record:///status.md?card=${goal.id}`, content: 'The same implementation child completed the requested correction.' }));
+        if (goalPlannerCalls === 8) return complete(tool('goal-review-corrected', 'emit_result', { outcome: 'admit_review', summary: 'Review the corrected implementation.' }));
+        throw new Error(`Unexpected goal Planner call ${goalPlannerCalls}.`);
+      }
+
+      if (input.sessionId === `agent:executor:${implementation.id}`) {
+        executorCalls += 1;
+        implementationInputs.push(input);
+        if (executorCalls === 1) return complete(tool('implementation-status-initial', 'write', { path: `record:///status.md?card=${implementation.id}`, content: 'Initial implementation completed without explicit exceptional cleanup evidence.' }));
+        if (executorCalls === 2) return complete(tool('implementation-complete-initial', 'emit_result', { outcome: 'done', summary: 'Initial implementation complete.' }));
+        if (executorCalls === 3) {
+          correctedExecutorInput = input;
+          observedImplementationStatuses.push(cards.read(implementation.id)!.lifecycle.status);
+          return complete(tool('implementation-status-corrected', 'write', { path: `record:///status.md?card=${implementation.id}`, content: 'Corrected implementation closes the resource even when finalization throws.' }));
+        }
+        if (executorCalls === 4) return complete(tool('implementation-complete-corrected', 'emit_result', { outcome: 'done', summary: 'Reviewed correction complete.' }));
+        throw new Error(`Unexpected implementation Executor call ${executorCalls}.`);
+      }
+
+      if (input.sessionId === `agent:reviewer:${goal.id}`) {
+        reviewerCalls += 1;
+        if (reviewerCalls === 1) return complete(tool('goal-review-write-revision', 'write', { path: `record:///review.md?card=${goal.id}`, content: firstReview }));
+        if (reviewerCalls === 2) return complete(tool('goal-review-revision', 'emit_result', { outcome: 'revision_required', summary: firstReview }));
+        if (reviewerCalls === 3) return complete(tool('goal-review-write-approved', 'write', { path: `record:///review.md?card=${goal.id}`, content: approvedReview }));
+        if (reviewerCalls === 4) return complete(tool('goal-review-approved', 'emit_result', { outcome: 'approved', summary: approvedReview }));
+        throw new Error(`Unexpected goal Reviewer call ${reviewerCalls}.`);
+      }
+
+      throw new Error(`Unexpected provider session '${input.sessionId}'.`);
+    });
+    const provider: LLMProviderPort = scriptedAdmissionProvider(providerTurn);
+    const processRegistry = new ManagedProcessGroupRegistry();
+    const runtimeProcessRootScope = processRegistry.createContainerScope(processRegistry.rootScope, 'runtime-cards');
+    const runtime = createSupervisorRuntimeApi({
+      fatalPort: testApplicationFatalPort,
+      ...testAutonomousCompaction,
+      runtimeGate: new RuntimeGate(),
+      projectRoot,
+      actorStore: cards,
+      provider,
+      conversations: { projectRoot },
+      freshness: { runtimeChanged() {}, agentMembershipChanged() {} },
+      processRunner: new ProcessRunner(projectRoot, processRegistry, testApplicationFatalPort),
+      runtimeProcessRootScope,
+      promptTemplates: { render: () => 'test prompt' },
+    });
+
+    const started = await runtime.startProject();
+    if (!started.started) throw new Error('Run was not accepted.');
+    await waitUntil(() => runtime.getStatus().status === 'stopped');
+
+    expect(cards.read('project')).toMatchObject({ lifecycle: { status: 'done', result: { summary: 'Project completed after owned correction.' } } });
+    expect(cards.read(goal.id)).toMatchObject({ lifecycle: { status: 'done', result: { summary: approvedReview } } });
+    expect(cards.read(implementation.id)).toMatchObject({ lifecycle: { status: 'done', result: { summary: 'Reviewed correction complete.' } } });
+    expect(cards.getCardChildren(goal.id)).toMatchObject({ kind: 'found', value: { activeChildren: [{ id: implementation.id }] } });
+    expect(rootGrandchildReopenResult).toEqual({ success: false, error: `reopen_card can target only immediate children of 'project'.` });
+
+    const configuredPlannerMenu = testAutonomousCompaction.workflows.agents.get('planner')!.tools.map(({ name }) => name).concat('emit_result');
+    expect(plannerToolMenus.length).toBeGreaterThan(0);
+    expect(plannerToolMenus.every((menu) => JSON.stringify(menu) === JSON.stringify(configuredPlannerMenu))).toBe(true);
+    expect(configuredPlannerMenu).toContain('reopen_card');
+    expect(configuredPlannerMenu).toContain('queue_notification');
+
+    expect(observedImplementationStatuses).toEqual(['done', 'changed', 'running']);
+    const versions = cards.listCardVersions(implementation.id);
+    if (versions.kind !== 'found') throw new Error('Implementation version history is missing.');
+    const statusHistory = versions.value.map(({ version }) => {
+      const artifact = cards.readCardVersion(implementation.id, version);
+      if (artifact.kind !== 'found' || artifact.value.kind !== 'card-version') throw new Error(`Implementation version ${version} is missing.`);
+      return artifact.value.card.lifecycle.status;
+    });
+    expect(statusHistory.filter((status, index) => index === 0 || status !== statusHistory[index - 1])).toEqual(['backlog', 'running', 'done', 'changed', 'running', 'done']);
+
+    expect(correctedExecutorInput?.episodeContext.cardId).toBe(implementation.id);
+    expect(implementationInputs).toHaveLength(4);
+    expect(new Set(implementationInputs.map(({ episodeContext }) => episodeContext.cardId))).toEqual(new Set([implementation.id]));
+    expect(new Set(implementationInputs.map(({ sessionId }) => sessionId))).toEqual(new Set([`agent:executor:${implementation.id}`]));
+    expect(correctedExecutorInput?.providerConversation.messages.filter((message) => message.role === 'user' && message.kind === 'text' && message.content === correction)).toHaveLength(1);
+    const goalPlannerRows = readConversation(projectRoot, `agent:planner:${goal.id}`).physicalRows;
+    expect(goalPlannerRows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'tool_call', tool: 'reopen_card', tool_call_id: 'goal-reopen-child' }),
+      expect.objectContaining({ kind: 'tool_call', tool: 'queue_notification', tool_call_id: 'goal-queue-correction' }),
+      expect.objectContaining({ kind: 'tool_call', tool: 'activate_card', tool_call_id: 'goal-activate-correction' }),
+    ]));
+    expect(goalReviewContext).toContain(`record:///review.md?card=${goal.id}&v=3`);
+    expect(cards.readRecordVersion(goal.id, 'review.md', 3)).toMatchObject({ kind: 'found', value: { projection: { artifact: { accepted: { content: firstReview, writer_agent: 'reviewer' } } } } });
+    expect(cards.readRecordVersion(goal.id, 'review.md', 6)).toMatchObject({ kind: 'found', value: { projection: { artifact: { accepted: { content: approvedReview, writer_agent: 'reviewer' } } } } });
+    expect(rootPlannerCalls).toBe(4);
+    expect(goalPlannerCalls).toBe(8);
+    expect(executorCalls).toBe(4);
+    expect(reviewerCalls).toBe(4);
+  });
 });
