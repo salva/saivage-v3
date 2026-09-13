@@ -35,6 +35,7 @@ SAIVAGE_API_TOKEN=test "$SAIVAGE_BIN" start
 The [system specification](docs/spec/system-specification.md#8-lifecycle-lock-and-cli)
 owns startup options and precedence. The [runbook](docs/runbook/index.md) owns
 deployment, configuration cutovers, lifecycle operations, recovery, and reset.
+Service authors should also review the runbook's [command-environment guidance](docs/runbook/index.md#command-environment).
 
 Conversation compaction uses one contextual sequential-refine accumulator, at
 most two preselected safe coverage endpoints, and at most one source-faithful

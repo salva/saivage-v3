@@ -954,8 +954,11 @@ MCP cleanup reuses those same runtime-owned settlements, starts exact MCP-root c
 A rejected root containment is rethrown unchanged; otherwise a failed root report or any rejected direct/reconciliation settlement fails MCP cleanup.
 The runtime collection clears only after complete success.
 
-Each stdio MCP child receives only the shared positive-allowlist command environment (`PATH`, `HOME`, `USER`, `LANG`, `TERM`, and `LC_*`) inherited from the Saivage process, followed by that server entry's exact configured `env` overlay.
-The explicit overlay wins on duplicate names and is not filtered by secret-like key names; undeclared Saivage, provider, and deployment variables are not inherited.
+### Command environment
+
+The shared positive-allowlist command environment inherits exactly `PATH`, `HOME`, `USER`, `LANG`, `TERM`, every `LC_*` locale name, and the four optional Git identity names `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` from the Saivage process. Supplied values pass through verbatim, including empty strings; absent names remain absent. Saivage supplies no Git identity, performs no identity precheck, and leaves validation to Git at use. Every other inherited name is excluded, including undeclared Saivage, provider, and deployment variables, arbitrary unknown names, `GIT_CONFIG` and related configuration overrides, `GIT_SSH`, and `GIT_SSH_COMMAND`; there is no `GIT_*` prefix admission.
+
+Ordinary `run_command` children start from that shared environment, then receive the runner's explicit project locators and any explicit per-command environment overlay. Stdio MCP children also start from the same shared environment, followed by that server entry's exact configured `env` overlay. Explicit configured overlays are distinct from inherited environment policy, are not filtered by secret-like key names, and win on duplicate names.
 Streamable HTTP MCP does not launch a child process.
 
 The parsed configuration is the sole MCP server-entry authority.

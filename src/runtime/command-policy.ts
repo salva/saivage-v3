@@ -1,6 +1,16 @@
 import { redactTextForOutbound } from '../redaction/index.js';
 
-const SAFE_ENV_ALLOWLIST = new Set(['PATH', 'HOME', 'USER', 'LANG', 'TERM']);
+const SAFE_ENV_ALLOWLIST = new Set([
+  'PATH',
+  'HOME',
+  'USER',
+  'LANG',
+  'TERM',
+  'GIT_AUTHOR_NAME',
+  'GIT_AUTHOR_EMAIL',
+  'GIT_COMMITTER_NAME',
+  'GIT_COMMITTER_EMAIL',
+]);
 const SAFE_ENV_PREFIXES = ['LC_'];
 
 export const DEFAULT_COMMAND_TIMEOUT_MS = 120_000;

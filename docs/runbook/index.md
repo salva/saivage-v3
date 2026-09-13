@@ -22,6 +22,10 @@ The CLI parses each command's options once, strictly, and uses the resulting typ
 
 Service authors should set only the inputs their deployment owns, keep the project root and selected YAML path explicit where working-directory assumptions would be ambiguous, and pass bearer credentials through the environment or a deployment credential file rather than CLI arguments or URLs. `NODE_ENV`, `LOG_LEVEL`, and `SAIVAGE_API_TOKEN` are independent environment-only inputs, not alternate sources in the four selection chains.
 
+### Command environment
+
+Operators may provide `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and `GIT_COMMITTER_EMAIL` in the service environment for ordinary command children. Saivage supplies no identity defaults and does not require identity at startup; Git validates the provided values when used. Provider tokens, unknown inherited names, and Git or SSH override names such as `GIT_CONFIG`, `GIT_SSH`, and `GIT_SSH_COMMAND` are not inherited by ordinary commands. Explicit configured command or stdio MCP environment overlays are distinct from inherited values and retain precedence. The [system command-environment contract](../spec/system-specification.md#command-environment) owns the exact inherited list.
+
 Keep bearer credentials in the environment or deployment credential file, never in an argument or URL:
 
 ```bash
