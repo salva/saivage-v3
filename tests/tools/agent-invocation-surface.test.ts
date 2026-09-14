@@ -6,10 +6,11 @@ import { join } from 'node:path';
 import { DEFAULT_SAIVAGE_CONFIG } from '../../src/config/system-templates/registry.js';
 import { compileProjectWorkflows } from '../../src/runtime/card-process/card-process-config.js';
 import { BoundAgentToolSet, buildRuntimeToolCatalog, resolveRuntimeTool } from '../../src/tools/runtime-tool-catalog.js';
-import { cleanupInvocationSurface, surfaceToolDefinitions } from '../../src/tools/invocation.js';
+import { cleanupInvocationSurface, executeToolAction, surfaceToolDefinitions } from '../../src/tools/invocation.js';
 import { cardInspectionToolBinders } from '../../src/tools/card-inspection-provider.js';
 import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 import type { PlannerChildControlPort } from '../../src/runtime/actors/card-activation-owner.js';
+import { submitNotificationTool } from '../../src/tools/notification-tool.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -100,12 +101,13 @@ describe('named-agent inventories and composition', () => {
     expect(surface.tools.has('mcp_tool_call')).toBe(false);
   });
 
-  it('binds Oversight from narrow observation authority without Analyst mutation or process scope', () => {
+  it('binds Oversight notification execution from its explicit narrow authority', async () => {
     const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-oversight-surface-'));
     roots.push(projectRoot);
     initProjectTree(projectRoot);
     const store = new CardService(projectRoot);
     const processRunner = { list: () => [] } as never;
+    const submitNotification=jest.fn(async()=>({queued:true as const,cardId:'project',notificationId:'notice-1',interruption:{status:'not_requested' as const}}));
     const observationToolContext = {
       agentName: 'oversight',
       projectRoot,
@@ -113,7 +115,7 @@ describe('named-agent inventories and composition', () => {
       processRunner,
       eventQueries: {} as never,
       runtime: { getStatus: () => ({ status: 'stopped' as const, currentCardId: null, pid: 1, startedAt: '2026-09-14T00:00:00.000Z' }) },
-      submitNotification: async () => ({ queued: false as const, reason: 'missing_card' as const, cardId: 'project' }),
+      queueNotification: (input:Parameters<typeof submitNotificationTool>[0],signal:AbortSignal) => executeToolAction('none',()=>submitNotificationTool(input,submitNotification,signal)),
       captureExecutingLlmSnapshots: () => new Map(),
       currentProcessPosition: () => null,
     };
@@ -128,6 +130,10 @@ describe('named-agent inventories and composition', () => {
     ]);
     for (const forbidden of ['write','edit','apply_patch','run_command','kill_process','mcp_tool_call','skill','webfetch'])
       expect(surface.tools.has(forbidden)).toBe(false);
+    const notification=surface.tools.get('queue_notification');if(!notification)throw new Error('missing queue_notification');
+    const result=await notification.executor({card_id:'project',kind:'finding',body:'evidence',urgency:'normal'},new AbortController().signal);
+    expect(result.providerOutcome).toEqual({kind:'succeeded',data:{queued:true,card_id:'project',notification_id:'notice-1',body:'evidence',interruption:{status:'not_requested'}}});
+    expect(submitNotification).toHaveBeenCalledTimes(1);
   });
 
   it('grants configured MCP solely from the named tool declaration without an agent-name or annotation policy',()=>{

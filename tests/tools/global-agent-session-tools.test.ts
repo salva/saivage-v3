@@ -18,6 +18,7 @@ import {
   OUTBOUND_URL,
 } from '../helpers/outbound-identity-fixtures.js';
 import { publishThreeGenerationCompactedConversation } from '../helpers/compacted-conversation-fixture.js';
+import { settledSuccessBytes } from '../../src/tools/tool-result-settlement.js';
 
 const roots: string[] = [];
 const timestamp = '2026-07-18T00:00:00.000Z';
@@ -116,17 +117,22 @@ describe('global agent-session observation tools', () => {
       throw new Error(execution.providerOutcome.error);
     const data = execution.providerOutcome.data as any;
     expect(Object.keys(data).sort()).toEqual([
+      'has_segment_context',
       'messages',
       'ownership',
-      'segment_context',
+      'section',
       'segment_version',
       'session',
       'total_visible_entries',
     ]);
     expect(data.segment_version).toBe(3);
-    expect(data.segment_context).not.toBeNull();
-    const segmentContext = data.segment_context;
-    if (segmentContext === null) throw new Error('Expected compacted segment context.');
+    expect(data).toMatchObject({section:'messages',has_segment_context:true});
+    const contextExecution=await bound.executor(bound.inputSchema.parse({session_id:sessionId,section:'context'}),new AbortController().signal);
+    expect(contextExecution.providerOutcome.kind).toBe('succeeded');
+    if(contextExecution.providerOutcome.kind!=='succeeded')throw new Error(contextExecution.providerOutcome.error);
+    const contextData=contextExecution.providerOutcome.data as any;
+    expect(contextData).toMatchObject({section:'context',has_segment_context:true,context:{total:1,returned:1}});
+    const segmentContext = contextData.context.items[0];
     expect(Object.keys(segmentContext).sort()).toEqual([
       'continuation',
       'coverage',
@@ -209,7 +215,8 @@ describe('global agent-session observation tools', () => {
         session: detail.session,
         ownership: 'active',
         segment_version: 1,
-        segment_context: null,
+        section: 'messages',
+        has_segment_context: false,
         total_visible_entries: 3,
         messages: expect.objectContaining({ total: 1, returned: 1, items: [expected.entries[2]] }),
       },
@@ -325,6 +332,33 @@ describe('global agent-session observation tools', () => {
     expect(Buffer.byteLength(JSON.stringify(first),'utf8')).toBeLessThanOrEqual(1024);
     const second=await invokeAgentObservation(projectRoot,'read_agent_session',{session_id:'agent:planner:project',last_n:3,response_bytes:1024,position:page.next});
     expect(second).toMatchObject({kind:'succeeded',data:{messages:{position:page.next}}});
+  });
+
+  it('pages a complete oversized compacted context independently without leaking secret text',async()=>{
+    const projectRoot=setup();
+    const marker='context-secret-token';
+    const sessionId=await publishThreeGenerationCompactedConversation(projectRoot,`token=${marker} ${'history '.repeat(300)}`);
+    let position:undefined|{item_index:number;item_byte_offset:number}=undefined;
+    const chunks:Buffer[]=[];
+    do{
+      const result=await invokeAgentObservation(projectRoot,'read_agent_session',{session_id:sessionId,section:'context',response_bytes:1024,...(position?{position}:{})});
+      expect(result.kind).toBe('succeeded');if(result.kind!=='succeeded')throw new Error(result.error);
+      expect(Buffer.byteLength(settledSuccessBytes(result.data),'utf8')).toBeLessThanOrEqual(1024);
+      const page=(result.data as any).context;
+      expect(page.total).toBe(1);
+      for(const item of page.items){
+        if(typeof item.content_hex==='string')chunks.push(Buffer.from(item.content_hex,'hex'));
+        else chunks.push(Buffer.from(JSON.stringify(item),'utf8'));
+      }
+      position=page.next??undefined;
+    }while(position);
+    const reconstructed=Buffer.concat(chunks).toString('utf8');
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(Buffer.byteLength(reconstructed,'utf8')).toBeGreaterThan(1024);
+    expect(()=>JSON.parse(reconstructed)).not.toThrow();
+    expect(reconstructed).not.toContain(marker);
+    expect(reconstructed).toContain('[REDACTED]');
+    await expect(invokeAgentObservation(projectRoot,'read_agent_session',{session_id:sessionId,section:'context',last_n:1})).rejects.toThrow();
   });
 
   it('fails noncanonical and absent exact identities without synthesizing a session', async () => {

@@ -496,9 +496,9 @@ export class ConversationLLMActor {
       const appended = appendLlmTurnError(this.conversations, operation.input, message);
       this.#projectProviderExchanges(operation.input, error.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: appended.id });
       const outcome: Extract<LLMActorOutcome, { type: 'error' }> = { type: 'error', agentId: this.agentId, error: message };
-      if (!gracefulCancellation) operation.callbacks.terminal(Object.freeze({ input: operation.input, outcome }));
+      if (operation.disposition.kind !== 'graceful_cancellation') operation.callbacks.terminal(Object.freeze({ input: operation.input, outcome }));
       this.#phase = { kind: 'idle', disposition: operation.disposition };
-      if (gracefulCancellation) this.#invocations.settleKnown(operation.lease!);
+      if (operation.disposition.kind === 'graceful_cancellation') this.#invocations.settleKnown(operation.lease!);
       else this.#invocations.settle(operation.lease!);
       operation.lease = null;
       operation.result.resolve(outcome); operation.settlement.resolve();

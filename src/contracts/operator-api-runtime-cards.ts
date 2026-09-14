@@ -169,7 +169,7 @@ const RuntimeStatusResponseSchema = z.object({
     session_id: z.string().min(1),
     enabled: z.boolean(),
     eligible: z.boolean(),
-    eligibility_reason: z.enum(['disabled','stopped','starting','pausing','paused','closing','error','application_closing','settling_previous_check']).nullable(),
+    eligibility_reason: z.enum(['disabled','stopped','starting','pausing','paused','closing','error','application_closing','check_in_flight']).nullable(),
     state: z.enum(['waiting','checking','unavailable']),
     next_nominal_due: z.string().datetime().nullable(),
     last_attempt: z.object({outcome:z.enum(['succeeded','failed','cancelled']),settled_at:z.string().datetime()}).strict().nullable(),

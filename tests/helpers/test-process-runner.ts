@@ -1,4 +1,4 @@
-import { ManagedProcessGroupRegistry } from '../../src/runtime/managed-process-group-registry.js';
+import { ManagedProcessGroupRegistry, type ManagedProcessPlatform } from '../../src/runtime/managed-process-group-registry.js';
 import { ProcessRunner, type ManagedProcessScope, type ProcessCategory } from '../../src/runtime/process-runner.js';
 import { testApplicationFatalPort } from './test-application-fatal-port.js';
 
@@ -12,8 +12,8 @@ export interface TestProcessRunnerComposition {
 
 const compositionsByRoot = new Map<string, TestProcessRunnerComposition[]>();
 
-export function createTestProcessRunner(projectRoot: string): TestProcessRunnerComposition {
-  const registry = new ManagedProcessGroupRegistry();
+export function createTestProcessRunner(projectRoot: string, platform?: ManagedProcessPlatform): TestProcessRunnerComposition {
+  const registry = new ManagedProcessGroupRegistry(platform);
   const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
   const analystProcessRootScope = registry.createContainerScope(registry.rootScope, 'analyst-sessions');
   const mcpProcessRootScope = registry.createContainerScope(registry.rootScope, 'mcp-servers');

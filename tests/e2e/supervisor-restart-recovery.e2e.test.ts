@@ -209,10 +209,10 @@ describe('Supervisor kill/restart full-chain recovery', () => {
       if (fixtureFailure) throw fixtureFailure;
       expect(recoveryCalls).toEqual(['card-a', 'project']);
       const childNewVersions = versionEntries(recoveredCards, 'card-a').filter((entry) => entry.version > preKillVersions.child);
-      expect(childNewVersions).toEqual([expect.objectContaining({ change: expect.objectContaining({ kind: 'status', changed_fields: ['lifecycle'], change_reason: 'running lifecycle stopped' }) })]);
+      expect(childNewVersions).toEqual([expect.objectContaining({ change: expect.objectContaining({ kind: 'status', changed_fields: ['lifecycle'], change_reason: 'recovery stopped lifecycle' }) })]);
       const rootNewVersions = versionEntries(recoveredCards, 'project').filter((entry) => entry.version > preKillVersions.project);
       expect(rootNewVersions.map((entry) => entry.change && ({ kind: entry.change.kind, fields: entry.change.changed_fields, reason: entry.change.change_reason }))).toEqual([
-        { kind: 'status', fields: ['lifecycle'], reason: 'running lifecycle stopped' },
+        { kind: 'status', fields: ['lifecycle'], reason: 'recovery stopped lifecycle' },
         { kind: 'status', fields: ['lifecycle'], reason: 'STOPPED activation' },
         expect.objectContaining({ kind: 'terminal', reason: 'terminal lifecycle commit' }),
       ]);

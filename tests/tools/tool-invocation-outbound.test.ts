@@ -36,7 +36,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   read_runtime_errors: { limit: 1 },
   read_control_actions: { limit: 1, since: '2026-07-22T10:00:00.000Z' },
   list_processes_tool: { status: 'running', cardId: 'card-a' },
-  list_agent_sessions: {}, read_agent_session: { sessionId: 'agent:planner:project', lastN: 1 },
+  list_agent_sessions: {}, read_agent_session: { session_id: 'agent:planner:project', section: 'messages', last_n: 1 },
   list_cards: { tag: OUTBOUND_IDENTITY }, get_card: { id: 'card-a', section: 'summary' }, get_tree: { rootId: 'card-a', depth: 2 },
   list_card_versions: { card_id: 'card-a' },
   get_card_version: { card_id: 'card-a', version: 1, section: 'summary' },

@@ -17,6 +17,7 @@ import {
   type CollectionPosition,
 } from './response-packer.js';
 import { projectBoundedCardSummary } from './card-section-projection.js';
+import { settledSuccessBytes } from './tool-result-settlement.js';
 
 type CardInspectionStore=Pick<CardService,'listCardInspectionRows'|'readCardInspectionTree'|'getCardDetail'|'getCardChildren'|'listDeclaredRecordMetadata'|'workflows'>;
 
@@ -129,7 +130,7 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
     if(position!==undefined)throw new ToolArgumentValidationError("Section 'workflow' is a bounded scalar section and accepts no position.");
     const workflow=ctx.store.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow for '${card.type}'.`);
     const data={...base,notification_recipient:workflow.notificationRecipient,planning_target:workflow.planningNotificationTarget,permitted_child_types:[...workflow.permittedChildTypes],current_process_position:ctx.currentProcessPosition?.(card.id)??null};
-    if(Buffer.byteLength(JSON.stringify(data),'utf8')>responseBytes)throw new ToolArgumentValidationError(`Section 'workflow' does not fit the requested response_bytes budget of ${responseBytes}.`);
+    if(Buffer.byteLength(settledSuccessBytes(data),'utf8')>responseBytes)throw new ToolArgumentValidationError(`Section 'workflow' does not fit the requested response_bytes budget of ${responseBytes}.`);
     return toolSucceeded(data);
   }
   let items: () => readonly unknown[];

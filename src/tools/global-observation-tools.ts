@@ -3,7 +3,7 @@ import type { EventQueryService } from '../application/event-query-service.js';
 import type { ProcessRunner } from '../runtime/process-runner.js';
 import type { ConversationSessionId } from '../schemas/index.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
-import type { NotificationSubmissionPort, RuntimeApi } from '../runtime/runtime-api.js';
+import type { RuntimeApi } from '../runtime/runtime-api.js';
 import { AgentOperatorReadModelService, AgentCurrentStateUnavailableError, AgentSessionNotFoundError } from '../application/read-models/agent-operator-read-model.js';
 import { buildProcessView } from '../application/read-models/process-view.js';
 import { eventKindValues } from '../schemas/index.js';
@@ -12,8 +12,9 @@ import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_T
 import { listAgentSessionsInputSchema,listProcessesInputSchema, queueNotificationInputSchema, readAgentSessionInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import { toolFailureFromError } from './analyst-tool-helpers.js';
-import { queueNotification as submitBuiltNotification } from '../notifications/index.js';
 import { DISCOVERY_RESPONSE_MAX_BYTES, packCollectionData } from './response-packer.js';
+import type { QueueNotificationToolInput } from './notification-tool.js';
+import type { ToolExecutionResult } from './invocation.js';
 
 const DEFAULT_LIMIT = 50;
 
@@ -32,7 +33,7 @@ export interface GlobalObservationToolContext {
   readonly eventQueries: EventQueryService;
   readonly runtime: Pick<RuntimeApi, 'getStatus'>;
   readonly currentProcessPosition?:(cardId:string)=>unknown|null;
-  readonly submitNotification: NotificationSubmissionPort;
+  readonly queueNotification: (input: QueueNotificationToolInput, signal: AbortSignal) => Promise<ToolExecutionResult<'none'>>;
   readonly captureExecutingLlmSnapshots: () => ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>;
 }
 
@@ -45,22 +46,21 @@ async function getStatus(ctx: GlobalObservationToolContext): Promise<ToolActionO
   } catch (error) { return observationReadFailure(error); }
 }
 
-async function queueNotification(ctx: GlobalObservationToolContext, input: { card_id: string; kind: string; body: string; urgency: 'normal'|'urgent' }, signal?: AbortSignal): Promise<ToolActionOutcome> {
-  const result=await submitBuiltNotification(input.card_id,input.kind,input.body,input.urgency,ctx.submitNotification,signal);
-  return result.queued?toolSucceeded(result):toolFailed(`Notification was not queued: ${result.reason}.`,result);
-}
-
 function packed(items:readonly unknown[],position:{item_index:number;item_byte_offset:number}|undefined,responseBytes:number|undefined,key:string,base:Record<string,unknown>={}):ToolActionOutcome{const{data}=packCollectionData({cap:responseBytes??DISCOVERY_RESPONSE_MAX_BYTES,total:items.length,position:position??{item_index:0,item_byte_offset:0},item:(index)=>items[index]!,render:(page)=>({...base,[key]:page})});return toolSucceeded(data);}
 async function listAgentSessions(ctx: GlobalObservationToolContext,params:{position?:{item_index:number;item_byte_offset:number};response_bytes?:number}): Promise<ToolActionOutcome> {
   try { const response=new AgentOperatorReadModelService(ctx.projectRoot, ctx.store.workflows, ctx.captureExecutingLlmSnapshots).listSessions();return packed(response.sessions,params.position,params.response_bytes,'sessions'); }
   catch (error) { return observationReadFailure(error); }
 }
 
-async function readAgentSession(ctx: GlobalObservationToolContext, input: { session_id: ConversationSessionId; last_n?: number;position?:{item_index:number;item_byte_offset:number};response_bytes?:number }): Promise<ToolActionOutcome> {
+async function readAgentSession(ctx: GlobalObservationToolContext, input: { session_id: ConversationSessionId; section?:'messages'|'context';last_n?: number;position?:{item_index:number;item_byte_offset:number};response_bytes?:number }): Promise<ToolActionOutcome> {
   try {
     const response = new AgentOperatorReadModelService(ctx.projectRoot, ctx.store.workflows, ctx.captureExecutingLlmSnapshots).readCurrentSegmentTail(input.session_id, input.last_n ?? DEFAULT_LIMIT);
     if (response.kind === 'empty') return toolFailed('Agent session has no current conversation segment.', { code: 'agent_session_empty', session_id: input.session_id });
-    return packed(response.conversation.entries,input.position,input.response_bytes,'messages',{session:response.session,ownership:response.ownership,segment_version:response.conversation.segmentVersion,segment_context:response.conversation.segmentContext,total_visible_entries:response.conversation.totalEntries});
+    const section=input.section??'messages';
+    const base={session:response.session,ownership:response.ownership,segment_version:response.conversation.segmentVersion,section,has_segment_context:response.conversation.segmentContext!==null,total_visible_entries:response.conversation.totalEntries};
+    return section==='messages'
+      ? packed(response.conversation.entries,input.position,input.response_bytes,'messages',base)
+      : packed(response.conversation.segmentContext===null?[]:[response.conversation.segmentContext],input.position,input.response_bytes,'context',base);
   } catch (error) {
     if (error instanceof AgentSessionNotFoundError) return toolFailed('Agent session not found.', { code: 'agent_session_not_found', session_id: input.session_id });
     if (error instanceof AgentCurrentStateUnavailableError) {
@@ -77,6 +77,6 @@ export const globalObservationToolBinders: readonly ToolBinder<GlobalObservation
   defineToolBinder({ name:'read_runtime_errors', description:'Read a byte-packed page from the newest selected runtime errors.', resultPolicyTemplate:OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema:()=>readRuntimeErrorsInputSchema, executor:(ctx,args)=>executeToolAction('observational_query',async()=>{try{const result=ctx.eventQueries.queryErrors(args.limit??DEFAULT_LIMIT);return packed(result.errors,args.position,args.response_bytes,'errors',{total_lines:result.total,parse_errors:0});}catch(error){return observationReadFailure(error);}}) }),
   defineToolBinder({ name:'list_processes_tool', description:'List observed runtime processes as a byte-packed page; process output remains available through bounded read(work:///...).', resultPolicyTemplate:OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema:()=>listProcessesInputSchema, executor:(ctx,args)=>executeToolAction('observational_query',async()=>{try{const values=ctx.processRunner.list(args.cardId?{cardId:args.cardId}:undefined).map((record:ReturnType<ProcessRunner['list']>[number])=>buildProcessView(ctx.projectRoot,record));const filtered=args.status?values.filter((value:ReturnType<typeof buildProcessView>)=>value.status===args.status):values;return packed(filtered,args.position,args.response_bytes,'processes');}catch(error){return observationReadFailure(error);}}) }),
   defineToolBinder({ name:'list_agent_sessions', description:'List authoritative durable selected-global and active-card agent sessions as a byte-packed page.', resultPolicyTemplate:OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema:()=>listAgentSessionsInputSchema, executor:(ctx,args)=>executeToolAction('observational_query',()=>listAgentSessions(ctx,args)) }),
-  defineToolBinder({ name:'read_agent_session', description:'Read the bounded tail of one canonical admitted agent session.', resultPolicyTemplate:OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema:()=>readAgentSessionInputSchema, executor:(ctx,args)=>executeToolAction('observational_query',()=>readAgentSession(ctx,args)) }),
-  defineToolBinder({ name:'queue_notification', description:'Queue evidenced context to an eligible planning card. Urgent submission may interrupt only the captured active descendant suffix.', resultPolicyTemplate:OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema:()=>queueNotificationInputSchema, executor:(ctx,args,signal)=>executeToolAction('none',()=>queueNotification(ctx,args,signal)) }),
+  defineToolBinder({ name:'read_agent_session', description:"Read one bounded section of a canonical admitted agent session. Messages are the default selected tail. When has_segment_context is true and prior compacted history matters, read section 'context', then page messages.", resultPolicyTemplate:OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema:()=>readAgentSessionInputSchema, executor:(ctx,args)=>executeToolAction('observational_query',()=>readAgentSession(ctx,args)) }),
+  defineToolBinder({ name:'queue_notification', description:'Queue evidenced context to an eligible planning card. Urgent submission may interrupt only the captured active descendant suffix.', resultPolicyTemplate:OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema:()=>queueNotificationInputSchema, executor:(ctx,args,signal)=>ctx.queueNotification(args,signal) }),
 ]);

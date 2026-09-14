@@ -156,8 +156,8 @@ describe('generic set-status policy', () => {
     const template = cards.read('project')!;
     expect(isSetStatusTransition('running', 'stopped')).toBe(false);
     expect(isSetStatusTransition('stopped', 'running')).toBe(false);
-    expect(() => transition(template, 'running', 'stopped', 'running lifecycle stopped')).not.toThrow();
-    expect(() => transition(template, 'running', 'stopped', 'recovery stopped lifecycle')).toThrow();
+    expect(() => transition(template, 'running', 'stopped', 'recovery stopped lifecycle')).not.toThrow();
+    expect(() => transition(template, 'running', 'stopped', 'running lifecycle stopped')).toThrow();
     expect(() => transition(template, 'stopped', 'running', 'STOPPED activation')).not.toThrow();
     expect(() => transition(template, 'running', 'stopped')).toThrow("Card stream 'test-card-stream' has invalid reason or summary.");
     expect(() => transition(template, 'stopped', 'running')).toThrow("Card stream 'test-card-stream' has invalid reason or summary.");

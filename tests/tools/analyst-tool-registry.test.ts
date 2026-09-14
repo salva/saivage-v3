@@ -18,6 +18,7 @@ function bindConfiguredAnalystSurface() {
     processOwnerId: 'agent:analyst:global',
     mcpToolInvocation: {} as never,
     analystToolContext: { restartCapability: { available: false }, actor: 'analyst', surface: 'web-chat', cardTypeVocabulary, runtime: { notifyCard: () => ({ ok: false, reason: 'missing_card', cardId: 'project' }), submitNotification: async () => ({ queued: false, reason: 'missing_card', cardId: 'project' }) }, captureExecutingLlmSnapshots: () => new Map() } as never,
+    observationToolContext: { projectRoot:'/',store:{} as never,processRunner:{} as never,eventQueries:{} as never,runtime:{} as never,queueNotification:async()=>{throw new Error('unused notification');},captureExecutingLlmSnapshots:()=>new Map() },
     cardTypeVocabulary,
   } as never);
 }

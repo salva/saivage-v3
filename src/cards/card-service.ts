@@ -299,7 +299,7 @@ export class CardService {
     if (!card) throw new Error(`Card '${id}' not found.`);
     if (card.lifecycle.status !== 'running') throw new Error(`Card '${id}' must be running before its lifecycle can be stopped.`);
     const candidate = { ...card, lifecycle: buildStoppedLifecycle(), updated_at: new Date().toISOString(), version_seq: card.version_seq + 1 };
-    return this.publishVersion(card, candidate, 'status', ['lifecycle'], 'running lifecycle stopped');
+    return this.publishVersion(card, candidate, 'status', ['lifecycle'], 'recovery stopped lifecycle');
   }
   activateStopped(id: string): CardRecord {
     const card = this.read(id);

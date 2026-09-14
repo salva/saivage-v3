@@ -46,7 +46,7 @@ function requireValue<T>(value: T | undefined, message: string): T {
 }
 
 const WORKFLOW_ROLES = ['planner', 'executor', 'reviewer'] as const;
-const SHIPPED_ROLES = [...WORKFLOW_ROLES, 'analyst'] as const;
+const SHIPPED_ROLES = [...WORKFLOW_ROLES, 'analyst', 'oversight'] as const;
 type ShippedRole = typeof SHIPPED_ROLES[number];
 
 function assertGuidanceComposition(text: string, promptRoot: string, role: ShippedRole, context: string): void {
@@ -127,6 +127,8 @@ try {
   if (JSON.stringify(renderAgentPrompts(classicWorkflows)) !== JSON.stringify(renderAgentPrompts(derivedDefaultWorkflows))) throw new Error('Derived default rendered prompt baseline changed.');
   const analystText = renderCompiledPrompt({ kind: 'global-agent' }, typedWorkflows.analyst.name, typedWorkflows.analystPrompt.compiled, { vocabularySnippet: 'vocabulary' });
   if (analystText.includes('{{')) throw new Error('Unresolved Analyst template syntax.');
+  const oversightText = renderCompiledPrompt({ kind: 'global-agent' }, typedWorkflows.oversight.name, typedWorkflows.oversightPrompt.compiled, { vocabularySnippet: 'vocabulary' });
+  if (oversightText.includes('{{')) throw new Error('Unresolved Oversight template syntax.');
   for (const [cardType, workflow] of typedWorkflows.cardTypes) for (const prompt of workflow.processPrompts.values()) {
     if (prompt.text.includes('{{')) throw new Error(`Unresolved process template syntax for ${cardType}/${prompt.reference}`);
     if ((prompt.reference === 'execute' || prompt.reference === 'plan') && !prompt.text.includes(cardType)) throw new Error(`Missing eager cardType rendering for ${cardType}/${prompt.reference}`);
@@ -171,6 +173,12 @@ try {
     if (packagedAnalyst !== sourceAnalyst) throw new Error(`Source/package Analyst composition differs for ${templateName}.`);
     assertGuidanceComposition(packagedAnalyst, packagedRoot, 'analyst', `${templateName} packaged Analyst`);
     assertGuidanceComposition(sourceAnalyst, sourceRoot, 'analyst', `${templateName} source Analyst`);
+    if (packaged.oversight.name !== source.oversight.name || packaged.oversightPrompt.reference !== 'oversight' || source.oversightPrompt.reference !== 'oversight') throw new Error(`Oversight source selection differs for ${templateName}.`);
+    const packagedOversight = renderCompiledPrompt({ kind: 'global-agent' }, packaged.oversight.name, packaged.oversightPrompt.compiled, { vocabularySnippet: 'vocabulary' });
+    const sourceOversight = renderCompiledPrompt({ kind: 'global-agent' }, source.oversight.name, source.oversightPrompt.compiled, { vocabularySnippet: 'vocabulary' });
+    if (packagedOversight !== sourceOversight) throw new Error(`Source/package Oversight composition differs for ${templateName}.`);
+    assertGuidanceComposition(packagedOversight, packagedRoot, 'oversight', `${templateName} packaged Oversight`);
+    assertGuidanceComposition(sourceOversight, sourceRoot, 'oversight', `${templateName} source Oversight`);
   };
   assertRoleComposition('classic', classic.promptRoot, classicSourceRoot, classicWorkflows, classicSourceWorkflows);
   assertRoleComposition('classic-typed', classicTyped.promptRoot, typedSourceRoot, typedWorkflows, typedSourceWorkflows);

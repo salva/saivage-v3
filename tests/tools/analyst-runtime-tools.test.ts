@@ -173,7 +173,7 @@ describe('analyst runtime tools', () => {
         processRunner,
         eventQueries: new EventQueryService(projectRoot),
         runtime: { getStatus: jest.fn(() => runtime) },
-        submitNotification: async () => ({ queued: false, reason: 'missing_card', cardId: 'project' }),
+        queueNotification: async () => { throw new Error('unused notification'); },
         captureExecutingLlmSnapshots: () => new Map(),
       }, {});
       expect(result).toMatchObject({ kind: 'succeeded', data: { runtime, runtimeSummary: { status: 'stopped', currentCardId: null }, statusCounts: { stopped: 1 }, counts: { stopped: 1 } } });

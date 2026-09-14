@@ -24,6 +24,7 @@ import type { FreshnessEffects } from '../../application/freshness-effects.js';
 import type { McpToolInvocationPort } from '../../mcp/mcp-manager.js';
 import { RuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import type { RuntimeProcessIdentity } from '../lock.js';
+import { AnalystInterventionNotReadyError } from '../../application/intervention-readiness.js';
 import { cardProcessEntryForStatus, type CompiledRuntimeWorkflows, type CardProcessEntry } from '../card-process/card-process-config.js';
 import { stabilizeAgentSession } from './conversation-recovery.js';
 import { TERMINAL_RESULT_TOOL_NAME } from '../../contracts/result-envelope.js';
@@ -49,10 +50,14 @@ interface SupervisorRuntimeApiOptions {
 declare const supervisorLaunchPlanBrand: unique symbol;
 interface SupervisorLaunchPlan { readonly [supervisorLaunchPlanBrand]: never; readonly owner: CardActivationOwner; readonly runIdentity: object }
 interface RuntimeHalt {
+  readonly trigger: 'stop' | 'application_close' | 'publication_failure' | 'runtime_failure';
   readonly interruption: RuntimeStoppedInterruption;
   readonly owners: readonly CardActivationOwner[];
   readonly promise: Promise<void>;
+  readonly failure?: Error;
 }
+
+type InterruptedOwnerSettlement = Readonly<{ kind: 'completed' }> | Readonly<{ kind: 'taken_over'; halt: RuntimeHalt }>;
 
 interface UrgentSuffixCapture {
   readonly target: CardActivationOwner;
@@ -112,7 +117,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       case 'pausing':
       case 'closing':
       case 'error':
-        throw new Error('Analyst mutation requires an intervention-ready stopped or settled paused runtime.');
+        throw new AnalystInterventionNotReadyError();
     }
   }
 
@@ -262,14 +267,14 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     if (urgency === 'normal') return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'not_requested' } };
     if (!capture) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'not_applicable' } };
     if (submittingOwner && capture.suffix.includes(submittingOwner)) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'not_applicable' } };
-    if (signal?.aborted) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'cancelled' } };
+    if (signal?.aborted) return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'cancelled', stopped_card_ids: [] } };
     if (this.status !== 'running' || !this.applicationAdmissionOpen || this.halt)
-      return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'runtime_ineligible' } };
+      return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: [] } };
     if (!this.urgentCaptureIsCurrent(capture))
-      return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'stale_owner' } };
+      return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'stale_owner', stopped_card_ids: [] } };
 
     const interruption = new CardInterruptedError(`Interrupted active descendant work after urgent notification '${notification.id}' for '${cardId}'.`);
-    let settlement = Promise.resolve();
+    const completed: string[] = [];
     try {
       this.ownershipTransition(false, () => {
         if (!this.urgentCaptureIsCurrent(capture)) throw new Error('Urgent notification ownership changed during interruption claim.');
@@ -280,10 +285,6 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
           lease.markSettling();
         }
       });
-      for (const owner of [...capture.suffix].reverse()) {
-        settlement = settlement.then(() => this.settleInterruptedOwner(owner, interruption));
-        owner.interruptionSettlement = settlement;
-      }
       for (const owner of capture.suffix) owner.processor.interruptActivationGracefully(interruption);
       this.ownershipInvalidated();
     } catch (error) {
@@ -291,10 +292,17 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       throw error;
     }
 
-    await settlement;
-    const halt = this.halt as RuntimeHalt | null;
-    if (halt) throw halt.interruption;
-    return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'interrupted', stopped_card_ids: [...capture.suffix].reverse().map((owner) => owner.cardId) } };
+    for (const owner of [...capture.suffix].reverse()) {
+      const settlement = this.settleInterruptedOwner(owner, interruption);
+      const result = await settlement;
+      if (result.kind === 'taken_over') {
+        if (result.halt.trigger === 'stop' || result.halt.trigger === 'application_close')
+          return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'suppressed', reason: 'runtime_ineligible', stopped_card_ids: completed } };
+        throw result.halt.failure ?? result.halt.interruption;
+      }
+      completed.push(owner.cardId);
+    }
+    return { queued: true, cardId, notificationId: queued.notificationId, interruption: { status: 'interrupted', stopped_card_ids: completed } };
   }
 
   cancelCard(cardId: string, reason: string): Promise<CardCancellationResult> { return this.cancelOwnedOrStored(cardId, reason, null); }
@@ -499,19 +507,24 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     if (owner) {
       this.requireOwnerAuthority(owner);
       if (owner.phase === 'child_admission') throw new Error(`Card '${cardId}' cannot be cancelled while activation publication is unresolved.`);
+      if (owner.terminalWinner === 'cancel' && owner.cancellationSettlement) return owner.cancellationSettlement;
       const suffix: CardActivationOwner[] = []; let current: CardActivationOwner | undefined = owner;
       while (current) { suffix.push(current); current = current.childCardId ? this.activationOwners.get(current.childCardId) : undefined; if (suffix.at(-1)!.childCardId && !current) throw new Error('Owned child relationship has no owner.'); }
       const cancelReason = { reason, cancelled_at: this.now() };
-      for (const item of suffix) {
-        this.requireOwnerAuthority(item);
-        if (item.terminalWinner === 'result') { await item.settlement.promise; this.requireOwnerAuthority(item); throw new Error(`Card '${item.cardId}' result already claimed the activation.`); }
-        if (item.terminalWinner === 'interrupt') {
-          if (!item.interruptionSettlement) throw new Error(`Card '${item.cardId}' interrupt winner has no settlement owner.`);
-          await item.interruptionSettlement;
-          throw new Error(`Card '${item.cardId}' interruption already claimed the activation.`);
+      this.ownershipTransition(true, () => {
+        for (const item of suffix) {
+          this.requireOwnerAuthority(item);
+          if (item.phase !== 'active') throw new Error(`Card '${item.cardId}' cannot be cancelled while activation ownership is '${item.phase}'.`);
+          if (item.terminalWinner !== 'open') throw new Error(`Card '${item.cardId}' ${item.terminalWinner} already claimed the activation.`);
+          if (item.parentRelationship && item.parentRelationship.invocation.phase() !== 'admitted')
+            throw new Error(`Card '${item.cardId}' child admission is not open for cancellation.`);
         }
-        if (item.terminalWinner === 'open') { this.ownershipTransition(true, () => { this.requireOwnerAuthority(item); item.terminalWinner = 'cancel'; item.phase = 'settling'; item.cancellationReason = cancelReason; if (item.parentRelationship?.invocation.phase() === 'admitted') item.parentRelationship.invocation.markSettling(); }); item.abortController.abort(new Error(reason)); item.processor.disposeActivation(new Error(reason)); }
-      }
+        for (const item of suffix) {
+          item.terminalWinner = 'cancel'; item.phase = 'settling'; item.cancellationReason = cancelReason;
+          if (item.parentRelationship) item.parentRelationship.invocation.markSettling();
+        }
+      });
+      for (const item of suffix) { const cancellation = new Error(reason); item.abortController.abort(cancellation); item.processor.disposeActivation(cancellation); }
       const cancelled: string[] = [];
       const settlementOrder = [...suffix].reverse();
       for (const [index, item] of settlementOrder.entries()) { const result = await this.settleCancellation(item); if (index + 1 < settlementOrder.length) this.requireOwnerAuthority(owner); for (const id of result.cancelled_card_ids) if (!cancelled.includes(id)) cancelled.push(id); }
@@ -559,8 +572,9 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     return capture.suffix.every((owner, index) => this.activationOwners.get(owner.cardId) === owner && owner.phase === 'active' && owner.terminalWinner === 'open' && owner.parentRelationship?.invocation === capture.leases[index] && capture.leases[index]!.phase() === 'admitted' && (index === 0 ? capture.target.childCardId === owner.cardId : capture.suffix[index - 1]!.childCardId === owner.cardId) && owner.childCardId === (capture.suffix[index + 1]?.cardId ?? null));
   }
 
-  private async settleInterruptedOwner(owner: CardActivationOwner, interruption: CardInterruptedError): Promise<void> {
-    if (this.halt?.owners.includes(owner)) throw this.halt.interruption;
+  private async settleInterruptedOwner(owner: CardActivationOwner, interruption: CardInterruptedError): Promise<InterruptedOwnerSettlement> {
+    const beforeJoinHalt = this.haltFor(owner);
+    if (beforeJoinHalt) return { kind: 'taken_over', halt: beforeJoinHalt };
     this.requireOwnerAuthority(owner);
     try { await owner.processor.joinActivation(); }
     catch (error) {
@@ -568,15 +582,18 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       void this.beginHalt('runtime_failure').catch(() => undefined);
       throw error;
     }
-    if (this.halt?.owners.includes(owner)) throw this.halt.interruption;
+    const afterJoinHalt = this.haltFor(owner);
+    if (afterJoinHalt) return { kind: 'taken_over', halt: afterJoinHalt };
     this.requireOwnerAuthority(owner);
     const stopped = this.publish(owner, () => this.behavior.actorStore.stopRunning(owner.cardId));
     if (!stopped) {
       const halt = this.halt;
       if (!halt) throw new Error(`Interrupted card '${owner.cardId}' stop publication returned no result without a runtime halt.`);
-      throw halt.interruption;
+      if (halt.trigger === 'publication_failure') throw halt.failure ?? halt.interruption;
+      return { kind: 'taken_over', halt };
     }
-    if (this.halt?.owners.includes(owner)) throw this.halt.interruption;
+    const afterPublicationHalt = this.haltFor(owner);
+    if (afterPublicationHalt) return { kind: 'taken_over', halt: afterPublicationHalt };
     this.requireOwnerAuthority(owner);
     owner.cachedStatus = 'stopped';
     const relationship = owner.parentRelationship;
@@ -594,6 +611,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     owner.settlement.resolve(outcome);
     relationship.invocation.deliverOutcome(outcome);
     this.ownershipInvalidated();
+    return { kind: 'completed' };
   }
 
   private settleCancellation(owner: CardActivationOwner): Promise<CardCancellationResult> {
@@ -631,7 +649,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const owners = Object.freeze([...this.activationOwners.values()]);
     const interruption = new RuntimeStoppedInterruption();
     const settlement = deferred<void>();
-    const halt: RuntimeHalt = Object.freeze({ interruption, owners, promise: settlement.promise });
+    const halt: RuntimeHalt = Object.freeze({ trigger, interruption, owners, promise: settlement.promise, ...(publicationFailure ? { failure: publicationFailure } : {}) });
     let firstFailure: unknown;
     let hasFailure = false;
     const retainFirst = (error: unknown): void => { if (!hasFailure) { hasFailure = true; firstFailure = error; } };
@@ -651,10 +669,8 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       }
       owner.settlement.reject(owner === publicationOwner && publicationFailure !== undefined ? publicationFailure : interruption);
     }
-    for (const owner of owners) {
-      try { owner.abortController.abort(interruption); } catch (error) { retainFirst(error); }
-      try { owner.processor.disposeActivation(interruption); } catch (error) { retainFirst(error); }
-    }
+    for (const owner of owners) try { owner.processor.prepareForRuntimeHalt(interruption); } catch (error) { retainFirst(error); }
+    for (const owner of owners) try { owner.abortController.abort(interruption); } catch (error) { retainFirst(error); }
 
     const joins = owners.map((owner) => {
       try { return owner.processor.joinActivation(); }
@@ -727,6 +743,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
   }
 
   private requirePreparation(owner: CardActivationOwner, identity: object): void { if (this.halt?.owners.includes(owner)) throw this.halt.interruption; if (this.runIdentity !== identity || this.activationOwners.get(PROJECT_CARD_ID) !== owner || owner.phase !== 'prepared_root' || owner.terminalWinner !== 'open' || this.halt || !this.applicationAdmissionOpen) throw new Error('Root preparation authority is no longer current.'); }
+  private haltFor(owner: CardActivationOwner): RuntimeHalt | null { const halt = this.halt; return halt?.owners.includes(owner) ? halt : null; }
   private requireOwner(owner: CardActivationOwner): void { if (this.activationOwners.get(owner.cardId) !== owner) throw new Error(`Card '${owner.cardId}' activation owner is no longer current.`); }
   private requireOwnerAuthority(owner: CardActivationOwner): void {
     if (this.halt?.owners.includes(owner)) throw this.halt.interruption;

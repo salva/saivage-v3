@@ -1,8 +1,8 @@
 import { applyProjectPatch, editProject, globProject, grepProject, readProject, WorkspaceToolInputError, writeProject, type WorkspaceMutationOutcome } from './project-file-tools.js';
 import { applyPatchInputSchema, editWorkspaceInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema, readWorkspaceInputSchema, writeWorkspaceInputSchema } from '../contracts/builtin-tool-inputs.js';
-import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
+import { defineToolBinder, executeToolAction, isExpectedToolInputFailure, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
-import { boundedToolError, DiscoveryBudgetTooSmallError, DiscoveryCollectionPositionError } from './response-packer.js';
+import { boundedToolError } from './response-packer.js';
 import type { AgentName } from '../schemas/index.js';
 import type { CardService } from '../cards/card-api.js';
 import type { CardNotification } from '../schemas/index.js';
@@ -25,7 +25,7 @@ function failureFromError(err: unknown): ToolActionOutcome {
 }
 
 function isExpectedWorkspaceFailure(err: unknown): boolean {
-  if (err instanceof WorkspaceToolInputError || err instanceof DiscoveryBudgetTooSmallError || err instanceof DiscoveryCollectionPositionError) return true;
+  if (err instanceof WorkspaceToolInputError || isExpectedToolInputFailure(err)) return true;
   const code = typeof err === 'object' && err !== null && 'code' in err ? (err as NodeJS.ErrnoException).code : undefined;
   return code === 'ENOENT' || code === 'ENOTDIR' || code === 'EISDIR' || code === 'EACCES' || code === 'EPERM';
 }

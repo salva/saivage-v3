@@ -20,7 +20,6 @@ import { ActivationOperationTracker, type InvocationJoinOutcome } from './invoca
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import { conversationSessionIdentity, parseConversationSessionId, type ContentPolicyRefusalBlockedResult } from '../../schemas/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
-import { isCardInterruptedError } from './card-interrupted-error.js';
 
 type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' | 'stopped' }>;
 
@@ -53,6 +52,8 @@ export class CardProcessActor extends BaseActor {
   #activationSettled = false;
   #preJoinFailure: { readonly error: unknown } | null = null;
   #interruptionReason: unknown | null = null;
+  #retainedNotificationLlm: ConversationLLMActor | null = null;
+  #finalLlmDisposalReason: unknown | null = null;
 
   constructor(args: { projectRoot: string; cardId: string; process: CompiledCardTypeWorkflow; workflows:CompiledRuntimeWorkflows; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; submitNotification: import('../runtime-api.js').NotificationSubmissionPort; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; onActorMainFailure(error: unknown): void; fatalPort: ApplicationFatalPort; gate: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.initialStateId, args.process.states);
@@ -97,6 +98,15 @@ export class CardProcessActor extends BaseActor {
           if (promotion.kind === 'latest-node' && !this.#acceptedByNode.has(promotion.nodeId))
             throw new Error(`Promoted node '${promotion.nodeId}' has no accepted result.`);
         },
+        retainNotificationLlm: (llm) => {
+          if (this.#retainedNotificationLlm) throw new Error(`Processor '${this.cardId}' already retains a notification LLM.`);
+          if (this.#currentExecutingLlm !== llm) throw new Error(`Processor '${this.cardId}' cannot retain a non-current notification LLM.`);
+          this.#retainedNotificationLlm = llm;
+        },
+        relinquishNotificationLlm: (llm) => {
+          if (this.#retainedNotificationLlm !== llm) throw new Error(`Processor '${this.cardId}' does not retain this notification LLM.`);
+          this.#retainedNotificationLlm = null;
+        },
       },
     );
   }
@@ -125,10 +135,25 @@ export class CardProcessActor extends BaseActor {
     if (this.#operationTracker) this.#capturePreJoinFailure(() => this.#operationTracker!.revoke(reason));
   }
 
+  prepareForRuntimeHalt(reason: unknown): void {
+    if (!this.#retainedNotificationLlm && this.#interruptionReason === null) {
+      this.disposeActivation(reason);
+      return;
+    }
+    this.#interruptionReason ??= reason;
+    this.#finalLlmDisposalReason ??= this.#interruptionReason;
+    this.stopAfterCurrentTask();
+    if (this.#result) this.#rejectActivation(this.#interruptionReason, true);
+    this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
+    for (const llm of this.#joiningLlmActors) this.#capturePreJoinFailure(() => llm.requestGracefulCancellation(this.#interruptionReason));
+    this.#operationTracker?.cancelAndSettle(this.#interruptionReason);
+  }
+
   interruptActivationGracefully(reason: unknown): void {
     if (!this.#result || this.#activationSettled || this.#interruptionReason !== null)
       throw new Error(`Processor '${this.cardId}' has no open activation to interrupt.`);
     this.#interruptionReason = reason;
+    this.#finalLlmDisposalReason = reason;
     this.stopAfterCurrentTask();
     this.#rejectActivation(reason, false);
     this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
@@ -150,21 +175,26 @@ export class CardProcessActor extends BaseActor {
   }
 
   async #performActivationJoin(actors: readonly ConversationLLMActor[]): Promise<readonly InvocationJoinOutcome[]> {
-    const actorJoins = actors.map((llm) => { try { return llm.join(); } catch (error) { return Promise.reject(error); } });
     const trackerJoin = this.#operationTracker ? (() => { try { return this.#operationTracker!.join(); } catch (error) { return Promise.reject(error); } })() : Promise.resolve<InvocationJoinOutcome | null>(null);
     const lifecycleJoin = trackerJoin.then(
       () => this.awaitLifecycleSettlement(),
       () => this.awaitLifecycleSettlement(),
     );
-    const settled = await Promise.allSettled([...actorJoins, trackerJoin, lifecycleJoin]);
+    const operationSettled = await Promise.allSettled([trackerJoin, lifecycleJoin]);
+    if (this.#finalLlmDisposalReason !== null && !this.#llmInvocationsDisposed) {
+      for (const llm of actors) this.#capturePreJoinFailure(() => llm.dispose(this.#finalLlmDisposalReason));
+      this.#llmInvocationsDisposed = true;
+    }
+    const actorJoins = actors.map((llm) => { try { return llm.join(); } catch (error) { return Promise.reject(error); } });
+    const actorSettled = await Promise.allSettled(actorJoins);
     let selectedFailure = this.#preJoinFailure;
     for (let index = 0; index < actorJoins.length; index++) {
-      const result = settled[index]!;
+      const result = actorSettled[index]!;
       if (!selectedFailure && result.status === 'rejected') selectedFailure = { error: result.reason };
     }
-    const trackerResult = settled[actorJoins.length]!;
+    const trackerResult = operationSettled[0]!;
     if (!selectedFailure && trackerResult.status === 'rejected') selectedFailure = { error: trackerResult.reason };
-    const lifecycleResult = settled[actorJoins.length + 1]!;
+    const lifecycleResult = operationSettled[1]!;
     if (!selectedFailure && lifecycleResult.status === 'rejected') selectedFailure = { error: lifecycleResult.reason };
     const hadActors = this.#activeLlmActors.size > 0;
     this.#activeLlmActors.clear();
@@ -173,7 +203,7 @@ export class CardProcessActor extends BaseActor {
       catch (error) { selectedFailure ??= { error }; }
     }
     if (selectedFailure) throw selectedFailure.error;
-    const outcomes = settled.slice(0, actorJoins.length).map((entry) => (entry as PromiseFulfilledResult<InvocationJoinOutcome>).value);
+    const outcomes = actorSettled.map((entry) => (entry as PromiseFulfilledResult<InvocationJoinOutcome>).value);
     const trackerOutcome = (trackerResult as PromiseFulfilledResult<InvocationJoinOutcome | null>).value;
     return trackerOutcome ? [...outcomes, trackerOutcome] : outcomes;
   }
@@ -270,7 +300,11 @@ export class CardProcessActor extends BaseActor {
   }
 
   #acceptNodeFailure(error: Error): void {
-    if (this.#interruptionReason !== null && isCardInterruptedError(error)) return;
+    if (this.#interruptionReason !== null) {
+      if (error === this.#interruptionReason) return;
+      this.#retainPreJoinFailure(error);
+      return;
+    }
     this.#stagedFailure = error; this.sendEvent('execution:failed');
   }
 

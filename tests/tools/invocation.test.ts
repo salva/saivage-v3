@@ -1,13 +1,14 @@
 import { describe, expect, it } from '@jest/globals';
 import { z } from 'zod';
 
-import { defineTool, invokeTool, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, surfaceToolDefinitions, syntheticToolSettlement, executedToolOutcome, type ToolExecutionResult, type ToolProvider } from '../../src/tools/invocation.js';
+import { defineTool, invokeTool, invokeToolForLlm, OPERATIONAL_RESULT_POLICY_TEMPLATE, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, surfaceToolDefinitions, syntheticToolSettlement, executedToolOutcome, ToolArgumentValidationError, type ToolExecutionResult, type ToolProvider } from '../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
 import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.js';
 import { RuntimeStoppedInterruption } from '../../src/runtime/actors/runtime-stopped-interruption.js';
 import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
 import { testLlmToolInvocationContext } from '../helpers/llm-test-helpers.js';
 import { buildInvocationSurfaceFixture } from '../helpers/invocation-surface-fixture.js';
+import { DiscoveryCollectionPositionError } from '../../src/tools/response-packer.js';
 
 describe('tool invocation surface', () => {
   const provider = (providerName: string, toolName = 'demo'): ToolProvider => ({
@@ -69,7 +70,7 @@ describe('tool invocation surface', () => {
     await expect(invokeTool(surface, 'buggy', {})).rejects.toThrow('programmer bug');
   });
 
-  it('returns execution-failed settlement from the LLM boundary for non-abort executor exceptions', async () => {
+  it('propagates unclassified executor exceptions from the LLM boundary', async () => {
     const surface = buildInvocationSurfaceFixture('analyst', [{
       providerName: 'buggy',
       tools: [
@@ -118,7 +119,7 @@ describe('tool invocation surface', () => {
     await expect(invokeToolForLlm(surface, 'publish', {}, testLlmToolInvocationContext({ toolName: 'publish' }))).rejects.toBe(publicationError);
   });
 
-  it.each(['fulfill', 'same-reject', 'different-reject'] as const)('gives exact Stop identity priority after abort-ignoring tool %s', async (mode) => {
+  it.each(['fulfill', 'same-reject', 'different-reject'] as const)('preserves returned facts and recognizes only the exact cancellation rejection after entry: %s', async (mode) => {
     let resolve!: (value: ToolExecutionResult<'none'>) => void;
     let reject!: (error: unknown) => void;
     const tool = new Promise<ToolExecutionResult<'none'>>((done, fail) => { resolve = done; reject = fail; });
@@ -131,7 +132,25 @@ describe('tool invocation surface', () => {
     if (mode === 'fulfill') resolve(executedToolOutcome('none', toolSucceeded()));
     else if (mode === 'same-reject') reject(interruption);
     else reject(new Error('different tool failure'));
-    await expect(pending).rejects.toBe(interruption);
+    if (mode === 'fulfill') await expect(pending).resolves.toEqual({ kind: 'executed', execution: executedToolOutcome('none', toolSucceeded()) });
+    else if (mode === 'same-reject') await expect(pending).resolves.toEqual(syntheticToolSettlement('execution_failed', interruption.message));
+    else await expect(pending).rejects.toThrow('different tool failure');
+  });
+
+  it.each([
+    new ToolArgumentValidationError('scalar section has no collection cursor'),
+    new DiscoveryCollectionPositionError(),
+  ])('records typed expected failures thrown after executor entry as executed failures', async (failure) => {
+    const surface = buildInvocationSurfaceFixture('analyst', [{ providerName: 'expected', tools: [defineTool({
+      name: 'observed', description: 'Observed.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE,
+      inputSchema: z.object({}).strict(), executor: async () => { throw failure; },
+    })] }]);
+
+    const settlement = await invokeToolForLlm(surface, 'observed', {}, testLlmToolInvocationContext({ toolName: 'observed' }));
+    expect(settlement.kind).toBe('executed');
+    if (settlement.kind !== 'executed') throw new Error('Expected executed settlement.');
+    expect(settlement.execution.evidence).toEqual({ kind: 'none' });
+    expect(settlement.execution.providerOutcome.kind).toBe('failed');
   });
 
   it('returns the executed typed settlement for a successful invocation', async () => {

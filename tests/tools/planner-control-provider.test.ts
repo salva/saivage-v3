@@ -99,7 +99,7 @@ describe('planner control provider ownership delegation', () => {
   });
 
   it.each([
-    [{ queued: true as const, cardId: CHILD, notificationId: 'exact-id', interruption: { status: 'not_requested' as const } }, { success: true, data: { queued: true, card_id: CHILD, notification_id: 'exact-id', interruption: { status: 'not_requested' } } }],
+    [{ queued: true as const, cardId: CHILD, notificationId: 'exact-id', interruption: { status: 'not_requested' as const } }, { success: true, data: { queued: true, card_id: CHILD, notification_id: 'exact-id', body: 'body', interruption: { status: 'not_requested' } } }],
     [{ queued: false as const, reason: 'missing_card' as const, cardId: CHILD }, { success: false, error: `Card '${CHILD}' not found.`, data: { queued: false, reason: 'missing_card', card_id: CHILD } }],
     [{ queued: false as const, reason: 'terminal_card' as const, cardId: CHILD, status: 'cancelled' as const }, { success: false, error: `Cannot queue notification for terminal card '${CHILD}' in status 'cancelled'.`, data: { queued: false, reason: 'terminal_card', card_id: CHILD, status: 'cancelled' } }],
     [{ queued: false as const, reason: 'activation_closed' as const, cardId: CHILD }, { success: false, error: `Cannot queue notification for card '${CHILD}': its current activation is closed to new notifications.`, data: { queued: false, reason: 'activation_closed', card_id: CHILD } }],
@@ -120,18 +120,22 @@ describe('planner control provider ownership delegation', () => {
     expect(test.submitNotification).not.toHaveBeenCalled();
   });
 
-  it('preserves runtime Stop interruption identity', async () => {
-    const test = harness(); const interruption = new RuntimeStoppedInterruption(); test.activateChild.mockRejectedValueOnce(interruption as never);
+  it('settles a pre-aborted activation as rejected before execution', async () => {
+    const test = harness(); const interruption = new RuntimeStoppedInterruption();
     const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'activate_card' });
     const controller = new AbortController(); controller.abort(interruption);
-    await expect(settleToolForLlm(test.surface, 'activate_card', { card_id: CHILD }, context, controller.signal)).rejects.toBe(interruption);
+    await expect(settleToolForLlm(test.surface, 'activate_card', { card_id: CHILD }, context, controller.signal)).resolves.toEqual({ success: false, error: 'Tool execution was cancelled before entry.' });
+    expect(test.activateChild).not.toHaveBeenCalled();
+    expect(test.store.read).not.toHaveBeenCalled();
   });
 
-  it('preserves runtime Stop interruption identity for reopening', async () => {
-    const test = harness(); const interruption = new RuntimeStoppedInterruption(); test.reopenChild.mockImplementationOnce(() => { throw interruption; });
+  it('settles a pre-aborted reopen as rejected before execution', async () => {
+    const test = harness(); const interruption = new RuntimeStoppedInterruption();
     const context = testLlmToolInvocationContext({ sessionId: `agent:planner:${PARENT}`, toolName: 'reopen_card' });
     const controller = new AbortController(); controller.abort(interruption);
-    await expect(settleToolForLlm(test.surface, 'reopen_card', { card_id: CHILD }, context, controller.signal)).rejects.toBe(interruption);
+    await expect(settleToolForLlm(test.surface, 'reopen_card', { card_id: CHILD }, context, controller.signal)).resolves.toEqual({ success: false, error: 'Tool execution was cancelled before entry.' });
+    expect(test.reopenChild).not.toHaveBeenCalled();
+    expect(test.store.read).not.toHaveBeenCalled();
   });
 
   it('does not convert reopen publication uncertainty into an operational tool result', async () => {

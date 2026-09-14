@@ -1,5 +1,9 @@
 import type { Page, Route } from '@playwright/test';
+import { createHash } from 'node:crypto';
 import { parseOperatorResponse } from '../../../../src/contracts/operator-api.js';
+import { canonicalJson } from '../../../../src/schemas/index.js';
+import { OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE } from '../../../../src/tools/invocation.js';
+import { toolRowPolicies } from '../../../helpers/row-policy-fixtures.js';
 
 const now = '2026-05-19T12:00:00.000Z';
 export const smokeCardId = 'card-aaaaaaaaaaaaaaaaaaaaaaaaaaaa';
@@ -137,6 +141,18 @@ function stampedText(sessionId: string, id: string, content: string) {
   return { id, session_id: sessionId, role: 'assistant', kind: 'text', content, context_policy: { kind: 'content', storage: 'durable', replacement: { kind: 'retain' }, audience: 'primary_and_summarizer', evidence: { kind: 'none' } }, round_id: 'r-assistant-00000000000000000000000000000001', message_index: 0, block_index: 0, timestamp: now };
 }
 
+function pagedObservationToolPair(sessionId: string) {
+  const toolCallId = 'smoke-read-session';
+  const sourceInputId = '00000000-0000-4000-8000-000000000002';
+  const roundId = `r-assistant-${sourceInputId.replaceAll('-', '')}`;
+  const resultContent = canonicalJson({ success: true, data: { section: 'messages', total_visible_entries: 12, messages: { total: 5, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: { item_index: 0, item_byte_offset: 2 }, items: [{ content_hex: '7b22', utf8_bytes: 2, offset_bytes: 0, next_offset_bytes: 2, total_bytes: 40 }] } } });
+  const policies = toolRowPolicies({ content: resultContent, template: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, evidence: { kind: 'observational_query', observedSha256: createHash('sha256').update(resultContent, 'utf8').digest('hex') } });
+  return [
+    { id: `${sourceInputId}:tool-call:${toolCallId}`, session_id: sessionId, role: 'assistant', kind: 'tool_call', tool: 'read_agent_session', tool_call_id: toolCallId, content: JSON.stringify({ role: 'assistant', tool_calls: [{ id: toolCallId, type: 'function', function: { name: 'read_agent_session', arguments: JSON.stringify({ session_id: sessionId, last_n: 5 }) } }] }), context_policy: policies.call, round_id: roundId, message_index: 0, block_index: 0, timestamp: now },
+    { id: `${sourceInputId}:tool-result:${toolCallId}`, session_id: sessionId, role: 'tool', kind: 'tool_result', tool: 'read_agent_session', tool_call_id: toolCallId, content: resultContent, context_policy: policies.result, round_id: roundId, message_index: 1, block_index: 0, timestamp: now },
+  ];
+}
+
 export type OperatorRestOptions = {
   unauthorized?: boolean | ((method: string, pathname: string) => boolean);
 };
@@ -210,7 +226,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       const sessionId = decodeURIComponent(url.pathname.split('/')[3] ?? 'agent:analyst:global');
       const allEntries = sessionId === 'agent:analyst:global'
         ? chatEntries.get(sessionId) ?? [stampedText(sessionId, `chat-${sessionId}-1`, 'Synthetic agent transcript.')]
-        : [stampedText(sessionId, `msg-${sessionId}-1`, 'Synthetic agent transcript.')];
+        : [stampedText(sessionId, `msg-${sessionId}-1`, 'Synthetic agent transcript.'), ...(sessionId === 'agent:planner:project' ? pagedObservationToolPair(sessionId) : [])];
       const since = url.searchParams.get('since');
       const cursorIndex = since === null ? -1 : allEntries.findIndex((entry) => entry.id === since);
       const entries = cursorIndex < 0 ? allEntries : allEntries.slice(cursorIndex + 1);

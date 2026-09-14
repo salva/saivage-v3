@@ -37,7 +37,7 @@ export interface ToolContext {
   sessionId?: string;
   runtime: Pick<
     RuntimeApi,
-    'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'submitNotification' | 'getStatus'
+    'startProject' | 'pause' | 'resume' | 'stopProject' | 'notifyCard' | 'getStatus'
   >;
   mcpToolInvocation: McpToolInvocationPort;
   restartCapability: RestartCapability;

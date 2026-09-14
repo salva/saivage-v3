@@ -45,7 +45,15 @@ export const analystDeleteCardInputSchema = z.object({ ids: z.array(z.string()).
 const notificationUrgencySchema = z.enum(['normal', 'urgent']);
 export type NotificationUrgency = z.infer<typeof notificationUrgencySchema>;
 export const queueNotificationInputSchema = z.object({ card_id: cardIdSchema.describe('The exact card id.'), kind: z.string().min(1).describe('A short categorical label.'), body: z.string().min(1).describe('The context text to inject.'), urgency: notificationUrgencySchema.describe('Normal queues context only; urgent may interrupt the exact active descendant suffix after enqueue.') }).strict();
-export const readAgentSessionInputSchema = z.object({ session_id: ConversationSessionIdSchema, last_n: z.number().int().min(1).max(1000).optional(),position:discoveryCollectionPositionSchema.optional(),response_bytes:responseBytesSchema.optional() }).strict();
+const readAgentSessionSharedInput = {
+  session_id: ConversationSessionIdSchema,
+  position: discoveryCollectionPositionSchema.optional(),
+  response_bytes: responseBytesSchema.optional(),
+};
+export const readAgentSessionInputSchema = z.union([
+  z.object({ ...readAgentSessionSharedInput, section: z.literal('messages').optional(), last_n: z.number().int().min(1).max(1000).optional() }).strict(),
+  z.object({ ...readAgentSessionSharedInput, section: z.literal('context') }).strict(),
+]);
 export const readRuntimeEventsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(), kind: z.enum(eventKindValues).optional(),position:discoveryCollectionPositionSchema.optional(),response_bytes:responseBytesSchema.optional() }).strict();
 export const readRuntimeErrorsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(),position:discoveryCollectionPositionSchema.optional(),response_bytes:responseBytesSchema.optional() }).strict();
 export const readControlActionsInputSchema = z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict();

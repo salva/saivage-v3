@@ -48,7 +48,6 @@ export class CardActivationOwner {
   childCardId: string | null = null;
   cancellationReason: CardCancelReason | null = null;
   cancellationSettlement: Promise<CardCancellationResult> | null = null;
-  interruptionSettlement: Promise<void> | null = null;
 
   constructor(args: {
     card: CardRecord;

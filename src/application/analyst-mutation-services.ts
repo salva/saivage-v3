@@ -3,6 +3,7 @@ import { PROJECT_CARD_ID } from '../cards/card-api.js';
 import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api.js';
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
+import { projectNotificationSubmission } from './notification-result-projection.js';
 import type { CardRecord, CardTypeName } from '../schemas/index.js';
 import type { NotificationUrgency } from '../contracts/builtin-tool-inputs.js';
 import { propagateAnalystRecordEdit, propagateChange } from '../runtime/changed-propagation.js';
@@ -168,19 +169,13 @@ class AnalystConfigMutationImplementation implements AnalystConfigMutationServic
 class AnalystNotificationMutationImplementation implements AnalystNotificationMutationService {
   constructor(private readonly submitNotification: Pick<RuntimeApi, 'submitNotification'>['submitNotification']) {}
   async queue(cardId: string, kind: string, body: string, urgency: NotificationUrgency, signal?: AbortSignal): Promise<AnalystMutationOutcome> {
-    const queued = await queueNotification(cardId, kind, body, urgency, this.submitNotification, signal);
-    if (queued.queued) return success({ queued: true, card_id: queued.cardId, notification_id: queued.notificationId, interruption: queued.interruption });
-    switch (queued.reason) {
-      case 'missing_card': return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-      case 'terminal_card': return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
-      case 'activation_closed': return failure(`Cannot queue notification for card '${queued.cardId}': its current activation is closed to new notifications.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-      case 'planning_ineligible': return failure(`Card '${queued.cardId}' is not eligible for planning notifications.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-      default: return assertNever(queued);
-    }
+    const projected = projectNotificationSubmission(
+      await queueNotification(cardId, kind, body, urgency, this.submitNotification, signal),
+      body,
+    );
+    return projected.success ? success(projected.data) : failure(projected.error, projected.data);
   }
 }
-
-function assertNever(value: never): never { throw new Error(`Unhandled notification result: ${JSON.stringify(value)}`); }
 
 class AnalystRecordMutationImplementation implements AnalystRecordMutationService {
   constructor(private readonly store: CardService, private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}

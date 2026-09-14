@@ -24,8 +24,7 @@ type NotificationInterruptionResult =
   | { status: 'not_requested' }
   | { status: 'not_applicable' }
   | { status: 'interrupted'; stopped_card_ids: string[] }
-  | { status: 'suppressed'; reason: 'cancelled' | 'runtime_ineligible' | 'stale_owner' }
-  | { status: 'failed'; reason: string };
+  | { status: 'suppressed'; reason: 'cancelled' | 'runtime_ineligible' | 'stale_owner'; stopped_card_ids: string[] };
 
 export type NotificationSubmissionResult =
   | { queued: false; reason: 'planning_ineligible'; cardId: string }

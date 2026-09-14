@@ -8,7 +8,6 @@ import {
   type ActivateCardArguments,
 } from '../contracts/tool-api.js';
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
-import { queueNotification } from '../notifications/index.js';
 import { urgencyValues, type CardRecord, type CardTypeName, type Urgency } from '../schemas/index.js';
 import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';
 import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
@@ -19,6 +18,7 @@ import { cardParentId } from '../schemas/card-id.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { plannerCancelCardInputSchema, plannerCreateCardInputSchema, plannerEditCardInputSchema, plannerQueueNotificationInputSchema, plannerReopenCardInputSchema, plannerReorderChildInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { parseAgentName } from '../schemas/agent-name.js';
+import { submitNotificationTool } from './notification-tool.js';
 
 interface PlannerControlStore {
   read(cardId: string): CardRecord | null;
@@ -95,18 +95,8 @@ function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof
 }
 
 async function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>, signal: AbortSignal): Promise<ToolActionOutcome> {
-  const queued = await queueNotification(record.card_id, record.kind, record.body, record.urgency, ctx.submitNotification, signal);
-  if (queued.queued) return toolSucceeded({ queued: true, card_id: queued.cardId, notification_id: queued.notificationId, interruption: queued.interruption });
-  switch (queued.reason) {
-    case 'missing_card': return toolFailed(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-    case 'terminal_card': return toolFailed(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
-    case 'activation_closed': return toolFailed(`Cannot queue notification for card '${queued.cardId}': its current activation is closed to new notifications.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-    case 'planning_ineligible': return toolFailed(`Card '${queued.cardId}' is not eligible for planning notifications.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
-    default: return assertNever(queued);
-  }
+  return submitNotificationTool(record, ctx.submitNotification, signal);
 }
-
-function assertNever(value: never): never { throw new Error(`Unhandled notification result: ${JSON.stringify(value)}`); }
 
 async function cancelCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCancelCardInputSchema>): Promise<ToolActionOutcome> {
   if (record.card_id.length === 0) return failure('cancel_card requires card_id.');

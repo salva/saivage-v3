@@ -9,6 +9,7 @@ import { effectiveSaivageConfigSchema,saivageConfigSchema,type SaivageConfig } f
 import type { CardStatus } from '../../../src/schemas/index.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
 import { ModelRouter } from '../../../src/agents/model-router.js';
+import { formatVocabularySnippet } from '../../../src/agents/analyst-prompt.js';
 import { createPromptTemplateRegistry, renderCompiledPrompt } from '../../../src/utils/prompt-api.js';
 import { projectCompiledGraphs } from '../../../src/runtime/card-process/compiled-graphs-projection.js';
 import { specializedCardTypes, specializedConfig } from '../../helpers/specialized-config.js';
@@ -31,7 +32,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const derived=compileProjectWorkflows(source());
     expect(fromTemplate).toEqual(derived);
   });
-  it('compiles exact selected globals and capability-derived planning targets',()=>{const compiled=compileProjectWorkflows(source());expect([...compiled.selectedGlobalParticipants.keys()]).toEqual(['analyst','oversight']);expect(compiled.oversight).toMatchObject({name:'oversight',session:'global',skills:false,canCreateChildren:false});expect(compiled.cardTypes.get('project')?.planningNotificationTarget).toBe(true);expect(compiled.cardTypes.get('code')?.planningNotificationTarget).toBe(false);expect(createPromptTemplateRegistry(compiled).render({kind:'global-agent'},'oversight',{})).toContain('independently scheduled project-global observer');});
+  it('compiles exact selected globals and capability-derived planning targets',()=>{const compiled=compileProjectWorkflows(source());expect([...compiled.selectedGlobalParticipants.keys()]).toEqual(['analyst','oversight']);expect(compiled.oversight).toMatchObject({name:'oversight',session:'global',skills:false,canCreateChildren:false});expect(compiled.cardTypes.get('project')?.planningNotificationTarget).toBe(true);expect(compiled.cardTypes.get('code')?.planningNotificationTarget).toBe(false);expect(createPromptTemplateRegistry(compiled).render({kind:'global-agent'},'oversight',{vocabularySnippet:formatVocabularySnippet(compiled.cardTypeVocabulary)})).toContain('independently scheduled project-global observer');});
   it('rejects every invalid selected Oversight authority even while disabled',()=>{failure((value)=>{value.oversight.enabled=false;value.oversight.agent=value.analyst_agent;},/must differ/);failure((value)=>{value.oversight.enabled=false;value.agents.oversight!.session='card';value.agents.oversight!.tools=[];},/global session/);failure((value)=>{value.agents.oversight!.can_create_children=true;},/can_create_children/);failure((value)=>{value.agents.oversight!.record_writes=['status.md'];},/no record_writes/);failure((value)=>{value.agents.oversight!.skills=true;value.agents.oversight!.tools.push('skill');},/skills: false/);failure((value)=>{value.agents.oversight!.tools=['run_command'];},/forbidden/);});
   it('requires the complete Oversight section and validates its disabled route without provider I/O',()=>{
     const missing=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete missing.oversight;
@@ -116,6 +117,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const registry=createPromptTemplateRegistry(compiled);
     expect(registry.render({kind:'workflow-agent',cardType:'global'},'executor',{contractDescription:'contract'})).toBe('GLOBAL CARD CARD FRAGMENT contract');
     expect(registry.render({kind:'global-agent'},'analyst',{vocabularySnippet:'types'})).toContain('Saivage Analyst');
+    expect(registry.render({kind:'global-agent'},'oversight',{vocabularySnippet:'custom vocabulary'})).toContain('custom vocabulary');
   });
   it('projects exactly configured graphs and the same effective leaf tool selection used by execution',()=>{
     const config=source();config.providers={test:{models:['gpt-5.6'],capabilities:{contextWindowTokens:100_000,maxOutputTokens:10_000}}};
@@ -324,17 +326,19 @@ describe('named-agent card-type workflow compilation',()=>{
     const root=mkdtempSync(join(tmpdir(),'workflow-precedence-'));roots.push(root);
     const defaults=join(root,'defaults');const overrides=join(root,'.saivage','config','prompts');
     const write=(base:string,purpose:string,scope:string,id:string,text:string)=>{const dir=join(base,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
-    for(const id of ['analyst','oversight','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{vocabularySnippet}}':id==='oversight'?'oversight':`${id} {{contractDescription}}`);
+    for(const id of ['analyst','oversight','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{vocabularySnippet}}':id==='oversight'?'{{> oversight-vocabulary}}':`${id} {{contractDescription}}`);
     for(const id of ['plan','recover','review','handle-notifications','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','review-to-notifications','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
     write(defaults,'agents','code','executor','bundled-card {{contractDescription}}');
     write(overrides,'agents','_shared','executor','override-shared {{> shared-piece}} {{contractDescription}}');
     write(defaults,'fragments','_shared','shared-piece','bundled-fragment');
+    write(defaults,'fragments','_shared','oversight-vocabulary','oversight {{vocabularySnippet}}');
     write(overrides,'fragments','code','shared-piece','override-code-fragment');
     write(defaults,'process','code','execute','bundled-card-process {{cardType}}');
     write(overrides,'process','_shared','execute','override-shared-process {{cardType}}');
     const value=source();value.agents.executor!.prompt='executor';value.agents.reviewer!.prompt='executor';
     const observations:Array<{source:string;path:string}>=[];
     const compiled=compileProjectWorkflows(value,{defaultPromptRoot:defaults,projectRoot:root,artifactObserver:(artifact)=>observations.push(artifact)});
+    expect(renderCompiledPrompt({kind:'global-agent'},compiled.oversight.name,compiled.oversightPrompt.compiled,{vocabularySnippet:'custom types'})).toBe('oversight custom types');
     const code=compiled.cardTypes.get('code')!;const node=code.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');
     expect(node.selectedAgentPrompt.source).toBe('override-shared');
     expect(renderCompiledPrompt({kind:'workflow-agent',cardType:'code'},node.agent.name,node.selectedAgentPrompt.compiled,{contractDescription:'contract'})).toBe('override-shared override-code-fragment contract');

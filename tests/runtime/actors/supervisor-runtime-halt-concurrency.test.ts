@@ -56,6 +56,7 @@ function processor(snapshot: ReturnType<CardProcessActor['executingLlmSnapshot']
       start() {},
       activate: async () => new Promise<never>(() => undefined),
       disposeActivation: dispose,
+      prepareForRuntimeHalt: jest.fn((reason: unknown) => dispose(reason)),
       suppressContinuationAndPrepareJoin: jest.fn(),
       joinActivation: jest.fn(() => activationJoin ??= join.promise),
       processPosition: () => ({ cardType: 'project', stateId: 'ready', kind: 'ready' }),
@@ -526,6 +527,19 @@ describe('Supervisor singular runtime halt concurrency', () => {
     await expect(within(cancellation)).rejects.toBeInstanceOf(RuntimeStoppedInterruption);
     await expect(within(stop)).resolves.toEqual({ status: 'stopped', contained: true });
     expect(h.store.setStatus).not.toHaveBeenCalled();
+  });
+
+  it('denies a conflicted owned suffix before claiming or disposing any ancestor', async () => {
+    const h = harness(true);
+    if (!h.child) throw new Error('Expected child owner.');
+    h.child.terminalWinner = 'interrupt';
+    h.child.phase = 'settling';
+
+    await expect(h.supervisor.cancelCard('project', 'must be all or deny')).rejects.toThrow("Card 'card-a' cannot be cancelled while activation ownership is 'settling'.");
+
+    expect(h.root.terminalWinner).toBe('open');
+    expect(h.root.phase).toBe('active');
+    expect(h.rootProcessor.dispose).not.toHaveBeenCalled();
   });
 
   it('interrupts a reserved child admission attempted after freeze without installing work', async () => {

@@ -20,7 +20,7 @@ export type OversightStatus = Readonly<{
   session_id: string;
   enabled: boolean;
   eligible: boolean;
-  eligibility_reason: 'disabled' | Exclude<RuntimeStatus, 'running'> | 'application_closing' | 'settling_previous_check' | null;
+  eligibility_reason: 'disabled' | Exclude<RuntimeStatus, 'running'> | 'application_closing' | 'check_in_flight' | null;
   state: 'waiting' | 'checking' | 'unavailable';
   next_nominal_due: string | null;
   last_attempt: Readonly<{ outcome: OversightCheckOutcome; settled_at: string }> | null;
@@ -119,7 +119,7 @@ export class ProjectOversight {
         : this.#runtimeStatus !== 'running'
           ? this.#runtimeStatus
           : this.#check
-            ? 'settling_previous_check'
+            ? 'check_in_flight'
             : null;
     return Object.freeze({
       agent_name: this.#agentName,

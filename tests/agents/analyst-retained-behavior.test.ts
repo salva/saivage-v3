@@ -9,6 +9,10 @@ import { executedToolOutcome } from '../../src/tools/invocation.js';
 import { toolFailed, toolSucceeded } from '../../src/contracts/tool-result.js';
 import { listControlActions } from '../../src/persistence/control-action-audit.js';
 import { reorder_child } from '../../src/tools/analyst-card-tools.js';
+import { queue_notification } from '../../src/tools/analyst-misc-tools.js';
+import { createAnalystMutationServices } from '../../src/application/analyst-mutation-services.js';
+import { AnalystInterventionNotReadyError } from '../../src/application/intervention-readiness.js';
+import { CardService, initProjectTree } from '../helpers/canonical-project.js';
 
 const roots: string[] = [];
 afterEach(() => { while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true }); });
@@ -38,6 +42,27 @@ describe('Analyst retained navigation and capability behavior', () => {
 });
 
 describe('audited Analyst mutation settlement', () => {
+  it('returns and audits the readiness-owner denial instead of escaping the tool boundary',async()=>{
+    const test=harness();
+    (test.context as any).interventionReadiness={assertInterventionReady(){throw new AnalystInterventionNotReadyError();}};
+    const queue=jest.fn();
+    (test.context as any).analystMutations={notifications:{queue}};
+    const result=await queue_notification(test.context,{card_id:'project',kind:'finding',body:'context',urgency:'normal'},new AbortController().signal);
+    expect(result.providerOutcome).toEqual({kind:'failed',error:'Analyst mutation requires an intervention-ready stopped or settled paused runtime.',data:{code:'intervention_not_ready'}});
+    expect(queue).not.toHaveBeenCalled();
+    expect(listControlActions(test.root)).toEqual([expect.objectContaining({action:'notification.queue',outcome:'denied',params_summary:expect.not.stringContaining('context')})]);
+  });
+
+  it('uses the production Analyst notification owner and shared snake-case body projection',async()=>{
+    const test=harness();initProjectTree(test.root);
+    const submit=jest.fn(async()=>({queued:true as const,cardId:'project',notificationId:'notice-analyst',interruption:{status:'not_requested' as const}}));
+    (test.context as any).analystMutations=createAnalystMutationServices({store:new CardService(test.root),configAuthority:{} as never,notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),submitNotification:submit,cancelCard:async()=>{throw new Error('unused cancel');}});
+    const result=await queue_notification(test.context,{card_id:'project',kind:'finding',body:'token=analyst-secret',urgency:'normal'},new AbortController().signal);
+    expect(result.providerOutcome).toEqual({kind:'succeeded',data:{queued:true,card_id:'project',notification_id:'notice-analyst',body:'token=[REDACTED]',interruption:{status:'not_requested'}}});
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(listControlActions(test.root)).toEqual([expect.objectContaining({action:'notification.queue',outcome:'ok',params_summary:expect.not.stringContaining('analyst-secret')})]);
+  });
+
   it('runs a supported destructive mutation once and preserves its audit classification', async () => {
     const test = harness();
     const mutate = jest.fn(() => ({ kind: 'returned' as const, success: true as const }));

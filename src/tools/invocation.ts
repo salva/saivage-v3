@@ -3,11 +3,11 @@ import { z } from 'zod';
 import type { ToolDefinition as LlmToolDefinition } from '../agents/llm-contracts.js';
 import { zodToJsonSchemaMini } from '../agents/zod-to-jsonschema-mini.js';
 import type { AgentName, ToolResultPolicyTemplate } from '../schemas/index.js';
-import { isRuntimeStoppedInterruption } from '../runtime/actors/runtime-stopped-interruption.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
 import { McpToolInvocationNotInstalledError } from '../mcp/tool-invocation-installation.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { toolFailed, type ToolActionOutcome } from '../contracts/tool-result.js';
+import { boundedToolError, DiscoveryBudgetTooSmallError, DiscoveryCollectionPositionError } from './response-packer.js';
 
 type ToolEvidenceMode = ToolResultPolicyTemplate['evidenceMode'];
 
@@ -121,6 +121,12 @@ export class ToolArgumentValidationError extends Error {
   }
 }
 
+export function isExpectedToolInputFailure(error: unknown): error is ToolArgumentValidationError | DiscoveryBudgetTooSmallError | DiscoveryCollectionPositionError {
+  return error instanceof ToolArgumentValidationError
+    || error instanceof DiscoveryBudgetTooSmallError
+    || error instanceof DiscoveryCollectionPositionError;
+}
+
 export function defineTool<Schema extends z.ZodTypeAny, M extends ToolEvidenceMode>(definition: {
   readonly name: string;
   readonly description: string;
@@ -169,21 +175,22 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
     if (!definition) return syntheticToolSettlement('unsupported_tool', `Unsupported tool '${name}' for agent '${surface.agentName}'.`);
     const parsed = definition.inputSchema.safeParse(args);
     if (!parsed.success) return syntheticToolSettlement('rejected_before_execution', parsed.error.message);
-    if (signal?.aborted) {
-      if (isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
-      return syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.');
-    }
+    if (signal?.aborted) return syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.');
     executorEntered = true;
     const execution = await definition.executor(parsed.data, signal ?? new AbortController().signal, context);
-    if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
     return { kind: 'executed', execution };
   } catch (error) {
     throwIfPublicationOutcomeUnknown(error);
     if (error instanceof McpToolInvocationNotInstalledError) throw error;
-    if (error instanceof ToolArgumentValidationError) return syntheticToolSettlement('rejected_before_execution', error.message);
-    if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
+    if (isExpectedToolInputFailure(error)) {
+      const message = boundedToolError(error.message);
+      return executorEntered
+        ? executedNoneSettlement(toolFailed(message))
+        : syntheticToolSettlement('rejected_before_execution', message);
+    }
     if (signal?.aborted && !executorEntered) return syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.');
-    if (signal?.aborted) return syntheticToolSettlement('execution_failed', error instanceof Error ? error.message : String(error));
+    if (signal?.aborted && error === signal.reason)
+      return syntheticToolSettlement('execution_failed', boundedToolError(error instanceof Error ? error.message : String(error)));
     throw error;
   }
 }

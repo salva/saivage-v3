@@ -20,19 +20,32 @@ function processResult(ctx: ResultPresenterContext) {
   return { headline: textPart(parts.length ? parts.join(' · ') : 'completed'), detail: procId ? textPart(`process ${procId}`) : undefined };
 }
 
-function arrayCount(ctx: ResultPresenterContext, noun: string) {
-  const list = Array.isArray(ctx.data) ? ctx.data : null;
-  return { headline: list ? textPart(`${list.length} ${noun}${list.length === 1 ? '' : 's'}`) : textPart(`${noun} list loaded`) };
-}
-
-function pageCount(page: unknown, noun: string, plural?: string) {
+function pageCount(page: unknown, noun: string, plural?: string, totalQualifier = '') {
   const record = asRecord(page);
   const returned = typeof record?.returned === 'number' ? record.returned : Array.isArray(record?.items) ? record.items.length : null;
   const total = typeof record?.total === 'number' ? record.total : null;
   if (returned === null) return { headline: textPart(`${noun} list loaded`) };
   const pluralNoun = plural ?? `${noun}s`;
+  const items = Array.isArray(record?.items) ? record.items : [];
+  const containsSlice = items.some((item) => {
+    const value = asRecord(item);
+    return typeof value?.content_hex === 'string' && typeof value.total_bytes === 'number';
+  });
+  if (containsSlice) {
+    const slices = `${returned} partial ${noun} slice${returned === 1 ? '' : 's'}`;
+    return { headline: textPart(total === null ? slices : `${slices} of ${total}${totalQualifier} ${total === 1 ? noun : pluralNoun}`) };
+  }
   if (total === null) return { headline: textPart(`${returned} ${returned === 1 ? noun : pluralNoun}`) };
-  return { headline: textPart(`${returned} of ${total} ${total === 1 ? noun : pluralNoun}`) };
+  return { headline: textPart(`${returned} of ${total}${totalQualifier} ${total === 1 ? noun : pluralNoun}`) };
+}
+
+function pageWithFullCount(ctx: ResultPresenterContext, key: string, noun: string, fullTotalKey: string, fullLabel: string, totalQualifier = '') {
+  const page = pageCount(ctx.dataRecord?.[key], noun, undefined, totalQualifier);
+  const fullTotal = ctx.dataRecord?.[fullTotalKey];
+  return {
+    ...page,
+    detail: typeof fullTotal === 'number' ? textPart(`${fullTotal} ${fullLabel}`) : undefined,
+  };
 }
 
 function webfetchResult(ctx: ResultPresenterContext) {
@@ -71,10 +84,10 @@ export const TOOL_PRESENTERS = {
   glob: { action: 'Glob', group: 'context', call: (a) => ({ icon: '📂', headline: pathParts(a.directory), detail: textPart(a.pattern) }), result: () => ({ headline: textPart('glob completed') }) },
   grep: { action: 'Grep', group: 'context', call: (a) => ({ icon: '🔎', headline: textPart(a.pattern, 80), detail: a.path === undefined ? undefined : pathParts(a.path) }), result: () => ({ headline: textPart('grep completed') }) },
   kill_process: { action: 'Kill', call: (a) => ({ icon: '🛑', headline: textPart(`process ${str(a.process_id)}`) }), result: processResult },
-  list_agent_sessions: { action: 'List sessions', group: 'context', call: () => ({ icon: '👥', headline: textPart('agent sessions') }), result: (ctx) => arrayCount(ctx, 'session') },
+  list_agent_sessions: { action: 'List sessions', group: 'context', call: () => ({ icon: '👥', headline: textPart('agent sessions') }), result: (ctx) => pageCount(ctx.dataRecord?.sessions, 'session') },
   list_card_versions: { action: 'Versions', group: 'context', call: (a) => ({ icon: '🕘', headline: cardPart(a.card_id) }), result: (ctx) => pageCount(ctx.dataRecord?.versions, 'version') },
   list_cards: { action: 'List cards', group: 'context', call: (a) => ({ icon: '🔎', headline: textPart(Object.entries(a).filter(([, v]) => v !== undefined).map(([k, v]) => `${k}=${Array.isArray(v) ? v.join(',') : str(v)}`).join(' · ') || 'all cards') }), result: (ctx) => pageCount(ctx.dataRecord?.cards, 'card') },
-  list_processes_tool: { action: 'List processes', call: (a) => ({ icon: '⚙', headline: textPart(Object.keys(a).length ? `filter ${argKeys(a)}` : 'all processes') }), result: (ctx) => arrayCount(ctx, 'process') },
+  list_processes_tool: { action: 'List processes', call: (a) => ({ icon: '⚙', headline: textPart(Object.keys(a).length ? `filter ${argKeys(a)}` : 'all processes') }), result: (ctx) => pageCount(ctx.dataRecord?.processes, 'process', 'processes') },
   mcp_reconcile: { action: 'Reconcile MCP', call: () => ({ icon: '🔌', headline: textPart('retry MCP convergence from persisted configuration') }) },
   mcp_tool_call: { action: 'MCP', call: (a) => ({ icon: '🔌', headline: textPart(`${str(a.serverName)}/${str(a.toolName)}`), detail: a.args === undefined ? undefined : textPart(a.args, 72) }), result: (ctx) => ({ headline: typeof ctx.data === 'string' || typeof ctx.data === 'number' || typeof ctx.data === 'boolean' ? textPart(ctx.data, 96) : textPart('MCP call completed') }) },
   navigate_back: { action: 'Back', call: () => ({ icon: '↩', headline: textPart('navigate back') }), result: () => ({ headline: textPart('back navigation queued') }) },
@@ -82,11 +95,13 @@ export const TOOL_PRESENTERS = {
   pause_runtime: { action: 'Pause', call: () => ({ icon: '⏸', headline: textPart('pause runtime') }) },
   queue_notification: { action: 'Notify', call: (a) => ({ icon: '🔔', headline: cardPart(a.card_id), detail: textPart(`${str(a.kind)} · ${oneLine(a.body, 96)}`) }), result: () => ({ headline: textPart('notification queued') }) },
   read: { action: 'Read', group: 'context', call: (a) => ({ icon: '📖', headline: pathParts(a.path) }), result: (ctx) => { const r = ctx.dataRecord; const entries = asRecord(r?.entries); if (entries) return pageCount(entries, 'entry', 'entries'); const totalBytes = typeof r?.total_bytes === 'number' ? r.total_bytes : null; return { headline: textPart(totalBytes !== null && totalBytes > 0 ? formatBytes(totalBytes) : 'read completed') }; } },
-  read_agent_session: { action: 'Session', group: 'context', call: (a) => ({ icon: '🧵', headline: textPart(`session ${str(a.session_id)}`) }), result: (ctx) => { const n = Array.isArray(ctx.dataRecord?.messages) ? ctx.dataRecord.messages.length : null; return { headline: n === null ? textPart('session loaded') : textPart(`${n} message${n === 1 ? '' : 's'}`) }; } },
+  read_agent_session: { action: 'Session', group: 'context', call: (a) => ({ icon: '🧵', headline: textPart(`session ${str(a.session_id)}`), detail: textPart(str(a.section) || 'messages') }), result: (ctx) => ctx.dataRecord?.section === 'context'
+    ? pageWithFullCount(ctx, 'context', 'context item', 'total_visible_entries', 'total visible messages')
+    : pageWithFullCount(ctx, 'messages', 'message', 'total_visible_entries', 'total visible messages', ' selected') },
   read_control_actions: { action: 'Audit', group: 'context', call: (a) => ({ icon: '🧭', headline: textPart(`control actions × ${str(a.limit ?? 50)}${a.since ? ` since ${str(a.since)}` : ''}`) }), result: (ctx) => describeJsonlTail(ctx, 'actions', 'control actions') },
   read_record_version: { action: 'Record version', group: 'context', call: (a) => ({ icon: '🕘', headline: cardPart(a.card_id), detail: textPart(`${str(a.record_name)} v${str(a.version)}`) }) },
-  read_runtime_errors: { action: 'Errors', group: 'context', call: (a) => ({ icon: '🩺', headline: textPart(`newest errors × ${str(a.limit ?? 50)}`) }), result: (ctx) => describeJsonlTail(ctx, 'errors', 'errors') },
-  read_runtime_events: { action: 'Events', group: 'context', call: (a) => ({ icon: '📜', headline: textPart(`newest events × ${str(a.limit ?? 50)}${a.kind ? ` [${str(a.kind)}]` : ''}`) }), result: (ctx) => describeJsonlTail(ctx, 'events', 'events') },
+  read_runtime_errors: { action: 'Errors', group: 'context', call: (a) => ({ icon: '🩺', headline: textPart(`newest errors × ${str(a.limit ?? 50)}`) }), result: (ctx) => pageWithFullCount(ctx, 'errors', 'error', 'total_lines', 'total error lines', ' selected') },
+  read_runtime_events: { action: 'Events', group: 'context', call: (a) => ({ icon: '📜', headline: textPart(`newest events × ${str(a.limit ?? 50)}${a.kind ? ` [${str(a.kind)}]` : ''}`) }), result: (ctx) => pageWithFullCount(ctx, 'events', 'event', 'total_lines', 'total event lines', ' selected') },
   reconfigure: { action: 'Reconfigure', call: (a) => ({ icon: '⚙', headline: textPart(str(a.action)) }), result: () => ({ headline: textPart('configuration updated') }) },
   reorder_child: { action: 'Reorder', call: (a) => ({ icon: '↕', headline: textPart((Array.isArray(a.orderedChildIds) ? a.orderedChildIds : []).join(' → ')), detail: Object.hasOwn(a, 'parentId') ? cardPart(a.parentId) : undefined }), result: () => ({ headline: textPart('cards reordered') }) },
   reopen_card: { action: 'Reopen', call: (a) => ({ icon: '↻', headline: cardPart(Object.hasOwn(a, 'card_id') ? a.card_id : a.cardId) }), result: (ctx) => ({ ...cardResult(ctx, 'reopened'), detail: textPart(str(ctx.dataRecord?.status) || 'changed') }) },

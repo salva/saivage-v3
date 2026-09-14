@@ -168,7 +168,7 @@ describe('static tool presenter authority', () => {
       expect(inlineText(view.headline)).toContain('exit 0');
       expect(inlineText(view.detail ?? [])).toContain('proc-a');
     }
-    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: [process] }), { tool: 'list_processes_tool' }).headline)).toBe('1 process');
+    expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { processes: { total: 1, position: { item_index: 0, item_byte_offset: 0 }, returned: 1, next: null, items: [process] } } }), { tool: 'list_processes_tool' }).headline)).toBe('1 of 1 process');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card: PLANNER_COMPACT_CARD } }), { tool: 'create_card' }).headline)).toContain('card-p');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: ANALYST_CARD_VIEW }), { tool: 'create_card' }).headline)).toContain('card-a');
     const reopened = presentToolResult(JSON.stringify({ success: true, data: { ...ANALYST_CARD_VIEW, status: 'changed' } }), { tool: 'reopen_card' });
@@ -184,6 +184,39 @@ describe('static tool presenter authority', () => {
     expect(inlineText(getCard.detail ?? [])).toBe('code · backlog');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { card_id: 'card-a', outcome: 'blocked', summary: 'x', result: null } }), { tool: 'activate_card' }).headline)).toBe('blocked');
     expect(inlineText(presentToolResult(JSON.stringify({ success: true, data: { accepted: true } }), { tool: 'emit_result' }).headline)).toBe('result accepted');
+  });
+
+  it('presents current named observation pages without overstating slices or totals', () => {
+    const position = { item_index: 0, item_byte_offset: 0 };
+    const slice = { content_hex: '7b22', utf8_bytes: 2, offset_bytes: 0, next_offset_bytes: 2, total_bytes: 40 };
+    const sessions = presentToolResult(JSON.stringify({ success: true, data: { sessions: { total: 5, position, returned: 2, next: { item_index: 2, item_byte_offset: 0 }, items: [{}, {}] } } }), { tool: 'list_agent_sessions' });
+    expect(inlineText(sessions.headline)).toBe('2 of 5 sessions');
+
+    const messagesBody = { success: true, data: { section: 'messages', total_visible_entries: 12, messages: { total: 5, position, returned: 2, next: { item_index: 2, item_byte_offset: 0 }, items: [{}, {}] } } };
+    const messages = presentToolResult(JSON.stringify(messagesBody), { tool: 'read_agent_session' });
+    expect(inlineText(messages.headline)).toBe('2 of 5 selected messages');
+    expect(inlineText(messages.detail ?? [])).toBe('12 total visible messages');
+
+    const slicedMessagesBody = { success: true, data: { section: 'messages', total_visible_entries: 12, messages: { total: 5, position, returned: 1, next: { item_index: 0, item_byte_offset: 2 }, items: [slice] } } };
+    const slicedMessages = presentToolResult(JSON.stringify(slicedMessagesBody), { tool: 'read_agent_session' });
+    expect(inlineText(slicedMessages.headline)).toBe('1 partial message slice of 5 selected messages');
+    expect(slicedMessages.body).toEqual(slicedMessagesBody);
+
+    const context = presentToolResult(JSON.stringify({ success: true, data: { section: 'context', total_visible_entries: 12, context: { total: 1, position, returned: 1, next: { item_index: 0, item_byte_offset: 2 }, items: [slice] } } }), { tool: 'read_agent_session' });
+    expect(inlineText(context.headline)).toBe('1 partial context item slice of 1 context item');
+    expect(inlineText(context.detail ?? [])).toBe('12 total visible messages');
+
+    const events = presentToolResult(JSON.stringify({ success: true, data: { total_lines: 30, events: { total: 10, position, returned: 3, next: null, items: [{}, {}, {}] } } }), { tool: 'read_runtime_events' });
+    expect(inlineText(events.headline)).toBe('3 of 10 selected events');
+    expect(inlineText(events.detail ?? [])).toBe('30 total event lines');
+    const errors = presentToolResult(JSON.stringify({ success: true, data: { total_lines: 9, errors: { total: 2, position, returned: 1, next: null, items: [{}] } } }), { tool: 'read_runtime_errors' });
+    expect(inlineText(errors.headline)).toBe('1 of 2 selected errors');
+    expect(inlineText(errors.detail ?? [])).toBe('9 total error lines');
+
+    const historical = { success: true, data: [{ id: 'historical-session' }] };
+    const opaque = presentToolResult(JSON.stringify(historical), { tool: 'list_agent_sessions' });
+    expect(inlineText(opaque.headline)).toBe('session list loaded');
+    expect(opaque.body).toEqual(historical);
   });
 
   it('renders queue success but keeps activation-closed failure on the generic failure boundary', () => {

@@ -49,6 +49,9 @@ import { OversightSession } from '../agents/oversight-session.js';
 import { ProjectOversight, type OversightClock, type OversightStatus } from './project-oversight.js';
 import { globalAgentSessionId } from '../schemas/index.js';
 import { createOversightNotificationPort } from './oversight-notification-port.js';
+import { queue_notification } from '../tools/analyst-misc-tools.js';
+import { submitNotificationTool, type QueueNotificationToolInput } from '../tools/notification-tool.js';
+import { executeToolAction } from '../tools/invocation.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -196,6 +199,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     runtimeStatusChanged:(status)=>projectOversight?.runtimeStatusChanged(status),
   });
   const runtimeApi: RuntimeApi = runtimeSupervisor;
+  const runtimeObservation = Object.freeze({ getStatus: runtimeApi.getStatus.bind(runtimeApi) });
   const analystSessionId = services.analystSessionId;
   let analystRuntimeCache: AnalystRuntime | null = null;
   const analystProvider = createInvocationServiceProvider(invocationService);
@@ -223,7 +227,14 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         processScope: directScope,
         store: cardStore,
         sessionId: analystSessionId,
-        runtime: runtimeApi,
+        runtime: Object.freeze({
+          startProject: runtimeApi.startProject.bind(runtimeApi),
+          pause: runtimeApi.pause.bind(runtimeApi),
+          resume: runtimeApi.resume.bind(runtimeApi),
+          stopProject: runtimeApi.stopProject.bind(runtimeApi),
+          notifyCard: runtimeApi.notifyCard.bind(runtimeApi),
+          getStatus: runtimeApi.getStatus.bind(runtimeApi),
+        }),
         mcpToolInvocation: services.mcpToolInvocation,
         restartCapability,
         actor: workflows.analyst.name,
@@ -232,7 +243,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         eventQueries,
         captureExecutingLlmSnapshots,
       };
-      const observationToolContext = { agentName:workflows.analyst.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeApi,submitNotification:runtimeApi.submitNotification.bind(runtimeApi),captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null };
+      const observationToolContext = { agentName:workflows.analyst.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeObservation,queueNotification:(input:QueueNotificationToolInput,signal:AbortSignal)=>queue_notification(context,input,signal),captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null };
       return analystBinding.toolSet.bind({
         scope: 'global',
         agentName: analystBinding.contract.name,
@@ -305,9 +316,9 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const oversightProvider=createInvocationServiceProvider(invocationService);
   projectOversight=new ProjectOversight({enabled:config.oversight.enabled,intervalMs:config.oversight.interval_seconds*1000,agentName:workflows.oversight.name,sessionId:oversightSessionId,serviceEpoch:services.processIdentity.startedAt,clock:services.oversightClock,changed:()=>services.freshness.runtimeChanged(),onOwnerFailure:services.onOversightOwnerFailure,createCheck:()=>{
     const submitNotification=createOversightNotificationPort({oversight:projectOversight,cards:cardStore,workflows,submitNotification:runtimeApi.submitNotification.bind(runtimeApi)});
-    const observationToolContext={agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeApi,submitNotification,captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null};
+    const observationToolContext={agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeObservation,queueNotification:(input:QueueNotificationToolInput,signal:AbortSignal)=>executeToolAction('none',()=>submitNotificationTool(input,submitNotification,signal)),captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null};
     const surface=oversightBinding.toolSet.bind({scope:'global',agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,mcpToolInvocation:services.mcpToolInvocation,observationToolContext,cardTypeVocabulary:workflows.cardTypeVocabulary});
-    return new OversightSession({sessionId:oversightSessionId,agentName:workflows.oversight.name,surface,provider:oversightProvider,conversations,promptTemplates,modelParams:oversightBinding.contract.model,capabilityRequest:oversightBinding.capabilityRequest,candidateChain:oversightBinding.candidateChain,routeUsableInputTokens:oversightBinding.routeUsableInputTokens,compactionPolicy,compactor,summarizerProvider,runtimeProjectionChanged:()=>services.freshness.agentMembershipChanged({scope:'global-session',sessionId:oversightSessionId}),fatalPort:services.fatalPort});
+    return new OversightSession({sessionId:oversightSessionId,agentName:workflows.oversight.name,surface,provider:oversightProvider,conversations,promptTemplates,modelParams:oversightBinding.contract.model,capabilityRequest:oversightBinding.capabilityRequest,candidateChain:oversightBinding.candidateChain,routeUsableInputTokens:oversightBinding.routeUsableInputTokens,compactionPolicy,compactor,summarizerProvider,runtimeProjectionChanged:()=>services.freshness.agentMembershipChanged({scope:'global-session',sessionId:oversightSessionId}),fatalPort:services.fatalPort,cardTypeVocabulary:workflows.cardTypeVocabulary});
   }});
 
   return {

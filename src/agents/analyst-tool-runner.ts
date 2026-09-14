@@ -7,6 +7,7 @@ import type { AnalystMutationOutcome } from '../application/analyst-mutation-ser
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import type { AnalystPreNetworkAdmission } from '../contracts/record-mutation.js';
 import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
+import { AnalystInterventionNotReadyError } from '../application/intervention-readiness.js';
 
 export interface AnalystMutationReadContext {
   readonly projectRoot: string;
@@ -96,6 +97,10 @@ export async function runAuditedAnalystTool<P extends object, Prepared = undefin
   } catch (error) {
     throwIfPublicationOutcomeUnknown(error);
     if (settled) throw error;
+    if (error instanceof AnalystInterventionNotReadyError) {
+      settle({ outcome: 'denied', outcome_summary: error.message });
+      return executedToolOutcome('none', toolFailed(error.message, { code: 'intervention_not_ready' }));
+    }
     const summary = error instanceof Error ? error.message : String(error);
     settle({ outcome: 'error', outcome_summary: summary, error: summary });
     throw error;

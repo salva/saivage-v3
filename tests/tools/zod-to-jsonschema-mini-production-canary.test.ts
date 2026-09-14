@@ -23,6 +23,7 @@ import {
 import { llmToolDefinition } from '../../src/tools/invocation.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { CardService, initProjectTree, testConfigAuthority } from '../helpers/canonical-project.js';
+import { queue_notification } from '../../src/tools/analyst-misc-tools.js';
 import { createTestRestartPort } from '../helpers/restart-port.js';
 
 const roots: string[] = [];
@@ -93,7 +94,6 @@ describe('zodToJsonSchemaMini production surface canary', () => {
         resume() {},
         stopProject: async () => ({ status: 'stopped', contained: false }),
         notifyCard: (cardId) => ({ ok: false, reason: 'missing_card', cardId }),
-        submitNotification: async (cardId) => ({ queued: false, reason: 'missing_card', cardId }),
         getStatus: () => ({ status: 'stopped', currentCardId: null, pid: process.pid, startedAt: new Date(0).toISOString() }),
       },
       mcpToolInvocation,
@@ -113,6 +113,10 @@ describe('zodToJsonSchemaMini production surface canary', () => {
       processOwnerId: 'agent:analyst:global',
       mcpToolInvocation,
       analystToolContext,
+      observationToolContext: {
+        agentName:'analyst',projectRoot,store,processRunner,eventQueries:analystToolContext.eventQueries!,runtime:analystToolContext.runtime,
+        queueNotification:(input,signal)=>queue_notification(analystToolContext,input,signal),captureExecutingLlmSnapshots:()=>new Map(),
+      },
       cardTypeVocabulary: vocabulary,
     };
     const cardContext: CardToolBindingContext = {

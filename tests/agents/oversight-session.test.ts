@@ -44,12 +44,23 @@ function session(root: string, provider: LLMProviderPort, runtimeProjectionChang
     summarizerProvider: unusedSummarizerProvider,
     runtimeProjectionChanged,
     fatalPort: testApplicationFatalPort,
+    cardTypeVocabulary: ['project','goal','code'],
   });
 }
 
 const finalMessage = (): ProviderTurnCompletion => ({ result: { kind: 'message', content: 'No action needed.' }, provider_exchanges: [] });
 
 describe('OversightSession owned check settlement', () => {
+  it('renders the compiled global vocabulary values for every check', async () => {
+    const root = projectRoot();
+    const render = jest.fn((_purpose, _agent, values: Record<string, string>) => values.vocabularySnippet);
+    const check = new OversightSession({
+      sessionId:'agent:oversight:global',agentName:'oversight',surface:{agentName:'oversight',tools:new Map(),providers:[]},provider:scriptedAdmissionProvider(async()=>finalMessage()),conversations:{projectRoot:root,changes:{conversationChanged(){},agentMembershipChanged(){}}},promptTemplates:{render} as never,modelParams:{temperature:0.2,maxTokens:1000},capabilityRequest:{requiresTools:false,requiresExclusiveToolChoice:true},candidateChain:[{provider:'test',account:null,model:'test-model'}],routeUsableInputTokens:80_000,compactionPolicy:testCompactionPolicy,compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,runtimeProjectionChanged(){},fatalPort:testApplicationFatalPort,cardTypeVocabulary:['project','custom-leaf'],
+    });
+    await expect(check.run()).resolves.toBe('succeeded');
+    expect(render).toHaveBeenCalledWith({kind:'global-agent'},'oversight',{vocabularySnippet:expect.stringContaining('custom-leaf')});
+  });
+
   it('creates no conversation eagerly and invalidates global membership at first ingress publication', async () => {
     const root = projectRoot();
     const changed = jest.fn();
@@ -67,6 +78,26 @@ describe('OversightSession owned check settlement', () => {
     await expect(session(root, scriptedAdmissionProvider(complete)).run()).resolves.toBe('succeeded');
     await expect(session(root, scriptedAdmissionProvider(complete)).run()).resolves.toBe('succeeded');
     expect(complete).toHaveBeenCalledTimes(2);
+  });
+
+  it('invalidates scoped membership after outer check ownership clears', async () => {
+    const root = projectRoot();
+    let release!: () => void;
+    let check!: OversightSession;
+    const snapshots: boolean[] = [];
+    const changed = jest.fn(() => snapshots.push(check.executingLlmSnapshot() !== null));
+    const provider = scriptedAdmissionProvider(async () => {
+      await new Promise<void>((resolve) => { release = resolve; });
+      return finalMessage();
+    });
+    check = session(root, provider, changed);
+    const task = check.run();
+    while (!release) await Promise.resolve();
+    snapshots.length = 0;
+    release();
+    await expect(task).resolves.toBe('succeeded');
+    expect(changed).toHaveBeenCalled();
+    expect(snapshots.at(-1)).toBe(false);
   });
 
   it('classifies known local exact-admission failure as reusable ordinary failure', async () => {

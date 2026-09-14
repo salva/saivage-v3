@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentName, GlobalConversationSessionId } from '../schemas/index.js';
+import type { AgentName, CardTypeName, GlobalConversationSessionId } from '../schemas/index.js';
 import type { Candidate } from '../contracts/provider-candidate.js';
 import type { CapabilityRequest } from './provider-capabilities.js';
 import { buildGlobalAgentIngressRows, providerConversationProjection } from '../runtime/actors/conversation-session.js';
@@ -17,6 +17,8 @@ import { invokeToolForLlm, surfaceToolDefinitions, syntheticToolSettlement, type
 import { parseProtocolToolArgs } from './agent-protocol-violation.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
+import { settleReturnedToolCallWithoutEntry } from '../runtime/actors/returned-tool-call-settlement.js';
+import { formatVocabularySnippet } from './analyst-prompt.js';
 
 export type OversightCheckOutcome = 'succeeded'|'failed'|'cancelled';
 
@@ -33,11 +35,13 @@ export class OversightSession {
   readonly #routeUsableInputTokens:number;
   readonly #compactionPolicy:AutonomousCompactionPolicy;
   readonly #fatalPort:ApplicationFatalPort;
+  readonly #cardTypeVocabulary:readonly CardTypeName[];
+  readonly #runtimeProjectionChanged:()=>void;
   #task:Promise<OversightCheckOutcome>|null=null;
   #abort:AbortController|null=null;
 
-  constructor(input:{sessionId:GlobalConversationSessionId;agentName:AgentName;surface:InvocationSurface;provider:LLMProviderPort;conversations:ConversationFileContext;promptTemplates:PromptTemplateRegistry;modelParams:Readonly<{temperature:number;maxTokens:number}>;capabilityRequest:CapabilityRequest;candidateChain:readonly Candidate[];routeUsableInputTokens:number;compactionPolicy:AutonomousCompactionPolicy;compactor:CompactorPort;summarizerProvider:SummarizerProviderPort;runtimeProjectionChanged():void;fatalPort:ApplicationFatalPort}) {
-    this.#sessionId=input.sessionId;this.#agentName=input.agentName;this.#surface=input.surface;this.#conversations=input.conversations;this.#promptTemplates=input.promptTemplates;this.#modelParams=input.modelParams;this.#capabilityRequest=input.capabilityRequest;this.#candidateChain=input.candidateChain;this.#routeUsableInputTokens=input.routeUsableInputTokens;this.#compactionPolicy=input.compactionPolicy;this.#fatalPort=input.fatalPort;
+  constructor(input:{sessionId:GlobalConversationSessionId;agentName:AgentName;surface:InvocationSurface;provider:LLMProviderPort;conversations:ConversationFileContext;promptTemplates:PromptTemplateRegistry;modelParams:Readonly<{temperature:number;maxTokens:number}>;capabilityRequest:CapabilityRequest;candidateChain:readonly Candidate[];routeUsableInputTokens:number;compactionPolicy:AutonomousCompactionPolicy;compactor:CompactorPort;summarizerProvider:SummarizerProviderPort;runtimeProjectionChanged():void;fatalPort:ApplicationFatalPort;cardTypeVocabulary:readonly CardTypeName[]}) {
+    this.#sessionId=input.sessionId;this.#agentName=input.agentName;this.#surface=input.surface;this.#conversations=input.conversations;this.#promptTemplates=input.promptTemplates;this.#modelParams=input.modelParams;this.#capabilityRequest=input.capabilityRequest;this.#candidateChain=input.candidateChain;this.#routeUsableInputTokens=input.routeUsableInputTokens;this.#compactionPolicy=input.compactionPolicy;this.#fatalPort=input.fatalPort;this.#cardTypeVocabulary=input.cardTypeVocabulary;this.#runtimeProjectionChanged=input.runtimeProjectionChanged;
     this.#llm=new ConversationLLMActor({purpose:{kind:'global-agent'},agentId:input.sessionId,provider:input.provider,conversations:input.conversations,compactor:input.compactor,summarizerProvider:input.summarizerProvider,runtimeProjectionChanged:input.runtimeProjectionChanged,fatalPort:input.fatalPort});
   }
 
@@ -45,7 +49,7 @@ export class OversightSession {
     if(this.#task)throw new Error('Oversight check is already active.');
     this.#abort=new AbortController();
     const task=this.#run(this.#abort.signal);
-    this.#task=task.finally(()=>{this.#task=null;this.#abort=null;});
+    this.#task=task.finally(()=>{this.#task=null;this.#abort=null;this.#runtimeProjectionChanged();});
     return this.#task;
   }
 
@@ -62,7 +66,7 @@ export class OversightSession {
       signal.throwIfAborted();
       const inputId=randomUUID();
       const tools=surfaceToolDefinitions(this.#surface);const compiledToolContracts=surfaceToolContracts(this.#surface);
-      const systemPrompt=this.#promptTemplates.render({kind:'global-agent'},this.#agentName,{});
+      const systemPrompt=this.#promptTemplates.render({kind:'global-agent'},this.#agentName,{vocabularySnippet:formatVocabularySnippet(this.#cardTypeVocabulary)});
       const preparedCompaction=prepareCompaction(this.#compactionPolicy,systemPrompt,tools,this.#routeUsableInputTokens,this.#modelParams.maxTokens);
       const prepared={inputId,agentId:this.#sessionId,agentName:this.#agentName,sessionId:this.#sessionId,systemPrompt,tools,compiledToolContracts,terminalToolNames:[],modelParams:{temperature:this.#modelParams.temperature},preparedCompaction,preparedContext:buildPreparedInvocationContext({instructionText:systemPrompt,terminalToolNames:[],compiledTools:compiledToolContracts,dynamicBlocks:[],preparedCompaction}),capabilityRequest:this.#capabilityRequest,routePass:{kind:'ordinary' as const,candidateChain:this.#candidateChain},episodeContext:{surface:'scheduled-oversight'}};
       signal.throwIfAborted();
@@ -71,15 +75,18 @@ export class OversightSession {
       signal.throwIfAborted();
       let outcome=await this.#llm.turn({...prepared,providerConversation:providerConversationProjection(readConversation(this.#conversations.projectRoot,this.#sessionId),[])},signal,()=>undefined);
       for(;;){
+        if(signal.aborted){
+          await settleReturnedToolCallWithoutEntry(this.#llm,outcome,'Oversight check cancelled before tool execution.');
+          return this.#settleOrdinary('cancelled');
+        }
         if(outcome.type==='result')return this.#settleOrdinary(signal.aborted?'cancelled':'succeeded');
         if(outcome.type==='error'||outcome.type==='blocked')return this.#settleOrdinary(signal.aborted?'cancelled':'failed');
         const parsed=parseProtocolToolArgs(this.#llm.waitingToolArguments(outcome));
-        if(signal.aborted){await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId,syntheticToolSettlement('rejected_before_execution','Oversight check cancelled before tool execution.'));return this.#settleOrdinary('cancelled');}
         let settlement;
         try{settlement=parsed.kind==='ok'&&this.#surface.tools.has(outcome.toolName)
           ? await invokeToolForLlm(this.#surface,outcome.toolName,parsed.args,this.#llm.toolInvocationContext(outcome),signal)
           : syntheticToolSettlement('rejected_before_execution',parsed.kind==='violation'?'Invalid tool arguments.':'Unsupported Oversight tool.');}
-        catch(error){if(!signal.aborted||error!==signal.reason)throw error;await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId,syntheticToolSettlement('rejected_before_execution','Oversight check cancelled before tool execution.'));return this.#settleOrdinary('cancelled');}
+        catch(error){if(!signal.aborted||error!==signal.reason)throw error;return this.#settleOrdinary('cancelled');}
         if(signal.aborted){await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId,settlement);return this.#settleOrdinary('cancelled');}
         outcome=(await this.#llm.appendToolResult(outcome.toolCallId,settlement,signal)).outcome;
       }

@@ -9,14 +9,12 @@ import {
 } from '../config/reconfigure-contract.js';
 import type { ConfigMutation } from '../config/resolved-config-authority.js';
 import { redactForOutbound } from '../redaction/index.js';
-import {
-  queueNotificationInputSchema,
-} from '../contracts/builtin-tool-inputs.js';
 import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
+import type { QueueNotificationToolInput } from './notification-tool.js';
 
-async function queue_notification(
+export async function queue_notification(
   ctx: ToolContext,
-  params: { card_id: string; kind: string; body: string; urgency: 'normal' | 'urgent' },
+  params: QueueNotificationToolInput,
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult<'none'>> {
   return runAuditedAnalystTool(
@@ -110,14 +108,6 @@ async function mcp_reconcile(
 }
 
 export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = Object.freeze([
-    defineToolBinder({
-      name: 'queue_notification',
-      description:
-        "Queue context on a notification-capable card for its configured designated recipient. Urgent submission may interrupt only the captured active descendant suffix after enqueue; pending delivery context is not readable.",
-      resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
-      inputSchema: () => queueNotificationInputSchema,
-      executor: (ctx, args, signal) => queue_notification(ctx, args, signal),
-    }),
     defineToolBinder({
       name: 'show_config',
       description: 'Show the current project configuration with secrets redacted.',

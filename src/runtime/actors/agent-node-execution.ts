@@ -21,6 +21,8 @@ import type { RecordProjection } from '../../persistence/authored-record-files.j
 import { PublicationOutcomeUnknownError, throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import { toolFailed, toolSucceeded } from '../../contracts/tool-result.js';
 import { isCardInterruptedError } from './card-interrupted-error.js';
+import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
+import { settleReturnedToolCallWithoutEntry } from './returned-tool-call-settlement.js';
 
 export interface AcceptedNodeResult {
   readonly nodeId: string;
@@ -44,6 +46,8 @@ interface AgentNodeExecutionHost {
   freshInputId(): string;
   assertCurrentActivation(input: CardActivationInput): void;
   assertPromotionAvailable(transition: CompiledProcessTransition): void;
+  retainNotificationLlm(llm: ConversationLLMActor): void;
+  relinquishNotificationLlm(llm: ConversationLLMActor): void;
 }
 
 export interface AgentNodeExecutionDeps {
@@ -91,21 +95,15 @@ export class AgentNodeExecution {
       const preparedInput = this.enterNodeConversation(prepared);
       const terminalHandoff = () => this.host.assertCurrentActivation(input);
       let outcome = await llm.turn(preparedInput, signal, terminalHandoff);
-      if (signal.aborted && isCardInterruptedError(signal.reason) && outcome.type === 'tool_call') {
-        await llm.settleToolResultWithoutContinuation(outcome.toolCallId, syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.'));
-        throw signal.reason;
-      }
-      this.host.assertCurrentActivation(input);
       for (;;) {
-        if (signal.aborted && isCardInterruptedError(signal.reason) && outcome.type !== 'tool_call') throw signal.reason;
+        if (signal.aborted && (isCardInterruptedError(signal.reason) || isRuntimeStoppedInterruption(signal.reason))) {
+          await settleReturnedToolCallWithoutEntry(llm, outcome, 'Tool execution was cancelled before entry.');
+          throw signal.reason;
+        }
+        this.host.assertCurrentActivation(input);
         if (outcome.type === 'result') {
           this.host.assertCurrentActivation(input);
           outcome = await llm.continueAfterPlainText(this.correction(process, node, ['emit_result is required.']), signal, terminalHandoff, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId));
-          if (signal.aborted && isCardInterruptedError(signal.reason) && outcome.type === 'tool_call') {
-            await llm.settleToolResultWithoutContinuation(outcome.toolCallId, syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.'));
-            throw signal.reason;
-          }
-          this.host.assertCurrentActivation(input);
           continue;
         }
         if (outcome.type === 'error') throw new Error(outcome.error);
@@ -216,15 +214,30 @@ export class AgentNodeExecution {
           primaryCompletion = { kind: 'success', value: accepted };
           break;
         }
-        const toolSettlement: ToolSettlementInput = surface.tools.has(outcome.toolName)
-          ? await invokeToolForLlm(surface, outcome.toolName, outcome.args, llm.toolInvocationContext(outcome), signal)
-          : syntheticToolSettlement('unsupported_tool', `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.`);
+        const retainedNotification = outcome.toolName === 'queue_notification' && surface.tools.has(outcome.toolName);
+        if (retainedNotification) this.host.retainNotificationLlm(llm);
+        let toolSettlement: ToolSettlementInput;
+        try {
+          toolSettlement = surface.tools.has(outcome.toolName)
+            ? await invokeToolForLlm(surface, outcome.toolName, outcome.args, llm.toolInvocationContext(outcome), signal)
+            : syntheticToolSettlement('unsupported_tool', `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.`);
+        } catch (error) {
+          if (retainedNotification && !signal.aborted) this.host.relinquishNotificationLlm(llm);
+          throw error;
+        }
         if (signal.aborted && isCardInterruptedError(signal.reason)) {
           await llm.settleToolResultWithoutContinuation(outcome.toolCallId, toolSettlement);
           throw signal.reason;
         }
+        if (signal.aborted && isRuntimeStoppedInterruption(signal.reason)) {
+          if (retainedNotification && toolSettlement.kind === 'executed') {
+            await llm.settleToolResultWithoutContinuation(outcome.toolCallId, toolSettlement);
+          }
+          throw signal.reason;
+        }
         signal.throwIfAborted();
         this.host.assertCurrentActivation(input);
+        if (retainedNotification) this.host.relinquishNotificationLlm(llm);
         outcome = (await llm.appendToolResult(outcome.toolCallId, toolSettlement, signal, (continuationInputId) => this.ordinaryNotificationContext(process, node, input, continuationInputId))).outcome;
       }
     } catch (error) {

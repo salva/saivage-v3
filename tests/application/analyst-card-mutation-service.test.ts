@@ -368,7 +368,7 @@ describe('other Analyst mutation facets', () => {
   it.each([
     {
       result: { queued: true as const, cardId: FIRST, notificationId: 'exact-id', interruption: { status: 'not_requested' as const } },
-      expected: { kind: 'returned', success: true, data: { queued: true, card_id: FIRST, notification_id: 'exact-id', interruption: { status: 'not_requested' } } },
+      expected: { kind: 'returned', success: true, data: { queued: true, card_id: FIRST, notification_id: 'exact-id', body: 'body', interruption: { status: 'not_requested' } } },
     },
     {
       result: { queued: false as const, reason: 'missing_card' as const, cardId: FIRST },

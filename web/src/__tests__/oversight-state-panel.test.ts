@@ -10,6 +10,6 @@ describe('Debug Project Oversight diagnostic',()=>{
     ['unavailable',base],
     ['disabled',{...base,enabled:false,eligibility_reason:'disabled' as const}],
     ['waiting',{...base,eligible:true,eligibility_reason:null,state:'waiting' as const,next_nominal_due:'2026-09-14T02:00:00.000Z'}],
-    ['checking',{...base,eligibility_reason:'settling_previous_check' as const,state:'checking' as const,last_attempt:{outcome:'cancelled' as const,settled_at:'2026-09-14T01:00:00.000Z'}}],
+    ['checking',{...base,eligibility_reason:'check_in_flight' as const,state:'checking' as const,last_attempt:{outcome:'cancelled' as const,settled_at:'2026-09-14T01:00:00.000Z'}}],
   ])('renders %s without inventing absent timestamps',(_label,oversight)=>{const wrapper=mount(StatePanel,{props:{...props,oversight}});const text=wrapper.get('[data-testid="debug-oversight-state"]').text();expect(text).toContain(oversight.state);expect(text).toContain('Project Oversight');expect(text).toContain(oversight.session_id);expect(text).toContain('Service epoch:');expect(text).not.toContain('1/1/1970');if(!oversight.last_successful_at)expect(text).toContain('Last success:none');});
 });

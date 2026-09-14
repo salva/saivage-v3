@@ -30,6 +30,7 @@ const BIG = 'x'.repeat(12_000);
 
 export async function publishThreeGenerationCompactedConversation(
   projectRoot: string,
+  summaryText = 'fixture compacted summary',
 ): Promise<ConversationSessionId> {
   appendConversationBatch({ projectRoot }, [
     activation(1),
@@ -42,7 +43,7 @@ export async function publishThreeGenerationCompactedConversation(
     text('text-3', BIG),
     ...summarizerOnlyBundle(3, 'initial-open-round'.concat('-open'.repeat(400))),
   ]);
-  await requireCompacted(projectRoot, 'local_exact_admission');
+  await requireCompacted(projectRoot, 'local_exact_admission', summaryText);
 
   appendConversationBatch({ projectRoot }, [
     repair('small repair'),
@@ -50,13 +51,14 @@ export async function publishThreeGenerationCompactedConversation(
     text('text-4', BIG),
     ...summarizerOnlyBundle(4, 'second-open-round'.concat('-open'.repeat(400))),
   ]);
-  await requireCompacted(projectRoot, 'local_exact_admission');
+  await requireCompacted(projectRoot, 'local_exact_admission', summaryText);
   return SESSION;
 }
 
 async function requireCompacted(
   projectRoot: string,
   strategy: 'preventive' | 'authoritative_context_recovery' | 'local_exact_admission',
+  summaryText: string,
 ): Promise<void> {
   const conversation = readConversation(projectRoot, SESSION);
   const result = await compact({
@@ -69,7 +71,7 @@ async function requireCompacted(
       maxOutputTokens: 10_000,
       serializeSummaryRequest: deterministicSummarySerialization,
       completeTurn: async () => ({
-        result: { kind: 'message' as const, content: 'fixture compacted summary' },
+        result: { kind: 'message' as const, content: summaryText },
         provider_exchanges: [],
       }),
       projectProviderExchanges: () => [],

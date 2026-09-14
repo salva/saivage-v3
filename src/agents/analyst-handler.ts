@@ -37,6 +37,7 @@ import { randomUUID } from 'node:crypto';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../contracts/index.js';
 import { cardParentId } from '../schemas/card-id.js';
 import type { RuntimeStatus } from '../schemas/index.js';
+import { settleReturnedToolCallWithoutEntry } from '../runtime/actors/returned-tool-call-settlement.js';
 
 
 interface WorkspaceContext {
@@ -106,7 +107,8 @@ type AnalystTurnStep =
     }
   | { kind: 'confirmed_restart_published' }
   | { kind: 'confirmed_restart_scheduling' }
-  | { kind: 'settling_llm'; completion: TerminalCompletion; noticeEntered: boolean };
+  | { kind: 'settling_llm'; completion: TerminalCompletion; noticeEntered: boolean }
+  | { kind: 'settled_cancelled' };
 type AnalystTurnOperation = {
   readonly input: AnalystTurnInput;
   readonly acceptedOperationId: string;
@@ -274,6 +276,25 @@ export class AnalystSession {
     const terminal = this.terminalHandoff(operation);
     let outcome = await this.#llm.turn(invocationInput, signal, terminal);
     for (;;) {
+      const disposal = this.ownedDisposal(operation);
+      const step = operation.step as AnalystTurnStep;
+      if (disposal && step.kind !== 'settling_llm') {
+        if (step.kind !== 'nested' && step.kind !== 'waiting_tool')
+          throw new Error(`Analyst cancelled outcome arrived from '${step.kind}'.`);
+        if (outcome.type === 'blocked')
+          throw new Error('Analyst-purpose LLM actor produced an autonomous-card blocked outcome.');
+        if (outcome.type === 'tool_call') {
+          operation.step = { kind: 'waiting_tool', input: this.#llm.waitingToolInput(outcome), outcome };
+          const parsed = parseProtocolToolArgs(this.#llm.waitingToolArguments(outcome));
+          const params = parsed.kind === 'ok' ? parsed.args : {};
+          const settlement = settleReturnedToolCallWithoutEntry(this.#llm, outcome, 'Analyst tool execution was cancelled before entry.');
+          if (!settlement) throw new Error('Analyst cancellation lost its returned tool call.');
+          const settled = await settlement;
+          operation.toolInvocations.push({ tool: outcome.toolName, params, result: settled.providerResult, sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId });
+        }
+        operation.step = { kind: 'settled_cancelled' };
+        throw disposal.reason;
+      }
       this.assertCurrentOrSettling(operation, signal);
       if (outcome.type === 'error' || outcome.type === 'result')
         return this.settleTerminalCompletion(operation, outcome);
@@ -316,7 +337,8 @@ export class AnalystSession {
         if (signal.aborted || (this.#phase.kind === 'disposed' && this.#phase.settling === operation)) {
           const settled = await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, settlement);
           operation.toolInvocations.push({ tool: outcome.toolName, params, result: settled.providerResult, sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId });
-          throw signal.reason;
+          operation.step = { kind: 'settled_cancelled' };
+          throw this.ownedDisposal(operation)?.reason ?? signal.reason;
         }
         this.assertCurrent(operation, signal);
       }
@@ -324,6 +346,11 @@ export class AnalystSession {
       if (outcome.toolName === 'restart_server' && actionOutcome.kind === 'succeeded') {
         const settled = await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, settlement);
         operation.toolInvocations.push({ tool: outcome.toolName, params, result: settled.providerResult, sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId });
+        const disposal = this.ownedDisposal(operation);
+        if (disposal) {
+          operation.step = { kind: 'settled_cancelled' };
+          throw disposal.reason;
+        }
         operation.newlyRequestedRestart = true;
         return this.response(operation, {
           status: 'confirmation_required',
@@ -501,13 +528,17 @@ export class AnalystSession {
   private assertCurrentOrSettling(operation: AnalystTurnOperation, signal: AbortSignal): void {
     const ownsOperation =
       (this.#phase.kind === 'conversing' && this.#phase.operation === operation) ||
-      (this.#phase.kind === 'disposed' &&
-        this.#phase.settling === operation &&
-        operation.step.kind === 'settling_llm');
+      (this.#phase.kind === 'disposed' && this.#phase.settling === operation);
     if (!ownsOperation)
       throw signal.aborted
         ? signal.reason
         : new Error('Analyst turn lost exact operation authority.');
+  }
+
+  private ownedDisposal(operation: AnalystTurnOperation): { reason: unknown } | null {
+    return this.#phase.kind === 'disposed' && this.#phase.settling === operation
+      ? { reason: this.#phase.reason }
+      : null;
   }
 
   private async consumeTurn(
@@ -534,9 +565,25 @@ export class AnalystSession {
       this.#deliverPublicationFatal(error);
       cleanupFailure = error;
     }
-    const finalFailure = cleanupFailure ?? failure;
     const disposedPhase = this.#phase.kind === 'disposed' ? this.#phase : null;
     const disposed = disposedPhase !== null;
+    const completedDisposal = disposedPhase?.settling === operation
+      && rejected
+      && failure === disposedPhase.reason
+      && (operation.step.kind === 'nested' || operation.step.kind === 'waiting_tool' || operation.step.kind === 'settled_cancelled')
+      ? disposedPhase
+      : null;
+    const cancelledDisposalReason = completedDisposal ? { value: completedDisposal.reason } : null;
+    if (completedDisposal) {
+      try {
+        this.#llm.dispose(completedDisposal.reason);
+        await this.#llm.join();
+      } catch (error) {
+        this.#deliverPublicationFatal(error);
+        cleanupFailure ??= error;
+      }
+    }
+    const finalFailure = cleanupFailure ?? failure;
     if (!rejected && response && !cleanupFailure) {
       const confirmation =
         operation.restartConfirmation ??
@@ -556,7 +603,9 @@ export class AnalystSession {
     } else {
       if (disposedPhase) disposedPhase.settling = null;
       else this.#phase = { kind: 'failed', cause: finalFailure };
-      operation.caller.reject(asError(finalFailure));
+      operation.caller.reject(cancelledDisposalReason && !cleanupFailure
+        ? cancelledDisposalReason.value
+        : asError(finalFailure));
     }
     this.pruneRetiredTrackers();
     this.#runtimeProjectionChanged();
@@ -600,7 +649,7 @@ export class AnalystSession {
       this.#llm.dispose(reason);
       return;
     }
-    if (operation.step.kind === 'waiting_tool' && operation.toolInFlight !== null) {
+    if (operation.step.kind === 'nested' || operation.step.kind === 'waiting_tool') {
       this.#llm.requestGracefulCancellation(reason);
       operation.tracker.cancelAndSettle(reason);
       if (!operation.abort.signal.aborted) operation.abort.abort(reason);
