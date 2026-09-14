@@ -24,6 +24,29 @@ Direct persistence operations fail at their owning request and do not poison unr
 
 Status: current functional UI authority.
 
+## Project Oversight — Planned Requirement
+
+**Status: not implemented; implementation design pending.** This section defines presentation for the future
+capability in the [system Oversight requirement](system-specification.md#project-oversight-planned-requirement);
+it does not claim a current agent, API, diagnostic, or control.
+
+Oversight will appear in **Agents** as its own ordinary named global Agent conversation, with the existing
+authenticated and redacted transcript, tool-call, history, error, and safe provider/model exchange metadata
+presentation. It will not reuse the Analyst panel or composer and will add no second operator chat. An enabled
+agent waiting for its interval is not executing and must not be presented as active or busy.
+
+Before the first check, the UI must not fabricate a persisted conversation or eager inventory row. The Debug
+surface may identify the configured Oversight agent and state that no check has yet run. Its small, on-demand,
+read-only diagnostic may show enabled state, eligibility and reason, `waiting`, `checking`, or `unavailable`,
+the last known outcome and completion time, and a meaningful next nominal due time, all for the current service
+epoch. Cancellation or failure is not success; unknown remains unknown. During checking or ineligibility there
+is no promised due time, and restart does not reconstruct timing from history.
+
+Existing authentication, redaction, transcript, and metadata-only Raw Exchange rules apply; absent provider
+usage remains unknown rather than zero or estimated. Notification visibility and queue privacy remain exactly
+as specified by the linked system requirement. There is no dashboard, manual-check action, configuration
+editor, enable/disable toggle, operator push alert, queue view, or eager global inventory fan-out.
+
 ## 1. Purpose
 
 The operator UI shows Saivage state and hosts the Analyst. It is projection-oriented and Analyst-mediated by default, with the Dashboard's direct **Stop project** and bearer-only, capability-gated, exactly confirmed **Restart server** actions as the two runtime-control exceptions.

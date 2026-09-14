@@ -182,6 +182,88 @@ Applying the authoritative card/record exact-stream cutover is reset-only: each 
 No card/record index or immutable artifact layout is ever migrated, normalized, rendered, or accepted as current; old and mixed layouts fail reset-required.
 A later same-format binary deployment may retain only the exact current `card.jsonl`/`record-<stem>.jsonl` format.
 
+## Project Oversight — Planned Requirement
+
+**Status: not implemented; implementation design pending.** This section specifies future behavior only and does not add Oversight to the current agent inventory, notification behavior, configuration, API, or UI.
+
+### 1. Identity, authority, and configuration
+
+Each project will have one independently configured global Oversight agent with its own identity, prompt, conversation, model route, check lifecycle, tools, skills, output limits, and model-aware context budget.
+It is distinct from the operator-driven Analyst and the sole-dispatcher Supervisor; its checks may coexist with both, subject to ordinary provider capacity.
+Planners retain strategy, acceptance, corrective action, and the right to reasoned disagreement.
+Oversight uses the ordinary named-agent catalog, explicit route and configured failover, invocation/capability admission, and conversation-history contracts, with no root-Planner model inheritance or special provider system.
+New-project defaults explicitly enable it with a complete resolvable agent profile and a positive finite interval defaulting to two hours; invalid references, intervals, or capabilities fail clearly rather than falling back or silently disabling checks.
+Existing projects adopt or disable it only through deliberate complete configuration and prompt work followed by restart; configuration is epoch-frozen, with no automatic discovery, upgrade, compatibility default, missing-field normalization, or live toggle.
+
+### 2. Schedule and lifecycle
+
+A check is eligible only while Oversight is enabled and authoritative project runtime status is exactly `running`; a live server or any other status is insufficient.
+The first check waits one full continuous eligible interval, and losing eligibility discards that wait. Each later check waits another full interval after the previous check, including continuations, compaction, and settlement, safely settles.
+At most one check is in flight. There is no persistent timer, backlog, catch-up, burst, scheduling SLA, or server-triggered Run.
+A check may run alongside normal card work and Analyst activity, but ordinary provider limits may delay it.
+Leaving `running`, including pausing, completion, shutdown, or effective disablement, disarms the wait and requests cancellation.
+Resume or a new Run begins a fresh full interval only after prior ownership settles, with no missed or pending check accumulated.
+
+### 3. Cancellation and truthful settlement
+
+Cancellation admits no new investigation read, model call or continuation, notification submission, or urgent interruption request, but bounded truthful settlement of obligations already owned by the check remains required.
+
+- A call not durably recorded and not entered is not fabricated.
+- A durably recorded call whose operation has not entered receives its ordinary matching non-executed result.
+- Entered work is joined or cancelled only through its existing owner and is never reported as unexecuted.
+- A safely known completed result is published exactly once unchanged; an already published result is not duplicated.
+- A confirmed notification enqueue remains confirmed and is not retracted, while urgency not yet entered is suppressed after cancellation.
+
+When outcomes are known and every required publication succeeds, ordinary cancellation or safely settled provider, refusal, context, or investigation failure releases check admission with continuable history.
+It requires no final model report or immediate retry and does not fail cards or disrupt Analyst; a later check waits the next full interval.
+An unknown effect or failed/outcome-unknown required result, evidence, or terminal publication retains the exact fatal owner policy: no follow-up effect, read, inspection, retry, repair, invented settlement, or admission release.
+Strict history remains strict, and startup performs no reconstruction or synthetic completion.
+
+### 4. Read-only intervention boundary
+
+Oversight is read-only with respect to project work. Its sole project-affecting operation is a shared notification to an eligible planning card's designated Planner, enforced by capability/tool admission rather than agent-name spelling or prompt-only restraint.
+It cannot edit source, records, briefs, configuration, prompts, or policy; mutate, activate, reopen, cancel, delete, or reorder cards; run shell, build, test, process-kill, or effectful MCP operations; control project or model lifecycle; approve work; or obtain those effects through a broad tool.
+Ordinary publication of its own conversation, provider evidence, and notification result remains allowed.
+It normally selects the nearest responsible planning scope, uses root for strategic or cross-scope concerns, and never broadcasts.
+This is workflow role discipline that simplifies ordinary work and preserves role separation, not containment of a malicious root-capable agent.
+
+### 5. Proportionate observation
+
+Each check performs bounded, proportionate observation of objectives, linked work, records, conversations, process evidence, and source, distinguishing facts, interpretations, uncertainty, and current evidence from historical evidence.
+Reads are non-atomic observations and never authorize a later write; partial or failed reads do not prove absence, and time elapsed, call volume, or a red test alone does not prove waste.
+Project guidance supplies context but cannot waive owner scope or acceptance.
+A short no-intervention response is successful but does not certify the whole project.
+Oversight uses ordinary conversation and compacted history, repeats advice only when new evidence or a stated material reason adds value, and corrects disproved advice.
+It records unavailable recipients and owner-decision needs in its inspectable conversation without promising an operator alert; no intervention ledger, deduplication registry, or guaranteed-attention channel is introduced.
+
+### 6. Shared designated-recipient prerequisite
+
+Generic designated-recipient notification routing is a prerequisite, not current behavior. Every card type must designate a workflow participant and provide defined opportunities for that participant to handle queued context.
+Oversight targets additionally require configured planning and child-coordination capability; the exact predicate is deferred to implementation design and must support custom named agents.
+Planner-directed context waits for that designated Planner. A nonrecipient node, especially a same-card Reviewer, must not consume it, skip review, fabricate a result, or jump the workflow graph.
+Successful ordinary completion must provide the generic handling opportunity.
+The shared design must explicitly reconcile pending context with BLOCKED or failure settlement, cancellation, postclaim denial, and every successful completion route.
+It must preserve exceptional terminal clearing, notification-empty terminal states, and append-before-remove duplication/loss limits.
+It promises neither eventual nor exactly-once delivery and adds no second queue, receipt service, transaction, replay, or recovery protocol.
+
+### 7. Urgent notification ordering
+
+Urgency is a property of the shared notification operation, not a new queue, wire protocol, or control port, and requires current evidence of material ongoing harm, avoidable waste, or divergence plus why waiting is materially worse.
+For a target Planner awaiting an active descendant chain, the runtime first performs fresh ordinary target/activation admission and **confirms notification enqueue before requesting interruption**.
+Only then may it interrupt necessary active descendants through existing owners, preserve truthful interrupted outcomes, and permit later ordinary Planner-directed recovery or re-entry.
+It must not permanently cancel work, fake completion, roll back effects, automatically replay a child, terminate the target's own turn or review, or interrupt unrelated work, naturally settled descendants, or replacement owners.
+Without an active awaited descendant chain, urgency queues normally; it never activates/reopens a card, bypasses dependencies, redirects a denial, or creates or resumes a Run.
+Missing, terminal, and postclaim denials stand. Enqueue failure or uncertainty permits no interruption.
+Confirmed enqueue followed by denied or failed interruption is a truthful partial outcome: retain queued context, report known results separately, and do not retract, resend, or claim atomic rollback.
+Pause, Stop, application closure, terminal winners, and ordinary runtime ownership always prevail.
+
+### 8. Privacy and implementation gate
+
+Pending queue state stays private. Authenticated/redacted sender body/result evidence and context actually appended to the recipient conversation remain normal inspectable transcript facts; they prove neither queue membership, receipt, model consideration, nor action.
+There is no queue browser, count/body projection, delivery inference, or separate report store. Existing file, history, redaction, and fatal-publication policies remain unchanged.
+Implementation approval requires one coherent design for shared routing and terminal workflow interaction, non-cancelling interruption, exact planning eligibility, complete configuration/tools, consistent global-session participation, and truthful check settlement through existing owners.
+Oversight must not ship through a feature-specific bypass.
+
 ## 1. Product Boundary
 
 Saivage autonomously plans and executes software work represented by cards.
