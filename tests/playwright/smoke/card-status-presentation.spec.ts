@@ -67,6 +67,7 @@ async function install(page: Page): Promise<string[]> {
   await page.route('**/api/runtime/status', (route) => json(route, parseOperatorResponse('runtime.status', 200, {
     runtime: 'running', currentCardId: goalId, started_at: now, pid: 4242,
     actorRuntime: { pauseMode: 'running', cards: [{ cardId: goalId, actorState: 'running', processState: { cardType: 'goal', stateId: 'node:plan', kind: 'node', nodeId: 'plan', executionOrdinal: 0 } }] },
+    oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: true, eligibility_reason: null, state: 'waiting', next_nominal_due: '2026-07-24T14:00:00.000Z', last_attempt: null, last_successful_at: null, service_epoch: now },
     restart_server_available: false,
     serverAvailability: smokeServerAvailability,
   })));

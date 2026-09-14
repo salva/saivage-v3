@@ -5,6 +5,7 @@ import type { NotifyCardResult } from '../runtime/runtime-api.js';
 import type { ManagedProcessScope, ProcessRunner } from '../runtime/process-runner.js';
 import { getAnalystControlToolBinders } from './analyst-tool-registry.js';
 import type { ToolContext } from './analyst-tool-types.js';
+import { globalObservationToolBinders, type GlobalObservationToolContext } from './global-observation-tools.js';
 import { compileInvocationToolContract, type CompiledInvocationToolContract } from '../runtime/actors/context/context-blocks.js';
 import { cardVersionToolBinders, type CardVersionProviderContext } from './card-version-provider.js';
 import { cardInspectionToolBinders, type CardInspectionProviderContext } from './card-inspection-provider.js';
@@ -16,6 +17,7 @@ import { webToolBinders, type WebProviderContext } from './web-tools.js';
 import {
   analystPatchToolBinders,
   analystWorkspaceToolBinders,
+  globalWorkspaceObservationToolBinders,
   patchToolBinders,
   workspaceToolBinders,
   type WorkspaceProviderContext,
@@ -57,10 +59,11 @@ export interface GlobalToolBindingContext {
   readonly projectRoot: string;
   readonly store: CardService;
   readonly processRunner: ProcessRunner;
-  readonly processScope: ManagedProcessScope;
-  readonly processOwnerId: string;
+  readonly processScope?: ManagedProcessScope;
+  readonly processOwnerId?: string;
   readonly mcpToolInvocation: McpToolInvocationPort;
-  readonly analystToolContext: ToolContext;
+  readonly analystToolContext?: ToolContext;
+  readonly observationToolContext?: GlobalObservationToolContext;
   readonly cardTypeVocabulary: readonly CardTypeName[];
 }
 
@@ -94,23 +97,27 @@ const global = (runtime: RuntimeToolBindingContext): GlobalToolBindingContext =>
   if (runtime.scope !== 'global') throw new Error('Global tool group received card context.');
   return runtime;
 };
+const observation=(runtime:RuntimeToolBindingContext):GlobalObservationToolContext=>{const value=global(runtime);if(value.observationToolContext)return value.observationToolContext;const analyst=value.analystToolContext;if(!analyst)throw new Error(`Agent '${runtime.agentName}' requested a global observation tool without observation authority.`);return{agentName:analyst.actor,projectRoot:analyst.projectRoot,store:analyst.store,processRunner:analyst.processRunner,eventQueries:analyst.eventQueries,runtime:analyst.runtime,submitNotification:analyst.runtime.submitNotification.bind(analyst.runtime),captureExecutingLlmSnapshots:analyst.captureExecutingLlmSnapshots};};
 const workspace = (runtime: CardToolBindingContext): WorkspaceProviderContext => ({ projectRoot: runtime.projectRoot, cardId: runtime.cardId, agentName: runtime.agentName, store: runtime.store, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten });
 const process = (runtime: RuntimeToolBindingContext): ProcessProviderContext => {
   if (!runtime.processScope || !runtime.processOwnerId) throw new Error(`Agent '${runtime.agentName}' process tools require a bound process scope.`);
   return { projectRoot: runtime.projectRoot, processRunner: runtime.processRunner, directScope: runtime.processScope, category: runtime.scope === 'global' ? 'operator_session' : 'runtime_card', ownerId: runtime.processOwnerId, ownerKind: runtime.scope === 'global' ? 'operator' : 'agent', ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) };
 };
-const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({ projectRoot: runtime.projectRoot, agentName: runtime.agentName, store: runtime.store, ...(runtime.scope === 'global' ? { analystToolContext: runtime.analystToolContext } : { cardId: runtime.cardId, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten }) });
+const web = (runtime: RuntimeToolBindingContext): WebProviderContext => ({ projectRoot: runtime.projectRoot, agentName: runtime.agentName, store: runtime.store, ...(runtime.scope === 'global' ? { analystToolContext: global(runtime).analystToolContext } : { cardId: runtime.cardId, notifyCard: runtime.notifyCard, onRecordWritten: runtime.onRecordWritten }) });
 
 let defaultGroups: readonly AnyProviderGroup[] | null = null;
 function runtimeToolGroups(): readonly AnyProviderGroup[] {
   if (defaultGroups) return defaultGroups;
   const source: AnyProviderGroup[] = [
-  { key: 'global:analyst', providerName: 'analyst', scope: 'global', binders: getAnalystControlToolBinders(), context: (runtime) => global(runtime).analystToolContext },
+  { key: 'global:observation', providerName: 'observation', scope: 'global', binders: globalObservationToolBinders, context: observation },
+  { key: 'global:workspace-observation', providerName: 'workspace', scope: 'global', binders: globalWorkspaceObservationToolBinders, context: (runtime) => global(runtime).analystToolContext??observation(runtime) },
+  { key: 'global:analyst-workspace-mutation', providerName: 'workspace-mutation', scope: 'global', binders: analystWorkspaceToolBinders.filter((binder)=>!globalWorkspaceObservationToolBinders.some((shared)=>shared.name===binder.name)), context: (runtime) => {const context=global(runtime).analystToolContext;if(!context)throw new Error(`Agent '${runtime.agentName}' requested an Analyst-only workspace mutation tool.`);return context;} },
+  { key: 'global:analyst', providerName: 'analyst', scope: 'global', binders: getAnalystControlToolBinders().filter((binder)=>!globalObservationToolBinders.some((shared)=>shared.name===binder.name)), context: (runtime) => {const context=global(runtime).analystToolContext;if(!context)throw new Error(`Agent '${runtime.agentName}' requested an Analyst-only tool.`);return context;} },
   { key: 'card:planner-control', providerName: 'planner-control', scope: 'card', binders: plannerControlToolBinders, context: (runtime) => { const value = card(runtime); return { agentName: value.agentName, projectRoot: value.projectRoot, parentCardId: value.cardId, sessionId: value.sessionId, store: value.store, parentControl: value.parentControl, submitNotification: value.submitNotification, childCreationTypes: value.childCreationTypes, childActivationTypes: value.childActivationTypes, cardTypeVocabulary: value.cardTypeVocabulary }; } },
   ...(['global', 'card'] as const).flatMap((scope): AnyProviderGroup[] => [
-    { key: `${scope}:card-inspection`, providerName: 'card-inspection', scope, binders: cardInspectionToolBinders, context: (runtime): CardInspectionProviderContext => ({ store: runtime.store, agentName: runtime.agentName, cardTypeVocabulary: runtime.cardTypeVocabulary, ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) }) },
+    { key: `${scope}:card-inspection`, providerName: 'card-inspection', scope, binders: cardInspectionToolBinders, context: (runtime): CardInspectionProviderContext => ({ store: runtime.store, agentName: runtime.agentName, cardTypeVocabulary: runtime.cardTypeVocabulary,...(runtime.scope==='global'?{currentProcessPosition:observation(runtime).currentProcessPosition}:{cardId:runtime.cardId}) }) },
     { key: `${scope}:card-version`, providerName: 'card-version', scope, binders: cardVersionToolBinders, context: (runtime): CardVersionProviderContext => ({ store: runtime.store }) },
-    { key: `${scope}:workspace`, providerName: 'workspace', scope, binders: scope === 'global' ? analystWorkspaceToolBinders : workspaceToolBinders, context: (runtime) => scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)) },
+    ...(scope==='card'?[{ key: 'card:workspace', providerName: 'workspace', scope, binders: workspaceToolBinders, context: (runtime:RuntimeToolBindingContext) => workspace(card(runtime)) }]:[]),
     { key: `${scope}:patch`, providerName: 'patch', scope, binders: scope === 'global' ? analystPatchToolBinders : patchToolBinders, context: (runtime) => scope === 'global' ? global(runtime).analystToolContext : workspace(card(runtime)) },
     { key: `${scope}:process`, providerName: 'process', scope, binders: processToolBinders, context: process, cleanup: cleanupProcessProvider },
     { key: `${scope}:web`, providerName: 'web', scope, binders: webToolBinders, context: web },

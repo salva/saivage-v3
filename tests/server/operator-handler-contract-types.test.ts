@@ -121,7 +121,7 @@ const explicitSuccess: OperatorApiHandlerResult<'health.liveness'> = {
 };
 const readinessReady: OperatorApiHandlerResult<'health.readiness'> = { body: { status: 'ready', serverAvailability } };
 const nullRuntimeState: OperatorApiHandlerResult<'runtime.getState'> = { body: { projectId: 'project', runtime: null, serverAvailability } };
-const stoppedRuntimeStatus: OperatorApiHandlerResult<'runtime.status'> = { body: { runtime: 'stopped', currentCardId: null, started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime, serverAvailability } };
+const stoppedRuntimeStatus: OperatorApiHandlerResult<'runtime.status'> = { body: { runtime: 'stopped', currentCardId: null, started_at: '2026-01-01T00:00:00.000Z', restart_server_available: false, pid: 1, actorRuntime, serverAvailability,oversight:{agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:false,eligibility_reason:'stopped',state:'unavailable',next_nominal_due:null,last_attempt:null,last_successful_at:null,service_epoch:'2026-01-01T00:00:00.000Z'} } };
 // @ts-expect-error Readiness requires concrete availability.
 const readinessWithoutAvailability: OperatorApiHandlerResult<'health.readiness'> = { body: { status: 'ready' } };
 // @ts-expect-error Runtime get-state requires concrete availability even when runtime state is null.

@@ -75,7 +75,7 @@ describe('activate_card shared tool contract', () => {
     },
     {
       outcome: { status: 'cancelled', summary: 'cancelled summary' } as const,
-      expected: { kind: 'failed', error: "Child card 'card-a' activation was cancelled." },
+      expected: { kind: 'failed', error: "Child card 'card-a' activation was cancelled.", data: { card_id: 'card-a', outcome: 'cancelled', summary: 'cancelled summary' } },
     },
   ])('formats the $outcome.status result envelope', ({ outcome, expected }) => {
     expect(formatActivateCardResult('card-a', outcome)).toEqual(expected);

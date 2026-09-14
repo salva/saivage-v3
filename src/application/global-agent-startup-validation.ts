@@ -1,7 +1,7 @@
 import { readConversation } from '../persistence/conversation-file.js';
 import type { GlobalConversationSessionId } from '../schemas/index.js';
 
-export function validateConfiguredAnalystConversation(
+export function validateConfiguredGlobalConversation(
   projectRoot: string,
   sessionId: GlobalConversationSessionId,
 ): void {
@@ -9,7 +9,7 @@ export function validateConfiguredAnalystConversation(
     const conversation = readConversation(projectRoot, sessionId);
     if (conversation.unmatchedCall !== null) {
       throw new Error(
-        `Configured Analyst conversation '${sessionId}' ends in an unmatched tool call and cannot be continued after startup.`,
+        `Configured global-agent conversation '${sessionId}' ends in an unmatched tool call and cannot be continued after startup.`,
       );
     }
   } catch (error) {

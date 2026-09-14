@@ -9,10 +9,6 @@ import {
   LiveSyncInvalidateFrameSchema,
 } from '../../src/contracts/operator-events.js';
 import { describe, expect, it } from '@jest/globals';
-import {
-  ListAgentSessionsToolDataSchema,
-  ReadAgentSessionToolDataSchema,
-} from '../../src/tools/analyst-misc-tools.js';
 describe('changeset C contracts', () => {
   const summary = {
     id: 'agent:analyst:global',
@@ -82,27 +78,5 @@ describe('changeset C contracts', () => {
         visible_message_id: 'a',
       }).success,
     ).toBe(true);
-  });
-  it('atomically rejects former Analyst producer wrappers', () => {
-    expect(
-      ListAgentSessionsToolDataSchema.safeParse([summary]).success,
-    ).toBe(false);
-    expect(
-      ListAgentSessionsToolDataSchema.safeParse({ sessions: [summary] })
-        .success,
-    ).toBe(true);
-    expect(
-      ReadAgentSessionToolDataSchema.safeParse({
-        success: false,
-        error: 'missing',
-        data: { sessionId: summary.id },
-      }).success,
-    ).toBe(false);
-    expect(
-      ReadAgentSessionToolDataSchema.safeParse({
-        success: true,
-        data: { session: summary, total_messages: 0, returned: 0, parse_errors: 0, messages: [] },
-      }).success,
-    ).toBe(false);
   });
 });

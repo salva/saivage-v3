@@ -164,6 +164,18 @@ const RuntimeStatusResponseSchema = z.object({
       ]).nullable(),
     }).strict()),
   }).strict(),
+  oversight: z.object({
+    agent_name: z.string().min(1),
+    session_id: z.string().min(1),
+    enabled: z.boolean(),
+    eligible: z.boolean(),
+    eligibility_reason: z.enum(['disabled','stopped','starting','pausing','paused','closing','error','application_closing','settling_previous_check']).nullable(),
+    state: z.enum(['waiting','checking','unavailable']),
+    next_nominal_due: z.string().datetime().nullable(),
+    last_attempt: z.object({outcome:z.enum(['succeeded','failed','cancelled']),settled_at:z.string().datetime()}).strict().nullable(),
+    last_successful_at: z.string().datetime().nullable(),
+    service_epoch: z.string().datetime(),
+  }).strict(),
   serverAvailability: ServerAvailabilitySchema,
 }).strict();
 

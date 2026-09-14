@@ -123,8 +123,7 @@ export function renderCompiledPrompt(host: PromptHost, name: string, compiled: C
 
 type PromptArtifact = Readonly<{ compiled: CompiledPromptTemplate }>;
 type RegistryWorkflows = Readonly<{
-  analyst: Readonly<{ name: AgentName }>;
-  analystPrompt: PromptArtifact;
+  selectedGlobalParticipants: ReadonlyMap<AgentName, Readonly<{ prompt: PromptArtifact }>>;
   cardTypes: ReadonlyMap<CardTypeName, Readonly<{ states: ReadonlyMap<string, Readonly<{ kind: string; agent?: Readonly<{ name: AgentName }>; selectedAgentPrompt?: PromptArtifact }>> }>>;
 }>;
 
@@ -138,7 +137,7 @@ export function createPromptTemplateRegistry(workflows: RegistryWorkflows): Prom
   return Object.freeze({
     render(host: AgentPromptHost, agentName: AgentName, variables: PromptTemplateVariables): string {
       const compiled = host.kind === 'global-agent'
-        ? agentName === workflows.analyst.name ? workflows.analystPrompt.compiled : undefined
+        ? workflows.selectedGlobalParticipants.get(agentName)?.prompt.compiled
         : workflowTemplates.get(host.cardType)?.get(agentName);
       if (!compiled) fail(host, agentName, agentName, 'inactive prompt pair');
       return renderCompiledPrompt(host, agentName, compiled, variables);

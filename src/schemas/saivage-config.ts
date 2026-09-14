@@ -86,6 +86,15 @@ const compactionSectionSchema = z.object({
   summarizer_candidate: candidateSchema,
 }).strict().superRefine(validateCompaction);
 
+const oversightSectionSchema = z.object({
+  enabled: z.boolean(),
+  agent: agentNameSchema,
+  interval_seconds: z.number().positive().refine(
+    (seconds) => Number.isFinite(seconds * 1000) && seconds * 1000 > 0,
+    'interval_seconds must convert to a finite positive millisecond duration',
+  ),
+}).strict();
+
 function validateCompaction(value: {
   trigger_fraction: number;
   tail_fraction: number;
@@ -245,6 +254,7 @@ const effectiveMcpServerEntrySchema = z.discriminatedUnion('transport', [effecti
 export const saivageConfigSchema = z.object({
   agents: z.record(agentNameSchema, agentDefinitionSchema),
   analyst_agent: agentNameSchema,
+  oversight: oversightSectionSchema,
   models: modelsSectionSchema,
   providers: z.record(z.string(), providerEntrySchema).default({}),
   server: serverSectionSchema.default({}),
@@ -256,6 +266,7 @@ export const saivageConfigSchema = z.object({
 const effectiveSaivageConfigShape = {
   agents: z.record(agentNameSchema, agentDefinitionSchema),
   analyst_agent: agentNameSchema,
+  oversight: oversightSectionSchema,
   models: effectiveModelsSectionSchema,
   providers: z.record(z.string(), providerEntrySchema),
   server: effectiveServerSectionSchema,

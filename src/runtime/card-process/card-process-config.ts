@@ -51,8 +51,9 @@ type CompiledProcessState =
   | CompiledNodeContract
   | (ProcessStateBase & Readonly<{ kind: 'terminal'; terminal: CardProcessTerminal }>);
 export type ProcessPosition = Readonly<{ cardType: CardTypeName; stateId: string; kind: 'ready' }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'entry'; entry: CardProcessEntry }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'node'; nodeId: string; executionOrdinal: number }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'terminal'; terminal: CardProcessTerminal }>;
-export interface CompiledCardTypeWorkflow { readonly cardType: CardTypeName; readonly notificationRecipient: AgentName; readonly permittedChildTypes: ReadonlySet<CardTypeName>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly initialStateId: 'lifecycle:ready'; readonly states: ReadonlyMap<string, CompiledProcessState>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
-export interface CompiledProjectWorkflows { readonly analyst: CompiledAgentContract; readonly analystPrompt:CompiledAgentPrompt; readonly agents: ReadonlyMap<AgentName, CompiledAgentContract>; readonly cardTypes: ReadonlyMap<CardTypeName, CompiledCardTypeWorkflow>; readonly cardTypeVocabulary: readonly CardTypeName[] }
+export interface CompiledCardTypeWorkflow { readonly cardType: CardTypeName; readonly notificationRecipient: AgentName; readonly planningNotificationTarget: boolean; readonly permittedChildTypes: ReadonlySet<CardTypeName>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly initialStateId: 'lifecycle:ready'; readonly states: ReadonlyMap<string, CompiledProcessState>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
+type SelectedGlobalParticipant = Readonly<{ agent: CompiledAgentContract; prompt: CompiledAgentPrompt }>;
+export interface CompiledProjectWorkflows { readonly analyst: CompiledAgentContract; readonly analystPrompt:CompiledAgentPrompt; readonly oversight: CompiledAgentContract; readonly oversightPrompt:CompiledAgentPrompt; readonly selectedGlobalParticipants: ReadonlyMap<AgentName, SelectedGlobalParticipant>; readonly agents: ReadonlyMap<AgentName, CompiledAgentContract>; readonly cardTypes: ReadonlyMap<CardTypeName, CompiledCardTypeWorkflow>; readonly cardTypeVocabulary: readonly CardTypeName[] }
 export type BoundAgentContract = Readonly<{ contract: CompiledAgentContract; candidateChain: readonly Candidate[]; routeUsableInputTokens: number; toolSet: BoundAgentToolSet; capabilityRequest: CapabilityRequest }>;
 export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows { readonly runtimeBound: true;readonly agentBindings:ReadonlyMap<AgentName,BoundAgentContract> }
 
@@ -584,6 +585,7 @@ function buildCardTypeStateTable(
   return Object.freeze({
     cardType: draft.cardType,
     notificationRecipient: draft.notificationRecipient,
+    planningNotificationTarget: [...states.values()].some((state) => state.kind === 'node' && state.agent.name === draft.notificationRecipient && state.childCreationTypes.size > 0 && state.childActivationTypes.size > 0),
     permittedChildTypes: draft.permittedChildTypes,
     records: draft.records,
     bootstrapRecord: draft.bootstrapRecord,
@@ -674,7 +676,21 @@ export function compileProjectWorkflows(
   if (!analyst)
     throw new Error(`analyst_agent references missing agent '${config.analyst_agent}'.`);
   if (analyst.session !== 'global') throw new Error('analyst_agent must use global session scope.');
+  const oversight = agents.get(config.oversight.agent);
+  if (!oversight) throw new Error(`oversight.agent references missing agent '${config.oversight.agent}'.`);
+  if (oversight.name === analyst.name) throw new Error('oversight.agent must differ from analyst_agent.');
+  if (oversight.session !== 'global') throw new Error('oversight.agent must use global session scope.');
+  if (oversight.canCreateChildren) throw new Error('oversight.agent must have can_create_children: false.');
+  if (oversight.recordWrites.length !== 0) throw new Error('oversight.agent must have no record_writes.');
+  if (oversight.skills) throw new Error('oversight.agent must have skills: false.');
+  const oversightAllowed = new Set(['get_status','list_cards','get_card','get_tree','list_card_versions','get_card_version','diff_card_versions','read_record_version','read','glob','grep','read_runtime_events','read_runtime_errors','list_processes_tool','list_agent_sessions','read_agent_session','queue_notification']);
+  for (const tool of oversight.tools) if (!oversightAllowed.has(tool.name)) throw new Error(`oversight.agent tool '${tool.name}' is forbidden.`);
   const analystPrompt = selectAgentPrompt({kind:'global-agent'}, analyst, roots);
+  const oversightPrompt = selectAgentPrompt({kind:'global-agent'}, oversight, roots);
+  const selectedGlobalParticipants = immutableMap([
+    [analyst.name, Object.freeze({ agent: analyst, prompt: analystPrompt })],
+    [oversight.name, Object.freeze({ agent: oversight, prompt: oversightPrompt })],
+  ] as const);
   const sourceEntries = Object.entries(config.card_types).map(([rawCardType, source]) => [parseCardTypeName(rawCardType), source] as const);
   const cardTypeVocabulary = Object.freeze(sourceEntries.map(([cardType]) => cardType));
   if (!cardTypeVocabulary.includes('project')) throw new Error("card_types must contain the reserved 'project' entry.");
@@ -683,7 +699,7 @@ export function compileProjectWorkflows(
   for(const draft of drafts.values())validateCardTypeTopology(draft);
   validateDescendantContextClosure(drafts);
   const cardTypes=immutableMap([...drafts].map(([type,draft])=>[type,buildCardTypeStateTable(draft,roots)] as const));
-  return Object.freeze({ analyst, analystPrompt, agents, cardTypes, cardTypeVocabulary });
+  return Object.freeze({ analyst, analystPrompt, oversight, oversightPrompt, selectedGlobalParticipants, agents, cardTypes, cardTypeVocabulary });
 }
 export function bindRuntimeWorkflows(
   structural: CompiledProjectWorkflows,
@@ -692,9 +708,10 @@ export function bindRuntimeWorkflows(
   contextUtilizationFraction: number,
 ): CompiledRuntimeWorkflows {
   const participants = new Map<AgentName, Readonly<{ agent: CompiledAgentContract; toolSet: BoundAgentToolSet; request: CapabilityRequest }>>();
-  const analystToolSet = new BoundAgentToolSet(structural.analyst.tools);
-  const analystRequest = Object.freeze(capabilityRequestForTools(analystToolSet.names));
-  participants.set(structural.analyst.name, Object.freeze({ agent: structural.analyst, toolSet: analystToolSet, request: analystRequest }));
+  for (const { agent } of structural.selectedGlobalParticipants.values()) {
+    const toolSet = new BoundAgentToolSet(agent.tools);
+    participants.set(agent.name, Object.freeze({ agent, toolSet, request: Object.freeze(capabilityRequestForTools(toolSet.names)) }));
+  }
   for (const workflow of structural.cardTypes.values()) {
     for (const state of workflow.states.values()) {
       if (state.kind !== 'node') continue;

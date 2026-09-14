@@ -101,6 +101,7 @@ async function queueNotificationTool(ctx: PlannerControlProviderContext, record:
     case 'missing_card': return toolFailed(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
     case 'terminal_card': return toolFailed(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });
     case 'activation_closed': return toolFailed(`Cannot queue notification for card '${queued.cardId}': its current activation is closed to new notifications.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
+    case 'planning_ineligible': return toolFailed(`Card '${queued.cardId}' is not eligible for planning notifications.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
     default: return assertNever(queued);
   }
 }

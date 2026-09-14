@@ -130,6 +130,7 @@ describe('production-composed Analyst provider-exchange recording', () => {
         mcpToolInvocation: unusedMcpToolInvocation,
         restartCapability: { available: false },
         fatalPort: testApplicationFatalPort,
+        onOversightOwnerFailure(error) { throw error; },
         analystSessionId: 'agent:analyst:global',
       });
 

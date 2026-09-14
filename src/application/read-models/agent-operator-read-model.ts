@@ -39,13 +39,12 @@ export class AgentOperatorReadModelService {
 
   listSessions() {
     const snapshots = this.captureExecutingLlmSnapshots();
-    const candidates: ConversationSessionId[] = [globalAgentSessionId(this.workflows.analyst.name)];
+    if(this.workflows.selectedGlobalParticipants.get(this.workflows.analyst.name)?.agent!==this.workflows.analyst||this.workflows.analyst.session!=='global')throw new AgentSessionNotFoundError(`Agent session '${globalAgentSessionId(this.workflows.analyst.name)}' not found.`);
+    const candidates: ConversationSessionId[] = [...this.workflows.selectedGlobalParticipants.values()].map(({ agent }) => globalAgentSessionId(agent.name));
     for (const card of listCards(this.projectRoot))
       candidates.push(...this.cardCandidates(card.id, card.type));
     if (new Set(candidates).size !== candidates.length)
       throw new Error('Agent session candidate identities must be unique.');
-    if (this.workflows.analyst.session !== 'global')
-      throw new AgentSessionNotFoundError(`Agent session '${candidates[0]}' not found.`);
     const sessions: AgentSessionSummary[] = [];
     for (const id of candidates) {
       const summary = this.catalogSummary(id, snapshots);
@@ -95,7 +94,10 @@ export class AgentOperatorReadModelService {
   admitConversationCatalog(sessionId: ConversationSessionId) {
     const ownership = this.admitSession(sessionId);
     try { return Object.freeze({ ...readConversationCatalog(this.projectRoot, sessionId), ownership }); }
-    catch (error) { throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
+      throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error });
+    }
   }
 
   listConversationVersions(sessionId: ConversationSessionId) { const catalog = this.admitConversationCatalog(sessionId); const versions = catalog.versions.map((entry) => ({ entry_id: entry.entry_id, version: entry.version, published_at: entry.created_at, genesis_kind: entry.genesis.kind, source_version: entry.genesis.kind === 'compacted' ? entry.genesis.source_version : null })); return ConversationVersionListResponseSchema.parse({ session_id: sessionId, versions, total: versions.length }); }
@@ -126,7 +128,8 @@ export class AgentOperatorReadModelService {
   private admitSession(sessionId: ConversationSessionId): 'active' | 'retained_tombstone' {
     const identity = conversationSessionIdentity(sessionId);
     if (identity.cardId === null) {
-      if (sessionId !== globalAgentSessionId(this.workflows.analyst.name) || this.workflows.analyst.session !== 'global') throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
+      const participant = this.workflows.selectedGlobalParticipants.get(identity.agentName);
+      if (!participant || participant.agent.session !== 'global' || sessionId !== globalAgentSessionId(participant.agent.name)) throw new AgentSessionNotFoundError(`Agent session '${sessionId}' not found.`);
       return 'active';
     }
     let cardResult;
@@ -151,7 +154,7 @@ export class AgentOperatorReadModelService {
   private catalogSummary(sessionId: ConversationSessionId, snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>): AgentSessionSummary | null {
     let catalog;
     try { catalog = readConversationCatalog(this.projectRoot, sessionId); }
-    catch (error) { throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
+    catch (error) { if((error as NodeJS.ErrnoException).code==='ENOENT')return null;throw new AgentCurrentStateUnavailableError('conversation', sessionId, { cause: error }); }
     if (catalog.currentVersion === null) return null;
     const identity = conversationSessionIdentity(sessionId);
     const snapshot = snapshots.get(sessionId);
@@ -169,19 +172,7 @@ export class AgentOperatorReadModelService {
 
   private summary(sessionId: ConversationSessionId, snapshots: ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>): AgentSessionSummary | null {
     this.admitSession(sessionId);
-    const source = this.admitConversationCatalog(sessionId); if (source.currentVersion === null) return null;
-    const identity = conversationSessionIdentity(sessionId);
-    const snapshot = snapshots.get(sessionId);
-    return AgentSessionSummarySchema.parse({
-      id: sessionId,
-      agent_name: identity.agentName,
-      session_scope: identity.cardId === null ? 'global' : 'card',
-      card_id: identity.cardId,
-      started_at: source.createdAt,
-      status: snapshot ? 'active' : 'inactive',
-      activity: snapshot ? 'busy' : 'idle',
-      compaction: projectCompaction(snapshot),
-    });
+    return this.catalogSummary(sessionId, snapshots);
   }
 }
 

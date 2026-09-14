@@ -24,7 +24,7 @@ function constructorTypeFixtures(): void {
   // @ts-expect-error Autonomous card actors require the shared runtime gate.
   new ConversationLLMActor({...common,agentId:'agent:planner:card-a',purpose:{kind:'autonomous-card',cardId:'card-a'}});
   // @ts-expect-error Analyst actors own their independent gate and prohibit a caller gate.
-  new ConversationLLMActor({...common,agentId:'agent:analyst:global',purpose:{kind:'analyst'},gate:new RuntimeGate()});
+  new ConversationLLMActor({...common,agentId:'agent:analyst:global',purpose:{kind:'global-agent'},gate:new RuntimeGate()});
 }
 
 describe('ConversationLLMActor purpose authority',()=>{
@@ -35,15 +35,15 @@ describe('ConversationLLMActor purpose authority',()=>{
   });
 
   it('accepts Analyst purpose only for a global session',()=>{
-    expect(()=>new ConversationLLMActor({...common,agentId:'agent:analyst:global',purpose:{kind:'analyst'}})).not.toThrow();
-    expect(()=>new ConversationLLMActor({...common,agentId:'agent:analyst:card-a',purpose:{kind:'analyst'}})).toThrow(/requires a global session/);
+    expect(()=>new ConversationLLMActor({...common,agentId:'agent:analyst:global',purpose:{kind:'global-agent'}})).not.toThrow();
+    expect(()=>new ConversationLLMActor({...common,agentId:'agent:analyst:card-a',purpose:{kind:'global-agent'}})).toThrow(/requires a global session/);
   });
 
   it('leaves Analyst content refusal terminal with one ordinary provider call',async()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'analyst-purpose-'));roots.push(projectRoot);initProjectTree(projectRoot);
     const timestamp='2026-07-26T00:00:00.000Z';appendConversationBatch({projectRoot},[agentMessageSchema.parse({id:'activation',session_id:'agent:analyst:global',role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',agent_name:'analyst',input_id:'00000000-0000-4000-8000-000000000001',timestamp}),context_policy:{kind:'structural',behavior:'activation_boundary'},round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
     const completeTurn=jest.fn(async(input:LlmInvocationInput)=>{expect(input.routePass.kind).toBe('ordinary');throw new ProviderTurnFailure({failure_phase:'pre_provider',provider_exchanges:[],candidate:{provider:'test',account:null,model:'test-model'},originalFailure:new LlmRequestError({kind:'content_policy',provider:'test',message:'refused',providerResponse:'raw'})});});
-    const actor=new ConversationLLMActor({...common,provider:scriptedAdmissionProvider(completeTurn),conversations:{projectRoot},agentId:'agent:analyst:global',purpose:{kind:'analyst'}});
+    const actor=new ConversationLLMActor({...common,provider:scriptedAdmissionProvider(completeTurn),conversations:{projectRoot},agentId:'agent:analyst:global',purpose:{kind:'global-agent'}});
     const input=preparedInput('agent:analyst:global' as const,'analyst' as const,'agent:analyst:global' as const,'00000000-0000-4000-8000-000000000001',{cardId:'card-a'});
     await expect(actor.turn(input,undefined,()=>undefined)).resolves.toMatchObject({type:'error',error:'refused'});
     expect(completeTurn).toHaveBeenCalledTimes(1);

@@ -53,7 +53,7 @@ const EXPECTED_CATALOG = {
   'vocabulary.availability-state': ['vocabularies', ['src/contracts/operator-api-availability.ts']],
   'vocabulary.card-version-change-kind': ['vocabularies', ['src/schemas/card-version-change.ts']],
   'vocabulary.lifecycle-status': ['vocabularies', ['src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-runtime-cards.ts', 'src/schemas/lifecycle.ts', 'src/schemas/types.ts', 'src/schemas/validators.ts']],
-  'vocabulary.logged-event-kind': ['vocabularies', ['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/analyst-runtime-tools.ts']],
+  'vocabulary.logged-event-kind': ['vocabularies', ['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/global-observation-tools.ts']],
 };
 const EXPECTED_MANIFEST = [
   ['card-identity', ['identities', 'constants'], 'docs/spec/system-specification.md', '### Exact card identity contract', ['identity.card', 'constant.maximum-card-depth-segments']],
@@ -199,8 +199,8 @@ const SOURCE_MUTATIONS = [
   ['logged-event persisted read', verifyClosedVocabularyDocs, 'src/application/event-query-service.ts', "readAppLogEntries(this.projectRoot, 'event')"],
   ['logged-event query comparison', verifyClosedVocabularyDocs, 'src/application/event-query-service.ts', 'event.kind === query.kind'],
   ['logged-event route pass-through', verifyClosedVocabularyDocs, 'src/server/routes/operator-events-handlers.ts', 'readModel.queryEvents(query)'],
-  ['logged-event tool vocabulary', verifyClosedVocabularyDocs, 'src/tools/analyst-runtime-tools.ts', 'eventKindValues'],
-  ['logged-event tool query', verifyClosedVocabularyDocs, 'src/tools/analyst-runtime-tools.ts', 'queryEvents({ selection:'],
+  ['logged-event tool vocabulary', verifyClosedVocabularyDocs, 'src/tools/global-observation-tools.ts', 'eventKindValues'],
+  ['logged-event tool query', verifyClosedVocabularyDocs, 'src/tools/global-observation-tools.ts', "queryEvents({selection:'newest_tail'"],
   ['classic template registry member', verifyToolContractDocs, 'src/config/system-templates/registry.ts', 'CLASSIC_TEMPLATE,'],
   ['typed template registry member', verifyToolContractDocs, 'src/config/system-templates/registry.ts', 'CLASSIC_TYPED_TEMPLATE'],
   ['classic template name', verifyToolContractDocs, 'src/config/system-templates/classic/template.ts', "name: 'classic'"],

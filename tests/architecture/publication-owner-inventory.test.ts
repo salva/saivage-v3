@@ -86,7 +86,7 @@ describe('source-derived publication owner inventory', () => {
     const services = source('src/server/composition/server-services.ts');
     const workflows = services.indexOf('const workflows = bindRuntimeWorkflows');
     const identity = services.indexOf('globalAgentSessionId(workflows.analyst.name)');
-    const validation = services.indexOf('validateConfiguredAnalystConversation(projectRoot, analystSessionId)');
+    const validation = services.indexOf('validateConfiguredGlobalConversation(projectRoot, globalAgentSessionId(participant.agent.name))');
     expect(workflows).toBeLessThan(identity);
     expect(identity).toBeLessThan(validation);
     expect(validation).toBeLessThan(services.indexOf('await createFastifyApp'));

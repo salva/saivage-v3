@@ -43,6 +43,7 @@ interface SupervisorRuntimeApiOptions {
   runtimeGate: RuntimeGate; mcpToolInvocation: McpToolInvocationPort;
   processIdentity: RuntimeProcessIdentity;
   fatalPort: ApplicationFatalPort;
+  runtimeStatusChanged?(status:RuntimeStatus):void;
 }
 
 declare const supervisorLaunchPlanBrand: unique symbol;
@@ -96,6 +97,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     this.runtimeGate.close();
     this.assertOwnershipInvariants();
     this.status = 'stopped';
+    this.behavior.runtimeStatusChanged?.('stopped');
   }
 
   assertInterventionReady(): void {
@@ -750,8 +752,9 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
 
   private ownershipTransition(invalidate: boolean, mutate: () => void): void {
     if (this.inOwnershipTransition) throw new Error('Nested ownership transition is forbidden.');
-    this.inOwnershipTransition = true;
+    const previousStatus=this.status;this.inOwnershipTransition = true;
     try { mutate(); this.assertOwnershipInvariants(); } finally { this.inOwnershipTransition = false; }
+    if(previousStatus!==this.status&&this.status!=='uninitialized')this.behavior.runtimeStatusChanged?.(this.status);
     if (invalidate) this.ownershipInvalidated();
   }
 

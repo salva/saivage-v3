@@ -197,7 +197,7 @@ export class AnalystSession {
     this.#shutdownProcesses = input.shutdownProcesses;
     this.#fatalPort = input.fatalPort;
     this.#cardTypeVocabulary = input.cardTypeVocabulary;
-    this.#llm = new ConversationLLMActor({ purpose:{kind:'analyst'}, agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged, fatalPort: input.fatalPort,
+    this.#llm = new ConversationLLMActor({ purpose:{kind:'global-agent'}, agentId: input.sessionId, provider: input.provider, conversations: input.conversations, compactor: input.compactor, summarizerProvider: input.summarizerProvider, runtimeProjectionChanged: input.runtimeProjectionChanged, fatalPort: input.fatalPort,
     });
   }
 

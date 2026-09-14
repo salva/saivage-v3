@@ -6,7 +6,7 @@ import { DEFAULT_SAIVAGE_CONFIG,DEFAULT_SYSTEM_TEMPLATE,SYSTEM_TEMPLATES,resolve
 import { effectiveSaivageConfigSchema } from '../../src/schemas/saivage-config.js';
 import { minimalSystemTemplate,secondSystemTemplate } from '../fixtures/system-templates/minimal.js';
 
-const SHARED_PROMPT_FILES=[...['analyst','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`),...['execute','stopped-recovery','correct-plan-result','correct-review-result','correct-execution-result'].map((id)=>`process/_shared/${id}.md`)];
+const SHARED_PROMPT_FILES=[...['analyst','oversight','executor','planner','reviewer'].map((id)=>`agents/_shared/${id}.md`),...['execute','stopped-recovery','correct-plan-result','correct-review-result','correct-execution-result'].map((id)=>`process/_shared/${id}.md`),...['common','analyst','oversight','planner','executor','reviewer'].map((id)=>`fragments/_shared/project-guidance-${id}.md`)];
 
 describe('system template registry',()=>{
   it('registers exactly classic then classic-typed with module-relative prompt roots',()=>{
@@ -21,6 +21,7 @@ describe('system template registry',()=>{
   it('accepts the registered templates at load-time validation',()=>{
     expect(()=>validateSystemTemplates(SYSTEM_TEMPLATES)).not.toThrow();
   });
+  it.each([0,-1,Number.POSITIVE_INFINITY])('rejects invalid required Oversight interval %s',(interval)=>{const value=structuredClone(resolveSystemTemplate('classic').config);value.oversight.interval_seconds=interval;expect(effectiveSaivageConfigSchema.safeParse(value).success).toBe(false);});
 
   it('load-time validation rejects duplicate names, empty names, and schema-invalid configs',()=>{
     const minimal=minimalSystemTemplate('/unused/prompts/');
@@ -62,6 +63,7 @@ describe('system template registry',()=>{
     const typed=resolveSystemTemplate('classic-typed');
     expect(typed.config.agents).toEqual(classic.config.agents);
     expect(typed.config.analyst_agent).toBe(classic.config.analyst_agent);
+    expect(typed.config.oversight).toEqual(classic.config.oversight);
     expect(typed.config.models).toEqual(classic.config.models);
     expect(typed.config.providers).toEqual(classic.config.providers);
     expect(typed.config.server).toEqual(classic.config.server);

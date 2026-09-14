@@ -708,7 +708,7 @@ const PATHS = Object.freeze({
   cardChange: sourcePathSet(['src/schemas/card-version-change.ts']),
   availability: sourcePathSet(['src/contracts/operator-api-availability.ts']),
   appLog: sourcePathSet(['src/contracts/app-log.ts', 'src/persistence/app-log.ts']),
-  loggedEvents: sourcePathSet(['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/analyst-runtime-tools.ts']),
+  loggedEvents: sourcePathSet(['src/application/event-query-service.ts', 'src/contracts/app-log.ts', 'src/contracts/builtin-tool-inputs.ts', 'src/contracts/operator-api-events.ts', 'src/schemas/event-catalog.ts', 'src/server/routes/operator-events-handlers.ts', 'src/tools/global-observation-tools.ts']),
   cardIdentity: sourcePathSet(['src/application/read-models/canonical-card-files-read-model.ts', 'src/cards/card-service.ts', 'src/schemas/card-id.ts']),
   sessionIdentity: sourcePathSet(['src/schemas/conversation-session-id.ts']),
   shippedTools: sourcePathSet(['src/config/system-templates/classic-typed/template.ts', 'src/config/system-templates/classic/template.ts', 'src/config/system-templates/registry.ts']),
@@ -875,7 +875,7 @@ function selectLoggedEvents(projectRoot) {
     ['src/contracts/operator-api-events.ts', ['kind: z.enum(eventKindValues).optional()', 'events: z.array(loggedEventSchema)']],
     ['src/application/event-query-service.ts', ["readAppLogEntries(this.projectRoot, 'event')", 'event.kind === query.kind']],
     ['src/server/routes/operator-events-handlers.ts', ['readModel.queryEvents(query)']],
-    ['src/tools/analyst-runtime-tools.ts', ['eventKindValues', 'queryEvents({ selection:']],
+    ['src/tools/global-observation-tools.ts', ['eventKindValues', "queryEvents({selection:'newest_tail'"]],
   ];
   for (const [path, fragments] of edges) requireSourceFragments(projectRoot, path, fragments, 'logged-event live edge');
   return vocabularyValue(members);

@@ -95,6 +95,7 @@ test('production browser directly loads Debug and preserves tab-owned resources'
   const beforeDefaultDebug = new Map(debugTabResources.map((key) => [key, rest.counts.get(key) ?? 0]));
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/debug', { waitUntil: 'networkidle' })));
   await expect(page.getByTestId('route-debug')).toContainText(/Runtime State|Errors|Processes/i);
+  await expect(page.getByTestId('debug-oversight-state')).toContainText(/Project Oversight|waiting|agent:oversight:global/i);
   await expect(page.locator('.debug-tabs > .debug-tab-button')).toHaveText([
     'State',
     'Operator Control',
@@ -110,7 +111,7 @@ test('production browser directly loads Debug and preserves tab-owned resources'
 
   const selectedDebugTabs = [
     { tab: 'errors', label: 'Errors', resource: 'GET /api/debug/errors', bodyText: 'Synthetic provider failure redacted' },
-    { tab: 'agents', label: 'Agents', resource: 'GET /api/agents', bodyText: 'agent:analyst:global' },
+    { tab: 'agents', label: 'Agents', resource: 'GET /api/agents', bodyText: 'agent:oversight:global' },
     { tab: 'mcp', label: 'MCP', resource: 'GET /api/mcp/tools', bodyText: 'filesystem' },
   ] as const;
   for (const selected of selectedDebugTabs) {

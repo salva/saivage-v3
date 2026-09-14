@@ -43,16 +43,16 @@ function assertTreesEqual(sourceRoot, outputRoot) {
 }
 
 const CLASSIC_CLOSURE = [
-  'agents/_shared/analyst.md', 'agents/_shared/executor.md', 'agents/_shared/planner.md', 'agents/_shared/reviewer.md',
-  ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
+  'agents/_shared/analyst.md', 'agents/_shared/executor.md', 'agents/_shared/oversight.md', 'agents/_shared/planner.md', 'agents/_shared/reviewer.md',
+  ...['common', 'planner', 'executor', 'reviewer', 'analyst', 'oversight'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
   'process/_shared/correct-execution-result.md', 'process/_shared/correct-plan-result.md', 'process/_shared/correct-review-result.md',
   'process/_shared/execute.md', 'process/_shared/plan-to-review.md', 'process/_shared/plan.md', 'process/_shared/recover.md',
   'process/_shared/handle-notifications.md', 'process/_shared/review-to-notifications.md',
   'process/_shared/review-to-plan.md', 'process/_shared/review.md', 'process/_shared/stopped-recovery.md',
 ].sort();
 const TYPED_CLOSURE = [
-  ...['analyst', 'executor', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
-  ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
+  ...['analyst', 'executor', 'oversight', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
+  ...['common', 'planner', 'executor', 'reviewer', 'analyst', 'oversight'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
   ...['correct-execution-result', 'correct-plan-result', 'correct-review-result', 'execute', 'handle-notifications', 'review-to-notifications', 'specialized-plan-to-review', 'specialized-plan', 'specialized-recover', 'specialized-review-to-plan', 'specialized-review', 'stopped-recovery'].map((id) => `process/_shared/${id}.md`),
   ...['code-red', 'code-green', 'code-refactor', 'code-red-to-green', 'code-to-refactor', 'code-green-retry', 'code-regression-to-green'].map((id) => `process/code/${id}.md`),
   ...['test-diagnose', 'test-add-coverage', 'test-repair', 'test-verify', 'test-to-add-coverage', 'test-to-repair', 'test-to-verify', 'test-repair-retry'].map((id) => `process/test/${id}.md`),
@@ -61,14 +61,15 @@ const TYPED_CLOSURE = [
   ...['architecture-draft', 'architecture-component-review', 'architecture-system-review', 'architecture-to-component-review', 'architecture-to-system-review', 'architecture-component-revision', 'architecture-system-revision', 'architecture-notifications-to-draft'].map((id) => `process/architecture/${id}.md`),
 ].sort();
 const SHARED_PROMPT_FILES = [
-  ...['analyst', 'executor', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
-  ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
+  ...['analyst', 'executor', 'oversight', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
+  ...['common', 'planner', 'executor', 'reviewer', 'analyst', 'oversight'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
   ...['execute', 'handle-notifications', 'review-to-notifications', 'stopped-recovery', 'correct-plan-result', 'correct-review-result', 'correct-execution-result'].map((id) => `process/_shared/${id}.md`),
 ];
 
 function writeFixtureUnion(root) {
   write(root, 'agents', '_shared', 'analyst', 'analyst {{vocabularySnippet}}');
   write(root, 'agents', '_shared', 'executor', 'executor {{contractDescription}}');
+  write(root, 'agents', '_shared', 'oversight', 'oversight {{vocabularySnippet}}');
   write(root, 'agents', '_shared', 'specialist', 'specialist {{> specialist-piece}} {{contractDescription}}');
   write(root, 'fragments', '_shared', 'specialist-piece', 'SECOND TEMPLATE FRAGMENT');
   write(root, 'process', '_shared', 'execute', 'execute {{cardType}}');
@@ -88,11 +89,11 @@ function runCopySystemTemplatePromptsTest() {
     const minimalClosure = collectTemplatePromptClosure({ template: minimal });
     const secondClosure = collectTemplatePromptClosure({ template: second });
     const expectedMinimal = [
-      'agents/_shared/analyst.md', 'agents/_shared/executor.md',
+      'agents/_shared/analyst.md', 'agents/_shared/executor.md', 'agents/_shared/oversight.md',
       'process/_shared/correct-execution-result.md', 'process/_shared/execute.md', 'process/_shared/stopped-recovery.md',
     ].sort();
     const expectedSecond = [
-      'agents/_shared/analyst.md', 'agents/_shared/specialist.md', 'fragments/_shared/specialist-piece.md',
+      'agents/_shared/analyst.md', 'agents/_shared/oversight.md', 'agents/_shared/specialist.md', 'fragments/_shared/specialist-piece.md',
       'process/_shared/correct-execution-result.md', 'process/_shared/second-execute.md', 'process/_shared/stopped-recovery.md',
     ].sort();
     assert(Object.isFrozen(minimalClosure), 'collected closure is not frozen');

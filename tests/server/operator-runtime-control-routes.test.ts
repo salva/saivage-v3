@@ -15,6 +15,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const serverAvailability = { generatedAt: '2026-01-01T00:00:00.000Z', components: { api: { state: 'available' as const, source: 'health-check' as const, checkedAt: '2026-01-01T00:00:00.000Z' }, runtime: { state: 'degraded' as const, source: 'runtime-application' as const, checkedAt: '2026-01-01T00:00:00.000Z', diagnostic: { code: 'runtime-status-read-failed', summary: 'Runtime status read failed.' } }, mcp: { state: 'idle' as const, source: 'mcp-manager' as const, checkedAt: '2026-01-01T00:00:00.000Z' } } };
+const oversightStatus=()=>({agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:false,eligibility_reason:'stopped' as const,state:'unavailable' as const,next_nominal_due:null,last_attempt:null,last_successful_at:null,service_epoch:'2026-07-18T00:00:00.000Z'});
 
 describe('runtime-control route request contracts', () => {
   let fastify: FastifyInstance;
@@ -42,7 +43,7 @@ describe('runtime-control route request contracts', () => {
       done();
     });
     const runtimeApplication = {
-      cardStore,
+      cardStore,getOversightStatus:oversightStatus,
       runtimeApi: {
         pause,
         resume,
@@ -160,7 +161,7 @@ describe('runtime-control route request contracts', () => {
     try {
       const cardStore = new CardService(projectRoot);
       const runtimeApplication = {
-        cardStore,
+        cardStore,getOversightStatus:oversightStatus,
         runtimeApi: {
           pause,
           resume,

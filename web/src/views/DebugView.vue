@@ -22,6 +22,7 @@
         :runtime-refreshing="runtimeRefreshing"
         :runtime-refresh-error="runtimeRefreshError"
         :current-card-id="currentCardId"
+        :oversight="oversight"
       />
       <OperatorControlPanel
         v-if="localActiveTab === 'operator'"
@@ -160,6 +161,7 @@ const {
   error: runtimeError,
   refreshError: runtimeRefreshError,
   lastFetchedAt: runtimeLastFetchedAt,
+  oversight,
 } = storeToRefs(runtimeStore);
 const {
   sessions,

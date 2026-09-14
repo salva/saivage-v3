@@ -45,6 +45,10 @@ import { EventQueryService } from './event-query-service.js';
 import type { CompiledRuntimeWorkflows } from '../runtime/card-process/card-process-config.js';
 import type { ApplicationFatalPort } from '../contracts/index.js';
 import type { ExecutingLlmSnapshot } from '../runtime/actors/executing-llm-snapshot.js';
+import { OversightSession } from '../agents/oversight-session.js';
+import { ProjectOversight, type OversightClock, type OversightStatus } from './project-oversight.js';
+import { globalAgentSessionId } from '../schemas/index.js';
+import { createOversightNotificationPort } from './oversight-notification-port.js';
 
 export interface RuntimeApplication {
   readonly runtimeApi: RuntimeApi;
@@ -52,11 +56,14 @@ export interface RuntimeApplication {
   readonly processRunner: ProcessRunner;
   readonly analystRuntime: AnalystRuntime;
   readonly analystSessionId: import('../schemas/index.js').GlobalConversationSessionId;
+  getOversightStatus(): OversightStatus;
   captureExecutingLlmSnapshots(): ReadonlyMap<ConversationSessionId, ExecutingLlmSnapshot>;
   closeRuntimeAdmission(): void;
   closeAnalystAdmission(): void;
+  closeOversightAdmission(): void;
   cleanupRuntimeForApplicationStop(): Promise<void>;
   cleanupAnalystForApplicationStop(): Promise<void>;
+  cleanupOversightForApplicationStop(): Promise<void>;
   getProviderRoutingReadModel(): ProviderRoutingReadModel;
 }
 
@@ -76,6 +83,8 @@ interface RuntimeApplicationServices {
   mcpToolInvocation: McpToolInvocationPort;
   fatalPort: ApplicationFatalPort;
   analystSessionId: GlobalConversationSessionId;
+  onOversightOwnerFailure(error:unknown):void;
+  oversightClock?: OversightClock;
 }
 
 export function createRuntimeApplication(services: RuntimeApplicationServices): RuntimeApplication {
@@ -165,6 +174,8 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
   const promptTemplates = createPromptTemplateRegistry(services.workflows);
   const workflows = services.workflows;
   const analystBinding = runtimeAgentBinding(workflows, workflows.analyst.name);
+  const oversightBinding = runtimeAgentBinding(workflows, workflows.oversight.name);
+  let projectOversight:ProjectOversight;
   const runtimeSupervisor = createSupervisorRuntimeApi({
     projectRoot,
     processIdentity: services.processIdentity,
@@ -182,6 +193,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     conversations,
     freshness: services.freshness,
     fatalPort: services.fatalPort,
+    runtimeStatusChanged:(status)=>projectOversight?.runtimeStatusChanged(status),
   });
   const runtimeApi: RuntimeApi = runtimeSupervisor;
   const analystSessionId = services.analystSessionId;
@@ -220,6 +232,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         eventQueries,
         captureExecutingLlmSnapshots,
       };
+      const observationToolContext = { agentName:workflows.analyst.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeApi,submitNotification:runtimeApi.submitNotification.bind(runtimeApi),captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null };
       return analystBinding.toolSet.bind({
         scope: 'global',
         agentName: analystBinding.contract.name,
@@ -230,6 +243,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         processOwnerId: analystSessionId,
         mcpToolInvocation: services.mcpToolInvocation,
         analystToolContext: context,
+        observationToolContext,
         cardTypeVocabulary: workflows.cardTypeVocabulary,
       });
     };
@@ -283,8 +297,18 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     const snapshots = new Map(runtimeSupervisor.captureAutonomousExecutingLlmSnapshots());
     const analystSnapshot = analystRuntimeCache?.executingLlmSnapshot();
     if (analystSnapshot) snapshots.set(analystSnapshot.sessionId, analystSnapshot);
+    const oversightSnapshot=projectOversight?.executingLlmSnapshot();
+    if(oversightSnapshot)snapshots.set(oversightSnapshot.sessionId,oversightSnapshot);
     return snapshots;
   };
+  const oversightSessionId=globalAgentSessionId(workflows.oversight.name);
+  const oversightProvider=createInvocationServiceProvider(invocationService);
+  projectOversight=new ProjectOversight({enabled:config.oversight.enabled,intervalMs:config.oversight.interval_seconds*1000,agentName:workflows.oversight.name,sessionId:oversightSessionId,serviceEpoch:services.processIdentity.startedAt,clock:services.oversightClock,changed:()=>services.freshness.runtimeChanged(),onOwnerFailure:services.onOversightOwnerFailure,createCheck:()=>{
+    const submitNotification=createOversightNotificationPort({oversight:projectOversight,cards:cardStore,workflows,submitNotification:runtimeApi.submitNotification.bind(runtimeApi)});
+    const observationToolContext={agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,eventQueries,runtime:runtimeApi,submitNotification,captureExecutingLlmSnapshots,currentProcessPosition:(cardId:string)=>runtimeApi.getActorRuntimeReadModel().cards.find((card)=>card.cardId===cardId)?.processState??null};
+    const surface=oversightBinding.toolSet.bind({scope:'global',agentName:workflows.oversight.name,projectRoot,store:cardStore,processRunner,mcpToolInvocation:services.mcpToolInvocation,observationToolContext,cardTypeVocabulary:workflows.cardTypeVocabulary});
+    return new OversightSession({sessionId:oversightSessionId,agentName:workflows.oversight.name,surface,provider:oversightProvider,conversations,promptTemplates,modelParams:oversightBinding.contract.model,capabilityRequest:oversightBinding.capabilityRequest,candidateChain:oversightBinding.candidateChain,routeUsableInputTokens:oversightBinding.routeUsableInputTokens,compactionPolicy,compactor,summarizerProvider,runtimeProjectionChanged:()=>services.freshness.agentMembershipChanged({scope:'global-session',sessionId:oversightSessionId}),fatalPort:services.fatalPort});
+  }});
 
   return {
     runtimeApi,
@@ -292,6 +316,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     cardStore,
     processRunner,
     captureExecutingLlmSnapshots,
+    getOversightStatus:()=>projectOversight.status(),
     get analystRuntime() {
       analystRuntimeCache ??= new AnalystRuntime({
         createSession: createAnalystSession,
@@ -306,6 +331,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
     closeAnalystAdmission() {
       analystRuntimeCache?.closeAdmission();
     },
+    closeOversightAdmission(){projectOversight.closeAdmission();},
     cleanupRuntimeForApplicationStop() {
       return runtimeSupervisor.cleanupForApplicationStop();
     },
@@ -314,6 +340,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         ? analystRuntimeCache.cleanupForApplicationStop()
         : Promise.resolve();
     },
+    cleanupOversightForApplicationStop(){return projectOversight.cleanupForApplicationStop();},
     getProviderRoutingReadModel() {
       return buildProviderRoutingReadModel({
         registry,

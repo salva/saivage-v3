@@ -113,12 +113,12 @@ type ConversationPhase =
 type ConversationDisposalDisposition = 'revoked_before_owned_completion' | 'joining_owned_completion';
 type LLMToolContinuationContextHook = (continuationInputId: string) => { messages: readonly ProviderVisibleUserContextMessage[]; afterAppend?: () => void } | undefined;
 type ConversationLLMActorPurpose = Readonly<
-  { kind: 'autonomous-card'; cardId: CardId } | { kind: 'analyst' }
+  { kind: 'autonomous-card'; cardId: CardId } | { kind: 'global-agent' }
 >;
 type ConversationLLMActorCommonArgs = Readonly<{ agentId: string; provider: LLMProviderPort; conversations: ConversationFileContext; compactor: CompactorPort; summarizerProvider: SummarizerProviderPort; runtimeProjectionChanged?: () => void; fatalPort: ApplicationFatalPort }>;
 type ConversationLLMActorArgs = ConversationLLMActorCommonArgs & (
   | Readonly<{ purpose: { kind: 'autonomous-card'; cardId: CardId }; gate: RuntimeGate }>
-  | Readonly<{ purpose: { kind: 'analyst' }; gate?: never }>
+  | Readonly<{ purpose: { kind: 'global-agent' }; gate?: never }>
 );
 
 export class ConversationLLMActor {
@@ -145,8 +145,8 @@ export class ConversationLLMActor {
         if (identity.cardId !== args.purpose.cardId) throw new Error(`Autonomous-card LLM actor purpose '${args.purpose.cardId}' does not match session '${this.agentId}'.`);
         this.gate = (args as Extract<ConversationLLMActorArgs, { purpose: { kind: 'autonomous-card' } }>).gate;
         break;
-      case 'analyst':
-        if (identity.cardId !== null) throw new Error(`Analyst LLM actor requires a global session, received '${this.agentId}'.`);
+      case 'global-agent':
+        if (identity.cardId !== null) throw new Error(`Global-agent LLM actor requires a global session, received '${this.agentId}'.`);
         this.gate = new RuntimeGate();
         break;
     }
@@ -684,7 +684,7 @@ export class ConversationLLMActor {
 
   async #recoverContentPolicyRefusal(operation: InvocationOperation, input: CanonicalLlmInvocationInput, signal: AbortSignal, firstFailure: AuthoritativeContentPolicyFailure): Promise<{ kind: 'completion'; completion: ProviderTurnCompletion } | Extract<PersistedProviderCompletion, { kind: 'content-policy-blocked' }>> {
     switch (this.purpose.kind) {
-      case 'analyst': throw firstFailure;
+      case 'global-agent': throw firstFailure;
       case 'autonomous-card': break;
     }
     if (!operation.providerBoundaryEntered || operation.completionPersistenceEntered) throw new Error(`LLMActor '${this.agentId}' cannot recover content policy outside the provider boundary.`);

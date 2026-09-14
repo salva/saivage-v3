@@ -18,7 +18,7 @@ const discoveryReadPositionSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('collection'), item_index: z.number().int().min(0), item_byte_offset: z.number().int().min(0) }).strict(),
   z.object({ kind: z.literal('text'), byte_offset: z.number().int().min(0) }).strict(),
 ]);
-const cardSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'children', 'records'])
+const cardSectionSchema = z.enum(['summary', 'workflow', 'tags', 'dependencies', 'related', 'children', 'records'])
   .describe('Exactly one current-card section per call. Pending delivery context is not readable.');
 const cardVersionSectionSchema = z.enum(['summary', 'tags', 'dependencies', 'related', 'children'])
   .describe("Exactly one card-artifact-owned section per call. The children section is the selected immutable row's complete active_child_order carrier and may include retained tombstoned links. Pending delivery context is not readable.");
@@ -45,11 +45,12 @@ export const analystDeleteCardInputSchema = z.object({ ids: z.array(z.string()).
 const notificationUrgencySchema = z.enum(['normal', 'urgent']);
 export type NotificationUrgency = z.infer<typeof notificationUrgencySchema>;
 export const queueNotificationInputSchema = z.object({ card_id: cardIdSchema.describe('The exact card id.'), kind: z.string().min(1).describe('A short categorical label.'), body: z.string().min(1).describe('The context text to inject.'), urgency: notificationUrgencySchema.describe('Normal queues context only; urgent may interrupt the exact active descendant suffix after enqueue.') }).strict();
-export const readAgentSessionInputSchema = z.object({ session_id: ConversationSessionIdSchema, last_n: z.number().int().min(1).max(1000).optional() }).strict();
-export const readRuntimeEventsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(), kind: z.enum(eventKindValues).optional() }).strict();
-export const readRuntimeErrorsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional() }).strict();
+export const readAgentSessionInputSchema = z.object({ session_id: ConversationSessionIdSchema, last_n: z.number().int().min(1).max(1000).optional(),position:discoveryCollectionPositionSchema.optional(),response_bytes:responseBytesSchema.optional() }).strict();
+export const readRuntimeEventsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(), kind: z.enum(eventKindValues).optional(),position:discoveryCollectionPositionSchema.optional(),response_bytes:responseBytesSchema.optional() }).strict();
+export const readRuntimeErrorsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(),position:discoveryCollectionPositionSchema.optional(),response_bytes:responseBytesSchema.optional() }).strict();
 export const readControlActionsInputSchema = z.object({ limit: z.number().int().optional(), since: z.string().optional() }).strict();
-export const listProcessesInputSchema = z.object({ status: z.string().optional(), cardId: z.string().optional() }).strict();
+export const listProcessesInputSchema = z.object({ status: z.string().optional(), cardId: z.string().optional(),position:discoveryCollectionPositionSchema.optional(),response_bytes:responseBytesSchema.optional() }).strict();
+export const listAgentSessionsInputSchema=z.object({position:discoveryCollectionPositionSchema.optional(),response_bytes:responseBytesSchema.optional()}).strict();
 export const navigateWorkspaceInputSchema = z.object({ target: workspaceNavigationTargetSchema }).strict();
 export type NavigateWorkspaceInput = z.infer<typeof navigateWorkspaceInputSchema>;
 

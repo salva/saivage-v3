@@ -85,6 +85,7 @@ const doctorOk = parseOperatorResponse('debug.doctor', 200, {
 const sessions = [
   { id: 'agent:analyst:global', agent_name: 'analyst', session_scope: 'global', card_id: null, started_at: now, status: 'inactive', activity: 'idle', compaction: null },
   { id: `agent:executor:${smokeCardId}`, agent_name: 'executor', session_scope: 'card', card_id: smokeCardId, started_at: now, status: 'active', activity: 'busy', compaction: null },
+  { id: 'agent:oversight:global', agent_name: 'oversight', session_scope: 'global', card_id: null, started_at: now, status: 'inactive', activity: 'idle', compaction: null },
   { id: 'agent:planner:project', agent_name: 'planner', session_scope: 'card', card_id: 'project', started_at: now, status: 'inactive', activity: 'idle', compaction: null },
   { id: 'agent:reviewer:project', agent_name: 'reviewer', session_scope: 'card', card_id: 'project', started_at: now, status: 'inactive', activity: 'idle', compaction: null },
 ];
@@ -181,7 +182,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       return json(route, parseOperatorResponse('runtime.getState', 200, { projectId: 'project', runtime: runtimeRunning, serverAvailability: smokeServerAvailability }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/status') {
-      return json(route, parseOperatorResponse('runtime.status', 200, { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, restart_server_available: false, serverAvailability: smokeServerAvailability }));
+      return json(route, parseOperatorResponse('runtime.status', 200, { runtime: 'running', currentCardId: smokeCardId, started_at: now, pid: 4242, actorRuntime: { pauseMode: 'running', cards: [{ cardId: smokeCardId, actorState: 'running', processState: { cardType: 'code', stateId: 'node:execute', kind: 'node', nodeId: 'execute', executionOrdinal: 0 } }] }, oversight: { agent_name: 'oversight', session_id: 'agent:oversight:global', enabled: true, eligible: true, eligibility_reason: null, state: 'waiting', next_nominal_due: '2026-05-19T14:00:00.000Z', last_attempt: { outcome: 'succeeded', settled_at: '2026-05-19T10:00:00.000Z' }, last_successful_at: '2026-05-19T10:00:00.000Z', service_epoch: now }, restart_server_available: false, serverAvailability: smokeServerAvailability }));
     }
     if (request.method() === 'GET' && url.pathname === '/api/runtime/content-policy') {
       return json(route, parseOperatorResponse('runtime.contentPolicy', 200, { refusal_high_water: 0, latest: null }));

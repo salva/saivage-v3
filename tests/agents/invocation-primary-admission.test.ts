@@ -201,7 +201,7 @@ describe('ordinary primary-request local admission', () => {
     for (const candidate of chain)
       providers[candidate.provider] = { models: [candidate.model], baseUrl: `https://${candidate.provider}.example.test`, apiKey: 'synthetic-test-key', capabilities: { toolsMode: 'unsupported' } };
     const registry = new ProviderRegistry({
-      agents: structuredClone(DEFAULT_SAIVAGE_CONFIG.agents) as unknown as SaivageConfig['agents'], analyst_agent: 'analyst',
+      agents: structuredClone(DEFAULT_SAIVAGE_CONFIG.agents) as unknown as SaivageConfig['agents'], analyst_agent: 'analyst',oversight:structuredClone(DEFAULT_SAIVAGE_CONFIG.oversight),
       models: { routes: { planner: { candidates: ['model-x'], temperature: 0.2, max_tokens: 2000 } }, profiles: {}, equivalents: [], failover: {} },
       providers, server: { port: 8080, host: '127.0.0.1' },
       compaction: { enabled: true, context_utilization_fraction: 0.8, trigger_fraction: 0.8, tail_fraction: 0.25, snap: 'compact_straddler', summarizer_candidate: chain[0]! },

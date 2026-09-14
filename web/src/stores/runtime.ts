@@ -12,6 +12,7 @@ import type {
   RuntimeStatus,
   ServerAvailability,
 } from '../api/types';
+import type { OperatorApiSuccess } from '../api/contracts';
 import {
   getRuntimeState,
   getRuntimeStatus,
@@ -45,6 +46,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
   const lastFetchedAt = ref<string | null>(null);
   const unauthorized = ref(false);
   const restartServerAvailable = ref(false);
+  const oversight = ref<OperatorApiSuccess<'runtime.status'>['oversight'] | null>(null);
   let requestEpoch = 0;
   let requestController: AbortController | null = null;
 
@@ -80,6 +82,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
       projectId.value = response.projectId;
       serverAvailability.value = response.serverAvailability;
       restartServerAvailable.value = liveStatus.restart_server_available;
+      oversight.value=liveStatus.oversight;
       loaded.value = true;
       markRestSync();
       error.value = null;
@@ -114,6 +117,7 @@ export const useRuntimeStore = defineStore('runtime', () => {
     projectId: readonly(projectId),
     loaded: readonly(loaded),
     restartServerAvailable: readonly(restartServerAvailable),
+    oversight:readonly(oversight),
     loading: readonly(loading),
     refreshing: readonly(refreshing),
     refreshError: readonly(refreshError),

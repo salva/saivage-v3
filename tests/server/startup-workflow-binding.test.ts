@@ -45,7 +45,7 @@ describe('startup workflow binding authority', () => {
       .toEqual(['test-model', 'equivalent-model', 'failover-model']);
   });
 
-  it('retains the complete card and Analyst capability requests as distinct startup contracts', () => {
+  it('retains independent selected-global and card capability requests as distinct startup contracts', () => {
     const source = config();
     source.agents.analyst!.tools = [];
     source.agents.analyst!.skills = false;
@@ -60,13 +60,16 @@ describe('startup workflow binding authority', () => {
     const registry = new ProviderRegistry(source);
     const bound = bindRuntimeWorkflows(structural, router, registry, source.compaction.context_utilization_fraction);
     const analyst = runtimeAgentBinding(bound, 'analyst');
+    const oversight = runtimeAgentBinding(bound, 'oversight');
     const planner = runtimeAgentBinding(bound, 'planner');
 
     expect(analyst.toolSet.names).toEqual([]);
     expect(analyst.capabilityRequest).toEqual({ requiresTools: false, requiresExclusiveToolChoice: true });
+    expect(oversight.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true });
     expect(planner.capabilityRequest).toEqual({ requiresTools: true, requiresExclusiveToolChoice: true });
     expect(requests[0]).toBe(analyst.capabilityRequest);
-    expect(requests[1]).toBe(planner.capabilityRequest);
+    expect(requests[1]).toBe(oversight.capabilityRequest);
+    expect(requests[2]).toBe(planner.capabilityRequest);
     expect(planner.toolSet.names).not.toContain('emit_result');
     const project = bound.cardTypes.get('project')!;
     const terminal = nodeResultToolDefinition(project, 'node:plan');
@@ -84,9 +87,9 @@ describe('startup workflow binding authority', () => {
     const router={resolveModels(modelIds:readonly string[]){order.push(modelIds[0]!);return [{provider:'test',account:null,model:modelIds[0]!}];}} as unknown as ModelRouter;
     const registry=new ProviderRegistry(source);
     const bound=bindRuntimeWorkflows(structural,router,registry,source.compaction.context_utilization_fraction);
-    expect([...bound.agentBindings.keys()]).toEqual(['analyst','planner','reviewer','executor']);
+    expect([...bound.agentBindings.keys()]).toEqual(['analyst','oversight','planner','reviewer','executor']);
     expect(bound.agentBindings.has('unused')).toBe(false);
-    expect(order).toEqual(['test-model','test-model','test-model','test-model']);
+    expect(order).toEqual(['test-model','test-model','test-model','test-model','test-model']);
   });
 
   it('rejects a zero-operational-tool card participant when only a tool-unsupported model can serve it', () => {

@@ -1,12 +1,10 @@
 import { listControlActions } from '../persistence/control-action-audit.js';
-import { eventKindValues } from '../schemas/index.js';
-import { buildProcessView } from '../application/read-models/process-view.js';
 import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
 import { emptyInput } from './tool-definition.js';
 import { toolFailure, toolFailureFromError } from './analyst-tool-helpers.js';
 import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { EVENT_QUERY_MAX_LIMIT } from '../application/event-query-service.js';
-import { listProcessesInputSchema, readControlActionsInputSchema, readRuntimeErrorsInputSchema, readRuntimeEventsInputSchema } from '../contracts/builtin-tool-inputs.js';
+import { readControlActionsInputSchema } from '../contracts/builtin-tool-inputs.js';
 import { toolSucceeded } from '../contracts/tool-result.js';
 
 const JSONL_TAIL_DEFAULT = 50;
@@ -40,23 +38,8 @@ export async function restart_server(ctx: ToolContext, _params: Record<string, n
   return toolSucceeded({ restart: 'confirmation_required', confirmationMessage: 'RESTART SERVER' });
 }
 
-export async function read_runtime_events(ctx: ToolContext, params: { limit?: number; kind?: string }): Promise<AnalystToolOutcome> {
-  try { const limit = params.limit ?? JSONL_TAIL_DEFAULT; const result = ctx.eventQueries.queryEvents({ selection: 'newest_tail', limit, ...(params.kind ? { kind: params.kind as (typeof eventKindValues)[number] } : {}) }); const events = result.events; return toolSucceeded({ total_lines: result.total, returned: events.length, parse_errors: 0, events }); }
-  catch (err) { return toolFailureFromError(err); }
-}
-
-export async function read_runtime_errors(ctx: ToolContext, params: { limit?: number }): Promise<AnalystToolOutcome> {
-  try { const result = ctx.eventQueries.queryErrors(params.limit ?? JSONL_TAIL_DEFAULT); const errors = result.errors; return toolSucceeded({ total_lines: result.total, returned: errors.length, parse_errors: 0, errors }); }
-  catch (err) { return toolFailureFromError(err); }
-}
-
 async function read_control_actions(ctx: ToolContext, params: { limit?: number; since?: string }): Promise<AnalystToolOutcome> {
   try { const limit = Math.min(Math.max(1, params.limit ?? JSONL_TAIL_DEFAULT), EVENT_QUERY_MAX_LIMIT); const all = listControlActions(ctx.projectRoot, params.since ? { since: params.since } : undefined); const tail = all.slice(-limit); return toolSucceeded({ total_lines: all.length, returned: tail.length, actions: tail }); }
-  catch (err) { return toolFailureFromError(err); }
-}
-
-export async function list_processes_tool(ctx: ToolContext, params: { status?: string; cardId?: string }): Promise<AnalystToolOutcome> {
-  try { const procs = ctx.processRunner.list(params.cardId ? { cardId: params.cardId } : undefined).map((record) => buildProcessView(ctx.projectRoot, record)); const filtered = params.status ? procs.filter((p) => p.status === params.status) : procs; return toolSucceeded(filtered); }
   catch (err) { return toolFailureFromError(err); }
 }
 
@@ -66,8 +49,5 @@ export const analystRuntimeToolBinders: readonly ToolBinder<ToolContext, any>[] 
   defineToolBinder({ name: 'resume_runtime', description: 'Resume the runtime after a pause.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => emptyInput, executor: (ctx, args) => executeToolAction('none', () => resume_runtime(ctx, args)) }),
   defineToolBinder({ name: 'stop_project', description: 'Stop project execution without disposing or restarting the server.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => emptyInput, executor: (ctx, args) => executeToolAction('none', () => stop_project(ctx, args)) }),
   defineToolBinder({ name: 'restart_server', description: 'Request confirmed supervised server shutdown.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => emptyInput, executor: (ctx, args) => executeToolAction('none', () => restart_server(ctx, args)) }),
-  defineToolBinder({ name: 'read_runtime_events', description: 'Read the newest matching app-log-backed runtime events.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => readRuntimeEventsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => read_runtime_events(ctx, args)) }),
-  defineToolBinder({ name: 'read_runtime_errors', description: 'Read the newest app-log-backed runtime error events.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => readRuntimeErrorsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => read_runtime_errors(ctx, args)) }),
   defineToolBinder({ name: 'read_control_actions', description: 'Tail app-log-backed control-action entries (.saivage/logs/app.jsonl, type=control_action). Shows mutating actions performed by analyst/planner/operator.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => readControlActionsInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => read_control_actions(ctx, args)) }),
-  defineToolBinder({ name: 'list_processes_tool', description: 'List runtime processes. Processes may be card-owned or non-card; card_id is null for Analyst/operator/runtime processes, and owner_kind/owner_id identify the owner. Optionally filter by status (running, finished, failed, killed) or cardId.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => listProcessesInputSchema, executor: (ctx, args) => executeToolAction('observational_query', () => list_processes_tool(ctx, args)) }),
 ]);

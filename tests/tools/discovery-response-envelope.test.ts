@@ -296,8 +296,12 @@ describe('cut-over discovery surfaces exact envelope contract', () => {
     await expect(invokeTestTool(surface, 'get_tree', {} as never)).rejects.toThrow();
   });
 
-  it('keeps diagnostic, session, process, control-action, and MCP surfaces outside the paging API', () => {
-    for (const schema of [readRuntimeEventsInputSchema, readRuntimeErrorsInputSchema, readControlActionsInputSchema, listProcessesInputSchema, readAgentSessionInputSchema, emptyToolInputSchema]) {
+  it('byte-packs shared observations while keeping control-action and MCP surfaces outside the paging API', () => {
+    for (const schema of [readRuntimeEventsInputSchema, readRuntimeErrorsInputSchema, listProcessesInputSchema]) {
+      expect(schema.safeParse({ response_bytes: 512, position: { item_index: 0, item_byte_offset: 0 } }).success).toBe(true);
+    }
+    expect(readAgentSessionInputSchema.safeParse({ session_id: 'agent:analyst:global', response_bytes: 512, position: { item_index: 0, item_byte_offset: 0 } }).success).toBe(true);
+    for (const schema of [readControlActionsInputSchema, emptyToolInputSchema]) {
       const shape = JSON.stringify(schema.safeParse({ response_bytes: 512, position: { item_index: 0, item_byte_offset: 0 } }));
       expect(shape).toContain('false');
     }

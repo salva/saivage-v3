@@ -24,8 +24,7 @@ import {
   OUTBOUND_TEXT_MARKER,
 } from '../helpers/outbound-identity-fixtures.js';
 import { projectAnalystToolInvocationActivity } from '../../src/server/tool-activity-projection.js';
-import { read_agent_session } from '../../src/tools/analyst-misc-tools.js';
-import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
+import { globalObservationToolBinders, type GlobalObservationToolContext } from '../../src/tools/global-observation-tools.js';
 import { AnalystTurnBusyError } from '../../src/agents/analyst-api.js';
 import { AnalystWsHandler } from '../../src/server/analyst-ws-handler.js';
 import type { WebSocket } from 'ws';
@@ -339,16 +338,16 @@ describe('operator chat route request contracts', () => {
     const got = await fastify.inject({ method: 'GET', url: '/api/chat', headers: authHeaders });
     expect(got.json()).toEqual({ session_id: 'agent:analyst:global' });
 
-    const bounded = await read_agent_session(
-      {
+    const binder = globalObservationToolBinders.find((candidate) => candidate.name === 'read_agent_session');
+    if (!binder) throw new Error('Expected production read_agent_session binder.');
+    const tool = binder.bind({
         projectRoot,
         store: new CardService(projectRoot),
         captureExecutingLlmSnapshots: () => new Map(),
-      } as unknown as ToolContext,
-      { session_id: 'agent:analyst:global', last_n: 2 },
-    );
+      } as unknown as GlobalObservationToolContext);
+    const bounded = (await tool.executor(tool.inputSchema.parse({ session_id: 'agent:analyst:global', last_n: 2 }), new AbortController().signal)).providerOutcome;
     if (bounded.kind !== 'succeeded') throw new Error(bounded.error);
-    expect((bounded.data as { messages: unknown[] }).messages).toEqual(agentRows);
+    expect((bounded.data as { messages: { items: unknown[] } }).messages.items).toEqual(agentRows);
 
     const callArguments = JSON.parse(
       JSON.parse(agentRows[0]!.content).tool_calls[0].function.arguments,

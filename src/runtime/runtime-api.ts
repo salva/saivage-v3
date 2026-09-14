@@ -28,6 +28,7 @@ type NotificationInterruptionResult =
   | { status: 'failed'; reason: string };
 
 export type NotificationSubmissionResult =
+  | { queued: false; reason: 'planning_ineligible'; cardId: string }
   | { queued: false; reason: 'missing_card'; cardId: string }
   | { queued: false; reason: 'terminal_card'; cardId: string; status: 'done' | 'failed' | 'cancelled' }
   | { queued: false; reason: 'activation_closed'; cardId: string }

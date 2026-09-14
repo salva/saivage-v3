@@ -31,6 +31,28 @@ describe('named-agent card-type workflow compilation',()=>{
     const derived=compileProjectWorkflows(source());
     expect(fromTemplate).toEqual(derived);
   });
+  it('compiles exact selected globals and capability-derived planning targets',()=>{const compiled=compileProjectWorkflows(source());expect([...compiled.selectedGlobalParticipants.keys()]).toEqual(['analyst','oversight']);expect(compiled.oversight).toMatchObject({name:'oversight',session:'global',skills:false,canCreateChildren:false});expect(compiled.cardTypes.get('project')?.planningNotificationTarget).toBe(true);expect(compiled.cardTypes.get('code')?.planningNotificationTarget).toBe(false);expect(createPromptTemplateRegistry(compiled).render({kind:'global-agent'},'oversight',{})).toContain('independently scheduled project-global observer');});
+  it('rejects every invalid selected Oversight authority even while disabled',()=>{failure((value)=>{value.oversight.enabled=false;value.oversight.agent=value.analyst_agent;},/must differ/);failure((value)=>{value.oversight.enabled=false;value.agents.oversight!.session='card';value.agents.oversight!.tools=[];},/global session/);failure((value)=>{value.agents.oversight!.can_create_children=true;},/can_create_children/);failure((value)=>{value.agents.oversight!.record_writes=['status.md'];},/no record_writes/);failure((value)=>{value.agents.oversight!.skills=true;value.agents.oversight!.tools.push('skill');},/skills: false/);failure((value)=>{value.agents.oversight!.tools=['run_command'];},/forbidden/);});
+  it('requires the complete Oversight section and validates its disabled route without provider I/O',()=>{
+    const missing=structuredClone(DEFAULT_SAIVAGE_CONFIG) as Record<string,unknown>;delete missing.oversight;
+    expect(()=>saivageConfigSchema.parse(missing)).toThrow();
+    const config=source();config.oversight.enabled=false;delete config.models.routes.oversight;
+    const registry=new ProviderRegistry(config);
+    expect(()=>bindRuntimeWorkflows(compileProjectWorkflows(config),new ModelRouter(registry),registry,config.compaction.context_utilization_fraction)).toThrow(/route 'oversight'/i);
+  });
+  it('derives planning eligibility from custom recipient capabilities rather than role or type spelling',()=>{
+    const config=source();
+    config.agents.strategist={...config.agents.planner!,model_route:'planner'};
+    delete config.agents.planner;
+    for(const cardType of Object.values(config.card_types)){
+      if(cardType.workflow.notification_recipient==='planner')cardType.workflow.notification_recipient='strategist';
+      for(const node of Object.values(cardType.workflow.nodes))if(node.agent==='planner')node.agent='strategist';
+    }
+    const custom=structuredClone(config.card_types.goal!);custom.permitted_child_types=[];config.card_types.project!.permitted_child_types=['strategy-scope'];config.card_types={'project':config.card_types.project!,'strategy-scope':custom};
+    const compiled=compileProjectWorkflows(config);
+    expect(compiled.cardTypes.get('project')).toMatchObject({notificationRecipient:'strategist',planningNotificationTarget:true});
+    expect(compiled.cardTypes.get('strategy-scope')).toMatchObject({notificationRecipient:'strategist',planningNotificationTarget:false});
+  });
   it('compiles the exact complete specialized set with only defined roles and compiler-owned runtime edges',()=>{
     const expected=specializedCardTypes();
     const config=specializedConfig();
@@ -302,7 +324,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const root=mkdtempSync(join(tmpdir(),'workflow-precedence-'));roots.push(root);
     const defaults=join(root,'defaults');const overrides=join(root,'.saivage','config','prompts');
     const write=(base:string,purpose:string,scope:string,id:string,text:string)=>{const dir=join(base,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
-    for(const id of ['analyst','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{vocabularySnippet}}':`${id} {{contractDescription}}`);
+    for(const id of ['analyst','oversight','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{vocabularySnippet}}':id==='oversight'?'oversight':`${id} {{contractDescription}}`);
     for(const id of ['plan','recover','review','handle-notifications','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','review-to-notifications','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
     write(defaults,'agents','code','executor','bundled-card {{contractDescription}}');
     write(overrides,'agents','_shared','executor','override-shared {{> shared-piece}} {{contractDescription}}');

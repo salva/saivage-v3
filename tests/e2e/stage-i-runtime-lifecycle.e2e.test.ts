@@ -29,7 +29,7 @@ function complete(result: LlmCompleteResult): ProviderTurnCompletion { return { 
 function tool(id: string, name: string, args: object): LlmCompleteResult { return { kind: 'tool_calls', tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }; }
 async function waitUntil(predicate: () => boolean): Promise<void> { for (let attempt = 0; attempt < 500; attempt += 1) { if (predicate()) return; await new Promise((resolve) => setTimeout(resolve, 2)); } throw new Error('condition not reached'); }
 
-function supervisor(projectRoot: string, cards: CardService, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort): ReturnType<typeof createSupervisorRuntimeApi> {
+function supervisor(projectRoot: string, cards: CardService, provider: import('../../src/runtime/actors/llm-actor.js').LLMProviderPort, runtimeStatusChanged?: (status: import('../../src/schemas/index.js').RuntimeStatus) => void): ReturnType<typeof createSupervisorRuntimeApi> {
   const registry = new ManagedProcessGroupRegistry();
   const runtimeProcessRootScope = registry.createContainerScope(registry.rootScope, 'runtime-cards');
   return createSupervisorRuntimeApi({
@@ -44,6 +44,7 @@ function supervisor(projectRoot: string, cards: CardService, provider: import('.
     processRunner: new ProcessRunner(projectRoot, registry, testApplicationFatalPort),
     runtimeProcessRootScope,
     promptTemplates: { render: () => 'test prompt' },
+    runtimeStatusChanged,
   });
 }
 
@@ -102,7 +103,8 @@ describe('Stage-I runtime lifecycle E2E', () => {
       if (inputs.length === 1) return new Promise<ProviderTurnCompletion>((resolve) => { releaseFirst = () => resolve(complete(tool('write-status', 'write', { path: 'record:///status.md?card=project', content: 'work started' }))); });
       return new Promise<ProviderTurnCompletion>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
     }));
-    const runtime = supervisor(projectRoot, cards, provider);
+    const statuses: string[] = [];
+    const runtime = supervisor(projectRoot, cards, provider, (status) => statuses.push(status));
 
     const started = await runtime.startProject();
     if (!started.started) throw new Error('Run was not accepted.');
@@ -126,6 +128,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
 
     const durableBeforeStop = cards.list().map((card) => ({ id: card.id, status: card.lifecycle.status, version: card.version_seq }));
     await expect(runtime.stopProject()).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(statuses).toEqual(expect.arrayContaining(['starting','running','pausing','paused','closing','stopped']));
     expect(() => runtime.assertInterventionReady()).not.toThrow();
     expect(cards.list().map((card) => ({ id: card.id, status: card.lifecycle.status, version: card.version_seq }))).toEqual(durableBeforeStop);
 

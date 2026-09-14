@@ -97,6 +97,17 @@ describe('App terminal process adapters', () => {
     expect(payload.later).toBe(true);
     expect(payload.report).toEqual({ warnings: [{ component: 'runtime', code: 'cleanup_timeout' }] });
   }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
+
+  it('contains an unexpected Oversight owner failure through synchronous close, bounded cleanup, and exit 1', async () => {
+    const result = await collect(runChild('oversight-owner-failure'));
+    expect(result).toMatchObject({ code: 1, signal: null });
+    expect(result.stdout).toContain('ADMISSION_CLOSED');
+    expect(result.stdout).toContain('OVERSIGHT_CLOSED');
+    expect(result.stdout).toContain('OVERSIGHT_SETTLED');
+    expect(result.stdout).toContain('RUNTIME_CLEANED');
+    expect(result.stderr).toBe('[oversight] owner failure; application terminating\n');
+    expect(`${result.stdout}${result.stderr}`).not.toContain('private-provider-and-state-details');
+  }, REAL_CHILD_PROCESS_RUNAWAY_TIMEOUT_MS);
 });
 
 function validConfig(port: number): string {

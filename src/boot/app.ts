@@ -17,6 +17,7 @@ type ShutdownComponent =
   | 'runtime'
   | 'process-admission'
   | 'analyst'
+  | 'oversight'
   | 'mcp'
   | 'sync-hub'
   | 'signal-handlers'
@@ -97,6 +98,20 @@ export function logShutdownWarnings(report: ShutdownReport): void {
   for (const warning of report.warnings) console.warn(`[shutdown] ${warning.component}: ${warning.code}`);
 }
 
+export function createOversightOwnerFailureHandler(input: {
+  terminal: ReturnType<typeof createAppTerminalCoordinator>;
+  exit(code: 1): never | void;
+  writeDiagnostic?(): void;
+}): (error: unknown) => void {
+  return (_error: unknown): void => {
+    (input.writeDiagnostic ?? (() => console.error('[oversight] owner failure; application terminating')))();
+    void input.terminal.stop().then((report) => {
+      logShutdownWarnings(report);
+      input.exit(1);
+    });
+  };
+}
+
 export interface App {
   readonly environment: Environment;
   readonly server: ServerInstance;
@@ -129,7 +144,11 @@ export async function startApp(options: StartAppOptions): Promise<App> {
       onAcknowledgedRestart: () => terminal.stop(),
       exit: (code) => process.exit(code),
     });
-    server = await startServer({ environment, terminal, restartPort, processIdentity, fatalPort });
+    const onOversightOwnerFailure = createOversightOwnerFailureHandler({
+      terminal,
+      exit: (code) => process.exit(code),
+    });
+    server = await startServer({ environment, terminal, restartPort, processIdentity, fatalPort,onOversightOwnerFailure });
     const address = server.fastify.server.address();
     if (address === null || typeof address === 'string') throw new Error('Server did not publish a TCP control address.');
     const dialHost = environment.server.host === '0.0.0.0' || environment.server.host === '::' ? '127.0.0.1' : environment.server.host;

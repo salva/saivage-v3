@@ -41,7 +41,7 @@ describe('operator runtime availability read models', () => {
     };
     // @ts-expect-error Runtime status projection requires concrete server availability.
     const missingAvailability: RuntimeStatusInputs = { runtimeApi };
-    const complete: RuntimeStatusInputs = { runtimeApi, serverAvailability, restartCapability: { available: false } };
+    const complete: RuntimeStatusInputs = { runtimeApi, serverAvailability, restartCapability: { available: false },oversight:{agent_name:'oversight',session_id:'agent:oversight:global',enabled:true,eligible:false,eligibility_reason:'stopped',state:'unavailable',next_nominal_due:null,last_attempt:null,last_successful_at:null,service_epoch:'2026-08-14T00:00:00.000Z'} };
     expect(missingAvailability).toBeDefined();
     const status = buildRuntimeStatusReadModel(complete);
     expect(status.runtime).toBe('stopped');

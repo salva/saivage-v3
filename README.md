@@ -60,6 +60,8 @@ prepared anew for the next node; future node text is not a durable transcript ro
 Historical summaries are intentionally lossy context, are labeled as history, and
 do not by themselves prove execution, transition, acceptance, or approval. Existing
 one-time handoffs and owner requirements remain applicable when their semantics do.
+New projects enable an independent two-hour Project Oversight check by default. Oversight uses its own selected global Agent, model route, bounded read-only tools, and ordinary conversation; its only project effect is an evidenced notification to a planning-capable card. Agents exposes the conversation after first publication, while Debug State shows the current service-epoch schedule without controls or a health latch. See [Project Oversight](docs/spec/system-specification.md#project-oversight), [operator presentation](docs/spec/operator-ui.md#project-oversight), and the [reset-only cutover](docs/runbook/index.md#configuration-file-cutovers).
+
 Selected Agents and Debug conversation detail can show ephemeral completed-call,
 in-flight, and elapsed compaction progress without polling or durable state.
 Current `glob` and `grep` results are also packed into exact byte-bounded,

@@ -250,6 +250,7 @@ try {
     analystProcessRootScope,
     mcpToolInvocation,
     fatalPort,
+    onOversightOwnerFailure(error) { throw error; },
     analystSessionId: globalAgentSessionId(workflows.analyst.name),
   });
 } finally {
@@ -258,9 +259,11 @@ try {
       application.closeRuntimeAdmission();
       application.processRunner.closeLaunchAdmission();
       application.closeAnalystAdmission();
+      application.closeOversightAdmission();
       await Promise.all([
         application.cleanupRuntimeForApplicationStop(),
         application.cleanupAnalystForApplicationStop(),
+        application.cleanupOversightForApplicationStop(),
       ]);
     }
   } finally {

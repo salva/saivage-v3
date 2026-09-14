@@ -1,4 +1,5 @@
-import { createAppTerminalCoordinator, startApp } from '../../src/boot/app.js';
+import { createAppTerminalCoordinator, createOversightOwnerFailureHandler, startApp } from '../../src/boot/app.js';
+import { ProjectOversight } from '../../src/application/project-oversight.js';
 
 const scenario = process.argv[2];
 const projectRoot = process.argv[3];
@@ -21,6 +22,35 @@ if (scenario === 'coordinator-fast-reject') {
   const started = Date.now();
   const report = await terminal.stop();
   process.stdout.write(`${JSON.stringify({ elapsed: Date.now() - started, later, report })}\n`);
+} else if (scenario === 'oversight-owner-failure') {
+  const terminal = createAppTerminalCoordinator();
+  terminal.registerAdmissionCloser('runtime', () => process.stdout.write('ADMISSION_CLOSED\n'));
+  terminal.registerAdmissionCloser('oversight', () => process.stdout.write('OVERSIGHT_CLOSED\n'));
+  terminal.registerCleanupLeaf('runtime', () => { process.stdout.write('RUNTIME_CLEANED\n'); });
+  terminal.registerCleanupLeaf('oversight', async () => { process.stdout.write('OVERSIGHT_SETTLED\n'); });
+  const fail = createOversightOwnerFailureHandler({
+    terminal,
+    exit: (code) => process.exit(code),
+    writeDiagnostic: () => process.stderr.write('[oversight] owner failure; application terminating\n'),
+  });
+  const oversight = new ProjectOversight({
+    enabled: true,
+    intervalMs: 1,
+    agentName: 'oversight',
+    sessionId: 'agent:oversight:global',
+    serviceEpoch: new Date().toISOString(),
+    changed() {},
+    onOwnerFailure: fail,
+    createCheck() {
+      return {
+        run: async () => { throw new Error('private-provider-and-state-details'); },
+        cancel() {}, assertEffectSignal() {}, executingLlmSnapshot: () => null,
+      } as never;
+    },
+  });
+  terminal.registerAdmissionCloser('oversight', () => oversight.closeAdmission());
+  terminal.registerCleanupLeaf('oversight', () => oversight.cleanupForApplicationStop());
+  oversight.runtimeStatusChanged('running');
 } else {
   if (!projectRoot) throw new Error('Child-process App scenario requires a project root.');
   try {

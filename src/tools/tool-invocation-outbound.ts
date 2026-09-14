@@ -5,7 +5,7 @@ import {
   analystCancelCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema,
   applyPatchInputSchema, diffCardVersionsInputSchema, editWorkspaceInputSchema, emptyToolInputSchema,
   getCardVersionInputSchema, getCardInputSchema, getTreeInputSchema, globWorkspaceInputSchema, grepWorkspaceInputSchema,
-  killProcessInputSchema, listCardVersionsInputSchema, listProcessesInputSchema,
+  killProcessInputSchema, listAgentSessionsInputSchema,listCardVersionsInputSchema, listProcessesInputSchema,
   navigateWorkspaceInputSchema, plannerCancelCardInputSchema, plannerEditCardInputSchema,
   plannerReopenCardInputSchema,
   plannerQueueNotificationInputSchema, plannerReorderChildInputSchema, queueNotificationInputSchema,
@@ -185,8 +185,9 @@ function inputSchemaFor(toolName: KnownToolInvocationName): ZodTypeAny {
     case 'reopen_card': return z.union([analystReopenCardInputSchema, plannerReopenCardInputSchema]);
     case 'queue_notification': return z.union([queueNotificationInputSchema, plannerQueueNotificationInputSchema]);
     case 'get_status': case 'start_project': case 'pause_runtime': case 'resume_runtime': case 'stop_project':
-    case 'restart_server': case 'mcp_reconcile': case 'navigate_back': case 'show_config': case 'list_agent_sessions':
+    case 'restart_server': case 'mcp_reconcile': case 'navigate_back': case 'show_config':
       return emptyToolInputSchema;
+    case 'list_agent_sessions':return listAgentSessionsInputSchema;
     case 'navigate_workspace': return navigateWorkspaceInputSchema;
     case 'reconfigure': return reconfigureParamsSchema;
     case 'read_runtime_events': return readRuntimeEventsInputSchema;

@@ -18,13 +18,14 @@ import {
 } from './response-packer.js';
 import { projectBoundedCardSummary } from './card-section-projection.js';
 
-type CardInspectionStore=Pick<CardService,'listCardInspectionRows'|'readCardInspectionTree'|'getCardDetail'|'getCardChildren'|'listDeclaredRecordMetadata'>;
+type CardInspectionStore=Pick<CardService,'listCardInspectionRows'|'readCardInspectionTree'|'getCardDetail'|'getCardChildren'|'listDeclaredRecordMetadata'|'workflows'>;
 
 export interface CardInspectionProviderContext {
   readonly store: CardInspectionStore;
   readonly agentName?: string;
   readonly cardId?: string;
   readonly cardTypeVocabulary: readonly CardTypeName[];
+  readonly currentProcessPosition?:(cardId:string)=>unknown|null;
 }
 
 const titlePreview = (title: string): string => utf8SafePreview(redactTextForOutbound(title), DISCOVERY_TEXT_PREVIEW_MAX_BYTES);
@@ -32,7 +33,7 @@ const COLLECTION_HELP = 'Collection pages expose total, position, returned, next
 
 export const cardInspectionToolBinders: readonly ToolBinder<CardInspectionProviderContext, any>[] = Object.freeze([
   defineToolBinder({ name: 'list_cards', description: `List and filter cards in canonical order as a byte-bounded paged collection. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: (ctx) => createListCardsInputSchema(ctx.cardTypeVocabulary), executor: (ctx, args) => executeToolAction('observational_query', async () => listCards(ctx.store, args)) }),
-  defineToolBinder({ name: 'get_card', description: `Observe exactly one current-card summary, tags, dependencies, related cards, children, or records section per call. Pending delivery context is not readable. Non-summary sections are byte-bounded collections. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getCard(ctx, args.id, args.section, args.position, args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES)) }),
+  defineToolBinder({ name: 'get_card', description: `Observe exactly one current-card summary, workflow policy, tags, dependencies, related cards, children, or records section per call. Workflow reports the designated recipient and planning-notification eligibility but never queue state. Pending delivery context is not readable. Collection sections are byte-bounded. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getCardInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getCard(ctx, args.id, args.section, args.position, args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES)) }),
   defineToolBinder({ name: 'get_tree', description: `Observe a flat canonical preorder page of one card subtree. ${COLLECTION_HELP}`, resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => getTreeInputSchema, executor: (ctx, args) => executeToolAction('observational_query', async () => getTree(ctx.store, args.rootId, args.depth, args.position, args.response_bytes ?? DISCOVERY_RESPONSE_MAX_BYTES)) }),
 ]);
 
@@ -122,6 +123,13 @@ function getCard(ctx: CardInspectionProviderContext, cardId: string, section: Ca
   if (section === 'summary') {
     if (position !== undefined) throw new ToolArgumentValidationError("Section 'summary' is a bounded scalar section and accepts no position.");
     const data = projectBoundedCardSummary({ base, card, responseBytes });
+    return toolSucceeded(data);
+  }
+  if(section==='workflow'){
+    if(position!==undefined)throw new ToolArgumentValidationError("Section 'workflow' is a bounded scalar section and accepts no position.");
+    const workflow=ctx.store.workflows.cardTypes.get(card.type);if(!workflow)throw new Error(`No compiled workflow for '${card.type}'.`);
+    const data={...base,notification_recipient:workflow.notificationRecipient,planning_target:workflow.planningNotificationTarget,permitted_child_types:[...workflow.permittedChildTypes],current_process_position:ctx.currentProcessPosition?.(card.id)??null};
+    if(Buffer.byteLength(JSON.stringify(data),'utf8')>responseBytes)throw new ToolArgumentValidationError(`Section 'workflow' does not fit the requested response_bytes budget of ${responseBytes}.`);
     return toolSucceeded(data);
   }
   let items: () => readonly unknown[];

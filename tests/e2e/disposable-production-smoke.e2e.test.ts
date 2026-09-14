@@ -85,6 +85,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
   config.models = {
     routes: {
       analyst: { candidates: ['analyst-model'], temperature: 0.2, max_tokens: 512 },
+      oversight: { candidates: ['oversight-model'], temperature: 0.2, max_tokens: 512 },
       planner: { candidates: ['planner-model'], temperature: 0.2, max_tokens: 512 },
       reviewer: { candidates: ['reviewer-model'], temperature: 0.2, max_tokens: 512 },
       executor: { candidates: ['executor-model'], temperature: 0.2, max_tokens: 512 },
@@ -93,7 +94,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
   };
   config.providers = {
     fake: {
-      models: ['analyst-model', 'planner-model', 'reviewer-model', 'executor-model'],
+      models: ['analyst-model', 'oversight-model', 'planner-model', 'reviewer-model', 'executor-model'],
       apiKey: 'test-only', baseUrl: `http://127.0.0.1:${providerPort}`,
       capabilities: { contextWindowTokens: 25_000, maxOutputTokens: 16_384 },
     },

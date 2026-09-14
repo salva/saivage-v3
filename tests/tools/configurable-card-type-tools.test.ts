@@ -28,7 +28,7 @@ const unusedParentControl: PlannerChildControlPort = {
 function surfaces(vocabulary:readonly string[],read:ReturnType<typeof jest.fn>){
   const tool=(scope:'global'|'card')=>new BoundAgentToolSet([resolveRuntimeTool(scope,'list_cards')]);
   const store={read,listCardInspectionRows:()=>[{card:read('project'),parentId:null},{card:read('card-a'),parentId:'project'}],listChildren:(id:string)=>id==='project'?['card-a']:[]};
-  const global=tool('global').bind({scope:'global',agentName:'analyst',projectRoot:'/',store:store as never,processRunner:{} as never,processScope:{} as never,processOwnerId:'analyst',mcpToolInvocation:{} as never,analystToolContext:{} as never,cardTypeVocabulary:vocabulary});
+  const global=tool('global').bind({scope:'global',agentName:'analyst',projectRoot:'/',store:store as never,processRunner:{} as never,processScope:{} as never,processOwnerId:'analyst',mcpToolInvocation:{} as never,observationToolContext:{currentProcessPosition:()=>null} as never,cardTypeVocabulary:vocabulary});
   const cardSurface=tool('card').bind({scope:'card',agentName:'planner',projectRoot:'/',store:store as never,cardId:'project',sessionId:'agent:planner:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),submitNotification:async()=>({queued:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never,cardTypeVocabulary:vocabulary});
   return {global,card:cardSurface};
 }

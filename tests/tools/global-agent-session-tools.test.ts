@@ -6,13 +6,7 @@ import { AgentOperatorReadModelService } from '../../src/application/read-models
 import { appendConversationBatch } from '../../src/persistence/conversation-file.js';
 import type { AgentMessage } from '../../src/schemas/index.js';
 import { ACTIVITY_ROW_POLICY, TEXT_ROW_POLICY, toolRowPolicies } from '../helpers/row-policy-fixtures.js';
-import {
-  ListAgentSessionsToolDataSchema,
-  ReadAgentSessionToolDataSchema,
-  analystMiscToolBinders,
-  list_agent_sessions,
-  read_agent_session,
-} from '../../src/tools/analyst-misc-tools.js';
+import { globalObservationToolBinders, type GlobalObservationToolContext } from '../../src/tools/global-observation-tools.js';
 import type { ToolContext } from '../../src/tools/analyst-tool-types.js';
 import { executingLlmSnapshots } from '../helpers/executing-llm-snapshot.js';
 import { initProjectTree, TEST_WORKFLOWS } from '../helpers/canonical-project.js';
@@ -40,6 +34,13 @@ function setup() {
 }
 function context(projectRoot: string): ToolContext {
   return { projectRoot, store: new CardService(projectRoot), captureExecutingLlmSnapshots: () => executingLlmSnapshots(['agent:planner:project']) } as unknown as ToolContext;
+}
+async function invokeAgentObservation(projectRoot: string, name: 'list_agent_sessions'|'read_agent_session', args: unknown) {
+  const binder = globalObservationToolBinders.find((candidate) => candidate.name === name);
+  if (!binder) throw new Error(`Expected production ${name} binder.`);
+  const bound = binder.bind(context(projectRoot) as unknown as GlobalObservationToolContext);
+  const execution = await bound.executor(bound.inputSchema.parse(args), new AbortController().signal);
+  return execution.providerOutcome;
 }
 function rows(): AgentMessage[] {
   return [
@@ -99,13 +100,13 @@ function rows(): AgentMessage[] {
   ];
 }
 
-describe('Analyst agent-session tools', () => {
+describe('global agent-session observation tools', () => {
   it('returns a strict compacted current session through the production binder and executor', async () => {
     const projectRoot = setup();
     const sessionId = await publishThreeGenerationCompactedConversation(projectRoot);
-    const binder = analystMiscToolBinders.find((candidate) => candidate.name === 'read_agent_session');
+    const binder = globalObservationToolBinders.find((candidate) => candidate.name === 'read_agent_session');
     if (!binder) throw new Error('Expected production read_agent_session binder.');
-    const bound = binder.bind(context(projectRoot));
+    const bound = binder.bind(context(projectRoot) as unknown as GlobalObservationToolContext);
     const args = bound.inputSchema.parse({ session_id: sessionId });
     const execution = await bound.executor(args, new AbortController().signal);
 
@@ -113,11 +114,10 @@ describe('Analyst agent-session tools', () => {
     expect(execution.providerOutcome.kind).toBe('succeeded');
     if (execution.providerOutcome.kind !== 'succeeded')
       throw new Error(execution.providerOutcome.error);
-    const data = ReadAgentSessionToolDataSchema.parse(execution.providerOutcome.data);
+    const data = execution.providerOutcome.data as any;
     expect(Object.keys(data).sort()).toEqual([
       'messages',
       'ownership',
-      'returned_visible_entries',
       'segment_context',
       'segment_version',
       'session',
@@ -199,7 +199,7 @@ describe('Analyst agent-session tools', () => {
     const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => executingLlmSnapshots(['agent:planner:project']));
     const expected = service.getConversation('agent:planner:project');
     const detail = service.getSession('agent:planner:project');
-    const result = await read_agent_session(context(projectRoot), {
+    const result = await invokeAgentObservation(projectRoot, 'read_agent_session', {
       session_id: 'agent:planner:project',
       last_n: 1,
     });
@@ -211,13 +211,11 @@ describe('Analyst agent-session tools', () => {
         segment_version: 1,
         segment_context: null,
         total_visible_entries: 3,
-        returned_visible_entries: 1,
-        messages: [expected.entries[2]],
+        messages: expect.objectContaining({ total: 1, returned: 1, items: [expected.entries[2]] }),
       },
     });
     if (result.kind !== 'succeeded') throw new Error(result.error);
-    const parsedResult = { data: ReadAgentSessionToolDataSchema.parse(result.data) };
-    expect(parsedResult.data.session).toEqual(expect.objectContaining({ status: 'active', activity: 'busy' }));
+    expect((result.data as any).session).toEqual(expect.objectContaining({ status: 'active', activity: 'busy' }));
     expect(JSON.stringify(result)).not.toContain(OUTBOUND_RAW_MARKER);
     expect(JSON.stringify(result)).toContain(OUTBOUND_REDACTED_URL);
     const nested = projectToolInvocation({
@@ -234,8 +232,7 @@ describe('Analyst agent-session tools', () => {
       throw new Error('Expected nested successful read_agent_session result.');
     expect(nested.result.data).toMatchObject({
       total_visible_entries: 3,
-      returned_visible_entries: 1,
-      messages: [{ id: rows()[2]!.id, kind: 'tool_call' }],
+      messages: expect.objectContaining({ total: 1, returned: 1, items: [expect.objectContaining({ id: rows()[2]!.id, kind: 'tool_call' })] }),
     });
     expect(JSON.stringify(nested.result.data)).not.toContain(OUTBOUND_RAW_MARKER);
   });
@@ -258,13 +255,13 @@ describe('Analyst agent-session tools', () => {
       timestamp,
     });
     appendConversationBatch({ projectRoot }, complete);
-    const direct = await read_agent_session(context(projectRoot), {
+    const direct = await invokeAgentObservation(projectRoot, 'read_agent_session', {
       session_id: 'agent:planner:project',
       last_n: 1,
     });
-    expect(direct).toMatchObject({ kind: 'succeeded', data: { total_visible_entries: 4, returned_visible_entries: 1 } });
+    expect(direct).toMatchObject({ kind: 'succeeded', data: { total_visible_entries: 4, messages: { total: 1, returned: 1 } } });
     if (direct.kind !== 'succeeded') throw new Error(direct.error);
-    expect((direct.data as { messages: AgentMessage[] }).messages[0]!.kind).toBe('tool_result');
+    expect((direct.data as any).messages.items[0]!.kind).toBe('tool_result');
     expect(JSON.stringify(direct)).not.toContain('synthetic-result-secret');
 
     const nested = projectToolInvocation({
@@ -281,10 +278,9 @@ describe('Analyst agent-session tools', () => {
       throw new Error('Expected nested successful read_agent_session result.');
     expect(nested.result.data).toMatchObject({
       total_visible_entries: 4,
-      returned_visible_entries: 1,
-      messages: [{ kind: 'tool_result' }],
+      messages: expect.objectContaining({ total: 1, returned: 1, items: [expect.objectContaining({ kind: 'tool_result' })] }),
     });
-    const nestedMessage = (nested.result.data as { messages: AgentMessage[] }).messages[0]!;
+    const nestedMessage = (nested.result.data as any).messages.items[0]!;
     expect(() => JSON.parse(nestedMessage.content)).not.toThrow();
     expect(nestedMessage.content).not.toContain('synthetic-result-secret');
   });
@@ -307,7 +303,7 @@ describe('Analyst agent-session tools', () => {
       timestamp,
     });
     appendConversationBatch({ projectRoot }, complete);
-    const projected = await read_agent_session(context(projectRoot), {
+    const projected = await invokeAgentObservation(projectRoot, 'read_agent_session', {
       session_id: 'agent:planner:project',
       last_n: 2,
     });
@@ -315,20 +311,29 @@ describe('Analyst agent-session tools', () => {
       kind: 'succeeded',
       data: {
         total_visible_entries: 4,
-        returned_visible_entries: 2,
-        messages: [{ kind: 'tool_call' }, { kind: 'tool_result' }],
+        messages: { total: 2, returned: 2, items: [expect.objectContaining({ kind: 'tool_call' }), expect.objectContaining({ kind: 'tool_result' })] },
       },
     });
   });
 
+  it('byte-packs a large session entry with a stateless continuation position', async()=>{
+    const projectRoot=setup();const large=rows();large[1]={...large[1]!,content:'x'.repeat(20_000)};appendConversationBatch({projectRoot},large);
+    const first=await invokeAgentObservation(projectRoot,'read_agent_session',{session_id:'agent:planner:project',last_n:3,response_bytes:1024});
+    expect(first.kind).toBe('succeeded');if(first.kind!=='succeeded')throw new Error(first.error);
+    const page=(first.data as any).messages;
+    expect(page.total).toBe(3);expect(page.next).not.toBeNull();
+    expect(Buffer.byteLength(JSON.stringify(first),'utf8')).toBeLessThanOrEqual(1024);
+    const second=await invokeAgentObservation(projectRoot,'read_agent_session',{session_id:'agent:planner:project',last_n:3,response_bytes:1024,position:page.next});
+    expect(second).toMatchObject({kind:'succeeded',data:{messages:{position:page.next}}});
+  });
+
   it('fails noncanonical and absent exact identities without synthesizing a session', async () => {
     const projectRoot = setup();
-    const toolContext = context(projectRoot);
     await expect(
-      read_agent_session(toolContext, { session_id: 'planner:not_valid' as never }),
+      invokeAgentObservation(projectRoot, 'read_agent_session', { session_id: 'planner:not_valid' as never }),
     ).rejects.toThrow();
     await expect(
-      read_agent_session(toolContext, { session_id: 'agent:planner:project' }),
+      invokeAgentObservation(projectRoot, 'read_agent_session', { session_id: 'agent:planner:project' }),
     ).resolves.toMatchObject({
       kind: 'failed',
       error: 'Agent session has no current conversation segment.',
@@ -366,45 +371,19 @@ describe('Analyst agent-session tools', () => {
         }),
       },
     ]);
-    const toolContext = context(projectRoot);
-    await expect(list_agent_sessions(toolContext, {})).resolves.toMatchObject({
+    await expect(invokeAgentObservation(projectRoot, 'list_agent_sessions', {})).resolves.toMatchObject({
       kind: 'succeeded',
-      data: { sessions: [expect.objectContaining({ id: sessionId })] },
+      data: { sessions: { items: [expect.objectContaining({ id: sessionId })] } },
     });
     cards.deleteSubtrees([child.id], () => true);
-    await expect(list_agent_sessions(toolContext, {})).resolves.toEqual({
+    await expect(invokeAgentObservation(projectRoot, 'list_agent_sessions', {})).resolves.toMatchObject({
       kind: 'succeeded',
-      data: { sessions: [] },
+      data: { sessions: { total: 0, returned: 0, items: [] } },
     });
-    await expect(read_agent_session(toolContext, { session_id: sessionId })).resolves.toMatchObject({
+    await expect(invokeAgentObservation(projectRoot, 'read_agent_session', { session_id: sessionId })).resolves.toMatchObject({
       kind: 'succeeded',
       data: { session: { id: sessionId } },
     });
   });
 
-  it('rejects former producer success and safe-data failure shapes', () => {
-    expect(ListAgentSessionsToolDataSchema.safeParse([]).success).toBe(
-      false,
-    );
-    expect(
-      ReadAgentSessionToolDataSchema.safeParse({
-        success: false,
-        error: 'missing',
-        data: { safe: true },
-      }).success,
-    ).toBe(false);
-    expect(
-      ReadAgentSessionToolDataSchema.safeParse({
-        success: true,
-        data: {
-          session: {},
-          activity_status: {},
-          total_visible_entries: 0,
-          returned_visible_entries: 0,
-          parse_errors: 0,
-          messages: [],
-        },
-      }).success,
-    ).toBe(false);
-  });
 });

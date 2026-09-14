@@ -20,7 +20,7 @@ import { ProviderRegistry } from '../../agents/provider.js';
 import { ModelRouter } from '../../agents/model-router.js';
 import type { ApplicationFatalPort } from '../../contracts/index.js';
 import { globalAgentSessionId } from '../../schemas/index.js';
-import { validateConfiguredAnalystConversation } from '../../application/analyst-startup-validation.js';
+import { validateConfiguredGlobalConversation } from '../../application/global-agent-startup-validation.js';
 
 interface ServerServices {
   projectRoot: string;
@@ -43,6 +43,7 @@ export async function createServerServices(input: {
   processIdentity: RuntimeProcessIdentity;
   fatalPort: ApplicationFatalPort;
   restartPort?: RestartPort;
+  onOversightOwnerFailure(error:unknown):void;
 }): Promise<ServerServices> {
   const { environment, terminal } = input;
   const projectRoot = environment.projectRoot;
@@ -65,7 +66,8 @@ export async function createServerServices(input: {
     config.compaction.context_utilization_fraction,
   );
   const analystSessionId = globalAgentSessionId(workflows.analyst.name);
-  validateConfiguredAnalystConversation(projectRoot, analystSessionId);
+  for (const participant of workflows.selectedGlobalParticipants.values())
+    validateConfiguredGlobalConversation(projectRoot, globalAgentSessionId(participant.agent.name));
 
   const fastify = await createFastifyApp(environment, input.fatalPort);
   terminal.registerAdmissionCloser('http-admission', () => { /* onRequest observes the shared closing flag */ });
@@ -91,15 +93,18 @@ export async function createServerServices(input: {
   const mcpToolInvocationInstallation = createMcpToolInvocationInstallation();
   const runtimeApplication = createRuntimeApplication({ projectRoot, processIdentity: input.processIdentity, config, workflows,providerRegistry, configAuthority: environment.configAuthority, cardStore, freshness: syncHub, processRunner, runtimeProcessRootScope, analystProcessRootScope, mcpToolInvocation: mcpToolInvocationInstallation.port, restartCapability, fatalPort: input.fatalPort,
     analystSessionId,
+    onOversightOwnerFailure:input.onOversightOwnerFailure,
   });
   terminal.registerAdmissionCloser('runtime', () => runtimeApplication.closeRuntimeAdmission());
   terminal.registerAdmissionCloser('process-admission', () => runtimeApplication.processRunner.closeLaunchAdmission(),
   );
   terminal.registerAdmissionCloser('analyst', () => runtimeApplication.closeAnalystAdmission());
+  terminal.registerAdmissionCloser('oversight',()=>runtimeApplication.closeOversightAdmission());
   terminal.registerCleanupLeaf('runtime', () => runtimeApplication.cleanupRuntimeForApplicationStop(),
   );
   terminal.registerCleanupLeaf('analyst', () => runtimeApplication.cleanupAnalystForApplicationStop(),
   );
+  terminal.registerCleanupLeaf('oversight',()=>runtimeApplication.cleanupOversightForApplicationStop());
 
   const mcpManager = new McpManager({ configAuthority: environment.configAuthority, processRunner, mcpProcessRootScope, eventLogger,
   });

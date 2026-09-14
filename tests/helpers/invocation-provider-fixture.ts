@@ -26,7 +26,7 @@ export function invocationProviderRegistry(candidates: readonly Candidate[], cap
   }
   const first = candidates[0]!;
   return new ProviderRegistry({
-    agents:structuredClone(DEFAULT_SAIVAGE_CONFIG.agents) as unknown as SaivageConfig['agents'],analyst_agent:'analyst',
+    agents:structuredClone(DEFAULT_SAIVAGE_CONFIG.agents) as unknown as SaivageConfig['agents'],analyst_agent:'analyst',oversight:structuredClone(DEFAULT_SAIVAGE_CONFIG.oversight),
     models: { routes:Object.fromEntries(Object.keys(DEFAULT_SAIVAGE_CONFIG.models.routes).map((name)=>[name,{candidates:[...new Set(candidates.map((candidate)=>candidate.model))],temperature:0.2,max_tokens:2000}])),profiles:{},equivalents:[],failover:{} },
     providers,
     server: { port: 8080, host: '127.0.0.1' },

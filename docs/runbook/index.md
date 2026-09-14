@@ -100,6 +100,21 @@ Neither the mandatory full backup nor the optional evidence archive authorizes r
 
 ## Configuration file cutovers
 
+Project Oversight configuration is required even when checks are disabled:
+
+```yaml
+oversight:
+  enabled: true
+  agent: oversight
+  interval_seconds: 7200
+```
+
+The selected agent, prompt closure, allowed observation tools, explicit model route, and route capacity are validated on every startup, including disabled configuration; disabled performs no credential or network probe. New projects use the existing planning profile at temperature `0.2` with a `4096` output request. An eligible new service epoch waits one complete interval after runtime status becomes exactly `running`; restart restores ordinary conversation but no due time, last-attempt fact, last-success fact, catch-up, or automatic Run. Debug State reports `unavailable` for idle ineligibility, not failed health.
+
+Adopting the Oversight/notification running-stop release is reset-only even when Oversight will be disabled. Stop the exact service and positively verify no owner; obtain separate destructive authorization; successfully retain a full stopped backup; install the complete current singular configuration, both selected-global prompts, all six guidance fragments, workflow recipients and conditional prompts; invoke the positively identified current binary's reset; verify preserved inputs, current generated root, and no lifecycle lock; then start and verify that same artifact. Reset compiles current configuration/workflows/prompts before deletion, so old or incomplete inputs block the operation. Never bypass parsing, selectively repair old rows, restore generated roots, mix versions, or roll back a binary against current-format state.
+
+Expected Oversight provider/refusal/admission failures are ordinary failed attempts and wait another full interval. A safe fixed `[oversight] owner failure; application terminating` diagnostic followed by bounded shutdown warnings and exit 1 indicates an impossible owner/protocol or required-settlement failure. Publication uncertainty uses the existing immediate publication-fatal incident path and performs no subsequent cleanup. Neither condition authorizes transcript repair, schedule reconstruction, retry, reset, or deployment without the applicable operator procedure.
+
 The current default configuration path is `.saivage/saivage.yaml`. To rename an older `.saivage/saivage.json`, first stop the service and positively verify that no live lifecycle owner remains. Preflight the destination and rename only when the JSON source exists and the YAML destination does not:
 
 ```bash

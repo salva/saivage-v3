@@ -24,22 +24,21 @@ Direct persistence operations fail at their owning request and do not poison unr
 
 Status: current functional UI authority.
 
-## Project Oversight — Planned Requirement
+## Project Oversight
 
-**Status: not implemented; implementation design pending.** This section defines presentation for the future
-capability in the [system Oversight requirement](system-specification.md#project-oversight-planned-requirement);
-it does not claim a current agent, API, diagnostic, or control.
+**Status: implemented.** This section defines presentation for the current
+capability in the [system Oversight requirement](system-specification.md#project-oversight).
 
-Oversight will appear in **Agents** as its own ordinary named global Agent conversation, with the existing
+Oversight appears in **Agents** after its first conversation publication as its own ordinary named global Agent conversation, with the existing
 authenticated and redacted transcript, tool-call, history, error, and safe provider/model exchange metadata
-presentation. It will not reuse the Analyst panel or composer and will add no second operator chat. An enabled
+presentation. It does not reuse the Analyst panel or composer and adds no second operator chat. An enabled
 agent waiting for its interval is not executing and must not be presented as active or busy.
 
-Before the first check, the UI must not fabricate a persisted conversation or eager inventory row. The Debug
-surface may identify the configured Oversight agent and state that no check has yet run. Its small, on-demand,
+Before the first check, the UI does not fabricate a persisted conversation or eager inventory row. Debug State
+identifies the configured Oversight agent and states that no check has yet run. Its small, on-demand,
 read-only diagnostic may show enabled state, eligibility and reason, `waiting`, `checking`, or `unavailable`,
 the last known outcome and completion time, and a meaningful next nominal due time, all for the current service
-epoch. Cancellation or failure is not success; unknown remains unknown. During checking or ineligibility there
+epoch. `unavailable` means idle and currently ineligible, never poisoned health. Cancellation or failure is not success; unknown remains unknown. During checking or ineligibility there
 is no promised due time, and restart does not reconstruct timing from history.
 
 Existing authentication, redaction, transcript, and metadata-only Raw Exchange rules apply; absent provider

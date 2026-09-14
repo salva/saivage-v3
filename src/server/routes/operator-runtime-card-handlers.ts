@@ -50,19 +50,19 @@ export function buildRuntimeCardOperatorContractHandlers(options: RuntimeCardOpe
     'cards.history.get': ({ params }) => getCardsReadModel().getHistoryEntry(params.id, params.version),
     'cards.diff': ({ params, query }) => getCardsReadModel().diffCard(params.id, query),
     'runtime.status': () => {
-      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability }) };
+      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability,oversight:options.runtimeApplication.getOversightStatus() }) };
     },
     'runtime.pause': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       options.runtimeApplication.runtimeApi.pause();
-      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability }) };
+      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability,oversight:options.runtimeApplication.getOversightStatus() }) };
     },
     'runtime.resume': ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);
       if (rejection) return rejection;
       options.runtimeApplication.runtimeApi.resume();
-      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability }) };
+      return { body: buildRuntimeStatusReadModel({ runtimeApi: options.runtimeApplication.runtimeApi, serverAvailability: options.serverAvailabilityProvider(), restartCapability: options.restartCapability,oversight:options.runtimeApplication.getOversightStatus() }) };
     },
     stop_project: async ({ request }) => {
       const rejection = rejectSuppliedRuntimeControlBody(request.body);

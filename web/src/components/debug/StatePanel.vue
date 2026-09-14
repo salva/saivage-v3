@@ -27,12 +27,27 @@
       </div>
       <ViewState v-else-if="runtimeLoaded" state="empty" title="No live runtime." />
       <ViewState v-else state="empty" title="Runtime state not loaded." />
+      <section v-if="oversight" class="debug-section" data-testid="debug-oversight-state">
+        <h4 class="debug-section-title">Project Oversight</h4>
+        <div class="debug-grid">
+          <div class="debug-grid-item"><span class="dg-key">State:</span><span class="dg-value">{{ oversight.state }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Agent:</span><span class="dg-value mono">{{ oversight.agent_name }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Session:</span><span class="dg-value mono">{{ oversight.session_id }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Enabled:</span><span class="dg-value">{{ oversight.enabled ? 'yes' : 'no' }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Eligibility:</span><span class="dg-value">{{ oversight.eligible ? 'eligible' : oversight.eligibility_reason }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Service epoch:</span><span class="dg-value">{{ fmtDate(oversight.service_epoch) }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Next due:</span><span class="dg-value">{{ oversight.next_nominal_due ? fmtDate(oversight.next_nominal_due) : 'none' }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Last attempt:</span><span class="dg-value">{{ oversight.last_attempt ? `${oversight.last_attempt.outcome} · ${fmtDate(oversight.last_attempt.settled_at)}` : 'none' }}</span></div>
+          <div class="debug-grid-item"><span class="dg-key">Last success:</span><span class="dg-value">{{ oversight.last_successful_at ? fmtDate(oversight.last_successful_at) : 'none' }}</span></div>
+        </div>
+      </section>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import type { RuntimeState } from '../../api/types';
+import type { OperatorApiSuccess } from '../../api/contracts';
 import { formatRecentTimestamp } from '../../utils/timestamp';
 import StatusBanner from '../ui/StatusBanner.vue';
 import ViewState from '../ui/ViewState.vue';
@@ -45,6 +60,7 @@ defineProps<{
   runtimeRefreshing: boolean;
   runtimeRefreshError: string | null;
   currentCardId: string | null;
+  oversight:OperatorApiSuccess<'runtime.status'>['oversight']|null;
 }>();
 
 function fmtDate(timestamp: string): string {

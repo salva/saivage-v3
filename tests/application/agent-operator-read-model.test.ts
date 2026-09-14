@@ -5,12 +5,11 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, jest } from '@jest/globals';
 
 import {
-  AgentCurrentStateUnavailableError,
   AgentOperatorReadModelService,
   AgentSessionNotFoundError,
   CardAgentScopeNotFoundError,
 } from '../../src/application/read-models/agent-operator-read-model.js';
-import { appendConversationBatch, readConversationCatalog } from '../../src/persistence/conversation-file.js';
+import { appendConversationBatch, initializeMissingConversation, readConversationCatalog } from '../../src/persistence/conversation-file.js';
 import {
   agentMessageSchema,
   cardAgentSessionId,
@@ -47,10 +46,11 @@ describe('AgentOperatorReadModelService granular resources', () => {
       related: [],
     });
     const analyst = globalAgentSessionId(TEST_WORKFLOWS.analyst.name);
+    const oversight = globalAgentSessionId(TEST_WORKFLOWS.oversight.name);
     const planner = cardAgentSessionId('planner', 'project');
     const reviewer = cardAgentSessionId('reviewer', 'project');
     const executor = cardAgentSessionId('executor', child.id);
-    for (const sessionId of [analyst, planner, reviewer, executor]) publishMarker(projectRoot, sessionId);
+    for (const sessionId of [analyst, oversight, planner, reviewer, executor]) publishMarker(projectRoot, sessionId);
 
     appendFileSync(currentConversationSegmentPath(projectRoot, planner), '{malformed later envelope}\n');
     const capture = jest.fn(() => executingLlmSnapshots([analyst, planner, reviewer]));
@@ -58,7 +58,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
 
     const firstList = service.listSessions();
     expect(firstList.sessions.map(({ id }) => id)).toEqual(
-      [analyst, executor, planner, reviewer].sort(),
+      [analyst, oversight, executor, planner, reviewer].sort(),
     );
     expect(firstList.sessions.find(({ id }) => id === executor)).toEqual({
       id: executor,
@@ -72,6 +72,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     });
     expect(service.listSessions().sessions).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: analyst, status: 'active', activity: 'busy' }),
+      expect.objectContaining({ id: oversight, status: 'inactive', activity: 'idle' }),
       expect.objectContaining({ id: planner, status: 'active', activity: 'busy' }),
       expect.objectContaining({ id: reviewer, status: 'active', activity: 'busy' }),
       expect.objectContaining({ id: executor, status: 'inactive', activity: 'idle' }),
@@ -80,6 +81,19 @@ describe('AgentOperatorReadModelService granular resources', () => {
     expect(new Date(service.getSession(planner).session.started_at).toString()).not.toBe('Invalid Date');
     expect(capture).toHaveBeenCalledTimes(3);
     expect(() => service.getConversation(planner)).toThrow(/unavailable/i);
+  });
+
+  it('admits only selected globals and does not invent an Oversight row before publication', () => {
+    const projectRoot = createRoot();
+    const analyst = globalAgentSessionId(TEST_WORKFLOWS.analyst.name);
+    const oversight = globalAgentSessionId(TEST_WORKFLOWS.oversight.name);
+    publishMarker(projectRoot, analyst);
+    const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Map());
+    expect(service.listSessions().sessions.map(({ id }) => id)).toEqual([analyst]);
+    expect(() => service.getSession(oversight)).toThrow(AgentSessionNotFoundError);
+    expect(() => service.getSession('agent:unused-global:global' as ConversationSessionId)).toThrow(AgentSessionNotFoundError);
+    publishMarker(projectRoot, oversight);
+    expect(service.listSessions().sessions.map(({ id }) => id)).toEqual([analyst, oversight].sort());
   });
 
   it('keeps card scope exact and never filters global inventory', () => {
@@ -211,7 +225,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     expect(() => service.listSessions()).toThrow(`No compiled workflow for '${child.type}'.`);
   });
 
-  it('wraps an unreadable conversation catalog as current-state-unavailable during the global list', () => {
+  it('omits an exact missing candidate conversation during the global list', () => {
     const projectRoot = createRoot();
     const cards = new CardService(projectRoot);
     const child = cards.create({
@@ -222,14 +236,7 @@ describe('AgentOperatorReadModelService granular resources', () => {
     publishMarker(projectRoot, sessionId);
     rmSync(cardConversationsRoot(projectRoot, child.id), { recursive: true, force: true });
     const service = new AgentOperatorReadModelService(projectRoot, TEST_WORKFLOWS, () => new Map());
-    let thrown: unknown;
-    try { service.listSessions(); }
-    catch (error) { thrown = error; }
-    expect(thrown).toBeInstanceOf(AgentCurrentStateUnavailableError);
-    const unavailable = thrown as AgentCurrentStateUnavailableError;
-    expect(unavailable.resource).toBe('conversation');
-    expect(unavailable.ownerId).toBe(sessionId);
-    expect(unavailable.cause).toEqual(expect.objectContaining({ code: 'ENOENT' }));
+    expect(service.listSessions().sessions).not.toEqual(expect.arrayContaining([expect.objectContaining({id:sessionId})]));
   });
 });
 
@@ -258,6 +265,7 @@ function runReadCountChild(projectRoot: string): {
 }
 
 function publishMarker(projectRoot: string, sessionId: ConversationSessionId): void {
+  initializeMissingConversation(projectRoot, sessionId);
   const identity = conversationSessionIdentity(sessionId);
   appendConversationBatch(
     { projectRoot },

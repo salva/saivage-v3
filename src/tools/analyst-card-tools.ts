@@ -2,13 +2,8 @@ import { z } from 'zod';
 
 import { runAuditedAnalystTool } from '../agents/analyst-tool-runner.js';
 import { analystCancelCardInputSchema, createAnalystCreateCardInputSchema, analystDeleteCardInputSchema, analystReopenCardInputSchema, analystReorderChildInputSchema, type AnalystCreateCardInput } from '../contracts/builtin-tool-inputs.js';
-import {
-  emptyInput,
-} from './tool-definition.js';
-import type { AnalystToolOutcome, ToolContext } from './analyst-tool-types.js';
-import { toolFailureFromError } from './analyst-tool-helpers.js';
-import { defineToolBinder, executeToolAction, OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
-import { toolSucceeded } from '../contracts/tool-result.js';
+import type { ToolContext } from './analyst-tool-types.js';
+import { defineToolBinder, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder, type ToolExecutionResult } from './invocation.js';
 
 async function create_card(ctx: ToolContext, params: AnalystCreateCardInput, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {
   const input: import('../application/analyst-mutation-services.js').CreateAnalystCardInput = { type: params.type, parent: params.parent, title: params.title, bootstrap_content: params.bootstrap_content, tags: params.tags, priority: params.priority, urgency: params.urgency, depends_on: params.depends_on, related: params.related };
@@ -23,12 +18,6 @@ async function cancel_card(ctx: ToolContext, params: { cardId: string; reason?: 
   return runAuditedAnalystTool(ctx, params, { action: 'card.cancel', safety_class: 'destructive', target_kind: 'card', getTargetId: (p) => p.cardId, lifecycle: { kind: 'runtime_cancellation' }, mutate: (_prepared, input, mutation) => mutation.services.cards.cancel(input.cardId, input.reason) }, signal);
 }
 
-export async function get_status(ctx: ToolContext, _params: Record<string, never>): Promise<AnalystToolOutcome> {
-  try { const store = ctx.store; const runtimeStatus = ctx.runtime.getStatus(); const runtimeSummary = { status: runtimeStatus.status, currentCardId: runtimeStatus.currentCardId }; const allCards = store.list(); const runningProcesses = ctx.processRunner.list({ status: 'running' }); const statusCounts = allCards.reduce<Record<string, number>>((counts, card) => { counts[card.lifecycle.status] = (counts[card.lifecycle.status] ?? 0) + 1; return counts; }, {});
-    return toolSucceeded({ runtime: runtimeStatus, runtimeSummary, runningProcesses: runningProcesses.length, statusCounts, counts: { stopped: statusCounts.stopped ?? 0, done: statusCounts.done ?? 0, failed: statusCounts.failed ?? 0, blocked: statusCounts.blocked ?? 0, total: allCards.length } });
-  } catch (err) { return toolFailureFromError(err); }
-}
-
 export async function reorder_child(ctx: ToolContext, params: { parentId: string; orderedChildIds: string[] }, signal?: AbortSignal): Promise<ToolExecutionResult<'none'>> {
   return runAuditedAnalystTool(ctx, params, { action: 'card.reorder_child', safety_class: 'low', target_kind: 'card', getTargetId: (p) => p.parentId, lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' }, mutate: (_prepared, input, mutation) => mutation.services.cards.reorder(input.parentId, input.orderedChildIds) }, signal);
 }
@@ -41,7 +30,6 @@ export const analystCardToolBinders: readonly ToolBinder<ToolContext, any>[] = O
   defineToolBinder({ name: 'create_card', description: `Create a card without dispatching work. Analyst use requires runtime status stopped or paused and requires an explicit existing non-running parent card ID argument. Every created child receives backlog lifecycle.`, resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: (ctx) => createAnalystCreateCardInputSchema(ctx.cardTypeVocabulary), executor: (ctx, args, signal) => create_card(ctx, args, signal) }),
   defineToolBinder({ name: 'reorder_child', description: 'Reorder children of a non-running parent while runtime status is stopped or paused. Denies running parents and running children; orderedChildIds must be a permutation of the current child set.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => analystReorderChildInputSchema, executor: (ctx, args, signal) => reorder_child(ctx, args, signal) }),
   defineToolBinder({ name: 'reopen_card', description: 'Reopen a done, failed, or blocked card without editing its content while Analyst intervention is ready (runtime stopped or settled paused). Changes the target and eligible resting ancestors through normal changed propagation.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => analystReopenCardInputSchema, executor: (ctx, args, signal) => reopen_card(ctx, args, signal) }),
-  defineToolBinder({ name: 'get_status', description: 'Get the overall project status.', resultPolicyTemplate: OBSERVATIONAL_READ_RESULT_POLICY_TEMPLATE, inputSchema: () => emptyInput, executor: (ctx, args) => executeToolAction('observational_query', () => get_status(ctx, args)) }),
   defineToolBinder({ name: 'cancel_card', description: 'Cancel non-completed work. Analyst cancellation allows every status except done and cancelled, rejects the root project card, and requires exact runtime ownership for running work.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => analystCancelCardInputSchema, executor: (ctx, args, signal) => cancel_card(ctx, args, signal) }),
   defineToolBinder({ name: 'delete_card', description: 'Delete one or more non-running card subtrees while runtime status is stopped or paused. Deleted ids remain reserved; no card restore/archive content is produced. Denies the root project card and any running subtree member.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => analystDeleteCardInputSchema, executor: (ctx, args, signal) => delete_card(ctx, args, signal) }),
 ]);

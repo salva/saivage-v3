@@ -95,6 +95,14 @@ export function buildAnalystIngressRows(
   ];
 }
 
+export function buildGlobalAgentIngressRows(
+  sessionId: ConversationSessionId,
+  inputId: string,
+  userContent: string,
+): readonly [AgentMessage, AgentMessage] {
+  return [buildAnalystActivationMarker(sessionId, inputId), buildContextTextMessage(sessionId, 'user', userContent)];
+}
+
 export function buildAnalystRestartRows(
   sessionId: ConversationSessionId,
   inputId: string,

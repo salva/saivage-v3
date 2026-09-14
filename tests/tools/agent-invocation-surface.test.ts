@@ -21,6 +21,7 @@ const unusedParentControl: PlannerChildControlPort = {
 
 const expected = {
   analyst: ['create_card', 'reorder_child', 'reopen_card', 'queue_notification', 'get_status', 'start_project', 'pause_runtime', 'resume_runtime', 'stop_project', 'restart_server', 'navigate_workspace', 'navigate_back', 'show_config', 'reconfigure', 'mcp_reconcile', 'read_runtime_events', 'read_runtime_errors', 'read_control_actions', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'cancel_card', 'delete_card', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'],
+  oversight: ['get_status', 'list_cards', 'get_card', 'get_tree', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'read', 'glob', 'grep', 'read_runtime_events', 'read_runtime_errors', 'list_processes_tool', 'list_agent_sessions', 'read_agent_session', 'queue_notification'],
   planner: ['create_card', 'edit_card', 'cancel_card', 'activate_card', 'reopen_card', 'reorder_child', 'queue_notification', 'list_cards', 'get_card', 'get_tree', 'read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch'],
   reviewer: ['read', 'write', 'edit', 'glob', 'grep', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill'],
   executor: ['read', 'write', 'edit', 'glob', 'grep', 'apply_patch', 'run_command', 'wait_process', 'kill_process', 'list_card_versions', 'get_card_version', 'diff_card_versions', 'read_record_version', 'websearch', 'webfetch', 'skill', 'mcp_tool_call'],
@@ -29,7 +30,7 @@ const expected = {
 describe('named-agent inventories and composition', () => {
   it('compiles the exact default named inventory in declared order', () => {
     const workflows = compileProjectWorkflows(DEFAULT_SAIVAGE_CONFIG as never);
-    expect([...workflows.agents.keys()]).toEqual(['analyst', 'planner', 'reviewer', 'executor']);
+    expect([...workflows.agents.keys()]).toEqual(['analyst', 'oversight', 'planner', 'reviewer', 'executor']);
     for (const [name, tools] of Object.entries(expected)) {
       expect(DEFAULT_SAIVAGE_CONFIG.agents[name as keyof typeof DEFAULT_SAIVAGE_CONFIG.agents]!.tools).toEqual(tools);
       expect(workflows.agents.get(name as never)?.tools.map((tool)=>tool.name)).toEqual(tools);
@@ -97,6 +98,36 @@ describe('named-agent inventories and composition', () => {
     expect(surfaceToolDefinitions(surface).map((tool) => tool.function.name)).toEqual(expected.reviewer);
     expect(surface.providers.map((provider) => provider.providerName)).toEqual(['card-version', 'workspace', 'web', 'skill']);
     expect(surface.tools.has('mcp_tool_call')).toBe(false);
+  });
+
+  it('binds Oversight from narrow observation authority without Analyst mutation or process scope', () => {
+    const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-oversight-surface-'));
+    roots.push(projectRoot);
+    initProjectTree(projectRoot);
+    const store = new CardService(projectRoot);
+    const processRunner = { list: () => [] } as never;
+    const observationToolContext = {
+      agentName: 'oversight',
+      projectRoot,
+      store,
+      processRunner,
+      eventQueries: {} as never,
+      runtime: { getStatus: () => ({ status: 'stopped' as const, currentCardId: null, pid: 1, startedAt: '2026-09-14T00:00:00.000Z' }) },
+      submitNotification: async () => ({ queued: false as const, reason: 'missing_card' as const, cardId: 'project' }),
+      captureExecutingLlmSnapshots: () => new Map(),
+      currentProcessPosition: () => null,
+    };
+    const surface = new BoundAgentToolSet(expected.oversight.map((name) => resolveRuntimeTool('global', name))).bind({
+      scope: 'global', agentName: 'oversight', projectRoot, store, processRunner,
+      mcpToolInvocation: {} as never, observationToolContext,
+      cardTypeVocabulary: ['project','goal','architecture','code','test','doc','data','research','ops'],
+    });
+    expect([...surface.tools.keys()]).toEqual(expected.oversight);
+    expect(surface.providers.map(({ providerName }) => providerName)).toEqual([
+      'observation', 'workspace', 'card-inspection', 'card-version',
+    ]);
+    for (const forbidden of ['write','edit','apply_patch','run_command','kill_process','mcp_tool_call','skill','webfetch'])
+      expect(surface.tools.has(forbidden)).toBe(false);
   });
 
   it('grants configured MCP solely from the named tool declaration without an agent-name or annotation policy',()=>{
