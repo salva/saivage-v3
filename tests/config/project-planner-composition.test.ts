@@ -44,6 +44,7 @@ function accepted(node: CompiledNodeContract, outcome: string, cardId: string): 
     nodeId: node.nodeId,
     agentName: node.agent.name,
     outcome,
+    event: `result:${outcome}`,
     summary: `${node.nodeId} evidence retained`,
     acceptedRecords: Object.freeze([{ name: recordName, url: `record:///${recordName}?card=${cardId}&v=2`, version: 2 }]),
   });
@@ -145,13 +146,15 @@ describe('shipped project Planner semantic composition', () => {
     config.agents.planner!.tools = config.agents.planner!.tools.filter((name) => name !== 'reopen_card');
     config.card_types.project!.workflow.nodes.plan!.agent = 'project-planner';
     config.card_types.project!.workflow.nodes.recover!.agent = 'project-planner';
+    config.card_types.project!.workflow.nodes['handle-notifications']!.agent = 'project-planner';
+    config.card_types.project!.workflow.notification_recipient = 'project-planner';
 
     const projectRoot = mkdtempSync(join(tmpdir(), `saivage-${templateName}-named-project-planner-`));
     roots.push(projectRoot);
     const workflows = compileProjectWorkflows(config, { defaultPromptRoot: template.promptRoot, projectRoot });
     const registry = createPromptTemplateRegistry(workflows);
     const project = workflows.cardTypes.get('project')!;
-    for (const nodeId of ['plan', 'recover']) {
+    for (const nodeId of ['plan', 'recover', 'handle-notifications']) {
       const node = requireNode(project, nodeId);
       expect(node.agent.name).toBe('project-planner');
       expect(node.selectedAgentPrompt).toMatchObject({ source: 'bundled-shared', reference: 'planner' });

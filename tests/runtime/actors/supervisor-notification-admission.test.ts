@@ -174,6 +174,52 @@ describe('Supervisor notification admission at terminal ownership', () => {
     expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'done' }, pending_notifications: [] });
   });
 
+  it('keeps Planner notifications from Reviewer and conditionally repeats accepted review through the Planner handler', async () => {
+    const reviewApprovalRequested = deferred();
+    const releaseReviewApproval = deferred();
+    const observed = new Map<string, string[]>();
+    const calls = new Map<string, number>();
+    const provider = scriptedAdmissionProvider(async (input) => {
+      const agent = input.agentName;
+      const call = (calls.get(agent) ?? 0) + 1;
+      calls.set(agent, call);
+      const inputs = observed.get(agent) ?? [];
+      inputs.push(JSON.stringify(input));
+      observed.set(agent, inputs);
+      if (agent === 'reviewer' && call === 2) { reviewApprovalRequested.resolve(); await releaseReviewApproval.promise; }
+      const definition = agent === 'planner'
+        ? call % 2 === 1
+          ? { name: 'write', arguments: JSON.stringify({ path: 'record:///status.md?card=project', content: `planner status ${call}` }) }
+          : { name: 'emit_result', arguments: JSON.stringify({ outcome: 'admit_review', summary: `planner review request ${call}` }) }
+        : call % 2 === 1
+          ? { name: 'write', arguments: JSON.stringify({ path: 'record:///review.md?card=project', content: `review evidence ${call}` }) }
+          : { name: 'emit_result', arguments: JSON.stringify({ outcome: 'approved', summary: `review approved ${call}` }) };
+      return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: `${agent}-${call}`, type: 'function' as const, function: definition }] }, provider_exchanges: [] };
+    });
+    const h = harness(provider);
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await reviewApprovalRequested.promise;
+    expect(h.supervisor.notifyCard('project', { id: 'planner-only', content: 'planner designated context', created_at: '2026-09-09T00:00:02.000Z' })).toEqual({ ok: true, notificationId: 'planner-only' });
+    const closeRecord = h.cards.closeRecord.bind(h.cards);
+    let injectedDuringClose = false;
+    jest.spyOn(h.cards, 'closeRecord').mockImplementation((...args) => {
+      const result = closeRecord(...args);
+      if (!injectedDuringClose && args[1] === 'review.md' && h.cards.read('project')!.pending_notifications.length > 0) {
+        injectedDuringClose = true;
+        expect(h.supervisor.notifyCard('project', { id: 'during-close', content: 'context admitted during accepted record close', created_at: '2026-09-09T00:00:03.000Z' })).toEqual({ ok: true, notificationId: 'during-close' });
+      }
+      return result;
+    });
+    releaseReviewApproval.resolve();
+    await waitFor(() => h.supervisor.getStatus().status === 'stopped');
+    expect(calls).toEqual(new Map([['planner', 4], ['reviewer', 6]]));
+    expect(observed.get('reviewer')!.join('\n')).not.toContain('planner designated context');
+    expect(observed.get('planner')![2]).toContain('planner designated context');
+    expect(observed.get('planner')![2]).toContain('context admitted during accepted record close');
+    expect(h.cards.read('project')).toMatchObject({ lifecycle: { status: 'done' }, pending_notifications: [] });
+  });
+
   it('allows preclaim enqueue and intentionally clears it through cancellation without delivery', async () => {
     const providerEntered = deferred();
     const observedInputs: string[] = [];

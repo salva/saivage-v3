@@ -40,6 +40,7 @@ type ProcessTransitionSemantic =
   | Readonly<{ kind: 'activation' }>
   | Readonly<{ kind: 'entry-route'; promptId: ProcessPromptId | null }>
   | Readonly<{ kind: 'configured-outcome'; outcome: string; promptId: ProcessPromptId | null; terminalBehavior: CompiledTerminalBehavior | null }>
+  | Readonly<{ kind: 'configured-pending-notifications'; outcome: string; promptId: ProcessPromptId }>
   | Readonly<{ kind: 'runtime-terminal'; cause: 'failed' | 'blocked' }>;
 export type CompiledProcessTransition = Readonly<{ targetStateId: string; reenter: boolean; semantic: ProcessTransitionSemantic }>;
 type ProcessStateBase = Readonly<{ on: ReadonlyMap<string, CompiledProcessTransition>; isTerminal: boolean; isParked: boolean }>;
@@ -50,7 +51,7 @@ type CompiledProcessState =
   | CompiledNodeContract
   | (ProcessStateBase & Readonly<{ kind: 'terminal'; terminal: CardProcessTerminal }>);
 export type ProcessPosition = Readonly<{ cardType: CardTypeName; stateId: string; kind: 'ready' }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'entry'; entry: CardProcessEntry }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'node'; nodeId: string; executionOrdinal: number }> | Readonly<{ cardType: CardTypeName; stateId: string; kind: 'terminal'; terminal: CardProcessTerminal }>;
-export interface CompiledCardTypeWorkflow { readonly cardType: CardTypeName; readonly permittedChildTypes: ReadonlySet<CardTypeName>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly initialStateId: 'lifecycle:ready'; readonly states: ReadonlyMap<string, CompiledProcessState>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
+export interface CompiledCardTypeWorkflow { readonly cardType: CardTypeName; readonly notificationRecipient: AgentName; readonly permittedChildTypes: ReadonlySet<CardTypeName>; readonly records: ReadonlyMap<RecordName, CompiledRecordDefinition>; readonly bootstrapRecord: CompiledRecordDefinition; readonly initialStateId: 'lifecycle:ready'; readonly states: ReadonlyMap<string, CompiledProcessState>; readonly processPrompts:ReadonlyMap<ProcessPromptId,CompiledProcessPrompt> }
 export interface CompiledProjectWorkflows { readonly analyst: CompiledAgentContract; readonly analystPrompt:CompiledAgentPrompt; readonly agents: ReadonlyMap<AgentName, CompiledAgentContract>; readonly cardTypes: ReadonlyMap<CardTypeName, CompiledCardTypeWorkflow>; readonly cardTypeVocabulary: readonly CardTypeName[] }
 export type BoundAgentContract = Readonly<{ contract: CompiledAgentContract; candidateChain: readonly Candidate[]; routeUsableInputTokens: number; toolSet: BoundAgentToolSet; capabilityRequest: CapabilityRequest }>;
 export interface CompiledRuntimeWorkflows extends CompiledProjectWorkflows { readonly runtimeBound: true;readonly agentBindings:ReadonlyMap<AgentName,BoundAgentContract> }
@@ -130,7 +131,8 @@ export function agentCanWriteRecord(agent:CompiledAgentContract,name:RecordName)
 export function genericRecordDefinition(name:RecordName):CompiledRecordDefinition{return Object.freeze({name,format:'markdown',schema:GENERIC_RECORD_SCHEMA,bootstrap:false,declared:false});}
 function compileAgents(config:SaivageConfig):ReadonlyMap<AgentName,CompiledAgentContract>{const result:Array<readonly[AgentName,CompiledAgentContract]>=[];for(const[rawName,source]of Object.entries(config.agents)){const name=rawName as AgentName;const duplicate=new Set<string>();const tools:CompiledToolReference[]=[];for(const tool of source.tools){if(duplicate.has(tool))throw new Error(`agents.${name}.tools contains duplicate '${tool}'.`);duplicate.add(tool);try{tools.push(resolveRuntimeTool(source.session,tool));}catch{throw new Error(`agents.${name}.tools contains unknown tool '${tool}' for ${source.session} session scope.`);}}const patternNames=new Set<string>();const recordWrites=source.record_writes.map((pattern)=>{if(patternNames.has(pattern))throw new Error(`agents.${name}.record_writes contains duplicate '${pattern}'.`);patternNames.add(pattern);return compileRecordWritePattern(pattern);});if(source.skills!==tools.some((tool)=>tool.name==='skill'))throw new Error(`agents.${name}.skills must agree with the skill tool.`);if(tools.some((tool)=>tool.name==='create_card')&&!source.can_create_children)throw new Error(`agents.${name} cannot list create_card when can_create_children is false.`);const route=config.models.routes[source.model_route];if(!route)throw new Error(`agents.${name}.model_route references missing route '${source.model_route}'.`);result.push([name,Object.freeze({name,prompt:source.prompt,tools:Object.freeze(tools),recordWrites:Object.freeze(recordWrites),modelRoute:source.model_route,model:Object.freeze({orderedModelIds:expandModelOrder(config,source.model_route),temperature:route.temperature,maxTokens:route.max_tokens}),skills:source.skills,session:source.session,canCreateChildren:source.can_create_children})]);}return immutableMap(result);}
 
-type ProcessEdgeDraft = Readonly<{ outcome:string; targetStateId:string; targetNodeId:string|null; promptId:ProcessPromptId|null; terminalBehavior:CompiledTerminalBehavior|null }>;
+type PendingNotificationsEdgeDraft = Readonly<{ targetStateId:string; targetNodeId:string; promptId:ProcessPromptId }>;
+type ProcessEdgeDraft = Readonly<{ outcome:string; targetStateId:string; targetNodeId:string|null; promptId:ProcessPromptId|null; terminalBehavior:CompiledTerminalBehavior|null; pendingNotifications:PendingNotificationsEdgeDraft|null }>;
 type ProcessNodeDraft = Readonly<{
   nodeId: string;
   agent: CompiledAgentContract;
@@ -146,6 +148,7 @@ type ProcessNodeDraft = Readonly<{
 type CardTypeCompileDraft = Readonly<{
   cardType: CardTypeName;
   location: string;
+  notificationRecipient: AgentName;
   permittedChildTypes: ReadonlySet<CardTypeName>;
   records: ReadonlyMap<RecordName, CompiledRecordDefinition>;
   bootstrapRecord: CompiledRecordDefinition;
@@ -164,6 +167,10 @@ function compileCardTypeInputs(
   configuredCardTypes: ReadonlySet<CardTypeName>,
 ): CardTypeCompileDraft {
   const location = `card_types.${cardType}`;
+  const notificationRecipient = source.workflow.notification_recipient;
+  const recipientAgent = agents.get(notificationRecipient);
+  if (!recipientAgent) throw new Error(`${location}.workflow.notification_recipient references missing agent '${notificationRecipient}'.`);
+  if (recipientAgent.session !== 'card') throw new Error(`${location}.workflow.notification_recipient must use card session scope.`);
   const children = new Set<CardTypeName>();
   for (const child of source.permitted_child_types) {
     if (child === 'project')
@@ -222,6 +229,8 @@ function compileCardTypeInputs(
         `${location}.workflow.nodes.${nodeId}.edges key`,
       );
       if ('node' in edge.target) {
+        if (edge.pending_notifications)
+          throw new Error(`${location}.workflow.nodes.${nodeId}.edges.${outcome}.pending_notifications is allowed only on a nonrecipient DONE edge.`);
         edges.set(
           outcome,
           Object.freeze({
@@ -236,6 +245,7 @@ function compileCardTypeInputs(
                     `${location}.workflow.nodes.${nodeId}.edges.${outcome}.prompt`,
                   ),
             terminalBehavior: null,
+            pendingNotifications: null,
           }),
         );
         continue;
@@ -268,6 +278,13 @@ function compileCardTypeInputs(
           targetStateId: terminalState(edge.target.terminal),
           targetNodeId: null,
           promptId: null,
+          pendingNotifications: edge.pending_notifications
+            ? Object.freeze({
+                targetStateId: nodeState(edge.pending_notifications.node),
+                targetNodeId: edge.pending_notifications.node,
+                promptId: promptId(edge.pending_notifications.prompt, `${location}.workflow.nodes.${nodeId}.edges.${outcome}.pending_notifications.prompt`),
+              })
+            : null,
           terminalBehavior: Object.freeze({
             promotion,
             exportRecords: Object.freeze(exportRecords),
@@ -339,6 +356,7 @@ function compileCardTypeInputs(
   return Object.freeze({
     cardType,
     location,
+    notificationRecipient,
     permittedChildTypes,
     records,
     bootstrapRecord,
@@ -347,12 +365,28 @@ function compileCardTypeInputs(
   });
 }
 function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
+  if (![...draft.nodes.values()].some((node) => node.agent.name === draft.notificationRecipient))
+    throw new Error(`${draft.location}.workflow.notification_recipient '${draft.notificationRecipient}' is not used by any workflow node.`);
   for (const [nodeId, node] of draft.nodes)
-    for (const edge of node.edges.values())
+    for (const edge of node.edges.values()) {
       if (edge.targetNodeId !== null && !draft.nodes.has(edge.targetNodeId))
         throw new Error(
           `${draft.location}.workflow.nodes.${nodeId} targets missing node '${edge.targetNodeId}'.`,
         );
+      if (edge.pendingNotifications && !draft.nodes.has(edge.pendingNotifications.targetNodeId))
+        throw new Error(`${draft.location}.workflow.nodes.${nodeId}.edges.${edge.outcome}.pending_notifications targets missing node '${edge.pendingNotifications.targetNodeId}'.`);
+      const doneEdge = edge.targetStateId === terminalState('DONE');
+      const sourceIsRecipient = node.agent.name === draft.notificationRecipient;
+      if (edge.pendingNotifications && (!doneEdge || sourceIsRecipient))
+        throw new Error(`${draft.location}.workflow.nodes.${nodeId}.edges.${edge.outcome}.pending_notifications is allowed only on a nonrecipient DONE edge.`);
+      if (doneEdge && !sourceIsRecipient && !edge.pendingNotifications)
+        throw new Error(`${draft.location}.workflow.nodes.${nodeId}.edges.${edge.outcome} requires pending_notifications because its DONE source is not notification recipient '${draft.notificationRecipient}'.`);
+      if (edge.pendingNotifications) {
+        const target = draft.nodes.get(edge.pendingNotifications.targetNodeId)!;
+        if (target.agent.name !== draft.notificationRecipient)
+          throw new Error(`${draft.location}.workflow.nodes.${nodeId}.edges.${edge.outcome}.pending_notifications target must run notification recipient '${draft.notificationRecipient}'.`);
+      }
+    }
   for (const [entry, route] of draft.entries)
     if (!draft.nodes.has(route.targetNodeId))
       throw new Error(
@@ -363,7 +397,8 @@ function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
     if (reachable.has(id)) return;
     reachable.add(id);
     for (const edge of draft.nodes.get(id)!.edges.values())
-      if (edge.targetNodeId !== null) visit(edge.targetNodeId);
+      for (const target of [edge.targetNodeId, edge.pendingNotifications?.targetNodeId ?? null])
+        if (target !== null) visit(target);
   };
   for (const route of draft.entries.values()) visit(route.targetNodeId);
   for (const id of draft.nodes.keys())
@@ -379,9 +414,7 @@ function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
     for (const [id, node] of draft.nodes)
       if (
         !terminalReachable.has(id) &&
-        [...node.edges.values()].some(
-          (edge) => edge.targetNodeId !== null && terminalReachable.has(edge.targetNodeId),
-        )
+        [...node.edges.values()].some((edge) => [edge.targetNodeId, edge.pendingNotifications?.targetNodeId ?? null].some((target) => target !== null && terminalReachable.has(target)))
       ) {
         terminalReachable.add(id);
         changed = true;
@@ -394,8 +427,8 @@ function validateCardTypeTopology(draft: CardTypeCompileDraft): void {
     if (from === to) return true;
     if (seen.has(from)) return false;
     seen.add(from);
-    return [...draft.nodes.get(from)!.edges.values()].some(
-      (edge) => edge.targetNodeId !== null && pathExists(edge.targetNodeId, to, seen),
+    return [...draft.nodes.get(from)!.edges.values()].some((edge) =>
+      [edge.targetNodeId, edge.pendingNotifications?.targetNodeId ?? null].some((target) => target !== null && pathExists(target, to, new Set(seen))),
     );
   };
   for (const [sourceId, node] of draft.nodes)
@@ -460,6 +493,7 @@ function buildCardTypeStateTable(
     const stateId = nodeState(nodeId);
     const on = new Map<string, CompiledProcessTransition>();
     for (const edge of node.edges.values())
+      {
       on.set(
         `result:${edge.outcome}`,
         compiledProcessTransition(
@@ -473,6 +507,16 @@ function buildCardTypeStateTable(
           edge.targetStateId === stateId,
         ),
       );
+      if (edge.pendingNotifications)
+        on.set(
+          `result:${edge.outcome}:pending-notifications`,
+          compiledProcessTransition(
+            edge.pendingNotifications.targetStateId,
+            Object.freeze({ kind: 'configured-pending-notifications', outcome: edge.outcome, promptId: edge.pendingNotifications.promptId }),
+            edge.pendingNotifications.targetStateId === stateId,
+          ),
+        );
+      }
     on.set(
       'execution:failed',
       compiledProcessTransition(
@@ -529,7 +573,7 @@ function buildCardTypeStateTable(
     }
     for (const route of state.on.values())
       if (
-        (route.semantic.kind === 'entry-route' || route.semantic.kind === 'configured-outcome') &&
+        (route.semantic.kind === 'entry-route' || route.semantic.kind === 'configured-outcome' || route.semantic.kind === 'configured-pending-notifications') &&
         route.semantic.promptId !== null
       )
         ids.add(route.semantic.promptId);
@@ -539,6 +583,7 @@ function buildCardTypeStateTable(
   );
   return Object.freeze({
     cardType: draft.cardType,
+    notificationRecipient: draft.notificationRecipient,
     permittedChildTypes: draft.permittedChildTypes,
     records: draft.records,
     bootstrapRecord: draft.bootstrapRecord,
@@ -588,6 +633,10 @@ function validateProcessStateTable(
           throw new Error(
             `${location}.workflow transition '${source}'/'${event}' has incompatible terminal behavior.`,
           );
+      }
+      if (route.semantic.kind === 'configured-pending-notifications') {
+        if (state.kind !== 'node' || target.kind !== 'node' || event !== `result:${route.semantic.outcome}:pending-notifications`)
+          throw new Error(`${location}.workflow transition '${source}'/'${event}' has invalid pending-notifications semantics.`);
       }
     }
 }

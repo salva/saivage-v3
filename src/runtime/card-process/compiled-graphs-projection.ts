@@ -98,6 +98,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
             source_node_id: node.nodeId,
             outcome: route.semantic.outcome,
             runtime_owned: false,
+            condition: 'default' as const,
             prompt_reference: route.semantic.promptId,
             target:
               target.kind === 'terminal'
@@ -112,6 +113,19 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
                   : { kind: 'latest-node' as const, node_id: behavior.promotion.nodeId },
           };
         }
+        if (route.semantic.kind === 'configured-pending-notifications') {
+          if (target.kind !== 'node') throw new Error(`Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid pending-notifications target.`);
+          return {
+            source_node_id: node.nodeId,
+            outcome: route.semantic.outcome,
+            runtime_owned: false,
+            condition: 'pending_notifications' as const,
+            prompt_reference: route.semantic.promptId,
+            target: { kind: 'node' as const, node_id: target.nodeId },
+            export_records: [],
+            promotion: null,
+          };
+        }
         if (route.semantic.kind !== 'runtime-terminal' || target.kind !== 'terminal')
           throw new Error(
             `Compiled workflow '${workflow.cardType}' node '${node.nodeId}' has invalid runtime target.`,
@@ -120,6 +134,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
           source_node_id: node.nodeId,
           outcome: route.semantic.cause === 'failed' ? 'execution:failed' : 'execution:blocked',
           runtime_owned: true,
+          condition: 'default' as const,
           prompt_reference: null,
           target: { kind: 'terminal' as const, terminal: target.terminal },
           export_records: [],
@@ -129,6 +144,7 @@ export function projectCompiledGraphs(workflows: CompiledRuntimeWorkflows): Debu
     );
     return {
       card_type: cardType,
+      notification_recipient: workflow.notificationRecipient,
       permitted_child_types: [...workflow.permittedChildTypes],
       records: [...workflow.records.values()].map(({name,format,schema,bootstrap}) => ({name,format,schema,bootstrap})),
       entries: graphEntries,

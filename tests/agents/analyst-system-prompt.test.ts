@@ -15,7 +15,7 @@ describe('analyst workspace-context prompt contract', () => {
     expect(prompt).toContain('ask exactly one clarifying question');
     expect(prompt).toContain('reopening done, failed, or blocked cards to changed without editing content');
     expect(prompt).toContain('Reopenable card status: blocked | done | failed. Reopen target status: changed');
-    expect(prompt).toContain('its configured current/next workflow-node agent should resolve the issue');
+    expect(prompt).toContain('its configured designated recipient should resolve the issue');
     expect(prompt).not.toContain('its planner/executor should resolve the issue');
     expect(prompt).toContain('Roles and session IDs are not notification targets.');
     expect(prompt).toContain('perform planner/executor work');

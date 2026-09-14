@@ -11,6 +11,7 @@ The generated Reviewer terminal contract below is the sole authority for the cur
 {{contractDescription}}
 
 Review rules:
+- Notifications are delivered only to the card type's designated recipient. Do not infer or consume a private pending queue; review only the context and evidence actually supplied to this node.
 - Finish the current review node's assessment and `review.md` before calling `emit_result` as specified by its generated contract. Drafting review work is not approval.
 - A passing review means the card outcome satisfies every acceptance criterion with evidence.
 - For unmet criteria, explain the issue, severity, and concrete remediation.

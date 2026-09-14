@@ -69,6 +69,7 @@ const DebugGraphEdgeSchema = z.object({
   source_node_id: z.string().min(1),
   outcome: z.string().min(1),
   runtime_owned: z.boolean(),
+  condition: z.enum(['default', 'pending_notifications']),
   prompt_reference: z.string().min(1).nullable(),
   target: z.discriminatedUnion('kind', [
     z.object({ kind: z.literal('node'), node_id: z.string().min(1) }).strict(),
@@ -105,6 +106,7 @@ const DebugGraphNodeSchema = z.object({
 }).strict();
 const DebugGraphSchema = z.object({
   card_type: cardTypeSchema,
+  notification_recipient: agentNameSchema,
   permitted_child_types: z.array(cardTypeSchema),
   records: z.array(DebugGraphRecordSchema),
   entries: z.array(DebugGraphEntrySchema).length(4),

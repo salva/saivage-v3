@@ -431,7 +431,7 @@ A card type named `global` is therefore ordinary card scope, never the Analyst s
 Startup requires exactly one `{{contractDescription}}` only for effective workflow-agent system prompts, rejects obsolete fixed-result directives, and eagerly renders process `{{cardType}}`.
 Immutable agent tokens and final process strings admit no workflow-family or runtime prompt selection.
 The four shipped role prompts each directly select common and role-specific project-guidance fragments; custom prompt references receive only the includes they explicitly contain. The [canonical authoring guide](./prompts.md#authoring-shipped-project-guidance) owns practical editing, specialization, and stopped reconciliation guidance.
-Build packaging compiles each registered template standalone against its own per-template source prompts root, observes selected bundled agent/process/fragment artifacts through that same selector, and requires each template's physical tree to equal its own compiled closure exactly—`classic` locked to the exact 19-file closure and `classic-typed` to 56—before copying each tree under `dist/src/config/system-templates/<name>/prompts/`.
+Build packaging compiles each registered template standalone against its own per-template source prompts root, observes selected bundled agent/process/fragment artifacts through that same selector, and requires each template's physical tree to equal its complete source-derived compiled closure exactly before copying each tree under `dist/src/config/system-templates/<name>/prompts/`.
 
 The two shipped templates each retain one shared Planner agent artifact selected for both `project` and `goal`. That instruction's prose assigns strategic completion ownership to a Planner whose frozen card context says `project` and delegated local planning ownership to one whose context says `goal`; the actor supplies that complete typed card block separately from the rendered instruction. The engine adds no project/goal role classifier, selector, agent, card-specific Planner artifact, or specialized fragment for that strategy distinction; the common and Planner direct fragments remain generic guidance hooks. Typed planning and recovery process prompts add their graph-specific execution and intervention boundaries without replacing the shared distinction; classic process prompts continue to compose with it unchanged.
 
@@ -632,11 +632,13 @@ There is no actor reconstruction, multi-card installation, transaction, rollback
 
 ## 6. Notifications And Terminal Arbitration
 
-Notifications persist only in the target card's ordered `pending_notifications`; `queue_notification` is the only public agent-facing notification tool. The request identifies one `card_id`; no role/session recipient or session-delivery result exists. While admission is open, the compiled current or next workflow node selects one card-scoped configured agent/session deterministically, including reviewer-owned nodes, but this routing is not a delivery promise.
+Notifications persist only in the target card's ordered `pending_notifications`; `queue_notification` is the only public agent-facing notification tool. The request identifies one `card_id`; no role/session recipient or session-delivery result exists. Each compiled card workflow owns one card-scoped designated recipient. Only nodes run by that recipient select and remove queue entries during entry, continuation, plain-text correction, or same-node result arbitration; Reviewer does not consume Planner context merely because it is the current node.
 
 Lifecycle admission permits backlog, changed, running, blocked, and stopped and rejects persisted done, failed, and cancelled with `terminal_card`. The Supervisor then consults the exact current activation owner synchronously: once either result or cancellation has claimed `terminalWinner`, `notifyCard()` returns `activation_closed` before durable enqueue. The four exact tool outcomes are queued success, `missing_card`, `terminal_card` with its persisted terminal status, and `activation_closed` without status or winner discriminator. No retry or redirect follows.
 
-Planner, reviewer, and executor share one append-before-remove path. Node-entry context appends the selected ordered bodies before removing their IDs. At an otherwise accepted terminal `emit_result` candidate gate, the node captures one ordered set and, when non-empty, appends failed paired evidence with `pending_notifications`, those exact bodies, and the resolved correction before removing exactly those IDs in `afterAppend`. Any append failure removes nothing. In contrast, a successful preclaim enqueue may be cleared without delivery by cancellation, BLOCKED outcome settlement, or ordinary execution-failure settlement. Enqueue therefore acknowledges admission, not delivery.
+Recipient nodes share one append-before-remove path. Node-entry and continuation context append the selected ordered bodies before removing their IDs. At an otherwise accepted recipient terminal `emit_result` candidate gate, the node captures one ordered set and, when non-empty, appends failed paired evidence with `pending_notifications`, those exact bodies, and the resolved correction before removing exactly those IDs in `afterAppend`. Any append failure removes nothing.
+
+Every nonrecipient DONE source has a source-declared pending alternative compiled into the same immutable state table as `result:<outcome>:pending-notifications`. This conditional transition carries the real accepted outcome and edge prompt but targets exactly one recipient node; it is not a hidden jump, terminal continuation, completion token, or second graph. A nonrecipient DONE candidate performs normal record, freshness, descendant, completion, and promotion validation, then synchronously tests only queue presence: it claims the ordinary terminal result when empty or selects that conditional event without claiming when context is pending. Queue entries remain hidden from the nonrecipient. Record close and successful tool settlement follow the decision. Recipient entry later selects, delivers, and removes the queue, including arrivals during record close. A nonrecipient nonterminal edge never inspects the queue. Cancellation, BLOCKED settlement, refusal, and ordinary failure may still clear queued context without delivery, so enqueue acknowledges admission rather than delivery.
 
 Ordinary card query surfaces provide no explicit queue collection, count, membership, IDs/bodies, availability field, direction discriminator, or delivery receipt. Generic version/time/diff/invalidation observations may signal or support inference of hidden queue activity and are not a supported queue query. Explicit enqueue attempts/results, delivered context, and opaque retained conversation evidence remain outside that boundary.
 
@@ -644,6 +646,7 @@ With no pending context, reviewer semantic currentness may still reject.
 Its snapshot contains only each card's `version_seq` and each included declared record's accepted `source_version`; it uses no content hash.
 On change it discards every activation-written draft, reprepares clean requirements, captures refreshed exact context/snapshot, appends that context, and continues the same node while retaining the original entry baselines.
 Accepted `revision_required` closes and settles review evidence, cleans the reviewer node, and routes through ordinary graph transition context to the configured planner target.
+Accepted review with pending designated-recipient context is likewise real accepted evidence: its conditional transition context preserves the summary and immutable record URLs while the recipient reconsiders new context and traverses the configured review path again.
 
 ## 7. Runtime Controls
 
@@ -1524,7 +1527,7 @@ The top-level inventory therefore includes the optional source fields, while eff
 | `compaction.summarizer_candidate` | `account,model,provider` | `src/schemas/saivage-config.ts:74` |
 | `card_types.entry` | `permitted_child_types,records,workflow` | `src/schemas/saivage-config.ts:185` |
 | `card_types.entry.records.entry` | `bootstrap,format,schema` | `src/schemas/saivage-config.ts:180` |
-| `card_types.entry.workflow` | `entries,nodes` | `src/schemas/saivage-config.ts:170` |
+| `card_types.entry.workflow` | `entries,nodes,notification_recipient` | `src/schemas/saivage-config.ts:170` |
 | `card_types.entry.workflow.entries` | `BACKLOG,BLOCKED,CHANGED,STOPPED` | `src/schemas/saivage-config.ts:171` |
 | `card_types.entry.workflow.entries.BACKLOG` | `node,prompt` | `src/schemas/saivage-config.ts:145` |
 | `card_types.entry.workflow.entries.CHANGED` | `node,prompt` | `src/schemas/saivage-config.ts:145` |
@@ -1533,7 +1536,8 @@ The top-level inventory therefore includes the optional source fields, while eff
 | `card_types.entry.workflow.nodes.entry` | `agent,correction_prompt,descendant_context,edges,prompt,records` | `src/schemas/saivage-config.ts:162` |
 | `card_types.entry.workflow.nodes.entry.records.entry` | `gate,mode` | `src/schemas/saivage-config.ts:166` |
 | `card_types.entry.workflow.nodes.entry.descendant_context` | `records,require_unchanged_until_accept` | `src/schemas/saivage-config.ts:167` |
-| `card_types.entry.workflow.nodes.entry.edges.entry` | `prompt,target` | `src/schemas/saivage-config.ts:158` |
+| `card_types.entry.workflow.nodes.entry.edges.entry` | `pending_notifications,prompt,target` | `src/schemas/saivage-config.ts:158` |
+| `card_types.entry.workflow.nodes.entry.edges.entry.pending_notifications` | `node,prompt` | `src/schemas/saivage-config.ts:138` |
 | `card_types.entry.workflow.nodes.entry.edges.entry.target.variant1` | `node` | `src/schemas/saivage-config.ts:155` |
 | `card_types.entry.workflow.nodes.entry.edges.entry.target.variant2` | `export_records,promote,terminal` | `src/schemas/saivage-config.ts:156` |
 | `card_types.entry.workflow.nodes.entry.edges.entry.target.variant2.promote.variant2` | `latest_node` | `src/schemas/saivage-config.ts:153` |

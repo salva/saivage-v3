@@ -246,10 +246,10 @@ export class CardProcessActor extends BaseActor {
       this.sendEvent('execution:blocked');
       return;
     }
-    const event = `result:${accepted.outcome}`;
+    const event = accepted.event;
     const transition = this.process.states.get(sourceState)?.on.get(event);
-    if (!transition || transition.semantic.kind !== 'configured-outcome')
-      throw new Error(`Node '${sourceState}' returned unconfigured outcome '${accepted.outcome}'.`);
+    if (!transition || (transition.semantic.kind !== 'configured-outcome' && transition.semantic.kind !== 'configured-pending-notifications') || transition.semantic.outcome !== accepted.outcome)
+      throw new Error(`Node '${sourceState}' returned unconfigured event '${event}'.`);
     this.#stagedResult = accepted;
     this.#acceptedByNode.set(accepted.nodeId, accepted);
     this.sendEvent(event);
@@ -288,7 +288,7 @@ export class CardProcessActor extends BaseActor {
         !accepted ||
         failure ||
         blocked ||
-        context.event !== `result:${accepted.outcome}` ||
+        context.event !== accepted.event ||
         transition.semantic.outcome !== accepted.outcome
       )
         throw new Error(`Process terminal '${terminal}' has invalid staged result state.`);

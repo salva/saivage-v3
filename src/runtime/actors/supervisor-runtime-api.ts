@@ -336,7 +336,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     const caller = owner.parentRelationship === null
       ? { kind: 'root' as const }
       : { kind: 'parent' as const, cardId: owner.parentRelationship.parentCardId, sessionId: owner.parentRelationship.invocation.identity.sessionId };
-    const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller, entry: owner.entry, notificationDelivery: { selectNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications; }, removeNotifications: (ids: readonly string[]) => { this.requireOwnerAuthority(owner); this.behavior.actorStore.removeNotifications(owner.cardId, [...ids]); } }, claimResult: () => this.claimResult(owner) };
+    const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller, entry: owner.entry, notificationDelivery: { hasPendingNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications.length > 0; }, selectNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications; }, removeNotifications: (ids: readonly string[]) => { this.requireOwnerAuthority(owner); this.behavior.actorStore.removeNotifications(owner.cardId, [...ids]); } }, claimResult: () => this.claimResult(owner) };
     void owner.processor.activate(input, owner.abortController.signal).then((outcome) => this.settleResult(owner, outcome), (error) => {
       if (this.halt?.owners.includes(owner) || owner.terminalWinner === 'cancel') return;
       if (error instanceof PublicationOutcomeUnknownError) {

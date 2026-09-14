@@ -87,7 +87,7 @@ function harness(failure: FailureMode, cardType: 'project' | 'goal' = 'project',
   const input = {
     card,
     activationId: 'activation-1',
-    notificationDelivery: { selectNotifications, removeNotifications },
+    notificationDelivery: { hasPendingNotifications: () => selectNotifications().length > 0, selectNotifications, removeNotifications },
     claimResult: () => { events.push('claim-result'); },
   };
   let statusRecordOpened = false;

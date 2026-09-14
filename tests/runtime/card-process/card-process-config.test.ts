@@ -39,6 +39,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const roles=new Set<string>();
     for(const [cardType,expectedCardType] of Object.entries(expected)){
       const workflow=compiled.cardTypes.get(cardType as never)!;
+      expect(workflow.notificationRecipient).toBe(expectedCardType.workflow.notification_recipient);
       expect([...workflow.permittedChildTypes]).toEqual(expectedCardType.permitted_child_types);
       expect([...workflow.records.values()].map(({name,format,schema,bootstrap})=>({name,format,schema,bootstrap}))).toEqual(Object.entries(expectedCardType.records).map(([name,record])=>({name,...record})));
       for(const [entry,expectedEntry] of Object.entries(expectedCardType.workflow.entries)){
@@ -54,15 +55,16 @@ describe('named-agent card-type workflow compilation',()=>{
           expect(route.semantic).toMatchObject({kind:'configured-outcome',outcome,promptId:expectedEdge.prompt??null});
           if('node' in expectedEdge.target){expect(route).toMatchObject({targetStateId:`node:${expectedEdge.target.node}`,reenter:expectedEdge.target.node===nodeId});}
           else {expect(route.targetStateId).toBe(`terminal:${expectedEdge.target.terminal}`);if(route.semantic.kind!=='configured-outcome'||!route.semantic.terminalBehavior)throw new Error('missing terminal behavior');expect(route.semantic.terminalBehavior).toEqual({promotion:expectedEdge.target.promote==='current'?{kind:'current'}:{kind:'latest-node',nodeId:expectedEdge.target.promote.latest_node},exportRecords:expectedEdge.target.export_records.map((name)=>workflow.records.get(name)!)});}
+          if(expectedEdge.pending_notifications)expect(state.on.get(`result:${outcome}:pending-notifications`)).toEqual({targetStateId:`node:${expectedEdge.pending_notifications.node}`,reenter:expectedEdge.pending_notifications.node===nodeId,semantic:{kind:'configured-pending-notifications',outcome,promptId:expectedEdge.pending_notifications.prompt}});
         }
-        expect([...state.on.keys()]).toEqual([...Object.keys(expectedNode.edges).map((outcome)=>`result:${outcome}`),'execution:failed','execution:blocked']);
+        expect([...state.on.keys()]).toEqual([...Object.entries(expectedNode.edges).flatMap(([outcome,edge])=>[`result:${outcome}`,...(edge.pending_notifications?[`result:${outcome}:pending-notifications`]:[])]),'execution:failed','execution:blocked']);
         expect(state.on.get('execution:failed')!.semantic).toEqual({kind:'runtime-terminal',cause:'failed'});
         expect(state.on.get('execution:blocked')!.semantic).toEqual({kind:'runtime-terminal',cause:'blocked'});
       }
     }
     expect(roles).toEqual(new Set(['planner','reviewer','executor']));
-    const sources=Object.values(expected);const nodes=sources.flatMap(({workflow})=>Object.keys(workflow.nodes));const references=sources.flatMap(({workflow})=>[...Object.values(workflow.entries).flatMap(({node,prompt})=>[node,...(prompt?[prompt]:[])]),...Object.values(workflow.nodes).flatMap((node)=>[node.prompt,node.correction_prompt,...Object.values(node.edges).flatMap(({target,prompt})=>[...('node'in target?[target.node]:[]),...('terminal'in target&&target.promote!=='current'?[target.promote.latest_node]:[]),...(prompt?[prompt]:[])])])]);const outcomes=sources.flatMap(({workflow})=>Object.values(workflow.nodes).flatMap(({edges})=>Object.keys(edges)));
-    expect([...new Set(nodes)]).toEqual(['plan','review','recover','draft','component-review','system-review','red','green','refactor','diagnose','add-coverage','repair','verify','execute','schema','validate','implement','explore','assess','report']);
+    const sources=Object.values(expected);const nodes=sources.flatMap(({workflow})=>Object.keys(workflow.nodes));const references=sources.flatMap(({workflow})=>[...Object.values(workflow.entries).flatMap(({node,prompt})=>[node,...(prompt?[prompt]:[])]),...Object.values(workflow.nodes).flatMap((node)=>[node.prompt,node.correction_prompt,...Object.values(node.edges).flatMap(({target,prompt,pending_notifications})=>[...('node'in target?[target.node]:[]),...('terminal'in target&&target.promote!=='current'?[target.promote.latest_node]:[]),...(prompt?[prompt]:[]),...(pending_notifications?[pending_notifications.node,pending_notifications.prompt]:[])])])]);const outcomes=sources.flatMap(({workflow})=>Object.values(workflow.nodes).flatMap(({edges})=>Object.keys(edges)));
+    expect([...new Set(nodes)]).toEqual(['plan','review','recover','handle-notifications','draft','component-review','system-review','red','green','refactor','diagnose','add-coverage','repair','verify','execute','schema','validate','implement','explore','assess','report']);
     expect([...new Set(outcomes)]).toEqual(['complete_direct','admit_review','blocked','failed','approved','revision_required','ready_for_component_review','red_confirmed','already_green','green','still_red','done','regressed','coverage_gap','failing_test','coverage_passing','repair_needed','tests_passing','still_failing','schema_ready','valid','schema_invalid','implementation_retry','schema_revision','evidence_ready','more_exploration','supported','refuted','bounded_inconclusive','evidence_gap']);
     expect(references.every((id)=>/^[a-z][a-z0-9-]{0,63}$/u.test(id))).toBe(true);expect(outcomes.every((id)=>/^[a-z][a-z0-9_-]{0,63}$/u.test(id))).toBe(true);
   });
@@ -127,6 +129,7 @@ describe('named-agent card-type workflow compilation',()=>{
       'node:plan',
       'node:review',
       'node:recover',
+      'node:handle-notifications',
       'terminal:DONE',
       'terminal:BLOCKED',
       'terminal:FAILED',
@@ -214,6 +217,8 @@ describe('named-agent card-type workflow compilation',()=>{
           expect(Object.keys(transition.semantic)).toEqual(['kind','promptId']);
         } else if (transition.semantic.kind === 'runtime-terminal') {
           expect(Object.keys(transition.semantic)).toEqual(['kind','cause']);
+        } else if (transition.semantic.kind === 'configured-pending-notifications') {
+          expect(Object.keys(transition.semantic)).toEqual(['kind','outcome','promptId']);
         } else {
           expect(Object.keys(transition.semantic)).toEqual([
             'kind','outcome','promptId','terminalBehavior',
@@ -298,7 +303,7 @@ describe('named-agent card-type workflow compilation',()=>{
     const defaults=join(root,'defaults');const overrides=join(root,'.saivage','config','prompts');
     const write=(base:string,purpose:string,scope:string,id:string,text:string)=>{const dir=join(base,purpose,scope);mkdirSync(dir,{recursive:true});writeFileSync(join(dir,`${id}.md`),text);};
     for(const id of ['analyst','planner','reviewer','executor'])write(defaults,'agents','_shared',id,id==='analyst'?'{{vocabularySnippet}}':`${id} {{contractDescription}}`);
-    for(const id of ['plan','recover','review','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
+    for(const id of ['plan','recover','review','handle-notifications','correct-plan-result','correct-review-result','plan-to-review','review-to-plan','review-to-notifications','execute','correct-execution-result','stopped-recovery'])write(defaults,'process','_shared',id,`${id} {{cardType}}`);
     write(defaults,'agents','code','executor','bundled-card {{contractDescription}}');
     write(overrides,'agents','_shared','executor','override-shared {{> shared-piece}} {{contractDescription}}');
     write(defaults,'fragments','_shared','shared-piece','bundled-fragment');
@@ -414,6 +419,16 @@ describe('named-agent card-type workflow compilation',()=>{
     failure((value)=>{value.card_types.code!.workflow.nodes.execute!.edges={loop:{target:{node:'execute'},prompt:'execute'}};},/no path to a terminal/);
   });
 
+  it('requires one card-scoped designated recipient and explicit valid alternatives for nonrecipient DONE edges',()=>{
+    failure((value)=>{value.card_types.project!.workflow.notification_recipient='missing';},/notification_recipient references missing agent/);
+    failure((value)=>{value.card_types.project!.workflow.notification_recipient='analyst';},/notification_recipient must use card session scope/);
+    failure((value)=>{value.card_types.project!.workflow.notification_recipient='executor';},/is not used by any workflow node/);
+    failure((value)=>{delete value.card_types.project!.workflow.nodes.review!.edges.approved!.pending_notifications;},/requires pending_notifications/);
+    failure((value)=>{value.card_types.project!.workflow.nodes.review!.edges.approved!.pending_notifications={node:'review',prompt:'review-to-notifications'};},/target must run notification recipient/);
+    failure((value)=>{value.card_types.project!.workflow.nodes.plan!.edges.complete_direct!.pending_notifications={node:'plan',prompt:'review-to-notifications'};},/allowed only on a nonrecipient DONE edge/);
+    failure((value)=>{value.card_types.project!.workflow.nodes.review!.edges.revision_required!.pending_notifications={node:'plan',prompt:'review-to-notifications'};},/allowed only on a nonrecipient DONE edge/);
+  });
+
   it('rejects unknown and wrong-scope tools during offline structural compilation',()=>{
     expect(source().agents.analyst!.tools).toContain('reopen_card');
     failure((value)=>{value.agents.planner!.tools.push('get_status');},/unknown tool 'get_status' for card session scope/);
@@ -452,7 +467,7 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(saivageConfigSchema.safeParse({...structuredClone(DEFAULT_SAIVAGE_CONFIG),agents:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents),executor:{...structuredClone(DEFAULT_SAIVAGE_CONFIG.agents.executor!),record_writes:['status?.md']}}}).success).toBe(false);
 
     for(const [mode,gate,needsWrite] of [['clean','exists',true],['clean','updated',true],['continue','updated',true],['continue','exists',false]] as const){
-      const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),tools:value.agents.executor!.tools.filter((tool)=>tool!=='write'&&tool!=='edit'),record_writes:['notes.md']};const execute=value.card_types.code!.workflow.nodes.execute!;execute.agent='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges))if('terminal'in edge.target)edge.target.export_records=['notes.md'];
+      const value=source();value.agents.matrix={...structuredClone(value.agents.executor!),tools:value.agents.executor!.tools.filter((tool)=>tool!=='write'&&tool!=='edit'),record_writes:['notes.md']};const execute=value.card_types.code!.workflow.nodes.execute!;execute.agent='matrix';value.card_types.code!.workflow.notification_recipient='matrix';execute.records={'notes.md':{mode,gate}};for(const edge of Object.values(execute.edges))if('terminal'in edge.target)edge.target.export_records=['notes.md'];
       if(needsWrite)expect(()=>compileProjectWorkflows(value)).toThrow(/requires the write tool/);else expect(()=>compileProjectWorkflows(value)).not.toThrow();
       if(needsWrite){value.agents.matrix!.tools.push('write');const node=compileProjectWorkflows(value).cardTypes.get('code')!.states.get('node:execute')!;if(node.kind!=='node')throw new Error('missing node');expect(node.requirements[0]!.definition).toMatchObject({name:'notes.md',schema:'authored-record.v1',declared:false});}
     }

@@ -110,6 +110,7 @@ describe('MCP tool invocation production composition', () => {
           permitted_child_types: [],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
           workflow: {
+            notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
             nodes: { execute: { agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
           },

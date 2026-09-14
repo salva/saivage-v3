@@ -124,6 +124,7 @@ describe('Supervisor kill/restart full-chain recovery', () => {
           permitted_child_types: ['code'],
           records: { 'brief.md': { format: 'markdown', schema: 'card-brief.v1', bootstrap: true } },
           workflow: {
+            notification_recipient: 'planner',
             entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'plan', prompt: 'stopped-recovery' } },
             nodes: { plan: { agent: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: {}, edges: { blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: [] } } } } },
           },
@@ -135,6 +136,7 @@ describe('Supervisor kill/restart full-chain recovery', () => {
             'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
           },
           workflow: {
+            notification_recipient: 'executor',
             entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
             nodes: { execute: { agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: {}, edges: { done: { target: { terminal: 'DONE', promote: 'current', export_records: [] } } } } },
           },

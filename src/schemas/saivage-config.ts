@@ -135,9 +135,14 @@ const processEdgeTargetSchema = z.union([
   z.object({ node: namedIdentifierSchema }).strict(),
   z.object({ terminal: processTerminalPortSchema, promote: promotionSchema, export_records: z.array(recordNameSchema) }).strict(),
 ]);
+const pendingNotificationsEdgeSchema = z.object({
+  node: namedIdentifierSchema,
+  prompt: namedIdentifierSchema,
+}).strict();
 const processEdgeSchema = z.object({
   target: processEdgeTargetSchema,
   prompt: z.string().optional(),
+  pending_notifications: pendingNotificationsEdgeSchema.optional(),
 }).strict();
 const processNodeSchema = z.object({
   agent: agentNameSchema,
@@ -148,6 +153,7 @@ const processNodeSchema = z.object({
   edges: z.record(outcomeIdentifierSchema, processEdgeSchema),
 }).strict();
 const cardProcessSchema = z.object({
+  notification_recipient: agentNameSchema,
   entries: z.object({
     BACKLOG: processEntrySchema,
     CHANGED: processEntrySchema,

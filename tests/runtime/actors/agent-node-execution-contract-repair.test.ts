@@ -43,6 +43,7 @@ function harness(args: {
   const settledToolResults: Array<{ toolCallId: string; result: unknown }> = [];
   const llmInputArguments: unknown[][] = [];
   const plainTextCorrections: string[] = [];
+  const continuationContextCallbacks: Array<unknown> = [];
   const continuations = [...(args.continuations ?? [])];
   const next = (): LLMActorOutcome => {
     const outcome = continuations.shift();
@@ -51,8 +52,8 @@ function harness(args: {
   };
   const llm = {
     turn: async (_input: unknown, _signal: AbortSignal, handoff: unknown) => { events.push('turn'); handoffs.push(handoff); return args.initial; },
-    continueAfterPlainText: async (correction: string, _signal: AbortSignal, handoff: unknown) => { events.push('continue-plain-text'); plainTextCorrections.push(correction); handoffs.push(handoff); return next(); },
-    appendToolResult: async (toolCallId: string, result: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); return { outcome: next(), settled: {} }; },
+    continueAfterPlainText: async (correction: string, _signal: AbortSignal, handoff: unknown, context: unknown) => { events.push('continue-plain-text'); plainTextCorrections.push(correction); handoffs.push(handoff); continuationContextCallbacks.push(context); return next(); },
+    appendToolResult: async (toolCallId: string, result: unknown, _signal: AbortSignal, context?: unknown) => { events.push(`append:${toolCallId}`); appendedToolResults.push({ toolCallId, result }); continuationContextCallbacks.push(context); return { outcome: next(), settled: {} }; },
     toolInvocationContext: () => { events.push('tool-context'); return {}; },
     claimResultAndCloseContinuation: (_outcome: ToolOutcome, _reason: Error, claim: () => void) => { events.push('claim-continuation'); claim(); },
     settleToolResultWithoutContinuation: async (toolCallId: string, result: unknown) => { events.push('settle-terminal'); settledToolResults.push({ toolCallId, result }); },
@@ -91,19 +92,20 @@ function harness(args: {
   const stateId = 'node:work';
   const process = {
     cardType: 'project',
+    notificationRecipient: 'planner',
     states: new Map<string, unknown>([
       [stateId, node],
       ['terminal:DONE', { kind: 'terminal', terminal: 'DONE' }],
     ]),
     processPrompts: new Map([['work', { text: 'perform the current work' }], ['correct', { text: 'correct the result' }]]),
   };
-  const selectNotifications = args.terminalVariant === 'pending'
-    ? jest.fn().mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])
+  const selectNotifications: () => Array<{ id: string; content: string }> = args.terminalVariant === 'pending'
+    ? jest.fn<() => Array<{ id: string; content: string }>>().mockReturnValueOnce([{ id: 'notice-1', content: 'operator context' }]).mockReturnValue([])
     : () => [];
   const input = {
     card,
     activationId: 'activation-1',
-    notificationDelivery: { selectNotifications, removeNotifications: () => undefined },
+    notificationDelivery: { hasPendingNotifications: () => selectNotifications().length > 0, selectNotifications, removeNotifications: () => undefined },
     claimResult: () => { events.push('claim-result'); },
   };
   const createDirectScope = jest.fn(() => ({}));
@@ -167,6 +169,7 @@ function harness(args: {
     settledToolResults,
     llmInputArguments,
     plainTextCorrections,
+    continuationContextCallbacks,
     createDirectScope,
     run: () => execution.execute({ process, stateId, node, transition: {}, input, signal: new AbortController().signal, nodeOrdinal: 0 } as never),
   };
@@ -259,6 +262,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
     expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'invalid', result: executedNoneSettlement(toolFailed(objectGuardCorrection)) });
+    expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
   });
 
   it.each([
@@ -312,6 +316,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.handoffs).toHaveLength(2);
     expect(test.handoffs[1]).toBe(test.handoffs[0]);
     expect(test.plainTextCorrections).toEqual(['correct the result\n\nValidation errors:\n- emit_result is required.']);
+    expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
   });
 
   it('invokes and appends a nonterminal result before continuing to terminal acceptance', async () => {
@@ -323,6 +328,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.events.indexOf('append:lookup-1')).toBeLessThan(test.events.indexOf('claim-continuation'));
     expect(test.events[test.events.indexOf('append:lookup-1') - 1]).toBe('current');
     expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'lookup-1', result: executedNoneSettlement(toolSucceeded('found')) });
+    expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
   });
 
   it('accepts an immutable terminal result before successful cleanup', async () => {
@@ -374,6 +380,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete' });
     const failure = expected as { error: string; data?: unknown };
     expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'rejected', result: executedNoneSettlement(toolFailed(failure.error, failure.data)) });
+    expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
   });
 
   it('rethrows publication uncertainty before cleanup', async () => {

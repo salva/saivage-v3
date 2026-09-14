@@ -15,8 +15,8 @@
         </g>
 
         <g v-for="(edge, index) in graph.edges" :key="`${edge.source_node_id}:${edge.outcome}:${index}`" class="graph-edge-group" role="button" tabindex="0" :aria-label="edgeDescription(edge)" @click="select('edge', index)" @keydown.enter.prevent="select('edge', index)" @keydown.space.prevent="select('edge', index)">
-          <path class="graph-link" :class="{ cycle: isCycle(edge), 'runtime-edge': edge.runtime_owned }" :d="edgePath(edge)" :marker-end="`url(#${markerId})`" />
-          <text class="edge-label" :x="edgeLabel(edge).x" :y="edgeLabel(edge).y">{{ edge.outcome }}</text>
+          <path class="graph-link" :class="{ cycle: isCycle(edge), 'runtime-edge': edge.runtime_owned, 'conditional-edge': edge.condition === 'pending_notifications' }" :d="edgePath(edge)" :marker-end="`url(#${markerId})`" />
+          <text class="edge-label" :x="edgeLabel(edge).x" :y="edgeLabel(edge).y">{{ edge.outcome }}<template v-if="edge.condition === 'pending_notifications'"> · pending</template></text>
         </g>
 
         <g v-for="(node, index) in graph.nodes" :key="node.node_id" class="graph-element graph-node" role="button" tabindex="0" :aria-label="nodeDescription(node)" @click="select('node', index)" @keydown.enter.prevent="select('node', index)" @keydown.space.prevent="select('node', index)">
@@ -38,6 +38,7 @@
       <h5>Graph details</h5>
       <dl class="graph-summary">
         <dt>Permitted children</dt><dd>{{ graph.permitted_child_types.join(', ') || 'none' }}</dd>
+        <dt>Notification recipient</dt><dd>{{ graph.notification_recipient }}</dd>
         <dt>Records</dt><dd><span v-for="record in graph.records" :key="record.name">{{ record.name }} · {{ record.schema }}<template v-if="record.bootstrap"> · bootstrap</template><br></span></dd>
       </dl>
       <h5>Selected element details</h5>
@@ -94,7 +95,7 @@ function requirementLabel(node: Graph['nodes'][number]): string { return node.re
 function childLabel(node: Graph['nodes'][number]): string { const values = [...new Set([...node.child_creation_types, ...node.child_activation_types])]; return values.length ? values.join(', ') : 'none'; }
 function nodeDescription(node: Graph['nodes'][number]): string { return `${node.node_id} node, agent ${node.agent_name}, model route ${node.model.route}, ${node.tools.length} tools, requirements ${requirementLabel(node)}`; }
 function entryDescription(entry: Graph['entries'][number]): string { return `${entry.entry} lifecycle entry targets ${entry.node_id}${entry.prompt_reference ? ` with prompt ${entry.prompt_reference}` : ''}`; }
-function edgeDescription(edge: Graph['edges'][number]): string { const target = edge.target.kind === 'node' ? edge.target.node_id : edge.target.terminal; const exports = edge.export_records.length ? `, exports ${edge.export_records.join(', ')}` : ''; const promotion = edge.promotion ? `, promotion ${edge.promotion.kind}${edge.promotion.kind === 'latest-node' ? ` ${edge.promotion.node_id}` : ''}` : ''; return `${edge.runtime_owned ? 'Runtime-owned ' : ''}${edge.outcome} edge from ${edge.source_node_id} to ${target}${exports}${promotion}`; }
+function edgeDescription(edge: Graph['edges'][number]): string { const target = edge.target.kind === 'node' ? edge.target.node_id : edge.target.terminal; const condition = edge.condition === 'pending_notifications' ? 'Pending-notifications conditional ' : ''; const exports = edge.export_records.length ? `, exports ${edge.export_records.join(', ')}` : ''; const promotion = edge.promotion ? `, promotion ${edge.promotion.kind}${edge.promotion.kind === 'latest-node' ? ` ${edge.promotion.node_id}` : ''}` : ''; return `${edge.runtime_owned ? 'Runtime-owned ' : condition}${edge.outcome} edge from ${edge.source_node_id} to ${target}${exports}${promotion}`; }
 const selectedDetail = computed(() => {
   const selected = selection.value;
   if (selected.kind === 'entry') return props.graph.entries[selected.index];
@@ -112,6 +113,7 @@ svg { display:block; min-width:720px; width:100%; height:auto; }
 .graph-link { fill:none; stroke:var(--border-strong); stroke-width:1.8; }
 .graph-link.cycle { stroke:var(--warn); stroke-dasharray:7 5; }
 .graph-link.runtime-edge { stroke:var(--danger); stroke-dasharray:3 5; }
+.graph-link.conditional-edge { stroke:var(--accent-2); stroke-dasharray:9 5; }
 marker path { fill:var(--border-strong); }
 .graph-element { cursor:pointer; outline:none; }
 .graph-element rect { fill:var(--bg); stroke:var(--border-strong); stroke-width:1.5; }

@@ -76,6 +76,7 @@ function planningCardType(): CardTypeSource {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
+      notification_recipient: 'planner',
       entries: {
         BACKLOG: { node: 'plan' },
         CHANGED: { node: 'plan' },
@@ -97,7 +98,7 @@ function planningCardType(): CardTypeSource {
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           descendant_context: { records: ['status.md'], require_unchanged_until_accept: true },
           edges: {
-            approved: terminal('DONE', 'review.md'),
+            approved: { ...terminal('DONE', 'review.md'), pending_notifications: { node: 'handle-notifications', prompt: 'review-to-notifications' } },
             revision_required: transition('plan', 'specialized-review-to-plan'),
             blocked: terminal('BLOCKED', 'review.md'),
             failed: terminal('FAILED', 'review.md'),
@@ -110,6 +111,17 @@ function planningCardType(): CardTypeSource {
           records: { 'status.md': { mode: 'continue', gate: 'updated' } },
           edges: planningEdges,
         },
+        'handle-notifications': {
+          agent: 'planner',
+          prompt: 'handle-notifications',
+          correction_prompt: 'correct-plan-result',
+          records: { 'status.md': { mode: 'continue', gate: 'updated' } },
+          edges: {
+            admit_review: transition('review', 'specialized-plan-to-review'),
+            blocked: terminal('BLOCKED', 'status.md'),
+            failed: terminal('FAILED', 'status.md'),
+          },
+        },
       },
     },
   };
@@ -120,6 +132,7 @@ function codeCardType(): CardTypeSource {
     permitted_child_types: [],
     records: leafRecords(),
     workflow: {
+      notification_recipient: 'executor',
       entries: executionEntries('red'),
       nodes: {
         red: executorNode('code-red', {
@@ -150,6 +163,7 @@ function testCardType(): CardTypeSource {
     permitted_child_types: [],
     records: leafRecords(),
     workflow: {
+      notification_recipient: 'executor',
       entries: executionEntries('diagnose'),
       nodes: {
         diagnose: executorNode('test-diagnose', {
@@ -187,6 +201,7 @@ function researchCardType(): CardTypeSource {
     permitted_child_types: [],
     records: leafRecords(),
     workflow: {
+      notification_recipient: 'executor',
       entries: executionEntries('explore'),
       nodes: {
         explore: executorNode('research-explore', {
@@ -218,6 +233,7 @@ function dataCardType(): CardTypeSource {
     permitted_child_types: [],
     records: leafRecords(),
     workflow: {
+      notification_recipient: 'executor',
       entries: executionEntries('schema'),
       nodes: {
         schema: executorNode('data-schema', {
@@ -252,6 +268,7 @@ function architectureCardType(): CardTypeSource {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
+      notification_recipient: 'executor',
       entries: executionEntries('draft'),
       nodes: {
         draft: executorNode('architecture-draft', {
@@ -277,7 +294,7 @@ function architectureCardType(): CardTypeSource {
           correction_prompt: 'correct-review-result',
           records: { 'review.md': { mode: 'clean', gate: 'updated' } },
           edges: {
-            approved: terminal('DONE', 'review.md', { latest_node: 'draft' }),
+            approved: { ...terminal('DONE', 'review.md', { latest_node: 'draft' }), pending_notifications: { node: 'draft', prompt: 'architecture-notifications-to-draft' } },
             revision_required: transition('draft', 'architecture-system-revision'),
             blocked: terminal('BLOCKED', 'review.md'),
             failed: terminal('FAILED', 'review.md'),
@@ -293,6 +310,7 @@ function simpleExecutionCardType(): CardTypeSource {
     permitted_child_types: [],
     records: leafRecords(),
     workflow: {
+      notification_recipient: 'executor',
       entries: executionEntries('execute'),
       nodes: {
         execute: executorNode('execute', {

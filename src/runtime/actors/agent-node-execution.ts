@@ -25,6 +25,7 @@ export interface AcceptedNodeResult {
   readonly nodeId: string;
   readonly agentName: AgentName;
   readonly outcome: string;
+  readonly event: string;
   readonly summary: string;
   readonly acceptedRecords: readonly Readonly<{ name: string; url: string; version: number }>[];
 }
@@ -92,7 +93,7 @@ export class AgentNodeExecution {
       for (;;) {
         if (outcome.type === 'result') {
           this.host.assertCurrentActivation(input);
-          outcome = await llm.continueAfterPlainText(this.correction(process, node, ['emit_result is required.']), signal, terminalHandoff);
+          outcome = await llm.continueAfterPlainText(this.correction(process, node, ['emit_result is required.']), signal, terminalHandoff, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId));
           this.host.assertCurrentActivation(input);
           continue;
         }
@@ -113,7 +114,7 @@ export class AgentNodeExecution {
             if (!parsed.success) throw new Error(parsed.error.message);
             nodeResult = parsed.data;
           }
-          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [errorMessage(error)]))), signal)).outcome; continue; }
+          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [errorMessage(error)]))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
           const route = node.on.get(`result:${nodeResult.outcome}`);
           if (!route || route.semantic.kind !== 'configured-outcome')
             throw new Error(
@@ -124,7 +125,7 @@ export class AgentNodeExecution {
             throw new Error(
               `Compiled node '${node.nodeId}' has invalid target '${route.targetStateId}'.`,
             );
-          const selected = input.notificationDelivery.selectNotifications();
+          const selected = this.selectRecipientNotifications(process, node, input);
           if (selected.length > 0) {
             const messages: ProviderVisibleUserContextMessage[] = [
               ...selected.map((notification) => ({ role: 'user' as const, content: notification.content })),
@@ -134,7 +135,7 @@ export class AgentNodeExecution {
             continue;
           }
           const records = this.validateRecords(node, baseline);
-          if ('violations' in records) { outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, records.violations))), signal)).outcome; continue; }
+          if ('violations' in records) { outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, records.violations))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
           if (reviewerPair) {
             const stale = this.reviewerStaleReason(input.card.id, reviewerPair.snapshot, node.descendantContext!.records.map((record)=>record.name));
             if (stale) {
@@ -143,17 +144,39 @@ export class AgentNodeExecution {
               this.prepareRecordRequirements(node);
               recordFinalizationBegun = false;
               const refreshed = this.captureReviewerPair(input.card.id,node.descendantContext!.records.map((record)=>record.name));
-              const messages = [refreshed.exactContext, { role: 'user' as const, content: this.correction(process, node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) }];
-              outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(`Review context is stale: ${stale}.`)), signal, () => ({ messages, afterAppend: () => { reviewerPair = refreshed; } }))).outcome;
+              const notifications = this.selectRecipientNotifications(process, node, input);
+              const messages = [
+                ...notifications.map((notification) => ({ role: 'user' as const, content: notification.content })),
+                refreshed.exactContext,
+                { role: 'user' as const, content: this.correction(process, node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) },
+              ];
+              outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(`Review context is stale: ${stale}.`)), signal, () => ({ messages, afterAppend: () => {
+                if (notifications.length > 0) input.notificationDelivery.removeNotifications(notifications.map((notification) => notification.id));
+                reviewerPair = refreshed;
+              } }))).outcome;
               continue;
             }
           }
-           if (target.kind === 'terminal' && target.terminal === 'DONE') {
+          if (target.kind === 'terminal' && target.terminal === 'DONE') {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
-            if (blocker) { outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]))), signal)).outcome; continue; }
+            if (blocker) { outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
           }
-          if (target.kind === 'terminal') {
-            this.host.assertPromotionAvailable(route);
+          if (target.kind === 'terminal') this.host.assertPromotionAvailable(route);
+          let selectedEvent = `result:${nodeResult.outcome}`;
+          let selectedTarget = target;
+          if (target.kind === 'terminal' && target.terminal === 'DONE' && node.agent.name !== process.notificationRecipient) {
+            if (input.notificationDelivery.hasPendingNotifications()) {
+              selectedEvent = `${selectedEvent}:pending-notifications`;
+              const alternative = node.on.get(selectedEvent);
+              if (!alternative || alternative.semantic.kind !== 'configured-pending-notifications')
+                throw new Error(`Compiled node '${node.nodeId}' has no pending-notifications alternative for accepted outcome '${nodeResult.outcome}'.`);
+              const alternativeTarget = process.states.get(alternative.targetStateId);
+              if (!alternativeTarget || alternativeTarget.kind !== 'node' || alternativeTarget.agent.name !== process.notificationRecipient)
+                throw new Error(`Compiled node '${node.nodeId}' has an invalid pending-notifications target.`);
+              selectedTarget = alternativeTarget;
+            }
+          }
+          if (selectedTarget.kind === 'terminal') {
             llm.claimResultAndCloseContinuation(
               terminalOutcome,
               new Error('Terminal result accepted.'),
@@ -169,11 +192,12 @@ export class AgentNodeExecution {
           );
           this.host.assertCurrentActivation(input);
           cleanupStatus =
-            target.kind === 'terminal' ? terminalCleanupStatus(target.terminal) : 'done';
+            selectedTarget.kind === 'terminal' ? terminalCleanupStatus(selectedTarget.terminal) : 'done';
           const accepted = Object.freeze({
             nodeId: node.nodeId,
             agentName: node.agent.name,
             outcome: nodeResult.outcome,
+            event: selectedEvent,
             summary: nodeResult.summary,
             acceptedRecords: Object.freeze(acceptedRecords),
           });
@@ -186,7 +210,7 @@ export class AgentNodeExecution {
           : syntheticToolSettlement('unsupported_tool', `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.`);
         signal.throwIfAborted();
         this.host.assertCurrentActivation(input);
-        outcome = (await llm.appendToolResult(outcome.toolCallId, toolSettlement, signal, (continuationInputId) => this.ordinaryNotificationContext(input, continuationInputId))).outcome;
+        outcome = (await llm.appendToolResult(outcome.toolCallId, toolSettlement, signal, (continuationInputId) => this.ordinaryNotificationContext(process, node, input, continuationInputId))).outcome;
       }
     } catch (error) {
       if (error instanceof PublicationOutcomeUnknownError) throw error;
@@ -216,7 +240,7 @@ export class AgentNodeExecution {
   private prepareNodeEntry(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, transition: NodeTransition, input: CardActivationInput, sessionId: ConversationSessionId, inputId: string, reviewerPair: ReviewerContextPair | null): void {
     appendActivationMarker(this.deps.conversations, sessionId, { event: 'activation_open', agent_name: node.agent.name, card_id: this.deps.cardId, input_id: inputId });
     const roleContext: ProviderVisibleUserContextMessage[] = [];
-    const selected = input.notificationDelivery.selectNotifications();
+    const selected = this.selectRecipientNotifications(process, node, input);
     roleContext.push(...selected.map((notification) => ({ role: 'user' as const, content: notification.content })));
     if (reviewerPair) roleContext.push(reviewerPair.exactContext);
     roleContext.forEach((message, index) => appendUserContextMessage(this.deps.conversations, sessionId, inputId, message === reviewerPair?.exactContext ? 'reviewer_descendant' : 'notification', index, message));
@@ -243,13 +267,13 @@ export class AgentNodeExecution {
       }
       return promptId ? { role: 'user', content: promptText(process, promptId) } : null;
     }
-    if (route.semantic.kind !== 'configured-outcome')
+    if (route.semantic.kind !== 'configured-outcome' && route.semantic.kind !== 'configured-pending-notifications')
       throw new Error(
         `Node transition context '${context.source}'/'${context.event}' is not a configured outcome.`,
       );
     if (
       !acceptedResult ||
-      context.event !== `result:${acceptedResult.outcome}` ||
+      context.event !== acceptedResult.event ||
       route.semantic.outcome !== acceptedResult.outcome
     )
       throw new Error('Node transition context disagrees with its staged accepted result.');
@@ -309,7 +333,8 @@ export class AgentNodeExecution {
   }
 
   private correction(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, violations: readonly string[]): string { return `${promptText(process, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
-  private ordinaryNotificationContext(input: CardActivationInput, _inputId: string) { const selected = input.notificationDelivery.selectNotifications(); return selected.length === 0 ? undefined : { messages: selected.map((notification) => ({ role: 'user' as const, content: notification.content })), afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }; }
+  private selectRecipientNotifications(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, input: CardActivationInput) { return node.agent.name === process.notificationRecipient ? input.notificationDelivery.selectNotifications() : []; }
+  private ordinaryNotificationContext(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, input: CardActivationInput, _inputId: string) { const selected = this.selectRecipientNotifications(process, node, input); return selected.length === 0 ? undefined : { messages: selected.map((notification) => ({ role: 'user' as const, content: notification.content })), afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }; }
 
   private prepareRecordRequirements(node: CompiledNodeContract): void {
     for (const requirement of node.requirements) {

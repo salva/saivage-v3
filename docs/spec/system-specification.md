@@ -36,7 +36,7 @@ Mapping/object forms and malformed members fail selected-YAML validation as a co
 
 The shipped bundled defaults are the two registered system templates `classic` and `classic-typed`; `classic` is the bundled default (the omission `card_types` source and the bundled prompt root), and each template is materialized whole by `saivage init --profile <name>`.
 Both are complete definitions containing `project`, `goal`, `architecture`, `code`, `test`, `doc`, `data`, `research`, and `ops`, in that declaration order.
-Classic's graph topology is unchanged: `project` and `goal` independently use `plan -> optional review -> plan` with `recover` for STOPPED, while the other seven types each use one `execute` node. Its shared Planner prompt now gives those two supplied card types distinct planning responsibilities without changing that graph.
+Classic `project` and `goal` use `plan -> optional review -> plan`, `recover` for STOPPED, and a conditional Planner `handle-notifications` node after an accepted Reviewer result when designated-recipient context is pending. The other seven types each use one `execute` node. Planner is the planning-card recipient and Executor is each leaf recipient.
 A template is one complete TypeScript-owned config plus its exact prompt closure; its config contains the card types, workflows, and record declarations and does not own or override global agents, `analyst_agent`, model routes, providers, compaction, server, or MCP configuration beyond publishing the template's complete values for them at init.
 The resolved effective configuration owns the actual complete map.
 A card-type name matches `[a-z][a-z0-9-]{0,63}`; `project` is the sole reserved name, is required as the fixed root entry, and cannot be a child.
@@ -55,12 +55,12 @@ The classic-typed configured graphs are:
 
 | Type | Exact configured flow |
 | --- | --- |
-| `project`, `goal` | `plan`: `complete_direct` -> DONE, `admit_review` -> `review`, `blocked` -> BLOCKED, `failed` -> FAILED; `review`: `approved` -> DONE, `revision_required` -> `plan`, `blocked` -> BLOCKED, `failed` -> FAILED; STOPPED enters `recover`, which has the same outcomes as `plan`. |
+| `project`, `goal` | Recipient Planner. `plan`: `complete_direct` -> DONE, `admit_review` -> `review`, `blocked` -> BLOCKED, `failed` -> FAILED; `review`: `approved` -> DONE when no context is pending, otherwise accepted `approved` -> `handle-notifications`; `revision_required` -> `plan`, `blocked` -> BLOCKED, `failed` -> FAILED. `handle-notifications`: `admit_review` -> `review`, `blocked` -> BLOCKED, `failed` -> FAILED. STOPPED enters `recover`, which has the same outcomes as `plan`. |
 | `code` | `red`: `red_confirmed` -> `green`, `already_green` -> `refactor`; `green`: `green` -> `refactor`, `still_red` -> `green`; `refactor`: `done` -> DONE, `regressed` -> `green`; each node also has configured `blocked` and `failed` terminals. |
 | `test` | `diagnose`: `coverage_gap` -> `add-coverage`, `failing_test` -> `repair`; `add-coverage`: `coverage_passing` -> `verify`, `repair_needed` -> `repair`; `repair`: `tests_passing` -> `verify`, `still_failing` -> `repair`; `verify`: `done` -> DONE, `coverage_gap` -> `add-coverage`, `repair_needed` -> `repair`; each node also has configured `blocked` and `failed` terminals. |
 | `research` | `explore`: `evidence_ready` -> `assess`, `more_exploration` -> `explore`; `assess`: `supported`, `refuted`, or `bounded_inconclusive` -> `report`, and `evidence_gap` -> `explore`; `report`: `done` -> DONE; each node also has configured `blocked` and `failed` terminals. |
 | `data` | `schema`: `schema_ready` -> `validate`; `validate`: `valid` -> `implement`, `schema_invalid` -> `schema`; `implement`: `done` -> DONE, `implementation_retry` -> `implement`, `schema_revision` -> `schema`; each node also has configured `blocked` and `failed` terminals. |
-| `architecture` | `draft`: `ready_for_component_review` -> `component-review`; `component-review`: `approved` -> `system-review`, `revision_required` -> `draft`; `system-review`: `approved` -> DONE, `revision_required` -> `draft`; each node also has configured `blocked` and `failed` terminals. |
+| `architecture` | Recipient Executor. `draft`: `ready_for_component_review` -> `component-review`; `component-review`: `approved` -> `system-review`, `revision_required` -> `draft`; `system-review`: `approved` -> DONE when no context is pending, otherwise accepted `approved` -> `draft`; `revision_required` -> `draft`; each node also has configured `blocked` and `failed` terminals. A notification return must repeat component and system review. |
 | `doc`, `ops` | One `execute` node: `done` -> DONE, `blocked` -> BLOCKED, `failed` -> FAILED. |
 
 Typed research treats `evidence_ready` as readiness to assess the bounded question, including reasonably exhausted or inconclusive investigation, rather than support or exhaustive coverage. A return to exploration requires concrete obtainable evidence or materially different useful analysis capable of changing the assessment; exhausted uncertainty normally reaches an honest bounded-inconclusive report. Completing that report completes only its bounded research deliverable: unresolved questions, limits, required exhaustive follow-up, and actionable handoffs remain explicit, with no implied evidence promotion, policy approval, parent completeness, or project acceptance. An accepted brief remains authoritative; a required deliverable that cannot proceed without specific scope, input, or a decision uses the existing blocked route rather than being silently narrowed.
@@ -68,7 +68,7 @@ Typed research treats `evidence_ready` as readiness to assess the bounded questi
 Typed data validation distinguishes correct rejection of invalid samples from a schema defect and technical acceptance from owner or policy approval. Only an actually mandatory missing decision or input blocks; ordinary engineering and accepted graph nodes require no new human signoff. Across both templates, shared Executor guidance interprets completed process status together with relevant output, preserves earlier failed or unresolved checks despite a later successful tool call, and reuses still-applicable evidence while rerunning after relevant changes, for current requirements, or to resolve an open verification question. Required validation is never waived; typed refactor may reuse recent valid focused evidence after a reasoned no-change decision unless current criteria require a rerun.
 
 All classic-typed non-planning entries begin at the first node shown; STOPPED adds `stopped-recovery`.
-Node IDs use the exact lowercase hyphenated form, notably `add-coverage`, `component-review`, and `system-review`; underscore-bearing outcome IDs remain exact outcomes rather than node IDs.
+Node IDs use the exact lowercase hyphenated form, notably `handle-notifications`, `add-coverage`, `component-review`, and `system-review`; underscore-bearing outcome IDs remain exact outcomes rather than node IDs.
 
 Classic-typed planning reuses existing immediate children rather than duplicating them.
 Planner may notify and activate BACKLOG, CHANGED, BLOCKED, or STOPPED children through their matching entries.
@@ -106,8 +106,7 @@ The operator must restore the compatible map or template, or intentionally use t
 
 Bundled prompts live in per-template trees under `src/config/system-templates/<name>/prompts/`.
 Packaging compiles each registered template standalone against its own source prompts root, observes the bundled agent, process, and direct-fragment artifacts actually selected, and requires that template's physical tree to equal its sorted compiled closure exactly.
-The `classic` template is locked to exactly 19 files—four shared agent prompts, five shared project-guidance fragments, and ten shared process prompts.
-`classic-typed` reuses those four agent prompts and five fragments, the shared correction/stopped/execute process prompts, and adds only selected shared or card-specific process prompts, totaling exactly 56 files.
+Each template's physical prompt tree is locked to its complete compiler-observed source closure. `classic` contains the four shared agent prompts, five shared project-guidance fragments, and every shared process prompt selected by its planning, review, notification-handler, recovery, and execution graph. `classic-typed` retains its typed card-specific process prompts and additionally selects the shared notification-handler prompts plus the architecture notification-return prompt.
 Startup strictly composes the selected direct hooks and freezes the result. Existing materialized prompt trees remain instance-owned and are not upgraded by `init`; no hook is injected into a custom prompt and no automatic reconciliation occurs.
 
 Prompt scope is a discriminator—global agent, workflow agent with card type, or process with card type—not a pseudo card name.
@@ -184,7 +183,7 @@ A later same-format binary deployment may retain only the exact current `card.js
 
 ## Project Oversight — Planned Requirement
 
-**Status: not implemented; implementation design pending.** This section specifies future behavior only and does not add Oversight to the current agent inventory, notification behavior, configuration, API, or UI.
+**Status: Oversight is not implemented; implementation design pending.** This section specifies future Oversight behavior only and does not add Oversight to the current agent inventory, configuration, API, or UI. Its shared designated-recipient notification prerequisite in §6 is implemented current behavior.
 
 ### 1. Identity, authority, and configuration
 
@@ -236,14 +235,14 @@ A short no-intervention response is successful but does not certify the whole pr
 Oversight uses ordinary conversation and compacted history, repeats advice only when new evidence or a stated material reason adds value, and corrects disproved advice.
 It records unavailable recipients and owner-decision needs in its inspectable conversation without promising an operator alert; no intervention ledger, deduplication registry, or guaranteed-attention channel is introduced.
 
-### 6. Shared designated-recipient prerequisite
+### 6. Shared designated-recipient prerequisite (implemented)
 
-Generic designated-recipient notification routing is a prerequisite, not current behavior. Every card type must designate a workflow participant and provide defined opportunities for that participant to handle queued context.
-Oversight targets additionally require configured planning and child-coordination capability; the exact predicate is deferred to implementation design and must support custom named agents.
+Generic designated-recipient notification routing is current behavior and a prerequisite for Oversight. Every card type designates a workflow participant and provides defined opportunities for that participant to handle queued context.
+Future Oversight targets additionally require configured planning and child-coordination capability; the exact predicate remains part of the unimplemented Oversight design and must support custom named agents.
 Planner-directed context waits for that designated Planner. A nonrecipient node, especially a same-card Reviewer, must not consume it, skip review, fabricate a result, or jump the workflow graph.
-Successful ordinary completion must provide the generic handling opportunity.
-The shared design must explicitly reconcile pending context with BLOCKED or failure settlement, cancellation, postclaim denial, and every successful completion route.
-It must preserve exceptional terminal clearing, notification-empty terminal states, and append-before-remove duplication/loss limits.
+Successful ordinary completion provides the generic handling opportunity through recipient arbitration or a configured nonrecipient-DONE conditional edge.
+Current routing reconciles pending context with BLOCKED or failure settlement, cancellation, postclaim denial, and every successful completion route.
+It preserves exceptional terminal clearing, notification-empty terminal states, and append-before-remove duplication/loss limits.
 It promises neither eventual nor exactly-once delivery and adds no second queue, receipt service, transaction, replay, or recovery protocol.
 
 ### 7. Urgent notification ordering
@@ -630,9 +629,9 @@ Template definitions contain complete card types, workflows, and record declarat
 Source resolution produces exactly one complete effective `card_types` map before compilation, and only that map reaches runtime consumers and outbound effective-config projections.
 An agent owns its prompt, ordered tools, duplicate-free `record_writes` patterns, model route, skill capability, `global | card` session scope, and child-creation ceiling.
 Each effective card type owns permitted child types, declared record metadata with exactly one bootstrap record, and a graph whose four entries are `BACKLOG | CHANGED | BLOCKED | STOPPED`.
-Nodes reference one card-scoped named agent, node/correction prompts, strict `{mode,gate}` requirements, optional descendant context, and strict outcome edges.
+Each workflow declares one designated notification recipient that exists in that workflow and is card-scoped. Nodes reference one card-scoped named agent, node/correction prompts, strict `{mode,gate}` requirements, optional descendant context, and strict outcome edges.
 Every descendant-context record must be declared by every transitively reachable permitted descendant type, though schemas may differ; arbitrary dynamic record names cannot enter descendant context.
-Terminal edges select `DONE | FAILED | BLOCKED`, ordered exports required by that source node, and `current` or reachable `latest_node` promotion.
+Terminal edges select `DONE | FAILED | BLOCKED`, ordered exports required by that source node, and `current` or reachable `latest_node` promotion. Every DONE edge from a nonrecipient node declares one `pending_notifications` alternative to an existing node run by the recipient, with its own process prompt; recipient DONE edges and all other edges forbid that declaration.
 
 The classic `project` and `goal` artifacts independently preserve the visible plan/review loop; the other seven classic types independently preserve one-node execution.
 `classic-typed` supplies the configured graphs above without changing runtime classification.
@@ -642,14 +641,14 @@ Default Reviewer omits MCP, while default Analyst and Executor list unrestricted
 Each card type is compiled once at startup into one shared immutable semantic state table.
 Lifecycle entries, configured nodes, and terminal sinks are actor states; accepted typed outcomes are events and configured edges are transitions.
 Every transition has exactly one target identity; consumers look up that state to obtain destination node or terminal identity.
-The same configured-outcome transition carries its optional edge prompt and, for a terminal target, promotion and ordered exports.
+The same configured-outcome transition carries its optional edge prompt and, for a terminal target, promotion and ordered exports. A declared pending-notifications alternative compiles as a distinct conditional event carrying the same accepted outcome and one target node; it participates in reachability, terminal-path, promotion-path, prompt-closure, and Debug Graph projection validation without creating another graph or durable cursor.
 The actor starts in its explicit parked ready state, and activation sends the configured `BACKLOG | CHANGED | BLOCKED | STOPPED` entry event.
 One activation tracker owns its raw node operation, cancellation signal, and matching completion/failure consumer through containment reporting while sharing the low-level FIFO containment mechanics with the separate provider invocation lifecycle.
 When the one node task settles, the actor clears its task slot before invoking the matching function; the tracker consumer then stages the accepted result and sends its event.
 A same-node edge explicitly reenters in this exact order: the old task is settled and cleared, its result is accepted and staged, the event is accepted, the transition runs, and state entry starts one new node task.
 `BaseActor` performs no task cancellation; tracker revocation owns it.
 Ordinary node failure instead stages and sends code-owned `execution:failed`; an app-log publication failure sends no event and halts the current task state for Supervisor-owned runtime halt.
-Plain text, malformed results, pending notifications, record/evidence failures, reviewer freshness failures, and completion-gate rejection are hidden corrections inside one node task and do not transition or increment.
+Plain text, malformed results, recipient-node pending notifications, record/evidence failures, reviewer freshness failures, and completion-gate rejection are hidden corrections inside one node task and do not transition or increment. A nonrecipient accepted DONE candidate with pending context instead follows its configured conditional event and increments like any ordinary cross-node transition.
 Activation `run` admits an activation operation; provider invocation `begin` admits one exact lease, whose later `runExternal` remains valid after non-aborting admission close.
 This FIFO ownership matches one operation at each current frontier and does not promise generalized concurrent matching.
 Promptless BACKLOG/CHANGED/BLOCKED entry contributes no transition message; STOPPED contributes the fixed discarded-position notice and its required configured prompt.
@@ -701,7 +700,7 @@ A missing exact index is an optional-capability case: listing succeeds with `{su
 A present malformed index, old-schema entry, duplicate name, invalid path, missing selected skill file, or other read failure returns that same generic failed ToolResult shape with its actionable error; there is no fallback, normalization, or skill-specific failure projection.
 A name absent from the caller's filtered catalog and a name targeted only to another role are both unavailable.
 
-At node entry the owner appends the activation marker, selected notification or reviewer context when present, and immediate lifecycle/edge transition context when present. It does not append the current node prompt: before any record, notification, or ingress effect, the actual compiled process/node selects that prompt's unaltered full text for the activation-local prepared node block.
+At node entry the owner appends the activation marker, designated-recipient notification context or reviewer context when present, and immediate lifecycle/edge transition context when present. Nonrecipient nodes never receive or remove notification context at entry or continuation. It does not append the current node prompt: before any record, notification, or ingress effect, the actual compiled process/node selects that prompt's unaltered full text for the activation-local prepared node block.
 Nodes referencing the same agent on one card reuse its stable session; a transition to another agent selects that agent's card session.
 Immediate edge context contains only source node, accepted outcome and summary, accepted record URLs, and its optional edge prompt.
 That handoff is delivered once rather than repeated as prepared context, but accepted facts, record evidence, and still-applicable instructions remain applicable after delivery. A later node prepares its own node text and generated outcome/tool contract; neither old rows nor summary prose select graph position.
@@ -710,7 +709,7 @@ No accumulated graph state is persisted.
 One hidden corrective loop owns plain text, malformed or unknown results, record violations, pending notifications, planning completion, and reviewer currentness.
 Terminal completion is enforced by strict actor verification and these acceptance gates, not by a provider terminal phase.
 Corrections remain in the same logical node, session, baseline, and role.
-After all read-only gates, terminal edges synchronously claim the result before record close, accepted tool settlement, cleanup, and later supervisor-owned publication through the exact activation owner.
+After all read-only gates, recipient terminal candidates with pending context remain in their same-node correction path. A nonrecipient DONE candidate validates records, descendant freshness, completion, and promotion, then synchronously tests only whether context is pending and either claims the ordinary terminal result when none exists or selects its compiled conditional event without claiming when context exists. Queue entries are not exposed to that nonrecipient. This decision occurs before record close or any asynchronous boundary. The conditional route closes the same accepted records, settles `emit_result` successfully, retains the real accepted result for transition context, and leaves queue selection/removal to recipient entry. Notifications admitted during that record close remain queued for recipient entry. After a no-pending result claim, enqueue is denied. Other terminal edges synchronously claim before record close, accepted tool settlement, cleanup, and later supervisor-owned publication through the exact activation owner.
 Intermediate edges retain the same close/settle/node-local cleanup ordering.
 
 Reviewer stale rejection discards the stale open review, captures one new exact descendant context and semantic snapshot pair, appends that exact refreshed context, replaces the comparison snapshot, and continues the same node.
@@ -888,11 +887,13 @@ There is no transaction, recovery generation, graph cursor, old-node inference, 
 
 ## 5. Notifications And Reviewer Arbitration
 
-The durable notification target is one `card_id`, and `queue_notification` is the only public agent-facing notification tool. It accepts `card_id`, `kind`, and `body`; roles and session IDs are not targets, and its configured current/next workflow-node agent receives context through the card-scoped session selected by the runtime.
+The durable notification target is one `card_id`, and `queue_notification` is the only public agent-facing notification tool. It accepts `card_id`, `kind`, and `body`; roles and session IDs are not targets. The card type's configured designated recipient receives context through its card-scoped session regardless of which agent runs the current node.
 
 The exact public outcomes are success `{queued:true,card_id,notification_id}`, missing `{queued:false,reason:'missing_card',card_id}`, persisted terminal `{queued:false,reason:'terminal_card',card_id,status:'done'|'failed'|'cancelled'}`, and closed current activation `{queued:false,reason:'activation_closed',card_id}`. The closed result carries no status or result/cancel winner discriminator because durable status may still be running. It is returned synchronously before enqueue, and Saivage neither retries nor redirects that invocation.
 
-Successful queueing acknowledges durable enqueue, not delivery. Planner, reviewer, and executor use one append-before-remove delivery rule: node entry appends selected bodies as delivered notification context before exact selected-ID removal. At every otherwise accepted terminal `emit_result` candidate gate, the owner captures one deterministic ordered pending set. A non-empty set defeats the candidate without claim: append the paired failed result with reason `pending_notifications`, append exactly those bodies in order, append the resolved correction and reconsider instruction, then remove exactly the selected IDs only after all appends succeed. Append failure removes nothing; a crash after append and before removal may duplicate visible context. There is no every-later-arrival guarantee: preclaim cancellation, BLOCKED outcome settlement, and ordinary execution-failure settlement may clear already-admitted notifications without delivery. After the result or cancellation winner claim, later attempts receive `activation_closed` and create no enqueue version.
+Successful queueing acknowledges durable enqueue, not delivery. Only a node run by the designated recipient uses the append-before-remove delivery path at entry, ordinary tool continuation, applicable plain-text correction, and same-node `emit_result` arbitration. Recipient entry appends selected bodies before exact selected-ID removal. At an otherwise accepted recipient terminal candidate, a non-empty ordered pending set defeats the candidate without claim: append the paired failed result with reason `pending_notifications`, append exactly those bodies in order, append the resolved correction and reconsider instruction, then remove exactly the selected IDs only after all appends succeed. Append failure removes nothing; a crash after append and before removal may duplicate visible context.
+
+A nonrecipient nonterminal edge accepts without inspecting or delivering the queue. At a nonrecipient DONE edge, all ordinary acceptance gates run first; the final synchronous queue decision either claims the ordinary terminal route when empty or follows the required conditional edge while retaining accepted evidence when nonempty. The recipient handler owns later append-before-remove delivery and must traverse its configured path to a terminal. Classic project/goal routes accepted review through Planner `handle-notifications` and then review again; classic-typed architecture routes accepted system review to Executor `draft` and requires component and system review again. There is no every-later-arrival guarantee: configured BLOCKED/FAILED, runtime refusal/failure, and cancellation may clear admitted notifications without recipient delivery. After the result or cancellation winner claim, later attempts receive `activation_closed` and create no enqueue version.
 
 A Planner queue operation is evidenced internally by canonical pending-notification state and externally by its normal tool result; it creates no current control-action audit row. Durable queue evidence is not an ordinary operator query.
 
@@ -1284,7 +1285,7 @@ Any incomplete content, duplicate, complete malformed canonical envelope, or inv
 
 Authenticated `GET /api/debug/graphs` returns one strict graph projection for each canonical card type in canonical order.
 Its sole source is the immutable runtime workflow artifact compiled and bound during startup: the handler reads no configuration, prompt file, or runtime-state file.
-The response includes permitted child types, record definitions, lifecycle entries, named-agent nodes, safe prompt references and sources, model routes and provider/model candidate identities with account identity omitted, tool and record capabilities, requirements and descendant context, outcome edges, cycles, terminal exports and promotion, all three terminal nodes, and a distinct runtime-owned execution-failure edge.
+The response includes the designated notification recipient, permitted child types, record definitions, lifecycle entries, named-agent nodes, safe prompt references and sources, model routes and provider/model candidate identities with account identity omitted, tool and record capabilities, requirements and descendant context, outcome edges with explicit default or pending-notifications condition, cycles, terminal exports and promotion, all three terminal nodes, and distinct runtime-owned execution-failure edges.
 Prompt bodies and paths, credentials, auth profiles, provider accounts/secrets, MCP schemas/descriptions, and mutable workflow position are not part of the contract.
 The complete response is validated before egress.
 Restart-only `reconfigure` may change next-start configuration, but this projection remains unchanged until a fresh server startup compiles and binds a replacement artifact.

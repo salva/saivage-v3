@@ -15,7 +15,7 @@ export interface CardActivationInput {
 }
 
 type CardActivationCaller = { readonly kind: 'root' } | { readonly kind: 'parent'; readonly cardId: string; readonly sessionId: string };
-interface CardNotificationDeliveryPort { selectNotifications(): CardNotification[]; removeNotifications(ids: readonly string[]): void }
+interface CardNotificationDeliveryPort { hasPendingNotifications(): boolean; selectNotifications(): CardNotification[]; removeNotifications(ids: readonly string[]): void }
 interface CardCancelReason { reason: string; cancelled_at?: string }
 export interface CardCancellationResult { readonly card_id: string; readonly status: 'cancelled'; readonly cancelled_card_ids: string[] }
 export interface PlannerChildReopenResult { readonly card_id: string; readonly status: 'changed' }

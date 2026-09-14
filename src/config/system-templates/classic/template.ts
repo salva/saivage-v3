@@ -35,6 +35,7 @@ function planningCardType(): CardTypesSource[CardTypeName] {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
+      notification_recipient: 'planner',
       entries: { BACKLOG: { node: 'plan' }, CHANGED: { node: 'plan' }, BLOCKED: { node: 'plan' }, STOPPED: { node: 'recover', prompt: 'stopped-recovery' } },
       nodes: {
         plan: { agent: 'planner', prompt: 'plan', correction_prompt: 'correct-plan-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
@@ -44,13 +45,18 @@ function planningCardType(): CardTypesSource[CardTypeName] {
           failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
         } },
         review: { agent: 'reviewer', prompt: 'review', correction_prompt: 'correct-review-result', records: { 'review.md': { mode: 'clean', gate: 'updated' } }, descendant_context: { records: ['status.md'], require_unchanged_until_accept: true }, edges: {
-          approved: { target: { terminal: 'DONE', promote: 'current', export_records: ['review.md'] } },
+          approved: { target: { terminal: 'DONE', promote: 'current', export_records: ['review.md'] }, pending_notifications: { node: 'handle-notifications', prompt: 'review-to-notifications' } },
           revision_required: { target: { node: 'plan' }, prompt: 'review-to-plan' },
           blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['review.md'] } },
           failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['review.md'] } },
         } },
         recover: { agent: 'planner', prompt: 'recover', correction_prompt: 'correct-plan-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
           complete_direct: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },
+          admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' },
+          blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
+          failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
+        } },
+        'handle-notifications': { agent: 'planner', prompt: 'handle-notifications', correction_prompt: 'correct-plan-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
           admit_review: { target: { node: 'review' }, prompt: 'plan-to-review' },
           blocked: { target: { terminal: 'BLOCKED', promote: 'current', export_records: ['status.md'] } },
           failed: { target: { terminal: 'FAILED', promote: 'current', export_records: ['status.md'] } },
@@ -68,6 +74,7 @@ function executionCardType(): CardTypesSource[CardTypeName] {
       'status.md': { format: 'markdown', schema: 'work-status.v1', bootstrap: false },
     },
     workflow: {
+      notification_recipient: 'executor',
       entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
       nodes: { execute: { agent: 'executor', prompt: 'execute', correction_prompt: 'correct-execution-result', records: { 'status.md': { mode: 'continue', gate: 'updated' } }, edges: {
         done: { target: { terminal: 'DONE', promote: 'current', export_records: ['status.md'] } },

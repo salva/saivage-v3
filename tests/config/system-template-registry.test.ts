@@ -73,7 +73,7 @@ describe('system template registry',()=>{
   it('ships exact Analyst notification-target guidance, source tokens, and role safety',()=>{
     for(const templateName of ['classic','classic-typed'] as const){
       const analyst=readFileSync(join(resolveSystemTemplate(templateName).promptRoot,'agents/_shared/analyst.md'),'utf8');
-      expect(analyst).toContain('its configured current/next workflow-node agent should resolve the issue');
+      expect(analyst).toContain('its configured designated recipient should resolve the issue');
       expect(analyst).not.toContain('its planner/executor should resolve the issue');
       expect(analyst).toContain('Prefer queue_notification with the exact card_id');
       expect(analyst).toContain('Roles and session IDs are not notification targets.');

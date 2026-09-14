@@ -96,6 +96,7 @@ describe('startup workflow binding authority', () => {
     source.providers.test!.models = [...(source.providers.test!.models ?? []), 'empty-model'];
     source.providers.test!.modelCapabilities = { 'empty-model': { toolsMode: 'unsupported' } };
     source.card_types.code!.workflow.nodes.execute!.agent = 'empty';
+    source.card_types.code!.workflow.notification_recipient = 'empty';
     source.card_types.code!.workflow.nodes.execute!.records = Object.fromEntries(
       Object.keys(source.card_types.code!.workflow.nodes.execute!.records).map((name) => [name, {mode:'continue',gate:'exists'}]),
     );

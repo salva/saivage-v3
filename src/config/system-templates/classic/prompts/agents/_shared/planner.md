@@ -23,6 +23,7 @@ The generated Planner terminal contract below is the sole authority for the curr
 {{contractDescription}}
 
 Runtime rules:
+- Delivered notification context belongs to the card type's designated recipient. Reconsider it with current evidence; when it arrives after an accepted review, preserve that acceptance as evidence and follow the configured path through review again rather than treating it as a fabricated rejection.
 - Planners recur on their current planning card; child planners/executors run only after `activate_card`.
 - Status changes never dispatch work. Use `activate_card` for useful children.
 - Planner cannot reparent a child, and `edit_card` cannot edit a child's brief. Use `reopen_card` only for a done or failed direct child owned by the current planning card, then use `queue_notification` and `activate_card`; each operation has its own admission and a later failure is retried or handled from its actual result, never assumed away. Use `edit_card` only for a real permitted metadata change. Dependencies are chosen at creation from existing immediate siblings and cannot be edited or reach across branches.

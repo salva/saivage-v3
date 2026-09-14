@@ -47,22 +47,23 @@ const CLASSIC_CLOSURE = [
   ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
   'process/_shared/correct-execution-result.md', 'process/_shared/correct-plan-result.md', 'process/_shared/correct-review-result.md',
   'process/_shared/execute.md', 'process/_shared/plan-to-review.md', 'process/_shared/plan.md', 'process/_shared/recover.md',
+  'process/_shared/handle-notifications.md', 'process/_shared/review-to-notifications.md',
   'process/_shared/review-to-plan.md', 'process/_shared/review.md', 'process/_shared/stopped-recovery.md',
 ].sort();
 const TYPED_CLOSURE = [
   ...['analyst', 'executor', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
   ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
-  ...['correct-execution-result', 'correct-plan-result', 'correct-review-result', 'execute', 'specialized-plan-to-review', 'specialized-plan', 'specialized-recover', 'specialized-review-to-plan', 'specialized-review', 'stopped-recovery'].map((id) => `process/_shared/${id}.md`),
+  ...['correct-execution-result', 'correct-plan-result', 'correct-review-result', 'execute', 'handle-notifications', 'review-to-notifications', 'specialized-plan-to-review', 'specialized-plan', 'specialized-recover', 'specialized-review-to-plan', 'specialized-review', 'stopped-recovery'].map((id) => `process/_shared/${id}.md`),
   ...['code-red', 'code-green', 'code-refactor', 'code-red-to-green', 'code-to-refactor', 'code-green-retry', 'code-regression-to-green'].map((id) => `process/code/${id}.md`),
   ...['test-diagnose', 'test-add-coverage', 'test-repair', 'test-verify', 'test-to-add-coverage', 'test-to-repair', 'test-to-verify', 'test-repair-retry'].map((id) => `process/test/${id}.md`),
   ...['research-explore', 'research-assess', 'research-report', 'research-to-assess', 'research-continue-exploration', 'research-supported-to-report', 'research-refuted-to-report', 'research-inconclusive-to-report'].map((id) => `process/research/${id}.md`),
   ...['data-schema', 'data-validate', 'data-implement', 'data-to-validate', 'data-to-implement', 'data-revise-schema', 'data-implementation-retry'].map((id) => `process/data/${id}.md`),
-  ...['architecture-draft', 'architecture-component-review', 'architecture-system-review', 'architecture-to-component-review', 'architecture-to-system-review', 'architecture-component-revision', 'architecture-system-revision'].map((id) => `process/architecture/${id}.md`),
+  ...['architecture-draft', 'architecture-component-review', 'architecture-system-review', 'architecture-to-component-review', 'architecture-to-system-review', 'architecture-component-revision', 'architecture-system-revision', 'architecture-notifications-to-draft'].map((id) => `process/architecture/${id}.md`),
 ].sort();
 const SHARED_PROMPT_FILES = [
   ...['analyst', 'executor', 'planner', 'reviewer'].map((id) => `agents/_shared/${id}.md`),
   ...['common', 'planner', 'executor', 'reviewer', 'analyst'].map((id) => `fragments/_shared/project-guidance-${id}.md`),
-  ...['execute', 'stopped-recovery', 'correct-plan-result', 'correct-review-result', 'correct-execution-result'].map((id) => `process/_shared/${id}.md`),
+  ...['execute', 'handle-notifications', 'review-to-notifications', 'stopped-recovery', 'correct-plan-result', 'correct-review-result', 'correct-execution-result'].map((id) => `process/_shared/${id}.md`),
 ];
 
 function writeFixtureUnion(root) {
@@ -130,8 +131,8 @@ function runCopySystemTemplatePromptsTest() {
     const classicRoot = resolveSystemTemplate('classic').promptRoot;
     const typedRoot = resolveSystemTemplate('classic-typed').promptRoot;
     assert(SYSTEM_TEMPLATES.map((template) => template.name).join(',') === 'classic,classic-typed', 'registered templates must be exactly classic then classic-typed');
-    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic') }).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic closure differs from the exact 19-file lock');
-    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic-typed') }).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed closure differs from the exact 56-file lock');
+    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic') }).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic closure differs from the source-declared lock');
+    assert(collectTemplatePromptClosure({ template: resolveSystemTemplate('classic-typed') }).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed closure differs from the source-declared lock');
     assert(walkFiles(classicRoot).join('\n') === CLASSIC_CLOSURE.join('\n'), 'classic source tree contains an unselected or missing artifact');
     assert(walkFiles(typedRoot).join('\n') === TYPED_CLOSURE.join('\n'), 'classic-typed source tree contains an unselected or missing artifact');
     for (const file of SHARED_PROMPT_FILES) {

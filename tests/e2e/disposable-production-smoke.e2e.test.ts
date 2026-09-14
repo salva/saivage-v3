@@ -112,6 +112,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
       'review.md': { format: 'markdown', schema: 'work-review.v1', bootstrap: false },
     },
     workflow: {
+      notification_recipient: 'executor',
       entries: { BACKLOG: { node: 'execute' }, CHANGED: { node: 'execute' }, BLOCKED: { node: 'execute' }, STOPPED: { node: 'execute', prompt: 'stopped-recovery' } },
       nodes: {
         execute: {
@@ -120,7 +121,7 @@ function testConfig(providerPort: number, appPort: number): SaivageConfig {
         },
         verify: {
           agent: 'reviewer', prompt: 'verify', correction_prompt: 'correct-verify-result', records: { 'status.md': {mode:'continue',gate:'exists'}, 'review.md': {mode:'clean',gate:'updated'} },
-          edges: { approved: { target: { terminal: 'DONE', promote: { latest_node: 'execute' }, export_records: ['status.md', 'review.md'] } } },
+          edges: { approved: { target: { terminal: 'DONE', promote: { latest_node: 'execute' }, export_records: ['status.md', 'review.md'] }, pending_notifications: { node: 'execute', prompt: 'review-notifications-to-execute' } } },
         },
       },
     },
@@ -134,6 +135,7 @@ function writeCustomPrompts(root: string): void {
   writeFileSync(join(directory, 'execute-to-verify.md'), 'Execution accepted. Verify the closed status record.');
   writeFileSync(join(directory, 'verify.md'), 'Verify the completed work and publish review evidence.');
   writeFileSync(join(directory, 'correct-verify-result.md'), 'Correct the result and satisfy the declared record contract.');
+  writeFileSync(join(directory, 'review-notifications-to-execute.md'), 'Accepted review remains evidence. Reconsider the newly delivered context, update the work when warranted, and repeat verification before completion.');
 }
 
 async function start(root: string): Promise<App> {
@@ -157,7 +159,7 @@ function origin(app: App): string {
 async function api(app: App, path: string, init: RequestInit = {}, authenticated = true): Promise<{ status: number; body: any }> {
   const response = await fetch(`${origin(app)}${path}`, {
     ...init,
-    headers: { ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...(authenticated ? { authorization: `Bearer ${TOKEN}` } : {}), ...init.headers },
+    headers: { connection: 'close', ...(init.body === undefined ? {} : { 'content-type': 'application/json' }), ...(authenticated ? { authorization: `Bearer ${TOKEN}` } : {}), ...init.headers },
   });
   return { status: response.status, body: await response.json() };
 }

@@ -42,6 +42,15 @@ describe('configuration-owned card types',()=>{
     expect(Object.keys(outboundEffectiveSaivageConfigSchema.parse(custom).card_types)).toEqual(['project','initiative']);
   });
 
+  it('requires strict designated-recipient and pending-notifications declarations',()=>{
+    const missing=structuredClone(projectOnly()) as unknown as {card_types:{project:{workflow:Record<string,unknown>}}};
+    delete missing.card_types.project.workflow.notification_recipient;
+    expect(saivageConfigSchema.safeParse(missing).success).toBe(false);
+    const malformed=structuredClone(projectOnly()) as unknown as {card_types:{project:{workflow:{nodes:{review:{edges:{approved:Record<string,unknown>}}}}}}};
+    malformed.card_types.project.workflow.nodes.review.edges.approved.pending_notifications={node:'handle-notifications',prompt:'review-to-notifications',legacy_recipient:'planner'};
+    expect(saivageConfigSchema.safeParse(malformed).success).toBe(false);
+  });
+
   it('rejects missing project, invalid names, duplicate/project children, and missing references at the referring path',()=>{
     const missing=projectOnly();delete missing.card_types.project;
     expect(saivageConfigSchema.safeParse(missing).error?.issues).toEqual(expect.arrayContaining([expect.objectContaining({path:['card_types','project']})]));

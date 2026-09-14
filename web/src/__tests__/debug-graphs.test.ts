@@ -11,11 +11,12 @@ import { DebugGraphsResponseSchema } from '../api/contracts';
 
 const graph: DebugGraph = {
   card_type: 'goal',
+  notification_recipient: 'planner',
   permitted_child_types: ['code'],
   records: [{ name: 'brief.md', format: 'markdown', schema: 'card-brief.v1', bootstrap: true }, { name: 'status.md', format: 'markdown', schema: 'work-status.v1', bootstrap: false }],
   entries: ['BACKLOG', 'CHANGED', 'BLOCKED', 'STOPPED'].map((entry) => ({ entry: entry as 'BACKLOG' | 'CHANGED' | 'BLOCKED' | 'STOPPED', node_id: 'plan', prompt_reference: entry === 'STOPPED' ? 'stopped-recovery' : null })),
   nodes: [{ node_id: 'plan', agent_name: 'planner', session: { scope: 'card', identity_pattern: 'agent:planner:<card-id>' }, prompt: { source: 'bundled-shared', reference: 'planner', process_reference: 'plan', correction_reference: 'correct-plan-result' }, model: { route: 'planner', candidates: [{ provider: 'openai', model: 'gpt-5.6' }], temperature: 0.2, max_tokens: 4096 }, skills: false, tools: ['create_card', 'activate_card'], child_creation_types: ['code'], child_activation_types: ['code'], readable_records: ['brief.md', 'status.md'], record_write_patterns: ['status.md'], requirements: [{ record_name: 'status.md', mode: 'continue', gate: 'updated' }], descendant_context: null, outcomes: ['again', 'done'] }],
-  edges: [{ source_node_id: 'plan', outcome: 'again', runtime_owned: false, prompt_reference: 'retry', target: { kind: 'node', node_id: 'plan' }, export_records: [], promotion: null }, { source_node_id: 'plan', outcome: 'done', runtime_owned: false, prompt_reference: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'plan', outcome: 'execution:blocked', runtime_owned: true, prompt_reference: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
+  edges: [{ source_node_id: 'plan', outcome: 'again', runtime_owned: false, condition: 'default', prompt_reference: 'retry', target: { kind: 'node', node_id: 'plan' }, export_records: [], promotion: null }, { source_node_id: 'plan', outcome: 'done', runtime_owned: false, condition: 'default', prompt_reference: null, target: { kind: 'terminal', terminal: 'DONE' }, export_records: ['status.md'], promotion: { kind: 'current' } }, { source_node_id: 'plan', outcome: 'execution:failed', runtime_owned: true, condition: 'default', prompt_reference: null, target: { kind: 'terminal', terminal: 'FAILED' }, export_records: [], promotion: null }, { source_node_id: 'plan', outcome: 'execution:blocked', runtime_owned: true, condition: 'default', prompt_reference: null, target: { kind: 'terminal', terminal: 'BLOCKED' }, export_records: [], promotion: null }],
   terminals: [{ terminal: 'DONE' }, { terminal: 'BLOCKED' }, { terminal: 'FAILED' }],
 };
 
@@ -46,6 +47,7 @@ describe('Debug Graphs', () => {
     expect(wrapper.find('path.cycle').exists()).toBe(true);
     expect(wrapper.text()).toContain('plan · planner');
     expect(wrapper.text()).toContain('status.md · work-status.v1');
+    expect(wrapper.text()).toContain('Notification recipient');
     const doneEdge = wrapper.findAll('.graph-edge-group').find((edge) => edge.attributes('aria-label')?.includes('exports status.md'))!;
     expect(doneEdge.attributes('tabindex')).toBe('0');
     await doneEdge.trigger('keydown', { key: 'Enter' });
@@ -55,7 +57,7 @@ describe('Debug Graphs', () => {
   });
 
   it('accepts and renders a custom leaf type with its effective create_card-free tools',async()=>{
-    const custom:DebugGraph={...graph,card_type:'custom-leaf',permitted_child_types:[],nodes:graph.nodes.map((node)=>({...node,tools:['activate_card'],child_creation_types:[],child_activation_types:[]}))};
+    const custom:DebugGraph={...graph,card_type:'custom-leaf',notification_recipient:'planner',permitted_child_types:[],nodes:graph.nodes.map((node)=>({...node,tools:['activate_card'],child_creation_types:[],child_activation_types:[]}))};
     api.getDebugGraphs.mockResolvedValueOnce(DebugGraphsResponseSchema.parse({graphs:[custom]}));
     const store=useDebugStore();await store.fetchGraphs();
     expect(store.graphs?.[0]?.card_type).toBe('custom-leaf');
@@ -64,6 +66,14 @@ describe('Debug Graphs', () => {
     expect(wrapper.text()).toContain('custom-leaf');
     expect(wrapper.text()).toContain('activate_card');
     expect(wrapper.text()).not.toContain('create_card');
+  });
+
+  it('renders pending-notifications edges as explicit conditional routing', () => {
+    const conditional: DebugGraph = { ...graph, edges: [...graph.edges, { source_node_id: 'plan', outcome: 'approved', runtime_owned: false, condition: 'pending_notifications', prompt_reference: 'review-to-notifications', target: { kind: 'node', node_id: 'plan' }, export_records: [], promotion: null }] };
+    const wrapper = mount(DebugGraphDiagram, { props: { graph: conditional } });
+    expect(wrapper.find('path.conditional-edge').exists()).toBe(true);
+    expect(wrapper.text()).toContain('approved · pending');
+    expect(wrapper.findAll('.graph-edge-group').at(-1)!.attributes('aria-label')).toContain('Pending-notifications conditional');
   });
 
   it('rejects malformed or disclosure-bearing graph payloads at the shared wire contract', () => {

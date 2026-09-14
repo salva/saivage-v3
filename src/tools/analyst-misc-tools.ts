@@ -203,7 +203,7 @@ export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = O
     defineToolBinder({
       name: 'queue_notification',
       description:
-        "Queue context on a notification-capable card for its configured current/next workflow-node agent while notification admission is open. Pending delivery context is not readable.",
+        "Queue context on a notification-capable card for its configured designated recipient while notification admission is open. Pending delivery context is not readable.",
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => queueNotificationInputSchema,
       executor: (ctx, args, signal) => queue_notification(ctx, args, signal),

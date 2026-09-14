@@ -111,7 +111,7 @@ describe('AgentNodeExecution LLM options', () => {
       processPrompts: new Map([['work', { text: 'selected node prompt body' }], ['other', { text: 'unselected prompt body' }]]),
     };
     const transition = { context: { source: 'entry:READY', event: 'begin', target: 'node:work' }, acceptedResult: null };
-    const input = { card: { id: 'project', type: 'project' }, notificationDelivery: { selectNotifications: () => [], removeNotifications: () => undefined } };
+    const input = { card: { id: 'project', type: 'project' }, notificationDelivery: { hasPendingNotifications: () => false, selectNotifications: () => [], removeNotifications: () => undefined } };
     const firstInputId = '00000000-0000-4000-8000-000000000001';
     const secondInputId = '00000000-0000-4000-8000-000000000002';
 
