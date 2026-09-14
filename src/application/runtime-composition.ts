@@ -199,6 +199,7 @@ export function createRuntimeApplication(services: RuntimeApplicationServices): 
         store: cardStore,
         configAuthority: services.configAuthority,
         notifyCard,
+        submitNotification: runtimeApi.submitNotification.bind(runtimeApi),
         cancelCard: runtimeApi.cancelCard.bind(runtimeApi),
       });
       const context: ToolContext = {

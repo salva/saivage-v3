@@ -91,7 +91,7 @@ function harness(withChild = false, fatalPort: ApplicationFatalPort = testApplic
     commitActivationOutcome: jest.fn((_id: string, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>) => ({ ...card('project'), lifecycle: { ...card('project').lifecycle, status: outcome.status } })),
     setStatus: jest.fn((id: string, status: CardRecord['lifecycle']['status']) => { lifecycle.set(id, status); return { ...card(id), lifecycle: { ...card(id).lifecycle, status } }; }),
     listChildren: jest.fn((id: string) => withChild && id === 'project' ? ['card-a'] : []),
-    stopRunningForRecovery: jest.fn((id: string) => { lifecycle.set(id, 'stopped'); return { ...card(id), lifecycle: { ...card(id).lifecycle, status: 'stopped' as const } }; }),
+    stopRunning: jest.fn((id: string) => { lifecycle.set(id, 'stopped'); return { ...card(id), lifecycle: { ...card(id).lifecycle, status: 'stopped' as const } }; }),
     activateStopped: jest.fn((id: string) => { lifecycle.set(id, 'running'); return { ...card(id), lifecycle: { ...card(id).lifecycle, status: 'running' as const } }; }),
   };
   const runtimeChanged = jest.fn();

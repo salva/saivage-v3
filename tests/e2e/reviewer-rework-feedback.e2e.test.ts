@@ -187,7 +187,7 @@ describe('reviewer rework completion E2E', () => {
         }
         if (goalPlannerCalls === 5) {
           observedImplementationStatuses.push(cards.read(implementation.id)!.lifecycle.status);
-          return complete(tool('goal-queue-correction', 'queue_notification', { card_id: implementation.id, kind: 'review_correction', body: correction }));
+          return complete(tool('goal-queue-correction', 'queue_notification', { card_id: implementation.id, kind: 'review_correction', body: correction, urgency: 'normal' }));
         }
         if (goalPlannerCalls === 6) return complete(tool('goal-activate-correction', 'activate_card', { card_id: implementation.id }));
         if (goalPlannerCalls === 7) return complete(tool('goal-status-corrected', 'write', { path: `record:///status.md?card=${goal.id}`, content: 'The same implementation child completed the requested correction.' }));

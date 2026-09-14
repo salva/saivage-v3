@@ -83,16 +83,29 @@ describe('tool invocation surface', () => {
       ],
     }]);
 
-    await expect(invokeToolForLlm(surface, 'buggy', {}, testLlmToolInvocationContext({ toolName: 'buggy' }))).resolves.toEqual(syntheticToolSettlement('execution_failed', 'programmer bug'));
+    await expect(invokeToolForLlm(surface, 'buggy', {}, testLlmToolInvocationContext({ toolName: 'buggy' }))).rejects.toThrow('programmer bug');
   });
 
-  it('rethrows from the LLM boundary when the signal is already aborted', async () => {
+  it('returns a rejected-before-execution settlement when ordinary cancellation precedes executor entry', async () => {
     const surface = buildInvocationSurfaceFixture('analyst', [provider('a')]);
     const controller = new AbortController();
     const reason = new Error('cancelled');
     controller.abort(reason);
 
-    await expect(invokeToolForLlm(surface, 'demo', { value: 'ok' }, testLlmToolInvocationContext({ toolName: 'demo' }), controller.signal)).rejects.toThrow('cancelled');
+    await expect(invokeToolForLlm(surface, 'demo', { value: 'ok' }, testLlmToolInvocationContext({ toolName: 'demo' }), controller.signal)).resolves.toEqual(syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.'));
+  });
+
+  it('returns an entered tool result after ordinary cancellation instead of discarding known success', async () => {
+    let resolve!: (value: ToolExecutionResult<'none'>) => void;
+    const tool = new Promise<ToolExecutionResult<'none'>>((done) => { resolve = done; });
+    const surface = buildInvocationSurfaceFixture('planner', [{ providerName: 'controlled', tools: [defineTool({ name: 'controlled', description: 'controlled', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: z.object({}).strict(), executor: () => tool })] }]);
+    const controller = new AbortController();
+    const pending = invokeToolForLlm(surface, 'controlled', {}, testLlmToolInvocationContext({ toolName: 'controlled' }), controller.signal);
+    await Promise.resolve();
+    controller.abort(new Error('cancelled'));
+    const result = executedToolOutcome('none', toolSucceeded({ retained: true }));
+    resolve(result);
+    await expect(pending).resolves.toEqual({ kind: 'executed', execution: result });
   });
 
   it('rethrows app-log publication failures unchanged from the LLM boundary', async () => {

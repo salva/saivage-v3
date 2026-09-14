@@ -313,6 +313,11 @@ export class AnalystSession {
           signal,
         );
         operation.toolInFlight = null;
+        if (signal.aborted || (this.#phase.kind === 'disposed' && this.#phase.settling === operation)) {
+          const settled = await this.#llm.settleToolResultWithoutContinuation(outcome.toolCallId, settlement);
+          operation.toolInvocations.push({ tool: outcome.toolName, params, result: settled.providerResult, sourceInputId: outcome.inputId, toolCallId: outcome.toolCallId });
+          throw signal.reason;
+        }
         this.assertCurrent(operation, signal);
       }
       const actionOutcome = settlement.kind === 'executed' ? settlement.execution.providerOutcome : settlement.providerOutcome;
@@ -593,6 +598,12 @@ export class AnalystSession {
       operation.step.kind === 'settling_llm'
     ) {
       this.#llm.dispose(reason);
+      return;
+    }
+    if (operation.step.kind === 'waiting_tool' && operation.toolInFlight !== null) {
+      this.#llm.requestGracefulCancellation(reason);
+      operation.tracker.cancelAndSettle(reason);
+      if (!operation.abort.signal.aborted) operation.abort.abort(reason);
       return;
     }
     const disposition = this.#llm.dispose(reason);

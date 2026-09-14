@@ -42,7 +42,9 @@ export const analystReopenCardInputSchema = z.object({ cardId: cardIdSchema.desc
 export const analystCancelCardInputSchema = z.object({ cardId: z.string().describe('The ID of the card to cancel.'), reason: z.string().optional().describe('Optional cancellation reason.') }).strict();
 export const analystDeleteCardInputSchema = z.object({ ids: z.array(z.string()).min(1).describe('Card ids to delete.') }).strict();
 
-export const queueNotificationInputSchema = z.object({ card_id: cardIdSchema.describe('The exact card id.'), kind: z.string().min(1).describe('A short categorical label.'), body: z.string().min(1).describe('The context text to inject.') }).strict();
+const notificationUrgencySchema = z.enum(['normal', 'urgent']);
+export type NotificationUrgency = z.infer<typeof notificationUrgencySchema>;
+export const queueNotificationInputSchema = z.object({ card_id: cardIdSchema.describe('The exact card id.'), kind: z.string().min(1).describe('A short categorical label.'), body: z.string().min(1).describe('The context text to inject.'), urgency: notificationUrgencySchema.describe('Normal queues context only; urgent may interrupt the exact active descendant suffix after enqueue.') }).strict();
 export const readAgentSessionInputSchema = z.object({ session_id: ConversationSessionIdSchema, last_n: z.number().int().min(1).max(1000).optional() }).strict();
 export const readRuntimeEventsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional(), kind: z.enum(eventKindValues).optional() }).strict();
 export const readRuntimeErrorsInputSchema = z.object({ limit: z.number().int().positive().max(EVENT_QUERY_MAX_LIMIT).optional() }).strict();
@@ -145,4 +147,4 @@ export const plannerEditCardInputSchema = z.object({ card_id: cardIdSchema, titl
 export const plannerCancelCardInputSchema = z.object({ card_id: cardIdSchema, reason: z.string().optional() }).strict();
 export const plannerReopenCardInputSchema = z.object({ card_id: cardIdSchema.describe('The exact done or failed direct-child card ID to reopen.') }).strict();
 export const plannerReorderChildInputSchema = z.object({ orderedChildIds: z.array(z.string()) }).strict();
-export const plannerQueueNotificationInputSchema = z.object({ card_id: cardIdSchema, kind: z.string().min(1), body: z.string().min(1) }).strict();
+export const plannerQueueNotificationInputSchema = z.object({ card_id: cardIdSchema, kind: z.string().min(1), body: z.string().min(1), urgency: notificationUrgencySchema }).strict();

@@ -27,7 +27,7 @@ const validArguments: Record<KnownToolInvocationName, unknown> = {
   delete_card: { ids: ['card-a'] },
   reorder_child: { parentId: 'project', orderedChildIds: ['card-a'] },
   reopen_card: { cardId: 'card-a' },
-  queue_notification: { card_id: 'card-a', kind: 'tok_primary', body: marker },
+  queue_notification: { card_id: 'card-a', kind: 'tok_primary', body: marker, urgency: 'normal' },
   get_status: {}, start_project: {}, pause_runtime: {}, resume_runtime: {}, stop_project: {}, restart_server: {}, mcp_reconcile: {},
   navigate_workspace: { target: { kind: 'card', id: 'tok_primary', refinement: marker } },
   navigate_back: {}, show_config: {},

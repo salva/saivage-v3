@@ -20,6 +20,7 @@ import type { ManagedProcessScope, ProcessRunner } from '../process-runner.js';
 import type { RecordProjection } from '../../persistence/authored-record-files.js';
 import { PublicationOutcomeUnknownError, throwIfPublicationOutcomeUnknown } from '../../contracts/index.js';
 import { toolFailed, toolSucceeded } from '../../contracts/tool-result.js';
+import { isCardInterruptedError } from './card-interrupted-error.js';
 
 export interface AcceptedNodeResult {
   readonly nodeId: string;
@@ -51,6 +52,7 @@ export interface AgentNodeExecutionDeps {
   store: CardService;
   parentControl: PlannerChildControlPort;
   notifyCard: (cardId: string, notification: import('../../schemas/index.js').CardNotification) => import('../runtime-api.js').NotifyCardResult;
+  submitNotification: import('../runtime-api.js').NotificationSubmissionPort;
   processRunner: ProcessRunner;
   runtimeProcessRootScope: ManagedProcessScope;
   mcpToolInvocation: McpToolInvocationPort;
@@ -89,11 +91,20 @@ export class AgentNodeExecution {
       const preparedInput = this.enterNodeConversation(prepared);
       const terminalHandoff = () => this.host.assertCurrentActivation(input);
       let outcome = await llm.turn(preparedInput, signal, terminalHandoff);
+      if (signal.aborted && isCardInterruptedError(signal.reason) && outcome.type === 'tool_call') {
+        await llm.settleToolResultWithoutContinuation(outcome.toolCallId, syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.'));
+        throw signal.reason;
+      }
       this.host.assertCurrentActivation(input);
       for (;;) {
+        if (signal.aborted && isCardInterruptedError(signal.reason) && outcome.type !== 'tool_call') throw signal.reason;
         if (outcome.type === 'result') {
           this.host.assertCurrentActivation(input);
           outcome = await llm.continueAfterPlainText(this.correction(process, node, ['emit_result is required.']), signal, terminalHandoff, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId));
+          if (signal.aborted && isCardInterruptedError(signal.reason) && outcome.type === 'tool_call') {
+            await llm.settleToolResultWithoutContinuation(outcome.toolCallId, syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.'));
+            throw signal.reason;
+          }
           this.host.assertCurrentActivation(input);
           continue;
         }
@@ -208,6 +219,10 @@ export class AgentNodeExecution {
         const toolSettlement: ToolSettlementInput = surface.tools.has(outcome.toolName)
           ? await invokeToolForLlm(surface, outcome.toolName, outcome.args, llm.toolInvocationContext(outcome), signal)
           : syntheticToolSettlement('unsupported_tool', `Unsupported ${node.agent.name} tool call '${outcome.toolName}'.`);
+        if (signal.aborted && isCardInterruptedError(signal.reason)) {
+          await llm.settleToolResultWithoutContinuation(outcome.toolCallId, toolSettlement);
+          throw signal.reason;
+        }
         signal.throwIfAborted();
         this.host.assertCurrentActivation(input);
         outcome = (await llm.appendToolResult(outcome.toolCallId, toolSettlement, signal, (continuationInputId) => this.ordinaryNotificationContext(process, node, input, continuationInputId))).outcome;
@@ -227,7 +242,7 @@ export class AgentNodeExecution {
     }
     let cleanupCompletion: { kind: 'success' } | { kind: 'failure'; reason: unknown };
     try {
-      await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted ? 'cancelled' : cleanupStatus });
+      await cleanupInvocationSurface(surface, { kind: 'activation_settled', status: signal.aborted && isCardInterruptedError(signal.reason) ? 'stopped' : signal.aborted ? 'cancelled' : cleanupStatus });
       cleanupCompletion = { kind: 'success' };
     } catch (error) {
       cleanupCompletion = { kind: 'failure', reason: error };
@@ -324,7 +339,7 @@ export class AgentNodeExecution {
 
   private buildSurface(node: CompiledNodeContract, input: CardActivationInput, sessionId: ConversationSessionId, scope: ManagedProcessScope | null, nodeOrdinal: number, writtenRecords: Set<string>): InvocationSurface {
     const references=effectiveCardNodeToolReferences(node.agent.tools,node.childCreationTypes);
-    return new BoundAgentToolSet(references).bind({scope:'card',agentName:node.agent.name,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,cardTypeVocabulary:this.deps.workflows.cardTypeVocabulary,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation,onRecordWritten:(name)=>writtenRecords.add(name)});
+    return new BoundAgentToolSet(references).bind({scope:'card',agentName:node.agent.name,projectRoot:this.deps.projectRoot,cardId:input.card.id,sessionId,store:this.deps.store,parentControl:this.deps.parentControl,notifyCard:this.deps.notifyCard,submitNotification:this.deps.submitNotification,childCreationTypes:node.childCreationTypes,childActivationTypes:node.childActivationTypes,cardTypeVocabulary:this.deps.workflows.cardTypeVocabulary,processRunner:this.deps.processRunner,...(scope?{processScope:scope,processOwnerId:`${input.activationId}:node:${nodeOrdinal}`}:{ }),mcpToolInvocation:this.deps.mcpToolInvocation,onRecordWritten:(name)=>writtenRecords.add(name)});
   }
 
   private executorScope(input: CardActivationInput, ordinal: number): ManagedProcessScope {

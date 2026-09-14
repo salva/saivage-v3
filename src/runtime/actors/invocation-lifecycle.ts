@@ -45,6 +45,10 @@ export class ActivationOperationTracker {
     this.#operations.revoke(reason, this.#controller);
   }
 
+  cancelAndSettle(reason: unknown): void {
+    this.#operations.cancelAndSettle(reason, this.#controller);
+  }
+
   join(): Promise<InvocationJoinOutcome> {
     return this.#operations.join();
   }
@@ -107,6 +111,16 @@ export class InvocationLifecycle {
 
   revoke(reason: unknown): void {
     this.#operations.revoke(reason, this.#controller);
+    this.#current = null;
+    this.#controller = null;
+  }
+
+  cancelCurrentAndSettle(reason: unknown): void {
+    this.#operations.cancelAndSettle(reason, this.#controller);
+  }
+
+  settleKnown(invocation: InvocationLease): void {
+    this.#ownedCurrent(invocation);
     this.#current = null;
     this.#controller = null;
   }

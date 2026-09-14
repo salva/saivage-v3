@@ -46,6 +46,7 @@ export abstract class BaseActor {
   #actorMainRunning = false;
   #mainLoopFailed = false;
   #mainLoopFailure: unknown;
+  #stopAfterCurrentTask = false;
 
   protected constructor(initialStateId: string, states: ReadonlyMap<string, CompiledActorState>) {
     this.#initialStateId = initialStateId;
@@ -118,6 +119,10 @@ export abstract class BaseActor {
     });
   }
 
+  protected stopAfterCurrentTask(): void {
+    this.#stopAfterCurrentTask = true;
+  }
+
   #dispatchEvent(eventName: string): string {
     const currentState = this.#currentState!;
     const stateDef = this.#states.get(currentState)!;
@@ -158,6 +163,10 @@ export abstract class BaseActor {
             this.#settleLifecycleWaiters();
           }
           continue;
+        }
+
+        if (this.#stopAfterCurrentTask && this.#task === null && this.#nextEvent === undefined) {
+          return;
         }
 
         if (this.#states.get(this.#currentState!)?.isTerminal) {

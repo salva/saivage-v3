@@ -1,13 +1,16 @@
 import { randomUUID } from 'node:crypto';
 import type { CardNotification } from '../schemas/index.js';
-import type { NotifyCardResult } from '../runtime/runtime-api.js';
+import type { NotificationSubmissionPort, NotificationSubmissionResult } from '../runtime/runtime-api.js';
+import type { NotificationUrgency } from '../contracts/builtin-tool-inputs.js';
 
 export function queueNotification(
   cardId: string,
   kind: string,
   body: string,
-  notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult,
-): NotifyCardResult {
+  urgency: NotificationUrgency,
+  submitNotification: NotificationSubmissionPort,
+  signal?: AbortSignal,
+): Promise<NotificationSubmissionResult> {
   const createdAt = new Date().toISOString();
   const notification: CardNotification = {
     id: randomUUID(),
@@ -15,5 +18,5 @@ export function queueNotification(
     created_at: createdAt,
     source: kind,
   };
-  return notifyCard(cardId, notification);
+  return submitNotification(cardId, notification, urgency, signal);
 }

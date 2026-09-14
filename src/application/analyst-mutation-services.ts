@@ -4,6 +4,7 @@ import { canCancelCardStatus, canCreateChildInStatus } from '../cards/status-api
 import type { ConfigMutation, ResolvedConfigAuthority } from '../config/index.js';
 import { queueNotification } from '../notifications/index.js';
 import type { CardRecord, CardTypeName } from '../schemas/index.js';
+import type { NotificationUrgency } from '../contracts/builtin-tool-inputs.js';
 import { propagateAnalystRecordEdit, propagateChange } from '../runtime/changed-propagation.js';
 import type { RuntimeApi } from '../runtime/runtime-api.js';
 import { toCardView } from './read-models/card-view.js';
@@ -42,7 +43,7 @@ interface AnalystConfigMutationService {
 }
 
 interface AnalystNotificationMutationService {
-  queue(cardId: string, kind: string, body: string): AnalystMutationOutcome;
+  queue(cardId: string, kind: string, body: string, urgency: NotificationUrgency, signal?: AbortSignal): Promise<AnalystMutationOutcome>;
 }
 
 export interface AnalystRecordMutationService {
@@ -58,12 +59,12 @@ export interface AnalystMutationServices {
   recordMutations: AnalystRecordMutationService;
 }
 
-export function createAnalystMutationServices(input: { store: CardService; configAuthority: ResolvedConfigAuthority; notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
+export function createAnalystMutationServices(input: { store: CardService; configAuthority: ResolvedConfigAuthority; notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']; submitNotification: Pick<RuntimeApi, 'submitNotification'>['submitNotification']; cancelCard: Pick<RuntimeApi, 'cancelCard'>['cancelCard'] }): AnalystMutationServices {
   const notifyCard = input.notifyCard;
   return {
     cards: new AnalystCardMutationImplementation(input.store, notifyCard, input.cancelCard),
     config: new AnalystConfigMutationImplementation(input.configAuthority),
-    notifications: new AnalystNotificationMutationImplementation(notifyCard),
+    notifications: new AnalystNotificationMutationImplementation(input.submitNotification),
     recordMutations: new AnalystRecordMutationImplementation(input.store, notifyCard),
   };
 }
@@ -165,10 +166,10 @@ class AnalystConfigMutationImplementation implements AnalystConfigMutationServic
 }
 
 class AnalystNotificationMutationImplementation implements AnalystNotificationMutationService {
-  constructor(private readonly notifyCard: Pick<RuntimeApi, 'notifyCard'>['notifyCard']) {}
-  queue(cardId: string, kind: string, body: string): AnalystMutationOutcome {
-    const queued = queueNotification(cardId, kind, body, this.notifyCard);
-    if (queued.ok) return success({ queued: true, card_id: cardId, notification_id: queued.notificationId });
+  constructor(private readonly submitNotification: Pick<RuntimeApi, 'submitNotification'>['submitNotification']) {}
+  async queue(cardId: string, kind: string, body: string, urgency: NotificationUrgency, signal?: AbortSignal): Promise<AnalystMutationOutcome> {
+    const queued = await queueNotification(cardId, kind, body, urgency, this.submitNotification, signal);
+    if (queued.queued) return success({ queued: true, card_id: queued.cardId, notification_id: queued.notificationId, interruption: queued.interruption });
     switch (queued.reason) {
       case 'missing_card': return failure(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
       case 'terminal_card': return failure(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });

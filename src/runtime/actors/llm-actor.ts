@@ -30,6 +30,7 @@ import type { SummarizerProviderPort } from './compaction/summarizer.js';
 import type { ChildInvocationReservation, CompactionProgress, ExactWaitBarrier, ExecutingLlmActivity, ExternalAndProcessWaits, LlmToolInvocationContext, ToolInvocationIdentity } from './executing-llm-snapshot.js';
 import { ChildInvocationLease } from './child-invocation-wait.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
+import { isCardInterruptedError } from './card-interrupted-error.js';
 
 export type LLMActorOutcome =
   | { type: 'result'; agentId: string; result: Extract<LlmCompleteResult, { kind: 'message' }> }
@@ -68,7 +69,7 @@ export type LlmTerminalHandoff = (terminal: Readonly<{ input: CanonicalLlmInvoca
 
 type Callbacks = Readonly<{ terminal: LlmTerminalHandoff }>;
 type WaitingToolCall = Readonly<{ sourceInputId: string; toolCallId: string; toolName: string; toolCallArguments: string; resultPolicy: InvocationResultPolicy }>;
-type Disposition = { kind: 'open' } | { kind: 'continuation_closed'; reason: unknown } | { kind: 'disposed'; reason: unknown };
+type Disposition = { kind: 'open' } | { kind: 'continuation_closed'; reason: unknown } | { kind: 'graceful_cancellation'; reason: unknown } | { kind: 'disposed'; reason: unknown };
 type InvocationOperation = {
   input: CanonicalLlmInvocationInput;
   callbacks: Callbacks;
@@ -78,6 +79,7 @@ type InvocationOperation = {
   lease: InvocationLease | null;
   completionPersistenceEntered: boolean;
   providerBoundaryEntered: boolean;
+  turnStartedPersisted: boolean;
   disposition: Disposition;
 };
 type ParkedOperation = {
@@ -299,6 +301,8 @@ export class ConversationLLMActor {
       if (!lease || lease.phase() === 'rejected') { this.#phase = { kind: 'idle', disposition: phase.operation.disposition }; return 'revoked_before_owned_completion'; }
       return 'joining_owned_completion';
     }
+    if ((phase.kind === 'arming' || phase.kind === 'invoking') && phase.operation.disposition.kind === 'graceful_cancellation')
+      return 'joining_owned_completion';
     if (phase.kind === 'arming' || (phase.kind === 'invoking' && !phase.operation.completionPersistenceEntered)) {
       const operation = phase.operation;
       this.#clearCompaction(operation);
@@ -329,6 +333,19 @@ export class ConversationLLMActor {
     throw new Error(`LLMActor '${this.agentId}' has an unknown continuation phase.`);
   }
 
+  requestGracefulCancellation(reason: unknown): void {
+    this.#invocations.closeAdmission(reason);
+    const phase = this.#phase;
+    if (phase.kind === 'waiting_tool') phase.operation.disposition = { kind: 'graceful_cancellation', reason };
+    else if (phase.kind === 'idle') this.#phase = { kind: 'idle', disposition: { kind: 'graceful_cancellation', reason } };
+    else if (phase.kind === 'retained_text') phase.operation.disposition = { kind: 'graceful_cancellation', reason };
+    else if (phase.kind === 'arming' || phase.kind === 'invoking') phase.operation.disposition = { kind: 'graceful_cancellation', reason };
+    else if (phase.kind === 'settling_tool') phase.operation.parked.disposition = { kind: 'graceful_cancellation', reason };
+    else if (phase.kind === 'repairing_text') phase.operation.disposition = { kind: 'graceful_cancellation', reason };
+    if ((phase.kind === 'arming' || phase.kind === 'invoking') && phase.operation.lease !== null)
+      this.#invocations.cancelCurrentAndSettle(reason);
+  }
+
   async join(): Promise<InvocationJoinOutcome> {
     const phase = this.#phase;
     const settlements: Promise<unknown>[] = [];
@@ -347,7 +364,7 @@ export class ConversationLLMActor {
   #arm(input: CanonicalLlmInvocationInput, signal: AbortSignal | undefined, callbacks: Callbacks, disposition: Disposition): Promise<LLMActorOutcome> {
     const result = deferred<LLMActorOutcome>(); observe(result.promise);
     const settlement = deferred<void>(); observe(settlement.promise);
-    const operation: InvocationOperation = { input, callbacks, result, settlement, signal: signal ?? new AbortController().signal, lease: null, completionPersistenceEntered: false, providerBoundaryEntered: false, disposition };
+    const operation: InvocationOperation = { input, callbacks, result, settlement, signal: signal ?? new AbortController().signal, lease: null, completionPersistenceEntered: false, providerBoundaryEntered: false, turnStartedPersisted: false, disposition };
     this.#phase = { kind: 'arming', operation };
     try { this.runtimeProjectionChanged?.(); this.#beginInvocation(operation); }
     catch (error) { this.#deliverPublicationFatal(error); this.#failInvocation(operation, error); }
@@ -380,8 +397,10 @@ export class ConversationLLMActor {
     input = admitted.input;
     operation.input = input;
     appendLlmTurnStarted(this.conversations, input);
+    operation.turnStartedPersisted = true;
     await this.gate.waitUntilOpen(signal); this.#invocations.assertCurrent(operation.lease!); operation.providerBoundaryEntered = true;
-    const completion = await this.#callProvider(operation, input, admitted.admission, signal); this.#invocations.assertCurrent(operation.lease!);
+    const completion = await this.#callProvider(operation, input, admitted.admission, signal);
+    if (operation.disposition.kind !== 'graceful_cancellation') this.#invocations.assertCurrent(operation.lease!);
     if (completion.kind === 'content-policy-blocked') return completion;
     operation.completionPersistenceEntered = true;
     return this.#persistProviderCompletion(operation.input, completion.completion);
@@ -422,12 +441,15 @@ export class ConversationLLMActor {
         const parked: ParkedOperation = { input: persisted.input, callbacks: operation.callbacks, outcome, waiting, disposition: operation.disposition, toolContext: null, childLease: null };
         this.#phase = { kind: 'waiting_tool', operation: parked };
       } else {
-        operation.callbacks.terminal(Object.freeze({ input: persisted.input, outcome }));
+        if (operation.disposition.kind !== 'graceful_cancellation')
+          operation.callbacks.terminal(Object.freeze({ input: persisted.input, outcome }));
         this.#phase = outcome.type === 'result'
           ? { kind: 'retained_text', operation: { input: persisted.input, callbacks: operation.callbacks, outcome, disposition: operation.disposition } }
           : { kind: 'idle', disposition: operation.disposition };
       }
-      this.#invocations.settle(operation.lease!); operation.lease = null;
+      if (operation.disposition.kind === 'graceful_cancellation') this.#invocations.settleKnown(operation.lease!);
+      else this.#invocations.settle(operation.lease!);
+      operation.lease = null;
       operation.result.resolve(outcome); operation.settlement.resolve(); this.runtimeProjectionChanged?.();
     } catch (error) { this.#deliverPublicationFatal(error); this.#failInvocation(operation, error); }
   }
@@ -437,8 +459,36 @@ export class ConversationLLMActor {
     try {
       if (this.#phase.kind !== 'invoking' || this.#phase.operation !== operation) return;
       if (operation.completionPersistenceEntered) throw error;
-      if (operation.signal.aborted || operation.lease === null) throw error;
+      if (operation.lease === null) throw error;
+      const disposition = operation.disposition;
+      const gracefulCancellation = disposition.kind === 'graceful_cancellation';
+      const cancellationFailure = gracefulCancellation && (error === operation.signal.reason || error === disposition.reason);
+      if (operation.signal.aborted && !gracefulCancellation) throw error;
+      if (gracefulCancellation && !operation.providerBoundaryEntered) {
+        if (!cancellationFailure) throw error;
+        if (operation.turnStartedPersisted) {
+          operation.completionPersistenceEntered = true;
+          appendLlmTurnError(this.conversations, operation.input, 'Invocation cancelled.');
+        }
+        this.#phase = { kind: 'idle', disposition: operation.disposition };
+        this.#invocations.settleKnown(operation.lease); operation.lease = null;
+        if (operation.turnStartedPersisted) operation.result.resolve({ type: 'error', agentId: this.agentId, error: 'Invocation cancelled.' });
+        else operation.result.reject(disposition.reason);
+        operation.settlement.resolve();
+        return;
+      }
       if (!operation.providerBoundaryEntered) throw error;
+      if (!(error instanceof ProviderTurnFailure) && !gracefulCancellation) throw error;
+      if (gracefulCancellation && !(error instanceof ProviderTurnFailure)) {
+        if (!cancellationFailure) throw error;
+        operation.completionPersistenceEntered = true;
+        const appended = appendLlmTurnError(this.conversations, operation.input, 'Invocation cancelled.');
+        const outcome: Extract<LLMActorOutcome, { type: 'error' }> = { type: 'error', agentId: this.agentId, error: 'Invocation cancelled.' };
+        this.#phase = { kind: 'idle', disposition: operation.disposition };
+        this.#invocations.settleKnown(operation.lease); operation.lease = null;
+        operation.result.resolve(outcome); operation.settlement.resolve();
+        return;
+      }
       if (!(error instanceof ProviderTurnFailure)) throw error;
       if (error.failure_phase === 'provider_attempt' && error.provider_exchanges.length === 0) throw new Error(`Provider attempt for '${operation.input.inputId}' failed without provider_exchange envelope.`);
       const message = error.originalFailure instanceof Error ? error.originalFailure.message : error.message;
@@ -446,9 +496,11 @@ export class ConversationLLMActor {
       const appended = appendLlmTurnError(this.conversations, operation.input, message);
       this.#projectProviderExchanges(operation.input, error.provider_exchanges, { assistantOutputIds: [], terminalConversationOutputId: appended.id });
       const outcome: Extract<LLMActorOutcome, { type: 'error' }> = { type: 'error', agentId: this.agentId, error: message };
-      operation.callbacks.terminal(Object.freeze({ input: operation.input, outcome }));
+      if (!gracefulCancellation) operation.callbacks.terminal(Object.freeze({ input: operation.input, outcome }));
       this.#phase = { kind: 'idle', disposition: operation.disposition };
-      this.#invocations.settle(operation.lease!); operation.lease = null;
+      if (gracefulCancellation) this.#invocations.settleKnown(operation.lease!);
+      else this.#invocations.settle(operation.lease!);
+      operation.lease = null;
       operation.result.resolve(outcome); operation.settlement.resolve();
     } catch (fatal) { this.#deliverPublicationFatal(fatal); this.#failInvocation(operation, fatal); }
   }
@@ -463,8 +515,16 @@ export class ConversationLLMActor {
 
   async #runToolSettlement(operation: OrdinaryToolSettlementOperation, settlement: ToolSettlementInput, signal?: AbortSignal, hook?: LLMToolContinuationContextHook): Promise<void> {
     try {
-      signal?.throwIfAborted(); const facts = this.#appendClaimedToolResult(operation, settlement);
+      if (signal?.aborted && !isCardInterruptedError(signal.reason)) signal.throwIfAborted();
+      const facts = this.#appendClaimedToolResult(operation, settlement);
       if (operation.disposal) return this.#settleDisposedTool(operation);
+      if (operation.parked.disposition.kind === 'graceful_cancellation') {
+        const reason = operation.parked.disposition.reason;
+        this.#releaseTool(operation);
+        operation.result.reject(reason);
+        operation.settlement.resolve();
+        return;
+      }
       let continuationInput = { ...operation.parked.input, inputId: randomUUID(), episodeContext: { ...operation.parked.input.episodeContext, lastToolResult: { toolCallId: operation.parked.waiting.toolCallId, toolName: operation.parked.waiting.toolName, result: facts.providerResult } } };
       this.#assertContinuationPreparedContext(operation.parked.input, continuationInput);
       const continuation = hook?.(continuationInput.inputId);

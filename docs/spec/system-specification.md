@@ -245,7 +245,7 @@ Current routing reconciles pending context with BLOCKED or failure settlement, c
 It preserves exceptional terminal clearing, notification-empty terminal states, and append-before-remove duplication/loss limits.
 It promises neither eventual nor exactly-once delivery and adds no second queue, receipt service, transaction, replay, or recovery protocol.
 
-### 7. Urgent notification ordering
+### 7. Urgent notification ordering (implemented shared contract)
 
 Urgency is a property of the shared notification operation, not a new queue, wire protocol, or control port, and requires current evidence of material ongoing harm, avoidable waste, or divergence plus why waiting is materially worse.
 For a target Planner awaiting an active descendant chain, the runtime first performs fresh ordinary target/activation admission and **confirms notification enqueue before requesting interruption**.
@@ -254,7 +254,7 @@ It must not permanently cancel work, fake completion, roll back effects, automat
 Without an active awaited descendant chain, urgency queues normally; it never activates/reopens a card, bypasses dependencies, redirects a denial, or creates or resumes a Run.
 Missing, terminal, and postclaim denials stand. Enqueue failure or uncertainty permits no interruption.
 Confirmed enqueue followed by denied or failed interruption is a truthful partial outcome: retain queued context, report known results separately, and do not retract, resend, or claim atomic rollback.
-Pause, Stop, application closure, terminal winners, and ordinary runtime ownership always prevail.
+Pause, Stop, application closure, terminal winners, and ordinary runtime ownership always prevail. Both Analyst and Planner `queue_notification` inputs require exact lowercase `urgency:'normal'|'urgent'`; omitted values and aliases are invalid. Normal submission returns `interruption:{status:'not_requested'}`. Confirmed urgent enqueue returns `not_applicable`, `interrupted` with exact stopped IDs, `suppressed` with its known reason, or `failed` with a safe known reason. Every confirmed form retains `queued:true`, card/notification identity, and the interruption result.
 
 ### 8. Privacy and implementation gate
 
@@ -372,7 +372,7 @@ It moves to running through activation and to cancelled through cancellation.
 
 `running` is the sole active execution state: a card is running only while a live activation owns and executes its compiled workflow.
 It is nonterminal and preserves notifications.
-Terminal completion is owned only by a non-cancelled activation outcome on a running card, producing done, failed, or blocked; cancellation moves it to cancelled, and only recovery publishes running-to-stopped.
+Terminal completion is owned only by a non-cancelled activation outcome on a running card, producing done, failed, or blocked; cancellation moves it to cancelled. The Supervisor alone may publish running-to-stopped after full-Run recovery stabilization or after safely joining an exact urgently interrupted live descendant.
 running-to-changed is not an operation, and an exact parent or sibling `activate_card` may join its retained activation.
 
 `blocked` is an inactive, unresolved activation result.
@@ -598,7 +598,7 @@ A real blocked/failed delta calls public `setStatus(id, 'changed')`, whose neste
 If that second publication fails, the completed changed-status prefix and its ordinary effects remain; the error escapes without reread, retry, rollback, compensation, notification, or artifact inspection.
 Generic status targets are only running (from backlog/blocked/changed), changed (from blocked/done/failed), and cancelled (from backlog/running/blocked/changed/stopped/failed); running-to-changed is not an operation.
 Running/changed preserve notifications, cancellation clears them, and the ordered delta contains `pending_notifications` only when a nonempty list changed.
-Recovery running-to-stopped and STOPPED stopped-to-running remain disjoint fixed-reason status families.
+Supervisor running-to-stopped and STOPPED stopped-to-running remain disjoint fixed-reason status families.
 
 ### Exact card history vocabulary
 
@@ -873,9 +873,9 @@ The recovery notice uses `${inputId}:model-recovered` and `deterministicRoundId(
 A malformed association, collision, or older notice followed by newer same-activation work fails rather than reusing the deterministic ID.
 A fresh STOPPED activation has a fresh marker and can later receive its own distinct notice.
 
-After all configured sessions for one selected card stabilize, `stopRunningForRecovery` immediately publishes that card `stopped`, regardless of whether stabilization appended `model_recovered` or recognized an exact final existing notice as read-only clean conversation state.
+After all configured sessions for one selected card stabilize, `stopRunning` immediately publishes that card `stopped`, regardless of whether stabilization appended `model_recovered` or recognized an exact final existing notice as read-only clean conversation state.
 The notice never waives lifecycle settlement.
-The source must be running, the sole caller is supervisor reset, and its trusted writer context persists the exact reason `recovery stopped lifecycle`.
+The source must be running. Full-Run recovery and exact joined live-descendant interruption share this singular domain operation and its sole durable reason `running lifecycle stopped`; the former reason is invalid and is not normalized. Recovery remains the only conversation-corrective orchestration owner, while interruption does not invoke recovery.
 The first stabilization or publication error ends that attempt with no later effect, read, retry, rollback, or reconciliation.
 Stopped descendants below the remaining unique running ancestor prefix are a valid committed prefix, and a later Run derives that remaining prefix from canonical state.
 If all cards are already stopped, Run directly selects project `STOPPED`.
@@ -887,11 +887,13 @@ There is no transaction, recovery generation, graph cursor, old-node inference, 
 
 ## 5. Notifications And Reviewer Arbitration
 
-The durable notification target is one `card_id`, and `queue_notification` is the only public agent-facing notification tool. It accepts `card_id`, `kind`, and `body`; roles and session IDs are not targets. The card type's configured designated recipient receives context through its card-scoped session regardless of which agent runs the current node.
+The durable notification target is one `card_id`, and `queue_notification` is the only public agent-facing notification tool. It requires `card_id`, `kind`, `body`, and exact lowercase `urgency:'normal'|'urgent'`; roles and session IDs are not targets and urgency is not stored in `CardNotification`. The card type's configured designated recipient receives context through its card-scoped session regardless of which agent runs the current node.
 
-The exact public outcomes are success `{queued:true,card_id,notification_id}`, missing `{queued:false,reason:'missing_card',card_id}`, persisted terminal `{queued:false,reason:'terminal_card',card_id,status:'done'|'failed'|'cancelled'}`, and closed current activation `{queued:false,reason:'activation_closed',card_id}`. The closed result carries no status or result/cancel winner discriminator because durable status may still be running. It is returned synchronously before enqueue, and Saivage neither retries nor redirects that invocation.
+The exact denial outcomes are missing `{queued:false,reason:'missing_card',card_id}`, persisted terminal `{queued:false,reason:'terminal_card',card_id,status:'done'|'failed'|'cancelled'}`, and closed current activation `{queued:false,reason:'activation_closed',card_id}`. Confirmed success is `{queued:true,card_id,notification_id,interruption}`; interruption is `not_requested`, `not_applicable`, `interrupted` with exact `stopped_card_ids`, `suppressed` for cancellation/runtime ineligibility/stale ownership, or `failed` with a safe known reason. The closed result carries no status or result/cancel winner discriminator because durable status may still be running. Saivage neither retries nor redirects that invocation.
 
 Successful queueing acknowledges durable enqueue, not delivery. Only a node run by the designated recipient uses the append-before-remove delivery path at entry, ordinary tool continuation, applicable plain-text correction, and same-node `emit_result` arbitration. Recipient entry appends selected bodies before exact selected-ID removal. At an otherwise accepted recipient terminal candidate, a non-empty ordered pending set defeats the candidate without claim: append the paired failed result with reason `pending_notifications`, append exactly those bodies in order, append the resolved correction and reconsider instruction, then remove exactly the selected IDs only after all appends succeed. Append failure removes nothing; a crash after append and before removal may duplicate visible context.
+
+Urgent submission captures the target's exact recipient-node owner, current child wait lease, and installed active descendant chain before enqueue. After enqueue it synchronously revalidates that same ownership and, only while runtime status is exactly running, claims the descendant suffix with terminal winner `interrupt`. It closes continuation, cancels and joins each owned provider/tool/process scope deepest-first, settles every already-persisted tool call exactly once with its known result (or rejected-before-execution result), and publishes each safely joined running card stopped. Each released child lease delivers `{status:'stopped',summary}`; `activate_card` exposes this as a truthful failed tool result with `outcome:'stopped'`, never a workflow result. The target remains active and receives that result plus its queued context through ordinary continuation. Interrupted cards preserve pending notifications and may later use ordinary STOPPED activation. Pause before claim suppresses interruption; Pause after claim prevents later model continuation. Stop/application halt joins or takes over the claimed settlement and permits no post-halt stop append, relationship release, lease delivery, or continuation. A stale captured request never retargets replacement work.
 
 A nonrecipient nonterminal edge accepts without inspecting or delivering the queue. At a nonrecipient DONE edge, all ordinary acceptance gates run first; the final synchronous queue decision either claims the ordinary terminal route when empty or follows the required conditional edge while retaining accepted evidence when nonempty. The recipient handler owns later append-before-remove delivery and must traverse its configured path to a terminal. Classic project/goal routes accepted review through Planner `handle-notifications` and then review again; classic-typed architecture routes accepted system review to Executor `draft` and requires component and system review again. There is no every-later-arrival guarantee: configured BLOCKED/FAILED, runtime refusal/failure, and cancellation may clear admitted notifications without recipient delivery. After the result or cancellation winner claim, later attempts receive `activation_closed` and create no enqueue version.
 

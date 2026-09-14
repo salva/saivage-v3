@@ -27,7 +27,7 @@ export interface PlannerChildControlPort {
 }
 
 type CardActivationOwnerPhase = 'prepared_root' | 'child_admission' | 'active' | 'settling';
-type TerminalWinner = 'open' | 'result' | 'cancel';
+type TerminalWinner = 'open' | 'result' | 'cancel' | 'interrupt';
 
 interface ParentActivationRelationship {
   readonly parentCardId: string;
@@ -48,6 +48,7 @@ export class CardActivationOwner {
   childCardId: string | null = null;
   cancellationReason: CardCancelReason | null = null;
   cancellationSettlement: Promise<CardCancellationResult> | null = null;
+  interruptionSettlement: Promise<void> | null = null;
 
   constructor(args: {
     card: CardRecord;

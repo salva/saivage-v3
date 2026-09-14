@@ -43,6 +43,7 @@ export interface CardToolBindingContext {
   readonly childActivationTypes: ReadonlySet<CardTypeName>;
   readonly cardTypeVocabulary: readonly CardTypeName[];
   readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  readonly submitNotification: import('../runtime/runtime-api.js').NotificationSubmissionPort;
   readonly processRunner: ProcessRunner;
   readonly processScope?: ManagedProcessScope;
   readonly processOwnerId?: string;
@@ -105,7 +106,7 @@ function runtimeToolGroups(): readonly AnyProviderGroup[] {
   if (defaultGroups) return defaultGroups;
   const source: AnyProviderGroup[] = [
   { key: 'global:analyst', providerName: 'analyst', scope: 'global', binders: getAnalystControlToolBinders(), context: (runtime) => global(runtime).analystToolContext },
-  { key: 'card:planner-control', providerName: 'planner-control', scope: 'card', binders: plannerControlToolBinders, context: (runtime) => { const value = card(runtime); return { agentName: value.agentName, projectRoot: value.projectRoot, parentCardId: value.cardId, sessionId: value.sessionId, store: value.store, parentControl: value.parentControl, notifyCard: value.notifyCard, childCreationTypes: value.childCreationTypes, childActivationTypes: value.childActivationTypes, cardTypeVocabulary: value.cardTypeVocabulary }; } },
+  { key: 'card:planner-control', providerName: 'planner-control', scope: 'card', binders: plannerControlToolBinders, context: (runtime) => { const value = card(runtime); return { agentName: value.agentName, projectRoot: value.projectRoot, parentCardId: value.cardId, sessionId: value.sessionId, store: value.store, parentControl: value.parentControl, submitNotification: value.submitNotification, childCreationTypes: value.childCreationTypes, childActivationTypes: value.childActivationTypes, cardTypeVocabulary: value.cardTypeVocabulary }; } },
   ...(['global', 'card'] as const).flatMap((scope): AnyProviderGroup[] => [
     { key: `${scope}:card-inspection`, providerName: 'card-inspection', scope, binders: cardInspectionToolBinders, context: (runtime): CardInspectionProviderContext => ({ store: runtime.store, agentName: runtime.agentName, cardTypeVocabulary: runtime.cardTypeVocabulary, ...(runtime.scope === 'card' ? { cardId: runtime.cardId } : {}) }) },
     { key: `${scope}:card-version`, providerName: 'card-version', scope, binders: cardVersionToolBinders, context: (runtime): CardVersionProviderContext => ({ store: runtime.store }) },

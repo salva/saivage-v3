@@ -98,7 +98,7 @@ export interface ToolBinder<Context, Args = unknown, M extends ToolEvidenceMode 
 }
 
 export type ToolProviderCleanupReason =
-  | { kind: 'activation_settled'; status: 'done' | 'blocked' | 'failed' | 'cancelled' }
+  | { kind: 'activation_settled'; status: 'done' | 'blocked' | 'failed' | 'cancelled' | 'stopped' }
   | { kind: 'session_closed' }
   | { kind: 'runtime_shutdown' };
 
@@ -163,12 +163,17 @@ export async function invokeTool(surface: InvocationSurface, name: string, args:
 }
 
 export async function invokeToolForLlm(surface: InvocationSurface, name: string, args: unknown, context: LlmToolInvocationContext, signal?: AbortSignal): Promise<ToolSettlementInput> {
+  let executorEntered = false;
   try {
-    if (signal?.aborted) throw abortError(signal);
     const definition = surface.tools.get(name);
     if (!definition) return syntheticToolSettlement('unsupported_tool', `Unsupported tool '${name}' for agent '${surface.agentName}'.`);
     const parsed = definition.inputSchema.safeParse(args);
     if (!parsed.success) return syntheticToolSettlement('rejected_before_execution', parsed.error.message);
+    if (signal?.aborted) {
+      if (isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
+      return syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.');
+    }
+    executorEntered = true;
     const execution = await definition.executor(parsed.data, signal ?? new AbortController().signal, context);
     if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
     return { kind: 'executed', execution };
@@ -177,8 +182,9 @@ export async function invokeToolForLlm(surface: InvocationSurface, name: string,
     if (error instanceof McpToolInvocationNotInstalledError) throw error;
     if (error instanceof ToolArgumentValidationError) return syntheticToolSettlement('rejected_before_execution', error.message);
     if (signal?.aborted && isRuntimeStoppedInterruption(signal.reason)) throw signal.reason;
-    if (signal?.aborted) throw error;
-    return syntheticToolSettlement('execution_failed', error instanceof Error ? error.message : String(error));
+    if (signal?.aborted && !executorEntered) return syntheticToolSettlement('rejected_before_execution', 'Tool execution was cancelled before entry.');
+    if (signal?.aborted) return syntheticToolSettlement('execution_failed', error instanceof Error ? error.message : String(error));
+    throw error;
   }
 }
 

@@ -73,7 +73,7 @@ describe('websocket bootstrap boundary after S06', () => {
       event: 'tool_invocation' as const,
       sessionId: 'agent:analyst:global',
       tool: 'queue_notification',
-      params: { card_id: 'card-a', kind: 'progress', body: 'Working' },
+      params: { card_id: 'card-a', kind: 'progress', body: 'Working', urgency: 'normal' },
     };
     const success = {
       type: 'activity' as const,

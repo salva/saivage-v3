@@ -18,6 +18,9 @@ import type { CardActivationOwner } from '../../../src/runtime/actors/card-activ
 import { ProviderTurnFailure } from '../../../src/agents/llm-contracts.js';
 import { LlmRequestError } from '../../../src/contracts/llm-failure.js';
 import type { ProviderExchangeAttempt } from '../../../src/contracts/provider-exchange.js';
+import { readConversation, type ConversationFileContext } from '../../../src/persistence/conversation-file.js';
+import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
+import { testApplicationFatalDelivery } from '../../helpers/test-application-fatal-port.js';
 
 function deferred() {
   let resolve!: () => void;
@@ -39,7 +42,7 @@ afterEach(() => {
   while (roots.length > 0) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
-function harness(provider: LLMProviderPort) {
+function harness(provider: LLMProviderPort, changes?: NonNullable<ConversationFileContext['changes']>) {
   const projectRoot = mkdtempSync(join(tmpdir(), 'saivage-notification-admission-'));
   roots.push(projectRoot);
   initProjectTree(projectRoot);
@@ -52,7 +55,7 @@ function harness(provider: LLMProviderPort) {
     processIdentity: { pid: 1, startedAt: '2026-09-09T00:00:00.000Z' },
     actorStore: cards,
     provider,
-    conversations: { projectRoot },
+    conversations: { projectRoot, ...(changes ? { changes } : {}) },
     freshness: NO_FRESHNESS_EFFECTS,
     processRunner: processes.processRunner,
     runtimeProcessRootScope: processes.runtimeProcessRootScope,
@@ -79,6 +82,259 @@ function refusal(inputId: string, raw: string): ProviderTurnFailure {
 }
 
 describe('Supervisor notification admission at terminal ownership', () => {
+  it('queues first and interrupts only the exact live child suffix with a truthful stopped result', async () => {
+    const childProviderEntered = deferred();
+    const rootContinued = deferred();
+    let childId = '';
+    let plannerCalls = 0;
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner') {
+        plannerCalls += 1;
+        if (plannerCalls === 1) return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+        rootContinued.resolve();
+        return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      }
+      childProviderEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await childProviderEntered.promise;
+
+    const submitted = await h.supervisor.submitNotification('project', { id: 'urgent-id', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
+    expect(submitted).toEqual({ queued: true, cardId: 'project', notificationId: 'urgent-id', interruption: { status: 'interrupted', stopped_card_ids: [childId] } });
+    expect(h.cards.read(childId)).toMatchObject({ lifecycle: { status: 'stopped' } });
+    const versions = h.cards.listCardVersions(childId);
+    if (versions.kind !== 'found') throw new Error('Expected child version stream.');
+    expect(versions.value.at(-1)?.change).toMatchObject({ change_reason: 'running lifecycle stopped' });
+    expect(owner(h.supervisor)).toMatchObject({ cardId: 'project', terminalWinner: 'open', childCardId: null });
+    await rootContinued.promise;
+    expect(h.cards.read('project')?.lifecycle.status).toBe('running');
+    const plannerRows = readConversation(h.projectRoot, 'agent:planner:project').sourceRows;
+    const activationResult = plannerRows.find((row) => row.kind === 'tool_result' && row.tool_call_id === 'activate-child');
+    expect(activationResult?.content).toContain('"outcome":"stopped"');
+    expect(plannerRows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'activate-child')).toHaveLength(1);
+    await h.supervisor.stopProject();
+  });
+
+  it('settles an intermediate waiting Planner and its active child deepest-first', async () => {
+    const leafProviderEntered = deferred();
+    const rootContinued = deferred();
+    let goalId = '';
+    let leafId = '';
+    const plannerCalls = new Map<string, number>();
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner') {
+        const call = (plannerCalls.get(input.sessionId) ?? 0) + 1;
+        plannerCalls.set(input.sessionId, call);
+        if (call === 1) {
+          const cardId = input.sessionId === 'agent:planner:project' ? goalId : leafId;
+          return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: `activate-${cardId}`, type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: cardId }) } }] }, provider_exchanges: [] };
+        }
+        if (input.sessionId !== 'agent:planner:project') throw new Error('Interrupted intermediate Planner continued after its stopped child settled.');
+        rootContinued.resolve();
+        return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      }
+      leafProviderEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider);
+    goalId = h.cards.create({ type: 'goal', parent: 'project', title: 'Goal', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    leafId = h.cards.create({ type: 'code', parent: goalId, title: 'Leaf', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await leafProviderEntered.promise;
+
+    await expect(h.supervisor.submitNotification('project', { id: 'deep-urgent', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: 'project', notificationId: 'deep-urgent', interruption: { status: 'interrupted', stopped_card_ids: [leafId, goalId] } });
+    expect(h.cards.read(leafId)).toMatchObject({ lifecycle: { status: 'stopped' } });
+    expect(h.cards.read(goalId)).toMatchObject({ lifecycle: { status: 'stopped' } });
+    expect(plannerCalls.get(`agent:planner:${goalId}`)).toBe(1);
+    await rootContinued.promise;
+    const rootRows = readConversation(h.projectRoot, 'agent:planner:project').sourceRows;
+    expect(rootRows.find((row) => row.kind === 'tool_result' && row.tool_call_id === `activate-${goalId}`)?.content).toContain('"outcome":"stopped"');
+    await h.supervisor.stopProject();
+  });
+
+  it('settles a persisted descendant tool call as rejected before execution when interruption wins before executor entry', async () => {
+    let childId = '';
+    let h!: ReturnType<typeof harness>;
+    let armed = false;
+    let submission: Promise<unknown> | null = null;
+    let plannerCalls = 0;
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner') {
+        plannerCalls += 1;
+        if (plannerCalls === 1) return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+        return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+      }
+      return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'parked-write', type: 'function' as const, function: { name: 'write', arguments: JSON.stringify({ path: `record:///implementation.md?card=${childId}`, content: 'must not be written' }) } }] }, provider_exchanges: [] };
+    });
+    const changes = {
+      conversationChanged(target: Parameters<NonNullable<ConversationFileContext['changes']>['conversationChanged']>[0]): void {
+        if (!armed || target.session_id !== `agent:executor:${childId}`) return;
+        const rows = readConversation(h.projectRoot, target.session_id).sourceRows;
+        if (rows.at(-1)?.kind !== 'tool_call') return;
+        armed = false;
+        submission = h.supervisor.submitNotification('project', { id: 'parked-boundary', content: 'interrupt before tool entry', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
+      },
+      agentMembershipChanged(): void {},
+    };
+    h = harness(provider, changes);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    armed = true;
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await waitFor(() => submission !== null);
+    await expect(submission).resolves.toMatchObject({ queued: true, interruption: { status: 'interrupted', stopped_card_ids: [childId] } });
+
+    const rows = readConversation(h.projectRoot, `agent:executor:${childId}`).sourceRows;
+    const results = rows.filter((row) => row.kind === 'tool_result' && row.tool_call_id === 'parked-write');
+    expect(results).toHaveLength(1);
+    expect(results[0]!.content).toContain('Tool execution was cancelled before entry.');
+    expect(results[0]!.content).not.toContain('must not be written');
+    await h.supervisor.stopProject();
+  });
+
+  it('suppresses stale captured urgency without interrupting after the awaited lease identity changes during enqueue', async () => {
+    const childProviderEntered = deferred();
+    let childId = '';
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner') return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+      childProviderEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await childProviderEntered.promise;
+    const childOwner = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners.get(childId)!;
+    const interrupt = jest.spyOn(childOwner.processor, 'interruptActivationGracefully');
+    const originalEnqueue = h.cards.enqueueNotification.bind(h.cards);
+    jest.spyOn(h.cards, 'enqueueNotification').mockImplementation((...args) => {
+      const result = originalEnqueue(...args);
+      childOwner.parentRelationship!.invocation.markSettling();
+      return result;
+    });
+
+    await expect(h.supervisor.submitNotification('project', { id: 'stale-capture', content: 'retain only as queued context', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: 'project', notificationId: 'stale-capture', interruption: { status: 'suppressed', reason: 'stale_owner' } });
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(h.cards.read('project')?.pending_notifications.map((item) => item.id)).toContain('stale-capture');
+    await h.supervisor.stopProject();
+  });
+
+  it('retains confirmed enqueue but suppresses interruption when Pause wins during enqueue', async () => {
+    const childProviderEntered = deferred();
+    let childId = '';
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner') return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+      childProviderEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await childProviderEntered.promise;
+    const childOwner = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners.get(childId)!;
+    const interrupt = jest.spyOn(childOwner.processor, 'interruptActivationGracefully');
+    const originalEnqueue = h.cards.enqueueNotification.bind(h.cards);
+    jest.spyOn(h.cards, 'enqueueNotification').mockImplementation((...args) => {
+      const result = originalEnqueue(...args);
+      h.supervisor.pause();
+      return result;
+    });
+
+    await expect(h.supervisor.submitNotification('project', { id: 'pause-during-enqueue', content: 'queued before pause suppression', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).resolves.toEqual({ queued: true, cardId: 'project', notificationId: 'pause-during-enqueue', interruption: { status: 'suppressed', reason: 'runtime_ineligible' } });
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(h.cards.read('project')?.pending_notifications.map((item) => item.id)).toContain('pause-during-enqueue');
+    await h.supervisor.stopProject();
+  });
+
+  it('routes uncertain enqueue to the publication-fatal boundary before interruption or later effects', async () => {
+    const childProviderEntered = deferred();
+    let childId = '';
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner') return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+      childProviderEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await childProviderEntered.promise;
+    const childOwner = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners.get(childId)!;
+    const interrupt = jest.spyOn(childOwner.processor, 'interruptActivationGracefully');
+    const stopRunning = jest.spyOn(h.cards, 'stopRunning');
+    jest.spyOn(h.cards, 'enqueueNotification').mockImplementation(() => { throw new PublicationOutcomeUnknownError(); });
+
+    await expect(h.supervisor.submitNotification('project', { id: 'unknown-enqueue', content: 'uncertain', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent')).rejects.toBe(testApplicationFatalDelivery);
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(stopRunning).not.toHaveBeenCalled();
+  });
+
+  it('lets a runtime halt take over an already claimed interruption without stopped publication or target continuation', async () => {
+    const childProviderEntered = deferred();
+    const interruptionJoinEntered = deferred();
+    const releaseInterruptionJoin = deferred();
+    let childId = '';
+    let plannerCalls = 0;
+    const provider = scriptedAdmissionProvider(async (input, signal) => {
+      if (input.agentName === 'planner') {
+        plannerCalls += 1;
+        if (plannerCalls === 1) return { result: { kind: 'tool_calls' as const, tool_calls: [{ id: 'activate-child', type: 'function' as const, function: { name: 'activate_card', arguments: JSON.stringify({ card_id: childId }) } }] }, provider_exchanges: [] };
+        throw new Error('Target Planner continued after runtime halt takeover.');
+      }
+      childProviderEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider);
+    childId = h.cards.create({ type: 'code', parent: 'project', title: 'Child', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] }).id;
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await childProviderEntered.promise;
+    const childOwner = (h.supervisor as unknown as { activationOwners: Map<string, CardActivationOwner> }).activationOwners.get(childId);
+    if (!childOwner) throw new Error('Expected child activation owner.');
+    const originalJoin = childOwner.processor.joinActivation.bind(childOwner.processor);
+    jest.spyOn(childOwner.processor, 'joinActivation').mockImplementation(async () => {
+      const joined = originalJoin();
+      interruptionJoinEntered.resolve();
+      await releaseInterruptionJoin.promise;
+      return joined;
+    });
+
+    const submission = h.supervisor.submitNotification('project', { id: 'halt-race', content: 'urgent correction', created_at: '2026-09-09T00:00:02.000Z', source: 'test' }, 'urgent');
+    const rejectedSubmission = expect(submission).rejects.toThrow('Runtime project execution stopped.');
+    await interruptionJoinEntered.promise;
+    const stopping = h.supervisor.stopProject();
+    releaseInterruptionJoin.resolve();
+    await rejectedSubmission;
+    await expect(stopping).resolves.toEqual({ status: 'stopped', contained: true });
+    expect(h.cards.read(childId)?.lifecycle.status).toBe('running');
+    const versions = h.cards.listCardVersions(childId);
+    if (versions.kind !== 'found') throw new Error('Expected child version stream.');
+    expect(versions.value.some((version) => version.change?.change_reason === 'running lifecycle stopped')).toBe(false);
+    expect(plannerCalls).toBe(1);
+  });
+
+  it('returns exact normal and urgent-inapplicable enqueue facts without inventing interruption', async () => {
+    const providerEntered = deferred();
+    const provider = scriptedAdmissionProvider(async (_input, signal) => {
+      providerEntered.resolve();
+      return await new Promise<never>((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+    });
+    const h = harness(provider);
+    const started = await h.supervisor.startProject();
+    if (!started.started) throw new Error('Expected project start.');
+    await providerEntered.promise;
+    await expect(h.supervisor.submitNotification('project', { id: 'normal-id', content: 'normal', created_at: '2026-09-09T00:00:01.000Z' }, 'normal')).resolves.toMatchObject({ queued: true, interruption: { status: 'not_requested' } });
+    await expect(h.supervisor.submitNotification('project', { id: 'urgent-own-turn', content: 'urgent', created_at: '2026-09-09T00:00:02.000Z' }, 'urgent')).resolves.toMatchObject({ queued: true, interruption: { status: 'not_applicable' } });
+    await h.supervisor.stopProject();
+  });
+
   it('rejects after the real result claim while durable state is still running and performs no card append', async () => {
     const held = deferred();
     const entered = deferred();

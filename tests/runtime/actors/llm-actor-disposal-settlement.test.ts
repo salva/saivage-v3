@@ -18,6 +18,45 @@ const roots:string[]=[];
 afterEach(()=>{while(roots.length)rmSync(roots.pop()!,{recursive:true,force:true});});
 
 describe('ConversationLLMActor disposal after tool-result writer entry',()=>{
+  it('closes a persisted started turn with known cancellation before provider entry',async()=>{
+    const projectRoot=mkdtempSync(join(tmpdir(),'llm-graceful-provider-cancel-'));roots.push(projectRoot);initProjectTree(projectRoot);
+    const sessionId='agent:analyst:global' as const;
+    const inputId='00000000-0000-4000-8000-000000000002';
+    const timestamp='2026-08-11T00:00:00.000Z';
+    const observer=publicationObserver();
+    const conversations:ConversationFileContext={projectRoot,changes:{conversationChanged:observer.conversationChanged,agentMembershipChanged:jest.fn()}};
+    appendConversationBatch(conversations,[agentMessageSchema.parse({id:'activation',session_id:sessionId,role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',agent_name:'analyst',input_id:inputId,timestamp}),context_policy:{kind:'structural',behavior:'activation_boundary'},round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);
+    const providerCall=jest.fn(async()=>{throw new Error('Provider must not be entered after cancellation.');});
+    const actor=new ConversationLLMActor({purpose:{kind:'analyst'},agentId:sessionId,provider:scriptedAdmissionProvider(providerCall),conversations,compactor:testCompactor,summarizerProvider:unusedSummarizerProvider,fatalPort:testApplicationFatalPort});
+    actor.gate.close();
+    const preparedCompaction=prepareCompaction({context_utilization_fraction:.8,trigger_fraction:.8,tail_fraction:.25,snap:'compact_straddler'},'system',[],8_000,2_000);
+    const input={inputId,agentId:sessionId,agentName:'analyst' as const,sessionId,systemPrompt:'system',providerConversation:{sourceSessionId:sessionId,messages:[]},tools:[],compiledToolContracts:[],terminalToolNames:[],modelParams:{temperature:0},preparedCompaction,preparedContext:buildPreparedInvocationContext({instructionText:'system',terminalToolNames:[],compiledTools:[],dynamicBlocks:[],preparedCompaction}),capabilityRequest:{},routePass:{kind:'ordinary' as const,candidateChain:[{provider:'test',account:null,model:'test-model'}]},episodeContext:{}};
+    const cancellationReason=new Error('controlled cancellation before provider entry');
+    observer.arm(()=>actor.requestGracefulCancellation(cancellationReason));
+
+    await expect(actor.turn(input,undefined,jest.fn())).resolves.toEqual({type:'error',agentId:sessionId,error:'Invocation cancelled.'});
+    expect(providerCall).not.toHaveBeenCalled();
+    const rows=readConversation(projectRoot,sessionId).sourceRows;
+    expect(rows.slice(-2).map((row)=>row.kind)).toEqual(['activity','model_issue']);
+    expect(rows.at(-1)?.content).toBe('Invocation cancelled.');
+    await expect(actor.join()).resolves.toEqual({status:'joined'});
+  });
+
+  it('publishes a known parked tool result once and admits no continuation after graceful cancellation',async()=>{
+    const fixture=await toolCallFixture('demo');
+    const cancellationReason=new Error('controlled card interruption');
+    const settlement=executedNoneSettlement(toolSucceeded({value:'retained'}));
+    fixture.actor.requestGracefulCancellation(cancellationReason);
+
+    await expect(fixture.actor.settleToolResultWithoutContinuation(fixture.outcome.toolCallId,settlement)).resolves.toMatchObject({providerResult:{success:true,data:{value:'retained'}}});
+
+    expectToolResult(fixture,settlement,'demo');
+    expect(fixture.completeTurn).toHaveBeenCalledTimes(1);
+    await expect(fixture.actor.turn(fixture.input,undefined,jest.fn())).rejects.toThrow('invocation admission is closed');
+    await expect(fixture.actor.appendToolResult(fixture.outcome.toolCallId,settlement)).rejects.toThrow('not waiting for a tool result');
+    await expect(fixture.actor.join()).resolves.toEqual({status:'joined'});
+  });
+
   it('keeps the ordinary caller result, rejects its caller, and admits no continuation',async()=>{
     const fixture=await toolCallFixture('demo');
     const disposalReason=new Error('application disposed during ordinary result publication');

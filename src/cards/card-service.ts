@@ -88,7 +88,7 @@ type CardVersionDiffResult =
   | { readonly kind: 'invalid-pivots'; readonly from: number; readonly to: number }
   | { readonly kind: 'version-not-found'; readonly version: number; readonly side: 'from' | 'to' };
 
-type TerminalActivationOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
+type TerminalActivationOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' | 'stopped' }>;
 type TerminalPublication = {
   lifecycle: Extract<CardRecord['lifecycle'], { status: 'done' | 'failed' | 'blocked' }>;
   status_text: string | null;
@@ -294,12 +294,12 @@ export class CardService {
     const candidate = { ...existing, lifecycle: buildSetStatusLifecycle(status), pending_notifications: notifications, updated_at: new Date().toISOString(), version_seq: existing.version_seq + 1 };
     return this.publishVersion(existing, candidate, 'status', fields, `status -> ${status}`);
   }
-  stopRunningForRecovery(id: string): CardRecord {
+  stopRunning(id: string): CardRecord {
     const card = this.read(id);
     if (!card) throw new Error(`Card '${id}' not found.`);
-    if (card.lifecycle.status !== 'running') throw new Error(`Card '${id}' must be running before recovery can stop it.`);
+    if (card.lifecycle.status !== 'running') throw new Error(`Card '${id}' must be running before its lifecycle can be stopped.`);
     const candidate = { ...card, lifecycle: buildStoppedLifecycle(), updated_at: new Date().toISOString(), version_seq: card.version_seq + 1 };
-    return this.publishVersion(card, candidate, 'status', ['lifecycle'], 'recovery stopped lifecycle');
+    return this.publishVersion(card, candidate, 'status', ['lifecycle'], 'running lifecycle stopped');
   }
   activateStopped(id: string): CardRecord {
     const card = this.read(id);

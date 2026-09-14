@@ -190,7 +190,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
       expect(stabilizeAgentSession({ sessionId: `agent:executor:${leaf.id}`, conversations: { projectRoot }, terminalToolNames: new Set(['emit_result']) }).disposition).toBe('ordinary_interruption');
     }
     appendInvalidRootPlannerContinuation(projectRoot);
-    const stop = jest.spyOn(cards, 'stopRunningForRecovery');
+    const stop = jest.spyOn(cards, 'stopRunning');
     const provider = scriptedAdmissionProvider(jest.fn(async () => { throw new Error('Recovery must fail before provider dispatch.'); }));
     const runtime = supervisor(projectRoot, cards, provider);
 
@@ -213,7 +213,7 @@ describe('Stage-I runtime lifecycle E2E', () => {
     cards.setStatus('project', 'running');
     cards.setStatus(leaf.id, 'running');
     const versions = new Map(cards.list().map((card) => [card.id, card.version_seq]));
-    const stop = jest.spyOn(cards, 'stopRunningForRecovery');
+    const stop = jest.spyOn(cards, 'stopRunning');
     const providerCall = jest.fn(async () => { throw new Error('Invalid Run topology must not dispatch.'); });
     const runtime = supervisor(projectRoot, cards, scriptedAdmissionProvider(providerCall));
 

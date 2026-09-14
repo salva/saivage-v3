@@ -26,9 +26,9 @@ function card(status: CardStatus, id = FIRST, type: CardTypeName = 'code'): Card
   }
 }
 
-function services(store: CardService, notifyCard: (...args: any[]) => any = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] }))) {
+function services(store: CardService, notifyCard: (...args: any[]) => any = jest.fn(() => ({ ok: true as const, notificationId: 'notification' })), cancelCard = jest.fn(async () => ({ card_id: FIRST, status: 'cancelled' as const, cancelled_card_ids: [FIRST] })), submitNotification: (...args: any[]) => any = jest.fn(async (cardId: string) => ({ queued: true as const, cardId, notificationId: 'notification', interruption: { status: 'not_requested' as const } }))) {
   if (!('workflows' in store)) Object.assign(store, { workflows: TEST_WORKFLOWS });
-  return createAnalystMutationServices({ store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, cancelCard });
+  return createAnalystMutationServices({ store, configAuthority: { applyChange: jest.fn() } as never, notifyCard, submitNotification, cancelCard });
 }
 
 describe('analyst card mutation service deletion', () => {
@@ -106,7 +106,7 @@ describe('analyst stopped card mutations', () => {
       const cards = new CardService(root);
       const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped work', bootstrap_content: '# Goal\nOld\n# Instructions\nOld\n# Acceptance Criteria\nOld', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       cards.setStatus(card.id, 'running');
-      cards.stopRunningForRecovery(card.id);
+      cards.stopRunning(card.id);
       const service = testAnalystMutationServices(root, cards, () => ({ ok: true, notificationId: 'n' })).recordMutations;
 
       expect(service.write(`record:///brief.md?card=${card.id}`, '# Goal\nNew\n# Instructions\nNew\n# Acceptance Criteria\nNew')).toMatchObject({ success: true });
@@ -351,41 +351,41 @@ describe('other Analyst mutation facets', () => {
 
   it('calls the configuration authority exactly once through apply', () => {
     const applyChange = jest.fn(() => ({ success: true, requires_restart: true }));
-    const bundle = createAnalystMutationServices({ store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn(() => ({ ok: true as const, notificationId: 'unused' })), cancelCard: jest.fn() as never });
+    const bundle = createAnalystMutationServices({ store: {} as CardService, configAuthority: { applyChange } as never, notifyCard: jest.fn(() => ({ ok: true as const, notificationId: 'unused' })), submitNotification: jest.fn() as never, cancelCard: jest.fn() as never });
     expect(bundle.config.apply({ kind: 'set_server_setting', key: 'host', value: '127.0.0.1' })).toMatchObject({ kind: 'returned', success: true });
     expect(applyChange).toHaveBeenCalledTimes(1);
   });
 
-  it('relies on the notification owner result without a separate card read', () => {
+  it('relies on the notification owner result without a separate card read', async () => {
     const read = jest.fn();
-    const notifyCard = jest.fn(() => ({ ok: true as const, notificationId: 'queued' }));
-    const bundle = services({ read } as unknown as CardService, notifyCard);
-    expect(bundle.notifications.queue(FIRST, 'context', 'body')).toMatchObject({ kind: 'returned', success: true });
+    const submitNotification = jest.fn(async (cardId: string) => ({ queued: true as const, cardId, notificationId: 'queued', interruption: { status: 'not_requested' as const } }));
+    const bundle = services({ read } as unknown as CardService, undefined, undefined, submitNotification);
+    await expect(bundle.notifications.queue(FIRST, 'context', 'body', 'normal')).resolves.toMatchObject({ kind: 'returned', success: true });
     expect(read).not.toHaveBeenCalled();
-    expect(notifyCard).toHaveBeenCalledTimes(1);
+    expect(submitNotification).toHaveBeenCalledTimes(1);
   });
 
   it.each([
     {
-      result: { ok: true as const, notificationId: 'exact-id' },
-      expected: { kind: 'returned', success: true, data: { queued: true, card_id: FIRST, notification_id: 'exact-id' } },
+      result: { queued: true as const, cardId: FIRST, notificationId: 'exact-id', interruption: { status: 'not_requested' as const } },
+      expected: { kind: 'returned', success: true, data: { queued: true, card_id: FIRST, notification_id: 'exact-id', interruption: { status: 'not_requested' } } },
     },
     {
-      result: { ok: false as const, reason: 'missing_card' as const, cardId: FIRST },
+      result: { queued: false as const, reason: 'missing_card' as const, cardId: FIRST },
       expected: { kind: 'returned', success: false, error: `Card '${FIRST}' not found.`, data: { queued: false, reason: 'missing_card', card_id: FIRST } },
     },
     {
-      result: { ok: false as const, reason: 'terminal_card' as const, cardId: FIRST, status: 'done' as const },
+      result: { queued: false as const, reason: 'terminal_card' as const, cardId: FIRST, status: 'done' as const },
       expected: { kind: 'returned', success: false, error: `Cannot queue notification for terminal card '${FIRST}' in status 'done'.`, data: { queued: false, reason: 'terminal_card', card_id: FIRST, status: 'done' } },
     },
     {
-      result: { ok: false as const, reason: 'activation_closed' as const, cardId: FIRST },
+      result: { queued: false as const, reason: 'activation_closed' as const, cardId: FIRST },
       expected: { kind: 'returned', success: false, error: `Cannot queue notification for card '${FIRST}': its current activation is closed to new notifications.`, data: { queued: false, reason: 'activation_closed', card_id: FIRST } },
     },
-  ])('maps notification owner result $result exactly', ({ result, expected }) => {
-    const outcome = services({ read: jest.fn() } as unknown as CardService, () => result).notifications.queue(FIRST, 'context', 'body');
+  ])('maps notification owner result $result exactly', async ({ result, expected }) => {
+    const outcome = await services({ read: jest.fn() } as unknown as CardService, undefined, undefined, () => result).notifications.queue(FIRST, 'context', 'body', 'normal');
     expect(outcome).toEqual(expected);
-    if (!result.ok && result.reason === 'activation_closed') expect(JSON.stringify(outcome)).not.toMatch(/status|winner/);
+    if (!result.queued && result.reason === 'activation_closed') expect(JSON.stringify(outcome)).not.toMatch(/status|winner/);
   });
 
   it('projects queued blocked cards through the strict queue-free CardView boundary on reopen', () => {

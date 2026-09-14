@@ -6,6 +6,7 @@ export class ContainedOperations {
   #admissionOpen = true;
   #reason: unknown;
   #failure: unknown;
+  #settleAfterCancellation = false;
 
   constructor(defaultReason: unknown) {
     this.#reason = defaultReason;
@@ -45,16 +46,18 @@ export class ContainedOperations {
     raw.then(
       (value) => {
         rawSettled = true;
-        if (!signal.aborted) resolveWrapper(value);
+        if (!signal.aborted || this.#settleAfterCancellation) resolveWrapper(value);
       },
       (error) => {
         rawSettled = true;
-        if (!signal.aborted) rejectWrapper(error);
+        if (!signal.aborted || this.#settleAfterCancellation) rejectWrapper(error);
       },
     );
     const onAbort = (): void => {
-      if (!rawSettled) this.#abandonedRaw.add(raw);
-      rejectWrapper(signal.reason);
+      if (!this.#settleAfterCancellation) {
+        if (!rawSettled) this.#abandonedRaw.add(raw);
+        rejectWrapper(signal.reason);
+      }
     };
     if (signal.aborted) onAbort();
     else signal.addEventListener('abort', onAbort, { once: true });
@@ -83,6 +86,13 @@ export class ContainedOperations {
   }
 
   revoke(reason: unknown, controller: AbortController | null): void {
+    this.closeAdmission(reason);
+    if (controller && !controller.signal.aborted) controller.abort(this.#reason);
+  }
+
+
+  cancelAndSettle(reason: unknown, controller: AbortController | null): void {
+    this.#settleAfterCancellation = true;
     this.closeAdmission(reason);
     if (controller && !controller.signal.aborted) controller.abort(this.#reason);
   }

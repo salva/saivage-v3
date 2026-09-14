@@ -62,7 +62,7 @@ export const ReadAgentSessionToolDataSchema = z
 
 async function queue_notification(
   ctx: ToolContext,
-  params: { card_id: string; kind: string; body: string },
+  params: { card_id: string; kind: string; body: string; urgency: 'normal' | 'urgent' },
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult<'none'>> {
   return runAuditedAnalystTool(
@@ -75,7 +75,7 @@ async function queue_notification(
       getTargetId: () => params.card_id,
       lifecycle: { kind: 'intervention_ready', timing: 'immediate_before_mutation' },
       mutate: (_prepared, input, mutation) =>
-        mutation.services.notifications.queue(input.card_id, input.kind, input.body),
+        mutation.services.notifications.queue(input.card_id, input.kind, input.body, input.urgency, signal),
     },
     signal,
   );
@@ -203,7 +203,7 @@ export const analystMiscToolBinders: readonly ToolBinder<ToolContext, any>[] = O
     defineToolBinder({
       name: 'queue_notification',
       description:
-        "Queue context on a notification-capable card for its configured designated recipient while notification admission is open. Pending delivery context is not readable.",
+        "Queue context on a notification-capable card for its configured designated recipient. Urgent submission may interrupt only the captured active descendant suffix after enqueue; pending delivery context is not readable.",
       resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE,
       inputSchema: () => queueNotificationInputSchema,
       executor: (ctx, args, signal) => queue_notification(ctx, args, signal),

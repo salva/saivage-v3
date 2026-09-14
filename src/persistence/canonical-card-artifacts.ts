@@ -151,7 +151,7 @@ export function validateCardTransition(prior: CardRecord, next: CardRecord, chan
     }
     case 'status': {
       const from = prior.lifecycle.status; const to = next.lifecycle.status; let reason: string;
-      if (from === 'running' && to === 'stopped') reason = 'recovery stopped lifecycle';
+      if (from === 'running' && to === 'stopped') reason = 'running lifecycle stopped';
       else if (from === 'stopped' && to === 'running') reason = 'STOPPED activation';
       else { if (!isSetStatusTransition(from, to)) fail(path, 'has an invalid status transition'); reason = `status -> ${to}`; }
       const clears = to === 'cancelled' && prior.pending_notifications.length > 0; const fields = ['lifecycle', ...(clears ? ['pending_notifications'] : [])];

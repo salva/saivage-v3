@@ -151,12 +151,13 @@ describe('generic set-status policy', () => {
     expect(() => transition(template, from, to)).toThrow(replayError);
   });
 
-  it('retains special recovery and STOPPED activation only under their exact replay reasons', () => {
+  it('retains singular running-stop and STOPPED activation only under their exact replay reasons', () => {
     const { cards } = fixture();
     const template = cards.read('project')!;
     expect(isSetStatusTransition('running', 'stopped')).toBe(false);
     expect(isSetStatusTransition('stopped', 'running')).toBe(false);
-    expect(() => transition(template, 'running', 'stopped', 'recovery stopped lifecycle')).not.toThrow();
+    expect(() => transition(template, 'running', 'stopped', 'running lifecycle stopped')).not.toThrow();
+    expect(() => transition(template, 'running', 'stopped', 'recovery stopped lifecycle')).toThrow();
     expect(() => transition(template, 'stopped', 'running', 'STOPPED activation')).not.toThrow();
     expect(() => transition(template, 'running', 'stopped')).toThrow("Card stream 'test-card-stream' has invalid reason or summary.");
     expect(() => transition(template, 'stopped', 'running')).toThrow("Card stream 'test-card-stream' has invalid reason or summary.");

@@ -20,7 +20,7 @@ const CURRENT_TOOL_CALL_FIXTURES = {
   list_processes_tool: { status: 'running', cardId: 'card-a' }, mcp_reconcile: {},
   mcp_tool_call: { serverName: 'github', toolName: 'issues', args: { state: 'open' } }, navigate_back: {},
   navigate_workspace: { target: { kind: 'card', id: 'card-a', refinement: 'history' } }, pause_runtime: {},
-  queue_notification: { card_id: 'card-a', kind: 'progress', body: 'Working' }, read: { path: 'README.md' },
+  queue_notification: { card_id: 'card-a', kind: 'progress', body: 'Working', urgency: 'normal' }, read: { path: 'README.md' },
   read_agent_session: { session_id: 'agent:executor:card-a', last_n: 5 }, read_control_actions: { limit: 10, since: '2026-07-21T00:00:00Z' },
   read_record_version: { card_id: 'card-a', record_name: 'status.md', version: 3 },
   read_runtime_errors: { limit: 10 }, read_runtime_events: { limit: 10, kind: 'card' }, reconfigure: { action: 'set_agent_model_route', agent: 'executor', model_route: 'executor' },
@@ -75,7 +75,7 @@ describe('static tool presenter authority', () => {
     expect(inlineText(presentToolCall(callEnvelope('reopen_card', { card_id: 'card-planner' })).headline)).toContain('card-planner');
     expect(inlineText(presentToolCall(callEnvelope('activate_card', { card_id: 'card-current' })).headline)).toContain('card-current');
     expect(inlineText(presentToolCall(callEnvelope('edit_card', { card_id: 'card-current', title: 'x' })).headline)).toContain('card-current');
-    expect(inlineText(presentToolCall(callEnvelope('queue_notification', { card_id: 'card-a', kind: 'progress', body: 'Current body' })).detail ?? [])).toContain('Current body');
+    expect(inlineText(presentToolCall(callEnvelope('queue_notification', { card_id: 'card-a', kind: 'progress', body: 'Current body', urgency: 'urgent' })).detail ?? [])).toContain('Current body');
     expect(inlineText(presentToolCall(callEnvelope('navigate_workspace', { target: { kind: 'card', id: 'card-a' } })).headline)).toBe('card · card-a');
     expect(inlineText(presentToolCall(callEnvelope('mcp_tool_call', { serverName: 's', toolName: 't' })).headline)).toBe('s/t');
   });

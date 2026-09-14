@@ -10,8 +10,7 @@ import {
 type ReorderChildrenResult = ReturnType<CardService['reorderChildren']>;
 import { queueNotification } from '../notifications/index.js';
 import { urgencyValues, type CardRecord, type CardTypeName, type Urgency } from '../schemas/index.js';
-import type { CardNotification } from '../schemas/index.js';
-import type { NotifyCardResult } from '../runtime/runtime-api.js';
+import type { NotificationSubmissionPort } from '../runtime/runtime-api.js';
 import { defineToolBinder, executeToolAction, OPERATIONAL_RESULT_POLICY_TEMPLATE, type ToolBinder } from './invocation.js';
 import { toolFailed, toolSucceeded, type ToolActionOutcome } from '../contracts/tool-result.js';
 import type { LlmToolInvocationContext } from '../runtime/actors/executing-llm-snapshot.js';
@@ -35,7 +34,7 @@ export interface PlannerControlProviderContext {
   readonly sessionId: string;
   readonly store: PlannerControlStore;
   readonly parentControl: PlannerChildControlPort;
-  readonly notifyCard: (cardId: string, notification: CardNotification) => NotifyCardResult;
+  readonly submitNotification: NotificationSubmissionPort;
   readonly childCreationTypes:ReadonlySet<CardTypeName>;
   readonly childActivationTypes:ReadonlySet<CardTypeName>;
   readonly cardTypeVocabulary: readonly CardTypeName[];
@@ -48,7 +47,7 @@ export const plannerControlToolBinders: readonly ToolBinder<PlannerControlProvid
   defineToolBinder({ name: 'activate_card', description: 'Activate one immediate child card and return its result.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => activateCardArgumentsSchema, executor: (ctx, args, _signal, invocation) => executeToolAction('none', async () => activateCard(ctx, args, invocation)) }),
   defineToolBinder({ name: 'reopen_card', description: 'Reopen one done or failed immediate child for correction. The parent and its current activation authority are inferred from this planner session.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerReopenCardInputSchema, executor: (ctx, args) => executeToolAction('none', async () => reopenCard(ctx, args)) }),
   defineToolBinder({ name: 'reorder_child', description: 'Reorder the immediate children of the current planner card. The parent is inferred from the planner session.', resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerReorderChildInputSchema, executor: (ctx, args) => executeToolAction('none', async () => reorderChild(ctx, args)) }),
-  defineToolBinder({ name: 'queue_notification', description: "Queue context on a notification-capable card for its configured designated recipient while notification admission is open. Pending delivery context is not readable.", resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerQueueNotificationInputSchema, executor: (ctx, args) => executeToolAction('none', async () => queueNotificationTool(ctx, args)) }),
+  defineToolBinder({ name: 'queue_notification', description: "Queue context on a notification-capable card for its configured designated recipient. Urgent submission may interrupt only the captured active descendant suffix after enqueue; pending delivery context is not readable.", resultPolicyTemplate: OPERATIONAL_RESULT_POLICY_TEMPLATE, inputSchema: () => plannerQueueNotificationInputSchema, executor: (ctx, args, signal) => executeToolAction('none', async () => queueNotificationTool(ctx, args, signal)) }),
 ]);
 
 function createCard(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerCreateCardInputSchema>): ToolActionOutcome {
@@ -95,9 +94,9 @@ function reorderChild(ctx: PlannerControlProviderContext, record: z.infer<typeof
   return toolSucceeded({ parent_id: ctx.parentCardId, changed: result.changed });
 }
 
-function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>): ToolActionOutcome {
-  const queued = queueNotification(record.card_id, record.kind, record.body, ctx.notifyCard);
-  if (queued.ok) return toolSucceeded({ queued: true, card_id: record.card_id, notification_id: queued.notificationId });
+async function queueNotificationTool(ctx: PlannerControlProviderContext, record: z.infer<typeof plannerQueueNotificationInputSchema>, signal: AbortSignal): Promise<ToolActionOutcome> {
+  const queued = await queueNotification(record.card_id, record.kind, record.body, record.urgency, ctx.submitNotification, signal);
+  if (queued.queued) return toolSucceeded({ queued: true, card_id: queued.cardId, notification_id: queued.notificationId, interruption: queued.interruption });
   switch (queued.reason) {
     case 'missing_card': return toolFailed(`Card '${queued.cardId}' not found.`, { queued: false, reason: queued.reason, card_id: queued.cardId });
     case 'terminal_card': return toolFailed(`Cannot queue notification for terminal card '${queued.cardId}' in status '${queued.status}'.`, { queued: false, reason: queued.reason, card_id: queued.cardId, status: queued.status });

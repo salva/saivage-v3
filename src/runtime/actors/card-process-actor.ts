@@ -20,8 +20,9 @@ import { ActivationOperationTracker, type InvocationJoinOutcome } from './invoca
 import { isRuntimeStoppedInterruption } from './runtime-stopped-interruption.js';
 import { conversationSessionIdentity, parseConversationSessionId, type ContentPolicyRefusalBlockedResult } from '../../schemas/index.js';
 import { PublicationOutcomeUnknownError, type ApplicationFatalPort } from '../../contracts/index.js';
+import { isCardInterruptedError } from './card-interrupted-error.js';
 
-type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' }>;
+type ProcessOutcome = Exclude<CardActivationOutcome, { status: 'cancelled' | 'stopped' }>;
 
 export class CardProcessActor extends BaseActor {
   readonly cardId: string;
@@ -51,8 +52,9 @@ export class CardProcessActor extends BaseActor {
   readonly #acceptedByNode = new Map<string, AcceptedNodeResult>();
   #activationSettled = false;
   #preJoinFailure: { readonly error: unknown } | null = null;
+  #interruptionReason: unknown | null = null;
 
-  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardTypeWorkflow; workflows:CompiledRuntimeWorkflows; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; onActorMainFailure(error: unknown): void; fatalPort: ApplicationFatalPort; gate: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
+  constructor(args: { projectRoot: string; cardId: string; process: CompiledCardTypeWorkflow; workflows:CompiledRuntimeWorkflows; store: CardService; parentControl: PlannerChildControlPort; notifyCard: import('./agent-node-execution.js').AgentNodeExecutionDeps['notifyCard']; submitNotification: import('../runtime-api.js').NotificationSubmissionPort; provider: LLMProviderPort; conversations: ConversationFileContext; processRunner: ProcessRunner; runtimeProcessRootScope: ManagedProcessScope; promptTemplates: PromptTemplateRegistry; runtimeProjectionChanged(): void; onActorMainFailure(error: unknown): void; fatalPort: ApplicationFatalPort; gate: RuntimeGate; mcpToolInvocation: McpToolInvocationPort; compactor: CompactorPort; compactionConfig: AutonomousCompactionPolicy; summarizerProvider: SummarizerProviderPort }) {
     super(args.process.initialStateId, args.process.states);
     this.cardId = args.cardId;
     this.process = args.process;
@@ -71,6 +73,7 @@ export class CardProcessActor extends BaseActor {
         store: args.store,
         parentControl: args.parentControl,
         notifyCard: args.notifyCard,
+        submitNotification: args.submitNotification,
         processRunner: args.processRunner,
         runtimeProcessRootScope: args.runtimeProcessRootScope,
         mcpToolInvocation: args.mcpToolInvocation,
@@ -120,6 +123,17 @@ export class CardProcessActor extends BaseActor {
       this.#llmInvocationsDisposed = true;
     }
     if (this.#operationTracker) this.#capturePreJoinFailure(() => this.#operationTracker!.revoke(reason));
+  }
+
+  interruptActivationGracefully(reason: unknown): void {
+    if (!this.#result || this.#activationSettled || this.#interruptionReason !== null)
+      throw new Error(`Processor '${this.cardId}' has no open activation to interrupt.`);
+    this.#interruptionReason = reason;
+    this.stopAfterCurrentTask();
+    this.#rejectActivation(reason, false);
+    this.#joiningLlmActors ??= [...this.#activeLlmActors.values()];
+    for (const llm of this.#joiningLlmActors) this.#capturePreJoinFailure(() => llm.requestGracefulCancellation(reason));
+    this.#operationTracker?.cancelAndSettle(reason);
   }
 
   suppressContinuationAndPrepareJoin(reason: unknown): void {
@@ -256,6 +270,7 @@ export class CardProcessActor extends BaseActor {
   }
 
   #acceptNodeFailure(error: Error): void {
+    if (this.#interruptionReason !== null && isCardInterruptedError(error)) return;
     this.#stagedFailure = error; this.sendEvent('execution:failed');
   }
 
@@ -356,7 +371,10 @@ export class CardProcessActor extends BaseActor {
   }
   #selectExecutingLlm(llm: ConversationLLMActor): void { const current = this.#currentExecutingLlm; if (!current) { this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); return; } if (current === llm) return; current.assertInvocationCanHandoff(); if (current.executingActivity().mode !== 'active') throw new Error(`Processor '${this.cardId}' cannot hand off an LLM actor while waiting.`); this.#currentExecutingLlm = llm; llm.resetExecutingActivity(); this.#runtimeProjectionChanged(); }
   #freshSourceInputId(): string { return randomUUID(); }
-  #assertCurrentActivation(input: CardActivationInput): void { if (this.#activationInput !== input || this.#activationSettled) throw new Error(`Card process '${this.cardId}' activation is no longer current.`); }
+  #assertCurrentActivation(input: CardActivationInput): void {
+    if (this.#activationInput === input && this.#interruptionReason !== null) throw this.#interruptionReason;
+    if (this.#activationInput !== input || this.#activationSettled) throw new Error(`Card process '${this.cardId}' activation is no longer current.`);
+  }
   #capturePreJoinFailure(run: () => void): void { try { run(); } catch (error) { this.#retainPreJoinFailure(error); } }
   #retainPreJoinFailure(error: unknown): void { this.#preJoinFailure ??= { error }; }
   #resolveActivation(outcome: ProcessOutcome, allowSettledContainmentLoss = false): boolean {

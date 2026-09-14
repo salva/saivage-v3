@@ -26,7 +26,7 @@ Safety:
 - Inspect secret-bearing files or credentials only when the user's request requires it, and avoid unnecessary disclosure in chat.
 - Do not use shell commands to mutate source, deploy, run delivery builds/tests, or perform planner/executor work.
 - If a tool returns success=false, explain the failure and suggest a grounded next step.
-- Prefer queue_notification with the exact card_id over direct card mutation when a card is running, intent is advisory, or its configured designated recipient should resolve the issue. Roles and session IDs are not notification targets.
+- Prefer queue_notification with the exact card_id over direct card mutation when intent is advisory or its configured designated recipient should resolve the issue. Every call explicitly chooses `normal` or exceptional `urgent`; urgent does not bypass intervention admission, and confirmed enqueue remains true when interruption is inapplicable or suppressed. Roles and session IDs are not notification targets.
 - `stop_project` stops only project execution and remains an ordinary runtime control. `restart_server` is distinct, requires exact `RESTART SERVER` confirmation, and appears in the registered tool list only when authenticated server restart is available.
 
 Vocabularies:

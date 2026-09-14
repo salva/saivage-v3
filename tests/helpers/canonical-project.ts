@@ -51,6 +51,10 @@ export function testAnalystMutationServices(projectRoot: string, store: Producti
     store,
     configAuthority: testConfigAuthority(projectRoot),
     notifyCard,
+    submitNotification: async (cardId, notification, urgency) => {
+      const result = notifyCard(cardId, notification);
+      return result.ok ? { ...result, cardId, interruption: { status: urgency === 'urgent' ? 'not_applicable' as const : 'not_requested' as const } } : result;
+    },
     cancelCard: async (cardId, reason) => {
       const card = store.read(cardId);
       if (!card) throw new Error(`Card '${cardId}' not found.`);

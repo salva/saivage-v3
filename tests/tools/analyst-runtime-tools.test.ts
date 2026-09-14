@@ -149,7 +149,7 @@ describe('analyst runtime tools', () => {
       const cards = new CardService(projectRoot);
       const card = cards.create({ type: 'code', parent: 'project', title: 'Stopped', bootstrap_content: 'Brief', tags: [], priority: 0, urgency: 'normal', created_by: 'analyst', depends_on: [], related: [] });
       cards.setStatus(card.id, 'running');
-      cards.stopRunningForRecovery(card.id);
+      cards.stopRunning(card.id);
       const runtime = { status: 'stopped' as const, currentCardId: null, pid: 4242, startedAt: '2026-07-18T00:00:00.000Z' };
       const result = await get_status({ ...controlContext({ getStatus: jest.fn(() => runtime) }), projectRoot, store: cards, processRunner, actor: 'analyst', surface: 'web-chat' } as ToolContext, {});
       expect(result).toMatchObject({ kind: 'succeeded', data: { runtime, runtimeSummary: { status: 'stopped', currentCardId: null }, statusCounts: { stopped: 1 }, counts: { stopped: 1 } } });

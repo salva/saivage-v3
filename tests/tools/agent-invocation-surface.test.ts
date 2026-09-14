@@ -66,7 +66,7 @@ describe('named-agent inventories and composition', () => {
 
   it('binds Planner reopen only when explicitly selected, independently of the configured agent name', () => {
     const reopenChild=jest.fn(({childCardId}:{childCardId:string})=>({card_id:childCardId,status:'changed' as const}));
-    const runtime={scope:'card' as const,agentName:'project-planner' as never,projectRoot:'/',store:{} as never,cardId:'project',sessionId:'agent:project-planner:project',parentControl:{...unusedParentControl,reopenChild},childCreationTypes:new Set<string>(),childActivationTypes:new Set<string>(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] as const,notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never};
+    const runtime={scope:'card' as const,agentName:'project-planner' as never,projectRoot:'/',store:{} as never,cardId:'project',sessionId:'agent:project-planner:project',parentControl:{...unusedParentControl,reopenChild},childCreationTypes:new Set<string>(),childActivationTypes:new Set<string>(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'] as const,notifyCard:()=>({ok:false as const,reason:'missing_card' as const,cardId:'project'}),submitNotification:async()=>({queued:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never};
     const selected=new BoundAgentToolSet([resolveRuntimeTool('card','reopen_card')]).bind(runtime);
     expect([...selected.tools.keys()]).toEqual(['reopen_card']);
     expect(selected.providers.map(({providerName})=>providerName)).toEqual(['planner-control']);
@@ -91,7 +91,7 @@ describe('named-agent inventories and composition', () => {
       projectRoot,
       store: new CardService(projectRoot),
       cardId: 'project',
-      sessionId:'agent:reviewer:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never,
+      sessionId:'agent:reviewer:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),submitNotification:async()=>({queued:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{} as never,
     });
     expect([...surface.tools.keys()]).toEqual(expected.reviewer);
     expect(surfaceToolDefinitions(surface).map((tool) => tool.function.name)).toEqual(expected.reviewer);
@@ -101,7 +101,7 @@ describe('named-agent inventories and composition', () => {
 
   it('grants configured MCP solely from the named tool declaration without an agent-name or annotation policy',()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'saivage-configured-mcp-'));roots.push(projectRoot);initProjectTree(projectRoot);
-    const surface=new BoundAgentToolSet([resolveRuntimeTool('card','mcp_tool_call')]).bind({scope:'card',agentName:'reviewer',projectRoot,store:new CardService(projectRoot),cardId:'project',sessionId:'agent:reviewer:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{getServerTools:()=>[],findToolCapability:()=>null,invokeTool:()=>Promise.resolve({})}});
+    const surface=new BoundAgentToolSet([resolveRuntimeTool('card','mcp_tool_call')]).bind({scope:'card',agentName:'reviewer',projectRoot,store:new CardService(projectRoot),cardId:'project',sessionId:'agent:reviewer:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),submitNotification:async()=>({queued:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{} as never,mcpToolInvocation:{getServerTools:()=>[],findToolCapability:()=>null,invokeTool:()=>Promise.resolve({})}});
     expect([...surface.tools.keys()]).toEqual(['mcp_tool_call']);
     expect(surface.providers.map((provider)=>provider.providerName)).toEqual(['mcp']);
   });
@@ -109,7 +109,7 @@ describe('named-agent inventories and composition', () => {
   it('binds only selected process definitions and cleans the shared selected group once',async()=>{
     const closeAndTerminateDirectScope=jest.fn(async()=>({failed:[]}));
     const toolSet=new BoundAgentToolSet(['wait_process','kill_process'].map((name)=>resolveRuntimeTool('card',name)));
-    const surface=toolSet.bind({scope:'card',agentName:'executor',projectRoot:'/',store:{} as never,cardId:'project',sessionId:'agent:executor:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),processRunner:{closeAndTerminateDirectScope} as never,processScope:{} as never,processOwnerId:'activation',mcpToolInvocation:{} as never});
+    const surface=toolSet.bind({scope:'card',agentName:'executor',projectRoot:'/',store:{} as never,cardId:'project',sessionId:'agent:executor:project',parentControl:unusedParentControl,childCreationTypes:new Set(),childActivationTypes:new Set(),cardTypeVocabulary:['project','goal','architecture','code','test','doc','data','research','ops'],notifyCard:()=>({ok:false,reason:'missing_card',cardId:'project'}),submitNotification:async()=>({queued:false as const,reason:'missing_card' as const,cardId:'project'}),processRunner:{closeAndTerminateDirectScope} as never,processScope:{} as never,processOwnerId:'activation',mcpToolInvocation:{} as never});
     expect(surface.providers).toHaveLength(1);
     expect(surface.providers[0]!.tools.map((tool)=>tool.name)).toEqual(['wait_process','kill_process']);
     expect(surface.providers[0]!.cleanup).toEqual(expect.any(Function));
