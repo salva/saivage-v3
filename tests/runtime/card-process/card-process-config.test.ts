@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { DEFAULT_SAIVAGE_CONFIG,resolveSystemTemplate } from '../../../src/config/system-templates/registry.js';
-import { EMIT_RESULT_SUMMARY_MAX_CHARS,bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows,describeNodeResultContract,nodeResultSchema,processNodeOutcomes } from '../../../src/runtime/card-process/card-process-config.js';
+import { EMIT_RESULT_SUMMARY_MAX_CHARS,bindRuntimeWorkflows,cardProcessEntryForStatus,compileProjectWorkflows,describeNodeResultContract,nodeResultSchema,nodeResultToolDefinition,processNodeOutcomes } from '../../../src/runtime/card-process/card-process-config.js';
 import { effectiveSaivageConfigSchema,saivageConfigSchema,type SaivageConfig } from '../../../src/schemas/saivage-config.js';
 import type { CardStatus } from '../../../src/schemas/index.js';
 import { ProviderRegistry } from '../../../src/agents/provider.js';
@@ -88,8 +88,34 @@ describe('named-agent card-type workflow compilation',()=>{
     expect(roles).toEqual(new Set(['planner','reviewer','executor']));
     const sources=Object.values(expected);const nodes=sources.flatMap(({workflow})=>Object.keys(workflow.nodes));const references=sources.flatMap(({workflow})=>[...Object.values(workflow.entries).flatMap(({node,prompt})=>[node,...(prompt?[prompt]:[])]),...Object.values(workflow.nodes).flatMap((node)=>[node.prompt,node.correction_prompt,...Object.values(node.edges).flatMap(({target,prompt,pending_notifications})=>[...('node'in target?[target.node]:[]),...('terminal'in target&&target.promote!=='current'?[target.promote.latest_node]:[]),...(prompt?[prompt]:[]),...(pending_notifications?[pending_notifications.node,pending_notifications.prompt]:[])])])]);const outcomes=sources.flatMap(({workflow})=>Object.values(workflow.nodes).flatMap(({edges})=>Object.keys(edges)));
     expect([...new Set(nodes)]).toEqual(['plan','review','recover','handle-notifications','draft','component-review','system-review','red','green','refactor','diagnose','add-coverage','repair','verify','execute','schema','validate','implement','explore','assess','report']);
-    expect([...new Set(outcomes)]).toEqual(['complete_direct','admit_review','blocked','failed','approved','revision_required','ready_for_component_review','red_confirmed','already_green','green','still_red','done','regressed','coverage_gap','failing_test','coverage_passing','repair_needed','tests_passing','still_failing','schema_ready','valid','schema_invalid','implementation_retry','schema_revision','evidence_ready','more_exploration','supported','refuted','bounded_inconclusive','evidence_gap']);
+    expect([...new Set(outcomes)]).toEqual(['complete_direct','admit_review','blocked','failed','approved','revision_required','ready_for_component_review','red_confirmed','already_green','green','still_red','done','regressed','coverage_ready','coverage_gap','failing_test','coverage_passing','repair_needed','tests_passing','still_failing','schema_ready','valid','schema_invalid','implementation_retry','schema_revision','evidence_ready','more_exploration','supported','refuted','bounded_inconclusive','evidence_gap']);
     expect(references.every((id)=>/^[a-z][a-z0-9-]{0,63}$/u.test(id))).toBe(true);expect(outcomes.every((id)=>/^[a-z][a-z0-9_-]{0,63}$/u.test(id))).toBe(true);
+  });
+
+  it('compiles the exact typed test graph and derives its ready contract from the configured edge',()=>{
+    const process=compileProjectWorkflows(specializedConfig(),{defaultPromptRoot:resolveSystemTemplate('classic-typed').promptRoot}).cardTypes.get('test')!;
+    const expectedEntries={BACKLOG:{node:'diagnose',prompt:null},CHANGED:{node:'diagnose',prompt:null},BLOCKED:{node:'diagnose',prompt:null},STOPPED:{node:'diagnose',prompt:'stopped-recovery'}} as const;
+    for(const [entry,expected] of Object.entries(expectedEntries))expect(process.states.get(`entry:${entry}`)!.on.get('entry:route')).toMatchObject({targetStateId:`node:${expected.node}`,semantic:{kind:'entry-route',promptId:expected.prompt}});
+    const expectedNodes={
+      diagnose:{prompt:'test-diagnose',outcomes:[['coverage_ready','verify','test-to-verify'],['coverage_gap','add-coverage','test-to-add-coverage'],['failing_test','repair','test-to-repair'],['blocked','BLOCKED',null],['failed','FAILED',null]]},
+      'add-coverage':{prompt:'test-add-coverage',outcomes:[['coverage_passing','verify','test-to-verify'],['repair_needed','repair','test-to-repair'],['blocked','BLOCKED',null],['failed','FAILED',null]]},
+      repair:{prompt:'test-repair',outcomes:[['tests_passing','verify','test-to-verify'],['still_failing','repair','test-repair-retry'],['blocked','BLOCKED',null],['failed','FAILED',null]]},
+      verify:{prompt:'test-verify',outcomes:[['done','DONE',null],['coverage_gap','add-coverage','test-to-add-coverage'],['repair_needed','repair','test-to-repair'],['blocked','BLOCKED',null],['failed','FAILED',null]]},
+    } as const;
+    for(const [nodeId,expected] of Object.entries(expectedNodes)){
+      const state=process.states.get(`node:${nodeId}`)!;if(state.kind!=='node')throw new Error(`missing test/${nodeId}`);
+      expect(state.promptId).toBe(expected.prompt);expect(state.requirements.map(({definition,mode,gate})=>[definition.name,mode,gate])).toEqual([['status.md','continue','updated']]);
+      expect(processNodeOutcomes(process,`node:${nodeId}`)).toEqual(expected.outcomes.map(([outcome])=>outcome));
+      for(const [outcome,target,promptId] of expected.outcomes){const edge=state.on.get(`result:${outcome}`)!;expect(edge.semantic).toMatchObject({kind:'configured-outcome',outcome,promptId});expect(edge.targetStateId).toBe(target==='DONE'||target==='BLOCKED'||target==='FAILED'?`terminal:${target}`:`node:${target}`);}
+    }
+    const diagnoseOutcomes=expectedNodes.diagnose.outcomes.map(([outcome])=>outcome);
+    expect(nodeResultSchema(process,'node:diagnose').safeParse({outcome:'coverage_ready',summary:'Adequate meaningful coverage passes.'}).success).toBe(true);
+    expect(nodeResultSchema(process,'node:diagnose').safeParse({outcome:'done',summary:'Bypass verification.'}).success).toBe(false);
+    expect(nodeResultSchema(process,'node:verify').safeParse({outcome:'coverage_ready',summary:'Wrong node.'}).success).toBe(false);
+    expect(describeNodeResultContract(process,'node:diagnose')).toContain(`outcome (one of: ${diagnoseOutcomes.join(' | ')})`);
+    expect(nodeResultToolDefinition(process,'node:diagnose').function.parameters).toMatchObject({type:'object',properties:{outcome:{type:'string',enum:diagnoseOutcomes}},required:['outcome','summary'],additionalProperties:false});
+    expect(process.processPrompts.get('test-diagnose' as never)?.text).toBe('Run or inspect the focused target and determine whether the accepted brief already has meaningful adequate coverage with passing tests, identifies missing coverage, or exposes an actually failing test or fixture. A fresh or resumed diagnosis may truthfully require no test or source change; do not manufacture a failure or metadata delta for behavior that is already correct. Update `record:///status.md?card=<card-id>` with the target, commands, observations, classification, and current status. Select `coverage_ready` only when meaningful coverage is adequate for the accepted brief and the focused tests pass, `coverage_gap` for absent meaningful coverage, `failing_test` for an observed failing test or fixture, `blocked` when diagnosis needs unavailable input, or `failed` for a conclusive failure.\n');
+    expect(process.processPrompts.get('test-to-verify' as never)?.text).toBe("The focused tests pass, whether already passing at diagnosis or after coverage or repair work. Verify the affected suite and the coverage's meaning, stability, and scope before completion.\n");
   });
 
   it('rejects underscore-bearing workflow node keys without widening or normalization',()=>{

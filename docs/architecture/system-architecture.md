@@ -411,6 +411,8 @@ Neither compilation, binding, actors, REST, nor the browser branches on `classic
 Init materialization is erased into the same complete immutable map; every consumer follows declarations and state tables.
 Typed node IDs therefore remain ordinary graph identities, including hyphenated `add-coverage`, `component-review`, and `system-review`, with no template-aware engine path.
 
+The typed `test` graph configures `diagnose/coverage_ready` to enter the existing `verify` node through the existing `test-to-verify` prompt when diagnosis establishes both meaningful adequate coverage and passing tests, including after re-entry. The compiler derives the node-result schema, generated `emit_result` outcome enum, transition, and Debug Graphs projection from that edge exactly as it does every other configured outcome; verification still owns the only successful terminal. This adds no engine branch, persisted phase, record/schema identity, or durable-format change.
+
 Typed architecture demonstrates the existing record/transition mechanism without extending it.
 Executor `draft` updates cumulative `status.md`; Reviewer `component-review` opens and closes a clean updated `review.md`; accepted transition context carries that exact immutable `&v=N` URL into Reviewer `system-review`, which opens a newer clean cycle of the same `review.md`.
 Revision carries the accepted scope-specific review URL back to `draft`; successful system review promotes the latest accepted `draft` result and exports the current review.
@@ -439,6 +441,8 @@ The five shipped role prompts, including both global Analyst and Oversight hosts
 Build packaging compiles each registered template standalone against its own per-template source prompts root, observes selected bundled agent/process/fragment artifacts through that same selector, and requires each template's physical tree to equal its complete source-derived compiled closure exactly before copying each tree under `dist/src/config/system-templates/<name>/prompts/`.
 
 The two shipped templates each retain one shared Planner agent artifact selected for both `project` and `goal`. That instruction's prose assigns strategic completion ownership to a Planner whose frozen card context says `project` and delegated local planning ownership to one whose context says `goal`; the actor supplies that complete typed card block separately from the rendered instruction. The engine adds no project/goal role classifier, selector, agent, card-specific Planner artifact, or specialized fragment for that strategy distinction; the common and Planner direct fragments remain generic guidance hooks. Typed planning and recovery process prompts add their graph-specific execution and intervention boundaries without replacing the shared distinction; classic process prompts continue to compose with it unchanged.
+
+Those byte-identical shared Planner hosts also describe the existing bounded `cancel_card` discretion: only an obsolete or explicitly rejected direct-child approach may be cancelled when current tool and lifecycle rules permit it, never merely to defer actionable work or conceal an obligation. The prose does not expand cancellation authority; CANCELLED remains terminal, cannot reopen, and cannot satisfy DONE dependencies.
 
 `CardActivationOwner` retains the selected lifecycle entry and ready parked `CardProcessActor`.
 Direct state-entry and transition hooks execute the card type's startup-compiled state table.

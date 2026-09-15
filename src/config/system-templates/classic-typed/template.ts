@@ -169,6 +169,7 @@ function testCardType(): CardTypeSource {
       entries: executionEntries('diagnose'),
       nodes: {
         diagnose: executorNode('test-diagnose', {
+          coverage_ready: transition('verify', 'test-to-verify'),
           coverage_gap: transition('add-coverage', 'test-to-add-coverage'),
           failing_test: transition('repair', 'test-to-repair'),
           blocked: terminal('BLOCKED', 'status.md'),
