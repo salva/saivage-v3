@@ -135,7 +135,9 @@ Compatible root and web dependencies must be installed before running
 `npm run check:export-consumers`, `npm run lint`, or `npm run validate:routine`.
 Both lint and routine invoke the export-consumer guard directly; lint does not
 invoke routine. A fresh dual `npm ci` is required for CI setup and this issue's
-acceptance setup, not before every ordinary local command invocation. The lint
+acceptance setup, not before every ordinary local command invocation. Both
+installs retain development dependencies so the validation toolchain remains
+available. The lint
 profile runs the guard before stamp-producer, ESLint, backend import-boundary,
 and web-component boundary checks. Backend import-boundary findings remain
 advisory accumulated debt.
@@ -151,7 +153,7 @@ build and non-E2E Jest. The independently visible `backend-e2e` job uses a root
 clean install and owns `npm run test:e2e`; it needs no web install, browser,
 secret, or external service. Applicable UI paths run complete web typechecking
 and Vitest plus a separate browser-smoke job. Package/workflow changes run the
-production dependency gate `npm run audit:security`.
+dependency security gate `npm run audit:security`.
 
 ```bash
 npm run check:export-consumers
@@ -212,7 +214,14 @@ Chromium; absence is a failing prerequisite, not a skipped test or production
 network requirement.
 
 The build and release gates package every registered prompt tree and run its
-compiled composition smoke. `npm run test:compiled-prompt-composition` runs
+compiled composition smoke. After building the documentation and web UI, they
+also run a real-Fastify static-serving smoke over the built `/docs/runbook/`
+page, web entry point, and a built web asset. This checks that the actual static
+plugin registrations serve those artifacts without promising a `/docs/` root
+page. `npm run test:static-serving` runs that smoke directly and therefore
+requires the documentation and web assets to have already been built.
+
+`npm run test:compiled-prompt-composition` runs
 `dist/tests/scripts/compiled-prompt-composition-smoke.js --source-root .` against
 the normal compiled `dist` tree. The required `--source-root <repository>`
 argument resolves relative paths against the invocation working directory and
@@ -234,13 +243,20 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/absolute/path/to/chrome npm run validate:re
 Omitting the variable retains the managed-browser default. This affects local
 validation only, never service configuration.
 
-Run production dependency security and the broader local-only freshness review
-with:
+Run dependency security and the broader local review with:
 
 ```bash
 npm run audit:security
 npm run deps:review
 ```
+
+`npm run audit:security` is the CI gate for high and critical findings in the
+root and web dependency graphs. Both project `.npmrc` files set `include=dev`,
+so npm's explicit inclusion takes precedence over the audit scripts' retained
+`--omit=dev` flags and the effective audit scope includes development
+dependencies. `npm run audit:security:all` uses the lower moderate threshold.
+`npm run deps:review` runs that broader audit plus local dependency-freshness
+review; it does not replace the CI gate.
 
 `npm run validate:release` is the singular local release-sign-off composition.
 Its constituent commands remain useful for diagnosis; release validation does

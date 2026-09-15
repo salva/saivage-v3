@@ -155,7 +155,7 @@ describe('validation cadence guard', () => {
       expect(result.requiredValidationScriptsChecked).toContain('package.json script web:test:operator-smoke');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script audit:security');
       expect(result.requiredValidationScriptsChecked).toContain('package.json script deps:review');
-      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml path-aware production dependency audit gate');
+      expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml path-aware dependency audit gate');
       expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml aggregate dependency-hygiene require_applicable call');
       expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml classifier shared contracts/schemas browser assignment');
       expect(result.validationWorkflowContractEntriesChecked).toContain('.github/workflows/validation.yml classifier web/Playwright recognition mark');
@@ -327,7 +327,7 @@ describe('validation cadence guard', () => {
     withFixture(validFiles({ 'package.json': JSON.stringify({ engines: { node: '>=24 <25', npm: '>=10 <12' }, scripts }) }), (root) => {
       const result = verifyValidationCadence({ root });
       expect(result.ok).toBe(false);
-      expect(result.failures).toContain('package.json is missing required validation script "audit:security" (combined production dependency security gate)');
+      expect(result.failures).toContain('package.json is missing required validation script "audit:security" (combined dependency security gate)');
     });
   });
 

@@ -52,19 +52,19 @@ const REQUIRED_VALIDATION_SCRIPTS = [
   {
     name: 'audit:root',
     mustInclude: ['npm audit --audit-level=high --omit=dev'],
-    description: 'root production dependency security gate',
+    description: 'root dependency security gate',
     documentationOptional: true,
   },
   {
     name: 'audit:web',
     mustInclude: ['cd web && npm audit --audit-level=high --omit=dev'],
-    description: 'web production dependency security gate',
+    description: 'web dependency security gate',
     documentationOptional: true,
   },
   {
     name: 'audit:security',
     mustInclude: ['npm run audit:root', 'npm run audit:web'],
-    description: 'combined production dependency security gate',
+    description: 'combined dependency security gate',
   },
   {
     name: 'audit:security:all',
@@ -854,7 +854,7 @@ function validateValidationWorkflowContract({ workflowDocuments }) {
     if (content.includes('web:test:live-getrich-v2') || content.includes('live-getrich-v2.config.ts')) failures.push(`${file} validation workflow must exclude the external live GetRich v2 suite`);
 
     const dependency = jobs['dependency-hygiene'];
-    checked.push(`${file} path-aware production dependency audit gate`);
+    checked.push(`${file} path-aware dependency audit gate`);
     const dependencyRuns = scalarRunSteps(dependency).map(({ run }) => run);
     for (const command of ['npm ci', 'cd web && npm ci', 'npm run audit:security']) {
       if (!dependencyRuns.includes(command)) failures.push(`${file} dependency-hygiene must run ${command}`);

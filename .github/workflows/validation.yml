@@ -340,7 +340,7 @@ jobs:
       - name: Install web dependencies
         run: cd web && npm ci
 
-      - name: Production dependency security gate
+      - name: Dependency security gate
         run: npm run audit:security
 
   validation-required:
