@@ -73,7 +73,7 @@ test('production browser direct loads initialize router and render route-owned b
   }
 
   expect(rest.unknown).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation'], { filesMetadataListSupersession: 'full-document-navigation' });
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(consoleErrors).toEqual([]);
   expect(pageErrors).toEqual([]);
 });

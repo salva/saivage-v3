@@ -45,11 +45,9 @@ test('operator control room smoke walks browser routes with REST fixtures and We
   const ps=page.locator('.role-section').filter({has:page.locator('.role-heading',{hasText:'planner'})}); const pc=ps.locator('.session-card'); await expect(pc).toHaveCount(1); await expect(pc.locator('.session-scope')).toHaveText('card'); await expect(pc.locator('.status-badge')).toHaveCount(0); await expect(pc.getByRole('button',{name:'Synthetic Project'})).toBeVisible(); await pc.click(); await expect(page).toHaveURL(/\/agents\/agent:planner:project$/); await expect(page.locator('.detail-header-bar')).toContainText('agent:planner:project');
   const pagedTool=page.locator('.tool-chip').filter({hasText:'partial message slice'}); await expect(pagedTool).toContainText('1 partial message slice of 5 selected messages'); await expect(pagedTool).toContainText('12 total visible messages'); await pagedTool.getByRole('button',{name:/Expand tool read_agent_session details/}).click(); await pagedTool.getByRole('button',{name:'Show raw response'}).click(); await expect(pagedTool.getByLabel('Raw tool response')).toContainText('"total_visible_entries":12');
 
-  await failures.during('files-entry', async () => {
-    await page.getByText('Files').first().click();
-    await expect(page).toHaveURL(/\/files$/);
-    await expect(page.getByText('plan.json')).toBeVisible();
-  });
+  await page.getByText('Files').first().click();
+  await expect(page).toHaveURL(/\/files$/);
+  await expect(page.getByText('plan.json')).toBeVisible();
   await page.getByText('plan.json').click();
   await expect(page.getByText('operator-playwright-smoke')).toBeVisible();
 
@@ -66,5 +64,5 @@ test('operator control room smoke walks browser routes with REST fixtures and We
 
   expect(rest.unknown).toEqual([]);
   expect(pageErrors).toEqual([]);
-  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation'], { filesMetadataListSupersession: 'files-entry' });
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
 });

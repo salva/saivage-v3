@@ -1,15 +1,16 @@
 import { expect, test } from '@playwright/test';
 import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { installOperatorRestRoutes, smokeCardId, smokeOperatorCard } from './fixtures/operator-rest-fixtures.js';
+import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenBeforeNavigation, waitForRuntimePair } from './fixtures/operator-preview-sync.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const syntheticToken = 'synthetic-playwright-token';
 
-test('desktop card detail keeps all content reachable inside the bounded detail scroller', async ({ page }) => {
+test('desktop card detail keeps all content reachable inside the bounded detail scroller', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required');
+  const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
-  const failedRequests: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`));
 
   await page.setViewportSize({ width: 1280, height: 720 });
   await installOperatorWebSocketShim(page);
@@ -24,8 +25,8 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
     });
   });
 
-  await page.addInitScript((token) => window.localStorage.setItem('saivage_api_token', token), syntheticToken);
-  await page.goto(`/cards/${smokeCardId}`);
+  await seedTokenBeforeNavigation(page, syntheticToken);
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}`)));
 
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
   await page.getByText('Metadata', { exact: true }).click();
@@ -50,13 +51,17 @@ test('desktop card detail keeps all content reachable inside the bounded detail 
     return markerBox.bottom <= box.bottom + tolerance && markerBox.top >= box.top - tolerance;
   })).toBe(true);
   await page.getByText('Version history', { exact: true }).click();
-  await expect(page.getByText('lifecycle, status_text, status_text_updated_at updated', { exact: true })).toBeVisible();
+  const versionTwo = page.locator('.history-item').filter({ hasText: 'v2' });
+  await expect(versionTwo).toContainText('status -> running');
+  await expect(versionTwo.locator('.history-change-fields')).toHaveText('lifecycle');
   await expect(page.getByText('Diff vs current card', { exact: true })).toBeVisible();
+  await expect(page.getByText('Snapshot body', { exact: true })).toBeVisible();
+  await expect(page.locator('.diff-field')).toHaveText(['lifecycle', 'status_text', 'status_text_updated_at']);
   expect(rest.counts.get(`GET /api/cards/${smokeCardId}/history`)).toBe(1);
   expect(rest.counts.get(`GET /api/cards/${smokeCardId}/history/2`)).toBe(1);
   expect(rest.counts.get(`GET /api/cards/${smokeCardId}/diff`)).toBe(1);
 
   expect(rest.unknown).toEqual([]);
-  expect(failedRequests).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(pageErrors).toEqual([]);
 });

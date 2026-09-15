@@ -87,7 +87,9 @@ test('operator control room surfaces API auth-required banner on synthetic 401 w
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await seedTokenBeforeNavigation(page, invalidSyntheticToken); await installOperatorWebSocketShim(page);
 
-  const rest = await installOperatorRestRoutes(page, { unauthorized: true });
+  const rest = await installOperatorRestRoutes(page, {
+    unauthorized: (method, pathname) => method === 'GET' && pathname === '/api/state',
+  });
 
   await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/dashboard')));
 
@@ -98,7 +100,7 @@ test('operator control room surfaces API auth-required banner on synthetic 401 w
   const unauthorizedCue = page.locator('.cue-chip.cue-unauthorized');
   await expect(unauthorizedCue).toBeVisible();
   await expect(unauthorizedCue).toContainText('Unauthorized');
-  await expect(unauthorizedCue).toHaveAttribute('title', 'API and WebSocket access were rejected. Re-enter a valid token.');
+  await expect(unauthorizedCue).toHaveAttribute('title', 'The runtime REST request was rejected. Re-enter a valid API token.');
   await expect(page.getByText(invalidSyntheticToken)).toHaveCount(0);
   await expect.poll(() => rest.authorizations.length).toBeGreaterThan(0);
   expect(rest.authorizations.every((header) => header === `Bearer ${invalidSyntheticToken}`)).toBe(true);

@@ -201,9 +201,6 @@ function openDirectory(path: string): void {
 
 function openEntry(entry: FileEntry): void {
   if (entry.type === 'directory') {
-    fileStore.clearViewedFile();
-    const navigation = activeRoot.value === 'meta' ? fileStore.navigateMeta(entry.path) : fileStore.navigateOutput(entry.path);
-    void navigation.then(() => fileStore.clearViewedFile());
     goToPath(activeRoot.value, entry.path);
     return;
   }
@@ -211,43 +208,76 @@ function openEntry(entry: FileEntry): void {
 }
 
 async function refreshActiveRoot(): Promise<void> {
-  const path = canonicalPathForRoot(activeRoot.value, route.query.path);
-  if (activeRoot.value === 'meta') await fileStore.fetchMetaFiles(path);
-  else await fileStore.fetchOutputFiles(path);
+  await refetchActiveFilesView();
 }
+
+interface RouteResolution {
+  readonly identity: symbol;
+  promise: Promise<void>;
+  active: boolean;
+}
+
+let currentRouteResolution: RouteResolution | null = null;
+let unmounted = false;
 
 async function refetchActiveFilesView(): Promise<void> {
-  if (activeRoot.value === 'meta') await fileStore.fetchMetaFiles();
-  else await fileStore.fetchOutputFiles();
-  if (viewedFilePath.value) await fileStore.fetchFileContent(viewedFilePath.value);
+  if (currentRouteResolution) return currentRouteResolution.promise;
+
+  const rootName = activeRoot.value;
+  const routePath = canonicalPathForRoot(rootName, route.query.path);
+  const directoryPath = rootName === 'meta' ? fileStore.metaPath : fileStore.outputPath;
+  const previewPath = viewedFilePath.value;
+
+  if (rootName === 'meta') await fileStore.fetchMetaFiles(directoryPath);
+  else await fileStore.fetchOutputFiles(directoryPath);
+
+  if (
+    unmounted
+    || currentRouteResolution
+    || activeRoot.value !== rootName
+    || canonicalPathForRoot(activeRoot.value, route.query.path) !== routePath
+    || viewedFilePath.value !== previewPath
+  ) return;
+
+  if (previewPath) await fileStore.fetchFileContent(previewPath);
 }
 
-async function applyQueryPath(): Promise<void> {
-  const rootName = activeRoot.value;
-  const path = canonicalPathForRoot(rootName, route.query.path);
+async function applyQueryPath(operation: RouteResolution, rootName: FileRoot, path: string): Promise<void> {
+  const isCurrent = (): boolean => (
+    !unmounted
+    && operation.active
+    && currentRouteResolution?.identity === operation.identity
+  );
   const pathRoot = rootForPath(path);
   if (pathRoot && pathRoot !== rootName) {
-    goToPath(pathRoot, path);
+    if (isCurrent()) await router.push({ name: 'files', query: { root: pathRoot, path } });
     return;
   }
   const browse = rootName === 'meta' ? fileStore.navigateMeta : fileStore.navigateOutput;
+  const rootPath = rootName === 'meta' ? '.saivage' : '.saivage/work';
 
   const browseDirectory = async (directoryPath: string): Promise<boolean> => {
     await browse(directoryPath);
+    if (!isCurrent()) return false;
     return !fileStore.listError;
   };
 
+  if (!isCurrent()) return;
   fileStore.clearViewedFile();
   const listedDirectory = await browseDirectory(path);
+  if (!isCurrent()) return;
   if (listedDirectory || fileStore.unauthorized) return;
 
   const directory = parentPath(path);
   const listedParent = directory !== path ? await browseDirectory(directory) : false;
+  if (!isCurrent()) return;
   if (fileStore.unauthorized) return;
 
-  if (!listedParent) await browse(activeRootPath.value);
+  if (!listedParent) await browse(rootPath);
+  if (!isCurrent()) return;
   if (fileStore.unauthorized) return;
 
+  if (!isCurrent()) return;
   await fileStore.fetchFileContent(path);
 }
 
@@ -257,11 +287,28 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  unmounted = true;
   unregisterFiles?.();
 });
 
-watch(() => [route.query.root, route.query.path], async () => {
-  await applyQueryPath();
+watch(() => [route.query.root, route.query.path], async (_query, _previousQuery, onCleanup) => {
+  const rootName = activeRoot.value;
+  const path = canonicalPathForRoot(rootName, route.query.path);
+  const operation = {
+    identity: Symbol('files-route-resolution'),
+    active: true,
+    promise: Promise.resolve(),
+  };
+  currentRouteResolution = operation;
+  const promise = applyQueryPath(operation, rootName, path);
+  operation.promise = promise;
+  onCleanup(() => { operation.active = false; });
+
+  try {
+    await promise;
+  } finally {
+    if (currentRouteResolution?.identity === operation.identity) currentRouteResolution = null;
+  }
 }, { immediate: true });
 </script>
 

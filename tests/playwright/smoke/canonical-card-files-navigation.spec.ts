@@ -1,5 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { parseOperatorResponse } from '../../../src/contracts/operator-api.js';
 import { installOperatorRestRoutes } from './fixtures/operator-rest-fixtures.js';
+import { assertPreviewRequestFailures, observePreviewRequestFailures, waitForRuntimePair } from './fixtures/operator-preview-sync.js';
 import { installOperatorWebSocketShim } from './fixtures/operator-websocket-shim.js';
 
 const now = '2026-07-20T12:00:00.000Z';
@@ -40,7 +42,7 @@ const listings = new Map<string, { path: string; files: Array<Record<string, unk
 ]);
 
 function json(route: Route, payload: unknown, status = 200) {
-  return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
+  return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(parseOperatorResponse('files.list', status, payload)) });
 }
 
 async function expectPath(page: Page, path: string, crumbs: string[]) {
@@ -53,12 +55,12 @@ async function openListedEntry(page: Page, name: string) {
   await page.getByTestId('files-list').getByText(name, { exact: true }).click();
 }
 
-test('Files navigates the canonical card tree from Metadata to an empty leaf', async ({ page }) => {
+test('Files navigates the canonical card tree from Metadata to an empty leaf', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required');
+  const failures = observePreviewRequestFailures(page, baseURL);
   const requestedPaths: string[] = [];
   const pageErrors: string[] = [];
-  const failedRequests: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`));
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
@@ -70,7 +72,7 @@ test('Files navigates the canonical card tree from Metadata to an empty leaf', a
     return listing ? json(route, listing) : json(route, { error: 'Path not found', path }, 404);
   });
 
-  await page.goto('/files?root=meta&path=.saivage');
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/files?root=meta&path=.saivage')));
   await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
   await expectPath(page, '.saivage', ['.saivage']);
 
@@ -95,6 +97,6 @@ test('Files navigates the canonical card tree from Metadata to an empty leaf', a
 
   for (const path of listings.keys()) expect(requestedPaths).toContain(path);
   expect(rest.unknown).toEqual([]);
-  expect(failedRequests).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(pageErrors).toEqual([]);
 });

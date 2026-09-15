@@ -168,6 +168,10 @@ function json(route: Route, payload: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(payload) });
 }
 
+function filesJson(route: Route, operation: 'files.list' | 'files.content', status: number, payload: unknown) {
+  return json(route, parseOperatorResponse(operation, status, payload), status);
+}
+
 function keyFor(method: string, pathname: string): string {
   return `${method.toUpperCase()} ${pathname}`;
 }
@@ -188,7 +192,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
       ? options.unauthorized(request.method(), url.pathname)
       : options.unauthorized === true;
     if (shouldReject) {
-      return json(route, { error: 'unauthorized', message: 'Synthetic 401: valid API token required' }, 401);
+      return json(route, parseOperatorResponse('runtime.getState', 401, { error: 'Unauthorized', statusCode: 401 }), 401);
     }
 
     if (request.method() === 'POST' && url.pathname === '/api/auth/ws-ticket') {
@@ -246,33 +250,33 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
     }
     if (request.method() === 'GET' && url.pathname === '/api/files') {
       const path = url.searchParams.get('path');
-      if (path === '.saivage/logs') return json(route, metaLogs);
-      if (path === '.saivage/work/reports') return json(route, outputReports);
-      if (path === '.saivage/work' || !path) return json(route, path === '.saivage/work' ? outputRoot : metaRoot);
+      if (path === '.saivage/logs') return filesJson(route, 'files.list', 200, metaLogs);
+      if (path === '.saivage/work/reports') return filesJson(route, 'files.list', 200, outputReports);
+      if (path === '.saivage/work' || !path) return filesJson(route, 'files.list', 200, path === '.saivage/work' ? outputRoot : metaRoot);
       if (path === '.saivage/plan.json' || path === '.saivage/logs/app.jsonl' || path === '.saivage/work/smoke-result.json' || path === '.saivage/work/LICENSE' || path === '.saivage/work/reports/summary.md') {
-        return json(route, { error: 'Path is not a directory', path }, 400);
+        return filesJson(route, 'files.list', 400, { error: 'Path is not a directory', path });
       }
       if (path === '.saivage/work/stale' || path === '.saivage/work/stale/missing-log.txt') {
-        return json(route, { error: 'Path not found', path }, 404);
+        return filesJson(route, 'files.list', 404, { error: 'Path not found', path });
       }
-      return json(route, metaRoot);
+      return filesJson(route, 'files.list', 200, metaRoot);
     }
     if (request.method() === 'GET' && url.pathname === '/api/files/content') {
       const path = url.searchParams.get('path') ?? '.saivage/plan.json';
       if (path === '.saivage/work/blocked-secret.json') {
-        return json(route, { error: 'forbidden', message: 'Synthetic preview blocked by content safety policy' }, 403);
+        return filesJson(route, 'files.content', 403, { error: 'Synthetic preview blocked by content safety policy', path });
       }
       if (path === '.saivage/work/missing-log.txt' || path === '.saivage/work/stale/missing-log.txt') {
-        return json(route, { error: 'not_found', message: 'Synthetic file no longer exists' }, 404);
+        return filesJson(route, 'files.content', 404, { error: 'Synthetic file no longer exists', path });
       }
       if (path === '.saivage/work/binary.bin') {
-        return json(route, { error: 'unsupported_media_type', message: 'Synthetic binary preview unavailable' }, 415);
+        return filesJson(route, 'files.content', 415, { error: 'Synthetic binary preview unavailable', path });
       }
       if (path === '.saivage/work/huge.log') {
-        return json(route, { error: 'payload_too_large', message: 'Synthetic file is too large for inline preview' }, 413);
+        return filesJson(route, 'files.content', 413, { error: 'Synthetic file is too large for inline preview', path, size: 5_242_880, maxSize: 1_048_576 });
       }
       if (path === '.saivage/work/redacted-config.json') {
-        return json(route, {
+        return filesJson(route, 'files.content', 200, {
           path,
           size: 96,
           contentType: 'application/json',
@@ -282,7 +286,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         });
       }
       if (path === '.saivage/work/reports/summary.md') {
-        return json(route, {
+        return filesJson(route, 'files.content', 200, {
           path,
           size: 72,
           contentType: 'text/markdown',
@@ -292,7 +296,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         });
       }
       if (path === '.saivage/work/LICENSE') {
-        return json(route, {
+        return filesJson(route, 'files.content', 200, {
           path,
           size: 48,
           contentType: 'text/plain',
@@ -302,7 +306,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
         });
       }
       if (path === '.saivage/work/smoke-result.json') {
-        return json(route, {
+        return filesJson(route, 'files.content', 200, {
           path,
           size: 64,
           contentType: 'application/json',
@@ -311,7 +315,7 @@ export async function installOperatorRestRoutes(page: Page, options: OperatorRes
           sensitivity: 'normal',
         });
       }
-      return json(route, {
+      return filesJson(route, 'files.content', 200, {
         path,
         size: 32,
         contentType: 'application/json',

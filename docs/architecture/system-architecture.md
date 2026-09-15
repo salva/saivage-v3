@@ -1164,7 +1164,7 @@ Application bootstrap starts only runtime/project and root Card reads; AppShell 
 The eight `components/debug/*Panel.vue` components own only the State, Operator Control, Errors, Agents, Graphs, Processes, Doctor, and MCP presentation and report typed events to that route owner; they do not acquire stores, routing, requests, or leases.
 The keyed `DebugAgentDetail` descendant remains the independent selected-detail resource lifetime.
 DebugStore owns only derived Errors among event-backed resources, and tab selection triggers that automatic read only while Errors is selected; Doctor is manual, hidden tabs own nothing, and MCP has no polling.
-Generic Files remains independently mounted and uses the ordinary non-Cards registration for authoritative REST refetch on registration/open while mounted.
+Generic Files remains independently mounted and uses the ordinary non-Cards registration for authoritative REST refetch on registration/open while mounted. Its route watcher solely owns selection resolution, and directory activation only changes the route. A registration/open callback joins a pending initial or newly opened route resolution; it never replaces that operation with a default-root read. Once selection settles, Refresh and reconnect refetch the represented accepted listing directory—the parent for a selected preview—and that preview, with initiating route/preview identity fencing every continuation from superseded navigation or unmount.
 Files stale age still derives only from completed REST snapshot time; Files owns no WebSocket freshness timestamp or provenance state.
 The Files key is not part of the SyncHub wire vocabulary.
 

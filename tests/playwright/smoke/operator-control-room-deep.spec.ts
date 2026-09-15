@@ -5,16 +5,16 @@ import { assertPreviewRequestFailures, observePreviewRequestFailures, seedTokenB
 
 const syntheticToken = 'synthetic-playwright-token';
 
-test('operator control room supports analyst chat send and migrated debug panels with synthetic fixtures', async ({ page }) => {
+test('operator control room supports analyst chat send and migrated debug panels with synthetic fixtures', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required');
+  const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
-  const failedRequests: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`));
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
   await seedTokenBeforeNavigation(page, syntheticToken);
-  await waitForRuntimePair(page, () => page.goto('/dashboard'));
+  await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/dashboard')));
 
   await expect(page.getByRole('region', { name: 'Analyst chat' })).toBeVisible();
   await expect(page.getByText('Synthetic agent transcript.').first()).toBeVisible();
@@ -46,26 +46,34 @@ test('operator control room supports analyst chat send and migrated debug panels
   expect(rest.counts.get('GET /api/processes')).toBeGreaterThanOrEqual(1);
 
   await page.getByRole('button', { name: 'MCP' }).click();
-  await expect(page.getByText('Servers:')).toBeVisible();
-  await expect(page.getByText('read', { exact: true })).toBeVisible();
-  await expect(page.getByText('filesystem:read')).toBeVisible();
+  const mcpSummary = page.locator('.debug-section').filter({ has: page.getByRole('heading', { name: 'Summary', exact: true }) });
+  await expect(mcpSummary).toContainText('Servers:1');
+  await expect(mcpSummary).toContainText('Tools:1');
+  await expect(mcpSummary).toContainText('Invocations:3 (1 errors)');
+  const filesystemServer = page.locator('.debug-section').filter({ has: page.locator('.mcp-server-name', { hasText: 'filesystem' }) });
+  await expect(filesystemServer.locator('.mcp-server-name')).toHaveText('filesystem');
+  const readTool = filesystemServer.locator('.mcp-tool-card').filter({ has: page.locator('.mcp-tool-name', { hasText: 'read' }) });
+  await expect(readTool.locator('.mcp-tool-name')).toHaveText('read');
+  await expect(readTool.locator('[title="Total invocations"]')).toContainText('3');
+  await expect(readTool.locator('[title="Successful invocations"]')).toHaveText('✓ 2');
+  await expect(readTool.locator('[title="Failed invocations"]')).toHaveText('✗ 1');
   expect(rest.counts.get('GET /api/mcp/tools')).toBeGreaterThanOrEqual(1);
 
   expect(rest.unknown).toEqual([]);
-  expect(failedRequests).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(pageErrors).toEqual([]);
 });
 
 
-test('card detail view forwards workspace context to analyst chat on send', async ({ page }) => {
+test('card detail view forwards workspace context to analyst chat on send', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required');
+  const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
-  const failedRequests: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`));
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-  await seedTokenBeforeNavigation(page, syntheticToken); await waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}`));
+  await seedTokenBeforeNavigation(page, syntheticToken); await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto(`/cards/${smokeCardId}`)));
 
   await expect(page).toHaveURL(new RegExp(`/cards/${smokeCardId}$`));
   await expect(page.getByText('Synthetic dashboard smoke card').first()).toBeVisible();
@@ -89,20 +97,20 @@ test('card detail view forwards workspace context to analyst chat on send', asyn
   expect(post?.body.content).not.toContain(syntheticToken);
 
   expect(rest.unknown).toEqual([]);
-  expect(failedRequests).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(pageErrors).toEqual([]);
 });
 
 
-test('Files view previews output files and renders preview safety states without token leaks', async ({ page }) => {
+test('Files view previews output files and renders preview safety states without token leaks', async ({ page, baseURL }) => {
+  if (!baseURL) throw new Error('baseURL required');
+  const failures = observePreviewRequestFailures(page, baseURL);
   const pageErrors: string[] = [];
-  const failedRequests: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push(`${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`));
 
   await installOperatorWebSocketShim(page);
   const rest = await installOperatorRestRoutes(page);
-  await seedTokenBeforeNavigation(page, syntheticToken); await waitForRuntimePair(page, () => page.goto('/files'));
+  await seedTokenBeforeNavigation(page, syntheticToken); await failures.during('full-document-navigation', () => waitForRuntimePair(page, () => page.goto('/files')));
 
   await expect(page.getByRole('region', { name: 'Metadata' })).toBeVisible();
   await expect(page.getByTestId('files-breadcrumbs').getByRole('button', { name: '.saivage' })).toBeVisible();
@@ -140,7 +148,7 @@ test('Files view previews output files and renders preview safety states without
   expect(rest.counts.get('GET /api/files')).toBeGreaterThanOrEqual(3);
   expect(rest.counts.get('GET /api/files/content')).toBe(7);
   expect(rest.unknown).toEqual([]);
-  expect(failedRequests).toEqual([]);
+  assertPreviewRequestFailures(failures, baseURL, ['full-document-navigation']);
   expect(pageErrors).toEqual([]);
 });
 
