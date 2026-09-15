@@ -131,14 +131,20 @@ edges and unsupported consumer forms. Run
 test-only report. `scripts/export-consumer-allowlist.json` is the strict
 exceptional allowlist and remains an empty array.
 
-`npm run lint` runs the export-consumer guard before stamp-producer, ESLint,
-backend import-boundary, and web-component boundary checks. Backend
-import-boundary findings remain advisory accumulated debt.
+Compatible root and web dependencies must be installed before running
+`npm run check:export-consumers`, `npm run lint`, or `npm run validate:routine`.
+Both lint and routine invoke the export-consumer guard directly; lint does not
+invoke routine. A fresh dual `npm ci` is required for CI setup and this issue's
+acceptance setup, not before every ordinary local command invocation. The lint
+profile runs the guard before stamp-producer, ESLint, backend import-boundary,
+and web-component boundary checks. Backend import-boundary findings remain
+advisory accumulated debt.
 
 The push-only `master` workflow in
 [`.github/workflows/validation.yml`](.github/workflows/validation.yml) uses
 least-privilege, secret-free Node 24 jobs and cancels superseded runs. Its
-always-run `routine-docs` job executes `validate:routine` and `validate:docs`.
+always-run `routine-docs` job clean-installs both root and web dependencies before
+executing `validate:routine` and `validate:docs`.
 Fail-closed path classification gates the other jobs. `backend-jest-build`
 performs the dual clean install—root `npm ci`, then web `cd web && npm ci`—before
 build and non-E2E Jest. The independently visible `backend-e2e` job uses a root

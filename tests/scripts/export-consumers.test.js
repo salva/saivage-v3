@@ -682,18 +682,26 @@ describe('repository complete export boundary', () => {
     expect(new Set(assignedTs)).toHaveProperty('size', tsFamily.length);
     expect(result.ownership.declarationFiles).toEqual(['scripts/verify-doc-routes.d.ts', 'web/env.d.ts']);
     expect(result.ownership.typescriptOrdinaryFiles).toEqual(tsFamily.filter((file) => !declarations.includes(file)));
-    expect(Object.fromEntries(['production-consumed', 'test-only', 'local-only', 'zero-use'].map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]))).toEqual({
-      'production-consumed': 1699, 'test-only': 195, 'local-only': 2, 'zero-use': 0,
+    const classifications = ['production-consumed', 'test-only', 'local-only', 'zero-use'];
+    const directHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.directClassification === classification).length]));
+    const effectiveHistogram = Object.fromEntries(classifications.map((classification) => [classification, result.records.filter((item) => item.classification === classification).length]));
+    expect(directHistogram).toEqual({
+      'production-consumed': 1703, 'test-only': 195, 'local-only': 2, 'zero-use': 0,
     });
-    expect(result.records).toHaveLength(1896);
-    expect(result.totals).toEqual({ 'production-consumed': 1701, 'test-only': 195, 'local-only': 0, 'zero-use': 0 });
+    expect(result.records).toHaveLength(1900);
+    expect(result.totals).toEqual({ 'production-consumed': 1705, 'test-only': 195, 'local-only': 0, 'zero-use': 0 });
+    expect(effectiveHistogram).toEqual(result.totals);
+    expect(Object.values(directHistogram).reduce((total, count) => total + count, 0)).toBe(result.records.length);
+    expect(Object.values(effectiveHistogram).reduce((total, count) => total + count, 0)).toBe(result.records.length);
+    const recordIdentities = result.records.map((item) => JSON.stringify([item.module, item.export]));
+    expect(new Set(recordIdentities)).toHaveProperty('size', result.records.length);
     expect(result.ok).toBe(true);
     expect(result.failures).toEqual([]);
     expect(result.staleImports).toBe(0);
     expect(result.unsupported).toBe(0);
     expect(result.allowlistEntries).toBe(0);
     expect(result.failures.filter((failure) => failure.category === 'declaration-diagnostic')).toEqual([]);
-    expect(result.ownership.declarationUnitFiles).toHaveLength(346);
+    expect(result.ownership.declarationUnitFiles).toEqual(independentCandidates.filter((file) => !file.endsWith('.vue')));
     expect(result.ownership.declarationUnitFiles.some((file) => file.endsWith('.vue'))).toBe(false);
     expect(result.records.flatMap((item) => item.declarationPaths).flatMap((item) => item.edges).some((edge) => edge.sourceSurface.module.endsWith('.vue'))).toBe(false);
     const promoted = result.records.filter((item) => item.classification !== item.directClassification);

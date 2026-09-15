@@ -789,6 +789,13 @@ function validateValidationWorkflowContract({ workflowDocuments }) {
     validateClassifier({ file, jobs, failures, checked });
     validateAggregate({ file, jobs, failures, checked });
 
+    const routineRuns = scalarRunSteps(jobs['routine-docs']).map(({ run }) => run);
+    const expectedRoutineRuns = ['npm ci', 'cd web && npm ci', 'npm run validate:routine', 'npm run validate:docs'];
+    checked.push(`${file} exact routine install/validation order`);
+    if (JSON.stringify(routineRuns) !== JSON.stringify(expectedRoutineRuns)) {
+      failures.push(`${file} routine-docs scalar commands must be exactly ${expectedRoutineRuns.join(' -> ')}`);
+    }
+
     const backendRuns = scalarRunSteps(jobs['backend-jest-build']).map(({ run }) => run);
     const expectedBackendRuns = ['npm ci', 'cd web && npm ci', 'npm run build', 'npm test'];
     checked.push(`${file} exact backend install/build/test order`);

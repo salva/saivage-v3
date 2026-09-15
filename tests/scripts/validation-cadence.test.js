@@ -473,6 +473,17 @@ describe('validation cadence guard', () => {
     });
   });
 
+  describe('routine job command mutations', () => {
+    const routineMutations = [
+      ['omitted routine web install', '      - name: Install dependencies\n        run: npm ci\n\n      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Routine validation profile', '      - name: Install dependencies\n        run: npm ci\n\n      - name: Routine validation profile', 'routine-docs scalar commands must be exactly'],
+      ['misordered routine web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Routine validation profile\n        run: npm run validate:routine', '      - name: Routine validation profile\n        run: npm run validate:routine\n\n      - name: Install web dependencies\n        run: cd web && npm ci', 'routine-docs scalar commands must be exactly'],
+    ];
+
+    it.each(routineMutations)('rejects %s', (_label, search, replacement, expected) => {
+      expectWorkflowFailure(mutateWorkflow(search, replacement), expected);
+    });
+  });
+
   describe('backend, browser, artifact, and Playwright ownership mutations', () => {
     const workflowMutations = [
       ['omitted backend web install', '      - name: Install web dependencies\n        run: cd web && npm ci\n\n      - name: Build project', '      - name: Build project', 'backend-jest-build scalar commands must be exactly'],

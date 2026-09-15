@@ -1,7 +1,7 @@
 import { redactTextForOutbound } from '../redaction/index.js';
 import type { NotificationSubmissionResult } from '../runtime/runtime-api.js';
 
-export type ProjectedNotificationSubmission =
+type ProjectedNotificationSubmission =
   | Readonly<{ success: true; data: Record<string, unknown> }>
   | Readonly<{ success: false; error: string; data: Record<string, unknown> }>;
 

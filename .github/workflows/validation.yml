@@ -198,6 +198,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install web dependencies
+        run: cd web && npm ci
+
       - name: Routine validation profile
         run: npm run validate:routine
 
