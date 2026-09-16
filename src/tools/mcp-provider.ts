@@ -4,10 +4,10 @@ import { defineToolBinder, executedToolOutcome, MCP_RESULT_POLICY_TEMPLATE, type
 import { toolFailed, toolSucceeded } from '../contracts/tool-result.js';
 import { throwIfPublicationOutcomeUnknown } from '../contracts/index.js';
 import { McpToolCallArgumentsSchema } from '../contracts/mcp-invocation.js';
-import { DISCOVERY_RESPONSE_MAX_BYTES } from '../contracts/builtin-tool-inputs.js';
+import { DISCOVERY_RESPONSE_MAX_BYTES } from './response-packer.js';
 import { canonicalJson } from '../schemas/index.js';
-import { projectDynamicForOutbound } from '../redaction/dynamic.js';
-import { redactTextWithStablePrefixesForOutbound } from '../redaction/text.js';
+import { projectDynamicForOutbound } from '../redaction/index.js';
+import { redactTextWithStablePrefixesForOutbound } from '../redaction/index.js';
 import { settledSuccessBytes } from './tool-result-settlement.js';
 
 const MCP_ERROR_MAX_BYTES = 512;

@@ -26,7 +26,10 @@ export {
   SECRET_REDACTION_PLACEHOLDER,
   redactSnippetForOutbound,
   redactTextForOutbound,
+  redactTextWithStablePrefixesForOutbound,
 } from './text.js';
+
+export { projectDynamicForOutbound } from './dynamic.js';
 
 type OutboundRedactionRequest =
   | { source: 'provider-exchange'; value: ProviderExchangePayload }
