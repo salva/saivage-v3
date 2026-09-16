@@ -153,6 +153,8 @@ subprocess regressions, and repository admission. Lint delegates to that command
 once; direct component invocations are diagnostic evidence, not alternative
 maintained profiles.
 
+Intentional governed export-inventory changes must update the pinned classification counts in `tests/scripts/export-consumers.test.js` in the same commit.
+
 The push-only `master` workflow in
 [`.github/workflows/validation.yml`](.github/workflows/validation.yml) uses
 least-privilege, secret-free Node 24 jobs and cancels superseded runs. Its

@@ -10,7 +10,7 @@ Read `/home/salva/g/ml/WORKSPACE_HANDOFF.md` and `/home/salva/g/ml/CODEX_PROJECT
 
 - Project rules and authority map: `AGENTS.md`.
 - Reusable workflows: `.github/skills/*/SKILL.md`.
-- OpenCode shim: `.opencode/opencode.json` loads `AGENTS.md` and `.github/skills/`.
+- OpenCode configuration: root `opencode.json` loads `AGENTS.md` and `.github/skills/`.
 
 GitHub Copilot does not auto-load OpenCode skills. When a task matches a workflow under `.github/skills/`, read that `SKILL.md` and follow it.
 

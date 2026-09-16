@@ -3,12 +3,12 @@
 
 Scope: `/home/salva/g/ml/saivage-v3`.
 
-Read `/home/salva/g/ml/CODEX_PROJECT_MEMORY.md` and the current docs before substantial work here. OpenCode loads this file through `.opencode/opencode.json` because `saivage-v3` is its own Git repository.
+Read `/home/salva/g/ml/CODEX_PROJECT_MEMORY.md` and the current docs before substantial work here. OpenCode loads this file through root `opencode.json` because `saivage-v3` is its own Git repository. Do not recreate `.opencode/opencode.json`: both locations are OpenCode config candidates, and competing configs create precedence ambiguity.
 
 This file is the shared project instruction source for AI development tools. Keep
-tool-specific files such as `.github/copilot-instructions.md` and
-`.opencode/opencode.json` as thin compatibility shims that point back here
-rather than duplicating project policy.
+the tool-specific entry points `.github/copilot-instructions.md` and root
+`opencode.json` thin by having them reference this file rather than duplicate
+project policy; “thin” here concerns duplicated project policy, not JSON size.
 
 ## Current Authority
 
@@ -70,7 +70,7 @@ Use focused Jest/Vitest commands for small changes, then broaden according to ri
 
 Reusable project workflows live under `.github/skills/<skill>/SKILL.md`.
 
-- OpenCode loads these skills directly through `.opencode/opencode.json`.
+- OpenCode loads these skills directly through root `opencode.json`.
 - GitHub Copilot does not auto-load OpenCode skills; when a task matches a skill description, read the relevant `SKILL.md` and follow it as the project-local workflow.
 - Do not add symlinked or duplicate tool-specific skill trees. Keep `.github/skills/` as the shared source of truth.
 

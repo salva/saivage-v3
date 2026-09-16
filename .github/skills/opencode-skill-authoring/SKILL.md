@@ -21,7 +21,7 @@ Put each skill in its own directory named exactly like the skill:
 .github/skills/<skill-name>/SKILL.md
 ```
 
-Project skills live under `.github/skills/` in this repository because `.opencode/opencode.json` loads that path. Do not add duplicate `.opencode/skills/`, `.claude/skills/`, or `.agents/skills/` trees unless the user explicitly asks for tool-specific copies.
+Project skills live under `.github/skills/` in this repository because root `opencode.json` loads that path. Do not add duplicate `.opencode/skills/`, `.claude/skills/`, or `.agents/skills/` trees unless the user explicitly asks for tool-specific copies.
 
 ## Frontmatter
 
@@ -97,7 +97,7 @@ console.log('skill frontmatter ok');
 NODE
 ```
 
-Also run `opencode debug config --pure` from the project root when changing `.opencode/opencode.json` or skill paths.
+Also run `opencode debug config --pure` from the project root when changing root `opencode.json` or skill paths.
 
 ## Commit Hygiene
 
