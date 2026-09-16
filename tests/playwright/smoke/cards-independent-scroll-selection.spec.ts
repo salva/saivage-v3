@@ -144,7 +144,6 @@ test('cold deep route requests only represented ancestor slices and separate det
 test('collapsed branch is lazy, expands once in committed order, and never refreshes a successful slice', async ({ page }) => {
   const fixture = await install(page);
   await page.goto('/cards');
-  await page.getByRole('button', { name: 'Expand Cards fixture project', exact: true }).click();
   await expect(page.locator('.tree-node').filter({ hasText: 'Collapsed ancestor goal' })).toBeVisible();
   expect(fixture.requests).not.toContain(`GET /api/cards/${goalId}/children`);
   await page.getByRole('button', { name: 'Expand Collapsed ancestor goal', exact: true }).click();
@@ -282,13 +281,14 @@ test('tree remains mounted and independently scrollable while detail is delayed'
   await page.setViewportSize({ width: 1280, height: 620 });
   const fixture = await install(page);
   await page.goto('/cards');
-  await page.getByRole('button', { name: 'Expand Cards fixture project', exact: true }).click();
   let release!: () => void;
   const pending = new Promise<void>((resolve) => { release = resolve; });
   fixture.detailDelay.set(sourceId, pending);
   const tree = page.locator('.tree-container');
   await tree.evaluate((element) => element.setAttribute('data-identity', 'retained'));
-  await page.locator('.tree-node').filter({ hasText: 'Source card' }).click();
+  const sourceRow = page.locator('.tree-node').filter({ hasText: 'Source card' });
+  await expect(sourceRow).toBeVisible();
+  await sourceRow.click();
   await expect(page.getByText('Loading card', { exact: true })).toBeVisible();
   await expect(tree).toHaveAttribute('data-identity', 'retained');
   release();
@@ -303,8 +303,9 @@ test('mobile Back returns to the retained lazy tree', async ({ page }) => {
   await page.setViewportSize({ width: 700, height: 720 });
   await install(page);
   await page.goto('/cards');
-  await page.getByRole('button', { name: 'Expand Cards fixture project', exact: true }).click();
-  await page.locator('.tree-node').filter({ hasText: 'Source card' }).click();
+  const sourceRow = page.locator('.tree-node').filter({ hasText: 'Source card' });
+  await expect(sourceRow).toBeVisible();
+  await sourceRow.click();
   await expect(page).toHaveURL(`/cards/${sourceId}`);
   await page.getByRole('button', { name: 'Back to Cards' }).click();
   await expect(page).toHaveURL('/cards');

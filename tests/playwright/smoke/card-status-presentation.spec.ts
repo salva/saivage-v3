@@ -135,7 +135,6 @@ test('stopped card presentation is purple and unringed across tree, detail, and 
   await page.setViewportSize({ width: 1280, height: 720 });
   const requests = await install(page);
   await page.goto('/cards');
-  await page.getByRole('button', { name: 'Expand Status fixture project', exact: true }).click();
   const goalResponse = page.waitForResponse((response) => {
     const url = new URL(response.url());
     return response.request().method() === 'GET' && url.pathname === `/api/cards/${goalId}/children` && response.status() === 200;

@@ -4,6 +4,24 @@ import { useCardBrowserReadModel } from '../composables/useCardBrowserReadModel'
 import { useCardStore } from '../stores/cards';
 
 describe('card browser read model', () => {
+  it('expands the project by default and records collapse and re-expansion', async () => {
+    setActivePinia(createPinia());
+    const store = useCardStore();
+    const ensure = vi.spyOn(store, 'ensureChildren').mockResolvedValue();
+    const model = useCardBrowserReadModel(store, () => null);
+
+    expect(model.effectiveExpandedTreeIds.value).toContain('project');
+
+    await model.toggleTreeNode('project');
+    expect(model.effectiveExpandedTreeIds.value).not.toContain('project');
+    expect(ensure).not.toHaveBeenCalled();
+
+    await model.toggleTreeNode('project');
+    expect(model.effectiveExpandedTreeIds.value).toContain('project');
+    expect(ensure).toHaveBeenCalledOnce();
+    expect(ensure).toHaveBeenCalledWith('project');
+  });
+
   it('discovers only an undiscovered expansion and collapse requests nothing', async () => {
     setActivePinia(createPinia());
     const store = useCardStore();

@@ -4,7 +4,7 @@ import type { useCardStore } from '../stores/cards';
 
 export function useCardBrowserReadModel(cardStore: ReturnType<typeof useCardStore>, selectedCardId: () => string | null) {
   const refs = storeToRefs(cardStore);
-  const explicitlyExpandedTreeIds = ref<Set<string>>(new Set());
+  const explicitlyExpandedTreeIds = ref<Set<string>>(new Set(['project']));
 
   const representedSelectedAncestorIds = computed(() => {
     const selectedId = selectedCardId();
