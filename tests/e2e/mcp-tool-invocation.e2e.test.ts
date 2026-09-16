@@ -136,13 +136,15 @@ describe('MCP tool invocation production composition', () => {
       if (fixtureFailure) throw fixtureFailure;
       expect(mcpMethods).toEqual(['HEAD', 'initialize', 'notifications/initialized', 'tools/list', 'tools/call']);
       expect(toolCalls).toEqual([{ name: 'echo_marker', arguments: { marker: MARKER } }]);
-      expect(markerResultSeenByProvider).toEqual({ success: true, data: [{ type: 'text', text: `echo:${MARKER}` }] });
+      const mappedMcpResult = [{ type: 'text', text: `echo:${MARKER}` }];
+      const wrappedMcpResult = { result: mappedMcpResult, result_complete: true, result_utf8_bytes: Buffer.byteLength(JSON.stringify(mappedMcpResult), 'utf8') };
+      expect(markerResultSeenByProvider).toEqual({ success: true, data: wrappedMcpResult });
 
       const conversation = readConversation(projectRoot, 'agent:executor:project').physicalRows;
       const mcpRows = conversation.filter((row) => row.tool === 'mcp_tool_call');
       expect(mcpRows.map((row) => row.kind)).toEqual(['tool_call', 'tool_result']);
       expect(mcpRows[1]).toMatchObject({ tool_call_id: 'mcp-call', context_policy: { kind: 'tool_result', settlement_origin: 'executed', evidence: { kind: 'none' } } });
-      expect(JSON.parse(mcpRows[1]!.content)).toEqual({ success: true, data: [{ type: 'text', text: `echo:${MARKER}` }] });
+      expect(JSON.parse(mcpRows[1]!.content)).toEqual({ success: true, data: wrappedMcpResult });
       expect(new EventQueryService(projectRoot).queryEvents({ kind: 'mcp_tool_invocation' }).events).toEqual([
         expect.objectContaining({ kind: 'mcp_tool_invocation', server: SERVER_NAME, tool: 'echo_marker', success: true }),
       ]);

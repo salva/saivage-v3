@@ -24,7 +24,7 @@ describe('MCP activity segmentation', () => {
     };
     const manager = { invokeTool: jest.fn(async () => ({ value: 1 })), findToolCapability: jest.fn(() => null), getServerTools: jest.fn(() => undefined) };
     const surface = buildInvocationSurfaceFixture('executor', [provider({ mcpToolInvocation: manager })]);
-    expect(settlementResult({ kind: 'executed', execution: await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, new AbortController().signal, context) })).toEqual({ success: true, data: { value: 1 } });
+    expect(settlementResult({ kind: 'executed', execution: await invokeTool(surface, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, new AbortController().signal, context) })).toEqual({ success: true, data: { result: { value: 1 }, result_complete: true, result_utf8_bytes: 11 } });
     expect(waits).toEqual({ external: 0, process: 0 });
   });
 
@@ -51,7 +51,7 @@ describe('MCP activity segmentation', () => {
     const reviewerFailure = buildInvocationSurfaceFixture('reviewer', [provider({
       mcpToolInvocation: { getServerTools: () => [], findToolCapability: () => null, invokeTool: async () => 'unused' },
     })]);
-    expect(settlementResult(await invokeToolForLlm(reviewerFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: 'unused' });
+    expect(settlementResult(await invokeToolForLlm(reviewerFailure, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: { result: 'unused', result_complete: true, result_utf8_bytes: 8 } });
 
     const reviewerDestructive = buildInvocationSurfaceFixture('reviewer', [provider({
       mcpToolInvocation: {
@@ -60,7 +60,7 @@ describe('MCP activity segmentation', () => {
         invokeTool: async () => 'unused',
       },
     })]);
-    expect(settlementResult(await invokeToolForLlm(reviewerDestructive, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: 'unused' });
+    expect(settlementResult(await invokeToolForLlm(reviewerDestructive, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: { result: 'unused', result_complete: true, result_utf8_bytes: 8 } });
 
     const reviewerWritable = buildInvocationSurfaceFixture('reviewer', [provider({
       mcpToolInvocation: {
@@ -69,6 +69,6 @@ describe('MCP activity segmentation', () => {
         invokeTool: async () => 'unused',
       },
     })]);
-    expect(settlementResult(await invokeToolForLlm(reviewerWritable, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: 'unused' });
+    expect(settlementResult(await invokeToolForLlm(reviewerWritable, 'mcp_tool_call', { serverName: 'server', toolName: 'tool' }, testLlmToolInvocationContext({ toolName: 'mcp_tool_call' })))).toEqual({ success: true, data: { result: 'unused', result_complete: true, result_utf8_bytes: 8 } });
   });
 });

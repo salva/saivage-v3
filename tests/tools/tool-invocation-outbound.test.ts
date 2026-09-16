@@ -152,8 +152,8 @@ describe('projectToolInvocation exhaustive identity switch', () => {
     expect(JSON.stringify(webfetch)).not.toContain('synthetic-secret-value');
     expect(webfetch).not.toHaveProperty('arguments');
 
-    const mcp = projectToolInvocation({ shape: 'result-row', identity: identity('mcp_tool_call'), result: { success: true, data: { apiKey: 'synthetic-secret-value', id: 'stable_value' } } });
-    expect(mcp).toMatchObject({ result: { success: true, data: { apiKey: '[REDACTED]', id: 'stable_value' } } });
+    const mcp = projectToolInvocation({ shape: 'result-row', identity: identity('mcp_tool_call'), result: { success: true, data: { result: { apiKey: 'synthetic-secret-value', id: 'stable_value' }, result_complete: true, result_utf8_bytes: 43 } } });
+    expect(mcp).toMatchObject({ result: { success: true, data: { result: { apiKey: '[REDACTED]', id: 'stable_value' }, result_complete: true, result_utf8_bytes: 43 } } });
 
     const terminalFailure = projectToolInvocation({ shape: 'result-row', identity: identity('emit_result'), result: { success: false, error: marker, data: { apiKey: 'synthetic-secret-value', reason: 'stable_value' } } });
     expect(terminalFailure).toMatchObject({ result: { success: false, data: { apiKey: '[REDACTED]', reason: 'stable_value' } } });

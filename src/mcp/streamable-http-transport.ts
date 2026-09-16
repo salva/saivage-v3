@@ -93,6 +93,7 @@ export async function readStreamableHttpJsonRpcResponse(resp: Response, context:
       }
     }
   } finally {
+    await reader.cancel().catch(() => undefined);
     try { reader.releaseLock(); } catch { /* ignore */ }
   }
   throw new TransportError(context.serverName, `Stream ended before JSON-RPC response for ${context.operation}`);
