@@ -91,7 +91,7 @@ export function appendProcessOutputChunk(path: string, chunk: Uint8Array, io: Pr
     writeAllExact(fd, bytes, io.write, () => new Error('zero progress'));
     io.fsync(fd);
     io.close(fd);
-  } catch { throw new PublicationOutcomeUnknownError(); }
+  } catch (error) { throw new PublicationOutcomeUnknownError(error); }
 }
 
 function generateId(): string {

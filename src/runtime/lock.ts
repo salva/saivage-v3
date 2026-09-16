@@ -249,7 +249,7 @@ export function acquireRuntimeLifecycleLock(input: {
     const parentFd = io.open(dirname(path), constants.O_RDONLY);
     io.fsync(parentFd);
     io.close(parentFd);
-  } catch { throw new PublicationOutcomeUnknownError(); }
+  } catch (error) { throw new PublicationOutcomeUnknownError(error); }
   const handle = {} as RuntimeLifecycleLockHandle;
   ownershipByHandle.set(handle, { active: true, canonicalProjectRoot, canonicalRootHash: base.canonical_root_hash, lockFilePath: path, record });
   return handle;

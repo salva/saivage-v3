@@ -118,11 +118,15 @@ describe('publication syscall boundaries', () => {
     expect(() => appendProcessOutputChunk('/owner/stdout.log', Buffer.from('x'), missingIo)).toThrow(missing);
 
     const trace: string[] = [];
+    const writeFailure = new Error('unknown transfer');
     const failingIo: ProcessOutputIo = {
       open(_path: string, flags: number) { trace.push(`open:${flags}`); return 5; }, stat() { trace.push('stat'); return regular; },
-      write() { trace.push('write'); throw new Error('unknown transfer'); }, fsync() { trace.push('fsync'); }, close() { trace.push('close'); },
+      write() { trace.push('write'); throw writeFailure; }, fsync() { trace.push('fsync'); }, close() { trace.push('close'); },
     } as never;
-    expect(() => appendProcessOutputChunk('/owner/stdout.log', Buffer.from('x'), failingIo)).toThrow(PublicationOutcomeUnknownError);
+    let thrown: unknown;
+    try { appendProcessOutputChunk('/owner/stdout.log', Buffer.from('x'), failingIo); } catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+    expect((thrown as PublicationOutcomeUnknownError).cause).toBe(writeFailure);
     expect(trace).toEqual([`open:${constants.O_WRONLY | constants.O_APPEND | constants.O_NOFOLLOW | constants.O_NONBLOCK}`, 'stat', 'write']);
   });
 

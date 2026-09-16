@@ -20,6 +20,10 @@ interface AnalystWsHandlerOptions {
   fatalPort: ApplicationFatalPort;
 }
 
+interface AnalystWsLogger {
+  error(first: unknown, second?: string): void;
+}
+
 export class AnalystWsHandler {
   constructor(private readonly options: AnalystWsHandlerOptions) {}
 
@@ -27,7 +31,7 @@ export class AnalystWsHandler {
     return this.options.runtimeApplication.analystSessionId;
   }
 
-  async handleRawMessage(ws: WebSocket, raw: Buffer | ArrayBuffer | Buffer[]): Promise<void> {
+  async handleRawMessage(ws: WebSocket, raw: Buffer | ArrayBuffer | Buffer[], log: AnalystWsLogger): Promise<void> {
     try {
         const rawParsed = JSON.parse(this.rawToString(raw)) as unknown;
         if (this.options.liveSyncSocket.handleClientFrame(ws, rawParsed)) return;
@@ -58,6 +62,10 @@ export class AnalystWsHandler {
         this.options.fatalPort.publicationOutcomeUnknown(error);
         throw error;
       }
+      log.error(
+        { err: error, code: 'analyst_websocket_message_failed', transport: 'websocket' },
+        'Analyst WebSocket message failed',
+      );
       this.options.sendToClient(ws, {
           type: 'error',
           content:

@@ -20,13 +20,17 @@ function child(mode: string, value?: string) {
   return spawnSync(process.execPath, ['--import', 'tsx', fixture, mode, ...(value ? [value] : [])], { cwd: process.cwd(), encoding: 'utf8', timeout: childTimeoutMs });
 }
 
-function expectFatalOwner(mode: string): void {
+function diagnosticWithCause(message: string): string {
+  return `${diagnostic.slice(0, -1)} Cause: ${message}\n`;
+}
+
+function expectFatalOwner(mode: string, expectedDiagnostic = diagnostic): void {
   const root = mkdtempSync(join(tmpdir(), `publication-${mode}-`)); roots.push(root);
   const marker = join(root, 'marker'); writeFileSync(marker, '');
   const result = child(mode, marker);
   expect(result.status).toBe(1);
   expect(result.stdout).toBe('');
-  expect(result.stderr).toBe(diagnostic);
+  expect(result.stderr).toBe(expectedDiagnostic);
   expect(readFileSync(marker, 'utf8')).toBe('entered');
 }
 
@@ -65,15 +69,15 @@ describe('publication fatal owner boundaries', () => {
   });
 
   it('exits ProcessRunner chunk ownership before another chunk or terminal settlement', () => {
-    expectFatalOwner('process-chunk');
+    expectFatalOwner('process-chunk', diagnosticWithCause('unknown transfer'));
   });
 
   it('exits process-placeholder replacement ownership before launch', () => {
-    expectFatalOwner('process-placeholder');
+    expectFatalOwner('process-placeholder', diagnosticWithCause('rename uncertain'));
   });
 
   it('exits work replacement ownership before tool success', () => {
-    expectFatalOwner('work-replacement');
+    expectFatalOwner('work-replacement', diagnosticWithCause('rename uncertain'));
   });
 
   it('exits auth/provider projection replacement ownership before retry or projection', () => {

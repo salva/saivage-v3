@@ -1,8 +1,8 @@
 import { writeSync } from 'node:fs';
 
 export class PublicationOutcomeUnknownError extends Error {
-  constructor() {
-    super('Saivage durable publication outcome is unknown.');
+  constructor(cause?: unknown) {
+    super('Saivage durable publication outcome is unknown.', { cause });
     this.name = 'PublicationOutcomeUnknownError';
   }
 }
@@ -15,18 +15,18 @@ export function throwIfPublicationOutcomeUnknown(error: unknown): void {
   if (error instanceof PublicationOutcomeUnknownError) throw error;
 }
 
-const PUBLICATION_FATAL_BYTES = Buffer.from(
-  'Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown.\n',
-  'utf8',
-);
+const PUBLICATION_FATAL_PREFIX = 'Fatal: PublicationOutcomeUnknownError; Saivage is halting because durable publication outcome is unknown.';
 
 export function createApplicationFatalPort(): ApplicationFatalPort {
   return Object.freeze({
-    publicationOutcomeUnknown(_error: PublicationOutcomeUnknownError): never {
+    publicationOutcomeUnknown(error: PublicationOutcomeUnknownError): never {
       try {
+        const cause = error.cause;
+        const causeSuffix = cause === undefined ? '' : ` Cause: ${cause instanceof Error ? cause.message : String(cause)}`;
+        const bytes = Buffer.from(`${PUBLICATION_FATAL_PREFIX}${causeSuffix}\n`, 'utf8');
         let offset = 0;
-        while (offset < PUBLICATION_FATAL_BYTES.byteLength) {
-          const written = writeSync(2, PUBLICATION_FATAL_BYTES, offset, PUBLICATION_FATAL_BYTES.byteLength - offset);
+        while (offset < bytes.byteLength) {
+          const written = writeSync(2, bytes, offset, bytes.byteLength - offset);
           if (written === 0) break;
           offset += written;
         }

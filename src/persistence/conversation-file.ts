@@ -212,8 +212,8 @@ export function truncateCurrentConversationUnterminatedSuffix(projectRoot: strin
   const length = finalNewline + 1;
   const segment = validateLoadedSegment(index, entry, parseSegment(path, bytes.subarray(0, length)), sessionId);
   const descriptor = io.open(path, constants.O_RDWR);
-  try { io.ftruncate(descriptor, length); } catch { throw new PublicationOutcomeUnknownError(); }
-  try { io.fsync(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
-  try { io.close(descriptor); } catch { throw new PublicationOutcomeUnknownError(); }
+  try { io.ftruncate(descriptor, length); } catch (error) { throw new PublicationOutcomeUnknownError(error); }
+  try { io.fsync(descriptor); } catch (error) { throw new PublicationOutcomeUnknownError(error); }
+  try { io.close(descriptor); } catch (error) { throw new PublicationOutcomeUnknownError(error); }
   return segment;
 }

@@ -126,6 +126,6 @@ export function appendEnvelope(
     writeAllExact(fd, bytes, io.write, () => new Error('zero progress'));
     io.fsync(fd);
     io.close(fd);
-  } catch { throw new PublicationOutcomeUnknownError(); }
+  } catch (error) { throw new PublicationOutcomeUnknownError(error); }
   return { kind: 'appended' };
 }

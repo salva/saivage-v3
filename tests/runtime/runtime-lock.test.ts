@@ -73,12 +73,16 @@ describe('five-way runtime lifecycle lock classification', () => {
 
   it('leaves the known empty lock namespace and types unknown first-write failure', () => {
     const lockPath = join(root, '.saivage', 'locks', 'runtime.lock');
-    expect(() => acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound', config: { publicationIo: {
+    const failure = Object.assign(new Error('interrupted'), { code: 'EINTR' });
+    let thrown: unknown;
+    try { acquireRuntimeLifecycleLock({ projectRoot: root, mode: 'bound', config: { publicationIo: {
       open: openSync,
-      write: (() => { throw Object.assign(new Error('interrupted'), { code: 'EINTR' }); }) as typeof writeSync,
+      write: (() => { throw failure; }) as typeof writeSync,
       fsync: fsyncSync,
       close: closeSync,
-    } } })).toThrow(PublicationOutcomeUnknownError);
+    } } }); } catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+    expect((thrown as PublicationOutcomeUnknownError).cause).toBe(failure);
     expect(readFileSync(lockPath)).toHaveLength(0);
     expect(readRuntimeLockStatus(root).kind).toBe('malformed');
   });

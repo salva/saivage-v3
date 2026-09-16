@@ -1803,7 +1803,7 @@ Interrupted external effects may repeat, notification context may duplicate, pro
 Every Saivage-owned durable replacement, JSONL append, owning-reader suffix truncation, lifecycle-lock publication, process-output append, and work-artifact replacement classifies failure at its direct syscall boundary.
 Preparation and safe acquisition failures remain ordinary.
 Once canonical mutation is attempted and its result is unknown, the owner throws `PublicationOutcomeUnknownError`.
-The first actor, Analyst, WebSocket, process-callback, server, startup, direct-mutation, or CLI boundary writes exactly one fixed credential-free line to process stderr synchronously and exits with status 1.
+The first actor, Analyst, WebSocket, process-callback, server, startup, direct-mutation, or CLI boundary writes exactly one credential-free line to process stderr synchronously and exits with status 1. The line contains the fixed fatal sentence followed, when the direct syscall cause was captured, by ` Cause: ` and that cause's message, including the ordinary errno, syscall, and path detail carried by Node filesystem errors.
 It performs no logging, response conversion, card settlement, process cleanup, descriptor cleanup, retry, inspection, or lifecycle-lock release.
 
 Replacement becomes uncertain at rename.

@@ -50,7 +50,7 @@ if (mode === 'websocket') {
     sendToClient: () => { appendFileSync(path, 'frame'); },
   });
   const ws = { OPEN: 1, readyState: 1 } as never;
-  void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'first' } })));
+  void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'first' } })), { error() {} });
 }
 
 if (mode === 'base-actor-task') {
@@ -208,6 +208,7 @@ if (mode === 'analyst-project-context') {
   void handler.handleRawMessage(
     ws,
     Buffer.from(JSON.stringify({ type: 'message', content: { text: 'inspect project' } })),
+    { error() {} },
   ).then(
     () => mark('handler-resolve'),
     () => mark('handler-reject'),
@@ -226,5 +227,5 @@ if (mode === 'analyst-card' || mode === 'analyst-config' || mode === 'analyst-ap
   };
   const handler = new AnalystWsHandler({ fatalPort, restartCapability: { available: false }, liveSyncSocket: { handleClientFrame: () => false } as never, runtimeApplication: { analystRuntime: { submit: async () => publication() } } as never, sendToClient: () => { appendFileSync(path, 'frame'); } });
   const ws = { OPEN: 1, readyState: 1 } as never;
-  void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'publish' } })));
+  void handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'publish' } })), { error() {} });
 }

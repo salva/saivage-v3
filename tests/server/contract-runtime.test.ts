@@ -128,4 +128,25 @@ describe('ContractRuntime app-log ownership', () => {
     expect(response.statusCode).toBe(500);
     expect(response.json()).toEqual({ error: 'InternalServerError', message: 'Internal server error' });
   });
+
+  it('logs the exact handler error while preserving the fixed 500 response', async () => {
+    let mounted: ((request: unknown, reply: unknown) => Promise<unknown>) | undefined;
+    const fastify = { route: (route: { handler: typeof mounted }) => { mounted = route.handler; } } as unknown as FastifyInstance;
+    const failure = new Error('ordinary failure', { cause: new Error('underlying failure') });
+    new ContractRuntime({ authPolicy: new AuthPolicy(), eventLogger: { appendEventPrepared: jest.fn() } as never, fatalPort: testApplicationFatalPort }).mount(fastify, { operation: contract }, {
+      operation: () => { throw failure; },
+    });
+    const error = jest.fn();
+    const send = jest.fn();
+    const status = jest.fn(() => ({ send }));
+
+    await mounted!({ params: {}, query: {}, headers: {}, log: { error } }, { status, raw: { once: jest.fn() }, header: jest.fn() });
+
+    expect(error).toHaveBeenCalledWith(
+      { err: failure, operation: 'test.response', failureCode: 'handler_failed' },
+      'Operator contract operation failed',
+    );
+    expect(status).toHaveBeenCalledWith(500);
+    expect(send).toHaveBeenCalledWith({ error: 'InternalServerError', message: 'Internal server error' });
+  });
 });

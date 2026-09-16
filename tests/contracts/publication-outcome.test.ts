@@ -14,6 +14,13 @@ describe('production publication fatal port', () => {
     expect(child.stderr).toBe(diagnostic);
   });
 
+  it('appends the captured cause message to the single fatal stderr line', () => {
+    const child = spawnSync(process.execPath, ['--import', 'tsx', fixture, 'with-cause'], { cwd: process.cwd(), encoding: 'utf8' });
+    expect(child.status).toBe(1);
+    expect(child.stdout).toBe('');
+    expect(child.stderr).toBe(`${diagnostic.slice(0, -1)} Cause: ENOSPC: no space left on device, write /work/.saivage/state.jsonl\n`);
+  });
+
   it('still exits 1 without a fallback sink when fd 2 is closed', () => {
     const child = spawnSync(process.execPath, ['--import', 'tsx', fixture, 'closed-stderr'], { cwd: process.cwd(), encoding: 'utf8' });
     expect(child.status).toBe(1);

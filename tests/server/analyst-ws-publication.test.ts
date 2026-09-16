@@ -10,6 +10,8 @@ import { settleToolActionOutcome } from '../../src/tools/tool-result-settlement.
 import { canonicalJson } from '../../src/schemas/index.js';
 import { OUTBOUND_RAW_MARKER } from '../helpers/outbound-identity-fixtures.js';
 
+const noopLog = { error() {} };
+
 describe('Analyst WebSocket publication propagation', () => {
   it('acknowledges a scheduled restart through the available capability after frame delivery', async () => {
     const acknowledge = jest.fn(async () => {});
@@ -26,7 +28,7 @@ describe('Analyst WebSocket publication propagation', () => {
     });
     const ws = { OPEN: 1, readyState: 1 } as WebSocket;
 
-    await handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'RESTART SERVER' } })));
+    await handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'RESTART SERVER' } })), noopLog);
 
     expect(sendToClient).toHaveBeenCalledWith(ws, {
       type: 'status',
@@ -58,7 +60,7 @@ describe('Analyst WebSocket publication propagation', () => {
     });
     const ws = { OPEN: 1, readyState: 1 } as WebSocket;
 
-    await handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'write' } })));
+    await handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'write' } })), noopLog);
 
     const activity = sendToClient.mock.calls[0]![1] as { type: string; content: { params: unknown; result: unknown } };
     expect(activity.type).toBe('activity');
@@ -78,17 +80,20 @@ describe('Analyst WebSocket publication propagation', () => {
       sendToClient,
     });
     const ws = { OPEN: 1, readyState: 1 } as WebSocket;
-    await expect(handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'inspect' } })))).rejects.toBe(testApplicationFatalDelivery);
+    const log = { error: jest.fn() };
+    await expect(handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'inspect' } })), log)).rejects.toBe(testApplicationFatalDelivery);
     expect(sendToClient).not.toHaveBeenCalled();
+    expect(log.error).not.toHaveBeenCalled();
   });
 
   it('sends exact busy immediately and does not queue same-socket overlap for later execution', async () => {
     let release!: (value: { sessionId: 'agent:analyst:global'; restart: null; toolInvocations: [] }) => void;
     const active = new Promise<{ sessionId: 'agent:analyst:global'; restart: null; toolInvocations: [] }>((resolve) => { release = resolve; });
     let submissions = 0;
+    const busyFailure = new AnalystTurnBusyError();
     const submit = jest.fn((): Promise<{ sessionId: 'agent:analyst:global'; restart: null; toolInvocations: [] }> => {
       submissions += 1;
-      return submissions === 1 ? active : Promise.reject(new AnalystTurnBusyError());
+      return submissions === 1 ? active : Promise.reject(busyFailure);
     });
     const sendToClient = jest.fn();
     const handler = new AnalystWsHandler({
@@ -99,8 +104,9 @@ describe('Analyst WebSocket publication propagation', () => {
       sendToClient,
     });
     const ws = { OPEN: 1, readyState: 1 } as WebSocket;
-    const first = handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'first' } })));
-    const second = handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'second' } })));
+    const log = { error: jest.fn() };
+    const first = handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'first' } })), log);
+    const second = handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'second' } })), log);
 
     await second;
     expect(submit).toHaveBeenCalledTimes(2);
@@ -109,6 +115,8 @@ describe('Analyst WebSocket publication propagation', () => {
       type: 'error',
       content: { error: 'analyst_turn_busy', message: 'Another Analyst turn is active. Retry after it finishes.' },
     });
+    expect(log.error).toHaveBeenCalledWith({ err: busyFailure, code: 'analyst_websocket_message_failed', transport: 'websocket' }, 'Analyst WebSocket message failed');
+    expect(log.error.mock.invocationCallOrder[0]).toBeLessThan(sendToClient.mock.invocationCallOrder[0]!);
 
     release({ sessionId: 'agent:analyst:global', restart: null, toolInvocations: [] });
     await first;
@@ -139,8 +147,8 @@ describe('Analyst WebSocket publication propagation', () => {
     const winnerSocket = { OPEN: 1, readyState: 1 } as WebSocket;
     const loserSocket = { OPEN: 1, readyState: 1 } as WebSocket;
 
-    const winner = handler.handleRawMessage(winnerSocket, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'winner' } })));
-    await handler.handleRawMessage(loserSocket, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'loser' } })));
+    const winner = handler.handleRawMessage(winnerSocket, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'winner' } })), noopLog);
+    await handler.handleRawMessage(loserSocket, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'loser' } })), noopLog);
 
     expect(sendToClient).toHaveBeenCalledTimes(1);
     expect(sendToClient).toHaveBeenCalledWith(loserSocket, {
@@ -158,15 +166,19 @@ describe('Analyst WebSocket publication propagation', () => {
 
   it('uses one safe generic processing error without dynamic details', async () => {
     const sendToClient = jest.fn();
+    const failure = new Error('secret dynamic failure');
     const handler = new AnalystWsHandler({
       fatalPort: testApplicationFatalPort,
       restartCapability: { available: false },
       liveSyncSocket: { handleClientFrame: () => false } as never,
-      runtimeApplication: { analystRuntime: { submit: async () => { throw new Error('secret dynamic failure'); } } } as never,
+      runtimeApplication: { analystRuntime: { submit: async () => { throw failure; } } } as never,
       sendToClient,
     });
     const ws = { OPEN: 1, readyState: 1 } as WebSocket;
-    await handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'inspect' } })));
+    const log = { error: jest.fn() };
+    await handler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'inspect' } })), log);
+    expect(log.error).toHaveBeenCalledWith({ err: failure, code: 'analyst_websocket_message_failed', transport: 'websocket' }, 'Analyst WebSocket message failed');
+    expect(log.error.mock.invocationCallOrder[0]).toBeLessThan(sendToClient.mock.invocationCallOrder[0]!);
     expect(sendToClient).toHaveBeenCalledWith(ws, {
       type: 'error',
       content: { error: 'analyst_processing_failed', message: 'Failed to process Analyst message.' },

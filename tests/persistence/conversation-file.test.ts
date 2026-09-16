@@ -89,10 +89,14 @@ describe('versioned conversation persistence', () => {
     expect(() => truncateCurrentConversationUnterminatedSuffix(openFixture, SESSION, { open() { throw direct; }, ftruncate() {}, fsync() {}, close() {} })).toThrow(direct);
     for (const failed of ['ftruncate', 'fsync', 'close'] as const) {
       const projectRoot = truncationFixture(); const trace: string[] = [];
-      const operation = (name: string): void => { trace.push(name); if (name === failed) throw new Error('injected'); };
-      expect(() => truncateCurrentConversationUnterminatedSuffix(projectRoot, SESSION, {
+      const failure = new Error(`${failed} injected`);
+      const operation = (name: string): void => { trace.push(name); if (name === failed) throw failure; };
+      let thrown: unknown;
+      try { truncateCurrentConversationUnterminatedSuffix(projectRoot, SESSION, {
         open() { trace.push('open'); return 7; }, ftruncate() { operation('ftruncate'); }, fsync() { operation('fsync'); }, close() { operation('close'); },
-      })).toThrow(PublicationOutcomeUnknownError);
+      }); } catch (error) { thrown = error; }
+      expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+      expect((thrown as PublicationOutcomeUnknownError).cause).toBe(failure);
       expect(trace.at(-1)).toBe(failed);
     }
   });

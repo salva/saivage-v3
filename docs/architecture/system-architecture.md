@@ -710,7 +710,7 @@ Rejecting any other topology before the append preserves a valid durable prefix 
 
 A primitive-classified replacement or append uncertainty leaves canonical visibility outcome-unknown.
 The owner performs no retry, reread, reconciliation, further lifecycle write, result delivery, natural release, or Supervisor halt.
-The first fatal boundary emits the fixed stderr bytes and exits.
+The first fatal boundary emits one synchronous credential-free stderr line and exits. Its fixed fatal sentence carries the captured direct-syscall cause message when present, preserving ordinary errno, syscall, and path detail without logging or follow-up inspection.
 
 `stop_project` is a restartable non-domain runtime halt, never cancellation.
 First claim installs one halt identity, freezes the exact owner snapshot, closes the gate and parent/root admission, and publishes `closing`, which rejects intervention.

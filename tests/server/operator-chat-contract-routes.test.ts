@@ -450,7 +450,7 @@ describe('operator chat route request contracts', () => {
       sendToClient,
     });
     const ws = { OPEN: 1, readyState: 1 } as WebSocket;
-    await wsHandler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'ws loser' } })));
+    await wsHandler.handleRawMessage(ws, Buffer.from(JSON.stringify({ type: 'message', content: { text: 'ws loser' } })), { error() {} });
     expect(sendToClient).toHaveBeenCalledWith(ws, {
       type: 'error',
       content: { error: 'analyst_turn_busy', message: 'Another Analyst turn is active. Retry after it finishes.' },

@@ -87,10 +87,8 @@ export function registerWebSocket(fastify: FastifyInstance,
 
       ws.on('message', (raw: Buffer | ArrayBuffer | Buffer[]) => {
         if (!liveSyncSocket.isAdmissionOpen()) return;
-        void analystWsHandler.handleRawMessage(ws, raw).catch((error) => {
+        void analystWsHandler.handleRawMessage(ws, raw, request.log).catch((error) => {
           if (error instanceof PublicationOutcomeUnknownError) options.fatalPort.publicationOutcomeUnknown(error);
-          request.log.error({ code: 'analyst_websocket_message_failed', transport: 'websocket' }, 'Analyst WebSocket message failed',
-        );
         });
       });
 

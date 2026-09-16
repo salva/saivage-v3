@@ -3,7 +3,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { replaceFile, replacementTempPath } from '../../src/persistence/replace-file.js';
+import { PublicationOutcomeUnknownError } from '../../src/contracts/publication-outcome.js';
+import { replaceFile, replacementTempPath, type ReplacementFileIo } from '../../src/persistence/replace-file.js';
 
 describe('fresh-exclusive direct file replacement', () => {
   let root: string;
@@ -48,5 +49,20 @@ describe('fresh-exclusive direct file replacement', () => {
     const mask = process.umask();
     expect(statSync(target).mode & 0o777).toBe(0o666 & ~mask);
     expect(statSync(join(root, 'nested')).mode & 0o777).toBe(0o777 & ~mask);
+  });
+
+  it('preserves the exact post-rename failure as the publication-unknown cause', () => {
+    const failure = Object.assign(new Error('EIO: input/output error, rename'), { code: 'EIO' });
+    const io: ReplacementFileIo = {
+      open: (() => 7) as never,
+      write: ((_fd: number, _bytes: Uint8Array, _offset: number, length: number) => length) as never,
+      fsync() {},
+      close() {},
+      rename() { throw failure; },
+    };
+    let thrown: unknown;
+    try { replaceFile(join(root, 'state.json'), Buffer.from('state'), () => '66666666-6666-4666-8666-666666666666', io); } catch (error) { thrown = error; }
+    expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+    expect((thrown as PublicationOutcomeUnknownError).cause).toBe(failure);
   });
 });

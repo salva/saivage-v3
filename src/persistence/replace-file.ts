@@ -41,7 +41,7 @@ export function replaceFile(
     const parentDescriptor = io.open(parentPath, constants.O_RDONLY);
     io.fsync(parentDescriptor);
     io.close(parentDescriptor);
-  } catch {
-    throw new PublicationOutcomeUnknownError();
+  } catch (error) {
+    throw new PublicationOutcomeUnknownError(error);
   }
 }

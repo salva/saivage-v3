@@ -158,7 +158,11 @@ describe('strict growing-file boundaries', () => {
     let thrown: unknown;
     try { appendEnvelope(path, bytes(), io); } catch (error) { thrown = error; }
     if (phase === 'stat') expect(thrown).toBe(failure);
-    else expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+    else {
+      expect(thrown).toBeInstanceOf(PublicationOutcomeUnknownError);
+      if (phase === 'zero') expect((thrown as PublicationOutcomeUnknownError).cause).toEqual(expect.objectContaining({ message: 'zero progress' }));
+      else expect((thrown as PublicationOutcomeUnknownError).cause).toBe(failure);
+    }
     expect(operations).toEqual(expected);
   });
 

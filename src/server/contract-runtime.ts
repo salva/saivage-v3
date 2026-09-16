@@ -180,7 +180,7 @@ export class ContractRuntime {
           if (error instanceof PublicationOutcomeUnknownError) this.fatalPort.publicationOutcomeUnknown(error);
           throwIfPublicationOutcomeUnknown(error);
           request.log.error(
-            { operation: contract.operationId, failureCode, ...safeIdentity },
+            { err: error, operation: contract.operationId, failureCode, ...safeIdentity },
             'Operator contract operation failed',
           );
           final = { statusCode: 500, body: UNEXPECTED_INTERNAL_SERVER_ERROR };
