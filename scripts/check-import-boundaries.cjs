@@ -4,16 +4,12 @@ const path = require('node:path');
 
 const root = process.cwd();
 const SRC = path.join(root, 'src');
-const PACKAGES = new Set([
-  'agents', 'auth', 'boot', 'cards', 'config', 'contracts', 'events',
-  'mcp', 'notifications', 'observability', 'permissions', 'persistence', 'projections',
-  'redaction', 'runtime', 'schemas', 'server', 'tools', 'utils', 'workspace'
-]);
-const DOMAIN_PACKAGES = new Set([
-  'agents', 'cards', 'contracts', 'events', 'mcp', 'notifications',
-  'observability', 'permissions', 'persistence', 'projections', 'redaction', 'runtime',
-  'schemas', 'tools', 'utils', 'workspace'
-]);
+const PACKAGES = new Set(
+  fs.readdirSync(SRC, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name),
+);
+const BASELINE_PATH = path.join(__dirname, 'import-boundary-baseline.json');
 const CONTRACT_FORBIDDEN = new Set(['server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
 const AGENT_RUNTIME_RESTRICTED = new Set(['runtime']);
 const SCHEMA_FORBIDDEN = new Set(['events', 'server', 'persistence', 'cards', 'notifications', 'runtime', 'tools', 'agents', 'mcp']);
@@ -91,10 +87,6 @@ function isSchemaImportAllowed(fromPkg, parts) {
   return fromPkg !== 'schemas' || !SCHEMA_FORBIDDEN.has(parts[0]);
 }
 
-function isEventSchemaCatalogAllowed(fromPkg, parts) {
-  return fromPkg === 'events' && normalizedParts(parts) === 'schemas/event-catalog.js';
-}
-
 function runSelfTest() {
   const cases = [
     { fromPkg: 'agents', parts: ['cards'], ok: false, label: '@saivage/cards root is no longer a cross-package API' },
@@ -113,13 +105,12 @@ function runSelfTest() {
     { fromPkg: 'agents', parts: ['runtime', 'index.js'], ok: false, label: 'agents must not use runtime index' },
     { fromPkg: 'agents', parts: ['runtime', 'state.js'], ok: false, label: 'agents must not deep-import runtime state' },
     { fromPkg: 'schemas', parts: ['events', 'index.js'], ok: false, label: 'schemas must not import events' },
-    { fromPkg: 'events', parts: ['schemas', 'event-catalog.js'], ok: true, label: 'events may import schema catalog owner' },
     { fromPkg: null, parts: ['agents', 'index.js'], ok: false, label: 'root entrypoint must not import central package root' },
     { fromPkg: null, parts: ['agents', 'authz.js'], ok: false, label: 'root entrypoint must not deep-import agents authz' },
   ];
   const failures = [];
   for (const testCase of cases) {
-    const allowed = (isCrossPackageAllowed(testCase.fromPkg, testCase.parts) || (testCase.fromPkg === 'runtime' && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts)) || isEventSchemaCatalogAllowed(testCase.fromPkg, testCase.parts)) && isAgentRuntimeAllowed(testCase.fromPkg, testCase.parts) && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts) && isSchemaImportAllowed(testCase.fromPkg, testCase.parts);
+    const allowed = (isCrossPackageAllowed(testCase.fromPkg, testCase.parts) || (testCase.fromPkg === 'runtime' && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts))) && isAgentRuntimeAllowed(testCase.fromPkg, testCase.parts) && isRuntimeAgentAllowed(testCase.fromPkg, testCase.parts) && isSchemaImportAllowed(testCase.fromPkg, testCase.parts);
     if (allowed !== testCase.ok) {
       failures.push(`${testCase.label}: expected ${testCase.ok ? 'allowed' : 'rejected'}, got ${allowed ? 'allowed' : 'rejected'}`);
     }
@@ -150,8 +141,9 @@ for (const file of walk(SRC)) {
     const toPkg = parts[0];
     const relFile = path.relative(root, file);
     const line = text.slice(0, match.index).split('\n').length;
-    if (DOMAIN_PACKAGES.has(fromPkg) && toPkg === 'server' && !PREEXISTING_SERVER_IMPORT_EXCEPTIONS.has(relFile)) {
-      violations.push(`${relFile}:${line}: ${fromPkg} must not import server (${spec})`);
+    if (toPkg === 'server' && fromPkg !== 'server' && fromPkg !== 'boot' && !PREEXISTING_SERVER_IMPORT_EXCEPTIONS.has(relFile)) {
+      const consumer = fromPkg === null ? 'root entrypoint' : fromPkg;
+      violations.push(`${relFile}:${line}: ${consumer} must not import server (${spec})`);
     }
     if (fromPkg === 'contracts' && CONTRACT_FORBIDDEN.has(toPkg)) {
       violations.push(`${relFile}:${line}: contracts must stay declarative and must not import ${toPkg} (${spec})`);
@@ -165,15 +157,32 @@ for (const file of walk(SRC)) {
     if (fromPkg === 'runtime' && toPkg === 'agents' && !isRuntimeAgentAllowed(fromPkg, parts, relFile)) {
       violations.push(`${relFile}:${line}: runtime must not import agents package internals (${spec}); depend on contracts or exact composition factory only`);
     }
-    if (!isCrossPackageAllowed(fromPkg, parts) && !(fromPkg === 'runtime' && isRuntimeAgentAllowed(fromPkg, parts, relFile)) && !isEventSchemaCatalogAllowed(fromPkg, parts) && !isPreexistingDeepImportException(relFile, parts)) {
+    if (!isCrossPackageAllowed(fromPkg, parts) && !(fromPkg === 'runtime' && isRuntimeAgentAllowed(fromPkg, parts, relFile)) && !isPreexistingDeepImportException(relFile, parts)) {
       const consumer = fromPkg === null ? 'root entrypoint' : `cross-package import into ${toPkg}`;
       violations.push(`${relFile}:${line}: deep ${consumer} is forbidden (${spec}); import from the package index or move within the owning package`);
     }
   }
 }
-if (violations.length) {
-  console.error('Import boundary violations (advisory; does not fail validation):');
+let baseline;
+try {
+  baseline = JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8'));
+} catch (error) {
+  console.error(`Import boundary baseline ${BASELINE_PATH} is missing or unparseable: ${error.message}`);
+  process.exit(1);
+}
+if (typeof baseline.totalViolations !== 'number' || !Number.isInteger(baseline.totalViolations) || baseline.totalViolations < 0) {
+  console.error(`Import boundary baseline ${BASELINE_PATH} must contain a non-negative integer totalViolations.`);
+  process.exit(1);
+}
+const count = violations.length;
+if (count > baseline.totalViolations) {
+  console.error('Import boundary violations:');
   for (const violation of violations) console.error(`- ${violation}`);
+  console.error(`import-boundary violations ${count} exceed baseline ${baseline.totalViolations} by ${count - baseline.totalViolations}; fix the new violations`);
+  process.exit(1);
+}
+if (count < baseline.totalViolations) {
+  console.log(`Import boundary check passed: violations dropped to ${count} below baseline ${baseline.totalViolations}; ratchet down by setting totalViolations to ${count} in scripts/import-boundary-baseline.json and committing.`);
 } else {
-  console.log('Import boundary check passed.');
+  console.log(`Import boundary check passed: ${count} violations equal baseline ${baseline.totalViolations}.`);
 }
