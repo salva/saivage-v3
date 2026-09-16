@@ -422,14 +422,29 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       ? { kind: 'root' as const }
       : { kind: 'parent' as const, cardId: owner.parentRelationship.parentCardId, sessionId: owner.parentRelationship.invocation.identity.sessionId };
     const input = { activationId: owner.activationId, card: this.requireKnownCard(owner), caller, entry: owner.entry, notificationDelivery: { hasPendingNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications.length > 0; }, selectNotifications: () => { this.requireOwnerAuthority(owner); return this.requireKnownCard(owner).pending_notifications; }, removeNotifications: (ids: readonly string[]) => { this.requireOwnerAuthority(owner); this.behavior.actorStore.removeNotifications(owner.cardId, [...ids]); } }, claimResult: () => this.claimResult(owner) };
-    void owner.processor.activate(input, owner.abortController.signal).then((outcome) => this.settleResult(owner, outcome), (error) => {
+    void owner.processor.activate(input, owner.abortController.signal).then((outcome) => {
+      void this.settleResult(owner, outcome).catch((error: Error) => this.haltOnSettlementFailure(owner, error));
+    }, (error) => {
       if (this.halt?.owners.includes(owner) || owner.terminalWinner === 'cancel' || owner.terminalWinner === 'interrupt') return;
       if (error instanceof PublicationOutcomeUnknownError) {
         this.behavior.fatalPort.publicationOutcomeUnknown(error);
       }
       const message = error instanceof Error ? error.message : String(error);
-      void this.settleResult(owner, { status: 'failed', summary: message, result: { kind: 'runtime-failure', summary: message } });
+      void this.settleResult(owner, { status: 'failed', summary: message, result: { kind: 'runtime-failure', summary: message } }).catch((settlementError: Error) => this.haltOnSettlementFailure(owner, settlementError));
     });
+  }
+
+  private haltOnSettlementFailure(owner: CardActivationOwner, error: Error): void {
+    const halt = this.halt;
+    if (halt?.owners.includes(owner)) {
+      void halt.promise.catch(() => undefined);
+      return;
+    }
+    if (this.activationOwners.get(owner.cardId) === owner) {
+      void this.beginHalt('runtime_failure', owner, error).catch(() => undefined);
+      return;
+    }
+    void this.beginHalt('runtime_failure').catch(() => undefined);
   }
 
   private onProcessorActorMainFailure(cardId: string, activationId: string, _error: unknown): void {
@@ -638,18 +653,18 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
     return owner.cancellationSettlement;
   }
 
-  private beginHalt(trigger: 'stop' | 'application_close' | 'publication_failure' | 'runtime_failure', publicationOwner?: CardActivationOwner, publicationFailure?: Error): Promise<void> {
+  private beginHalt(trigger: 'stop' | 'application_close' | 'publication_failure' | 'runtime_failure', failureOwner?: CardActivationOwner, failure?: Error): Promise<void> {
     if (this.halt) {
       if (trigger === 'application_close') this.ownershipTransition(false, () => { this.applicationAdmissionOpen = false; });
       return this.halt.promise;
     }
     if (!this.runIdentity) throw new Error('Cannot halt a runtime without a run identity.');
-    if (publicationOwner && this.activationOwners.get(publicationOwner.cardId) !== publicationOwner) throw new Error(`Card '${publicationOwner.cardId}' publication owner is no longer current.`);
+    if (failureOwner && this.activationOwners.get(failureOwner.cardId) !== failureOwner) throw new Error(`Card '${failureOwner.cardId}' failure owner is no longer current.`);
 
     const owners = Object.freeze([...this.activationOwners.values()]);
     const interruption = new RuntimeStoppedInterruption();
     const settlement = deferred<void>();
-    const halt: RuntimeHalt = Object.freeze({ trigger, interruption, owners, promise: settlement.promise, ...(publicationFailure ? { failure: publicationFailure } : {}) });
+    const halt: RuntimeHalt = Object.freeze({ trigger, interruption, owners, promise: settlement.promise, ...(failure ? { failure } : {}) });
     let firstFailure: unknown;
     let hasFailure = false;
     const retainFirst = (error: unknown): void => { if (!hasFailure) { hasFailure = true; firstFailure = error; } };
@@ -667,7 +682,7 @@ class SupervisorRuntimeApi implements RuntimeApi, InterventionReadinessFacet {
       if (lease && (lease.phase() === 'admitted' || lease.phase() === 'settling')) {
         try { lease.interrupt(interruption); } catch (error) { retainFirst(error); }
       }
-      owner.settlement.reject(owner === publicationOwner && publicationFailure !== undefined ? publicationFailure : interruption);
+      owner.settlement.reject(owner === failureOwner && failure !== undefined ? failure : interruption);
     }
     for (const owner of owners) try { owner.processor.prepareForRuntimeHalt(interruption); } catch (error) { retainFirst(error); }
     for (const owner of owners) try { owner.abortController.abort(interruption); } catch (error) { retainFirst(error); }

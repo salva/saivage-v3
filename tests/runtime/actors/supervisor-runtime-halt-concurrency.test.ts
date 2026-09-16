@@ -71,12 +71,13 @@ interface SupervisorInternals {
   runIdentity: object | null;
   currentCardId: string | null;
   status: 'running' | 'closing' | 'error' | 'stopped';
-  halt: { interruption: RuntimeStoppedInterruption; owners: readonly CardActivationOwner[]; promise: Promise<void> } | null;
-  beginHalt(trigger: HaltTrigger, publicationOwner?: CardActivationOwner, publicationFailure?: Error): Promise<void>;
+  halt: { trigger: HaltTrigger; interruption: RuntimeStoppedInterruption; owners: readonly CardActivationOwner[]; promise: Promise<void>; failure?: Error } | null;
+  beginHalt(trigger: HaltTrigger, failureOwner?: CardActivationOwner, failure?: Error): Promise<void>;
   publish<T>(owner: CardActivationOwner, write: () => T): T | null;
   boundParentControl(parentCardId: string, activationId: string): PlannerChildControlPort;
   activateChild(parent: CardActivationOwner, childCardId: string, lease: ChildInvocationLease): Promise<CardActivationOutcome>;
   createOwner(...args: never[]): CardActivationOwner;
+  activateProcessor(owner: CardActivationOwner): void;
   settleResult(owner: CardActivationOwner, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' }>): Promise<void>;
   onProcessorActorMainFailure(cardId: string, activationId: string, error: unknown): void;
 }
@@ -331,6 +332,41 @@ describe('Supervisor singular runtime halt concurrency', () => {
     expect(h.root.terminalWinner).toBe('open');
     expect(h.lease!.phase()).toBe('admitted');
     expect(h.store.commitActivationOutcome).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      path: 'fulfillment',
+      activate: (actor: CardProcessActor, outcome: Exclude<CardActivationOutcome, { status: 'cancelled' | 'stopped' }>) => jest.spyOn(actor, 'activate').mockResolvedValueOnce(outcome),
+    },
+    {
+      path: 'rejection',
+      activate: (actor: CardProcessActor) => jest.spyOn(actor, 'activate').mockRejectedValueOnce(new Error('processor activation failed')),
+    },
+  ])('routes $path-path result-settlement rejection through one runtime-failure halt with original evidence', async ({ activate }) => {
+    const h = harness(true);
+    const outcome = { status: 'done' as const, summary: 'done', result: workflowResult('DONE', 'done') };
+    const ownerSettlement = h.root.settlement.promise.catch((error) => error);
+    const childSettlement = h.child!.settlement.promise.catch((error) => error);
+    activate(h.rootProcessor.actor, outcome);
+
+    h.internals.activateProcessor(h.root);
+    await nextTurn();
+
+    const halt = h.internals.halt;
+    expect(halt).not.toBeNull();
+    expect(halt?.trigger).toBe('runtime_failure');
+    expect(halt?.failure).toBeInstanceOf(Error);
+    expect(halt?.failure?.message).toBe('Runtime invariant failed: operation=settle_result card=project card_status=running activation=root-activation child=card-a child_status=running.');
+    await expect(ownerSettlement).resolves.toBe(halt?.failure);
+    await expect(childSettlement).resolves.toBe(halt?.interruption);
+    expect(h.store.commitActivationOutcome).not.toHaveBeenCalled();
+
+    h.rootProcessor.join.resolve([]);
+    h.childProcessor!.join.resolve([]);
+    h.processTermination.resolve(processReport);
+    await expect(within(halt!.promise)).resolves.toBeUndefined();
+    await nextTurn();
   });
 
   it.each([

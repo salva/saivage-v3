@@ -370,7 +370,7 @@ On rejection, Supervisor first installs the halt, terminally interrupts every ad
 This settlement-before-join order breaks the Conversation LLM → child lease → activation dependency and prevents deadlock.
 Dynamic execution uses existing direct scopes under the runtime-card, operator-session, and service-infrastructure process roots; halt cleanup closes/joins only owned volatile scopes and cannot replace the publication error at its owning boundary.
 Exact continuation fences compare map owner, activation identity, relationships, and absence of halt before and after every await that could publish, activate, settle, or release.
-The exact consuming roots remain the global Fastify error handler, registered Analyst WebSocket message rejection observer, and Supervisor `activateProcessor()` rejection callback.
+The exact consuming roots remain the global Fastify error handler, registered Analyst WebSocket message rejection observer, and Supervisor `activateProcessor()`. The Supervisor observes both processor activation rejection and both resulting settlement chains; a settlement invariant rejection enters the singular `runtime_failure` halt with the original current-owner error retained as halt and owner-settlement evidence rather than becoming an unhandled rejection.
 They publish no replacement evidence and expose no cause through HTTP or WebSocket responses; delegation of the same publication error to the singular fatal port may emit the captured direct-syscall cause message on stderr.
 
 `EventQueryService` is the sole event/error query authority for the authenticated operator API and Analyst tools.
