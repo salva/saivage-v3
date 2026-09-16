@@ -432,6 +432,7 @@ describe('validation cadence guard', () => {
       ['ui-vitest', 'UI'],
       ['browser-smoke', 'BROWSER'],
       ['dependency-hygiene', 'DEPENDENCY'],
+      ['lint-guards', 'LINT_GUARDS'],
     ];
     const mutations = [
       ...['classify-changes', 'routine-docs', ...pathJobs.map(([name]) => name)].map((name) => [`remove need ${name}`, `      - ${name}\n`, '', 'needs must contain exactly']),

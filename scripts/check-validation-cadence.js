@@ -621,6 +621,10 @@ const PATH_JOBS = {
     prefix: 'DEPENDENCY',
     condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
   },
+  'lint-guards': {
+    prefix: 'LINT_GUARDS',
+    condition: "needs.classify-changes.outputs.run_all == 'true' || needs.classify-changes.outputs.backend == 'true' || needs.classify-changes.outputs.ui == 'true' || needs.classify-changes.outputs.package_or_workflow == 'true'",
+  },
 };
 
 function validatePushOnlyTrigger({ file, workflow, failures, checked }) {
