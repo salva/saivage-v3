@@ -1220,6 +1220,7 @@ const VALUE_CONTRACT_CLAIMS = Object.freeze({
   'constant.managed-process-post-kill-verification-ms': defineClaim('constants', sourcePathSet(['src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts']), (root) => constantValue(root, 'src/runtime/managed-process-group-registry.ts', 'MANAGED_PROCESS_POST_KILL_VERIFICATION_MS', 'milliseconds', [['src/runtime/managed-process-group-registry.ts', 2]])),
   'constant.managed-process-term-grace-ms': defineClaim('constants', sourcePathSet(['src/application/runtime-composition.ts', 'src/mcp/mcp-manager.ts', 'src/mcp/server-runtime.ts', 'src/runtime/actors/supervisor-runtime-api.ts', 'src/runtime/managed-process-group-registry.ts', 'src/tools/process-provider.ts']), selectManagedProcessTermGrace),
   'constant.maximum-card-depth-segments': defineClaim('constants', PATHS.cardIdentity, selectMaximumDepth),
+  'constant.node-corrective-rearm-limit': defineClaim('constants', sourcePathSet(['src/runtime/actors/agent-node-execution.ts']), (root) => constantValue(root, 'src/runtime/actors/agent-node-execution.ts', 'MAX_NODE_CORRECTIVE_REARMS', 'logical invocations', [['src/runtime/actors/agent-node-execution.ts', 4]])),
   'constant.summarizer-completion-tokens': defineClaim('constants', sourcePathSet(['src/runtime/actors/compaction/summarizer.ts']), (root) => constantValue(root, 'src/runtime/actors/compaction/summarizer.ts', 'SUMMARY_COMPLETION_TOKENS', 'tokens', [['src/runtime/actors/compaction/summarizer.ts', 7]])),
   'constant.summarizer-output-target-bytes': defineClaim('constants', sourcePathSet(['src/runtime/actors/compaction/summarizer.ts']), (root) => constantValue(root, 'src/runtime/actors/compaction/summarizer.ts', 'SUMMARY_OUTPUT_TARGET_BYTES', 'bytes', [['src/runtime/actors/compaction/summarizer.ts', 1]])),
   'constant.sync-hub-debounce-ms': defineClaim('constants', sourcePathSet(['src/server/sync-hub.ts']), (root) => constantValue(root, 'src/server/sync-hub.ts', 'SYNC_HUB_DEBOUNCE_MS', 'milliseconds', [['src/server/sync-hub.ts', 2]])),
@@ -1251,6 +1252,7 @@ export const VALUE_CONTRACT_MANIFEST = Object.freeze([
   { key: 'card-change-vocabulary', family: ['vocabularies'], file: 'docs/spec/system-specification.md', heading: '### Exact card history vocabulary', claims: ['vocabulary.card-version-change-kind'] },
   { key: 'session-identity', family: ['identities'], file: 'docs/spec/system-specification.md', heading: '### Exact conversation-session identity contract', claims: ['identity.conversation-session'] },
   { key: 'emit-result-limit', family: ['constants'], file: 'docs/spec/system-specification.md', heading: '### Exact terminal-result limit', claims: ['constant.emit-result-summary-max-chars'] },
+  { key: 'node-corrective-rearm-limit', family: ['constants'], file: 'docs/spec/system-specification.md', heading: '### Exact node corrective budget', claims: ['constant.node-corrective-rearm-limit'] },
   { key: 'cleanup-limits', family: ['constants'], file: 'docs/spec/system-specification.md', heading: '### Exact cleanup timing contract', claims: ['constant.app-cleanup-leaf-timeout-ms', 'constant.managed-process-term-grace-ms', 'constant.managed-process-post-kill-verification-ms'] },
   { key: 'availability-contract', family: ['vocabularies'], file: 'docs/spec/system-specification.md', heading: '### Exact availability vocabulary', claims: ['vocabulary.availability-state', 'vocabulary.availability-component-source'] },
   { key: 'app-log-contract', family: ['vocabularies'], file: 'docs/spec/system-specification.md', heading: '### Exact app-log vocabularies', claims: ['vocabulary.app-log-type', 'vocabulary.logged-event-kind'] },
@@ -1303,7 +1305,7 @@ function verifyCatalogAndManifest() {
     sourcePathSet([...claim.sourcePaths]);
   }
   const blockKeys = VALUE_CONTRACT_MANIFEST.map((entry) => entry.key);
-  if (VALUE_CONTRACT_MANIFEST.length !== 14) throw new Error('VALUE_CONTRACT_MANIFEST must contain exactly 14 blocks');
+  if (VALUE_CONTRACT_MANIFEST.length !== 15) throw new Error('VALUE_CONTRACT_MANIFEST must contain exactly 15 blocks');
   if (new Set(blockKeys).size !== blockKeys.length) throw new Error('VALUE_CONTRACT_MANIFEST block keys must be unique');
   const uses = [];
   for (const entry of VALUE_CONTRACT_MANIFEST) {

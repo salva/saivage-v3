@@ -39,6 +39,18 @@ describe('ConversationLLMActor purpose authority',()=>{
     expect(()=>new ConversationLLMActor({...common,agentId:'agent:analyst:card-a',purpose:{kind:'global-agent'}})).toThrow(/requires a global session/);
   });
 
+  it('abandons a retained plain-text turn and returns to idle',async()=>{
+    const {projectRoot,input}=cardFixture();
+    const completeTurn=jest.fn(async()=>({result:{kind:'message' as const,content:'plain text'},provider_exchanges:[]}));
+    const actor=cardActor(projectRoot,scriptedAdmissionProvider(completeTurn));
+
+    await expect(actor.turn(input,undefined,jest.fn())).resolves.toMatchObject({type:'result',result:{content:'plain text'}});
+    expect(()=>actor.abandonParkedTurn()).not.toThrow();
+    await expect(actor.turn({...input,inputId:'00000000-0000-4000-8000-000000000002'},undefined,jest.fn())).resolves.toMatchObject({type:'result',result:{content:'plain text'}});
+    expect(completeTurn).toHaveBeenCalledTimes(2);
+    expect(readConversation(projectRoot,input.sessionId).sourceRows.filter(row=>row.role==='assistant'&&row.kind==='text')).toHaveLength(2);
+  });
+
   it('leaves Analyst content refusal terminal with one ordinary provider call',async()=>{
     const projectRoot=mkdtempSync(join(tmpdir(),'analyst-purpose-'));roots.push(projectRoot);initProjectTree(projectRoot);
     const timestamp='2026-07-26T00:00:00.000Z';appendConversationBatch({projectRoot},[agentMessageSchema.parse({id:'activation',session_id:'agent:analyst:global',role:'system',kind:'activity',content:JSON.stringify({event:'activation_open',agent_name:'analyst',input_id:'00000000-0000-4000-8000-000000000001',timestamp}),context_policy:{kind:'structural',behavior:'activation_boundary'},round_id:'r-pre-00000000000000000000000000000000',message_index:0,block_index:0,timestamp})]);

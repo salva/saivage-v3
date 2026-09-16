@@ -283,6 +283,10 @@ export class ConversationLLMActor {
 
   abandonParkedTurn(): void {
     if (this.#phase.kind === 'idle') return;
+    if (this.#phase.kind === 'retained_text') {
+      this.#phase = { kind: 'idle', disposition: this.#phase.operation.disposition };
+      return;
+    }
     if (this.#phase.kind !== 'waiting_tool') throw new Error(`LLMActor '${this.agentId}' cannot abandon '${this.#phase.kind}'.`);
     const parked = this.#phase.operation;
     if (parked.childLease) throw new Error(`LLMActor '${this.agentId}' cannot abandon a turn with a child invocation lease.`);

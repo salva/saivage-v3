@@ -1,7 +1,7 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { z } from 'zod';
 
-import { AgentNodeExecution } from '../../../src/runtime/actors/agent-node-execution.js';
+import { AgentNodeExecution, MAX_NODE_CORRECTIVE_REARMS, NodeCorrectiveBudgetExceededError } from '../../../src/runtime/actors/agent-node-execution.js';
 import type { LLMActorOutcome } from '../../../src/runtime/actors/llm-actor.js';
 import { PublicationOutcomeUnknownError } from '../../../src/contracts/publication-outcome.js';
 import { defineTool, executedNoneSettlement, executedToolOutcome, OPERATIONAL_RESULT_POLICY_TEMPLATE, type InvocationSurface, type ToolProviderCleanupReason } from '../../../src/tools/invocation.js';
@@ -134,7 +134,7 @@ function harness(args: {
     prepareNodeInvocation: (...args: unknown[]) => object;
     enterNodeConversation: (prepared: object) => object;
     buildSurface: (...args: unknown[]) => InvocationSurface;
-    correction: (_process: unknown, _node: unknown, violations: readonly string[]) => string;
+    correction: (_process: unknown, _node: unknown, violations: readonly string[], remaining: number) => string;
     closeAcceptedRecords: () => Array<{ name: string; url: string; version: number }>;
     validateRecords: () => { candidates: Map<string, unknown> } | { violations: string[] };
     captureReviewerPair: () => unknown;
@@ -146,7 +146,7 @@ function harness(args: {
   internals.prepareNodeInvocation = (...values) => { llmInputArguments.push(values); return { inputId: 'input-1' }; };
   internals.enterNodeConversation = (prepared) => ({ ...prepared, providerConversation: { sourceSessionId: 'agent:planner:project', messages: [] } });
   internals.buildSurface = (...values) => { const written=values[5] as Set<string>;for(const name of args.writtenRecords??[])written.add(name);return surface; };
-  if (!args.useRealCorrection) internals.correction = (_process, _node, violations) => `correction: ${violations.join('; ')}`;
+  if (!args.useRealCorrection) internals.correction = (_process, _node, violations, remaining) => `correction: ${violations.join('; ')}\nCorrective attempts remaining before this node fails: ${remaining}.`;
   internals.closeAcceptedRecords = () => { events.push('close-records'); return []; };
   if (args.reviewerPreparationError) internals.captureReviewerPair = () => { throw args.reviewerPreparationError; };
   if (args.terminalVariant === 'records') {
@@ -175,7 +175,8 @@ function harness(args: {
   };
 }
 
-const objectGuardCorrection = "correction: Terminal tool 'emit_result' arguments must be a JSON object.";
+const correctionWithRemaining = (correction: string, remaining: number) => `${correction}\nCorrective attempts remaining before this node fails: ${remaining}.`;
+const objectGuardCorrection = correctionWithRemaining("correction: Terminal tool 'emit_result' arguments must be a JSON object.", 15);
 const missingSummaryCorrection = `correction: [
   {
     "code": "invalid_type",
@@ -186,7 +187,7 @@ const missingSummaryCorrection = `correction: [
     ],
     "message": "Required"
   }
-]`;
+]\nCorrective attempts remaining before this node fails: 15.`;
 const extraFieldCorrection = `correction: [
   {
     "code": "unrecognized_keys",
@@ -196,7 +197,7 @@ const extraFieldCorrection = `correction: [
     "path": [],
     "message": "Unrecognized key(s) in object: 'extra'"
   }
-]`;
+]\nCorrective attempts remaining before this node fails: 15.`;
 const unknownOutcomeCorrection = `correction: [
   {
     "received": "unknown",
@@ -209,7 +210,7 @@ const unknownOutcomeCorrection = `correction: [
     ],
     "message": "Invalid enum value. Expected 'complete', received 'unknown'"
   }
-]`;
+]\nCorrective attempts remaining before this node fails: 15.`;
 const nonStringSummaryCorrection = `correction: [
   {
     "code": "invalid_type",
@@ -220,7 +221,7 @@ const nonStringSummaryCorrection = `correction: [
     ],
     "message": "Expected string, received number"
   }
-]`;
+]\nCorrective attempts remaining before this node fails: 15.`;
 const whitespaceSummaryCorrection = `correction: [
   {
     "code": "too_small",
@@ -233,7 +234,7 @@ const whitespaceSummaryCorrection = `correction: [
       "summary"
     ]
   }
-]`;
+]\nCorrective attempts remaining before this node fails: 15.`;
 const overLimitSummaryCorrection = `correction: [
   {
     "code": "too_big",
@@ -246,7 +247,7 @@ const overLimitSummaryCorrection = `correction: [
       "summary"
     ]
   }
-]`;
+]\nCorrective attempts remaining before this node fails: 15.`;
 
 describe('AgentNodeExecution contract repair behavior', () => {
   it.each([
@@ -280,16 +281,62 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(expected).not.toContain("Terminal tool 'emit_result' arguments must be a JSON object.");
   });
 
-  it('continues terminal-contract repairs beyond five attempts', async () => {
+  it('accepts a terminal result after fifteen corrective re-arms', async () => {
     const invalid = (id: string) => terminal(id, { outcome: 'complete' });
     const test = harness({
       initial: invalid('invalid-0'),
-      continuations: [invalid('invalid-1'), invalid('invalid-2'), invalid('invalid-3'), invalid('invalid-4'), invalid('invalid-5'), terminal('accepted', { outcome: 'complete', summary: '  finished  ' })],
+      continuations: [...Array.from({ length: 14 }, (_, index) => invalid(`invalid-${index + 1}`)), terminal('accepted', { outcome: 'complete', summary: '  finished  ' })],
     });
 
     await expect(test.run()).resolves.toMatchObject({ outcome: 'complete', summary: 'finished' });
-    expect(test.events.filter((event) => event.startsWith('append:'))).toHaveLength(6);
-    expect(test.appendedToolResults).toEqual(Array.from({ length: 6 }, (_, index) => ({ toolCallId: `invalid-${index}`, result: executedNoneSettlement(toolFailed(missingSummaryCorrection)) })));
+    expect(test.events.filter((event) => event.startsWith('append:'))).toHaveLength(15);
+    expect(test.appendedToolResults).toEqual(Array.from({ length: 15 }, (_, index) => ({
+      toolCallId: `invalid-${index}`,
+      result: executedNoneSettlement(toolFailed(correctionWithRemaining(missingSummaryCorrection.replace(/\nCorrective attempts remaining before this node fails: 15\.$/u, ''), 15 - index))),
+    })));
+  });
+
+  it('fails after exactly sixteen plain-text corrective re-arms', async () => {
+    const test = harness({ initial: resultOutcome, continuations: Array.from({ length: MAX_NODE_CORRECTIVE_REARMS }, () => resultOutcome), useRealCorrection: true });
+
+    const failure = test.run();
+    await expect(failure).rejects.toMatchObject({
+      name: 'NodeCorrectiveBudgetExceededError',
+      message: "Node 'work' exhausted its corrective re-arm budget (16).",
+      rearmCount: 16,
+      rearmLimit: 16,
+    });
+    await expect(failure).rejects.toBeInstanceOf(NodeCorrectiveBudgetExceededError);
+    expect(test.events.filter((event) => event === 'continue-plain-text')).toHaveLength(16);
+    expect(test.plainTextCorrections.at(-1)).toContain('Corrective attempts remaining before this node fails: 0.');
+    expect(test.settledToolResults).toEqual([]);
+    expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'failed' }]);
+  });
+
+  it('definitively settles the pending emit_result call when the joint corrective budget is exhausted', async () => {
+    const invalid = (id: string) => terminal(id, { outcome: 'complete' });
+    const test = harness({ initial: invalid('invalid-0'), continuations: Array.from({ length: MAX_NODE_CORRECTIVE_REARMS }, (_, index) => invalid(`invalid-${index + 1}`)) });
+
+    await expect(test.run()).rejects.toBeInstanceOf(NodeCorrectiveBudgetExceededError);
+    expect(test.appendedToolResults).toHaveLength(16);
+    expect(test.settledToolResults).toEqual([{
+      toolCallId: 'invalid-16',
+      result: executedNoneSettlement(toolFailed('emit_result was not accepted: the node corrective budget is exhausted.')),
+    }]);
+    expect(test.cleanupReasons).toEqual([{ kind: 'activation_settled', status: 'failed' }]);
+  });
+
+  it('shares one corrective budget across plain text and rejected emit_result calls', async () => {
+    const invalid = (id: string) => terminal(id, { outcome: 'complete' });
+    const test = harness({ initial: resultOutcome, continuations: Array.from({ length: MAX_NODE_CORRECTIVE_REARMS }, (_, index) => invalid(`invalid-${index}`)) });
+
+    await expect(test.run()).rejects.toBeInstanceOf(NodeCorrectiveBudgetExceededError);
+    expect(test.events.filter((event) => event === 'continue-plain-text')).toHaveLength(1);
+    expect(test.appendedToolResults).toHaveLength(15);
+    expect(test.settledToolResults).toEqual([{
+      toolCallId: 'invalid-15',
+      result: executedNoneSettlement(toolFailed('emit_result was not accepted: the node corrective budget is exhausted.')),
+    }]);
   });
 
   it('throws an actor provider error and still cleans up the failed activation', async () => {
@@ -315,7 +362,7 @@ describe('AgentNodeExecution contract repair behavior', () => {
     expect(test.events.slice(0, 5)).toEqual(['turn', 'current', 'current', 'continue-plain-text', 'current']);
     expect(test.handoffs).toHaveLength(2);
     expect(test.handoffs[1]).toBe(test.handoffs[0]);
-    expect(test.plainTextCorrections).toEqual(['correct the result\n\nValidation errors:\n- emit_result is required.']);
+    expect(test.plainTextCorrections).toEqual(['correct the result\n\nValidation errors:\n- emit_result is required.\n\nCorrective attempts remaining before this node fails: 15.']);
     expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
   });
 
@@ -371,9 +418,9 @@ describe('AgentNodeExecution contract repair behavior', () => {
 
   const settlementCases: Array<[string, NonNullable<Parameters<typeof harness>[0]['terminalVariant']>, unknown]> = [
     ['pending notifications', 'pending', { success: false, error: 'emit_result was not accepted because operator context is pending.', data: { reason: 'pending_notifications' } }],
-    ['record violations', 'records', { success: false, error: 'correction: required record is invalid' }],
+    ['record violations', 'records', { success: false, error: 'correction: required record is invalid\nCorrective attempts remaining before this node fails: 15.' }],
     ['stale descendant context', 'stale', { success: false, error: 'Review context is stale: changed.' }],
-    ['incomplete descendant completion', 'incomplete', { success: false, error: "correction: Completion gate failed: descendant 'card-a' is 'running'." }],
+    ['incomplete descendant completion', 'incomplete', { success: false, error: "correction: Completion gate failed: descendant 'card-a' is 'running'.\nCorrective attempts remaining before this node fails: 15." }],
   ];
   it.each(settlementCases)('validates the %s settlement before append', async (_label, terminalVariant, expected) => {
     const test = harness({ initial: terminal('rejected'), continuations: [terminal('accepted')], terminalVariant });
@@ -381,6 +428,10 @@ describe('AgentNodeExecution contract repair behavior', () => {
     const failure = expected as { error: string; data?: unknown };
     expect(test.appendedToolResults[0]).toEqual({ toolCallId: 'rejected', result: executedNoneSettlement(toolFailed(failure.error, failure.data)) });
     expect(test.continuationContextCallbacks[0]).toEqual(expect.any(Function));
+    if (terminalVariant === 'pending' || terminalVariant === 'stale') {
+      const context = (test.continuationContextCallbacks[0] as () => { messages: Array<{ content: string }> })();
+      expect(context.messages.at(-1)?.content).toContain('Corrective attempts remaining before this node fails: 15.');
+    }
   });
 
   it('rethrows publication uncertainty before cleanup', async () => {

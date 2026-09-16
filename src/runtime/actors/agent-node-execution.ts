@@ -35,6 +35,20 @@ export interface AcceptedNodeResult {
 }
 export type NodeExecutionResult = AcceptedNodeResult | ContentPolicyRefusalBlockedResult;
 
+export const MAX_NODE_CORRECTIVE_REARMS = 16;
+
+export class NodeCorrectiveBudgetExceededError extends Error {
+  readonly rearmCount: number;
+  readonly rearmLimit: number;
+
+  constructor(nodeId: string, rearmCount: number, rearmLimit = MAX_NODE_CORRECTIVE_REARMS) {
+    super(`Node '${nodeId}' exhausted its corrective re-arm budget (${rearmLimit}).`);
+    this.name = 'NodeCorrectiveBudgetExceededError';
+    this.rearmCount = rearmCount;
+    this.rearmLimit = rearmLimit;
+  }
+}
+
 export type NodeTransition = Readonly<{ context: ActorTransitionContext; acceptedResult: AcceptedNodeResult | null }>;
 
 type NodeResult = { outcome: string; summary: string };
@@ -84,6 +98,7 @@ export class AgentNodeExecution {
     const needsProcessScope = binding.toolSet.requiresProcessScope;
     const scope = needsProcessScope ? this.executorScope(input, args.nodeOrdinal) : null;
     const writtenRecords = new Set<string>();
+    let correctiveRearmCount = 0;
     const surface = this.buildSurface(node, input, sessionId, scope, args.nodeOrdinal, writtenRecords);
     let cleanupStatus: 'done' | 'blocked' | 'failed' | 'cancelled' = 'failed';
     let recordFinalizationBegun = false;
@@ -95,6 +110,20 @@ export class AgentNodeExecution {
       const baseline = new Map(node.requirements.map((record) => [record.definition.name, this.captureRecordHead(record.definition.name)]));
       const preparedInput = this.enterNodeConversation(prepared);
       const terminalHandoff = () => this.host.assertCurrentActivation(input);
+      const consumeCorrectiveRearm = async (pendingToolCallId: string | null): Promise<number> => {
+        if (correctiveRearmCount < MAX_NODE_CORRECTIVE_REARMS) {
+          correctiveRearmCount += 1;
+          return MAX_NODE_CORRECTIVE_REARMS - correctiveRearmCount;
+        }
+        if (pendingToolCallId !== null) {
+          this.host.assertCurrentActivation(input);
+          await llm.settleToolResultWithoutContinuation(
+            pendingToolCallId,
+            executedNoneSettlement(toolFailed('emit_result was not accepted: the node corrective budget is exhausted.')),
+          );
+        }
+        throw new NodeCorrectiveBudgetExceededError(node.nodeId, correctiveRearmCount);
+      };
       let outcome = await llm.turn(preparedInput, signal, terminalHandoff);
       for (;;) {
         if (signal.aborted && (isCardInterruptedError(signal.reason) || isRuntimeStoppedInterruption(signal.reason))) {
@@ -104,7 +133,8 @@ export class AgentNodeExecution {
         this.host.assertCurrentActivation(input);
         if (outcome.type === 'result') {
           this.host.assertCurrentActivation(input);
-          outcome = await llm.continueAfterPlainText(this.correction(process, node, ['emit_result is required.']), signal, terminalHandoff, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId));
+          const remaining = await consumeCorrectiveRearm(null);
+          outcome = await llm.continueAfterPlainText(this.correction(process, node, ['emit_result is required.'], remaining), signal, terminalHandoff, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId));
           continue;
         }
         if (outcome.type === 'error') throw new Error(outcome.error);
@@ -124,7 +154,7 @@ export class AgentNodeExecution {
             if (!parsed.success) throw new Error(parsed.error.message);
             nodeResult = parsed.data;
           }
-          catch (error) { throwIfPublicationOutcomeUnknown(error); outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [errorMessage(error)]))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
+          catch (error) { throwIfPublicationOutcomeUnknown(error); const remaining = await consumeCorrectiveRearm(terminalOutcome.toolCallId); outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [errorMessage(error)], remaining))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
           const route = node.on.get(`result:${nodeResult.outcome}`);
           if (!route || route.semantic.kind !== 'configured-outcome')
             throw new Error(
@@ -137,18 +167,20 @@ export class AgentNodeExecution {
             );
           const selected = this.selectRecipientNotifications(process, node, input);
           if (selected.length > 0) {
+            const remaining = await consumeCorrectiveRearm(terminalOutcome.toolCallId);
             const messages: ProviderVisibleUserContextMessage[] = [
               ...selected.map((notification) => ({ role: 'user' as const, content: notification.content })),
-              { role: 'user', content: this.correction(process, node, ['pending_notifications: reconsider the appended context, update required records if needed, and call emit_result again.']) },
+              { role: 'user', content: this.correction(process, node, ['pending_notifications: reconsider the appended context, update required records if needed, and call emit_result again.'], remaining) },
             ];
             outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed('emit_result was not accepted because operator context is pending.', { reason: 'pending_notifications' })), signal, () => ({ messages, afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }))).outcome;
             continue;
           }
           const records = this.validateRecords(node, baseline);
-          if ('violations' in records) { outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, records.violations))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
+          if ('violations' in records) { const remaining = await consumeCorrectiveRearm(terminalOutcome.toolCallId); outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, records.violations, remaining))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
           if (reviewerPair) {
             const stale = this.reviewerStaleReason(input.card.id, reviewerPair.snapshot, node.descendantContext!.records.map((record)=>record.name));
             if (stale) {
+              const remaining = await consumeCorrectiveRearm(terminalOutcome.toolCallId);
               recordFinalizationBegun = true;
               this.discardWrittenRecords(writtenRecords, 'stale_descendant_context');
               this.prepareRecordRequirements(node);
@@ -158,7 +190,7 @@ export class AgentNodeExecution {
               const messages = [
                 ...notifications.map((notification) => ({ role: 'user' as const, content: notification.content })),
                 refreshed.exactContext,
-                { role: 'user' as const, content: this.correction(process, node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`]) },
+                { role: 'user' as const, content: this.correction(process, node, [`Descendant context is stale: ${stale}. Recreate required records and call emit_result again.`], remaining) },
               ];
               outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(`Review context is stale: ${stale}.`)), signal, () => ({ messages, afterAppend: () => {
                 if (notifications.length > 0) input.notificationDelivery.removeNotifications(notifications.map((notification) => notification.id));
@@ -169,7 +201,7 @@ export class AgentNodeExecution {
           }
           if (target.kind === 'terminal' && target.terminal === 'DONE') {
             const blocker = firstIncompleteDescendant(input.card.id, this.deps.store);
-            if (blocker) { outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`]))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
+            if (blocker) { const remaining = await consumeCorrectiveRearm(terminalOutcome.toolCallId); outcome = (await llm.appendToolResult(terminalOutcome.toolCallId, executedNoneSettlement(toolFailed(this.correction(process, node, [`Completion gate failed: descendant '${blocker.id}' is '${blocker.status}'.`], remaining))), signal, (inputId) => this.ordinaryNotificationContext(process, node, input, inputId))).outcome; continue; }
           }
           if (target.kind === 'terminal') this.host.assertPromotionAvailable(route);
           let selectedEvent = `result:${nodeResult.outcome}`;
@@ -383,7 +415,7 @@ export class AgentNodeExecution {
     return this.deps.processRunner.createDirectScope(this.deps.runtimeProcessRootScope, `card-activation:${input.activationId}:node:${ordinal}`, 'runtime_card');
   }
 
-  private correction(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, violations: readonly string[]): string { return `${promptText(process, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}`; }
+  private correction(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, violations: readonly string[], correctiveAttemptsRemaining: number): string { return `${promptText(process, node.correctionPromptId)}\n\nValidation errors:\n${violations.map((value) => `- ${value}`).join('\n')}\n\nCorrective attempts remaining before this node fails: ${correctiveAttemptsRemaining}.`; }
   private selectRecipientNotifications(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, input: CardActivationInput) { return node.agent.name === process.notificationRecipient ? input.notificationDelivery.selectNotifications() : []; }
   private ordinaryNotificationContext(process: CompiledCardTypeWorkflow, node: CompiledNodeContract, input: CardActivationInput, _inputId: string) { const selected = this.selectRecipientNotifications(process, node, input); return selected.length === 0 ? undefined : { messages: selected.map((notification) => ({ role: 'user' as const, content: notification.content })), afterAppend: () => input.notificationDelivery.removeNotifications(selected.map((notification) => notification.id)) }; }
 

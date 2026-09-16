@@ -651,7 +651,7 @@ When the one node task settles, the actor clears its task slot before invoking t
 A same-node edge explicitly reenters in this exact order: the old task is settled and cleared, its result is accepted and staged, the event is accepted, the transition runs, and state entry starts one new node task.
 `BaseActor` performs no task cancellation; tracker revocation owns it.
 Ordinary node failure instead stages and sends code-owned `execution:failed`; an app-log publication failure sends no event and halts the current task state for Supervisor-owned runtime halt.
-Plain text, malformed results, recipient-node pending notifications, record/evidence failures, reviewer freshness failures, and completion-gate rejection are hidden corrections inside one node task and do not transition or increment. A nonrecipient accepted DONE candidate with pending context instead follows its configured conditional event and increments like any ordinary cross-node transition.
+Plain text, malformed results, recipient-node pending notifications, record/evidence failures, reviewer freshness failures, and completion-gate rejection are hidden corrections inside one node task and do not transition or increment the workflow ordinal. They jointly consume that node task's corrective re-arm budget. A nonrecipient accepted DONE candidate with pending context instead follows its configured conditional event and increments like any ordinary cross-node transition.
 Activation `run` admits an activation operation; provider invocation `begin` admits one exact lease, whose later `runExternal` remains valid after non-aborting admission close.
 This FIFO ownership matches one operation at each current frontier and does not promise generalized concurrent matching.
 Promptless BACKLOG/CHANGED/BLOCKED entry contributes no transition message; STOPPED contributes the fixed discarded-position notice and its required configured prompt.
@@ -662,7 +662,7 @@ No state ID or ordinal is durable.
 `CardProcessActor` executes one compiled node at a time and keeps graph position only in live activation memory.
 Each node's referenced named agent supplies the exact ordered operational tools.
 Prompt rendering receives that array without `emit_result`; `AgentNodeExecution` directly creates and appends `emit_result` exactly once and last.
-It first requires arguments to be a non-null, non-array JSON object, then directly applies the strict `{outcome,summary}` schema; failures remain in the same-node repair loop.
+It first requires arguments to be a non-null, non-array JSON object, then directly applies the strict `{outcome,summary}` schema; failures remain in the same-node repair loop and consume its joint corrective re-arm budget.
 The schema accepts only a configured edge and a trimmed non-empty summary bounded by the [exact terminal-result limit](#exact-terminal-result-limit).
 Immediately before each direct terminal append or settlement, this owner parses exactly one strict settlement variant: accepted `{success:true,data:{accepted:true}}`, an ordinary nonempty-error failure with no data, or the pending-notification failure with exactly `{reason:'pending_notifications'}`.
 Malformed arguments, record violations, stale descendant context, incomplete descendants, pending notifications, and acceptance all pass that boundary without changing claim, record closure, continuation, publication-uncertainty, or cleanup ordering.
@@ -676,6 +676,16 @@ The configured global Analyst uses its ordered operational surface unchanged and
 constant.emit-result-summary-max-chars = {"unit":"characters","value":2000}
 ```
 <!-- saivage:value-contract:emit-result-limit:end -->
+
+### Exact node corrective budget
+
+<!-- saivage:value-contract:node-corrective-rearm-limit:start -->
+```text
+constant.node-corrective-rearm-limit = {"unit":"logical invocations","value":16}
+```
+<!-- saivage:value-contract:node-corrective-rearm-limit:end -->
+
+One node task permits at most 16 corrective re-arms counted jointly across plain-text results and every rejected `emit_result`: malformed object or schema, pending notifications, record violations, stale reviewer context, and completion-gate rejection. Each corrective notice states the attempts remaining after that re-arm. Exhaustion costs no additional provider exchange. If `emit_result` is pending, the owner first settles it definitively with the ordinary nonempty-error failure `emit_result was not accepted: the node corrective budget is exhausted.` and no data; plain-text exhaustion has no pending call to settle and retains the complete assistant text row. The resulting `NodeCorrectiveBudgetExceededError` follows the ordinary code-owned `execution:failed` path to the FAILED terminal lifecycle and the waiting parent's failed activation result. The counter belongs only to one live node task, is never persisted, and starts fresh for each later node task or card re-activation.
 
 The optional on-demand skill catalog is the exact `.saivage/skills/index.json` JSON array.
 Each entry is one strict three-field object:
@@ -709,7 +719,7 @@ Immediate edge context contains only source node, accepted outcome and summary, 
 That handoff is delivered once rather than repeated as prepared context, but accepted facts, record evidence, and still-applicable instructions remain applicable after delivery. A later node prepares its own node text and generated outcome/tool contract; neither old rows nor summary prose select graph position.
 No accumulated graph state is persisted.
 
-One hidden corrective loop owns plain text, malformed or unknown results, record violations, pending notifications, planning completion, and reviewer currentness.
+One hidden corrective loop owns plain text, malformed or unknown results, record violations, pending notifications, planning completion, and reviewer currentness. Its single per-node-task budget permits at most 16 corrective re-arms across all of those causes; ordinary tool invocations and blocked or provider-error outcomes do not consume it.
 Terminal completion is enforced by strict actor verification and these acceptance gates, not by a provider terminal phase.
 Corrections remain in the same logical node, session, baseline, and role.
 After all read-only gates, recipient terminal candidates with pending context remain in their same-node correction path. A nonrecipient DONE candidate validates records, descendant freshness, completion, and promotion, then synchronously tests only whether context is pending and either claims the ordinary terminal result when none exists or selects its compiled conditional event without claiming when context exists. Queue entries are not exposed to that nonrecipient. This decision occurs before record close or any asynchronous boundary. The conditional route closes the same accepted records, settles `emit_result` successfully, retains the real accepted result for transition context, and leaves queue selection/removal to recipient entry. Notifications admitted during that record close remain queued for recipient entry. After a no-pending result claim, enqueue is denied. Other terminal edges synchronously claim before record close, accepted tool settlement, cleanup, and later supervisor-owned publication through the exact activation owner.

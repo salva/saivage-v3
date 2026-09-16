@@ -239,6 +239,7 @@ export interface ValueContractClaimValueByKey {
   'constant.managed-process-post-kill-verification-ms': SourceConstantClaimValue;
   'constant.managed-process-term-grace-ms': SourceConstantClaimValue;
   'constant.maximum-card-depth-segments': SourceConstantClaimValue;
+  'constant.node-corrective-rearm-limit': SourceConstantClaimValue;
   'constant.summarizer-completion-tokens': SourceConstantClaimValue;
   'constant.summarizer-output-target-bytes': SourceConstantClaimValue;
   'constant.sync-hub-debounce-ms': SourceConstantClaimValue;
